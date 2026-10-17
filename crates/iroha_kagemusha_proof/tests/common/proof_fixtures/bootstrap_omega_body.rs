@@ -1,7 +1,7 @@
 // Shared genuine builder items. Registered tests remain in the integration harness.
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::omega::{OmegaCircuit, OmegaPlan, OmegaWitness};
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget};
 use iroha_plonk::{
     Protocol, ProverConfig, ProverRandomness, Witness,
     check::{CheckMode, check},
@@ -15,7 +15,9 @@ use iroha_plonk::{
     pcs::ipa::PinnedParams,
     verifier::accumulate_generator,
 };
-use iroha_plonk_recursion::{AccumulatorT, FoldConfig, create_fold, verifier::CompactSpans};
+use iroha_plonk_recursion::{
+    AccumulatorT, FoldConfig, FoldTape, terminal::TerminalPlan, verifier::CompactSpans,
+};
 
 // Greedy structural projection with actual retained-primary top locations.
 // This does not assign constraints or establish a production schedule.
@@ -466,25 +468,42 @@ pub(crate) fn compact_layout(
     selected_layout
 }
 
+// Only a known public diagnostic tape. Reproduction of fixture folds is not
+// a production private-entropy source or a fresh proof byte guarantee.
+fn diagnostic_omega_tape() -> FoldTape<Eq> {
+    let mut next = 101_u64;
+    FoldTape::try_fill::<core::convert::Infallible>(|word| {
+        *word = Fp::from(next);
+        next += 1;
+        Ok(())
+    })
+    .unwrap()
+}
+
 fn wrapper(
     bootstrap: &bootstrap_chain::AuthenticatedBootstrap,
 ) -> (OmegaCircuit, Vec<Vec<Fq>>, AccumulatorT<Eq>) {
     let params = PinnedParams::<Eq>::derive(16).unwrap();
-    let trivial = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
-    let (fold, output) = create_fold(
-        &params,
-        &[
-            bootstrap.vesta_part.as_input(),
-            bootstrap.opening.clone(),
-            trivial.as_input(),
-            trivial.as_input(),
-        ],
-        Fq::from(101).to_repr(),
-        &FoldConfig::default(),
+    // Public diagnostic tape only; actual proof producers retain fresh entropy.
+    let tape = diagnostic_omega_tape();
+    let source = TerminalPlan::new(
+        bootstrap.binding.encoded(),
+        &[bootstrap.key.to_bytes().to_vec()],
+        params.clone(),
     )
     .unwrap();
+    let (fold, output) = source
+        .read(
+            0,
+            std::slice::from_ref(&bootstrap.instances),
+            &bootstrap.proof,
+            &FoldConfig::default(),
+        )
+        .unwrap()
+        .create(tape, &FoldConfig::default())
+        .unwrap();
     output.decide(&params, MemoryBudget::DEFAULT).unwrap();
-    let (x, y) = output.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(output.g());
     let public = vec![
         vec![Fq::from_repr(bootstrap.instances[0].to_repr()).unwrap()],
         vec![x, y],
@@ -504,7 +523,7 @@ fn wrapper(
             instances: bootstrap.instances.clone(),
             length: u32::try_from(source_bytes).unwrap(),
             proof: bootstrap.proof.clone(),
-            fold: fold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(fold),
         },
     )
     .unwrap();

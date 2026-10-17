@@ -68,6 +68,7 @@ fn every_empty_batch_variant() -> Vec<QueryOutputBatchBox> {
         QueryOutputBatchBox::AssetEscrowRecord(Vec::new()),
         QueryOutputBatchBox::FeeSponsorProgram(Vec::new()),
         QueryOutputBatchBox::FeeSponsorProgramId(Vec::new()),
+        QueryOutputBatchBox::BondRecord(Vec::new()),
     ]
 }
 #[test]
@@ -187,6 +188,30 @@ fn extend_preflights_late_type_mismatch_without_partial_mutation() {
         Err(QueryOutputBatchBoxTupleError::ColumnTypeMismatch { column: 1 })
     );
     assert_eq!(left, snapshot);
+}
+#[test]
+fn every_empty_batch_variant_lists_every_batch_kind() {
+    let schema = <QueryOutputBatchBox as iroha_schema::IntoSchema>::schema();
+    let Some(iroha_schema::Metadata::Enum(metadata)) = schema.get::<QueryOutputBatchBox>() else {
+        panic!("QueryOutputBatchBox must be an enum schema");
+    };
+    let expected: std::collections::BTreeSet<String> = metadata
+        .variants
+        .iter()
+        .map(|variant| variant.tag.clone())
+        .collect();
+    let listed: std::collections::BTreeSet<String> = every_empty_batch_variant()
+        .iter()
+        .map(|batch| {
+            let rendered = format!("{batch:?}");
+            rendered
+                .split('(')
+                .next()
+                .expect("tuple variant debug")
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(listed, expected, "every batch kind must be exercised");
 }
 #[test]
 fn erased_batch_extend_is_total_for_every_variant_and_atomic_on_mismatch() {

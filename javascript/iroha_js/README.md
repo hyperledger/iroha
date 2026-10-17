@@ -130,8 +130,10 @@ The tool configuration has exactly `python`, `cargo`, `rustc`, `rustdoc`,
 current canonical Python 3.12 and Node executables, stock Rust 1.93.1 tools,
 and the selected Xcode's macOS SDK, clang and Apple linker. The producer uses
 locked, offline Cargo with one job, incremental compilation disabled and zero
-Debug symbols; it creates no additional Cargo target. It retains the actual compiler JSON,
-complete dep-info after Cargo's natural successful terminal, original source
+Debug symbols; it creates no additional Cargo target.
+The producer uses sccache's persistent server mode so its private compiler
+scratch path does not overflow macOS's per-process Unix socket path limit.
+It retains the actual compiler JSON, complete dep-info after Cargo's natural successful terminal, original source
 and native build inputs, exact tools, and independently copied emitted bytes.
 The real Node consumer checks the current ABI and required exports before the
 explicit local-unit manifest can be loaded. Loading rechecks current consumed
@@ -455,6 +457,307 @@ readiness. Operators must keep the feature governed and disabled until the
 deployment has passed the real-process, leakage, performance, independent
 cryptographic-review, and artifact-publication gates.
 
+## Settlement, escrow, repo and domain-lease builders
+
+These Node.js helpers build the strict instruction JSON admitted by the native
+codec. Ordering, consent hashes, Norito frames and every executor invariant
+stay native-owned; the builders only normalize inputs.
+
+Identifiers return the exact JSON literal each native type accepts:
+
+| Helper | Native type | Literal |
+| --- | --- | --- |
+| `generateAssetDefinitionId()` | `AssetDefinitionId` | random UUIDv4 Base58 address |
+| `assetDefinitionIdFromSeed(seed)` | `AssetDefinitionId` | `derive_from_components`: first 16 bytes of BLAKE3(seed) with UUIDv4 bits; `{ domain, name }` hashes `"<name>#<domain>"` |
+| `newEscrowId(seed?)` | `EscrowId` | `hash:<HEX>#<CRC>`; a seed gives `EscrowId::new(Hash::new(seed))` |
+| `newSettlementId(owner, seed?)` | `SettlementId` | `{ owner, reference: "settlement-<32 hex>" }`; the reference is derived from the seed alone |
+| `newRepoAgreementId(seed?)` | `RepoAgreementId` | `repo-<32 hex>`; the repo consent `settlement_id` is `{ owner: initiator, reference: <agreement id> }` |
+
+A native `SettlementId` is the owner-qualified JSON object `{ owner, reference }`:
+`owner` is a participating debit owner (normally the submitter) and `reference`
+the canonical `Name` its successful receipt consumes in that owner's namespace.
+Bare references are refused.
+
+Instruction builders:
+
+- `buildGrantSettlementConsentInstruction({ grantee, debitedAssetHoldingId, settlementId, intentHash })`
+  grants `CanExecuteSettlement`. The owner of the debited bucket signs it; the
+  grantee submits the settlement or repo instruction.
+- `buildGrantAssetDefinitionAliasScopeInstruction({ grantee, domainId })` grants
+  domain-scoped `CanManageAssetDefinitionAlias`, which the Initial executor
+  requires before `SetAssetDefinitionAlias` or alias registration under
+  `<name>#<domain>.<dataspace>`. The current domain owner may grant it to itself.
+- `buildSetAssetDefinitionKeyValueInstruction({ assetDefinitionId, key, value })`.
+- `buildOpenConditionalEscrowInstruction({ escrowId, assetDefinitionId, beneficiary, amount, conditions, expiresAtMs, evidenceHashes? })`
+  locks the signer's global balance. Conditions are
+  `{ id, attestor, equals }` (boolean → `Bool`, string → `Text`,
+  bigint/`KotodamaQuantity`/`{ quantity }` → `Quantity`),
+  `{ id, attestor, quantityAtMost }`, or one `{ id, withinMs }` window.
+  Oracle sequences are assigned 1..n in array order unless all are given.
+- `buildAttestEscrowConditionInstruction({ escrowId, conditionId, value, evidenceHash? })`
+  and `buildExpireConditionalEscrowInstruction({ escrowId })`.
+- `buildSettleAtomicInstruction({ networkId, settlementId, movements, escrows?, expiresAtHeight, metadata? })`
+  with movements `{ sourceAssetHoldingId, recipient, quantity }` and escrow legs
+  `{ sourceAssetHoldingId, escrowId, beneficiary, amount, conditions, expiresAtMs, evidenceHashes? }`
+  (global-scope sources; the source owner opens and is refunded). Movements are
+  sorted natively by `(AssetId, AccountId)` and escrow legs by `EscrowId`
+  bytes; 0..=255 movements and 0..=16 escrow legs must total at least one leg,
+  `settlementId.owner` must own the source of one movement or escrow leg, and
+  duplicate and self-transfer rules are enforced natively. The strict codec
+  never sorts; `canonicalSettleAtomicInstruction(instruction)` orders and
+  validates hand-built atomic settlement JSON the same way.
+- `buildRepoInitiateInstruction({ agreementId, initiator, counterparty, custodian?, cashLeg, collateralLeg, rateBps, maturityTimestampMs, governance: { haircutBps, marginFrequencySecs, allowEarlyRepayment } })`
+  and `buildRepoReverseInstruction({ agreementId })`. With
+  `allowEarlyRepayment` the initiator may reverse before maturity; the flag is
+  part of both consent hashes.
+
+Consent hashes are computed natively by the same `SettleAtomic::intent_hash`
+and `RepoIsi` intent methods Core checks, and are returned as the `intent_hash`
+literal of `CanExecuteSettlement`. Every foreign source owner, including the
+owner of a foreign escrow-leg source, consents to the whole intent:
+
+```js
+import {
+  buildGrantSettlementConsentInstruction,
+  buildSettleAtomicInstruction,
+  newSettlementId,
+  settleAtomicIntentHash,
+} from "@iroha/iroha-js";
+
+const settlement = buildSettleAtomicInstruction({
+  networkId, // NetworkId from GET /v1/accounts/capabilities
+  settlementId: newSettlementId(issuer), // the submitter's own namespace
+  movements: [
+    { sourceAssetHoldingId: `${cash}#${investor}`, recipient: issuer, quantity: "1015.5" },
+    { sourceAssetHoldingId: `${bond}#${issuer}`, recipient: investor, quantity: "10" },
+  ],
+  expiresAtHeight: currentHeight + 100,
+});
+// Signed by the investor, granting the submitting issuer exact consent.
+const consent = buildGrantSettlementConsentInstruction({
+  grantee: issuer,
+  debitedAssetHoldingId: `${cash}#${investor}`,
+  settlementId: settlement.Settlement.Atomic.settlement_id,
+  intentHash: settleAtomicIntentHash(settlement),
+});
+```
+
+For a repo, `repoIntentHashes(initiate)` returns
+`{ initiation, maturity, settlementId }`. Before the initiator submits
+`Repo::Initiate`, the counterparty grants it consent for its cash bucket with
+`initiation`, and the collateral holder (custodian, else counterparty) grants
+consent for the collateral bucket with `maturity`; both use the returned
+`settlementId`, `{ owner: initiator, reference: agreementId }`.
+
+### Bond servicing
+
+The native bond-servicing kernel (`specs/finance/bond_ops.md`) keeps a typed
+`BondRecord` per bond (a scale-0 asset definition) and services every coupon,
+redemption, call and default with one closed instruction family. The builders
+return the strict `{ "Bond": { <Variant>: payload } }` envelopes the native
+codec admits (`BondInstructionBox`, wire id `iroha.bond`); payloads use the
+native snake_case fields, canonical decimal strings and lowercase hex digests.
+
+| Builder | Envelope | Signer |
+| --- | --- | --- |
+| `buildRegisterBondInstruction({ bondId, terms })` | `Bond.Register { bond, terms }` | issuer (owns the definition) |
+| `buildRecordBondCashflowInstruction({ bondId, index })` | `Bond.RecordCashflow { bond, index }` | any account, at or after the record date; repeat until `Recorded` |
+| `buildFundBondCashflowInstruction({ bondId, index, sourceAssetHoldingId })` | `Bond.FundCashflow { bond, index, source }` | paying agent or issuer |
+| `buildClaimBondCashflowInstruction({ bondId, index, holder })` | `Bond.ClaimCashflow { bond, index, holder }` | holder, or the paying agent pushing |
+| `buildCloseBondCashflowInstruction({ bondId, index })` | `Bond.CloseCashflow { bond, index }` | paying agent, from the payment date |
+| `buildCallBondInstruction({ bondId, callDateMs })` | `Bond.Call { bond, call_date_ms }` | issuer |
+| `buildDeclareBondDefaultInstruction({ bondId, index, evidenceSha256 })` | `Bond.DeclareDefault { bond, index, evidence_sha256 }` | paying agent, after the payment date and grace period |
+| `buildReplaceBondPayingAgentInstruction({ bondId, payingAgent })` | `Bond.ReplacePayingAgent { bond, paying_agent }` | issuer |
+| `buildRetireBondTreasuryUnitsInstruction({ bondId, quantity })` | `Bond.RetireTreasuryUnits { bond, quantity }` | issuer, burning units of its own balance |
+
+From a cash flow's record date until it is recorded the bond's books are
+closed: its units cannot move, so the recorded entitlements are the holdings
+of record whoever records and whenever. Recording is paged (at most
+`BOND_RECORDING_PAGE_ENTRIES` balances or escrow records per step). Units in
+escrow count for the escrow's seller; a repo's collateral for its holder.
+Closing a cash flow leaves unclaimed entitlements claimable from the vault.
+A backdated bond registers with every passed record date recorded without
+holders (the issuer held every unit), so its books open at once; fund (nothing
+moves) and close those cash flows. Retiring treasury units burns a positive
+whole number of units from the issuer's own balance (unsold inventory, a
+returned tranche, treasury units after maturity); it is refused while a cash
+flow is being recorded and for units the issuer owes back as repo collateral,
+and retiring the last outstanding unit cancels every cash flow not yet
+recorded.
+
+`terms` is camelCase: `{ issuer, payingAgent, paymentAsset, denomination,
+couponRateBps, couponFrequency, dayCount, issueDateMs, maturityDateMs,
+redemptionPriceBps, paymentGraceMs, call?: { firstCallDateMs, priceBps,
+noticeMs } | null, cashflows, identifiers: { isin?, cfi?, issuerLei?, bdtVersion,
+bdtDocumentSha256? }, termsSha256 }`. Quantities are `KotodamaQuantity`,
+canonical decimal strings or bigint; dates are Unix milliseconds; digests are
+32 bytes or 64 hex digits.
+
+`buildBondSchedule({ denomination, couponRateBps, couponFrequency, issueDateMs, maturityDateMs, redemptionPriceBps, recordOffsetMs })`
+materialises a regular fixed-rate bullet schedule exactly like Core's
+`fixed_rate_bullet_schedule`: coupon dates step back from maturity by
+`12 / couponFrequency` calendar months (end-of-month clamping) and must land on
+the issue date; the last coupon and the redemption share the maturity date;
+record dates are `payment - recordOffsetMs`, clamped to the issue date. Amounts
+are exact decimal strings computed on bigint mantissas, never floating point;
+a non-terminating coupon (6.50 % monthly on 50) is refused.
+`validateBondTerms(terms)` applies every state-independent
+`BondTerms::validate` rule in Core's order (including that the coupon dates
+and count are exactly the regular schedule) and returns the native terms JSON;
+both throw `ValidationError`s whose message is Core's exact
+`bond.invalid_terms: ...` rejection. `bondHolderPayment({ units, amountPerUnit, paymentScale })`
+is Core's per-holder payment, rounded down to the payment asset scale.
+`bondVaultAccountId(bondId, networkPrefix)` renders the key-less vault that
+holds funded payments (native derivation). Shared vectors generated from the
+Rust data model (`test/fixtures/bond-v1-codec.json`) pin all of these.
+
+```js
+import {
+  buildBondSchedule,
+  buildRegisterBondInstruction,
+  buildClaimBondCashflowInstruction,
+} from "@iroha/iroha-js";
+
+const economics = {
+  denomination: "50", couponRateBps: 650, couponFrequency: 1,
+  issueDateMs: Date.UTC(2026, 0, 15), maturityDateMs: Date.UTC(2029, 0, 15),
+  redemptionPriceBps: 10_000,
+};
+const terms = {
+  ...economics,
+  issuer, payingAgent, paymentAsset: eur, dayCount: "ActActIcma", call: null,
+  paymentGraceMs: 7 * 86_400_000,
+  cashflows: buildBondSchedule({ ...economics, recordOffsetMs: 86_400_000 }),
+  identifiers: { isin: "SI0031234567", bdtVersion: "bdt-1.0" },
+  termsSha256, // SHA-256 of the legal terms document
+};
+// Issuer transaction: Register<AssetDefinition> (scale 0), Mint to the issuer, then:
+const register = buildRegisterBondInstruction({ bondId: bond, terms });
+// After coupon 0 was recorded and funded, at its payment date:
+const claim = buildClaimBondCashflowInstruction({ bondId: bond, index: 0, holder });
+```
+
+`ToriiClient.getBond(bondId)` (`GET /v1/bonds/{bond_id}`, null when not
+registered) returns the native `BondRecord` JSON: `{ id, vault, terms, state:
+{ lifecycle, outstanding_units, redeemed_units, retired_units, transfers_frozen,
+cashflows }
+}`, each cash flow carrying its effective `terms`, `status`, the `recording`
+cursor while it is recorded, `holders`, `claimed_holders`, `entitled_units`,
+`amount_due`, `funded` and `paid`. `listBonds({ limit, cursor, filter })`
+pages the `GET /v1/bonds` collection (`{ items, nextCursor }`, at most 20
+records). `getBondEntitlements(bondId, { index, holder, limit, cursor })`
+pages the holders of record (`GET /v1/bonds/{bond_id}/entitlements`, at most
+1000 rows): `{ id, bond, index, holder, units, amount, claimed, claimed_at_ms
+}`. `ToriiBrowserClient` has the same three methods; responses are size
+capped and shape checked.
+
+`reviewTransactionPayload` renders a `bond` row for every bond instruction.
+Registration rows list the terms and every scheduled cash flow. Pass
+`bonds: [{ record, entitlements }]` (a record from `getBond`, rows from
+`getBondEntitlements`) to add the cash-flow kind, dates, amount per unit, the
+holder's entitled units and exact payment, the vault, the unclaimed holders a
+close leaves claimable and the freeze or burn effect of redemption steps.
+
+### Domain leases
+
+After genesis a domain is created only by a paid SNS domain lease.
+`planDomainLease(torii, { owner, domain, years }, { canonicalAuth })` reads the
+domain policy (`GET /v1/sns/policies/4098`), builds one `EnsureAlias` domain
+intent whose quote guard pins the policy version, payment asset, price cap
+(matching tier base price times `years`, or `maxAmount`) and deadline, and asks
+the read-only planner `POST /v1/aliases/setup/plan` (`ToriiClient.planAliasSetup`) to quote it. Each planned
+`{ wire_id, framed_payload }` frame is decoded natively, re-framed for an exact
+byte comparison and checked against the requested intent before it is returned
+as `{ EnsureAlias: ... }` instruction JSON. The canonical-auth account is the
+plan authority and pays the lease; the client needs a `LocalSigningContext`.
+Submit the returned `instructions` before `validUntilMs` (at most 60 s), then
+grant `buildGrantAssetDefinitionAliasScopeInstruction` to bind asset aliases.
+
+### Testnet faucet
+
+`claimFaucet(torii, { accountId, networkId })` implements the V1 faucet: it
+reads `/v1/accounts/faucet/policy`, fetches `/v1/accounts/faucet/puzzle`,
+solves the `scrypt-leading-zero-bits-v1` proof of work with `node:crypto`,
+binds the claim with the native claim hash, prepares it, authenticates the
+faucet-signed envelope natively against the policy (`options.policy`, else the
+advertised policy of the selected network), submits the envelope verbatim and
+waits for global state-resolved `Applied`. Stale anchors and solutions
+invalidated by an adaptive difficulty increase refetch the puzzle. It returns
+`{ hash, blockHeight }`. `faucetPowChallenge` and `faucetPowDigest` expose the
+challenge and scrypt digest for reconciliation with wallet vectors; puzzles
+beyond the native work budget (64 MiB scrypt memory, `N*r*p` at most 2^22,
+difficulty 1..=256) are refused before solving.
+
+### External wallet signers
+
+`transactionPayloadSigningHash(payloadBytes)` returns the exact 32 bytes an
+external wallet Ed25519-signs (`HashOf<TransactionPayload>`), and
+`finalizeSignedTransaction({ networkId, payloadBytes, signature, publicKey, authority })`
+attaches that signature, returning the canonical signed wire and the same hash
+as `hashSignedTransaction`.
+
+Torii quotes fees only for payloads whose authority signs the quote request.
+Admission does not require a quote: each computed charge needs a signed limit
+of the same kind and asset whose maximum is at least the computed amount, and
+only the computed amount is debited.
+`prepareExternalSignerTransactionPayload(client, input, { canonicalAuth })`
+quotes an identical payload authored by the service account, keeps every quoted
+charge kind and asset, multiplies each maximum by `feeLimitMarginBps / 10000`
+(default 2x, rounded up) and builds the wallet-authored payload. The wallet
+account pays the fee and must hold the fee asset.
+`feePaymentFromQuote(quote, { marginBps })` converts a quote's signed intent
+(authority or sponsor) into the `feePayment` input with the same scaling;
+maxima are rounded up at the quoted decimal scale.
+
+`reviewTransactionPayload(payloadBytes, { networkId, authority })` decodes an
+unsigned payload natively for a signer and returns
+`{ schema: "iroha.connect-transaction-review.v1", networkId, authority, payloadHashHex, payloadByteLength, creationTimeMs, ttlMs, feePayment, metadata, instructions, warnings }`.
+Each instruction row is `{ index, kind, title, fields: [{ label, value }], json }`
+with dedicated rows for transfers, mints, burns, permission grants, atomic
+settlements (each movement and escrow leg), conditional-escrow instructions,
+repo initiations (including early repayment) and every bond instruction (see
+Bond servicing; `expected.bonds` adds record context). It throws when the payload's
+NetworkId or authority differs from the session or the payload has more than
+`TRANSACTION_REVIEW_MAX_INSTRUCTIONS` (64) instructions. All rendered text goes
+through `sanitizeReviewText`, which escapes control, format (bidirectional) and
+line-separator characters as `\u{...}` and bounds the length.
+
+`ToriiClient.submitTransactionAndWait` treats an HTTP 409 `already_committed`
+or `already_enqueued` rejection of the same signed bytes as success of the
+submission step and continues with the finality wait, so resubmission is
+idempotent. Rejected outcomes throw `TransactionStatusError` with the authoritative
+status payload and `blockHeight`. Use `{ captureRejection: true }` to establish
+an event subscription before submission and attach `rejectionCode` and
+`rejectionReason` to that error. Once state reports rejection, the helper also
+reads the bounded explorer transaction record, requires the exact requested
+hash and Rejected status, and prefers its full `rejection_reason.message` over
+the generic event text. Subscription failure prevents submission; a missing
+historical event leaves the code null and unavailable diagnostics can leave
+the reason null. Events and explorer details never replace global,
+state-resolved Applied finality.
+
+`discoverNetworkIdentity(torii)` reads `GET /v1/accounts/capabilities` and the
+genesis block `GET /v1/explorer/blocks/1` and returns
+`{ networkId, networkPrefix, genesisHashHex }` only when the advertised
+`network_id` equals the genesis block hash; otherwise it throws
+`NetworkIdentityMismatchError`. Pinning the result across resets is left to the
+caller.
+
+From Node.js 22 or later, `createConnectAppSession` from
+`@iroha/iroha-js/connect-browser` uses the global `WebSocket` and sends the
+token only as `Sec-WebSocket-Protocol: iroha-connect.token.v1.<b64url>`; Torii
+echoes that subprotocol. Wallet approvals are verified natively.
+
+Plain Connect frames use the native Norito layout that the Torii relay decodes
+and re-encodes: `frame.sid`, `Open.app_pk` and `Approve.wallet_pk` are `[u8; 32]`
+fields with one u64-length-prefixed element per byte, and `Approve.sig_wallet`
+is a u32 algorithm field followed by a u64 count and element-framed signature
+bytes. The app session encodes this layout and rejects the raw-array layout.
+`fixtures/connect/relay_frames_v1.json` pins live relay frames that both the
+Rust codec and the SDK reproduce byte for byte. The end-to-end encrypted
+envelope is unchanged: inside it, `SignResultOk` carries a u8 algorithm and raw
+signature bytes.
+
 ## Native Privacy Bridge
 
 The first-release native catalog surface exposes local build metadata:
@@ -747,7 +1050,9 @@ console.log(signed.quote.intent, signed.hash.toString("hex"));
 exact program/revision, and gas bound, and rejects any quote whose components,
 debit decision, or exact sponsor-capacity evidence is inconsistent. This check
 also runs for injected client implementations before the helper replaces only
-`fee_payment` and signs.
+`fee_payment` and signs. Pass `{ feeLimitMarginBps: 20000 }` for 2x fee
+headroom; the default 10000 preserves exact quoted limits. Only actual charges
+are debited.
 Contract/IVM drafts require a positive `gasLimit`. The metadata keys
 `fee_sponsor`, `gas_asset_id`, and `gas_limit` are retired and rejected, and a
 sponsor rejection never falls back to the authority.
@@ -2796,13 +3101,20 @@ manifests.items.forEach((manifest) => {
 Each helper validates the response payloads:
 
 - `getUaidPortfolio` enforces numeric totals and returns the deterministically
-  sorted dataspace/account tree.
+  sorted dataspace/account tree. Data space IDs preserve the full unsigned
+  64-bit range as `number` for safe integers and `bigint` for larger values.
 - `getUaidBindings` mirrors the Space Directory bindings map so tooling can
-  confirm which Torii account IDs are active per dataspace.
+  confirm which Torii account IDs are active per data space. Its `dataspace_id`
+  preserves the full unsigned 64-bit JSON integer: safe values are `number`,
+  and values above `Number.MAX_SAFE_INTEGER` are `bigint`.
 - `uaidManifests(uaid).list()` requires the exact shared page envelope, numeric
   manifest version `1`, lifecycle metadata, lower-case hashes, canonical
   accounts, and exact allow/deny entry shapes. Use the shared `filter`, `sort`,
-  `select`, `limit`, `cursor`, and `includeTotal` controls.
+  `select`, `limit`, `cursor`, and `includeTotal` controls. Data space IDs,
+  timestamps, and epochs preserve the same `number`/`bigint` u64 contract.
+- `publishSpaceDirectoryManifest` accepts safe numbers or `bigint` for those
+  manifest fields and emits exact JSON integer tokens. Decimal strings,
+  unsafe numbers, and values outside the u64 range are rejected.
 
 The helpers require exact lower-case `uaid:<64-hex>` literals with LSB=1 and
 throw on whitespace, raw hashes, or case variants, ensuring automation scripts
@@ -4507,6 +4819,34 @@ streams then sign the exact final pathname and wire query. Without
 the global-reader metrics route is expected to reject the request. The public
 Explorer health call is never signed by this context. Incomplete contexts,
 caller-precomputed canonical headers, and redirects are rejected.
+Browser I105 authentication uses `inspectAccountIdentity(accountId)` on an
+unsigned `ToriiBrowserClient` bound to its exact HTTPS URL and `NetworkId`.
+`POST /v1/accounts/inspect` runs the native Rust codec on the supplied identity,
+without consulting ledger accounts or granting read permissions. The SDK retains
+an opaque in-memory identity containing the native controller and ASCII header
+bytes. Pass the client's inspector as `createConnectAppSession`'s
+`inspectAccountIdentity` callback, and retain the returned `nativeIdentity` in
+the canonical request auth context. Connect verifies wallet approval and every
+raw signature against that exact inspected Ed25519 key. Generic
+`buildCanonicalJsonRequest` callers also pass the same `baseUrl`. Inspection
+failures stop the connection; browser code never substitutes its own I105 codec.
+Native `AccountAddress` APIs and native-runtime signing retain Rust admission.
+
+`getExplorerTransactionProof(hash)` on both clients fetches
+`GET /v1/explorer/transactions/{hash}/proof`. Public transactions need no
+credentials; private data space transactions use the same visibility permissions
+as their detail view. The browser method accepts a per-request
+`canonicalRequestAuth` signer, and the Node method accepts `canonicalAuth`;
+omitting either uses the client's default identity, while `null` selects public
+access. Every authenticated request is freshly signed for the configured network.
+The response contains only the selected native transaction and output, their
+Merkle paths, its block header, and compact certificate components, within a
+16 MiB response limit. Header u64 values become exact decimal strings; integer
+tokens elsewhere exceeding JavaScript's safe range remain `bigint`. Retrieval
+validates structure and the requested transaction/network binding. It does not
+verify finality: authenticate the native certificate against an independently
+trusted checkpoint before trusting the inclusion roots. No full block or
+unrelated transaction bodies are fetched by this method.
 
 Pass the Torii root itself (for example, `https://torii.example`), not a `/v1`
 or `/v1/explorer` endpoint. The browser client accepts only an exact `string` or
@@ -4566,6 +4906,8 @@ console.log(qr.svg); // inline SVG (192x192) ready to drop into your UI
 
 const block = await torii.getBlock(42);
 console.log(block?.height); // null when the block is missing
+// hash, prevBlockHash, and transactionsHash retain canonical hash:<HEX>#<CRC>
+// literals after checksum and marker validation; optional hash fields may be null.
 
 const recentBlocks = await torii.explorerBlocks.list({ limit: 5 });
 console.log(
@@ -5076,7 +5418,7 @@ frame size before a network release can enable these proofs.
 `validateConnectTransactionTransportStatus(status, payloadLength)` from
 `@iroha/iroha-js/connect-browser` checks the endpoint-reported Connect WebSocket
 and session-buffer bounds against the complete transaction plus the current
-216-byte V1 encrypted-frame overhead. It does not authenticate the endpoint or
+472-byte V1 encrypted-frame overhead. It does not authenticate the endpoint or
 the wallet. Native deployments can explicitly apply
 `configs/soranexus/execution-proof-transport.toml`; its dedicated reliable Connect
 P2P topic preserves the Health frame bound. Applications should additionally

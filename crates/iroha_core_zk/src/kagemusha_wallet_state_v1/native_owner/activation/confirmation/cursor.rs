@@ -324,7 +324,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         &mut self,
         signed_wire: &[u8],
     ) -> Result<ActivationFinalityProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         let (root, manifest) = self.sync_manifest()?;
         let address = manifest
             .activation
@@ -383,7 +382,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         signed_wire: &[u8],
         original: &[u8],
     ) -> Result<ActivationFinalityProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         let candidate = ledger::proof_original(original)?;
         self.clean_activation_cursor(signed_wire)?;
         let (root, manifest) = self.sync_manifest()?;

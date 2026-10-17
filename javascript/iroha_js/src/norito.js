@@ -84,7 +84,7 @@ import { blake2b256 } from "./blake2b.js";
 import { createBlockProofVerification } from "./blockProofVerification.js";
 
 import { curveIdFromAlgorithm, ensureCurveIdEnabled, normalizeBytes, validatePublicKeyForCurve } from "./address.js";
-import { canonicalizeDomainIdLabel } from "./domainId.js";
+import { canonicalizeDomainId } from "./domainId.js";
 import {
   getCurveEntryByPublicKeyMulticodec,
   publicKeyMulticodecForCurveId,
@@ -2631,16 +2631,7 @@ function decodeU64NumberValue(payload, context) {
 
 function encodeDomainIdValue(value, context) {
   const literal = assertExactNonEmptyString(value, context);
-  if (literal.trim() !== literal) {
-    rejectType(`${context}${TEXT_MUST_NOT_CONTAIN}surrounding whitespace`);
-  }
-  const segments = literal.split(".");
-  if (segments.length !== 2 || segments.some((segment) => segment.length === 0)) {
-    rejectType(`${context} must use the exact domain.dataspace form`);
-  }
-  const [name, dataspace] = segments.map((segment) =>
-    canonicalizeDomainIdLabel(segment, `${context} label`),
-  );
+  const [name, dataspace] = canonicalizeDomainId(literal, context).split(".");
   return encodeStructValue([
     [encodeNameValue(name, `${context}.name`)],
     [encodeNameValue(dataspace, `${context}.dataspace`)],
@@ -2793,10 +2784,19 @@ export function encodeAssetDefinitionIdNoritoValue(
 }
 
 function decodeAssetDefinitionIdValue(payload, context) {
-  const bytes = decodeFixedByteArrayArchiveValue(payload, 16, context);
+  return assetDefinitionAddressFromUuidBytes(
+    decodeFixedByteArrayArchiveValue(payload, 16, context),
+  );
+}
+
+/**
+ * @internal Render 16 asset-definition UUID bytes as the canonical versioned,
+ * checksummed Base58 address used by the native `AssetDefinitionId` display.
+ */
+export function assetDefinitionAddressFromUuidBytes(uuidBytes) {
   const payloadBytes = Buffer.concat([
     Buffer.from([ASSET_DEFINITION_ADDRESS_VERSION]),
-    bytes,
+    Buffer.from(uuidBytes),
   ]);
   return encodeBase58(Buffer.concat([payloadBytes, assetDefinitionChecksum(payloadBytes)]));
 }

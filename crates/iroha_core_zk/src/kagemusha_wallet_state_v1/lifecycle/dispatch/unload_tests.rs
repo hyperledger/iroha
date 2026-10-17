@@ -133,7 +133,7 @@ fn prepared() -> (Wallet, OperationRequestV1, AccountId, [u8; 32], [u8; 32]) {
         kind: KagemushaWalletOperationKindV1::Unload,
         request: digest("wallet-preparation-request", &original),
         source: boot.capsule.custody_digest(),
-        native: vec![1],
+        native: PrivateArchiveBytes::copy_from(&[1]).unwrap(),
         request_object,
         draft: source,
     };
@@ -142,7 +142,9 @@ fn prepared() -> (Wallet, OperationRequestV1, AccountId, [u8; 32], [u8; 32]) {
         .write_object(&archive::encode(&plan).unwrap(), PLAN_BOUND)
         .unwrap();
     let entry = Entry {
-        request: request_object,
+        binding: Entry::bound(&w.scheme_id, &w.wallet_id, &intent, &original).binding,
+        kind: intent.kind(),
+        request: Some(request_object),
         plan: Some(address),
         capsule: Some(capsule),
         capsule_commitment: Some(next.capsule.receipt_commitment()),

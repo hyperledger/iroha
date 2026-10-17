@@ -1,24 +1,33 @@
-//! Non-hiding PIPA-AS-v1 prover and complete succinct verifier.
+//! Committed-mask native fold with explicit private owners; staged diagnostic.
 
 use ff::{Field, PrimeField};
 use group::prime::PrimeCurveAffine;
 use iroha_pasta::{
-    PastaCurve,
+    PastaCurve, PastaField,
     fold::fold_generators_cancellable,
     msm::{MemoryBudget, SharedMemoryBudget, msm_secret_cancellable},
-    poseidon::PoseidonField,
+    poseidon::{PoseidonField, Sponge},
 };
 use iroha_plonk::{
     pcs::ipa::{PinnedParams, commit::msm_complete_cancellable, fold_evaluation, fold_scalars},
     transcript::{
         BasePoseidonHash, Transcript, TranscriptRead, TranscriptReader, TranscriptWrite,
-        TranscriptWriter, decode_point, decode_scalar,
+        decode_generator, decode_point, decode_scalar, generator_coordinates,
+        pipa_r::{nonzero_challenge, scalar_elements},
     },
 };
 
+use zeroize::Zeroizing;
+
 use crate::{
-    AccumulatorT, Error, FOLD_BODY_BYTES, FOLD_WITNESS_BYTES, FoldInput, GENERATORS, K, K_U32,
+    AccumulatorT, Error, FOLD_BODY_BYTES, FOLD_WITNESS_BYTES, FoldInput, FoldPurpose, FoldTape,
+    GENERATORS, K, K_U32,
     claim::message,
+    fold_tape::FieldGuard,
+    private::{
+        AffineGuard, AffineVec, FieldArray, FieldVec, PointGuard, PrivateWitnessBytes,
+        PrivateWriter,
+    },
 };
 
 /// Explicit local kernel policy; all clones also share the process's 64 MiB cap.
@@ -42,74 +51,191 @@ impl Default for FoldConfig {
     }
 }
 
-/// Canonical local fold witness: external base-field salt and the 1,088-byte IPA body.
+/// Checked private witness; no implicit clone or byte-bearing diagnostics.
 ///
-/// Decoding checks all encodings, not the succinct equation or deferred decide.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// This owner clears its current heap allocation on drop. A caller retaining
+/// checkpoint bytes must provide an authenticated private persistence owner.
 pub struct FoldWitness<C: PastaCurve> {
-    salt: C::Base,
-    body: [u8; FOLD_BODY_BYTES],
+    bytes: Zeroizing<Box<[u8]>>,
+    marker: core::marker::PhantomData<C>,
 }
-
-impl<C: PastaCurve> FoldWitness<C> {
-    /// Checks the canonical base-field salt and every body message.
-    ///
-    /// # Errors
-    /// Wrong body length, noncanonical salt/scalars, or invalid/identity points.
-    pub fn new(salt: [u8; 32], body: &[u8]) -> Result<Self, Error> {
-        if body.len() != FOLD_BODY_BYTES {
-            return Err(Error::Length {
-                expected: FOLD_BODY_BYTES,
-                actual: body.len(),
-            });
-        }
-        let salt = decode_scalar::<C::Base>(&salt)?;
-        for index in 0..2 * K {
-            decode_point::<C>(&message(body, 32 * index)?)?;
-        }
-        decode_scalar::<C::ScalarExt>(&message(body, 64 * K)?)?;
-        decode_point::<C>(&message(body, 32 * (2 * K + 1))?)?;
-        let body = body.try_into().map_err(|_| Error::Length {
-            expected: FOLD_BODY_BYTES,
-            actual: body.len(),
-        })?;
-        Ok(Self { salt, body })
+impl<C: PastaCurve> core::fmt::Debug for FoldWitness<C> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("FoldWitness { private: [REDACTED] }")
     }
-
-    /// Decodes exactly `salt || body`, with no implicit salt or trailing bytes.
+}
+impl<C: PastaCurve> FoldWitness<C> {
+    /// Checks exact canonical syntax; does not sample or refresh any randomness.
     ///
     /// # Errors
-    /// Wrong witness length or any invalid encoding described by [`Self::new`].
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+    /// Rejects any other extent or noncanonical point/scalar. Syntax alone does
+    /// not authenticate a checkpoint or establish the fold equation.
+    pub fn from_private_bytes(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() != FOLD_WITNESS_BYTES {
             return Err(Error::Length {
                 expected: FOLD_WITNESS_BYTES,
                 actual: bytes.len(),
             });
         }
-        Self::new(message(bytes, 0)?, &bytes[32..])
+        for i in 0..=2 * K {
+            let word = Zeroizing::new(message(bytes, 32 * i)?);
+            let _point = AffineGuard::<C>(decode_point::<C>(&word)?);
+        }
+        let word = Zeroizing::new(message(bytes, 32 * (2 * K + 1))?);
+        let _scalar = FieldGuard(decode_scalar::<C::ScalarExt>(&word)?);
+        let word = Zeroizing::new(message(bytes, 32 * (2 * K + 2))?);
+        let _point = AffineGuard::<C>(decode_generator::<C>(&word)?);
+        let _tape = FoldTape::<C>::from_private_bytes(&bytes[FOLD_BODY_BYTES..]).ok_or(
+            Error::Encoding(iroha_plonk::transcript::TranscriptError::NonCanonicalScalar),
+        )?;
+        let mut owned = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES].into_boxed_slice());
+        owned.copy_from_slice(bytes);
+        Ok(Self {
+            bytes: owned,
+            marker: core::marker::PhantomData,
+        })
     }
+    /// Explicit private serialization under a clearing owner, exact 2176 bytes.
+    /// Callers must not log or convert these bytes to an unguarded container.
+    pub fn to_private_bytes(&self) -> PrivateWitnessBytes {
+        let mut owned = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES]);
+        owned.copy_from_slice(&self.bytes);
+        PrivateWitnessBytes(owned)
+    }
+    fn tape(&self) -> Result<FoldTape<C>, Error> {
+        FoldTape::from_private_bytes(&self.bytes[FOLD_BODY_BYTES..]).ok_or(Error::Encoding(
+            iroha_plonk::transcript::TranscriptError::NonCanonicalScalar,
+        ))
+    }
+}
 
-    /// The exact fixed-width local witness encoding.
-    #[must_use]
-    pub fn to_bytes(&self) -> [u8; FOLD_WITNESS_BYTES] {
-        let mut bytes = [0; FOLD_WITNESS_BYTES];
-        bytes[..32].copy_from_slice(&self.salt.to_repr());
-        bytes[32..].copy_from_slice(&self.body);
-        bytes
-    }
+/// Injective two-limb representation of a base-field digest in the scalar field.
+pub fn digest_limbs<C: PastaCurve>(h: C::Base) -> [C::ScalarExt; 2] {
+    let h = FieldGuard(h);
+    let limbs = Zeroizing::new(h.0.to_canonical_limbs());
+    [
+        C::ScalarExt::from_raw_reduced([limbs[0], limbs[1], 0, 0]),
+        C::ScalarExt::from_raw_reduced([limbs[2], limbs[3], 0, 0]),
+    ]
+}
 
-    /// The canonical external salt, unchanged from the caller's input.
-    #[must_use]
-    pub fn salt_bytes(&self) -> [u8; 32] {
-        self.salt.to_repr()
-    }
+/// Two canonical parameter-digest limbs, exact public profile and count.
+pub fn context<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    purpose: FoldPurpose,
+    count: usize,
+) -> [C::Base; 4] {
+    let d = params.digest();
+    [
+        C::Base::from_u128(u128::from_le_bytes(d[..16].try_into().unwrap())),
+        C::Base::from_u128(u128::from_le_bytes(d[16..].try_into().unwrap())),
+        C::Base::from(purpose.word()),
+        C::Base::from(count as u64),
+    ]
+}
 
-    /// Sixteen L/R pairs, c, and the unabsorbed G suffix.
-    #[must_use]
-    pub const fn body(&self) -> &[u8; FOLD_BODY_BYTES] {
-        &self.body
+/// Separate fresh RP57 input digest; every canonical mask and input is bound.
+pub fn input_digest<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    inputs: &[FoldInput<C>],
+    tape: &FoldTape<C>,
+    purpose: FoldPurpose,
+) -> C::Base
+where
+    C::Base: PoseidonField,
+{
+    input_digest_bound(params, inputs, tape, purpose, &InputBinding::Exact)
+}
+
+/// Only the closed terminal owner can select prefix reuse.
+pub(crate) enum InputBinding<C: PastaCurve> {
+    Exact,
+    Terminal { descriptor: [u8; 32], raw: C::Base },
+}
+impl<C: PastaCurve> Drop for InputBinding<C> {
+    fn drop(&mut self) {
+        fn clear<F: PastaField>(raw: &mut F) {
+            raw.zeroize();
+        }
+        if let Self::Terminal { raw, .. } = self {
+            clear(raw);
+        }
     }
+}
+fn input_digest_bound<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    inputs: &[FoldInput<C>],
+    tape: &FoldTape<C>,
+    purpose: FoldPurpose,
+    binding: &InputBinding<C>,
+) -> C::Base
+where
+    C::Base: PoseidonField,
+{
+    let (domain, bound_inputs) = match binding {
+        InputBinding::Exact => (*b"pipa-in1", inputs),
+        InputBinding::Terminal { .. } => (*b"pipa-tm1", &inputs[1..2]),
+    };
+    let per_scalar =
+        if <C::ScalarExt as PrimeField>::MODULUS == <iroha_pasta::Fp as PrimeField>::MODULUS {
+            1
+        } else {
+            2
+        };
+    let mut words = FieldVec(Vec::with_capacity(
+        7 + bound_inputs.len() * (3 + K * per_scalar) + 2 * K * per_scalar,
+    ));
+    words.extend(context(params, purpose, inputs.len()));
+    if let InputBinding::Terminal { descriptor, raw } = binding {
+        words.extend(
+            descriptor
+                .chunks_exact(16)
+                .map(|part| C::Base::from_u128(u128::from_le_bytes(part.try_into().unwrap()))),
+        );
+        words.push(*raw);
+    }
+    for input in bound_inputs {
+        let (x, y) = generator_coordinates::<C>(input.g());
+        words.extend([x, y, C::Base::from(u64::from(input.source_k()))]);
+        for u in input.challenges() {
+            let encoded = FieldVec(scalar_elements::<C>(u));
+            words.extend_from_slice(&encoded);
+        }
+    }
+    for b in tape.masks() {
+        let encoded = FieldVec(scalar_elements::<C>(b));
+        words.extend_from_slice(&encoded);
+    }
+    let mut sponge = Sponge::new();
+    sponge.update(&[
+        C::Base::from(u64::from_le_bytes(domain)),
+        C::Base::from(words.len() as u64),
+    ]);
+    sponge.update(&words);
+    sponge.squeeze()
+}
+
+fn opening<C: PastaCurve>(params: &PinnedParams<C>, h: C::Base, rho: C::ScalarExt) -> C {
+    let h = FieldGuard(h);
+    let rho = FieldGuard(rho);
+    let limbs = FieldArray(digest_limbs::<C>(h.0));
+    params.params().g()[0].to_curve() * limbs.0[0]
+        + params.params().g()[1].to_curve() * limbs.0[1]
+        + params.params().w().to_curve() * rho.0
+}
+
+fn validate_binding<C: PastaCurve>(
+    purpose: FoldPurpose,
+    count: usize,
+    binding: &InputBinding<C>,
+) -> Result<(), Error> {
+    if !purpose.permits_shape::<C>(count)
+        || matches!(binding, InputBinding::Terminal { .. })
+            != (purpose == FoldPurpose::WrapperVesta)
+    {
+        return Err(Error::Purpose);
+    }
+    Ok(())
 }
 
 fn validate_inputs<C: PastaCurve>(inputs: &[FoldInput<C>]) -> Result<u64, Error> {
@@ -122,28 +248,18 @@ fn validate_inputs<C: PastaCurve>(inputs: &[FoldInput<C>]) -> Result<u64, Error>
     u64::try_from(inputs.len()).map_err(|_| Error::InputCount)
 }
 
-/// Every input, its source k and all sixteen normalized challenges precede
-/// alpha, z and zeta. C is derived from those bound inputs, never reabsorbed.
+/// Challenge-only public context; the digest state and opening never enter it.
 pub fn prelude<C: PastaCurve, T: Transcript<C>>(
     transcript: &mut T,
+    params: &PinnedParams<C>,
     inputs: &[FoldInput<C>],
-    salt: &C::Base,
-) -> Result<[C::ScalarExt; 3], Error> {
-    let count = validate_inputs(inputs)?;
-    transcript.common_base(salt)?;
-    transcript.common_base(&C::Base::from(count))?;
-    for input in inputs {
-        transcript.common_point(input.g())?;
-        transcript.common_base(&C::Base::from(u64::from(input.source_k())))?;
-        for value in input.challenges() {
-            transcript.common_scalar(value);
-        }
+    purpose: FoldPurpose,
+) -> Result<(), Error> {
+    validate_inputs(inputs)?;
+    for word in context(params, purpose, inputs.len()) {
+        transcript.common_base(&word)?;
     }
-    Ok([
-        transcript.squeeze_challenge(),
-        transcript.squeeze_challenge(),
-        transcript.squeeze_challenge(),
-    ])
+    Ok(())
 }
 
 /// Complete Horner joins permit equal/opposite points, identity intermediates
@@ -167,14 +283,15 @@ fn combined_evaluation<C: PastaCurve>(
         })
 }
 
-/// Creates the exact non-hiding k16 fold, then checks its succinct equation.
+/// Consumes one private tape to create the exact committed-mask k16 fold.
 ///
-/// The caller owns slot selection and salt generation. A set containing only
+/// The caller owns slot selection and fresh entropy sampling. A set containing only
 /// short source proofs is rejected: callers must explicitly add an authorized
 /// full-length trivial slot, counted and absorbed like every other slot.
 /// Canonical but false input claims cause `FoldEquation`; no proof accepts until
-/// the returned accumulator also decides. Rare identity messages or zero round
-/// challenges return errors; no prover salt is silently retried.
+/// the returned accumulator also decides. Identity D/L/R messages return errors;
+/// only the G suffix admits identity. Actual-round challenges use the total
+/// nonzero map. The consumed tape is cleared on return and unwinding.
 ///
 /// The owned coefficient, power and generator vectors total 8 MiB at k16;
 /// parameters are borrowed. Generator folding processes bounded chunks, and
@@ -184,91 +301,123 @@ fn combined_evaluation<C: PastaCurve>(
 /// includes variable-time bucket and generator operations.
 ///
 /// # Errors
-/// Insufficient parameters, invalid salt, empty/short-only inputs, zero round
-/// challenges, identity proof messages or a failed succinct equation.
+/// Insufficient parameters, invalid purpose or input shape, cancellation,
+/// identity D/L/R messages or a failed succinct equation.
 pub fn create_fold<C: PastaCurve>(
     params: &PinnedParams<C>,
     inputs: &[FoldInput<C>],
-    salt: [u8; 32],
+    tape: FoldTape<C>,
+    purpose: FoldPurpose,
     config: &FoldConfig,
 ) -> Result<(FoldWitness<C>, AccumulatorT<C>), Error>
 where
     C::Base: PoseidonField,
 {
+    create_fold_bound(params, inputs, tape, purpose, config, &InputBinding::Exact)
+}
+
+pub(crate) fn create_fold_bound<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    inputs: &[FoldInput<C>],
+    tape: FoldTape<C>,
+    purpose: FoldPurpose,
+    config: &FoldConfig,
+    binding: &InputBinding<C>,
+) -> Result<(FoldWitness<C>, AccumulatorT<C>), Error>
+where
+    C::Base: PoseidonField,
+{
+    validate_binding(purpose, inputs.len(), binding)?;
     iroha_pasta::CancellationToken::checkpoint(config.cancellation.as_ref())?;
     params.require_k(K_U32).map_err(Error::Parameters)?;
-    let salt_value = decode_scalar::<C::Base>(&salt)?;
-    let mut transcript = TranscriptWriter::<C, _>::new(BasePoseidonHash::with_domain(*b"pipa-as1"));
-    let [alpha, z, zeta] = prelude(&mut transcript, inputs, &salt_value)?;
-    let mut coefficients = vec![C::ScalarExt::ZERO; GENERATORS];
-    let mut weight = C::ScalarExt::ONE;
+    let digest = FieldGuard(input_digest_bound(params, inputs, &tape, purpose, binding));
+    let d = AffineGuard::<C>(opening(params, digest.0, *tape.rho()).to_affine());
+    let mut transcript = PrivateWriter::<C, _>::new(BasePoseidonHash::with_domain(*b"pipa-as1"));
+    prelude(transcript.writer(), params, inputs, purpose)?;
+    transcript.writer().write_point(&d.0)?;
+    let [alpha, z, zeta] = core::array::from_fn(|_| transcript.writer().squeeze_challenge());
+    let mut coefficients = FieldVec(vec![C::ScalarExt::ZERO; GENERATORS]);
+    let mut weight = FieldGuard(C::ScalarExt::ONE);
     for input in inputs {
         iroha_pasta::CancellationToken::checkpoint(config.cancellation.as_ref())?;
         let source = &input.challenges()[K - input.source_k() as usize..];
-        let values = fold_scalars(source, weight);
-        for (coefficient, value) in coefficients.iter_mut().zip(values) {
-            *coefficient += value;
+        let values = FieldVec(fold_scalars(source, weight.0));
+        for (coefficient, value) in coefficients.iter_mut().zip(values.iter()) {
+            *coefficient += *value;
         }
-        weight *= alpha;
+        weight.0 *= alpha;
     }
     // Open the shifted polynomial at zero evaluation, not unshifted h.
     coefficients[0] -= combined_evaluation(inputs, alpha, z);
-    let mut powers = Vec::with_capacity(GENERATORS);
-    let mut power = C::ScalarExt::ONE;
+    let mut powers = FieldVec(Vec::with_capacity(GENERATORS));
+    let mut power = FieldGuard(C::ScalarExt::ONE);
     for _ in 0..GENERATORS {
-        powers.push(power);
-        power *= z;
+        powers.push(power.0);
+        power.0 *= z;
     }
-    let mut generators = params.params().g()[..GENERATORS].to_vec();
+    let mut generators = AffineVec::<C>(params.params().g()[..GENERATORS].to_vec());
     let auxiliary = params.params().u().to_curve();
     let mut challenges = [C::ScalarExt::ZERO; K];
     for (round, challenge) in challenges.iter_mut().enumerate() {
         iroha_pasta::CancellationToken::checkpoint(config.cancellation.as_ref())?;
         let half = coefficients.len() / 2;
-        let left_value = inner_product(&coefficients[half..], &powers[..half]);
-        let right_value = inner_product(&coefficients[..half], &powers[half..]);
-        let left = (msm_secret_cancellable::<C>(
-            &coefficients[half..],
-            &generators[..half],
-            config.kernel_budget,
-            &config.shared_budget,
-            config.cancellation.as_ref(),
-        )
-        .map_err(Error::from)?
-            + auxiliary * (left_value * zeta))
-            .to_affine();
-        let right = (msm_secret_cancellable::<C>(
-            &coefficients[..half],
-            &generators[half..],
-            config.kernel_budget,
-            &config.shared_budget,
-            config.cancellation.as_ref(),
-        )
-        .map_err(Error::from)?
-            + auxiliary * (right_value * zeta))
-            .to_affine();
-        transcript.write_point(&left)?;
-        transcript.write_point(&right)?;
-        *challenge = transcript.squeeze_challenge();
+        let left_value = FieldGuard(inner_product(&coefficients[half..], &powers[..half]));
+        let right_value = FieldGuard(inner_product(&coefficients[..half], &powers[half..]));
+        let left = AffineGuard::<C>(
+            (msm_secret_cancellable::<C>(
+                &coefficients[half..],
+                &generators[..half],
+                config.kernel_budget,
+                &config.shared_budget,
+                config.cancellation.as_ref(),
+            )
+            .map_err(Error::from)?
+                + auxiliary * (left_value.0 * zeta)
+                + params.params().w().to_curve() * tape.masks()[2 * round])
+                .to_affine(),
+        );
+        let right = AffineGuard::<C>(
+            (msm_secret_cancellable::<C>(
+                &coefficients[..half],
+                &generators[half..],
+                config.kernel_budget,
+                &config.shared_budget,
+                config.cancellation.as_ref(),
+            )
+            .map_err(Error::from)?
+                + auxiliary * (right_value.0 * zeta)
+                + params.params().w().to_curve() * tape.masks()[2 * round + 1])
+                .to_affine(),
+        );
+        transcript.writer().write_point(&left.0)?;
+        transcript.writer().write_point(&right.0)?;
+        *challenge = nonzero_challenge(transcript.writer().squeeze_challenge());
         let inverse = Option::<C::ScalarExt>::from(challenge.invert())
             .ok_or(Error::ZeroChallenge { round })?;
         for index in 0..half {
-            let upper = coefficients[index + half];
-            coefficients[index] += upper * inverse;
-            let upper = powers[index + half];
-            powers[index] += upper * *challenge;
+            let upper = FieldGuard(coefficients[index + half]);
+            coefficients[index] += upper.0 * inverse;
+            let upper = FieldGuard(powers[index + half]);
+            powers[index] += upper.0 * *challenge;
         }
         coefficients.truncate(half);
         powers.truncate(half);
         fold_generators::<C>(&mut generators, *challenge, config)?;
         generators.truncate(half);
     }
-    transcript.write_scalar(&coefficients[0]);
-    transcript.append_unabsorbed_point(&generators[0])?;
-    let witness = FoldWitness::new(salt, &transcript.finish())?;
+    transcript.writer().write_scalar(&coefficients[0]);
+    transcript
+        .writer()
+        .append_unabsorbed_generator(&generators[0])?;
+    let body = transcript.finish();
+    let coins = tape.to_private_bytes();
+    let mut bytes = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES].into_boxed_slice());
+    bytes[..FOLD_BODY_BYTES].copy_from_slice(&body);
+    bytes[FOLD_BODY_BYTES..].copy_from_slice(&coins);
+    let witness = FoldWitness::from_private_bytes(&bytes)?;
     let output = AccumulatorT::new(generators[0], challenges)?;
     // Catch false source claims without r separate size-2^16 decisions.
-    if verify_fold(params, inputs, &witness, config)? != output {
+    if verify_fold_bound(params, inputs, &witness, purpose, config, binding)? != output {
         return Err(Error::FoldEquation);
     }
     Ok((witness, output))
@@ -281,62 +430,102 @@ where
 /// decides: the output claim must be decided or forwarded as a bound obligation.
 ///
 /// # Errors
-/// Insufficient parameters, empty/short-only inputs, zero round challenges,
+/// Insufficient parameters, invalid purpose or input shape, cancellation,
 /// malformed proof messages or a false succinct equation.
 pub fn verify_fold<C: PastaCurve>(
     params: &PinnedParams<C>,
     inputs: &[FoldInput<C>],
     witness: &FoldWitness<C>,
+    purpose: FoldPurpose,
     config: &FoldConfig,
 ) -> Result<AccumulatorT<C>, Error>
 where
     C::Base: PoseidonField,
 {
+    verify_fold_bound(
+        params,
+        inputs,
+        witness,
+        purpose,
+        config,
+        &InputBinding::Exact,
+    )
+}
+
+pub(crate) fn verify_fold_bound<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    inputs: &[FoldInput<C>],
+    witness: &FoldWitness<C>,
+    purpose: FoldPurpose,
+    config: &FoldConfig,
+    binding: &InputBinding<C>,
+) -> Result<AccumulatorT<C>, Error>
+where
+    C::Base: PoseidonField,
+{
+    validate_binding(purpose, inputs.len(), binding)?;
     iroha_pasta::CancellationToken::checkpoint(config.cancellation.as_ref())?;
     params.require_k(K_U32).map_err(Error::Parameters)?;
-    let mut transcript =
-        TranscriptReader::<C, _>::new(BasePoseidonHash::with_domain(*b"pipa-as1"), &witness.body);
-    let [alpha, z, zeta] = prelude(&mut transcript, inputs, &witness.salt)?;
-    let mut points = Vec::with_capacity(2 * K + 3);
-    let mut scalars = Vec::with_capacity(2 * K + 3);
+    let mut transcript = TranscriptReader::<C, _>::new(
+        BasePoseidonHash::with_domain(*b"pipa-as1"),
+        &witness.bytes[..FOLD_BODY_BYTES],
+    );
+    let tape = witness.tape()?;
+    let digest = FieldGuard(input_digest_bound(params, inputs, &tape, purpose, binding));
+    prelude(&mut transcript, params, inputs, purpose)?;
+    let d = AffineGuard::<C>(transcript.read_point()?);
+    if d.0.to_curve() != opening(params, digest.0, *tape.rho()) {
+        return Err(Error::FoldEquation);
+    }
+    let [alpha, z, zeta] = core::array::from_fn(|_| transcript.squeeze_challenge());
+    let mut gamma = FieldGuard(C::ScalarExt::ZERO);
+    let mut points = AffineVec::<C>(Vec::with_capacity(2 * K + 4));
+    let mut scalars = FieldVec(Vec::with_capacity(2 * K + 4));
     let mut challenges = [C::ScalarExt::ZERO; K];
     for (round, challenge) in challenges.iter_mut().enumerate() {
         iroha_pasta::CancellationToken::checkpoint(config.cancellation.as_ref())?;
-        let left = transcript.read_point()?;
-        let right = transcript.read_point()?;
-        *challenge = transcript.squeeze_challenge();
+        let left = AffineGuard::<C>(transcript.read_point()?);
+        let right = AffineGuard::<C>(transcript.read_point()?);
+        *challenge = nonzero_challenge(transcript.squeeze_challenge());
         let inverse = Option::<C::ScalarExt>::from(challenge.invert())
             .ok_or(Error::ZeroChallenge { round })?;
-        points.extend([left, right]);
+        gamma.0 += tape.masks()[2 * round] * inverse + tape.masks()[2 * round + 1] * *challenge;
+        points.extend([left.0, right.0]);
         scalars.extend([inverse, *challenge]);
     }
-    let final_coefficient = transcript.read_scalar()?;
-    let generator = transcript.read_unabsorbed_point()?;
+    let final_coefficient = FieldGuard(transcript.read_scalar()?);
+    let generator = AffineGuard::<C>(transcript.read_unabsorbed_generator()?);
     transcript.finish()?;
-    points.extend([params.params().g()[0], params.params().u(), generator]);
+    points.extend([params.params().g()[0], params.params().u(), generator.0]);
     scalars.extend([
         -combined_evaluation(inputs, alpha, z),
-        -(final_coefficient * fold_evaluation(z, &challenges) * zeta),
-        -final_coefficient,
+        -(final_coefficient.0 * fold_evaluation(z, &challenges) * zeta),
+        -final_coefficient.0,
     ]);
-    let equation = combined_commitment(inputs, alpha)
-        + msm_complete_cancellable::<C>(
-            &scalars,
-            &points,
-            config.kernel_budget,
-            &config.shared_budget,
-            config.cancellation.as_ref(),
-        )?;
-    if !bool::from(equation.is_identity()) {
+    points.push(params.params().w());
+    scalars.push(-gamma.0);
+    let equation = PointGuard(
+        combined_commitment(inputs, alpha)
+            + msm_complete_cancellable::<C>(
+                &scalars,
+                &points,
+                config.kernel_budget,
+                &config.shared_budget,
+                config.cancellation.as_ref(),
+            )?,
+    );
+    if !bool::from(equation.0.is_identity()) {
         return Err(Error::FoldEquation);
     }
-    AccumulatorT::new(generator, challenges)
+    AccumulatorT::new(generator.0, challenges)
 }
 
-fn inner_product<F: Field>(left: &[F], right: &[F]) -> F {
-    left.iter()
-        .zip(right)
-        .fold(F::ZERO, |sum, (left, right)| sum + *left * right)
+fn inner_product<F: PastaField>(left: &[F], right: &[F]) -> F {
+    let mut sum = FieldGuard(F::ZERO);
+    for (left, right) in left.iter().zip(right) {
+        sum.0 += *left * right;
+    }
+    sum.0
 }
 
 /// At most 2048 pairs enter the existing accelerated Pasta fold at a time.
@@ -366,7 +555,7 @@ pub fn fold_generators<C: PastaCurve>(
         }
         return Ok(());
     }
-    let mut chunk = Vec::with_capacity(2 * half.min(2048));
+    let mut chunk = AffineVec::<C>(Vec::with_capacity(2 * half.min(2048)));
     for (low, high) in low.chunks_mut(2048).zip(high.chunks(2048)) {
         chunk.clear();
         chunk.extend_from_slice(low);

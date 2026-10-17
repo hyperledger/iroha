@@ -47,29 +47,31 @@ public struct KagemushaWalletLoadOriginalV1: Sendable {
       let validate = NoritoNativeBridge.shared.resolveNativeSymbol(
         "connect_norito_kagemusha_wallet_load_original_validate_v1", as: Validate.self)
     else { throw KagemushaWalletErrorV1.bridgeUnavailable }
-    var height: UInt64 = 0
-    let status = input.schemeID.withUnsafeBytes { scheme in
-      input.walletID.withUnsafeBytes { wallet in
-        input.requestID.withUnsafeBytes { request in
-          input.payer.withUnsafeBytes { payer in
-            input.receipt.withUnsafeBytes { receipt in
-              input.finality.withUnsafeBytes { finality in
-                validate(scheme.bindMemory(to: UInt8.self).baseAddress,
-                  wallet.bindMemory(to: UInt8.self).baseAddress,
-                  request.bindMemory(to: UInt8.self).baseAddress,
-                  payer.bindMemory(to: UInt8.self).baseAddress, payer.count,
-                  receipt.bindMemory(to: UInt8.self).baseAddress, receipt.count,
-                  finality.bindMemory(to: UInt8.self).baseAddress, finality.count, &height)
+    return try KagemushaWalletNativeWorkerV1.perform {
+      var height: UInt64 = 0
+      let status = input.schemeID.withUnsafeBytes { scheme in
+        input.walletID.withUnsafeBytes { wallet in
+          input.requestID.withUnsafeBytes { request in
+            input.payer.withUnsafeBytes { payer in
+              input.receipt.withUnsafeBytes { receipt in
+                input.finality.withUnsafeBytes { finality in
+                  validate(scheme.bindMemory(to: UInt8.self).baseAddress,
+                    wallet.bindMemory(to: UInt8.self).baseAddress,
+                    request.bindMemory(to: UInt8.self).baseAddress,
+                    payer.bindMemory(to: UInt8.self).baseAddress, payer.count,
+                    receipt.bindMemory(to: UInt8.self).baseAddress, receipt.count,
+                    finality.bindMemory(to: UInt8.self).baseAddress, finality.count, &height)
+                }
               }
             }
           }
         }
       }
+      if status < 0 { throw KagemushaWalletErrorV1.native(status: status, reason: -1, platformCode: 0) }
+      guard status == 0, height > 0 else { throw KagemushaWalletErrorV1.invalidNativeOutput }
+      return Self(input: input, networkID: networkID, payerAccountID: payerAccountID,
+        blockHeight: height, selection: selection)
     }
-    if status < 0 { throw KagemushaWalletErrorV1.native(status: status, reason: -1, platformCode: 0) }
-    guard status == 0, height > 0 else { throw KagemushaWalletErrorV1.invalidNativeOutput }
-    return Self(input: input, networkID: networkID, payerAccountID: payerAccountID,
-      blockHeight: height, selection: selection)
   }
 }
 

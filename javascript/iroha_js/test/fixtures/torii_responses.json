@@ -148,7 +148,8 @@
           "last_margin_check_timestamp_ms": 1600086400,
           "governance": {
             "haircut_bps": 1500,
-            "margin_frequency_secs": 86400
+            "margin_frequency_secs": 86400,
+            "allow_early_repayment": false
           },
           "settlement_timestamp_ms": null,
           "status": "active"

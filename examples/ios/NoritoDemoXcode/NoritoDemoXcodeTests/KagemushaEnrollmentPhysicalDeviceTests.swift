@@ -158,6 +158,8 @@ final class KagemushaEnrollmentPhysicalDeviceTests: XCTestCase {
             "retained-e6-exported": ["e6"], "native-wallet-opened": ["opened"],
             "native-activation-confirmed": ["activated"], "native-complete-load": ["loaded"],
             "native-complete-send": ["sent"], "native-complete-receive": ["received"],
+            "native-exact-send-delivery-admitted-over-nearby": ["sent"],
+            "native-durable-receive-acknowledged-over-nearby": ["received"],
             "native-unload-confirmed": ["unloaded"],
           ]
           achievedStages.formUnion(stages[outcome] ?? [])

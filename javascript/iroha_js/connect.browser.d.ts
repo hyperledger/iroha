@@ -1,5 +1,6 @@
 import type { CanonicalJsonRequestSignerInput } from "./canonical-request.js";
 import { NetworkId } from "./index.js";
+import type { NativeAccountIdentity } from "./index.js";
 
 export { NetworkId };
 
@@ -96,6 +97,7 @@ export interface BrowserConnectAppMeta {
 
 export interface BrowserConnectApproval {
   readonly accountId: string;
+  readonly nativeIdentity?: NativeAccountIdentity;
   /** Ed25519 key cryptographically bound to `accountId` by wallet approval. */
   readonly signingPublicKey: Uint8Array;
   /** Ephemeral X25519 key used only for the encrypted Connect transport. */
@@ -105,6 +107,8 @@ export interface BrowserConnectApproval {
 
 export interface BrowserConnectAppSessionOptions extends BrowserConnectSocketOptions {
   baseUrl: string;
+  /** Required in browsers; native runtimes can use their local Rust address admission. */
+  inspectAccountIdentity?: (accountId: string, options: { signal: AbortSignal }) => Promise<NativeAccountIdentity>;
   preview: BrowserConnectSessionPreview;
   session: Pick<BrowserConnectSessionResponse, "sid" | "token_app" | "token_relay">;
   permissions?: BrowserConnectPermissions | null;
@@ -126,6 +130,7 @@ export interface BrowserConnectAppSession {
 
 export interface BrowserConnectCanonicalRequestAuth {
   readonly authAccountId: string;
+  readonly nativeIdentity?: NativeAccountIdentity;
   readonly sign: (
     input: CanonicalJsonRequestSignerInput,
   ) => Promise<Uint8Array>;

@@ -150,7 +150,7 @@ fn signed(kind: ObjectKind, raw: &[u8], secret: u64) -> Signed {
     }
 }
 
-fn signature_q(schema: &QSignaturePlan, witnesses: Vec<SignatureWitness>, seed: u8) -> QSource {
+fn signature_q(schema: &QSignaturePlan, witnesses: Vec<SignatureWitness>) -> QSource {
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let circuit = QSignatureCircuit::new(schema.clone(), witnesses).unwrap();
     let instances = circuit
@@ -167,7 +167,7 @@ fn signature_q(schema: &QSignaturePlan, witnesses: Vec<SignatureWitness>, seed: 
         &params,
         &key,
         Witness::from_circuit(&key, &circuit, &instances).unwrap(),
-        common::recovery(seed),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -257,7 +257,7 @@ pub fn build(
     )
     .unwrap();
     let incoming_proof = incoming
-        .prove(&receive.step, common::recovery(161))
+        .prove(&receive.step, common::fresh_randomness())
         .unwrap();
     let mut incoming_sigma = incoming_proof.bytes;
     let incoming_proof_length = incoming_sigma.len();
@@ -311,7 +311,7 @@ pub fn build(
         &leaf_params,
         &own_key,
         Witness::from_circuit(&own_key, &leaf, &leaf.instances()).unwrap(),
-        common::recovery(162),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap()
@@ -374,7 +374,9 @@ pub fn build(
                 },
             }),
             &vparams,
-            Fq::from(163),
+            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::Fresh(
+                common::public_fixture_tape(163),
+            ),
             &FoldConfig::default(),
         )
         .unwrap();
@@ -382,7 +384,11 @@ pub fn build(
     drop(incoming);
     let qprover = QSigmaProver::keygen_serialized_foreign(&prepared, pparams.clone(), 2).unwrap();
     let qproof = qprover
-        .prove(&prepared, common::recovery(164), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     let opening = accumulate_generator(
         &pparams,
@@ -419,9 +425,8 @@ pub fn build(
             credential.signature,
             certificate.signature,
         ],
-        165,
     );
-    let q2 = signature_q(&schemas[1], vec![incoming_receipt.signature], 166);
+    let q2 = signature_q(&schemas[1], vec![incoming_receipt.signature]);
     let own = [credential, certificate, own_receipt];
     let retained = [
         send.objects[1].clone(),

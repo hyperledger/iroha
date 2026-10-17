@@ -3,6 +3,7 @@
 use super::*;
 use crate::a_relation::native::support::{select_pallas, select_vesta};
 use crate::a_relation::schedule::OperationTask;
+use iroha_pasta::PastaAffine;
 use iroha_plonk_recursion::K;
 
 #[test]
@@ -254,11 +255,17 @@ fn mandatory_owner_schedule_keeps_own_sigma_before_its_later_q_verification() {
         tasks[0],
         [
             OperationTask::ReceiveOwnProof,
-            OperationTask::ReceiveConsumedEffects,
-            OperationTask::ReceiveCreditEffects
+            OperationTask::ReceiveConsumedEffects
         ]
     );
     assert_eq!(tasks[5], [OperationTask::ReceiveAuthorization]);
+    assert_eq!(
+        tasks[7],
+        [
+            OperationTask::ReceiveSignatures,
+            OperationTask::ReceiveCreditEffects
+        ]
+    );
     assert_eq!(tasks[9], [OperationTask::ReceiveEffects]);
     let mut flat = tasks
         .into_iter()
@@ -288,17 +295,17 @@ fn native_terminal_matches_current_catalog_profile_and_internal_is_exactly_disti
 
 #[test]
 fn every_admitted_joint_split_and_one_byte_over_boundary_is_exact() {
-    let bound = 320 + PAYMENT_PROOF_BUDGET;
+    let bound = PAYMENT_RAW_PROOF_BUDGET;
     assert_eq!(check_payment_original_sizes(0, 0), Ok(()));
     for sigma in 0..=MAX_SIGMA_RAW_BYTES {
-        let omega = bound - sigma;
+        let omega = (bound - sigma).min(MAX_OMEGA_RAW_BYTES);
         assert_eq!(check_payment_original_sizes(omega, sigma), Ok(()));
         assert_eq!(
             check_payment_original_sizes(omega + 1, sigma),
             Err(Error::Input)
         );
         assert_eq!(
-            check_payment_original_sizes(omega, sigma + 1),
+            check_payment_original_sizes(MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES + 1),
             Err(Error::Input)
         );
     }

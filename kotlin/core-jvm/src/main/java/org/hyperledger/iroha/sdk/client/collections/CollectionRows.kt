@@ -365,6 +365,8 @@ class RepoAgreementRow internal constructor(json: JsonObject) : CollectionRow(js
 
         @JvmField val haircutBps: Long? = row.longOrNull("haircut_bps")
         @JvmField val marginFrequencySecs: Long? = row.longOrNull("margin_frequency_secs")
+        /** Whether the initiator may repay before maturity with interest accrued to the block time. */
+        @JvmField val allowEarlyRepayment: Boolean? = row.booleanOrNull("allow_early_repayment")
     }
 }
 

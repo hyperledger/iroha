@@ -1,12 +1,13 @@
 //! Exact Q source derivation, self-verifying proof tasks and original restoration.
 
 use crate::kagemusha_wallet_artifacts_v1::producer_inventory::ImportedQV1;
-use iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryCapsuleV1;
 use iroha_kagemusha_proof::{
-    q_sigma::{SigmaSlotWitness, native::IncomingSigma},
+    q_sigma::{
+        SigmaSlotWitness,
+        native::{IncomingSigma, QSigmaFoldSource},
+    },
     q_signature::SignatureWitness,
 };
-use iroha_plonk_gadgets::bytes::p_bytes_native;
 
 use super::*;
 
@@ -19,37 +20,26 @@ pub(super) struct QSourcesV1 {
 }
 
 pub(super) enum QProgressV1 {
-    Checkpoint(Vec<u8>),
+    Checkpoint(PrivateArchiveBytes),
     Complete(Vec<q_checkpoint::Original>),
 }
 
-/// Public deterministic nonce for Q's non-hiding local fold, never fresh entropy.
-/// The immutable owner couples this commitment to the private custody digest;
-/// caller preparation has already verified its retained completion and receipt.
-fn local_fold_nonce(capsule: &KagemushaWalletRecoveryCapsuleV1) -> Fq {
-    p_bytes_native::<Fq>(
-        u64::from_le_bytes(*b"kgwqnon1"),
-        &capsule.receipt_commitment(),
-    )
-}
-
 impl NativeFoldWorkerV1 {
-    /// Restore each exact source Q and produce one next Q proof. The selected immutable
-    /// capsule supplies both its private checkpoint identity and public nonce commitment;
-    /// neither is an independent caller tag. Preparation has verified the matching receipt.
-    #[allow(clippy::too_many_arguments)]
+    /// Restore each exact source Q and produce one next Q proof with the Q source whose
+    /// originals the locked prepare revalidated. `source` is the custody digest of the
+    /// selected immutable capsule, the private checkpoint identity. A restored incoming Q uses
+    /// its exact retained fold witness; only a new incoming Q obtains fresh private coins.
     pub(super) fn q_stage(
         &self,
         route: OperationRoute,
-        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        source: [u8; 32],
         input: &QSourcesV1,
-        checkpoints: &[Vec<u8>],
-        originals: &mut dyn OriginalSourceV1,
+        checkpoints: &[PrivateArchiveBytes],
         cancellation: &Cancellation,
     ) -> Result<QProgressV1, Error> {
         cancellation.check()?;
+        fold_metrics::enter(FoldPhaseV1::Restore);
         let q = proof(self.sources.q(route))?;
-        let source = capsule.custody_digest();
         if source == [0; 32]
             || input.signatures.len() != q.signatures().len()
             || checkpoints.len() > q.keys().len()
@@ -58,17 +48,41 @@ impl NativeFoldWorkerV1 {
         }
         let params = proof(self.installed.verifier().vesta_parameters(16))?;
         let q_params = self.installed.verifier().pallas_parameters();
-        // This query depends only on the signed public commitment, never private h.
-        // Repeating exact W repeats this public nonce; zero is a valid derived salt.
-        // Q absorbs it and every ordered input before its fold challenges. It supplies
-        // no fresh private entropy. Proof hiding still uses fresh OS randomness, while
-        // an existing checkpoint must return its verified original proof bytes.
-        let salt = local_fold_nonce(capsule);
+        let requires_fold = q.sigma().requires_private_fold();
+        let mut prior_sigma = checkpoints
+            .first()
+            .map(|bytes| {
+                q_checkpoint::read_verified(
+                    &q.keys()[0],
+                    q_params,
+                    0,
+                    source,
+                    bytes,
+                    requires_fold,
+                    self.budget,
+                    cancellation,
+                )
+            })
+            .transpose()?;
+        let fold_source = if requires_fold {
+            if let Some(prior) = prior_sigma.as_ref() {
+                QSigmaFoldSource::Retained(
+                    prior
+                        .private_fold
+                        .as_ref()
+                        .ok_or(Error::Proof("missing retained Q fold"))?,
+                )
+            } else {
+                QSigmaFoldSource::Fresh(fresh_fold_tape::<Eq>(cancellation.prover_token())?)
+            }
+        } else {
+            QSigmaFoldSource::NoIncoming
+        };
         let sigma = proof(q.sigma().prepare(
             input.own.clone(),
             input.incoming.clone(),
             params,
-            salt,
+            fold_source,
             &self.fold_config(cancellation),
         ))?;
         let mut expected = vec![sigma.instances().to_vec()];
@@ -79,16 +93,27 @@ impl NativeFoldWorkerV1 {
         let mut checked = Vec::with_capacity(checkpoints.len());
         for (stage, bytes) in checkpoints.iter().enumerate() {
             cancellation.check()?;
-            checked.push(q_checkpoint::restore(
-                &q.keys()[stage],
-                q_params,
-                stage,
-                source,
-                bytes,
-                &expected[stage],
-                self.budget,
-                cancellation,
-            )?);
+            let original = if stage == 0 {
+                prior_sigma
+                    .take()
+                    .ok_or(Error::Proof("missing Q checkpoint"))?
+            } else {
+                q_checkpoint::restore(
+                    &q.keys()[stage],
+                    q_params,
+                    stage,
+                    source,
+                    bytes,
+                    &expected[stage],
+                    false,
+                    self.budget,
+                    cancellation,
+                )?
+            };
+            if original.instances != expected[stage] {
+                return Err(Error::Proof("Q changed source instance"));
+            }
+            checked.push(original);
         }
         cancellation.check()?;
         if checkpoints.len() == q.keys().len() {
@@ -98,15 +123,10 @@ impl NativeFoldWorkerV1 {
         let original = {
             let owner = self
                 .sources
-                .import_q_cancellable(
-                    route,
-                    stage,
-                    originals,
-                    self.read,
-                    Some(cancellation.prover_token()),
-                )
+                .bind_q_cancellable(route, stage, self.read, Some(cancellation.prover_token()))
                 .map_err(artifact)?;
             cancellation.check()?;
+            fold_metrics::enter(FoldPhaseV1::Prove);
             match owner {
                 ImportedQV1::Sigma(owner) if stage == 0 => {
                     let output = proof(owner.prove(
@@ -117,6 +137,7 @@ impl NativeFoldWorkerV1 {
                     q_checkpoint::Original {
                         proof: output.bytes,
                         instances: output.instances,
+                        private_fold: sigma.retained_fold().cloned(),
                     }
                 }
                 ImportedQV1::Signature(owner) if stage > 0 => {
@@ -128,6 +149,7 @@ impl NativeFoldWorkerV1 {
                     q_checkpoint::Original {
                         proof: output.bytes,
                         instances: output.instances.to_vec(),
+                        private_fold: None,
                     }
                 }
                 _ => return Err(Error::Proof("Q native role")),
@@ -142,6 +164,7 @@ impl NativeFoldWorkerV1 {
             stage,
             source,
             &original,
+            stage == 0 && requires_fold,
             self.budget,
             cancellation,
         )?;
@@ -152,35 +175,24 @@ impl NativeFoldWorkerV1 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::kagemusha_wallet_state_v1::tests::fixture;
     use iroha_data_model::kagemusha::kagemusha_wallet_v1::{
-        KagemushaWalletCompletionRecordV1, KagemushaWalletRequestV1,
-        KagemushaWalletRetainedInputRoleV1,
+        KagemushaWalletCompletionRecordV1, KagemushaWalletRecoveryCapsuleV1,
+        KagemushaWalletRequestV1, KagemushaWalletRetainedInputRoleV1,
     };
 
     // Signed shared DATA fixtures exercise the immutable owner and receipt/custody joins.
     // Stand-in sigma/Omega bytes do not establish an actual Q proof or C12 privacy.
     #[test]
-    fn q_nonce_uses_public_commitment_and_restores_exactly() {
+    fn q_retained_source_restores_exactly_without_a_public_nonce() {
         let capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
-        let domain = u64::from_le_bytes(*b"kgwqnon1");
-        let nonce = local_fold_nonce(&capsule);
-        assert_eq!(
-            nonce,
-            p_bytes_native::<Fq>(domain, &capsule.receipt_commitment())
-        );
-        assert_ne!(
-            nonce,
-            p_bytes_native::<Fq>(domain, &capsule.custody_digest())
-        );
         let bytes = capsule.to_canonical_bytes();
         let restored =
             KagemushaWalletRecoveryCapsuleV1::decode_canonical(&bytes, &capsule.body().scheme_id)
                 .unwrap();
         assert_eq!(restored.to_canonical_bytes(), bytes);
         assert_eq!(restored.custody_digest(), capsule.custody_digest());
-        assert_eq!(local_fold_nonce(&restored), nonce);
+        assert_eq!(restored.receipt_commitment(), capsule.receipt_commitment());
 
         // Test-only resealing creates distinct original owners; production restoration
         // never samples or reseals. Canonical opening zero remains accepted.
@@ -197,16 +209,11 @@ mod tests {
             assert_eq!(changed.body(), capsule.body());
             assert_ne!(changed.custody_digest(), capsule.custody_digest());
             assert_ne!(changed.receipt_commitment(), capsule.receipt_commitment());
-            assert_ne!(local_fold_nonce(&changed), nonce);
-            assert_eq!(
-                local_fold_nonce(&changed),
-                p_bytes_native::<Fq>(domain, &changed.receipt_commitment())
-            );
         }
     }
 
     #[test]
-    fn q_nonce_source_keeps_private_and_public_completion_joins_distinct() {
+    fn q_source_keeps_private_and_public_completion_joins_distinct() {
         let capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
         let completion: KagemushaWalletCompletionRecordV1 =
             fixture("KagemushaWalletCompletionRecordV1");
@@ -261,6 +268,6 @@ mod tests {
         swapped.capsule_digest = changed.custody_digest();
         swapped.require_capsule(&changed).unwrap();
         assert!(swapped.verify(credential, &changed).is_err());
-        assert_ne!(local_fold_nonce(&changed), local_fold_nonce(&capsule));
+        assert_ne!(changed.custody_digest(), capsule.custody_digest());
     }
 }

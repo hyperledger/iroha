@@ -226,10 +226,10 @@ fn mutation(original: &[u8], proof_length: usize, name: &str) -> Vec<u8> {
         "truncated-proof" => raw.truncate(320 + proof_length - 96),
         "identity-proof" => raw[320..352].fill(0),
         "noncanonical-scalar" => raw[320 + proof_length - 96..320 + proof_length - 64].fill(0xff),
-        "malformed-p" => raw[320 + proof_length..352 + proof_length].fill(0),
+        "malformed-p" => raw[320 + proof_length..352 + proof_length].fill(0xff),
         "malformed-v" => raw
             [320 + proof_length + ACCUMULATOR_BYTES..352 + proof_length + ACCUMULATOR_BYTES]
-            .fill(0),
+            .fill(0xff),
         "noncanonical-public" => raw[66..98].fill(0xff),
         _ => panic!("fixed case inventory"),
     }
@@ -577,4 +577,23 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
         "descriptor_sha256":(hex(&sha(&fixture.originals[0]))),"key_sha256":(hex(&sha(&fixture.originals[1]))),
         "full_operation_chain_qualified":false
     })).unwrap());
+}
+
+#[test]
+fn malformed_claim_mutations_are_distinct_from_canonical_identity() {
+    let proof_length = 96;
+    let original = vec![0; 320 + proof_length + 2 * ACCUMULATOR_BYTES];
+    for (name, start) in [
+        ("malformed-p", 320 + proof_length),
+        ("malformed-v", 320 + proof_length + ACCUMULATOR_BYTES),
+    ] {
+        let changed = mutation(&original, proof_length, name);
+        assert_eq!(&changed[..start], &original[..start]);
+        assert_eq!(&changed[start + 32..], &original[start + 32..]);
+        let word: [u8; 32] = changed[start..start + 32].try_into().unwrap();
+        assert_eq!(word, [0xff; 32]);
+        assert!(iroha_plonk::transcript::decode_generator::<Ep>(&word).is_err());
+        assert!(iroha_plonk::transcript::decode_generator::<iroha_pasta::Eq>(&word).is_err());
+    }
+    // This all-zero input exercises byte selection only; it is not a genuine Omega proof.
 }

@@ -681,6 +681,7 @@ fn genuine_signed_base_cannot_omit_financial_originals_or_register_an_owner() {
             registration_source: b"",
         },
         selected,
+        OpeningMetricsV1::start(),
     );
     assert!(matches!(
         result,

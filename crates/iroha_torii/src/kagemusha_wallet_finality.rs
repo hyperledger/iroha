@@ -15,14 +15,17 @@ use iroha_data_model::{
     events::EventBox,
     isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1,
     kagemusha::{
-        KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1, KagemushaWalletLoadFinalityV1,
+        KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1, KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1,
+        KagemushaWalletLedgerFinalityV1, KagemushaWalletLoadFinalityV1,
         kagemusha_wallet_account_digest_v1,
     },
     sumeragi::epoch::MAX_VALIDATORS,
     sumeragi_finality::{
         CertifiedResultError, CertifiedResultScope, CertifiedResultV1,
-        MAX_COMMIT_CERTIFICATE_BYTES_V1, MAX_RESULT_PREIMAGE_BYTES, SumeragiCommitCertificateV1,
+        CertifiedTransactionInclusionV1, MAX_COMMIT_CERTIFICATE_BYTES_V1,
+        MAX_RESULT_PREIMAGE_BYTES, SumeragiCommitCertificateV1,
     },
+    transaction::TransactionEntrypoint,
 };
 use iroha_model_base::peer::PeerId;
 
@@ -196,8 +199,21 @@ pub fn epoch(
     deadline: Instant,
 ) -> Result<ChargedBuffer<u8>> {
     require_payer(payer, receipt)?;
-    let original =
-        selected_certificate(view, receipt.block_height, Some(boundary), budget, deadline)?;
+    epoch_boundary(view, receipt.block_height, boundary, budget, deadline)
+}
+
+/// Read exactly one named boundary before `target_height` as DATA.
+///
+/// The caller has already bound `target_height` to a committed original it owns (a Load
+/// receipt or a KAGEMUSHA ledger attempt). No source-supplied successor is followed.
+pub fn epoch_boundary(
+    view: &StateView<'_>,
+    target_height: u64,
+    boundary: u64,
+    budget: &AllocationBudget,
+    deadline: Instant,
+) -> Result<ChargedBuffer<u8>> {
+    let original = selected_certificate(view, target_height, Some(boundary), budget, deadline)?;
     // selected_certificate already checked the canonical header and complete result.
     // Preserve the epoch codec's remaining inner-QC canonical check before streaming DATA.
     certificate_decode(original.certificate(), budget, || {
@@ -211,6 +227,42 @@ pub fn epoch(
     response_frame(
         original.certificate(),
         MAX_COMMIT_CERTIFICATE_BYTES_V1,
+        budget,
+        deadline,
+    )
+}
+
+/// Return the inclusion block's original certificate and one entry's selective inclusion as
+/// untrusted DATA. The phone verifies both on a private clone of its selected epoch reader;
+/// this frame never installs or advances epoch authority.
+pub fn ledger_evidence(
+    view: &StateView<'_>,
+    height: u64,
+    entrypoint_hash: HashOf<TransactionEntrypoint>,
+    inclusion: CertifiedTransactionInclusionV1,
+    budget: &AllocationBudget,
+    deadline: Instant,
+) -> Result<ChargedBuffer<u8>> {
+    // The bounded inclusion is already resident. Charge it to this request until the evidence
+    // graph has been serialized and dropped, as the certificate copy is charged below.
+    let inclusion_bytes =
+        norito::canonical_frame_len(&inclusion).map_err(|_| "ledger inclusion frame differs")?;
+    let _inclusion_charge = budget
+        .try_reserve_bytes(inclusion_bytes)
+        .map_err(|_| "ledger inclusion allocation unavailable")?;
+    let original = selected_certificate(view, height, None, budget, deadline)?;
+    let (certificate, _certificate_charge) = original.into_parts();
+    // The certificate's shape and the inclusion's <=32-sibling paths and joined Network row
+    // were bounded by their producers; response_frame enforces the derived envelope cap.
+    let evidence = KagemushaWalletLedgerFinalityV1 {
+        version: 1,
+        entrypoint_hash,
+        certificate,
+        inclusion,
+    };
+    response_frame(
+        &evidence,
+        KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1,
         budget,
         deadline,
     )
@@ -400,6 +452,156 @@ mod tests {
         assert!(selected_certificate(&view, 11, Some(2), &budget, deadline).is_err());
         drop(response);
         drop(original);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn ledger_epoch_boundary_serves_exactly_one_boundary_before_the_entry() {
+        let mut chain = CertifiedTestChain::npos_boundary_fixture();
+        chain.commit(Vec::new());
+        let view = chain.state().view();
+        let mut phone = verifier(&view);
+        chain
+            .kura()
+            .corrupt_native_frame_for_test(NonZeroUsize::new(1).unwrap());
+        let budget = AllocationBudget::new(128 << 20);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let original = selected_certificate(&view, 11, Some(10), &budget, deadline).unwrap();
+        let response = epoch_boundary(&view, 11, 10, &budget, deadline).unwrap();
+        assert_eq!(
+            response.as_slice(),
+            original.certificate().to_canonical_bytes().unwrap(),
+        );
+        let decoded = SumeragiCommitCertificateV1::decode_canonical(response.as_slice()).unwrap();
+        assert_eq!(phone.verify(&decoded).unwrap().height(), 10);
+        // Genesis, a height that is not a boundary, and a boundary at or after the entry.
+        for (target, boundary) in [(11, 1), (11, 2), (11, 11), (11, 12), (10, 10)] {
+            assert!(
+                epoch_boundary(&view, target, boundary, &budget, deadline).is_err(),
+                "target {target}, boundary {boundary}"
+            );
+        }
+        drop(response);
+        drop(original);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn ledger_evidence_round_trips_a_committed_entry_through_the_phone_reader() {
+        use iroha_core::state::BlockProofLimits;
+        use iroha_data_model::{
+            Registrable as _,
+            account::Account,
+            isi::{InstructionBox, Log},
+            level::Level,
+        };
+        let key = KeyPair::from_seed(vec![0x66; 32], Algorithm::Ed25519);
+        let author = AccountId::new(key.public_key().clone());
+        let account = Account::new(author.clone()).build(&author);
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::with([], [account], []), 1_000))
+                .unwrap();
+        let signed = chain.sign(
+            &key,
+            [InstructionBox::from(Log::new(
+                Level::TRACE,
+                "ledger finality fixture".to_owned(),
+            ))],
+            1_999,
+        );
+        assert_eq!(chain.commit_at(2_000, vec![signed.clone()]), [true]);
+        let entry = signed.hash_as_entrypoint();
+        // The inclusion block is the tip: the checkpoint-resumed read authenticates one frame.
+        let limits = BlockProofLimits {
+            max_source_blocks: 1,
+            max_source_wire_bytes: 32 << 20,
+            max_block_wire_bytes: 32 << 20,
+            max_work_items: 128,
+            max_response_bytes: KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1 as u64,
+        };
+        let history = iroha_core::state::CanonicalHistoryReadBudget::new(
+            AllocationBudget::new(128 << 20),
+            norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+                1_000_000,
+                48 << 20,
+                1_000_000,
+                48 << 20,
+                64,
+            )),
+        );
+        let found = chain
+            .state()
+            .kagemusha_ledger_inclusion_for_entry(
+                NonZeroU64::new(2).unwrap(),
+                entry,
+                limits,
+                &history,
+                |owner| owner.authority == author,
+            )
+            .unwrap()
+            .expect("the author's own input");
+        assert_eq!(found.owner.authority, author);
+        assert!(
+            found.owner.attempts.is_empty(),
+            "a Log input names no attempt"
+        );
+        let view = chain.state().view();
+        let phone = verifier(&view);
+        let budget = AllocationBudget::new(128 << 20);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let response =
+            ledger_evidence(&view, 2, entry, found.inclusion.clone(), &budget, deadline).unwrap();
+        let envelope =
+            KagemushaWalletLedgerFinalityV1::decode_canonical(response.as_slice()).unwrap();
+        assert_eq!(response.as_slice(), envelope.to_canonical_bytes().unwrap());
+        assert!(response.as_slice().len() <= KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1);
+        assert_eq!(envelope.version, 1);
+        assert_eq!(envelope.entrypoint_hash, entry);
+        assert_eq!(envelope.inclusion, found.inclusion);
+        assert_eq!(envelope.selectors().unwrap().1, 2);
+        // The phone authenticates the certificate, both memberships and the outcome itself.
+        let outcome = envelope
+            .verify(&phone, view.chain_id().as_str(), &signed)
+            .unwrap();
+        assert!(outcome.accepted());
+        assert_eq!(outcome.height(), 2);
+        assert_eq!(outcome.entrypoint(), *AsRef::<[u8; 32]>::as_ref(&entry));
+        // Transport DATA grants nothing: a tampered certificate is refused by the phone.
+        let mut forged = envelope.clone();
+        *forged.certificate.commit_qc.last_mut().unwrap() ^= 1;
+        assert!(
+            forged
+                .verify(&phone, view.chain_id().as_str(), &signed)
+                .is_err()
+        );
+        drop(response);
+        assert_eq!(budget.reserved_bytes(), 0);
+        // The resident inclusion is charged to the request before any certificate read.
+        let inclusion_bytes = norito::canonical_frame_len(&found.inclusion).unwrap();
+        let small = AllocationBudget::new(inclusion_bytes - 1);
+        assert!(
+            ledger_evidence(&view, 2, entry, found.inclusion.clone(), &small, deadline).is_err()
+        );
+        assert_eq!(small.reserved_bytes(), 0);
+        // Genesis has no certificate, an expired deadline refuses, and a missing original
+        // certificate is unavailable (the route answers 503).
+        for (height, until) in [(1, deadline), (2, Instant::now())] {
+            assert!(
+                ledger_evidence(
+                    &view,
+                    height,
+                    entry,
+                    found.inclusion.clone(),
+                    &budget,
+                    until
+                )
+                .is_err()
+            );
+        }
+        chain
+            .kura()
+            .corrupt_native_frame_for_test(NonZeroUsize::new(2).unwrap());
+        assert!(ledger_evidence(&view, 2, entry, found.inclusion, &budget, deadline).is_err());
         assert_eq!(budget.reserved_bytes(), 0);
     }
 

@@ -51,7 +51,7 @@ const ROUTING_CASES: [(&str, &str); 52] = [
     ),
     (
         r#"{"Settlement":{"Atomic":{}}}"#,
-        "Atomic is missing field(s): network_id, settlement_id, movements, expires_at_height, metadata",
+        "Atomic is missing field(s): network_id, settlement_id, movements, escrows, expires_at_height, metadata",
     ),
     (
         r#"{"Settlement":{"SettleFxCorridor":{}}}"#,
@@ -137,7 +137,7 @@ const ROUTING_CASES: [(&str, &str); 52] = [
     ),
     (
         r#"{"SetKeyValue":{}}"#,
-        "SetKeyValue currently supports the Account and Nft variants",
+        "SetKeyValue currently supports the Account, Nft and AssetDefinition variants",
     ),
     (
         r#"{"RemoveRwaKeyValue":{}}"#,

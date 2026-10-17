@@ -54,7 +54,7 @@ use iroha_kagemusha_proof::{
     },
     tree::IndexedRemove,
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     ProverConfig, VerifyingKey, Witness,
     check::{CheckMode, check, check_circuit},
@@ -129,7 +129,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &FoldInput<Ep>,
     ) -> Result<FoldInputCells<Ep>, Error> {
-        let point = chip.witness_point(region, self.value(Ep::from(*value.g())))?;
+        let point = chip.witness_generator(region, self.value(Ep::from(*value.g())))?;
         let scalars = value
             .challenges()
             .iter()
@@ -145,7 +145,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &AccumulatorT<Eq>,
     ) -> Result<VestaClaimCells, Error> {
-        let (x, y) = Option::from(value.g().coordinates()).ok_or(Error::Synthesis)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(value.g());
         let coordinates = [self.scalar(chip, region, x)?, self.scalar(chip, region, y)?];
         let challenges = self.words(chip, region, value.challenges())?;
         VestaClaimCells::constrain(chip, region, 16, coordinates, challenges)
@@ -276,7 +276,7 @@ struct Stage {
     plan: ArchiveStagePlan,
     continuation: Option<Continuation>,
     pallas: AccumulatorT<Ep>,
-    fold: Vec<u8>,
+    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     known: bool,
     omit_q: Option<usize>,
     mutate_context: Option<(usize, usize)>,
@@ -760,14 +760,14 @@ fn frame(raw: &[u8]) -> Vec<u8> {
 }
 fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) {
     words.push(Fp::from(u64::from(claim.source_k())));
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(claim.g());
     words.extend([x, y]);
     for u in claim.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
     }
 }
 fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
     let mut words = Vec::new();
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
@@ -837,7 +837,8 @@ impl Stage {
         };
         if c.plan.is_terminal() {
             let mut lineage = self.source.archive.witness.successor.lineage.to_vec();
-            let (x, y) = self.pallas.g().coordinates().unwrap();
+            let (x, y) =
+                iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(self.pallas.g());
             lineage.extend([x, y]);
             for v in self.pallas.challenges() {
                 lineage.extend(foreign_limbs(v).map(Fp::from_u128));
@@ -883,7 +884,8 @@ fn first(source: archive_q::ArchiveSource) -> Stage {
             source.predecessor.source.pallas.as_input(),
             source.predecessor.opening.clone(),
         ],
-        Fp::from(191).to_repr(),
+        common::public_fixture_tape(191),
+        iroha_plonk_recursion::FoldPurpose::AInitial,
         &FoldConfig::default(),
     )
     .unwrap();
@@ -893,7 +895,9 @@ fn first(source: archive_q::ArchiveSource) -> Stage {
         plan,
         continuation: None,
         pallas,
-        fold: fold.to_bytes().to_vec(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
+        ),
         known: true,
         omit_q: None,
         mutate_context: None,
@@ -1198,7 +1202,7 @@ fn preflight_stage_layouts(first: &Stage) -> Vec<StageIdentity> {
                     instances: vec![Fp::ZERO; 69],
                     length: u32::try_from(proof_length).unwrap(),
                     proof: vec![0; proof_length],
-                    fold: [0; 1120],
+                    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
                 },
             )
             .unwrap()
@@ -1276,7 +1280,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
     );
     let prepared = Arc::new(plan.prepare(input.clone(), MemoryBudget::DEFAULT).unwrap());
     let (first_circuit, first_public) = prepared
-        .first_circuit(Fp::from(191), &FoldConfig::default())
+        .first_circuit(common::public_fixture_tape(191), &FoldConfig::default())
         .unwrap();
     compare_native_source(&stage, &first_circuit, &first_public);
     let prover = native::Prover::from_artifacts(
@@ -1305,7 +1309,6 @@ fn prove_chain(source: archive_q::ArchiveSource) {
         .unwrap();
     let mut prior_native = None;
     let mut retained = Vec::new();
-    let mut part = stage.source.part.clone();
     let mut config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     config.compress_selectors = false;
     loop {
@@ -1364,7 +1367,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             &vparams,
             &baseline_key,
             Witness::from_circuit(&baseline_key, &stage, &public).unwrap(),
-            common::recovery(170 + u8::try_from(index).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -1391,33 +1394,60 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 session
                     .first(
                         &key,
-                        Fp::from(191),
+                        common::public_fixture_tape(191),
                         &FoldConfig::default(),
-                        common::recovery(170),
+                        common::fresh_randomness(),
                         ProverConfig::default(),
                     )
                     .unwrap()
             },
             |prior| {
-                let salt = Fp::from(229 + index as u64);
+                let salt = 229 + index as u64;
                 let (circuit, frame) = session
-                    .next_circuit(prior, salt, &FoldConfig::default())
+                    .next_circuit(
+                        prior,
+                        common::public_fixture_tape(salt),
+                        &FoldConfig::default(),
+                    )
                     .unwrap();
                 compare_native_source(&stage, &circuit, &frame);
                 session
                     .advance(
                         &key,
                         prior,
-                        salt,
+                        common::public_fixture_tape(salt),
                         &FoldConfig::default(),
-                        common::recovery(170 + u8::try_from(index).unwrap()),
+                        common::fresh_randomness(),
                         ProverConfig::default(),
                     )
                     .unwrap()
             },
         );
-        assert_eq!(native.proof(), output.proof);
+        assert_ne!(native.proof(), output.proof, "fresh producer attempt");
         assert_eq!(native.instances(), public[0]);
+        // Continue from the retained original whose opening defines the fixture.
+        let native = prior_native.as_ref().map_or_else(
+            || {
+                session
+                    .restore_first(
+                        output.proof.clone(),
+                        &stage.pallas.to_bytes(),
+                        MemoryBudget::DEFAULT,
+                    )
+                    .unwrap()
+            },
+            |prior| {
+                session
+                    .restore_a(
+                        prior,
+                        output.proof.clone(),
+                        &stage.pallas.to_bytes(),
+                        MemoryBudget::DEFAULT,
+                    )
+                    .unwrap()
+            },
+        );
+        assert_eq!(native.proof(), output.proof, "exact retained A original");
         assert_eq!(native.pallas_bytes(), stage.pallas.to_bytes());
         let encoded = session
             .encode_a_checkpoint(&native, MemoryBudget::DEFAULT)
@@ -1430,23 +1460,25 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             assert_eq!(terminal.instances, public[0]);
             replay_native_checkpoints(&prover, input, &retained, &native);
             eprintln!(
-                "ARCHIVE_COMPLETE all10A_all9W=true valid={} native_maps=true native_source_and_proof_bytes_equal=true original_PK_import=true all19_canonical_checkpoints_restored=true no_final_omega_admission=true ordinary_finality_fixture=true release_qualified=false",
+                "ARCHIVE_COMPLETE all10A_all9W=true valid={} native_maps=true native_source_equal_retained_original_bytes_exact=true original_PK_import=true all19_canonical_checkpoints_restored=true no_final_omega_admission=true ordinary_finality_fixture=true release_qualified=false",
                 stage.source.valid
             );
             break;
         }
-        let own =
-            FoldInput::from_opening(*output.opening.g(), output.opening.challenges()).unwrap();
-        let trivial = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT)
-            .unwrap()
-            .as_input();
-        let (vfold, vesta) = create_fold(
-            &vparams,
-            &[part, own, trivial.clone(), trivial],
-            Fq::from(220 + index as u64).to_repr(),
-            &FoldConfig::default(),
+        let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+            key.binding().encoded(),
+            &[key.verifying_key().to_bytes().to_vec()],
+            vparams.clone(),
         )
         .unwrap();
+        let (vfold, vesta) = terminal
+            .read(0, &public, &output.proof, &FoldConfig::default())
+            .unwrap()
+            .create(
+                common::public_fixture_tape(220 + index as u64),
+                &FoldConfig::default(),
+            )
+            .unwrap();
         vesta.decide(&vparams, MemoryBudget::DEFAULT).unwrap();
         let wrapper_circuit = WCircuit::new(
             stage.plan.context(),
@@ -1459,7 +1491,9 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 instances: public[0].clone(),
                 length: output.proof.len().try_into().unwrap(),
                 proof: output.proof,
-                fold: vfold.to_bytes(),
+                fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                    vfold.to_private_bytes(),
+                ),
             },
         )
         .unwrap();
@@ -1502,7 +1536,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 );
             }
         }
-        let (x, y) = vesta.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
         let wpublic = vec![
             vec![Fq::from_repr(public[0][0].to_repr()).unwrap()],
             vec![x, y],
@@ -1516,7 +1550,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             &params,
             &baseline_key,
             Witness::from_circuit(&baseline_key, &wrapper_circuit, &wpublic).unwrap(),
-            common::recovery(180 + u8::try_from(index).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -1538,14 +1572,31 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             .wrapper(
                 &key,
                 &native,
-                Fq::from(220 + index as u64),
+                common::public_fixture_tape(220 + index as u64),
                 &FoldConfig::default(),
-                common::recovery(180 + u8::try_from(index).unwrap()),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();
-        assert_eq!(native_wrapper.proof(), output.proof);
+        assert_ne!(
+            native_wrapper.proof(),
+            output.proof,
+            "fresh wrapper attempt"
+        );
         assert_eq!(native_wrapper.vesta_bytes(), vesta.to_bytes());
+        let native_wrapper = session
+            .restore_wrapper(
+                &native,
+                output.proof.clone(),
+                &vesta.to_bytes(),
+                MemoryBudget::DEFAULT,
+            )
+            .unwrap();
+        assert_eq!(
+            native_wrapper.proof(),
+            output.proof,
+            "exact retained W original"
+        );
         let encoded = session
             .encode_wrapper_checkpoint(&native_wrapper, MemoryBudget::DEFAULT)
             .unwrap();
@@ -1569,10 +1620,20 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 .iter()
                 .map(|i| stage.source.q[*i].opening.clone()),
         );
+        let purpose = if index + 2 == stage.plan.context().stage_count() {
+            let filler = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
+            while claims.len() < 4 {
+                claims.push(filler.as_input());
+            }
+            iroha_plonk_recursion::FoldPurpose::ATerminal
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
         let (fold, pallas) = create_fold(
             &params,
             &claims,
-            Fp::from(230 + index as u64).to_repr(),
+            common::public_fixture_tape(230 + index as u64),
+            purpose,
             &FoldConfig::default(),
         )
         .unwrap();
@@ -1586,8 +1647,9 @@ fn prove_chain(source: archive_q::ArchiveSource) {
         };
         stage.continuation = Some(continuation);
         stage.pallas = pallas;
-        stage.fold = fold.to_bytes().to_vec();
-        part = vesta.as_input();
+        stage.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
+        );
     }
 }
 

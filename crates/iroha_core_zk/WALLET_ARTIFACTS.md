@@ -96,6 +96,26 @@ remain unconditional and are the generator's independent reference. This changes
 neither signed circuit identities nor proof bytes. Native phone latency must be
 measured using the resulting build; export success is not a timing result.
 
+After every final custody check passes, inspection prints one `OPENING_METRICS`
+line holding an `iroha.kagemusha.opening-metrics.v1` record. Its ordered phases
+are `selection` (request and native genesis), `verifier_pack`, `catalog_intake`,
+`snapshot_capture`, the qualified graph's own `binding`, `sigma`, `q`, `routes`
+and `omega` split, `closing` and `total`. Each phase has whole microseconds and
+the work its thread started: signed originals opened, encoded files opened,
+stored and raw bytes hashed, zstd decodes, descriptor decodes, ancestry walks
+and the ancestor links those walks reopened. Native installation records the
+same phases on its attempt, with `selection` covering the signed base, a
+`catalog_metadata` phase after it for the carrier root, layout and metadata-file
+checks that run on every attempt (its `catalog_intake` then covers inventory
+authentication and the reader opening), and an added `runtime` phase for
+custody-root and provider opening. An attempt that reuses the process's admitted
+graph for byte-identical originals under the same carrier root records only
+`selection`, `catalog_metadata`, `admitted_intake`, `admitted_graph`, `runtime`
+and `total`; an attempt whose reuse is refused continues with the complete
+phases. The record is observation only: no admission, readiness, error, retry or
+cancellation decision reads it, and it is never persisted, signed, matched
+against a profile or written to the carrier or custody root.
+
 ## Native Load Finality
 
 `GET /v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality` requires

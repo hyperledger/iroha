@@ -21,9 +21,7 @@ use core::fmt;
 use std::sync::Arc;
 
 use ff::{Field, PrimeField};
-use iroha_pasta::{
-    Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
-};
+use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     DescriptorBinding, ProverConfig, ProverRandomness, VerifyingKey,
     cs::{
@@ -46,12 +44,14 @@ use iroha_plonk_gadgets::{
     statement::foreign_limbs,
 };
 use iroha_plonk_recursion::{
-    AccumulatorT, FoldConfig, FoldInput, K, VESTA_TRIVIAL_GENERATOR,
+    AccumulatorT, FoldConfig, FoldInput, FoldPurpose, FoldTape, FoldWitness, K,
+    VESTA_TRIVIAL_GENERATOR,
     accumulation_circuit::FoldInputCells,
     codec::ScalarCells,
     create_fold,
     obligation::ledger::Variant,
     verifier::{VerifierChip, VerifierConfig},
+    verify_fold,
 };
 
 use super::super::{
@@ -800,7 +800,7 @@ impl Session<'_> {
     pub fn first(
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<FirstCheckpoint, Error> {
         self.prover
@@ -855,9 +855,9 @@ impl Session<'_> {
         &self,
         first: &FirstCheckpoint,
         key: &SourceBoundViewV2<'_, Ep>,
-        salt: Fq,
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<WrapperCheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -879,7 +879,7 @@ impl Session<'_> {
                 first: &self.prover.first,
                 wrapper: key,
             },
-            salt,
+            tape,
             fold,
             randomness,
             config,
@@ -916,19 +916,19 @@ impl Session<'_> {
         self.prepared
             .resume_wrapper_cancellable(&self.prover.w, checkpoint, budget, cancellation)
     }
-    /// Restore terminal A2 from its original proof, retained fold salt and exact
+    /// Restore terminal A2 from its original proof, retained private fold witness and exact
     /// verified W0 predecessor. The Pallas fold, public fields and every forwarded
     /// obligation are rederived from this session's original inputs.
     /// # Errors
-    /// Changed source/salt, wrong installed proof or failed fold/decide.
+    /// Changed source/witness, wrong installed proof or failed fold/decide.
     pub fn restore_terminal(
         &self,
         wrapper: &WrapperCheckpoint,
         proof: Vec<u8>,
-        salt: Fp,
+        retained_fold: &crate::private_fold::PrivateFoldBytes,
         budget: MemoryBudget,
     ) -> Result<Terminal, Error> {
-        self.restore_terminal_cancellable(wrapper, proof, salt, budget, None)
+        self.restore_terminal_cancellable(wrapper, proof, retained_fold, budget, None)
     }
     /// Execute the same native check with an explicit operation signal.
     /// # Errors
@@ -937,15 +937,18 @@ impl Session<'_> {
         &self,
         wrapper: &WrapperCheckpoint,
         proof: Vec<u8>,
-        salt: Fp,
+        retained_fold: &crate::private_fold::PrivateFoldBytes,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Terminal, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         let fold = terminal_restore_fold_config(budget, cancellation);
-        let (_, public, pallas) =
-            self.prepared
-                .terminal_circuit(wrapper, &self.prover.w, salt, &fold)?;
+        let (_, public, pallas) = self.prepared.terminal_circuit_with_fold(
+            wrapper,
+            &self.prover.w,
+            TerminalFold::Retained(retained_fold),
+            &fold,
+        )?;
         let source = &self.prover.terminal;
         iroha_plonk::verifier::verify_full_cancellable(
             &self.prepared.plan.vesta,
@@ -996,6 +999,7 @@ impl Session<'_> {
             pallas,
             vesta: wrapper.vesta.clone(),
             opening,
+            fold: retained_fold.clone(),
         })
     }
 
@@ -1006,9 +1010,9 @@ impl Session<'_> {
         &self,
         wrapper: &WrapperCheckpoint,
         key: &SourceBoundViewV2<'_, Eq>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<Terminal, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -1030,7 +1034,7 @@ impl Session<'_> {
                 wrapper: &self.prover.w,
                 terminal: key,
             },
-            salt,
+            tape,
             fold,
             randomness,
             config,
@@ -1050,7 +1054,8 @@ fn q_sigma_part(input: &QInput, source_k: u32) -> Result<FoldInput<Eq>, Error> {
     {
         return Err(Error::Input);
     }
-    let g = Option::<EqAffine>::from(EqAffine::from_xy(point[0], point[1])).ok_or(Error::Input)?;
+    let g = iroha_plonk::transcript::generator_from_coordinates::<Eq>(point[0], point[1])
+        .map_err(|_| Error::Input)?;
     let challenges = bounded[bounded.len() - K..]
         .iter()
         .map(|value| Option::<Fp>::from(Fp::from_repr(value.to_repr())).ok_or(Error::Input))
@@ -1094,7 +1099,7 @@ impl Prepared {
     fn prove_first(
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<FirstCheckpoint, Error> {
         let circuit = self.first_circuit();
@@ -1168,7 +1173,7 @@ impl Prepared {
         &self,
         first: &FirstCheckpoint,
         a1: &KeyArtifact<Eq>,
-        salt: Fq,
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         config: &FoldConfig,
     ) -> Result<WrapperPreparation, Error> {
         self.resume_first_cancellable(
@@ -1178,45 +1183,13 @@ impl Prepared {
             config.kernel_budget,
             config.cancellation.as_ref(),
         )?;
-        let opening = iroha_plonk::verifier::accumulate_generator_cancellable(
+        let (fold, vesta) = crate::private_fold::wrapper(
             &self.plan.vesta,
             a1.binding(),
             a1.key(),
             std::slice::from_ref(&first.public),
             &first.proof,
-            config.kernel_budget,
-            config.cancellation.as_ref(),
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Proof
-            }
-        })?;
-        let opening = FoldInput::from_opening(*opening.g(), opening.challenges())
-            .map_err(|_| Error::Proof)?;
-        let trivial = AccumulatorT::trivial_cancellable(
-            &self.plan.vesta,
-            config.kernel_budget,
-            config.cancellation.as_ref(),
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Proof
-            }
-        })?;
-        let (fold, vesta) = create_fold(
-            &self.plan.vesta,
-            &[
-                self.part.clone(),
-                opening,
-                trivial.as_input(),
-                trivial.as_input(),
-            ],
-            salt.to_repr(),
+            tape,
             config,
         )
         .map_err(|error| {
@@ -1254,7 +1227,7 @@ impl Prepared {
                 instances: first.public.clone(),
                 proof: first.proof.clone(),
                 length: u32::try_from(first.proof.len()).map_err(|_| Error::Input)?,
-                fold: fold.to_bytes(),
+                fold: crate::private_fold::PrivateFoldBytes::from_fold(fold),
             },
         )
         .map_err(|_| Error::Input)?;
@@ -1271,9 +1244,9 @@ impl Prepared {
         &self,
         first: &FirstCheckpoint,
         keys: WrapperKeys<'_>,
-        salt: Fq,
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<WrapperCheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -1289,7 +1262,7 @@ impl Prepared {
             first: a1,
             wrapper: w,
         } = keys;
-        let (circuit, instances, vesta) = self.wrapper_circuit(first, a1, salt, fold)?;
+        let (circuit, instances, vesta) = self.wrapper_circuit(first, a1, tape, fold)?;
         let output = super::proving::prove(
             &self.plan.pallas,
             w,
@@ -1379,7 +1352,7 @@ impl Prepared {
         Ok(checkpoint)
     }
 
-    /// Prepare A2's exact three-input Pallas fold: Q0, W0's opening, Q1.
+    /// Prepare A2's fixed four-slot Pallas fold: Q0, W0's opening, Q1, trivial.
     /// Its signature Q is hard-verified and authenticates the same three tapes.
     ///
     /// # Errors
@@ -1388,7 +1361,17 @@ impl Prepared {
         &self,
         wrapper: &WrapperCheckpoint,
         w: &WKey,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
+        config: &FoldConfig,
+    ) -> Result<(StageCircuit, Vec<Fp>, AccumulatorT<Ep>), Error> {
+        self.terminal_circuit_with_fold(wrapper, w, TerminalFold::Fresh(tape), config)
+    }
+
+    fn terminal_circuit_with_fold(
+        &self,
+        wrapper: &WrapperCheckpoint,
+        w: &WKey,
+        fold_source: TerminalFold<'_>,
         config: &FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>, AccumulatorT<Ep>), Error> {
         self.resume_wrapper_cancellable(
@@ -1416,19 +1399,47 @@ impl Prepared {
         })?;
         let opening = FoldInput::from_opening(*opening.g(), opening.challenges())
             .map_err(|_| Error::Proof)?;
-        let (fold, pallas) = create_fold(
-            &self.plan.pallas,
-            &[self.openings[0].clone(), opening, self.openings[1].clone()],
-            salt.to_repr(),
-            config,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Proof
+        let mut inputs = vec![self.openings[0].clone(), opening, self.openings[1].clone()];
+        let purpose = crate::private_fold::terminal_inputs(&self.plan.pallas, &mut inputs, config)
+            .map_err(|error| {
+                if error.is_cancelled() {
+                    Error::Cancelled
+                } else {
+                    Error::Proof
+                }
+            })?;
+        debug_assert_eq!(purpose, FoldPurpose::ATerminal);
+        let (fold, pallas) = match fold_source {
+            TerminalFold::Fresh(tape) => {
+                let (witness, claim) =
+                    create_fold(&self.plan.pallas, &inputs, tape, purpose, config).map_err(
+                        |error| {
+                            if error.is_cancelled() {
+                                Error::Cancelled
+                            } else {
+                                Error::Proof
+                            }
+                        },
+                    )?;
+                (
+                    crate::private_fold::PrivateFoldBytes::from_fold(witness),
+                    claim,
+                )
             }
-        })?;
+            TerminalFold::Retained(bytes) => {
+                let witness = FoldWitness::<Ep>::from_private_bytes(bytes.as_slice())
+                    .map_err(|_| Error::Input)?;
+                let claim = verify_fold(&self.plan.pallas, &inputs, &witness, purpose, config)
+                    .map_err(|error| {
+                        if error.is_cancelled() {
+                            Error::Cancelled
+                        } else {
+                            Error::Proof
+                        }
+                    })?;
+                (bytes.clone(), claim)
+            }
+        };
         pallas
             .decide_cancellable(
                 &self.plan.pallas,
@@ -1453,7 +1464,7 @@ impl Prepared {
                 split,
                 proof: wrapper.proof.clone(),
                 vesta: Some(wrapper.vesta.clone()),
-                fold: fold.to_bytes(),
+                fold,
             })),
         };
         let public = frame(
@@ -1473,9 +1484,9 @@ impl Prepared {
         &self,
         wrapper: &WrapperCheckpoint,
         keys: TerminalKeys<'_>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<Terminal, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -1491,7 +1502,11 @@ impl Prepared {
             wrapper: w,
             terminal: a2,
         } = keys;
-        let (circuit, public, pallas) = self.terminal_circuit(wrapper, w, salt, fold)?;
+        let (circuit, public, pallas) = self.terminal_circuit(wrapper, w, tape, fold)?;
+        let retained_fold = match &circuit.stage {
+            Stage::Last(last) => last.fold.clone(),
+            Stage::First => return Err(Error::Artifact),
+        };
         let proof = prove_vesta(&self.plan, a2, &circuit, &public, randomness, config)?;
         let opening = iroha_plonk::verifier::accumulate_generator_cancellable(
             &self.plan.vesta,
@@ -1526,6 +1541,7 @@ impl Prepared {
             pallas,
             vesta: wrapper.vesta.clone(),
             opening,
+            fold: retained_fold,
         })
     }
 
@@ -1618,6 +1634,11 @@ impl WrapperCheckpoint {
         self.context
     }
 }
+enum TerminalFold<'a> {
+    Fresh(FoldTape<Ep>),
+    Retained(&'a crate::private_fold::PrivateFoldBytes),
+}
+
 /// Actual terminal Bootstrap A proof and every obligation final Omega must retain.
 #[derive(Clone, Debug)]
 pub struct Terminal {
@@ -1631,6 +1652,8 @@ pub struct Terminal {
     pub vesta: AccumulatorT<Eq>,
     /// The terminal A proof's own Vesta opening, a separate Omega input slot.
     pub opening: FoldInput<Eq>,
+    // Exact witness used by the authenticated terminal circuit; shared clearing owner.
+    fold: crate::private_fold::PrivateFoldBytes,
 }
 
 fn prove_vesta(
@@ -1638,7 +1661,7 @@ fn prove_vesta(
     key: &SourceBoundViewV2<'_, Eq>,
     circuit: &StageCircuit,
     public: &[Fp],
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
 ) -> Result<Vec<u8>, Error> {
     let d = key.binding().descriptor();
@@ -1688,7 +1711,7 @@ fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<(), Error> 
     if claim.source_k() != 16 {
         return Err(Error::Input);
     }
-    let (x, y) = Option::<(Fp, Fp)>::from(claim.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(claim.g());
     words.extend([Fp::from(16), x, y]);
     for value in claim.challenges() {
         words.extend(foreign_limbs(value).map(Fp::from_u128));
@@ -1708,7 +1731,7 @@ fn frame(
         hash_with_domain(super::super::LINEAGE_DOMAIN, &digest),
         Fp::from(u64::from(part.source_k())),
     ];
-    let (x, y) = Option::<(Fq, Fq)>::from(part.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(part.g());
     for value in [x, y] {
         out.extend(foreign_limbs(&value).map(Fp::from_u128));
     }
@@ -1731,7 +1754,7 @@ fn frame(
     Ok(out)
 }
 fn omega_instances(context: Fp, vesta: &AccumulatorT<Eq>) -> Result<Vec<Vec<Fq>>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
     let digest = Option::<Fq>::from(Fq::from_repr(context.to_repr())).ok_or(Error::Input)?;
     let challenges = vesta
         .challenges()
@@ -1758,7 +1781,7 @@ struct LastStage {
     split: SplitPlan,
     proof: Vec<u8>,
     vesta: Option<AccumulatorT<Eq>>,
-    fold: [u8; 1120],
+    fold: crate::private_fold::PrivateFoldBytes,
 }
 /// Complete first or terminal Bootstrap circuit. Stage and keys are fixed by
 /// native assembly; source evidence and original tapes remain private witnesses.
@@ -1827,7 +1850,7 @@ fn wrapper_source(
         instances: vec![Fp::ZERO; 69],
         proof: vec![0; length],
         length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-        fold: [0; 1120],
+        fold: crate::private_fold::PrivateFoldBytes::unknown(),
     };
     WCircuit::new(
         &plan.context,
@@ -1889,7 +1912,7 @@ impl StageCircuit {
                 split,
                 proof: vec![0; w.verifier().proof_length()],
                 vesta: None,
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             })),
         )
     }
@@ -1962,7 +1985,7 @@ impl StageCircuit {
         let objects =
             BootstrapObjects::decode(chip, bytes, region, values.each_ref().map(Vec::as_slice))?;
         let context_objects = objects.context().to_vec();
-        let point = chip.witness_point(
+        let point = chip.witness_generator(
             region,
             self.carried.as_ref().map_or(Value::unknown(), |carried| {
                 self.value(Ep::from(*carried.g()))
@@ -2040,11 +2063,7 @@ impl StageCircuit {
                     sigma_binding(chip, bytes, region, &statement, &source.sigma, self.known)?;
                 let coordinates = vesta
                     .as_ref()
-                    .map(|claim| {
-                        Option::<(Fq, Fq)>::from(claim.g().coordinates())
-                            .ok_or(LayoutError::Synthesis)
-                    })
-                    .transpose()?;
+                    .map(|claim| iroha_plonk::transcript::generator_coordinates::<Eq>(claim.g()));
                 let coordinates = [
                     scalar(
                         chip,
@@ -2129,10 +2148,12 @@ impl Circuit<Fp> for StageCircuit {
     type FloorPlanner = SimpleFloorPlanner;
     type Params = ();
     fn without_witnesses(&self) -> Self {
-        Self {
-            known: false,
-            ..self.clone()
+        let mut source = self.clone();
+        source.known = false;
+        if let Stage::Last(last) = &mut source.stage {
+            last.fold = crate::private_fold::PrivateFoldBytes::unknown();
         }
+        source
     }
     fn configure(meta: &mut ConstraintSystem<Fp>) -> StageConfig {
         let verifier =

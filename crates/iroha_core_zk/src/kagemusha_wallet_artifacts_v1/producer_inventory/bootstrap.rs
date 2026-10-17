@@ -52,9 +52,10 @@ impl QualifiedBootstrapProgramV1 {
 }
 
 fn metadata<C: PastaCurve>(
-    original: ArtifactOriginalV1,
+    original: DecodedVerifierOriginal,
 ) -> Result<KeyArtifact<C>, BootstrapQualificationErrorV1> {
-    let binding = DescriptorBinding::decode_v2(&original.descriptor)
+    let binding = original
+        .binding
         .map_err(|_| BootstrapQualificationErrorV1::Source)?;
     let key = VerifyingKey::read(&original.verifying_key, &binding)
         .map_err(|_| BootstrapQualificationErrorV1::Source)?;
@@ -137,9 +138,12 @@ impl AuthenticatedProducerInventoryV1 {
             config,
             0,
             super::builtin::Admission::Strict,
+            &DescriptorMemo::default(),
         )
     }
 
+    // `descriptors` belongs to the calling qualification and is dropped with it.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn qualify_bootstrap_program_with_admission(
         &self,
         installed: &InstalledVerifierPackV1,
@@ -149,6 +153,7 @@ impl AuthenticatedProducerInventoryV1 {
         config: ReadConfig,
         route_index: u32,
         admission: super::builtin::Admission<'_>,
+        descriptors: &DescriptorMemo,
     ) -> Result<QualifiedBootstrapProgramV1, BootstrapQualificationErrorV1> {
         let scheme = installed.verifier().scheme();
         let identity = (scheme.scheme_id(), installed.verifier().manifest_digest());
@@ -185,9 +190,11 @@ impl AuthenticatedProducerInventoryV1 {
         if schema != record.context {
             return Err(BootstrapQualificationErrorV1::Source);
         }
-        let first = metadata(self.read_verifier_original(record.a[0], originals)?)?;
-        let wrapper = metadata(self.read_verifier_original(record.w[0], originals)?)?;
-        let terminal = metadata(self.read_verifier_original(record.a[1], originals)?)?;
+        let first = metadata(self.read_verifier_metadata(record.a[0], originals, descriptors)?)?;
+        let wrapper =
+            metadata(self.read_verifier_metadata(record.w[0], originals, descriptors)?)?;
+        let terminal =
+            metadata(self.read_verifier_metadata(record.a[1], originals, descriptors)?)?;
         let stage_memory =
             peak_proving_memory([&first, &terminal])?.max(peak_proving_memory([&wrapper])?);
         let prover = native::Prover::from_artifacts(plan, first, wrapper, terminal)?;

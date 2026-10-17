@@ -126,7 +126,14 @@ impl AProofPlan {
                 sources.extend([FoldSource::Incoming(16); 2]);
             }
             sources.extend(vec![FoldSource::Fixed(16); q.len()]);
-            Some(FoldPlan::with_sources(params, sources).map_err(|_| Error::Synthesis)?)
+            Some(
+                FoldPlan::with_sources(
+                    params,
+                    sources,
+                    iroha_plonk_recursion::FoldPurpose::AInitial,
+                )
+                .map_err(|_| Error::Synthesis)?,
+            )
         } else {
             None
         };
@@ -491,7 +498,7 @@ pub fn verify_incoming(
 pub struct SelectedPallasCells {
     pub(super) origin: IncomingOmegaCells,
     pub(super) modes: [ModeCells<Fp>; 2],
-    pub(super) corrected: [iroha_plonk_gadgets::ecc::NonIdentityPoint<Fp>; 2],
+    pub(super) corrected: [iroha_plonk_recursion::codec::GeneratorPoint<Fp>; 2],
     pub(super) pallas: FoldInputCells<Ep>,
     pub(super) opening: FoldInputCells<Ep>,
 }
@@ -506,7 +513,7 @@ pub fn select_incoming(
     region: &mut Region<'_, Fp>,
     incoming: &IncomingOmegaCells,
     modes: &[ModeCells<Fp>; 2],
-    corrected: &[iroha_plonk_gadgets::ecc::NonIdentityPoint<Fp>; 2],
+    corrected: &[iroha_plonk_recursion::codec::GeneratorPoint<Fp>; 2],
 ) -> Result<SelectedPallasCells, Error> {
     Ok(SelectedPallasCells {
         origin: incoming.clone(),

@@ -5446,6 +5446,559 @@
         "pattern": "^ea0130[0-9A-F]{96}$",
         "type": "string"
       },
+      "BondCallTerms": {
+        "additionalProperties": false,
+        "properties": {
+          "first_call_date_ms": {
+            "description": "Earliest call date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "notice_ms": {
+            "description": "Minimum notice between the call block and the call date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "price_bps": {
+            "description": "Call price in basis points of the denomination.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "first_call_date_ms",
+          "price_bps",
+          "notice_ms"
+        ],
+        "type": "object"
+      },
+      "BondCashflowState": {
+        "additionalProperties": false,
+        "description": "Servicing state and totals of one effective cash flow.",
+        "properties": {
+          "amount_due": {
+            "description": "Sum of rounded holder payments.",
+            "type": "string"
+          },
+          "claimed_holders": {
+            "description": "Holders that claimed.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "closed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "entitled_units": {
+            "description": "Sum of entitled units.",
+            "type": "string"
+          },
+          "evidence_sha256": {
+            "description": "Lowercase hex SHA-256 digest (64 digits).",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "funded": {
+            "description": "Amount moved into the vault.",
+            "type": "string"
+          },
+          "funded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holders": {
+            "description": "Holders with a recorded entitlement.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "paid": {
+            "description": "Amount paid to holders.",
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recording": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BondRecordingCursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "Scheduled",
+              "Recording",
+              "Recorded",
+              "Funded",
+              "Closed",
+              "Defaulted",
+              "Cancelled"
+            ],
+            "type": "string"
+          },
+          "terms": {
+            "$ref": "#/components/schemas/BondCashflowTerms"
+          }
+        },
+        "required": [
+          "terms",
+          "status",
+          "recording",
+          "holders",
+          "claimed_holders",
+          "entitled_units",
+          "amount_due",
+          "funded",
+          "paid",
+          "recorded_at_ms",
+          "funded_at_ms",
+          "closed_at_ms",
+          "evidence_sha256"
+        ],
+        "type": "object"
+      },
+      "BondCashflowTerms": {
+        "additionalProperties": false,
+        "description": "One effective scheduled cash flow.",
+        "properties": {
+          "amount_per_unit": {
+            "description": "Exact payment-asset amount per bond unit (decimal string).",
+            "type": "string"
+          },
+          "index": {
+            "description": "Cash-flow index.",
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "Coupon",
+              "Redemption"
+            ],
+            "type": "string"
+          },
+          "payment_date_ms": {
+            "description": "Payment date (Unix milliseconds); claims open from it.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "record_date_ms": {
+            "description": "Record date (Unix milliseconds); the books close from it until the cash flow is recorded.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "kind",
+          "record_date_ms",
+          "payment_date_ms",
+          "amount_per_unit"
+        ],
+        "type": "object"
+      },
+      "BondEntitlementPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BondEntitlementRow"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` to read the next page; `null` on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "description": "Exact match count; present only with `include_total`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "BondEntitlementRow": {
+        "additionalProperties": false,
+        "description": "One holder's record-date entitlement to one cash flow.",
+        "properties": {
+          "amount": {
+            "description": "Payment at the payment-asset scale.",
+            "type": "string"
+          },
+          "bond": {
+            "description": "Bond asset definition.",
+            "type": "string"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "claimed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "holder": {
+            "description": "Holder of record (I105).",
+            "type": "string"
+          },
+          "id": {
+            "description": "`<index>:<holder>`; the identity and cursor key.",
+            "type": "string"
+          },
+          "index": {
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "units": {
+            "description": "Units held of record (own balance plus units the holder escrowed).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "bond",
+          "index",
+          "holder",
+          "units",
+          "amount",
+          "claimed",
+          "claimed_at_ms"
+        ],
+        "type": "object"
+      },
+      "BondIdentifiers": {
+        "additionalProperties": false,
+        "properties": {
+          "bdt_document_sha256": {
+            "description": "Lowercase hex SHA-256 digest (64 digits).",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bdt_version": {
+            "description": "Bond data taxonomy version label.",
+            "type": "string"
+          },
+          "cfi": {
+            "description": "ISO 10962 CFI code.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isin": {
+            "description": "ISO 6166 ISIN.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuer_lei": {
+            "description": "ISO 17442 issuer LEI.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "isin",
+          "cfi",
+          "issuer_lei",
+          "bdt_version",
+          "bdt_document_sha256"
+        ],
+        "type": "object"
+      },
+      "BondRecord": {
+        "additionalProperties": false,
+        "description": "Authoritative native bond record (specs/finance/bond_ops.md).",
+        "properties": {
+          "id": {
+            "description": "Bond asset definition (Base58 address).",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/BondState"
+          },
+          "terms": {
+            "$ref": "#/components/schemas/BondTerms"
+          },
+          "vault": {
+            "description": "Deterministic key-less vault account (I105).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "vault",
+          "terms",
+          "state"
+        ],
+        "type": "object"
+      },
+      "BondRecordPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BondRecord"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` to read the next page; `null` on the last page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "description": "Exact match count; present only with `include_total`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "BondRecordingCursor": {
+        "additionalProperties": false,
+        "description": "Resumption point of a paged recording.",
+        "properties": {
+          "after_asset": {
+            "description": "Last examined bond balance.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "after_escrow": {
+            "description": "Last examined escrow id.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "enum": [
+              "Holders",
+              "Escrows"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "after_asset",
+          "after_escrow"
+        ],
+        "type": "object"
+      },
+      "BondState": {
+        "additionalProperties": false,
+        "properties": {
+          "cashflows": {
+            "items": {
+              "$ref": "#/components/schemas/BondCashflowState"
+            },
+            "type": "array"
+          },
+          "lifecycle": {
+            "enum": [
+              "Active",
+              "Called",
+              "Matured",
+              "Defaulted"
+            ],
+            "type": "string"
+          },
+          "outstanding_units": {
+            "description": "Units in existence: the minted total minus redeemed and retired units.",
+            "type": "string"
+          },
+          "redeemed_units": {
+            "description": "Units burned by redemption claims.",
+            "type": "string"
+          },
+          "retired_units": {
+            "description": "Issuer-held units burned by RetireBondTreasuryUnits.",
+            "type": "string"
+          },
+          "transfers_frozen": {
+            "description": "Set once the redemption is recorded.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lifecycle",
+          "outstanding_units",
+          "redeemed_units",
+          "retired_units",
+          "transfers_frozen",
+          "cashflows"
+        ],
+        "type": "object"
+      },
+      "BondTerms": {
+        "additionalProperties": false,
+        "description": "Registered bond terms; only the issuer and paying-agent account references change (rekey, ReplaceBondPayingAgent).",
+        "properties": {
+          "call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BondCallTerms"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashflows": {
+            "items": {
+              "$ref": "#/components/schemas/BondCashflowTerms"
+            },
+            "maxItems": 400,
+            "type": "array"
+          },
+          "coupon_frequency": {
+            "enum": [
+              0,
+              1,
+              2,
+              4,
+              12
+            ],
+            "type": "integer"
+          },
+          "coupon_rate_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "day_count": {
+            "enum": [
+              "ActActIcma",
+              "Thirty360",
+              "Act360",
+              "Act365Fixed"
+            ],
+            "type": "string"
+          },
+          "denomination": {
+            "description": "Payment-asset amount per bond unit.",
+            "type": "string"
+          },
+          "identifiers": {
+            "$ref": "#/components/schemas/BondIdentifiers"
+          },
+          "issue_date_ms": {
+            "description": "Issue date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "issuer": {
+            "description": "Issuer account (I105).",
+            "type": "string"
+          },
+          "maturity_date_ms": {
+            "description": "Maturity date.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "paying_agent": {
+            "description": "Paying agent account (I105).",
+            "type": "string"
+          },
+          "payment_asset": {
+            "description": "Payment asset definition (Base58 address).",
+            "type": "string"
+          },
+          "payment_grace_ms": {
+            "description": "Grace period after a payment date before a default may be declared.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "redemption_price_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "terms_sha256": {
+            "description": "Lowercase hex SHA-256 digest (64 digits).",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "paying_agent",
+          "payment_asset",
+          "denomination",
+          "coupon_rate_bps",
+          "coupon_frequency",
+          "day_count",
+          "issue_date_ms",
+          "maturity_date_ms",
+          "redemption_price_bps",
+          "payment_grace_ms",
+          "call",
+          "cashflows",
+          "identifiers",
+          "terms_sha256"
+        ],
+        "type": "object"
+      },
       "BootleLanternIssuanceAuthorizationWireV1": {
         "contentMediaType": "application/x-norito",
         "description": "One exact canonical 320-byte ILA1 Bootle/Lantern issuance authorization.",
@@ -5894,7 +6447,7 @@
         "type": "object"
       },
       "CollectionFilter": {
-        "description": "Filter in the text form (`owned_by = \"sorau\u2026\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
+        "description": "Filter in the text form (`owned_by = \"sorau…\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
         "oneOf": [
           {
             "maxLength": 32768,
@@ -10861,6 +11414,149 @@
           "nonce",
           "signature",
           "time_to_live"
+        ],
+        "type": "object"
+      },
+      "ExplorerTransactionProof": {
+        "additionalProperties": false,
+        "description": "Selective transaction inclusion and original compact certificate DATA. The certificate binds input/output roots only after verification against an independently authenticated committee; the response never establishes its own finality authority. The block header is carried for lookup binding, not independently certified by the compact certificate.",
+        "properties": {
+          "block_header": {
+            "$ref": "#/components/schemas/BlockHeader"
+          },
+          "block_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "certificate": {
+            "$ref": "#/components/schemas/ExplorerTransactionProofCertificate"
+          },
+          "network_id": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "transaction": {
+            "$ref": "#/components/schemas/ExplorerTransactionProofRecord"
+          },
+          "version": {
+            "const": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "network_id",
+          "block_height",
+          "block_header",
+          "transaction",
+          "certificate"
+        ],
+        "type": "object"
+      },
+      "ExplorerTransactionProofCertificate": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_qc": {
+            "contentEncoding": "base64",
+            "description": "Unchanged canonical native commit_qc bytes; independent root verification is required.",
+            "maxLength": 5464,
+            "type": "string"
+          },
+          "consensus_header": {
+            "contentEncoding": "base64",
+            "description": "Unchanged canonical native consensus_header bytes; independent root verification is required.",
+            "maxLength": 87384,
+            "type": "string"
+          },
+          "result_preimage": {
+            "contentEncoding": "base64",
+            "description": "Unchanged canonical native result_preimage bytes; independent root verification is required.",
+            "maxLength": 87384,
+            "type": "string"
+          }
+        },
+        "required": [
+          "consensus_header",
+          "commit_qc",
+          "result_preimage"
+        ],
+        "type": "object"
+      },
+      "ExplorerTransactionProofRecord": {
+        "additionalProperties": false,
+        "description": "The native CommittedTransaction layout; no unrelated input or internal output is included.",
+        "properties": {
+          "block_hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "entrypoint": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "Canonical native TransactionEntrypoint JSON for exactly the selected transaction."
+          },
+          "entrypoint_hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "entrypoint_proof": {
+            "$ref": "#/components/schemas/BlockMerkleProof"
+          },
+          "output": {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "additionalProperties": false,
+                "properties": {
+                  "completions": {
+                    "description": "Canonical native InvocationCompletionV1 records owned by this input.",
+                    "items": {
+                      "$ref": "#/components/schemas/JsonValue"
+                    },
+                    "type": "array"
+                  },
+                  "input_index": {
+                    "format": "uint32",
+                    "maximum": 4294967295,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "result": {
+                    "$ref": "#/components/schemas/JsonValue",
+                    "description": "Canonical native TransactionResult including only this input execution."
+                  }
+                },
+                "required": [
+                  "input_index",
+                  "result",
+                  "completions"
+                ],
+                "type": "object"
+              },
+              "kind": {
+                "const": "network",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "detail"
+            ],
+            "type": "object"
+          },
+          "output_hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "output_proof": {
+            "$ref": "#/components/schemas/BlockMerkleProof"
+          }
+        },
+        "required": [
+          "block_hash",
+          "entrypoint_hash",
+          "entrypoint_proof",
+          "entrypoint",
+          "output_hash",
+          "output_proof",
+          "output"
         ],
         "type": "object"
       },
@@ -37522,6 +38218,10 @@
       "RepoGovernance": {
         "additionalProperties": false,
         "properties": {
+          "allow_early_repayment": {
+            "description": "Whether the initiator may repay before maturity, paying interest accrued to the committed block time.",
+            "type": "boolean"
+          },
           "haircut_bps": {
             "description": "Haircut applied to the collateral leg in basis points.",
             "format": "uint16",
@@ -37535,7 +38235,8 @@
         },
         "required": [
           "haircut_bps",
-          "margin_frequency_secs"
+          "margin_frequency_secs",
+          "allow_early_repayment"
         ],
         "type": "object"
       },
@@ -54242,7 +54943,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
+            "description": "Confidence interval (±ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -54317,7 +55018,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
+            "description": "Confidence interval (±ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -58156,7 +58857,7 @@
         "description": "List accounts with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60693,7 +61394,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60882,7 +61583,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -61039,6 +61740,101 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/accounts/{account_id}/history/sse": {
+      "get": {
+        "description": "Stream live account-history movements via Server-Sent Events: every `/v1/accounts/{account_id}/history` row of each height published after the stream opens, oldest first, as `event: movement` frames with one JSON row per `data:` line, under the caller's current dataspace visibility. The stream is live-only: open it, then read the first history page and deduplicate by row `id`. Accepts the history collection `filter`; limit, cursor, sort, select, aggregate and include_total are rejected. `Last-Event-ID` is rejected. A backlog beyond the history serving limit emits one terminal `stream_error`. See specs/torii/streaming.md.",
+        "operationId": "streamAccountHistorySse",
+        "parameters": [
+          {
+            "description": "Canonical I105 account identifier or on-chain alias `name@domain.dataspace` / `name@dataspace`.",
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Account-history text filter, e.g. `direction = \"incoming\"`.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "maxLength": 32768,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Event stream.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Stream establishment rejected. A `stream_error` event identifies an unsupported resume request.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Subscribe to an account's live history movements.",
+        "tags": [
+          "Streams"
+        ],
+        "x-iroha-heartbeat-seconds": 15,
+        "x-iroha-lag-behavior": "terminal_stream_error",
+        "x-iroha-replay-supported": false,
+        "x-iroha-route-auth": {
+          "admission": "dataspace_visible",
+          "authentication": "optional_canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "accounts.history_stream_sse"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/accounts/{account_id}/identifiers/claim-receipt": {
       "post": {
         "description": "Issue an attested identifier claim receipt from encrypted input and a verified RAM-LFE output opening that can be embedded into `ClaimIdentifier`.",
@@ -61123,7 +61919,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -61312,7 +62108,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -63391,7 +64187,7 @@
         "description": "List asset definitions with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -63791,7 +64587,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -64077,6 +64873,252 @@
         },
         "x-iroha-tool-effect": "read",
         "x-iroha-websocket-subprotocol": "iroha-norito-v1"
+      }
+    },
+    "/v1/bonds": {
+      "get": {
+        "description": "List registered native bond records with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Each item is the complete `BondRecord` (terms, effective schedule, lifecycle and per-cash-flow totals); holder entitlements are paged by `/v1/bonds/{bond_id}/entitlements`. Rows follow `sort`, then bond identifier order. See specs/finance/bond_ops.md and specs/torii/collection_queries.md.",
+        "parameters": [
+          {
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "maxLength": 32768,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated sort keys; a leading `-` sorts descending, e.g. `-quantity,id`.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated fields to return, e.g. `id,quantity`.",
+            "in": "query",
+            "name": "select",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Add the exact match count as `total`; costs a full scan.",
+            "in": "query",
+            "name": "include_total",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BondRecordPage"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "List native bonds.",
+        "tags": [
+          "Settlement"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "application.bonds_get"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/bonds/{bond_id}": {
+      "get": {
+        "description": "Fetch the authoritative native bond record of one bond asset definition (terms, effective schedule, lifecycle and per-cash-flow totals) as Norito JSON. See specs/finance/bond_ops.md.",
+        "parameters": [
+          {
+            "description": "Canonical address literal of the bond asset definition.",
+            "in": "path",
+            "name": "bond_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BondRecord"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "404": {
+            "description": "The asset definition has no registered bond record."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Fetch a native bond.",
+        "tags": [
+          "Settlement"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "application.bonds_by_bond_id_get"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/bonds/{bond_id}/entitlements": {
+      "get": {
+        "description": "Page the record-date entitlements of one bond with the collection query language, in cash-flow then holder order. Each row is one holder's entitlement to one cash flow: units of record, the rounded payment and whether it was claimed. Filter on `index` or `holder` to read one cash flow or one holder. See specs/finance/bond_ops.md and specs/torii/collection_queries.md.",
+        "parameters": [
+          {
+            "description": "Canonical address literal of the bond asset definition.",
+            "in": "path",
+            "name": "bond_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "maxLength": 32768,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated sort keys; a leading `-` sorts descending, e.g. `-quantity,id`.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated fields to return, e.g. `id,quantity`.",
+            "in": "query",
+            "name": "select",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The previous page's `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Add the exact match count as `total`; costs a full scan.",
+            "in": "query",
+            "name": "include_total",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BondEntitlementPage"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "404": {
+            "description": "The asset definition has no registered bond record."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "List a bond's record-date entitlements.",
+        "tags": [
+          "Settlement"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "application.bonds_by_bond_id_entitlements_get"
+        },
+        "x-iroha-tool-effect": "read"
       }
     },
     "/v1/bridge/finality/attestation/latest": {
@@ -65784,7 +66826,7 @@
         "description": "Call-derived contract activity: one row per committed top-level `ContractCall`, with `contract_address` and `contract_entrypoint` from the signed invocation; `contract_alias` and `contract_payload` appear only when the call committed successfully, because only then has consensus bound that metadata to the invocation. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -67499,7 +68541,7 @@
         "description": "Call-derived contract events: one row per committed top-level `ContractCall`, projected from the signed invocation and the metadata consensus bound to it; contracts do not emit these rows, `provenance` is always `derived`, and `contract_module`/`contract_event_*` transaction metadata is ignored. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -69424,7 +70466,7 @@
         "description": "List domains with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -74053,6 +75095,132 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/explorer/transactions/{hash}/proof": {
+      "get": {
+        "description": "Return only one visible transaction, its exact joined Network output, their Merkle paths and the original compact native certificate. Anonymous callers see public dataspaces; a valid canonical account signature widens visibility only according to current permissions. Every committed route leg must be visible. Missing and hidden transactions both return 404. No full block carrier or unrelated output is disclosed. The JSON response is bounded to 16 MiB and the admitted query budget. Consumers must authenticate native finality from independently selected genesis/checkpoint authority before trusting inclusion.",
+        "parameters": [
+          {
+            "description": "Transaction hash.",
+            "in": "path",
+            "name": "hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerTransactionProof"
+                }
+              }
+            },
+            "description": "Successful response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed canonical transaction hash.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Transaction absent, hidden from this reader, or without a non-genesis commit certificate.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Selected proof exceeds the admitted response/memory cap, or query admission/history work is unavailable.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Canonical history or native evidence is inconsistent; no proof is returned.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical history is temporarily unavailable; no proof is returned.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Fetch selective transaction proof (explorer).",
+        "tags": [
+          "Explorer"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "dataspace_visible",
+          "authentication": "optional_canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "application.explorer_transactions_by_hash_proof_get"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/fee-sponsor-enrollments/by-id": {
       "post": {
         "description": "Account-signed exact enrollment lookup. The caller must be the sponsor or hold the exact program enrollment permission. Authorization, program existence and the native row are read from one World view. A successful response always contains the exact key and enrollment: explicit null means absent in an existing program. Missing programs, malformed keys and authentication failures never mean absence.",
@@ -76577,7 +77745,7 @@
     },
     "/v1/gov/parliament/attempts/{governance_attempt_id}/plan": {
       "get": {
-        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` \u00a74.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
+        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` §4.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
         "operationId": "governanceParliamentAttemptPlanV1",
         "parameters": [
           {
@@ -87942,7 +89110,7 @@
         "description": "List NFTs with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -91776,7 +92944,7 @@
         "description": "List repo agreements with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -92998,7 +94166,7 @@
         "description": "List RWA lots with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -120596,7 +121764,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -120776,7 +121944,7 @@
         "description": "Subscriptions with flat state fields and optional invoice and plan. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -121023,7 +122191,7 @@
         "description": "Subscription plans. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -128526,7 +129694,7 @@
       "name": "Applications"
     },
     {
-      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` \u00a76). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
+      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` §6). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
       "name": "SCCP"
     }
   ]

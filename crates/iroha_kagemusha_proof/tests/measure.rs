@@ -56,7 +56,7 @@ use std::time::Instant;
 
 use common::{
     BUDGET_SHAPE, K11_SHAPE, RECEIVE_BLACKLIST, SEND_BLACKLIST, SEND_EVERY, SEND_LEASE,
-    SEND_QUOTAS, SMALLEST_SHAPE, folded, pinned_shape, recovery, vesta_params,
+    SEND_QUOTAS, SMALLEST_SHAPE, folded, fresh_randomness, pinned_shape, vesta_params,
 };
 use iroha_kagemusha_proof::{
     KeyOptions, Mutation, SigmaProver, SigmaRelation, SigmaShape, sample_witness,
@@ -174,7 +174,7 @@ fn series(
     assert_eq!(verifier.relation(), relation);
     let exact_bytes = verifier.proof_bytes().expect("descriptor length");
     let warm = pool
-        .install(|| prover.prove(&witness, recovery(1)))
+        .install(|| prover.prove(&witness, fresh_randomness()))
         .expect("warm-up proof");
     assert_eq!(warm.bytes.len(), exact_bytes);
     verifier
@@ -186,15 +186,14 @@ fn series(
         verify: Vec::new(),
         load: Vec::new(),
     };
-    for run in 0..runs {
-        let seed = u8::try_from(run % 200 + 2).expect("small run index");
+    for _run in 0..runs {
         out.load.push(load1());
         let cpu = process_cpu_ms();
         let started = Instant::now();
         let proof = pool
             .install(|| {
                 assert_eq!(rayon::current_num_threads(), threads);
-                prover.prove(&witness, recovery(seed))
+                prover.prove(&witness, fresh_randomness())
             })
             .expect("proof");
         out.wall.push(started.elapsed().as_secs_f64() * 1_000.0);
@@ -360,16 +359,15 @@ fn profile(relation: SigmaRelation, runs: usize, verify_only: bool) {
     let witness = sample_witness::<Fp>(7, relation, Mutation::None);
     let pool = pool(1);
     let proof = pool
-        .install(|| prover.prove(&witness, recovery(1)))
+        .install(|| prover.prove(&witness, fresh_randomness()))
         .expect("proof");
     let started = Instant::now();
-    for run in 0..runs {
+    for _run in 0..runs {
         if verify_only {
             pool.install(|| verifier.verify(&proof.public, &proof.bytes))
                 .expect("verifies");
         } else {
-            let seed = u8::try_from(run % 200).expect("seed");
-            pool.install(|| prover.prove(&witness, recovery(seed)))
+            pool.install(|| prover.prove(&witness, fresh_randomness()))
                 .expect("proof");
         }
     }
@@ -393,7 +391,7 @@ fn footprint(relation: SigmaRelation, at: (u32, usize), options: KeyOptions) {
         let params = vesta_params(shape.k);
         let prover = SigmaProver::<Eq>::keygen_with_options(shape, params, options).expect("keys");
         let witness = sample_witness::<Fp>(7, relation, Mutation::None);
-        let proof = prover.prove(&witness, recovery(1)).expect("proof");
+        let proof = prover.prove(&witness, fresh_randomness()).expect("proof");
         let verifier = prover.verifier();
         assert_eq!(proof.bytes.len(), verifier.proof_bytes().expect("length"));
         verifier

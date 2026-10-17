@@ -1,5 +1,7 @@
-//! Exact sixteen-source sigma qualification without constructing proving buffers.
+//! Exact sixteen-source sigma qualification without constructing proving buffers,
+//! and the sealed per-operation rebuild of one selected sigma proving key.
 
+use super::recipe::InstalledSourceSealV1;
 use super::*;
 use iroha_kagemusha_proof::{
     SigmaProver, SigmaShape,
@@ -10,7 +12,12 @@ use iroha_kagemusha_proof::{
     },
     witness::SigmaRelation,
 };
-use iroha_plonk::{keys::pk::artifact::ReadConfig, pcs::ipa::PinnedParams};
+use iroha_plonk::{
+    keys::{
+        CosetCachePolicy, SourceBoundVerifyingKeyV2, SourceBoundViewV2, pk::artifact::ReadConfig,
+    },
+    pcs::ipa::PinnedParams,
+};
 
 /// A bounded original or exact compiled sigma source did not qualify.
 #[derive(Debug, thiserror::Error)]
@@ -21,10 +28,10 @@ pub enum SigmaQualificationErrorV1 {
     /// The fixed native generator parameters could not be constructed.
     #[error("invalid compiled sigma parameters")]
     Parameters,
-    /// A Send/Receive original differs from its compiled monetary source.
+    /// A Send/Receive original or sealed source differs from its compiled monetary source.
     #[error(transparent)]
     Monetary(#[from] iroha_kagemusha_proof::SigmaError),
-    /// An administrative original differs from its operation-specific source.
+    /// An administrative original or sealed source differs from its operation source.
     #[error(transparent)]
     Administrative(#[from] AdminSigmaError),
     /// Imported source metadata differs from its exact descriptor/key identity.
@@ -32,11 +39,17 @@ pub enum SigmaQualificationErrorV1 {
     Metadata(#[from] ArtifactError),
 }
 
-/// All sixteen exact source-qualified sigma verifiers for one authenticated installation.
-/// This retains no original PK bytes or proving polynomials. Q/A/W/Omega source
-/// qualification and wallet custody are still required before monetary admission.
+/// All sixteen exact source-qualified sigma verifiers for one authenticated installation,
+/// each with the private seal its strict or exact closed-registry admission minted.
+/// Every use binds that seal, revalidates the signed originals and rebuilds the key
+/// from compiled source, as Q/A/W/Omega do. This retains no original PK bytes or
+/// proving polynomials. Q/A/W/Omega source qualification and wallet custody are
+/// still required before monetary admission.
 pub struct QualifiedSigmasV1 {
     keys: [KeyArtifact<Eq>; 16],
+    // Source authority from this qualification only, keyed by the signed member
+    // `inventory.sigma[selector]`. Never serialized, decoded or returned.
+    seals: [InstalledSourceSealV1<Eq>; 16],
     scheme_id: [u8; 32],
     manifest_digest: [u8; 32],
 }
@@ -52,6 +65,21 @@ impl QualifiedSigmasV1 {
     pub(super) const fn metadata(&self) -> &[KeyArtifact<Eq>; 16] {
         &self.keys
     }
+    /// Bind one selector's retained seal to its qualified metadata before any source
+    /// I/O. A seal is authority only for its own signed member in this installation.
+    pub(super) fn bind(
+        &self,
+        selector: u8,
+        expected_member: u32,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceBoundViewV2<'_, Eq>, Error> {
+        let selected = usize::from(selector);
+        let key = self.keys.get(selected).ok_or(Error::Inventory)?;
+        self.seals
+            .get(selected)
+            .ok_or(Error::Inventory)?
+            .bind(expected_member, key, cancellation)
+    }
 }
 
 pub(super) fn monetary_shape(selector: usize) -> Result<SigmaShape, Error> {
@@ -65,7 +93,8 @@ pub(super) fn monetary_shape(selector: usize) -> Result<SigmaShape, Error> {
     iroha_kagemusha_proof::wallet_monetary_shape(relation).map_err(|_| Error::Profile)
 }
 
-/// One active exact native sigma owner. Every variant holds only its own original PK.
+/// One active exact native sigma owner. Every variant holds only its own PK, rebuilt
+/// from its compiled source under the qualified admission seal.
 pub enum ImportedSigmaV1 {
     /// Initial wallet state source.
     Bootstrap(Box<BootstrapProver>),
@@ -82,38 +111,41 @@ pub enum ImportedSigmaV1 {
     /// Wallet retirement source.
     Retiring(Box<RetiringProver>),
 }
+#[cfg(test)]
 impl ImportedSigmaV1 {
-    pub(super) fn metadata(&self) -> Result<KeyArtifact<Eq>, SigmaQualificationErrorV1> {
-        let (binding, key) = match self {
-            Self::Bootstrap(p) => (p.binding(), p.verifying_key()),
-            Self::Load(p) => (p.binding(), p.verifying_key()),
-            Self::Monetary(p) => (p.proving_key().binding(), p.proving_key().vk()),
-            Self::Archive(p) => (p.binding(), p.verifying_key()),
-            Self::Unload(p) => (p.binding(), p.verifying_key()),
-            Self::Refresh(p) => (p.binding(), p.verifying_key()),
-            Self::Retiring(p) => (p.binding(), p.verifying_key()),
-        };
-        Ok(KeyArtifact::new(binding.clone(), key.clone())?)
+    /// The rebuilt key, for exact-reconstruction checks only.
+    pub(super) fn proving_key(&self) -> &iroha_plonk::ProvingKey<Eq> {
+        match self {
+            Self::Bootstrap(p) => p.proving_key(),
+            Self::Load(p) => p.proving_key(),
+            Self::Monetary(p) => p.proving_key(),
+            Self::Archive(p) => p.proving_key(),
+            Self::Unload(p) => p.proving_key(),
+            Self::Refresh(p) => p.proving_key(),
+            Self::Retiring(p) => p.proving_key(),
+        }
     }
 }
 
-pub(super) fn import_prover(
+/// Rebuild one selector's native owner from its bound admitted source view. The
+/// circuit comes only from compiled code chosen by `selector`, with k12 or k14 taken
+/// from the compiled monetary shape; no descriptor field selects a shape or relation.
+/// A rebuild failure is final: there is no strict re-import of the original.
+pub(super) fn rebuild_prover(
     selector: usize,
-    original: &OriginalBytesV1,
+    view: SourceBoundViewV2<'_, Eq>,
     k12: &PinnedParams<Eq>,
     k14: &PinnedParams<Eq>,
-    config: ReadConfig,
+    coset_cache: CosetCachePolicy,
     cancellation: Option<&iroha_pasta::CancellationToken>,
 ) -> Result<ImportedSigmaV1, SigmaQualificationErrorV1> {
     iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
     macro_rules! administrative {
         ($owner:ty, $variant:ident) => {{
-            ImportedSigmaV1::$variant(Box::new(<$owner>::from_original_artifact_cancellable(
+            ImportedSigmaV1::$variant(Box::new(<$owner>::from_source_view_cancellable(
                 k12.clone(),
-                &original.descriptor,
-                &original.verifying_key,
-                &original.proving_key,
-                config,
+                view,
+                coset_cache,
                 cancellation,
             )?))
         }};
@@ -124,17 +156,13 @@ pub(super) fn import_prover(
         2..=11 => {
             let shape = monetary_shape(selector)?;
             let params = if shape.k == 12 { k12 } else { k14 };
-            ImportedSigmaV1::Monetary(Box::new(
-                SigmaProver::<Eq>::from_original_artifact_cancellable(
-                    shape,
-                    params.clone(),
-                    &original.descriptor,
-                    &original.verifying_key,
-                    &original.proving_key,
-                    config,
-                    cancellation,
-                )?,
-            ))
+            ImportedSigmaV1::Monetary(Box::new(SigmaProver::<Eq>::from_source_view_cancellable(
+                shape,
+                params.clone(),
+                view,
+                coset_cache,
+                cancellation,
+            )?))
         }
         12 => administrative!(ArchiveProver, Archive),
         13 => administrative!(UnloadProver, Unload),
@@ -152,7 +180,9 @@ pub(super) fn import(
     k14: &PinnedParams<Eq>,
     config: ReadConfig,
 ) -> Result<KeyArtifact<Eq>, SigmaQualificationErrorV1> {
-    import_with_admission(selector, original, k12, k14, config, None)
+    let (binding, key, _) =
+        import_with_admission(selector, original, k12, k14, config, None)?.into_parts();
+    Ok(KeyArtifact::new(binding, key)?)
 }
 
 fn import_with_admission(
@@ -162,7 +192,7 @@ fn import_with_admission(
     k14: &PinnedParams<Eq>,
     config: ReadConfig,
     member: Option<iroha_plonk::keys::BuiltinSourceMemberV1>,
-) -> Result<KeyArtifact<Eq>, SigmaQualificationErrorV1> {
+) -> Result<SourceBoundVerifyingKeyV2<Eq>, SigmaQualificationErrorV1> {
     macro_rules! administrative {
         ($owner:ty) => {
             match member {
@@ -186,7 +216,7 @@ fn import_with_admission(
             }
         };
     }
-    let admitted = match selector {
+    Ok(match selector {
         0 => administrative!(BootstrapProver),
         1 => administrative!(LoadProver),
         2..=11 => {
@@ -219,14 +249,13 @@ fn import_with_admission(
         14 => administrative!(RefreshProver),
         15 => administrative!(RetiringProver),
         _ => return Err(Error::Profile.into()),
-    };
-    let (binding, key, _) = admitted.into_parts();
-    Ok(KeyArtifact::new(binding, key)?)
+    })
 }
 
 impl AuthenticatedProducerInventoryV1 {
     /// Strictly import every signed sigma original against the fixed compiled
-    /// source and retain only its exact descriptor/VK metadata. Temporary source
+    /// source and retain only its exact descriptor/VK metadata and private
+    /// member-bound admission seal. Temporary source
     /// tables are released before the next selector is read; proving-only FFTs,
     /// masks and caches are not constructed during qualification.
     /// This performs no key generation and grants no complete wallet capability.
@@ -298,21 +327,25 @@ impl AuthenticatedProducerInventoryV1 {
             return Err(SigmaQualificationErrorV1::Parameters);
         }
         let mut keys = Vec::with_capacity(16);
+        let mut seals = Vec::with_capacity(16);
         for (selector, index) in self.inventory.sigma.iter().copied().enumerate() {
             let original = self.read_original(index, originals, config.maximum_bytes)?;
-            let key = import_with_admission(
+            let (binding, key, seal) = import_with_admission(
                 selector,
                 &original,
                 k12,
                 k14,
                 config,
                 admission.member(&[1, u32::try_from(selector).map_err(|_| Error::Inventory)?])?,
-            )?;
+            )?
+            .into_parts();
             drop(original);
-            keys.push(key);
+            keys.push(KeyArtifact::new(binding, key)?);
+            seals.push(InstalledSourceSealV1::new(index, seal));
         }
         Ok(QualifiedSigmasV1 {
             keys: keys.try_into().map_err(|_| Error::Inventory)?,
+            seals: seals.try_into().map_err(|_| Error::Inventory)?,
             scheme_id: self.scheme_id,
             manifest_digest: self.manifest_digest,
         })

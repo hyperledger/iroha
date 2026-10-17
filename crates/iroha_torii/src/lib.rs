@@ -11459,6 +11459,39 @@ async fn handler_explorer_transaction_detail(
 }
 #[cfg(feature = "app_api")]
 #[axum::debug_handler]
+async fn handler_explorer_transaction_proof(
+    State(app): State<SharedAppState>,
+    headers: HeaderMap,
+    method: Method,
+    uri: Uri,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(hash): AxPath<String>,
+) -> Result<AxResponse, Error> {
+    const ENDPOINT: &str = "v1/explorer/transactions/{hash}/proof";
+    let visibility = torii_dataspace_context_from_headers(&app, &headers, &method, &uri, ENDPOINT)?;
+    if !limits::is_allowed_by_cidr(&headers, Some(remote.ip()), &app.api_rate_limit_bypass_nets) {
+        check_access(&app, &headers, Some(remote.ip()), ENDPOINT).await?;
+    }
+    match routing::explorer_transaction_proof::admitted(
+        Arc::clone(&app.state),
+        app.telemetry.clone(),
+        visibility.current_visibility(),
+        hash,
+        acquire_query_admission(&app, true).await?,
+    )
+    .await
+    {
+        Ok(response) if visibility.authorization_is_current() => Ok(response),
+        Ok(_) => Ok(explorer_json_error_response(Error::Query(
+            iroha_data_model::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::NotFound,
+            ),
+        ))),
+        Err(error) => Ok(explorer_json_error_response(error)),
+    }
+}
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
 async fn handler_explorer_instruction_detail(
     State(app): State<SharedAppState>,
     headers: axum::http::HeaderMap,
@@ -24565,6 +24598,7 @@ fn canonical_stream_is_sse(route: iroha_torii_shared::route_catalog::RouteDescri
         route.stable_route_id(),
         id if id == route_catalog::streaming::EVENTS_SSE.stable_route_id()
             || id == route_catalog::streaming::CONTRACT_EVENTS_SSE.stable_route_id()
+            || id == route_catalog::streaming::ACCOUNT_HISTORY_SSE.stable_route_id()
     )
 }
 #[cfg(feature = "app_api")]
@@ -24717,6 +24751,37 @@ async fn handler_contracts_events_sse(
         app.state.clone(),
         visibility,
         AxQuery(params),
+    )
+    .into_response())
+}
+#[cfg(feature = "app_api")]
+async fn handler_account_history_sse(
+    State(app): State<SharedAppState>,
+    headers: axum::http::HeaderMap,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    AxPath(account_id): AxPath<String>,
+) -> Result<Response, Error> {
+    let visibility = torii_dataspace_context_from_headers(
+        &app,
+        &headers,
+        &method,
+        &uri,
+        "v1/accounts/{account_id}/history/sse",
+    )?;
+    let telemetry = app.telemetry_handle();
+    let request = routing::AccountHistorySseRequest::new(
+        app.state.as_ref(),
+        &account_id,
+        list_query_from_query_string(uri.query())?,
+        resolve_tx_history_allowed_asset_definition_id(&app)?,
+        &telemetry,
+    )?;
+    Ok(routing::handle_v1_account_history_sse(
+        app.state.clone(),
+        visibility,
+        request,
+        Arc::clone(&app),
     )
     .into_response())
 }
@@ -33751,6 +33816,94 @@ async fn handler_identifier_receipt_lookup(
     };
     json_ok(identifier_claim_lookup_response(&claim))
 }
+/// Parse a bond path parameter as the canonical address literal of its asset definition.
+#[cfg(feature = "app_api")]
+fn parse_bond_id(raw: &str) -> Result<iroha_data_model::bond::BondId, Error> {
+    iroha_data_model::asset::AssetDefinitionId::parse_address_literal(raw.trim())
+        .map_err(|err| identifier_conversion_error(format!("invalid bond identifier: {err}")))
+}
+/// Apply the public read-route admission used by the collection routes.
+#[cfg(feature = "app_api")]
+async fn check_bond_read_access(
+    app: &SharedAppState,
+    headers: &axum::http::HeaderMap,
+    remote_ip: std::net::IpAddr,
+    endpoint: &str,
+) -> Result<(), Error> {
+    if !limits::is_allowed_by_cidr(headers, Some(remote_ip), &app.api_rate_limit_bypass_nets) {
+        let enforce =
+            app.fee_policy.is_enabled() || app.queue.active_len() >= app.high_load_tx_threshold;
+        check_access_enforced(app, headers, Some(remote_ip), endpoint, enforce).await?;
+    }
+    Ok(())
+}
+/// Page native bond records with the collection query language (`specs/finance/bond_ops.md`).
+///
+/// Records carry terms, the effective schedule and per-cash-flow totals; holder
+/// entitlements are paged separately by [`handler_bond_entitlements`].
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
+async fn handler_bonds(
+    State(app): State<SharedAppState>,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+) -> Result<Response, Error> {
+    check_bond_read_access(&app, &headers, remote.ip(), "v1/bonds").await?;
+    let query = list_query_from_query_string(uri.query())?;
+    execute_direct_collection_read(
+        &app,
+        routing::collection_sources::CollectionTarget::Bonds,
+        query,
+    )
+    .await
+}
+/// Return the authoritative record of one native bond, or 404 when it is not registered.
+#[cfg(feature = "app_api")]
+async fn handler_bond_get(
+    State(app): State<SharedAppState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(bond_literal): AxPath<String>,
+) -> Result<AxResponse, Error> {
+    check_bond_read_access(&app, &headers, remote.ip(), "v1/bonds/{bond_id}").await?;
+    let bond = parse_bond_id(&bond_literal)?;
+    let world = app.state.world_view();
+    let Some(record) = world.bonds().get(&bond).cloned() else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
+    json_ok(record)
+}
+/// Page the record-date entitlements of one bond with the collection query language,
+/// in cash-flow then holder order; 404 when the bond is not registered.
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
+async fn handler_bond_entitlements(
+    State(app): State<SharedAppState>,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(bond_literal): AxPath<String>,
+) -> Result<Response, Error> {
+    check_bond_read_access(
+        &app,
+        &headers,
+        remote.ip(),
+        "v1/bonds/{bond_id}/entitlements",
+    )
+    .await?;
+    let bond = parse_bond_id(&bond_literal)?;
+    if app.state.world_view().bonds().get(&bond).is_none() {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    let query = list_query_from_query_string(uri.query())?;
+    execute_direct_collection_read(
+        &app,
+        routing::collection_sources::CollectionTarget::BondEntitlements(bond.to_string()),
+        query,
+    )
+    .await
+}
 #[cfg(test)]
 fn normalise_alias(input: &str) -> String {
     input
@@ -37983,6 +38136,8 @@ impl Torii {
             KAGEMUSHA_ENROLLMENT_POST => limited_canonical_signature_post(kagemusha_enrollment::handler, iroha_torii_shared::kagemusha_enrollment::ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1);
             KAGEMUSHA_LOAD_FINALITY_GET => limited_canonical_account_get(kagemusha_wallet::finality_handler, app_state, 0, 0);
             KAGEMUSHA_LOAD_EPOCH_GET => limited_canonical_account_get(kagemusha_wallet::epoch_handler, app_state, 0, 0);
+            KAGEMUSHA_LEDGER_FINALITY_GET => limited_canonical_account_get(kagemusha_wallet::ledger_finality_handler, app_state, 0, 0);
+            KAGEMUSHA_LEDGER_EPOCH_GET => limited_canonical_account_get(kagemusha_wallet::ledger_epoch_handler, app_state, 0, 0);
             SORAFS_RESERVE_PROVIDERS_GET => canonical_signature_get(sorafs::reserve_api::handle_get_sorafs_reserve_providers);
             SORAFS_RESERVE_PROVIDERS_BY_PROVIDER_ID_HEX_GET => canonical_signature_get(sorafs::reserve_api::handle_get_sorafs_reserve_provider);
             SORAFS_RESERVE_TOP_UP_POST => layered_canonical_signed_post(sorafs::reserve_api::handle_post_sorafs_reserve_top_up, contracts_body_limit);
@@ -38120,6 +38275,20 @@ impl Torii {
                         CanonicalStreamAdmission {
                             app: Arc::clone(&app),
                             route: route_catalog::streaming::CONTRACT_EVENTS_SSE,
+                        },
+                        enforce_canonical_stream_admission,
+                    ))
+                    .authenticated_in_handler(
+                        HandlerAuthentication::OptionalCanonicalAccountSignature,
+                    ),
+            );
+            builder.route(
+                &route_catalog::streaming::ACCOUNT_HISTORY_SSE,
+                catalog_get(handler_account_history_sse)
+                    .layer(axum::middleware::from_fn_with_state(
+                        CanonicalStreamAdmission {
+                            app: Arc::clone(&app),
+                            route: route_catalog::streaming::ACCOUNT_HISTORY_SSE,
                         },
                         enforce_canonical_stream_admission,
                     ))
@@ -38354,6 +38523,9 @@ impl Torii {
             IDENTIFIER_POLICIES_GET => public_get(handler_identifier_policies);
             IDENTIFIERS_RECEIPTS_BY_RECEIPT_HASH_GET => public_get(handler_identifier_receipt_lookup);
             REPO_AGREEMENTS_GET => public_get(handler_repo_agreements);
+            BONDS_GET => public_get(handler_bonds);
+            BONDS_BY_BOND_ID_GET => public_get(handler_bond_get);
+            BONDS_BY_BOND_ID_ENTITLEMENTS_GET => public_get(handler_bond_entitlements);
         );
         mount_repo_agreements_query(builder, app_state.clone(), transaction_max_content_len);
         #[cfg(feature = "push")]
@@ -38653,6 +38825,7 @@ impl Torii {
             EXPLORER_RWAS_BY_RWA_ID_GET => optional_canonical_signature_get(handler_explorer_rwa_detail);
             EXPLORER_BLOCKS_BY_IDENTIFIER_GET => optional_canonical_signature_get(handler_explorer_block_detail);
             EXPLORER_TRANSACTIONS_BY_HASH_GET => optional_canonical_signature_get(handler_explorer_transaction_detail);
+            EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET => optional_canonical_signature_get(handler_explorer_transaction_proof);
             EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET => optional_canonical_signature_get(handler_explorer_instruction_detail);
             EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_CONTRACT_VIEW_GET => optional_canonical_signature_get(handler_explorer_instruction_contract_view);
             KAIGI_CALLS_BY_CALL_ID_GET => public_get(handler_kaigi_call);

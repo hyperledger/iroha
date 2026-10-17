@@ -4,7 +4,6 @@
 //! of range), per-cell tamper suites, a real proof and the G3.5 inventory.
 
 use core::cmp::Ordering;
-use std::convert::Infallible;
 
 use ff::{Field, PrimeField};
 use iroha_pasta::{Ep, Eq, Fp, Fq, PastaCurve, PastaField, msm::MemoryBudget};
@@ -1748,9 +1747,7 @@ where
     let params = PinnedParams::<P>::derive(k).expect("params");
     let config = KeygenConfig::new(TranscriptV1::Blake2bChallenge255);
     let pk = keygen_pk(&params, &circuit.without_witnesses(), &config).expect("proving key");
-    let randomness = ProverRandomness::recovery(move |_context: &[u8; 32]| {
-        Ok::<_, Infallible>(ChaCha20Rng::from_seed([7; 32]))
-    });
+    let randomness = ProverRandomness::hedged();
     let proof = prove_circuit(
         &params,
         &pk,

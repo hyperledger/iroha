@@ -1,6 +1,9 @@
 //! Real Unload execution and permanent replay after the exact funded native exchange.
 use super::*;
 
+mod fee;
+mod online_charge;
+
 fn ledger_rows(setup: &ExecutedKagemushaSetup) -> Vec<(KagemushaWalletLedgerKeyV1, Vec<u8>)> {
     setup
         .chain

@@ -911,16 +911,44 @@ fn active_receive_object_result_binds_raw_tapes_selector_and_joint_length() {
             "own relation is authenticated state, not a soft input"
         );
     }
-    for delta in [0, 1] {
-        let mut length = c.clone();
-        length
-            .sigma
-            .resize(MAX_OMEGA_RAW_BYTES + delta - length.omega.len(), 0);
-        length.rebind();
-        if delta == 0 {
-            assert!(length.accepts(), "inclusive joint length boundary");
+    assert_eq!(
+        MAX_OMEGA_RAW_BYTES + MAX_SIGMA_RAW_BYTES,
+        PAYMENT_RAW_PROOF_BUDGET
+    );
+    // Objects retains the full sigma original; its exact proof length is a
+    // separate Proofs obligation. Both roles still fit their hard capacities.
+    let mut sigma_cap = c.clone();
+    sigma_cap.sigma.resize(MAX_SIGMA_RAW_BYTES, 0);
+    sigma_cap.rebind();
+    assert!(sigma_cap.accepts(), "inclusive sigma capacity");
+    // The full joint boundary is representable, but this fixture's descriptor
+    // requires a shorter Omega. That retained original must give total false.
+    assert!(c.omega.len() < MAX_OMEGA_RAW_BYTES);
+    let mut joint_cap = sigma_cap;
+    joint_cap.omega.resize(MAX_OMEGA_RAW_BYTES, 0);
+    assert_eq!(
+        joint_cap.omega.len() + joint_cap.sigma.len(),
+        PAYMENT_RAW_PROOF_BUDGET
+    );
+    joint_cap.rebind();
+    joint_cap.clone().rejects();
+    // A joint cap+1 original necessarily exceeds a role's hard tape capacity.
+    // It cannot manufacture either verdict. The isolated length component
+    // separately tests true/false arithmetic at every joint boundary split.
+    for role in ["Omega", "sigma"] {
+        let mut oversized = joint_cap.clone();
+        if role == "Omega" {
+            oversized.omega.push(0);
         } else {
-            length.rejects();
+            oversized.sigma.push(0);
+        }
+        oversized.rebind();
+        for valid in [false, true] {
+            oversized.valid = valid;
+            assert!(
+                !oversized.accepts(),
+                "{role} capacity overflow cannot manufacture verdict {valid}"
+            );
         }
     }
     let mut short = c.clone();

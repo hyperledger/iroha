@@ -7,6 +7,8 @@ use iroha_crypto::Hash;
 use norito::codec::Encode;
 isi! {
     /// Initiate or roll a repo agreement between two counterparties.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
+    #[norito(deny_unknown_fields)]
     #[norito_schema(name = "iroha_data_model::isi::repo::RepoIsi")]
     pub struct RepoIsi {
         /// Stable agreement identifier shared across the lifecycle.
@@ -47,12 +49,17 @@ impl core::fmt::Display for RepoIsi {
     }
 }
 isi! {
-    /// Settle an active repo agreement at its pre-agreed maturity.
+    /// Settle an active repo agreement.
     ///
-    /// Every economic term is loaded from the immutable on-chain agreement.
-    /// Early unwind and collateral substitution are intentionally not
-    /// representable by this instruction. Any recorded participant may submit
-    /// it after maturity, so no single participant can veto settlement.
+    /// Every economic term is loaded from the immutable on-chain agreement;
+    /// collateral substitution and caller-selected close terms are not
+    /// representable. At or after maturity any recorded participant may submit
+    /// it, so no single participant can veto settlement. Before maturity it is
+    /// accepted only when the agreement's governance opted into early
+    /// repayment and the initiator (cash borrower) submits it; interest then
+    /// accrues only to the committed block time.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
+    #[norito(deny_unknown_fields)]
     #[norito_schema(name = "iroha_data_model::isi::repo::ReverseRepoIsi")]
     pub struct ReverseRepoIsi {
         /// Identifier of the repo agreement being unwound.
@@ -61,7 +68,7 @@ isi! {
 }
 impl core::fmt::Display for ReverseRepoIsi {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "REPO_SETTLE `{}` AT MATURITY", self.agreement_id)
+        write!(f, "REPO_SETTLE `{}`", self.agreement_id)
     }
 }
 impl core::fmt::Display for RepoMarginCallIsi {
@@ -124,13 +131,15 @@ impl RepoIsi {
 impl ReverseRepoIsi {
     /// Stable Norito wire identifier for the unwind.
     pub const WIRE_ID: &'static str = "iroha.repo.reverse";
-    /// Construct a fixed-maturity settlement instruction.
+    /// Construct an ID-only settlement instruction.
     pub fn new(agreement_id: RepoAgreementId) -> Self {
         Self { agreement_id }
     }
 }
 isi! {
     /// Record a margin check for an active repo agreement.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
+    #[norito(deny_unknown_fields)]
     #[norito_schema(name = "iroha_data_model::isi::repo::RepoMarginCallIsi")]
     pub struct RepoMarginCallIsi {
         /// Identifier of the repo agreement undergoing a margin check.
@@ -413,7 +422,7 @@ mod tests {
             collateral_leg(),
             250,
             1_704_000_000_000,
-            RepoGovernance::with_defaults(1_500, 86_400),
+            RepoGovernance::new(1_500, 86_400, false),
         )
     }
     fn reverse_repo_instruction() -> ReverseRepoIsi {
@@ -438,7 +447,7 @@ mod tests {
             ),
             1_100u32,
         );
-        let governance = RepoGovernance::with_defaults(1_500, 86_400);
+        let governance = RepoGovernance::new(1_500, 86_400, false);
         let instruction = RepoIsi::new(
             agreement_id.clone(),
             initiator.clone(),
@@ -474,7 +483,7 @@ mod tests {
             ),
             1_100u32,
         );
-        let governance = RepoGovernance::with_defaults(1_500, 86_400);
+        let governance = RepoGovernance::new(1_500, 86_400, false);
         let instruction = RepoIsi::new(
             agreement_id.clone(),
             initiator.clone(),
@@ -510,7 +519,7 @@ mod tests {
             ),
             1_100u32,
         );
-        let governance = RepoGovernance::with_defaults(1_500, 86_400);
+        let governance = RepoGovernance::new(1_500, 86_400, false);
         let instruction = RepoIsi::new(
             agreement_id,
             initiator,
@@ -536,11 +545,11 @@ mod tests {
         assert_eq!(decoded.to_string(), "REPO_MARGIN `daily_repo`");
     }
     #[test]
-    fn reverse_repo_display_is_maturity_only() {
+    fn reverse_repo_display_is_id_only() {
         let agreement_id: RepoAgreementId = "daily_repo".parse().expect("id");
         let instruction = ReverseRepoIsi::new(agreement_id);
         let formatted = format!("{instruction}");
-        assert_eq!(formatted, "REPO_SETTLE `daily_repo` AT MATURITY");
+        assert_eq!(formatted, "REPO_SETTLE `daily_repo`");
     }
     #[test]
     fn repo_consent_hashes_bind_every_term_and_phase() {
@@ -565,6 +574,56 @@ mod tests {
             instruction.settlement_id().reference(),
             instruction.agreement_id().name()
         );
+    }
+    #[test]
+    fn early_repayment_opt_in_changes_both_consent_hashes() {
+        let fixed = repo_instruction();
+        assert!(!fixed.governance().allow_early_repayment());
+        let mut early = fixed.clone();
+        early.governance.allow_early_repayment = true;
+        assert_ne!(
+            fixed.initiation_intent_hash(),
+            early.initiation_intent_hash()
+        );
+        assert_ne!(fixed.maturity_intent_hash(), early.maturity_intent_hash());
+        let bytes = early.encode();
+        let decoded = RepoIsi::decode(&mut bytes.as_slice()).expect("decode early repo");
+        assert!(decoded.governance().allow_early_repayment());
+        assert_eq!(
+            decoded.initiation_intent_hash(),
+            early.initiation_intent_hash()
+        );
+    }
+    #[test]
+    fn repo_instruction_json_is_strict_and_roundtrips() {
+        let mut instruction = repo_instruction();
+        instruction.governance.allow_early_repayment = true;
+        let text = norito::json::to_json(&instruction).expect("repo JSON");
+        assert!(text.contains(
+            r#""governance":{"haircut_bps":1500,"margin_frequency_secs":86400,"allow_early_repayment":true}"#
+        ));
+        assert_eq!(
+            norito::json::from_str::<RepoIsi>(&text).expect("repo JSON decode"),
+            instruction
+        );
+        for malformed in [
+            text.replacen(r#","allow_early_repayment":true"#, "", 1),
+            text.replacen(
+                r#""allow_early_repayment":true"#,
+                r#""allow_early_repayment":true,"unknown":0"#,
+                1,
+            ),
+            text.replacen('{', r#"{"unknown":0,"#, 1),
+        ] {
+            assert_ne!(malformed, text);
+            assert!(norito::json::from_str::<RepoIsi>(&malformed).is_err());
+        }
+        for value in [
+            norito::json::to_json(&reverse_repo_instruction()).expect("reverse JSON"),
+            norito::json::to_json(&RepoMarginCallIsi::new(agreement_id())).expect("margin JSON"),
+        ] {
+            assert_eq!(value, r#"{"agreement_id":"daily_repo"}"#);
+        }
     }
     #[test]
     fn repo_decode_from_slice_roundtrips() {
@@ -618,7 +677,7 @@ mod tests {
             collateral_leg: collateral_leg(),
             rate_bps: 250,
             maturity_timestamp_ms: 1_704_000_000_000,
-            governance: RepoGovernance::with_defaults(1_500, 86_400),
+            governance: RepoGovernance::new(1_500, 86_400, false),
         };
         assert!(
             RepoIsi::decode_from_slice(&forged.encode()).is_err(),

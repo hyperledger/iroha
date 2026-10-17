@@ -188,7 +188,22 @@ def _assert_current_wallet_load_issuance_route(operations: dict[str, dict[str, s
     }
     wallet_routes = {row["route_id"]: row["path"] for row in operations.values()
                      if row["path"].startswith("/v1/kagemusha/")}
-    assert wallet_routes == {route_id: path}
+    assert wallet_routes == {
+        "contracts.kagemusha_enrollment_post": "/v1/kagemusha/enrollment",
+        route_id: path,
+        "contracts.kagemusha_load_finality_get": f"{path}/finality",
+        "contracts.kagemusha_load_epoch_get": f"{path}/epochs/{{boundary}}",
+        "contracts.kagemusha_ledger_finality_get":
+            "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/finality",
+        "contracts.kagemusha_ledger_epoch_get":
+            "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/epochs/{boundary}",
+    }
+    # Every wallet original read is the same exact private, account-signed GET.
+    for original_id in wallet_routes.keys() - {"contracts.kagemusha_enrollment_post"}:
+        assert {field: value for field, value in operations[original_id].items()
+                if field not in {"route_id", "path"}} == {
+            field: value for field, value in operations[route_id].items()
+            if field not in {"route_id", "path"}}, original_id
     assert not any(identifier.startswith("kagemusha.") for identifier in operations)
     retired_paths = {
         "/v1/kagemusha/readiness",

@@ -8,7 +8,7 @@ use codec::{
 };
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{a_relation::LINEAGE_DOMAIN, omega::OmegaPlan};
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     DescriptorBinding, VerifyingKey,
     cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2},
@@ -123,14 +123,16 @@ impl ExportRequest {
             *input.vesta
         );
         let mut words = input.public.to_vec();
-        let pallas_coordinates = Option::<(Fp, Fp)>::from(input.pallas.g().coordinates()).unwrap();
+        let pallas_coordinates =
+            iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(input.pallas.g());
         words.extend([pallas_coordinates.0, pallas_coordinates.1]);
         for u in input.pallas.challenges() {
             words.extend(foreign_limbs(u).map(Fp::from_u128));
         }
         assert_eq!(words.len(), 52);
         let digest = hash_with_domain(LINEAGE_DOMAIN, &words);
-        let vesta_coordinates = Option::<(Fq, Fq)>::from(input.vesta.g().coordinates()).unwrap();
+        let vesta_coordinates =
+            iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(input.vesta.g());
         let fq = |value: Fp| Option::<Fq>::from(Fq::from_repr(value.to_repr())).unwrap();
         let instances = vec![
             vec![fq(digest)],

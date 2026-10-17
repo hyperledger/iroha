@@ -287,7 +287,8 @@ pub fn pay_fee(
     verifier: &impl NativePackageVerifier,
     claim: &KagemushaWalletFeeClaimV1,
 ) -> Result<KagemushaWalletPayoutRecordV1> {
-    let c = &claim.payment.request.body;
+    let signed_request = claim.payment.signed_request()?;
+    let c = &signed_request.body;
     let registration = tx.registration(&c.scheme_id, &c.asset_digest)?;
     registration.require(&c.scheme_id, &c.asset_digest)?;
     let inputs = tx.fee_inputs(claim)?;

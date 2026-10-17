@@ -196,7 +196,9 @@ function verifyLocalUnitBinding(paths) {
       "--root", root, "--output", output, "--producer-sha256", manifest.producer_record_sha256], {
       cwd: root,
       env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME, LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
-      encoding: "utf8", maxBuffer: 16 * 1024, timeout: 60_000,
+      // Full dependency hashing can exceed one minute while mobile builds run.
+      // Keep verification mandatory and bounded without rejecting a valid build.
+      encoding: "utf8", maxBuffer: 16 * 1024, timeout: 180_000,
     }));
     if (result.schema !== LOCAL_UNIT_SCHEMA || result.artifact_scope !== "local-unit" ||
         result.build_provenance_version !== 4 || result.verified !== true ||

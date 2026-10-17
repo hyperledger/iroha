@@ -95,7 +95,7 @@ pub struct Shape {
     pub blinding_factors: usize,
     /// The usable rows `u = n - b - 1`; row `u` is `l_last`.
     pub usable_rows: usize,
-    /// Columns per permutation set, `d - 2`.
+    /// Columns per norm-product permutation set, `floor((d - 2) / 2)`.
     pub chunk_len: usize,
     /// Quotient pieces, `d - 1`.
     pub quotient_pieces: usize,
@@ -113,7 +113,7 @@ pub struct Shape {
     pub instance_queries: usize,
     /// Equality columns `m`.
     pub permutation_columns: usize,
-    /// Permutation sets `n_z = ceil(m / (d - 2))`.
+    /// Permutation sets `n_z = ceil(m / floor((d - 2) / 2))`.
     pub permutation_sets: usize,
     /// Lookups `n_l`.
     pub lookups: usize,
@@ -144,7 +144,10 @@ impl Shape {
             .checked_sub(blinding_factors)
             .and_then(|rows| rows.checked_sub(1))
             .ok_or(ProtocolError::Overflow)?;
-        let chunk_len = degree.checked_sub(2).filter(|chunk| *chunk >= 1);
+        let chunk_len = degree
+            .checked_sub(2)
+            .map(|v| v / 2)
+            .filter(|chunk| *chunk >= 1);
         let chunk_len = chunk_len.ok_or(ProtocolError::Overflow)?;
         let quotient_pieces = degree.checked_sub(1).ok_or(ProtocolError::Overflow)?;
         let permutation_columns = descriptor.permutation.len();

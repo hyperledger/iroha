@@ -43,34 +43,27 @@ impl<C: PastaCurve> Circuit<C::Base> for Probe<C> {
         let outputs = layouter.assign_region(
             || "factored Lagrange inverses",
             |mut region| {
-                let witness = if self.known {
-                    Value::known(self.x.to_canonical_limbs())
-                } else {
-                    Value::unknown()
-                };
-                let x = chip.arithmetic.ff.witness_canonical(
+                let raw = ScalarCells::<C>::assign_value(
+                    &mut chip.uint(),
                     &mut region,
-                    Arithmetic::<C>::modulus(),
-                    witness,
+                    if self.known {
+                        Value::known(self.x)
+                    } else {
+                        Value::unknown()
+                    },
                 )?;
-                let mut valid = chip.glue.boolean(&mut region, Value::known(true))?;
+                let (_, x) = chip.total_challenge(&mut region, Challenge::X, raw)?;
+                let valid = chip.glue.boolean(&mut region, Value::known(true))?;
                 chip.glue
                     .enforce_constant(&mut region, valid.word(), C::Base::ONE)?;
                 let one = chip.constant(&mut region, C::ScalarExt::ONE)?;
                 let xn = chip.pow(&mut region, &x, 64)?;
                 let denominator = chip.sub(&mut region, &xn, &one)?;
-                let (vanishing, guard) = chip.arithmetic.inverse(
-                    &mut UintChip::new(&mut chip.glue, &mut chip.range),
-                    &mut region,
-                    &denominator,
-                )?;
-                chip.combine(&mut region, &mut valid, &guard)?;
+                let vanishing = chip.arithmetic.ff.inverse(&mut region, &denominator)?;
                 let mut cache = std::collections::BTreeMap::new();
-                let weight =
-                    chip.lagrange_weight(&mut region, 6, self.index, &x, &guard, &mut cache)?;
+                let weight = chip.lagrange_weight(&mut region, 6, self.index, &x, &mut cache)?;
                 let row = chip.arithmetic.ff.next_row();
-                let again =
-                    chip.lagrange_weight(&mut region, 6, self.index, &x, &guard, &mut cache)?;
+                let again = chip.lagrange_weight(&mut region, 6, self.index, &x, &mut cache)?;
                 assert_eq!(row, chip.arithmetic.ff.next_row());
                 assert_eq!(
                     weight.limbs().each_ref().map(Word::cell),
@@ -81,7 +74,8 @@ impl<C: PastaCurve> Circuit<C::Base> for Probe<C> {
                     .iter()
                     .chain(weight.limbs())
                     .map(Word::cell)
-                    .chain([guard.cell(), valid.cell()])
+                    .chain(x.limbs().iter().map(Word::cell))
+                    .chain([valid.cell()])
                     .collect();
                 let vanishing = chip.export(&mut region, &vanishing)?;
                 let weight = chip.export(&mut region, &weight)?;
@@ -102,7 +96,9 @@ impl<C: PastaCurve> Circuit<C::Base> for Probe<C> {
 }
 fn cases<C: PastaCurve>() {
     let omega = iroha_plonk::protocol::omega::<C::ScalarExt>(6).unwrap();
-    for (x, index) in [
+    for (raw, index) in [
+        (C::ScalarExt::ZERO, 0),
+        (-C::ScalarExt::ONE, 63),
         (C::ScalarExt::ONE, 0),
         (C::ScalarExt::ONE, 63),
         (C::ScalarExt::from(2), 0),
@@ -111,20 +107,19 @@ fn cases<C: PastaCurve>() {
         (omega.pow_vartime([7]), 0),
     ] {
         let circuit = Probe::<C> {
-            x,
+            x: raw,
             index,
             known: true,
             inverse_cells: Rc::default(),
         };
+        let x = iroha_plonk::transcript::pipa_r::evaluation_challenge(raw);
         let vanishing = x.pow_vartime([64]) - C::ScalarExt::ONE;
         let power = omega.pow_vartime([index as u64]);
         let denominator = x - power;
-        let valid = !bool::from(vanishing.is_zero());
-        let weight = if valid {
-            power * denominator.invert().unwrap()
-        } else {
-            C::ScalarExt::ZERO
-        };
+        assert!(!bool::from(vanishing.is_zero()));
+        assert!(!bool::from(denominator.is_zero()));
+        let valid = true;
+        let weight = power * denominator.invert().unwrap();
         let limbs = |value: C::ScalarExt| {
             let words = value.to_canonical_limbs();
             [
@@ -171,7 +166,7 @@ fn cases<C: PastaCurve>() {
     }
 }
 #[test]
-fn factored_lagrange_zero_denominator_inverse_tampering_and_cache_both_curves() {
+fn mapped_lagrange_inverse_tampering_and_cache_both_curves() {
     cases::<Ep>();
     cases::<Eq>();
 }

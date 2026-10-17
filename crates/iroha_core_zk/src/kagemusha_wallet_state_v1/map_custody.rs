@@ -1,7 +1,7 @@
 //! Fixed native map roles and unpublished preparation drafts over the source archive.
 //!
-//! A draft can write redundant immutable objects, but never select a monetary head or
-//! publish an archive manifest. Only its coordinator may retain/promote the descriptor.
+//! Logical drafts stage immutable objects in an explicit workspace. Only the coordinator
+//! may materialize their complete batch and publish a descriptor after acknowledgment.
 
 use super::{map_tree::PersistentMapV1, *};
 
@@ -99,14 +99,14 @@ impl SourceMapsV1 {
     }
 }
 
-// Keeps ObjectStore generic helpers monomorphized without exposing archive selection.
-struct BorrowedStore<'a>(&'a mut dyn ObjectStore);
-impl ObjectStore for BorrowedStore<'_> {
-    fn read_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
-        self.0.read_object(key, maximum)
+// Keeps ObjectWorkspace generic helpers monomorphized without exposing archive selection.
+struct BorrowedStore<'a>(&'a mut dyn ObjectWorkspace);
+impl ObjectWorkspace for BorrowedStore<'_> {
+    fn read_staged_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
+        self.0.read_staged_object(key, maximum)
     }
-    fn write_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
-        self.0.write_object(bytes, maximum)
+    fn stage_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
+        self.0.stage_object(bytes, maximum)
     }
 }
 
@@ -124,11 +124,11 @@ impl<'a> PreparationMapsV1<'a> {
     pub(super) fn snapshot(&self) -> SourceMapsV1 {
         self.draft.clone()
     }
-    pub(crate) fn store(&mut self) -> &mut dyn ObjectStore {
+    pub(crate) fn store(&mut self) -> &mut dyn ObjectWorkspace {
         self.store.0
     }
     pub(super) fn new(
-        store: &'a mut dyn ObjectStore,
+        store: &'a mut dyn ObjectWorkspace,
         selected: &SourceMapsV1,
         state: &KagemushaWalletStateV1,
         kind: KagemushaWalletOperationKindV1,

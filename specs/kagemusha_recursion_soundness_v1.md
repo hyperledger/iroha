@@ -1,5 +1,12 @@
 # KAGEMUSHA recursive verifier and accumulation argument
 
+The construction sections below describe the selected first-release C12
+proposal. Its native, recursive, proof and wallet owners are coupled: source
+review does not establish a buildable partial migration, current catalog
+admission, joint privacy, or release qualification. Historical formal models
+and executions retain their original source scope; see the transfer boundary
+under Composition, keys and disclosure.
+
 This is the implementation-coupled M4 engineering argument for
 [`iroha_plonk_recursion`](../crates/iroha_plonk_recursion/src/lib.rs). It covers
 the explicit PIPA-R profile, native PIPA-AS, the incoming-claim branch rule and
@@ -58,20 +65,22 @@ bound for arbitrary depth.
 
 ## Injective framing and challenge distributions
 
-PIPA-R has an explicit V2 descriptor and decoder. Its key commits to the
+PIPA-R has an explicit V2 descriptor schema and decoder, with protocol version 1. Its key commits to the
 descriptor, the pinned parameter digest, the transcript profile, Direct
 instances and the FoldedGenerator suffix. No decoder retries a retired
 profile. The transcript starts with the `pipa-rb1` domain and absorbs the key
 representation, `pipainst`, column count, every column length, every type code
 and the column-major instance values. This makes the statement's shape and
-type part of the challenge input. Identity points and noncanonical integers
-are rejected, rather than reduced or given an alternate encoding.
+type part of the challenge input. Noncanonical integers and identity in ordinary
+point roles are rejected. The final generator suffix and carried generator claims
+alone admit the canonical full-group identity encoding.
 
 Proof scalars use a single canonical base-field element when the scalar
 modulus is smaller, and the S6 `(lo128, hi127)` encoding otherwise. Range and
-modulus checks make S6 injective. Points use finite canonical `(x,y)` pairs;
-the compressed byte decoder binds both x and the sign bit to those pairs.
-The circuit also checks the curve equation. An outer byte-link relation must
+modulus checks make S6 injective. Ordinary points use finite canonical `(x,y)`
+pairs; the compressed byte decoder binds x and its sign bit to those pairs and
+the circuit checks the curve equation. A scoped generator uses the same finite
+encoding or exactly `(0,0)`/zero32 for identity, with no relaxation of decide. An outer byte-link relation must
 bind the actual supplied length and every byte; a valid dummy used by a soft
 decoder is never a replacement for that binding.
 
@@ -81,54 +90,96 @@ The checked constants give
 For a uniform Fp transcript word, identity embedding into Fq has statistical
 distance δ/q from uniform Fq. For a uniform Fq word, reduction by one p gives
 Fp probabilities 2/q on `[0,δ)` and 1/q elsewhere; its statistical distance
-from uniform Fp is `δ(p−δ)/(pq)`, at most δ/q. Thus each mapped challenge
-adds at most `2^-167.836` to a uniform-challenge hybrid bound. This is a
-distribution calculation conditional on the ROM assumption, not a bound on
-the security of Poseidon itself. Zero and other forbidden challenges still
-produce rejection bits; total soft arithmetic selects a safe denominator
-before inversion and retains the rejection bit.
+from uniform Fp is `δ(p−δ)/(pq)`, at most δ/q. This is the base-conversion
+distance only. The selected role maps subsequently set `nz(0)=1`, `nz(a)=a`
+otherwise, `x=5*nz(a)^2`, `x_3=25*nz(a)^4`, and map Xi and each actual IPA/fold
+round through `nz`. Their maximum scalar fibers are respectively 3, 5 and 2;
+the base conversion has multiplicity at most 1 for Pallas and 2 for Vesta.
+These are pushforward laws, not approximately uniform scalar challenges.
+
+Five is nonsquare in both scalar fields. Evaluation x is nonsquare, x_3 is
+square but not a fourth power, and the supported domain rotations are fourth
+powers. Thus domain/opening denominators are nonzero at the selected roles.
+The permutation/lookup factors are separately `N(t)=t^2−5`, with final product
+one. Raw zero is handled by the total map; only normalization padding remains
+zero. Other raw roles, including alpha/z/zeta of the local fold, are unchanged.
+Malformed values still produce refusal or a soft false bit under the owner's
+contract. These source equations do not prove the soundness or privacy of the
+concrete RP57 instantiation.
 
 ## What an accumulation fold proves
 
 For an input `(G_j,k_j,u_j)`, normalized challenges have exactly `16−k_j`
 leading zeros and k_j nonzero canonical suffix elements. They determine a
-length-65536 coefficient vector s_j whose nonzero prefix agrees with the
-source generator prefix. The deferred claim is `G_j = Commit(s_j)`.
+length-65536 vector s_j whose nonzero prefix agrees with the source generator
+prefix. The deferred claim is `G_j=Commit(s_j)`; G_j may be identity.
 
-PIPA-AS absorbs its `pipa-as1` domain, canonical external salt, input count,
-and, in fixed slot order, each G, selected source k and all 16 normalized
-challenges. It then squeezes α, z and ζ. Define
-`h = sum_j α^j s_j`, `C = sum_j α^j G_j`, and
-`v = h(z)`. The prover opens the shifted coefficient vector `h−v e_0` at z
-with claimed evaluation zero. Its commitment is `C−v g_0`. The non-hiding
-IPA has 16 L/R pairs, one final scalar and the unabsorbed folded-generator
-suffix. Its body is 1,088 bytes; salt makes the local witness 1,120 bytes.
-There is no independent hiding-generator term that could absorb a false
-commitment claim. Final acceptance includes the deferred generator decide.
+The selected committed-mask construction consumes a private tape with 33
+scalar coins: rho followed by 32 ordered L/R masks. Every coin may be zero.
+The `pipa-in1` digest binds parameters, closed purpose, slot count, each exact
+canonical source and all 32 masks. Its two canonical 128-bit digest limbs h0,h1
+open `D=h0*g[0]+h1*g[1]+rho*W`. The `pipa-as1` challenge transcript absorbs
+parameters, purpose and count, then finite D, before alpha,z,zeta. It does not
+absorb an external salt or the private input list directly.
 
-For fixed input errors `E_j = G_j−Commit(s_j)`, a nonzero polynomial
-`sum_j α^j E_j` has at most r−1 roots over the prime-order scalar field.
-This is the cancellation term. The evaluation test supplies a separate
-degree-at-most-65535 term. Under the commitment/IPA extraction assumptions,
-the ROM reduction must also account for adaptive hash queries and the
-challenge-map distance; a suggestive `(r+65536)/|F|` term is not a complete
-standalone security bound or a literal equivalence at every challenge.
-The salt is fixed before α; each grinding attempt is another hash query.
+Purposes are closed: SigmaBatch uses Vesta; AInitial and AContinuation use
+Pallas; ATerminal uses exactly four Pallas slots; WrapperVesta uses exactly four
+Vesta slots. The terminal `pipa-tm1` projection binds the actual V slot, masks,
+descriptor and raw first Theta from the same admitted proof. It is available
+only through the non-Clone `TerminalPlan`/`TerminalFrame` owner, whose fixed
+four-slot derivation and same-frame own-opening obligation remain mandatory.
+Neither an arbitrary raw word nor an input digest is verification authority.
 
-An undecided suffix can satisfy the succinct equation even for a false
-claim. The API therefore returns an explicitly undecided accumulator.
-Neither successful parsing nor `verify_fold` alone authorizes a payment.
-Native acceptance must decide all three claims with pinned parameters.
-`ArtifactSet::verify_lineage_cancellable` first calls the full PIPA-R verifier,
-which decides Omega's own Pallas opening, then separately decides `acc_P` and
-`acc_V`. Checking only the two exposed accumulators is insufficient. The generic
-V1 batch API is not this V2 wallet acceptance boundary.
+Set `h=sum_j alpha^j s_j`, `C=sum_j alpha^j G_j` and `v=h(z)`.
+The IPA opens `h−v*e_0` with zero evaluation. Each round adds `ell_j*W`
+to L_j and `r_j*W` to R_j, then obtains `u'_j=nz(raw_j)` from the existing
+squeeze. With `gamma=sum_j(ell_j/u'_j+r_j*u'_j)`, the succinct equation is
 
-Short-only non-hiding folds have a structural liveness problem: the upper
-coefficient half is zero and the first-round L commitment is identity for
-every salt. The caller therefore supplies an explicit pinned k16 trivial
-slot when all actual sources are short. Its position is fixed, counted and
-absorbed. It never replaces another obligation or appears implicitly.
+```text
+C − v*g[0] + sum_j(L_j/u'_j + u'_j*R_j)
+  − c*G' − c*b(z)*zeta*U − gamma*W = O.
+```
+
+D and all L/R messages use the ordinary finite-point codec; G' uses the
+scoped full-group codec. The body is D, 16 L/R pairs, c and G': 1,120 bytes.
+The private witness appends rho and 32 masks (1,056 bytes), totaling 2,176
+bytes. It is not a public Payment field. Input/mask binding, the D opening,
+the exact gamma correction and the final generator decide are all necessary;
+the earlier non-hiding extraction argument cannot be reused by dropping W.
+
+The API returns an undecided accumulator. Parsing or `verify_fold` alone does
+not authorize a payment. `ArtifactSet::verify_lineage_cancellable` fully
+verifies Omega's own Pallas opening, then independently decides acc_P and
+acc_V with pinned parameters. Checking only the exposed pair is insufficient.
+The generic batch API is not this wallet acceptance boundary.
+
+Every decide runs through the pinned parameter owner, which compares the
+claimed `G` with `<s(u), g>` on every call. The owner may take that point from
+its bounded process-local memo, which only an accepted decision or production
+full verification of the same exact challenges on the same owner fills; a full
+verification whose complete input digest the same owner accepted earlier may
+reuse that acceptance, under SHA-256 collision resistance. Its key binds the
+curve, k, descriptor, profile, verifying key, framed instances and proof bytes.
+This cache does not grant masked-key or source-graph admission authority. Rejections, undecidable claims and cancellations are
+never retained, Corrected-mode selection still compares every claim in order,
+and a correction is still the exact point. A caller that needs a fully verified
+proof's own opening as a decided claim obtains it from the same single read
+(`verify_full_opening_cancellable`), and a prover-returned opening must equal it
+exactly.
+
+The caller still supplies a counted, explicit k16 trivial slot when all actual
+sources are short; the implementation rejects an all-short set. That policy
+must not be justified by the old claim that masked L is forced to identity.
+Finite D/L/R failures and operational failures remain fallible outcomes, not
+completed payments. A failed attempt does not authorize a new proof with the
+same coins. Restoration verifies the exact retained witness and originals.
+
+The selected arithmetic retains the source01b packed CRT, pooled/reduced
+foreign values and canonical S6 ownership. Norm evaluation uses the exact
+`m−5` padding and existing range/carry checks; it is not a new layout tuning.
+The [carry memo](kagemusha_ff_carry_v1.md) supplies its stated integer premises;
+layout tuple goldens and proof-byte fixtures still require actual synthesis
+against the complete selected source, not guessed replacement constants.
 
 ## Branch uniqueness and containment
 
@@ -141,7 +192,7 @@ only trivial replacements except for at most one correction; if all soft
 checks pass, rejection requires that correction.
 
 Selection must preserve the original challenges and source k in Accept and
-Corrected modes. Corrected also requires finite `G* != G`. Trivial selects
+Corrected modes. Corrected also requires scoped full-group `G* != G`. Trivial selects
 the pinned `ACC_TRIV` with source k16 and sixteen ones, including when the
 original sigma source was k12 or k14. The selected k is constrained and
 absorbed; relabeling a short padded input as k16 is invalid. A valid dummy
@@ -152,14 +203,11 @@ decides demonstrates that the original claim failed. If all succinct and
 consumer checks and all original deferred claims are true, neither a false
 soft bit nor a distinct deciding correction exists. The receiver therefore
 cannot choose burn for valid evidence. Conversely, an invalid deferred claim
-has a deterministically computable algebraic correction. A finite correction
-can be transported and folded without poisoning otherwise valid wallet
-lineage. If that correction is the identity, the finite-point encoding
-rejects it; the API reports an encoding failure, never an accepted burn.
-Thus this is not unconditional liveness for every possible challenge vector.
-The exceptional identity event needs the same ROM/computational scope as the
-IPA's other exceptional messages; complete operation qualification must not
-claim that an encoding failure completes a payment. Hard own/predecessor/Q/A obligations
+has the deterministically computable correction `G*=Commit(s(u))`, including
+identity under the scoped codec. The corrected decide must still hold; identity
+is not a bypass. This removes the older correction-encoding exception, not all
+proof/entropy/resource failures or the need for complete operation qualification.
+Hard own/predecessor/Q/A obligations
 never enter this selection API. Receive burn and ArchiveSent no-op effects
 still require the complete operation, map and integer constraints; the
 mode rule alone does not establish monetary conservation.
@@ -193,6 +241,36 @@ accumulator, G is determined by that vector and the pinned generators.
 words, two Pallas coordinates and 32 canonical challenge limbs. Thus D_A is a
 deterministic function of the public tuple and adds no further information
 conditional on that tuple. Neither fact proves that the tuple is zero knowledge.
+
+### Retained arguments and selected-source transfer
+
+The derivations below, including the non-hiding polynomial, salted-prefix and
+local-sampler sections, retain their exact antecedent hypotheses and source
+pins. References there to "current" sources or completed checks mean those
+recorded bodies, not automatic qualification of the selected committed-mask
+construction. Do not refresh a formal source manifest merely to make a changed
+implementation pass its old model's custody check.
+
+The [logical setup and causal composition argument](kagemusha_c12_composition_v1.md)
+states the common raw-oracle setup-before-pins experiment and its conditional
+theorem. Its selected-source interpretation uses the same current byte
+materializer across semantic, proof and custody transitions. The experiment is
+fixed before honest setup and retains setup failure; it does not condition on
+a literal installed key or require a universal simulator for that fixed key.
+The selected norm products and role-map distributions, opened D and correlated
+mask tape, closed terminal projection, fresh-attempt accounting and
+retained-original restoration joins are covered conditionally by that argument
+under its named M-admitted local law, reached-source validity and byte-state
+service premises. The joint public sigma/P/V/Omega simulator and stopped
+refusal law use one coherent two-curve setup and coin experiment, with unchanged
+RP57. The accepted recursive Fiat–Shamir soundness heuristic supplies none of
+those privacy premises.
+
+Concrete BLAKE2b uses the stated setup-instantiation assumption;
+physical-storage refinement and current artifact qualification remain separate.
+Source-level kernel/composition reviews and older native executions keep their
+individual scope; new catalog/goldens, full native/circuit runs and physical
+qualification remain separate unfinished checks.
 
 C12 compares the full terminal public proof view under one persistent typed
 random-oracle interface for RP57 transcripts. Addresses are the field and

@@ -6,7 +6,11 @@
 
 use super::*;
 
-fn record(output: &Path, name: &str, message: KagemushaWalletMessageV1) -> norito::json::Value {
+pub(super) fn record(
+    output: &Path,
+    name: &str,
+    message: KagemushaWalletMessageV1,
+) -> norito::json::Value {
     let maximum = message.max_bytes();
     let scheme = *message.scheme_id();
     let tag = message.tag();
@@ -88,7 +92,7 @@ pub(super) fn retain(
     for (name, payment, credited) in originals {
         let payment_result = verifier.verify_package_proofs(
             &payment.send,
-            Some(&payment.request.body),
+            Some(&payment.signed_request().unwrap().body),
             MemoryBudget::DEFAULT,
         );
         let (credited_scope, credited_result) = match &credited.evidence {
@@ -96,7 +100,7 @@ pub(super) fn retain(
                 "Receive Sigma proof; request-body selector only",
                 verifier.verify_package_proofs(
                     package,
-                    Some(&payment.request.body),
+                    Some(&payment.signed_request().unwrap().body),
                     MemoryBudget::DEFAULT,
                 ),
             ),

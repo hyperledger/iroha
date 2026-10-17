@@ -371,7 +371,7 @@ fn wrapper_source(
             instances: vec![Fp::ZERO; 69],
             proof: vec![0; length],
             length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-            fold: [0; 1120],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
         },
     )
     .map(|source| source.without_witnesses())
@@ -475,7 +475,7 @@ impl FirstCircuit {
         Ok(Self {
             source: Arc::new(source),
             plan: plan.context.clone(),
-            fold: vec![0; 1120],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             known: false,
         })
     }
@@ -489,7 +489,7 @@ impl ContinuationCircuit {
             first,
             wrapper: vec![0; plan.wrap().verifier().proof_length()],
             vesta: None,
-            fold: vec![0; 1120],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             carried: None,
 
             plan,

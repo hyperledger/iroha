@@ -69,7 +69,7 @@ fn lane_round<F: Field>(
 
 /// Sigma-shaped circuit: two Pow5-style lanes, an equality bus and a byte-lookup column.
 #[derive(Clone)]
-pub(super) struct SigmaCircuit<F: PastaField> {
+pub(crate) struct SigmaCircuit<F: PastaField> {
     k: u32,
     witness: bool,
     round_constants: Vec<[F; LANE_WIDTH]>,
@@ -79,7 +79,7 @@ pub(super) struct SigmaCircuit<F: PastaField> {
 
 /// Columns of [`SigmaCircuit`].
 #[derive(Clone, Copy)]
-pub(super) struct SigmaConfig {
+pub(crate) struct SigmaConfig {
     lanes: [[Column<Advice>; LANE_WIDTH]; LANES],
     bus: Column<Advice>,
     base: Column<Advice>,
@@ -92,7 +92,7 @@ pub(super) struct SigmaConfig {
 
 impl<F: PastaField> SigmaCircuit<F> {
     /// Build the fixed data and witness for `k`.
-    pub(super) fn new(k: u32) -> Self {
+    pub(crate) fn new(k: u32) -> Self {
         let rows = used_rows(k);
         let mds = lane_mds::<F>();
         let mut fixed_rng = data_rng(0xc0, k);
@@ -125,7 +125,7 @@ impl<F: PastaField> SigmaCircuit<F> {
     }
 
     /// The single public input: the first base-column value.
-    pub(super) fn public(&self) -> Vec<F> {
+    pub(crate) fn public(&self) -> Vec<F> {
         vec![self.bytes[0]]
     }
 
@@ -271,7 +271,7 @@ impl<F: PastaField> Circuit<F> for SigmaCircuit<F> {
 
 /// Wide degree-4 circuit: chained products in four column groups and two lookups.
 #[derive(Clone)]
-pub(super) struct WideCircuit<F: PastaField> {
+pub(crate) struct WideCircuit<F: PastaField> {
     k: u32,
     witness: bool,
     /// Assigned advice values, one row of all twelve columns per circuit row.
@@ -280,7 +280,7 @@ pub(super) struct WideCircuit<F: PastaField> {
 
 /// Columns of [`WideCircuit`].
 #[derive(Clone, Copy)]
-pub(super) struct WideConfig {
+pub(crate) struct WideConfig {
     advice: [Column<Advice>; WIDE_ADVICE],
     product: Column<Fixed>,
     range: TableColumn,
@@ -294,7 +294,7 @@ impl<F: PastaField> WideCircuit<F> {
     /// Group `g` uses columns `(3g, 3g + 1, 3g + 2)` as `(x, y, z)` with
     /// `x_next = x * y * z`. Columns 1, 4, 7 and 10 hold small values, column 8 is
     /// the square of column 4 and the duplicated columns are copy-constrained.
-    pub(super) fn new(k: u32) -> Self {
+    pub(crate) fn new(k: u32) -> Self {
         let used = used_rows(k);
         let bits = table_bits(k);
         let mut rng = data_rng(0x77, k);
@@ -327,7 +327,7 @@ impl<F: PastaField> WideCircuit<F> {
     }
 
     /// The single public input: the last group-3 chain value.
-    pub(super) fn public(&self) -> Vec<F> {
+    pub(crate) fn public(&self) -> Vec<F> {
         vec![self.rows.last().expect("wide circuit has rows")[9]]
     }
 }

@@ -471,3 +471,21 @@ fn activation_confirmation_checkpoint_refusal_retries_exact_selected_original() 
         checkpoint
     );
 }
+
+impl Wallet {
+    /// Install the existing synthetic activation fixture for coordinator-boundary tests only.
+    pub(in crate::kagemusha_wallet_state_v1) fn confirm_mock_activation_for_intake(&mut self) {
+        let asset = fixture("KagemushaWalletAssetScopeV1");
+        let plan = self.activation_plan(&asset).unwrap();
+        let original = super::super::tests::output(&plan);
+        self.finish_activation(&plan, &original).unwrap();
+        let plan = self.activation_plan(&asset).unwrap();
+        let plan = register_data(self, &plan, &[7; 128]);
+        let confirmation = confirmation_data(self, &plan, &[7; 128]);
+        let (root, manifest) = self.sync_manifest().unwrap();
+        self.publish_activation_confirmation(root, manifest, &plan, &confirmation)
+            .unwrap();
+        let (_, manifest) = self.sync_manifest().unwrap();
+        self.require_ledger_activation(&manifest).unwrap();
+    }
+}

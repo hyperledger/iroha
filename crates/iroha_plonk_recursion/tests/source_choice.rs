@@ -1,14 +1,15 @@
 //! A uniform fold schema binds k12/k14/k16 sigma parts without relabelling,
 //! omitted transcript metadata or witness-dependent circuit shape.
 
-use ff::{Field, PrimeField};
+use ff::Field;
 use group::prime::PrimeCurveAffine;
-use iroha_pasta::{Ep, Eq, PastaAffine, PastaCurve, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, PastaCurve, PastaField, msm::MemoryBudget, poseidon::PoseidonField};
 use iroha_plonk::{
     check::{CheckMode, check},
     cs::{Column, ConstraintSystem, Instance},
     frontend::{Circuit, Error, Layouter, SimpleFloorPlanner, Value, synthesize},
     pcs::ipa::PinnedParams,
+    transcript::generator_coordinates,
 };
 use iroha_plonk_gadgets::{
     bytes::{
@@ -18,18 +19,46 @@ use iroha_plonk_gadgets::{
     statement::foreign_limbs,
 };
 use iroha_plonk_recursion::{
-    AccumulatorT, FOLD_WITNESS_BYTES, FoldConfig, FoldInput,
+    AccumulatorT, FOLD_WITNESS_BYTES, FoldConfig, FoldInput, FoldPurpose, FoldTape, FoldWitness,
     accumulation_circuit::{FoldInputCells, FoldPlan, FoldSource},
     codec::ScalarCells,
     create_fold,
     verifier::{VerificationMode, VerifierChip, VerifierConfig},
 };
+use zeroize::Zeroizing;
+
+// Public deterministic fixtures only; these coins are never production entropy.
+fn fixture_tape<C: PastaCurve>(start: u64) -> FoldTape<C> {
+    let mut value = start;
+    FoldTape::try_fill::<()>(|coin| {
+        *coin = C::ScalarExt::from(value);
+        value += 1;
+        Ok(())
+    })
+    .expect("public fixture tape")
+}
+
+fn fixture_purpose<C: PastaCurve>() -> FoldPurpose {
+    if C::CURVE_ID == "pallas" {
+        FoldPurpose::AInitial
+    } else {
+        FoldPurpose::SigmaBatch
+    }
+}
+
+fn private_fixture_bytes<C: PastaCurve>(witness: &FoldWitness<C>) -> Zeroizing<Vec<u8>> {
+    let private = witness.to_private_bytes();
+    let mut bytes = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES]);
+    bytes.copy_from_slice(&private);
+    bytes
+}
+
 #[derive(Clone)]
 struct Choice<C: PastaCurve> {
     plan: FoldPlan<C>,
     claim: FoldInput<C>,
     source_k: u32,
-    proof: [u8; FOLD_WITNESS_BYTES],
+    proof: Zeroizing<Vec<u8>>,
     trivial: AccumulatorT<C>,
     known: bool,
 }
@@ -48,7 +77,7 @@ impl<C: PastaCurve> Choice<C> {
         }
     }
     fn public(&self, output: &AccumulatorT<C>) -> Vec<C::Base> {
-        let (x, y) = output.g().coordinates().unwrap();
+        let (x, y) = generator_coordinates::<C>(output.g());
         let mut values = vec![C::Base::from(u64::from(self.source_k)), x, y];
         for challenge in output.challenges() {
             values.extend(foreign_limbs(challenge).map(C::Base::from_u128));
@@ -107,7 +136,7 @@ impl<C: PastaCurve> Circuit<C::Base> for Choice<C> {
                     self.value(C::Base::from(u64::from(self.source_k))),
                 )?;
                 let point =
-                    chip.witness_point(&mut region, self.value(self.claim.g().to_curve()))?;
+                    chip.witness_generator(&mut region, self.value(self.claim.g().to_curve()))?;
                 let mut challenges = Vec::new();
                 for challenge in self.claim.challenges() {
                     let [lo, hi] = foreign_limbs(challenge);
@@ -127,7 +156,7 @@ impl<C: PastaCurve> Circuit<C::Base> for Choice<C> {
                     point,
                     challenges.try_into().map_err(|_| Error::Synthesis)?,
                 )?;
-                let trivial = chip.constant_point(&mut region, &self.trivial.g().to_curve())?;
+                let trivial = chip.constant_generator(&mut region, &self.trivial.g().to_curve())?;
                 let lo = chip.uint().constant::<128>(&mut region, 1)?;
                 let hi = chip.uint().constant::<127>(&mut region, 0)?;
                 let one = ScalarCells::from_limbs(&mut chip.uint(), &mut region, &lo, &hi)?;
@@ -138,7 +167,9 @@ impl<C: PastaCurve> Circuit<C::Base> for Choice<C> {
                     trivial,
                     core::array::from_fn(|_| one.clone()),
                 )?;
-                let length = chip.uint().constant::<32>(&mut region, 1120)?;
+                let length = chip
+                    .uint()
+                    .constant::<32>(&mut region, FOLD_WITNESS_BYTES as u128)?;
                 let output = chip.verify_fold(
                     &mut region,
                     &self.plan,
@@ -164,12 +195,16 @@ impl<C: PastaCurve> Circuit<C::Base> for Choice<C> {
         Ok(())
     }
 }
-fn run<C: PastaCurve>() {
+fn run<C: PastaCurve>()
+where
+    C::Base: PoseidonField,
+{
     let params = PinnedParams::<C>::derive(16).unwrap();
     let trivial = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
     let plan = FoldPlan::with_sources(
         &params,
         vec![FoldSource::SigmaChoice, FoldSource::Fixed(16)],
+        fixture_purpose::<C>(),
     )
     .unwrap();
     assert_eq!(FoldSource::SigmaChoice.original_k(), None);
@@ -183,7 +218,8 @@ fn run<C: PastaCurve>() {
         let (proof, output) = create_fold(
             &params,
             &[claim.clone(), trivial.as_input()],
-            C::Base::from(23).to_repr(),
+            fixture_tape::<C>(23),
+            fixture_purpose::<C>(),
             &FoldConfig::default(),
         )
         .unwrap();
@@ -191,7 +227,7 @@ fn run<C: PastaCurve>() {
             plan: plan.clone(),
             claim,
             source_k: u32::try_from(k).unwrap(),
-            proof: proof.to_bytes(),
+            proof: private_fixture_bytes(&proof),
             trivial: trivial.clone(),
             known: true,
         };

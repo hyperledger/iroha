@@ -60,8 +60,14 @@ fn canonical_original_projection_matches_existing_model_digests_and_tapes() {
         projected.compact,
         kagemusha_wallet_payment_transcript_v1(
             &digests.request,
-            &original.payer_payment_key,
-            &original.payer_credential_digest,
+            &original.send.lineage.lineage().unwrap().public.payment_key,
+            &original
+                .send
+                .lineage
+                .lineage()
+                .unwrap()
+                .public
+                .credential_digest,
             &digests.package.package,
         )
     );
@@ -71,15 +77,18 @@ fn canonical_original_projection_matches_existing_model_digests_and_tapes() {
 fn receipt_identity_comes_only_from_the_carried_lineage_original() {
     let mut original: KagemushaWalletPaymentV1 = object("KagemushaWalletPaymentV1");
     let before = project(&original);
-    original.payer_credential_digest = Fp::from(731).to_repr();
     let signer = SigningKey::from_slice(&[0x59; 32]).unwrap();
-    original.payer_payment_key = KagemushaDevicePublicKeyV1::from_sec1_bytes(
-        signer.verifying_key().to_encoded_point(false).as_bytes(),
-    )
-    .unwrap();
+    if let KagemushaWalletLineageSlotV1::Present { lineage } = &mut original.send.lineage {
+        lineage.public.credential_digest = Fp::from(731).to_repr();
+        lineage.public.payment_key = KagemushaDevicePublicKeyV1::from_sec1_bytes(
+            signer.verifying_key().to_encoded_point(false).as_bytes(),
+        )
+        .unwrap();
+    }
     assert!(original.digests().is_err());
     let after = project(&original);
-    assert_eq!(before.receipt, after.receipt);
+    // The single payer-identity owner is inside Omega and therefore the proof digest.
+    assert_ne!(before.receipt, after.receipt);
     assert_ne!(before.compact, after.compact);
     assert_ne!(before.payment_digest, after.payment_digest);
     if let KagemushaWalletLineageSlotV1::Present { lineage } = &mut original.send.lineage {
@@ -258,9 +267,21 @@ impl PreparationV1<'_> {
             KagemushaWalletStateV1::bootstrap(&payer, Fp::from(201).to_repr()).unwrap();
         payer_state.core.balance = 100;
         let mut incoming: KagemushaWalletPaymentV1 = object("KagemushaWalletPaymentV1");
-        incoming.request = request.signed();
-        incoming.payer_payment_key = payer.body.payment_key;
-        incoming.payer_credential_digest = payer.credential_digest();
+        let b = &request.body;
+        incoming.request = KagemushaWalletPaymentRequestV1 {
+            payer_account_digest: b.payer_account_digest,
+            receiver_account_digest: b.receiver_account_digest,
+            receiver_credential_digest: b.receiver_credential_digest,
+            fee_schedule: b.fee_schedule,
+            policy_epoch: b.policy_epoch,
+            scheme_policy: b.scheme_policy,
+            receiver_accepted_time_ms: b.receiver_accepted_time_ms,
+            receiver_blacklist_version: b.receiver_blacklist_version,
+            receiver_blacklist_root: b.receiver_blacklist_root,
+            certificates: b.certificates,
+            nonce: b.nonce,
+            signature: request.signature,
+        };
         incoming.send.statement = KagemushaWalletStatementV1 {
             version: 1,
             relation_id: scheme.relation_id,
@@ -349,8 +370,8 @@ impl PreparationV1<'_> {
                 original.send.receipt.version = 23;
             }
             if variant == 2 {
-                original.request.body.nonce[0] ^= 1;
-                assert_ne!(original.request, request.signed());
+                original.request.nonce[0] ^= 1;
+                assert_ne!(original.signed_request().unwrap(), request.signed());
             }
             let bytes = norito::to_bytes(&original).unwrap();
             assert!(
@@ -573,7 +594,14 @@ fn malformed_key_and_signature_encodings_are_custody_errors_before_soft_predicat
     }
     let original: KagemushaWalletPaymentV1 = object("KagemushaWalletPaymentV1");
     let frame = norito::to_bytes(&original).unwrap();
-    let key = original.payer_payment_key.as_sec1_bytes();
+    let key = original
+        .send
+        .lineage
+        .lineage()
+        .unwrap()
+        .public
+        .payment_key
+        .as_sec1_bytes();
     let mut off_curve = [0; 65];
     off_curve[0] = 4;
     let mut bad_prefix = *key;

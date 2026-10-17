@@ -17273,6 +17273,18 @@ pub mod isi {
                 &remove_asset_definitions,
                 &format!("unregister domain {domain_id}"),
             )?;
+            // Domain teardown retires every contained definition and its balances,
+            // so it must not destroy funds held in native escrow custody.
+            crate::smartcontracts::isi::escrow::ensure_asset_definitions_not_retained_by_native_escrows(
+                state_transaction,
+                &remove_asset_definitions,
+                &format!("unregister domain {domain_id}"),
+            )?;
+            crate::smartcontracts::isi::bond::ensure_asset_definitions_not_retained_by_bonds(
+                state_transaction.world(),
+                &remove_asset_definitions,
+                &format!("unregister domain {domain_id}"),
+            )?;
             // Pinned custody survives staking selector and alias changes. Protect it before
             // domain teardown stages permission, endorsement or balance removals.
             if let Some(asset) = state_transaction
@@ -29442,7 +29454,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     250,
                     1_000,
                     1,
-                    iroha_data_model::repo::RepoGovernance::with_defaults(1_000, 60),
+                    iroha_data_model::repo::RepoGovernance::new(1_000, 60, false),
                     None,
                 ));
             let err = Unregister::domain(domain_id.clone()).expect_execute_err(
@@ -30004,7 +30016,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 250,
                 1_000,
                 1,
-                iroha_data_model::repo::RepoGovernance::with_defaults(1_000, 60),
+                iroha_data_model::repo::RepoGovernance::new(1_000, 60, false),
                 None,
             );
             stx.world.insert_repo_agreement_entry(agreement);

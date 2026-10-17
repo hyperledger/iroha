@@ -6,7 +6,7 @@ use iroha_kagemusha_proof::{
     },
     admin_sigma::StateWitness,
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, Fp, msm::MemoryBudget};
 use iroha_plonk::{DescriptorBinding, ProverConfig, VerifyingKey, keys::pk::artifact::ReadConfig};
 use iroha_plonk_recursion::{AccumulatorT, FoldConfig, FoldInput};
 use sha2::{Digest, Sha256};
@@ -212,7 +212,13 @@ pub fn authenticated_load(
         .unwrap();
     let active = prover.bind_a(0, &active_seal, None).unwrap();
     let mut a = session
-        .first(&active, Fp::from(201), &fold, common::recovery(201), config)
+        .first(
+            &active,
+            common::public_fixture_tape(201),
+            &fold,
+            common::fresh_randomness(),
+            config,
+        )
         .unwrap();
     a = session
         .restore_first(a.proof().to_vec(), &a.pallas_bytes(), MemoryBudget::DEFAULT)
@@ -231,9 +237,9 @@ pub fn authenticated_load(
             .wrapper(
                 &a,
                 &active,
-                Fq::from(u64::from(seed)),
+                common::public_fixture_tape(u64::from(seed)),
                 &fold,
-                common::recovery(seed),
+                common::fresh_randomness(),
                 config,
             )
             .unwrap();
@@ -257,9 +263,9 @@ pub fn authenticated_load(
             .advance(
                 &w,
                 &active,
-                Fp::from(u64::from(seed) + 1),
+                common::public_fixture_tape(u64::from(seed) + 1),
                 &fold,
-                common::recovery(seed + 1),
+                common::fresh_randomness(),
                 config,
             )
             .unwrap();

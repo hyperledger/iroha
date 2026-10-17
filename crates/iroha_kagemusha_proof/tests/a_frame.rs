@@ -131,7 +131,7 @@ impl Circuit<Fp> for Frame {
                     &mut region,
                     &fields.try_into().map_err(|_| Error::Synthesis)?,
                 )?;
-                let p = chip.witness_point(
+                let p = chip.witness_generator(
                     &mut region,
                     self.value(Ep::from(
                         decode_point::<Ep>(&PALLAS_TRIVIAL_GENERATOR).unwrap(),

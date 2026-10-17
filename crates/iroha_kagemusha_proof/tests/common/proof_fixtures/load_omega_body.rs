@@ -1,14 +1,14 @@
 // Shared genuine builder items. Registered tests remain in the integration harness.
 use ff::PrimeField;
 use iroha_kagemusha_proof::omega::{OmegaCircuit, OmegaPlan, OmegaWitness};
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget};
 use iroha_plonk::{
     ProverConfig, ProverRandomness, Witness, create_proof_owned_with_claim,
     keys::{KeygenConfigV2, keygen_pk_v2},
     pcs::ipa::PinnedParams,
     verifier::accumulate_generator,
 };
-use iroha_plonk_recursion::{AccumulatorT, FoldConfig, create_fold};
+use iroha_plonk_recursion::{AccumulatorT, FoldConfig};
 pub use load_chain::LoadFixture;
 
 /// Complete outer artifacts, carrying the construction's explicit provenance.
@@ -37,21 +37,24 @@ pub(crate) fn diagnostic_load_omega(
     );
     let load = load_chain::authenticated_load(&predecessor, fixture);
     let params = PinnedParams::<Eq>::derive(16).unwrap();
-    let trivial = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
-    let (fold, vesta) = create_fold(
-        &params,
-        &[
-            load.vesta_part.as_input(),
-            load.opening.clone(),
-            load.predecessor_vesta.as_input(),
-            trivial.as_input(),
-        ],
-        Fq::from(141).to_repr(),
-        &FoldConfig::default(),
+    let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+        load.binding.encoded(),
+        &[load.key.to_bytes().to_vec()],
+        params.clone(),
     )
     .unwrap();
+    let (fold, vesta) = terminal
+        .read(
+            0,
+            &[load.instances.clone()],
+            &load.proof,
+            &FoldConfig::default(),
+        )
+        .unwrap()
+        .create(common::public_fixture_tape(141), &FoldConfig::default())
+        .unwrap();
     vesta.decide(&params, MemoryBudget::DEFAULT).unwrap();
-    let (x, y) = vesta.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
     let public = vec![
         vec![Fq::from_repr(load.instances[0].to_repr()).unwrap()],
         vec![x, y],
@@ -70,7 +73,9 @@ pub(crate) fn diagnostic_load_omega(
             instances: load.instances.clone(),
             length: u32::try_from(load.proof.len()).unwrap(),
             proof: load.proof.clone(),
-            fold: fold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            ),
         },
     )
     .unwrap();
@@ -152,30 +157,37 @@ struct OuterSource<'a> {
     binding: &'a iroha_plonk::DescriptorBinding,
     proof: &'a [u8],
     instances: &'a [Fp],
-    part: &'a AccumulatorT<Eq>,
-    opening: &'a iroha_plonk_recursion::FoldInput<Eq>,
-    predecessor: &'a AccumulatorT<Eq>,
 }
 fn catalog_wrapper(
     source: OuterSource<'_>,
     catalog: &[iroha_plonk::VerifyingKey<Eq>; 2],
 ) -> (OmegaCircuit, Vec<Vec<Fq>>, AccumulatorT<Eq>) {
     let params = PinnedParams::<Eq>::derive(16).unwrap();
-    let trivial = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
-    let (fold, vesta) = create_fold(
-        &params,
-        &[
-            source.part.as_input(),
-            source.opening.clone(),
-            source.predecessor.as_input(),
-            trivial.as_input(),
-        ],
-        Fq::from(151).to_repr(),
-        &FoldConfig::default(),
+    let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+        source.binding.encoded(),
+        &catalog
+            .iter()
+            .map(|key| key.to_bytes().to_vec())
+            .collect::<Vec<_>>(),
+        params.clone(),
     )
     .unwrap();
+    let selected = catalog
+        .iter()
+        .position(|key| key.to_bytes() == source.key.to_bytes())
+        .unwrap();
+    let (fold, vesta) = terminal
+        .read(
+            selected,
+            &[source.instances.to_vec()],
+            source.proof,
+            &FoldConfig::default(),
+        )
+        .unwrap()
+        .create(common::public_fixture_tape(151), &FoldConfig::default())
+        .unwrap();
     vesta.decide(&params, MemoryBudget::DEFAULT).unwrap();
-    let (x, y) = vesta.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
     let public = vec![
         vec![Fq::from_repr(source.instances[0].to_repr()).unwrap()],
         vec![x, y],
@@ -199,7 +211,9 @@ fn catalog_wrapper(
             instances: source.instances.to_vec(),
             proof: source.proof.to_vec(),
             length: source.proof.len().try_into().unwrap(),
-            fold: fold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            ),
         },
     )
     .unwrap();
@@ -263,18 +277,12 @@ pub(crate) fn two_terminal_load_omega(fixture: &LoadFixture) -> TwoTerminalLoadO
     );
     let catalog = [initial_bootstrap.key.clone(), initial_load.key.clone()];
     assert_ne!(catalog[0].to_bytes(), catalog[1].to_bytes());
-    let vparams = PinnedParams::<Eq>::derive(16).unwrap();
-    let trivial = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT).unwrap();
-    let initial_part = initial_bootstrap.vesta_part.clone();
     let (circuit, _, _) = catalog_wrapper(
         OuterSource {
             key: &initial_bootstrap.key,
             binding: &initial_bootstrap.binding,
             proof: &initial_bootstrap.proof,
             instances: &initial_bootstrap.instances,
-            part: &initial_part,
-            opening: &initial_bootstrap.opening,
-            predecessor: &trivial,
         },
         &catalog,
     );
@@ -313,16 +321,12 @@ pub(crate) fn two_terminal_load_omega(fixture: &LoadFixture) -> TwoTerminalLoadO
     assert_eq!(initial_bootstrap.binding, bootstrap.binding);
     assert_eq!(initial_bootstrap.key.to_bytes(), bootstrap.key.to_bytes());
     assert_eq!(bootstrap.state.lineage[17], digest);
-    let bootstrap_part = bootstrap.vesta_part.clone();
     let (circuit, public, vesta) = catalog_wrapper(
         OuterSource {
             key: &bootstrap.key,
             binding: &bootstrap.binding,
             proof: &bootstrap.proof,
             instances: &bootstrap.instances,
-            part: &bootstrap_part,
-            opening: &bootstrap.opening,
-            predecessor: &trivial,
         },
         &catalog,
     );
@@ -350,9 +354,6 @@ pub(crate) fn two_terminal_load_omega(fixture: &LoadFixture) -> TwoTerminalLoadO
             binding: &load.binding,
             proof: &load.proof,
             instances: &load.instances,
-            part: &load.vesta_part,
-            opening: &load.opening,
-            predecessor: &load.predecessor_vesta,
         },
         &catalog,
     );

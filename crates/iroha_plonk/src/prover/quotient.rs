@@ -1055,7 +1055,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                             );
                             push(
                                 ConstraintTerm::PermutationLast,
-                                (last[row].square() - last[row]) * l_last[row],
+                                (last[row] - one) * l_last[row],
                             );
                             for (index, pair) in products.windows(2).enumerate() {
                                 push(
@@ -1072,11 +1072,13 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                             {
                                 let mut left = set[r_next];
                                 for (column, sigma) in set_columns.iter().zip(set_sigma) {
-                                    left *= column[row] + beta * sigma[row] + gamma;
+                                    left *=
+                                        crate::norm_factor(column[row] + beta * sigma[row] + gamma);
                                 }
                                 let mut right = set[row];
                                 for column in set_columns {
-                                    right *= column[row] + current_delta + gamma;
+                                    right *=
+                                        crate::norm_factor(column[row] + current_delta + gamma);
                                     current_delta *= delta;
                                 }
                                 push(
@@ -1090,8 +1092,8 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                                 CompiledExpressions::compress(&lookup.inputs, scratch, theta);
                             let compressed_table =
                                 CompiledExpressions::compress(&lookup.tables, scratch, theta);
-                            numerator[offset] =
-                                (compressed_input + beta) * (compressed_table + gamma);
+                            numerator[offset] = crate::norm_factor(compressed_input + beta)
+                                * crate::norm_factor(compressed_table + gamma);
                         }
                         *out = value;
                         x_row *= omega;
@@ -1194,13 +1196,12 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                                     }
                                 };
                                 let first = kept(LookupConstraint::First, one - product[row]);
-                                let last = kept(
-                                    LookupConstraint::Last,
-                                    product[row].square() - product[row],
-                                );
+                                let last = kept(LookupConstraint::Last, product[row] - one);
                                 let product_term = kept(
                                     LookupConstraint::Product,
-                                    product[r_next] * (input[row] + beta) * (table[row] + gamma)
+                                    product[r_next]
+                                        * crate::norm_factor(input[row] + beta)
+                                        * crate::norm_factor(table[row] + gamma)
                                         - product[row] * numerator[row],
                                 );
                                 let start = kept(LookupConstraint::Start, a_minus_s);

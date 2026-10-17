@@ -8,7 +8,10 @@ use iroha_kagemusha_proof::{
         verify_predecessor, verify_sigma,
     },
     operation_relation::statement::StatementCells,
-    q_sigma::{QSigmaPlan, SigmaClass, SigmaSlotWitness, native::QSigmaProver},
+    q_sigma::{
+        QSigmaPlan, SigmaClass, SigmaSlotWitness,
+        native::{QSigmaFoldSource, QSigmaProver},
+    },
     sample_witness,
 };
 use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
@@ -32,11 +35,12 @@ use iroha_plonk_gadgets::{
     statement::foreign_limbs,
 };
 use iroha_plonk_recursion::{
-    AccumulatorT, FoldConfig, FoldInput, VESTA_TRIVIAL_GENERATOR,
+    AccumulatorT, FoldConfig, FoldInput, FoldPurpose, PrivateWitnessBytes, VESTA_TRIVIAL_GENERATOR,
     accumulation_circuit::FoldInputCells,
     codec::ScalarCells,
     create_fold,
     obligation::ledger::Variant,
+    terminal::TerminalPlan,
     verifier::{VerifierChip, VerifierConfig, VerifierPlan},
 };
 
@@ -105,7 +109,7 @@ struct Predecessor {
     pallas: FoldInput<Ep>,
     proof: Vec<u8>,
     length: u32,
-    fold: Vec<u8>,
+    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     fold_length: u32,
 }
 struct Fixture {
@@ -257,8 +261,8 @@ impl Circuit<Fp> for Recursive {
                         &mut region,
                         &fields.try_into().map_err(|_| Error::Synthesis)?,
                     )?;
-                    let g =
-                        chip.witness_point(&mut region, self.value(Ep::from(*source.pallas.g())))?;
+                    let g = chip
+                        .witness_generator(&mut region, self.value(Ep::from(*source.pallas.g())))?;
                     let challenges = source
                         .pallas
                         .challenges()
@@ -335,7 +339,7 @@ fn public(
     part: &iroha_plonk_recursion::FoldInput<iroha_pasta::Eq>,
 ) -> Vec<Fp> {
     let mut words = fields.to_vec();
-    let (x, y) = pallas.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(pallas.g());
     words.extend([x, y]);
     for value in pallas.challenges() {
         words.extend(foreign_limbs(value).map(Fp::from_u128));
@@ -344,7 +348,7 @@ fn public(
         hash_with_domain(LINEAGE_DOMAIN, &words),
         Fp::from(u64::from(part.source_k())),
     ];
-    let (x, y) = part.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(part.g());
     for coordinate in [x, y] {
         out.extend(foreign_limbs(&coordinate).map(Fp::from_u128));
     }
@@ -376,7 +380,7 @@ fn fixture() -> Fixture {
         (12, 1),
     ));
     let witness = sample_witness::<Fp>(common::CHECK_SEED + 2, SigmaRelation::SEND, Mutation::None);
-    let proof = sigma.prove(&witness, common::recovery(71)).unwrap();
+    let proof = sigma.prove(&witness, common::fresh_randomness()).unwrap();
     let verifier = sigma.verifier();
     let class = SigmaClass::from_verifiers(&[(5, &verifier)]).unwrap();
     let params = common::vesta_params(16);
@@ -388,12 +392,22 @@ fn fixture() -> Fixture {
         length: u32::try_from(proof.bytes.len()).unwrap(),
     };
     let prepared = plan
-        .prepare(slot, None, &params, Fq::from(17), &FoldConfig::default())
+        .prepare(
+            slot,
+            None,
+            &params,
+            QSigmaFoldSource::NoIncoming,
+            &FoldConfig::default(),
+        )
         .unwrap();
     let pallas_params = PinnedParams::<Ep>::derive(16).unwrap();
     let prover = QSigmaProver::keygen(&prepared, pallas_params.clone()).unwrap();
     let q = prover
-        .prove(&prepared, common::recovery(72), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     let claim = accumulate_generator(
         &pallas_params,
@@ -547,7 +561,7 @@ impl Circuit<Fq> for OmegaFrame {
 }
 fn digest(fields: &[Fp; 18], pallas: &FoldInput<Ep>) -> Fp {
     let mut words = fields.to_vec();
-    let (x, y) = pallas.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(pallas.g());
     words.extend([x, y]);
     for u in pallas.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -623,7 +637,8 @@ impl ContextCircuit {
         }
         let base = hash_with_domain(u64::from_le_bytes(*b"kgwctx_1"), &words);
         let mut words = vec![Fp::ONE, self.plan.schema()[1], Fp::ONE, base];
-        let (x, y) = self.pallas.g().coordinates().unwrap();
+        let (x, y) =
+            iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(self.pallas.g());
         words.extend([Fp::from(16), x, y]);
         for u in self.pallas.challenges() {
             words.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -734,7 +749,7 @@ impl ContextCircuit {
             )?;
             vec![object]
         };
-        let point = chip.witness_point(region, self.value(Ep::from(*self.pallas.g())))?;
+        let point = chip.witness_generator(region, self.value(Ep::from(*self.pallas.g())))?;
         let challenges = self
             .pallas
             .challenges()
@@ -834,7 +849,7 @@ impl ContextCircuit {
                     self.known,
                 )?;
                 let (x, y) =
-                    Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Synthesis)?;
+                    iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
                 let coordinates = [
                     scalar(chip, region, self.value(x))?,
                     scalar(chip, region, self.value(y))?,
@@ -915,7 +930,14 @@ impl ContextCircuit {
                     }
                     remaining.push(verified);
                 }
-                let fold = carrier(chip, bytes, region, fold, 1120, self.known)?;
+                let fold = carrier(
+                    chip,
+                    bytes,
+                    region,
+                    fold,
+                    u32::try_from(iroha_plonk_recursion::FOLD_WITNESS_BYTES).unwrap(),
+                    self.known,
+                )?;
                 let output = iroha_kagemusha_proof::a_relation::split::close_stage(
                     chip, region, plan, &resumed, None, None, None, &remaining, &fold,
                 )?;
@@ -1085,7 +1107,7 @@ enum Stage {
     First,
     Last {
         plan: Box<iroha_kagemusha_proof::a_relation::split::SplitPlan>,
-        fold: Vec<u8>,
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
         vesta: Box<AccumulatorT<Eq>>,
     },
 }
@@ -1329,7 +1351,7 @@ fn authenticated_bootstrap_for_schemes(
         &sigma_params,
         &sigma_key,
         Witness::from_circuit(&sigma_key, &sigma, &sigma_instances).unwrap(),
-        common::recovery(187),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -1365,7 +1387,7 @@ fn authenticated_bootstrap_for_schemes(
             },
             None,
             &vparams,
-            Fq::from(71),
+            QSigmaFoldSource::NoIncoming,
             &FoldConfig::default(),
         )
         .unwrap();
@@ -1381,7 +1403,11 @@ fn authenticated_bootstrap_for_schemes(
         )
         .unwrap();
     let qproof = q
-        .prove(&prepared, common::recovery(75), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     let qclaim = accumulate_generator(
         &params,
@@ -1413,7 +1439,7 @@ fn authenticated_bootstrap_for_schemes(
         &params,
         &signature_key,
         Witness::from_circuit(&signature_key, &signature, &siginstances).unwrap(),
-        common::recovery(118),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -1506,27 +1532,30 @@ fn authenticated_bootstrap_for_schemes(
         &vparams,
         &a1key,
         witness,
-        common::recovery(76),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
-    let own = FoldInput::from_opening(*a1.opening.g(), a1.opening.challenges()).unwrap();
-    let trivial = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT)
-        .unwrap()
-        .as_input();
-    let (vfold, vout) = create_fold(
-        &vparams,
-        &[part, own, trivial.clone(), trivial],
-        Fq::from(31).to_repr(),
-        &FoldConfig::default(),
+    let source = TerminalPlan::new(
+        a1key.binding().encoded(),
+        &[a1key.vk().to_bytes().to_vec()],
+        vparams.clone(),
     )
     .unwrap();
+    let (vfold, vout) = source
+        .read(0, &first_instances, &a1.proof, &FoldConfig::default())
+        .unwrap()
+        .create(
+            common::public_fixture_tape::<Eq>(31),
+            &FoldConfig::default(),
+        )
+        .unwrap();
     let witness = OmegaWitness {
         key: a1key.vk().clone(),
         instances: first_public,
         proof: a1.proof.clone(),
         length: u32::try_from(a1.proof.len()).unwrap(),
-        fold: vfold.to_bytes(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(vfold),
     };
     let allow = a1key.vk().kagemusha_digest(a1key.binding()).unwrap();
     let wcircuit = WCircuit::new(
@@ -1539,7 +1568,7 @@ fn authenticated_bootstrap_for_schemes(
     )
     .unwrap();
     let (wkey, wprover) = WKey::keygen(&wcircuit, &params).unwrap();
-    let (x, y) = vout.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vout.g());
     let wpublic = vec![
         vec![Fq::from_repr(context.digest().to_repr()).unwrap()],
         vec![x, y],
@@ -1558,7 +1587,7 @@ fn authenticated_bootstrap_for_schemes(
         &params,
         &wprover,
         wrapper_witness,
-        common::recovery(77),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -1570,8 +1599,12 @@ fn authenticated_bootstrap_for_schemes(
             context.pallas.clone(),
             wopening.clone(),
             signature_claim.clone(),
+            AccumulatorT::trivial(&params, MemoryBudget::DEFAULT)
+                .unwrap()
+                .as_input(),
         ],
-        Fp::from(32).to_repr(),
+        common::public_fixture_tape::<Ep>(32),
+        FoldPurpose::ATerminal,
         &FoldConfig::default(),
     )
     .unwrap();
@@ -1593,7 +1626,7 @@ fn authenticated_bootstrap_for_schemes(
         },
         stage: Stage::Last {
             plan: Box::new(plan),
-            fold: pfold.to_bytes().to_vec(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(pfold),
             vesta: Box::new(vout.clone()),
         },
     };
@@ -1635,7 +1668,7 @@ fn authenticated_bootstrap_for_schemes(
         &vparams,
         &a2key,
         a2witness,
-        common::recovery(78),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -1822,21 +1855,17 @@ fn authenticated_bootstrap_for_schemes(
                 &iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_proving_key(&a2key, None)
                     .unwrap()
                     .view(),
-                common::recovery(76),
+                common::fresh_randomness(),
                 ProverConfig::default()
             ),
             Err(native::Error::Artifact)
         ));
         let first_key_seal = installed.import_first(&originals[0].pk, config).unwrap();
         let first_key = installed.bind_first(&first_key_seal, None).unwrap();
-        // Cancellation before reconstruction consumes no recovery stream.
+        // Cancellation before reconstruction never reaches the producer.
         let cancelled = iroha_pasta::CancellationToken::new();
         cancelled.cancel();
-        let early = iroha_plonk::ProverRandomness::recovery(
-            |_: &[u8; 32]| -> Result<rand_chacha::ChaCha20Rng, std::convert::Infallible> {
-                panic!("pre-cancelled A1 must not request recovery entropy")
-            },
-        );
+        let early = iroha_plonk::ProverRandomness::hedged();
         assert!(matches!(
             session.first(
                 &first_key,
@@ -1848,39 +1877,21 @@ fn authenticated_bootstrap_for_schemes(
             ),
             Err(native::Error::Cancelled)
         ));
-        // The recovery derivation occurs after exact source reconstruction and
-        // witness assignment. A cancellation there must drop the temporary PK;
-        // the following existing parity proof reuses the unchanged metadata.
-        let late_cancel = iroha_pasta::CancellationToken::new();
-        let requested = std::sync::atomic::AtomicBool::new(false);
-        let late = iroha_plonk::ProverRandomness::recovery(|_: &[u8; 32]| {
-            requested.store(true, std::sync::atomic::Ordering::SeqCst);
-            late_cancel.cancel();
-            Ok::<rand_chacha::ChaCha20Rng, std::convert::Infallible>(
-                rand_chacha::rand_core::SeedableRng::from_seed([76; 32]),
-            )
-        });
-        assert!(matches!(
-            session.first(
-                &first_key,
-                late,
-                ProverConfig {
-                    cancellation: Some(&late_cancel),
-                    ..ProverConfig::default()
-                }
-            ),
-            Err(native::Error::Cancelled)
-        ));
-        assert!(requested.load(std::sync::atomic::Ordering::SeqCst));
+        // Late cancellation is exercised at the same private proving owner in
+        // artifact::metadata_tests; no public entropy injection seam is exposed.
         let native_first = session
-            .first(&first_key, common::recovery(76), ProverConfig::default())
+            .first(
+                &first_key,
+                common::fresh_randomness(),
+                ProverConfig::default(),
+            )
             .unwrap();
-        assert_eq!(native_first.proof(), a1.proof);
+        assert_ne!(native_first.proof(), a1.proof, "fresh A1 attempt");
         let (wrapper_circuit, _, _) = prepared
             .wrapper_circuit(
                 &native_first,
                 &mounted_first,
-                Fq::from(31),
+                common::public_fixture_tape::<Eq>(31),
                 &FoldConfig::default(),
             )
             .unwrap();
@@ -1894,9 +1905,9 @@ fn authenticated_bootstrap_for_schemes(
                 )
                 .unwrap()
                 .view(),
-                Fq::from(31),
+                common::public_fixture_tape::<Eq>(31),
                 &FoldConfig::default(),
-                common::recovery(77),
+                common::fresh_randomness(),
                 ProverConfig::default()
             ),
             Err(native::Error::Artifact)
@@ -1907,18 +1918,19 @@ fn authenticated_bootstrap_for_schemes(
             .wrapper(
                 &native_first,
                 &wrapper_key,
-                Fq::from(31),
+                common::public_fixture_tape::<Eq>(31),
                 &FoldConfig::default(),
-                common::recovery(77),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();
-        assert_eq!(native_wrapper.proof(), last.source.proof);
+        assert_ne!(native_wrapper.proof(), last.source.proof, "fresh W attempt");
         let wrapper_public = vec![
             vec![Fq::from_repr(native_wrapper.context().to_repr()).unwrap()],
             {
-                let (x, y) =
-                    Option::<(Fq, Fq)>::from(native_wrapper.vesta().g().coordinates()).unwrap();
+                let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(
+                    native_wrapper.vesta().g(),
+                );
                 vec![x, y]
             },
             native_wrapper
@@ -1971,7 +1983,7 @@ fn authenticated_bootstrap_for_schemes(
             .terminal_circuit(
                 &native_wrapper,
                 &imported,
-                Fp::from(32),
+                common::public_fixture_tape::<Ep>(32),
                 &FoldConfig::default(),
             )
             .unwrap();
@@ -1982,9 +1994,9 @@ fn authenticated_bootstrap_for_schemes(
                 &iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_proving_key(&a1key, None)
                     .unwrap()
                     .view(),
-                Fp::from(32),
+                common::public_fixture_tape::<Ep>(32),
                 &FoldConfig::default(),
-                common::recovery(78),
+                common::fresh_randomness(),
                 ProverConfig::default()
             ),
             Err(native::Error::Artifact)
@@ -1995,15 +2007,15 @@ fn authenticated_bootstrap_for_schemes(
             .terminal(
                 &native_wrapper,
                 &terminal_key,
-                Fp::from(32),
+                common::public_fixture_tape::<Ep>(32),
                 &FoldConfig::default(),
-                common::recovery(78),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();
-        assert_eq!(terminal.proof, a2.proof);
+        assert_ne!(terminal.proof, a2.proof, "fresh terminal attempt");
         eprintln!(
-            "NATIVE_BOOTSTRAP_PARITY metadata_only_producer=true temporary_source_bound_PK=true exact_original_proof_bytes=true"
+            "NATIVE_BOOTSTRAP_PARITY metadata_only_producer=true temporary_source_bound_PK=true fresh_chain_verified=true"
         );
         installed_native_source = Some((installed, native_plan.clone(), input.clone()));
         terminal
@@ -2043,11 +2055,24 @@ fn authenticated_bootstrap_for_schemes(
     if adversarial {
         let (dropped, _) = create_fold(
             &params,
-            std::slice::from_ref(&wopening),
-            Fp::from(32).to_repr(),
+            &[
+                wopening.clone(),
+                AccumulatorT::trivial(&params, MemoryBudget::DEFAULT)
+                    .unwrap()
+                    .as_input(),
+                AccumulatorT::trivial(&params, MemoryBudget::DEFAULT)
+                    .unwrap()
+                    .as_input(),
+                AccumulatorT::trivial(&params, MemoryBudget::DEFAULT)
+                    .unwrap()
+                    .as_input(),
+            ],
+            common::public_fixture_tape::<Ep>(32),
+            FoldPurpose::ATerminal,
             &FoldConfig::default(),
         )
         .unwrap();
+        let dropped = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(dropped);
         let wrong_w = WCircuit::new(
             &context.plan,
             0,
@@ -2094,7 +2119,7 @@ fn authenticated_bootstrap_for_schemes(
                 3 => bad.source.length -= 1,
                 4 => {
                     if let Stage::Last { fold, .. } = &mut bad.stage {
-                        *fold = dropped.to_bytes().to_vec();
+                        *fold = dropped.clone();
                     }
                 }
                 5 => {
@@ -2145,22 +2170,30 @@ fn authenticated_bootstrap_for_schemes(
         }
         let obligations = [context.pallas.clone(), wopening.clone(), signature_claim];
         for omitted in 0..obligations.len() {
-            let claims: Vec<_> = obligations
+            let mut claims: Vec<_> = obligations
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| *index != omitted)
                 .map(|(_, claim)| claim.clone())
                 .collect();
+            while claims.len() < 4 {
+                claims.push(
+                    AccumulatorT::trivial(&params, MemoryBudget::DEFAULT)
+                        .unwrap()
+                        .as_input(),
+                );
+            }
             let (fold, _) = create_fold(
                 &params,
                 &claims,
-                Fp::from(32).to_repr(),
+                common::public_fixture_tape::<Ep>(32),
+                FoldPurpose::ATerminal,
                 &FoldConfig::default(),
             )
             .unwrap();
             let mut bad = last.clone();
             if let Stage::Last { fold: proof, .. } = &mut bad.stage {
-                *proof = fold.to_bytes().to_vec();
+                *proof = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(fold);
             }
             assert!(
                 !check_circuit(&bad, 16, &last_public, CheckMode::Strict)
@@ -2312,23 +2345,22 @@ fn authenticated_bootstrap_for_schemes(
             layouts[2].descriptor_digest(),
             prover.descriptors()[2].digest()
         );
+        let retained_fold = match &last.stage {
+            Stage::Last { fold, .. } => fold,
+            Stage::First => unreachable!(),
+        };
         let terminal = session
             .restore_terminal(
                 &restored_wrapper,
                 output.proof.clone(),
-                Fp::from(32),
+                retained_fold,
                 MemoryBudget::DEFAULT,
             )
             .unwrap();
         assert_eq!(terminal.instances, output.instances);
         assert_eq!(terminal.vesta, output.vesta_part);
         let terminal_payload = session
-            .encode_terminal_checkpoint(
-                &restored_wrapper,
-                &terminal,
-                Fp::from(32),
-                MemoryBudget::DEFAULT,
-            )
+            .encode_terminal_checkpoint(&restored_wrapper, &terminal, MemoryBudget::DEFAULT)
             .unwrap();
         assert_eq!(terminal_payload.len(), layouts[2].payload_bytes());
         let restored_terminal = session
@@ -2342,15 +2374,14 @@ fn authenticated_bootstrap_for_schemes(
         assert_eq!(restored_terminal.instances, output.instances);
         assert_eq!(restored_terminal.pallas, output.pallas);
         assert_eq!(
-            session
+            &*session
                 .encode_terminal_checkpoint(
                     &restored_wrapper,
                     &restored_terminal,
-                    Fp::from(32),
                     MemoryBudget::DEFAULT
                 )
                 .unwrap(),
-            terminal_payload
+            &*terminal_payload
         );
         for wrong_kind in [&first_payload, &wrapper_payload] {
             assert!(
@@ -2363,12 +2394,18 @@ fn authenticated_bootstrap_for_schemes(
                     .is_err()
             );
         }
-        let mut trailing = terminal_payload.clone();
-        trailing.push(0);
+        let trailing = PrivateWitnessBytes::try_write::<std::io::Error>(
+            terminal_payload.len() + 1,
+            |writer| {
+                writer.write_all(&terminal_payload)?;
+                writer.write_all(&[0])
+            },
+        )
+        .unwrap();
         for original in [
             &[][..],
             &terminal_payload[..terminal_payload.len() - 1],
-            &trailing,
+            &*trailing,
         ] {
             assert!(
                 session
@@ -2399,12 +2436,7 @@ fn authenticated_bootstrap_for_schemes(
             }
             assert!(
                 session
-                    .encode_terminal_checkpoint(
-                        &restored_wrapper,
-                        &changed,
-                        Fp::from(32),
-                        MemoryBudget::DEFAULT,
-                    )
+                    .encode_terminal_checkpoint(&restored_wrapper, &changed, MemoryBudget::DEFAULT,)
                     .is_err(),
                 "terminal metadata mutation {mutation}"
             );
@@ -2414,7 +2446,7 @@ fn authenticated_bootstrap_for_schemes(
                 .restore_terminal(
                     &restored_wrapper,
                     output.proof.clone(),
-                    Fp::from(33),
+                    &common::mutated_private_fold(retained_fold, 1120),
                     MemoryBudget::DEFAULT
                 )
                 .is_err()
@@ -2426,7 +2458,7 @@ fn authenticated_bootstrap_for_schemes(
                 .restore_terminal(
                     &restored_wrapper,
                     wrong_proof,
-                    Fp::from(32),
+                    retained_fold,
                     MemoryBudget::DEFAULT
                 )
                 .is_err()

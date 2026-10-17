@@ -1,10 +1,12 @@
 //! Bounded native fold execution from the sole complete authenticated source grant.
 //!
-//! The wallet owner lends its original store for one task. This worker retains
-//! borrowed sealed metadata, verifies every restored source in order, and releases the active
-//! proving key before verification and yielding a durable checkpoint. Sealed
-//! custody selects inputs;
-//! neither checkpoint metadata nor an operation caller supplies proof acceptance.
+//! The wallet owner lends its original store only to the locked prepare of one sub-proof,
+//! which replays custody and revalidates the selected stage's originals. The owned job that
+//! prepare returns rebinds that already-admitted source from the shared sealed metadata,
+//! verifies every restored source in order, and releases the active proving key before
+//! verification and yielding a durable checkpoint, all without the wallet owner. Sealed
+//! custody selects inputs; neither checkpoint metadata nor an operation caller supplies proof
+//! acceptance.
 
 use std::sync::Arc;
 
@@ -16,12 +18,14 @@ use iroha_kagemusha_proof::{
     },
     omega::native as omega,
 };
-use iroha_pasta::{CancellationToken, Fp, Fq, msm::MemoryBudget};
+use iroha_pasta::{CancellationToken, Ep, Eq, Fp, Fq, PastaCurve, msm::MemoryBudget};
 use iroha_plonk::{ProverConfig, ProverRandomness, keys::pk::artifact::ReadConfig};
-use iroha_plonk_recursion::FoldConfig;
+use iroha_plonk_recursion::{FoldConfig, FoldTape};
 use sha2::{Digest, Sha256};
 
-use super::{Cancellation, CheckpointLayout, Error};
+use super::{
+    Cancellation, CheckpointLayout, Error, FoldPhaseV1, PrivateArchiveBytes, fold_metrics,
+};
 use crate::kagemusha_wallet_advance_v1::{
     KagemushaWalletProviderErrorV1, KagemushaWalletUnavailableV1,
 };
@@ -41,6 +45,8 @@ mod q_checkpoint;
 mod stages;
 
 /// Metadata-only execution owner; the admitted wallet retains the only original store.
+/// A prepared job holds its own copy, which shares the installed sources.
+#[derive(Clone)]
 pub(crate) struct NativeFoldWorkerV1 {
     installed: Arc<InstalledVerifierPackV1>,
     sources: Arc<QualifiedWalletSourcesV1>,
@@ -65,7 +71,7 @@ pub(crate) enum OperationInputsV1 {
 }
 
 pub(crate) enum NativeStageProgressV1 {
-    Checkpoint(Vec<u8>),
+    Checkpoint(PrivateArchiveBytes),
     Terminal(omega::Input),
 }
 
@@ -111,7 +117,7 @@ fn artifact(error: WalletSourcesErrorV1) -> Error {
     }
 }
 
-fn salt_error(error: randomness::Error) -> Error {
+fn fold_randomness_error(error: randomness::Error) -> Error {
     match error {
         randomness::Error::Cancelled => Error::Cancelled,
         randomness::Error::Unavailable => {
@@ -121,10 +127,9 @@ fn salt_error(error: randomness::Error) -> Error {
     }
 }
 
-fn fresh_fold_salt<F: PrimeField<Repr = [u8; 32]>>(
-    cancellation: &CancellationToken,
-) -> Result<F, Error> {
-    randomness::sample(Some(cancellation), randomness::os_entropy).map_err(salt_error)
+fn fresh_fold_tape<C: PastaCurve>(cancellation: &CancellationToken) -> Result<FoldTape<C>, Error> {
+    randomness::sample_tape(Some(cancellation), randomness::os_entropy)
+        .map_err(fold_randomness_error)
 }
 
 fn layout(
@@ -212,7 +217,14 @@ impl NativeFoldWorkerV1 {
             .keys()
             .iter()
             .enumerate()
-            .map(|(stage, key)| q_checkpoint::Layout::new(stage, key).map(|l| l.custody))
+            .map(|(stage, key)| {
+                q_checkpoint::Layout::new(
+                    stage,
+                    key,
+                    stage == 0 && q.sigma().requires_private_fold(),
+                )
+                .map(|l| l.custody)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         result.extend(self.stage_schedule(route)?);
         Ok(result)
@@ -289,37 +301,35 @@ impl NativeFoldWorkerV1 {
         }
     }
 
-    /// One final Omega proof from the verified terminal and complete installed catalog.
+    /// One final Omega proof from the verified terminal and complete installed catalog, with
+    /// the Omega source whose originals the locked prepare revalidated. `prove` self-verifies
+    /// the proof and decides its opening and both carried claims; the returned transport is
+    /// a candidate that the coordinator verifies in full through the installed verifier
+    /// before anything is recorded.
     pub(crate) fn finish(
         &self,
         input: omega::Input,
-        originals: &mut dyn OriginalSourceV1,
         cancellation: &Cancellation,
     ) -> Result<Vec<u8>, Error> {
         cancellation.check()?;
         let owner = self
             .sources
-            .import_omega_cancellable(originals, self.read, Some(cancellation.prover_token()))
+            .bind_omega_cancellable(self.read, Some(cancellation.prover_token()))
             .map_err(artifact)?;
         cancellation.check()?;
-        let salt = fresh_fold_salt::<Fq>(cancellation.prover_token())?.to_repr();
+        fold_metrics::enter(FoldPhaseV1::Prove);
+        let tape = fresh_fold_tape::<Eq>(cancellation.prover_token())?;
         let session = proof(owner.prepare_cancellable(
             input,
-            salt,
+            tape,
             self.budget,
             Some(cancellation.prover_token()),
         ))?;
         cancellation.check()?;
         let output =
             proof(session.prove(ProverRandomness::os(), self.prover_config(cancellation)))?;
-        let bytes = output.transport();
-        proof(session.restore_transport_cancellable(
-            &bytes,
-            self.budget,
-            Some(cancellation.prover_token()),
-        ))?;
         cancellation.check()?;
-        Ok(bytes)
+        Ok(output.transport())
     }
 }
 
@@ -404,13 +414,13 @@ mod tests {
     }
 
     #[test]
-    fn salt_failures_preserve_unavailable_and_cancellation() {
+    fn fold_coin_failures_preserve_unavailable_and_cancellation() {
         assert!(matches!(
-            salt_error(randomness::Error::Cancelled),
+            fold_randomness_error(randomness::Error::Cancelled),
             Error::Cancelled
         ));
         assert!(matches!(
-            salt_error(randomness::Error::Unavailable),
+            fold_randomness_error(randomness::Error::Unavailable),
             Error::Provider(KagemushaWalletProviderErrorV1::Unavailable(
                 KagemushaWalletUnavailableV1::Platform(0)
             ))
@@ -418,11 +428,11 @@ mod tests {
         let cancellation = CancellationToken::new();
         cancellation.cancel();
         assert!(matches!(
-            fresh_fold_salt::<Fp>(&cancellation),
+            fresh_fold_tape::<Ep>(&cancellation),
             Err(Error::Cancelled)
         ));
         assert!(matches!(
-            fresh_fold_salt::<Fq>(&cancellation),
+            fresh_fold_tape::<Eq>(&cancellation),
             Err(Error::Cancelled)
         ));
     }

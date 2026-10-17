@@ -1,10 +1,21 @@
 //! Exact, bounded, network-bound atomic settlement model.
 //!
+//! An atomic intent may also open up to sixteen native conditional escrows from
+//! exact debited buckets. Their complete terms are part of the canonical intent,
+//! so every consenting owner approves the escrow coupling together with the
+//! ordinary movements.
+//!
 //! TODO: Complete composed codec and consumer tests, then qualify the persistent
 //! matched-control harness through admitted native execution.
 
 use super::{SettlementId, settlement_decode_flags};
-use crate::{NetworkId, asset::AssetId, prelude::AccountId};
+use crate::{
+    NetworkId,
+    asset::{AssetBalanceScope, AssetId},
+    escrow::{ConditionalEscrowCondition, EscrowId},
+    prelude::AccountId,
+};
+use iroha_crypto::Hash;
 use iroha_model_base::metadata::Metadata;
 use iroha_primitives::numeric::Quantity;
 use iroha_schema::IntoSchema;
@@ -17,10 +28,13 @@ use norito::{
 };
 use std::num::NonZeroU64;
 
-/// Minimum number of movements; one ordinary payment uses the same settlement owner.
-pub const ATOMIC_SETTLEMENT_MIN_MOVEMENTS: usize = 1;
+/// Minimum number of legs (movements plus escrow legs) in an atomic settlement;
+/// one ordinary payment or one escrow leg uses the same settlement owner.
+pub const ATOMIC_SETTLEMENT_MIN_LEGS: usize = 1;
 /// Maximum number of movements in an atomic settlement's V1 model.
 pub const ATOMIC_SETTLEMENT_MAX_MOVEMENTS: usize = 255;
+/// Maximum number of conditional escrow legs in one atomic settlement.
+pub const ATOMIC_SETTLEMENT_MAX_ESCROWS: usize = 16;
 
 /// One proposed movement; the containing bounded list enforces its invariants.
 #[derive(
@@ -60,6 +74,44 @@ impl AtomicSettlementMovement {
     }
 }
 
+/// One native conditional escrow opened by the same all-or-nothing intent.
+///
+/// The exact `source` bucket is debited into deterministic protocol custody.
+/// Its owner becomes the escrow opener and the refund recipient at expiry, so a
+/// foreign source requires the same whole-intent owner consent as a movement.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Decode,
+    Encode,
+    IntoSchema,
+    JsonSerialize,
+    JsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::isi::settlement::AtomicSettlementEscrow")]
+pub struct AtomicSettlementEscrow {
+    /// Exact global-scope bucket debited; its owner opens and is refunded by the escrow.
+    pub source: AssetId,
+    /// Caller-selected unused escrow identifier.
+    pub escrow_id: EscrowId,
+    /// Account that receives the full amount after every condition passes.
+    pub beneficiary: AccountId,
+    /// Positive amount moved into protocol custody without conversion or rounding.
+    pub amount: Quantity,
+    /// Immutable ordered all-of predicates and optional ledger-time window.
+    pub conditions: Vec<ConditionalEscrowCondition>,
+    /// Absolute Unix timestamp (milliseconds) at or after which anyone may trigger refund.
+    pub expires_at_ms: u64,
+    /// Evidence hashes attached when opening the escrow.
+    pub evidence_hashes: Vec<Hash>,
+}
+
 /// One actual committed balance movement, with both fully resolved buckets.
 #[derive(
     Debug,
@@ -89,9 +141,8 @@ pub struct ResolvedSettlementMovement {
 }
 
 fn validate_atomic_movements(values: &[AtomicSettlementMovement]) -> Result<(), &'static str> {
-    if !(ATOMIC_SETTLEMENT_MIN_MOVEMENTS..=ATOMIC_SETTLEMENT_MAX_MOVEMENTS).contains(&values.len())
-    {
-        return Err("atomic settlement requires 1..=255 movements");
+    if values.len() > ATOMIC_SETTLEMENT_MAX_MOVEMENTS {
+        return Err("atomic settlement allows at most 255 movements");
     }
     for value in values {
         if value.quantity.is_zero() || value.source.account() == &value.recipient {
@@ -108,9 +159,8 @@ fn validate_atomic_movements(values: &[AtomicSettlementMovement]) -> Result<(), 
 }
 
 fn validate_resolved_movements(values: &[ResolvedSettlementMovement]) -> Result<(), &'static str> {
-    if !(ATOMIC_SETTLEMENT_MIN_MOVEMENTS..=ATOMIC_SETTLEMENT_MAX_MOVEMENTS).contains(&values.len())
-    {
-        return Err("atomic receipt requires 1..=255 movements");
+    if values.len() > ATOMIC_SETTLEMENT_MAX_MOVEMENTS {
+        return Err("atomic receipt allows at most 255 movements");
     }
     for value in values {
         if value.quantity.is_zero()
@@ -133,11 +183,39 @@ fn validate_resolved_movements(values: &[ResolvedSettlementMovement]) -> Result<
     Ok(())
 }
 
-// Both lists share the same bounded decoding owner. The length is inspected
+fn validate_atomic_escrows(values: &[AtomicSettlementEscrow]) -> Result<(), &'static str> {
+    if values.len() > ATOMIC_SETTLEMENT_MAX_ESCROWS {
+        return Err("atomic settlement allows at most 16 escrows");
+    }
+    for value in values {
+        if value.amount.is_zero() || value.source.scope() != &AssetBalanceScope::Global {
+            return Err("atomic settlement escrows require a positive amount from a global bucket");
+        }
+    }
+    if values
+        .windows(2)
+        .any(|pair| pair[0].escrow_id >= pair[1].escrow_id)
+    {
+        return Err("atomic settlement escrow ids must be strictly increasing");
+    }
+    Ok(())
+}
+
+// Every bounded list shares the same decoding owner. The length is inspected
 // before Vec allocation, and canonical field decoding rejects omitted AssetId
 // scope fields or alternate field layouts instead of inventing a scope.
-macro_rules! bounded_movements {
-    ($name:ident, $item:ty, $validate:ident, $nominal:literal, $doc:literal) => {
+macro_rules! bounded_list {
+    (
+        $name:ident,
+        $item:ty,
+        $validate:ident,
+        $min:expr,
+        $max:expr,
+        $decode_count_error:literal,
+        $json_count_error:literal,
+        $nominal:literal,
+        $doc:literal
+    ) => {
         #[doc = $doc]
         #[derive(
             Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoSchema, norito::NoritoSchema,
@@ -147,13 +225,13 @@ macro_rules! bounded_movements {
         pub struct $name(Vec<$item>);
 
         impl $name {
-            /// Borrow every movement in canonical order.
+            /// Borrow every item in canonical order.
             #[must_use]
             pub fn as_slice(&self) -> &[$item] {
                 &self.0
             }
 
-            /// Recheck the canonical bounds and movement invariants at execution entry.
+            /// Recheck the canonical bounds and item invariants at execution entry.
             ///
             /// # Errors
             /// Returns an error for an invalid count, value, duplicate, or ordering.
@@ -192,7 +270,7 @@ macro_rules! bounded_movements {
         }
         impl<'de> DeserializePayload<'de> for $name {
             fn deserialize(archived: &'de ncore::Archived<Self>) -> Self {
-                Self::try_deserialize(archived).expect("validated canonical movement archive")
+                Self::try_deserialize(archived).expect("validated canonical bounded archive")
             }
             fn try_deserialize(archived: &'de ncore::Archived<Self>) -> Result<Self, ncore::Error> {
                 let bytes =
@@ -215,12 +293,8 @@ macro_rules! bounded_movements {
                 }
                 let field = bytes.get(prefix..end).ok_or(ncore::Error::LengthMismatch)?;
                 let (count, _) = ncore::inspect_seq_len_slice(field)?;
-                if !(ATOMIC_SETTLEMENT_MIN_MOVEMENTS..=ATOMIC_SETTLEMENT_MAX_MOVEMENTS)
-                    .contains(&count)
-                {
-                    return Err(ncore::Error::Message(
-                        "atomic movement count outside 1..=255".into(),
-                    ));
+                if !($min..=$max).contains(&count) {
+                    return Err(ncore::Error::Message($decode_count_error.into()));
                 }
                 let (values, used) = ncore::decode_field_canonical::<Vec<$item>>(field)?;
                 if used != field.len() {
@@ -250,10 +324,8 @@ macro_rules! bounded_movements {
                 parser.skip_ws();
                 if parser.peek() != Some(b']') {
                     loop {
-                        if values.len() == ATOMIC_SETTLEMENT_MAX_MOVEMENTS {
-                            return Err(json::Error::Message(
-                                "atomic movement count exceeds 255".into(),
-                            ));
+                        if values.len() == $max {
+                            return Err(json::Error::Message($json_count_error.into()));
                         }
                         values.push(<$item as json::JsonDeserialize>::json_deserialize(parser)?);
                         parser.skip_ws();
@@ -270,20 +342,53 @@ macro_rules! bounded_movements {
     };
 }
 
-bounded_movements!(
+bounded_list!(
     AtomicSettlementMovements,
     AtomicSettlementMovement,
     validate_atomic_movements,
+    0,
+    ATOMIC_SETTLEMENT_MAX_MOVEMENTS,
+    "atomic movement count outside 0..=255",
+    "atomic movement count exceeds 255",
     "iroha_data_model::isi::settlement::AtomicSettlementMovements",
-    "One to 255 positive movements in strict (source, recipient) order; construction never sorts or coalesces."
+    "Zero to 255 positive movements in strict (source, recipient) order; construction never sorts or coalesces. The containing intent requires at least one leg across movements and escrows."
 );
-bounded_movements!(
+bounded_list!(
     ResolvedSettlementMovements,
     ResolvedSettlementMovement,
     validate_resolved_movements,
+    0,
+    ATOMIC_SETTLEMENT_MAX_MOVEMENTS,
+    "atomic movement count outside 0..=255",
+    "atomic movement count exceeds 255",
     "iroha_data_model::isi::settlement::ResolvedSettlementMovements",
     "The canonical bounded resolved movements retained by a successful atomic settlement receipt."
 );
+bounded_list!(
+    AtomicSettlementEscrows,
+    AtomicSettlementEscrow,
+    validate_atomic_escrows,
+    0,
+    ATOMIC_SETTLEMENT_MAX_ESCROWS,
+    "atomic escrow count outside 0..=16",
+    "atomic escrow count exceeds 16",
+    "iroha_data_model::isi::settlement::AtomicSettlementEscrows",
+    "Zero to sixteen conditional escrow legs in strictly increasing escrow-id order; construction never sorts."
+);
+
+impl AtomicSettlementEscrows {
+    /// Construct the canonical empty escrow list.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Return every escrow identifier in the signed canonical order.
+    #[must_use]
+    pub fn escrow_ids(&self) -> Vec<EscrowId> {
+        self.0.iter().map(|escrow| escrow.escrow_id).collect()
+    }
+}
 
 impl AtomicSettlementMovements {
     /// Resolve every destination exactly, preserving the signed order and quantities.
@@ -318,6 +423,8 @@ isi! {
         pub settlement_id: SettlementId,
         /// Complete canonical movement vector approved by every debited owner.
         pub movements: AtomicSettlementMovements,
+        /// Conditional escrows opened from exact buckets by the same intent.
+        pub escrows: AtomicSettlementEscrows,
         /// Last block height at which execution is permitted, inclusive.
         pub expires_at_height: NonZeroU64,
         /// Complete signed settlement metadata.
@@ -336,12 +443,13 @@ impl SettleAtomic {
     /// Domain for the complete canonical V1 instruction frame.
     pub const INTENT_HASH_DOMAIN: &'static [u8] = b"iroha:settlement:atomic-intent:v1\0";
 
-    /// Construct the complete intent from an already validated movement list.
+    /// Construct the complete intent from already validated movement and escrow lists.
     #[must_use]
     pub fn new(
         network_id: NetworkId,
         settlement_id: SettlementId,
         movements: AtomicSettlementMovements,
+        escrows: AtomicSettlementEscrows,
         expires_at_height: NonZeroU64,
         metadata: Metadata,
     ) -> Self {
@@ -349,6 +457,7 @@ impl SettleAtomic {
             network_id,
             settlement_id,
             movements,
+            escrows,
             expires_at_height,
             metadata,
         }
@@ -361,21 +470,35 @@ impl SettleAtomic {
     /// balance/permission/routing policies in the same `StateTransaction`.
     ///
     /// # Errors
-    /// Returns an error for invalid movements or an ID owner outside the debit owners.
+    /// Returns an error for a noncanonical or invalid movement or escrow vector,
+    /// when the intent has no movement or escrow leg, or when the settlement ID
+    /// owner debits none of its movements or escrow legs.
     pub fn validate(&self) -> Result<(), &'static str> {
         self.movements.validate()?;
+        self.escrows.validate()?;
+        if self.movements.as_slice().len() + self.escrows.as_slice().len()
+            < ATOMIC_SETTLEMENT_MIN_LEGS
+        {
+            return Err("atomic settlement requires at least one movement or escrow leg");
+        }
+        let owner = self.settlement_id.owner();
         if !self
             .movements
             .as_slice()
             .iter()
-            .any(|movement| movement.source.account() == self.settlement_id.owner())
+            .any(|movement| movement.source.account() == owner)
+            && !self
+                .escrows
+                .as_slice()
+                .iter()
+                .any(|escrow| escrow.source.account() == owner)
         {
             return Err("settlement id owner must participate as an authorized debit owner");
         }
         Ok(())
     }
 
-    /// Commit the exact network, business identifier, movements, expiry and metadata.
+    /// Commit the exact network, business identifier, movements, escrows, expiry and metadata.
     ///
     /// # Errors
     /// Returns an error for an invalid value or failed canonical Norito encoding.
@@ -393,9 +516,10 @@ impl core::fmt::Display for SettleAtomic {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "SETTLE ATOMIC `{}` ({} movements)",
+            "SETTLE ATOMIC `{}` ({} movements, {} escrows)",
             self.settlement_id,
-            self.movements.as_slice().len()
+            self.movements.as_slice().len(),
+            self.escrows.as_slice().len()
         )
     }
 }
@@ -416,6 +540,7 @@ impl<'a> DecodeFromSlice<'a> for SettleAtomic {
             network_id: field!(NetworkId),
             settlement_id: field!(SettlementId),
             movements: field!(AtomicSettlementMovements),
+            escrows: field!(AtomicSettlementEscrows),
             expires_at_height: field!(NonZeroU64),
             metadata: field!(Metadata),
         };

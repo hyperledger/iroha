@@ -38,12 +38,12 @@ fn complete_archive_schema_covers_both_full_credited_envelope_domains() {
             }
         };
         let specs = result.unwrap();
-        assert_eq!(specs[9].capacity, 8_597);
-        assert_eq!(specs[10].capacity, 8_277);
+        assert_eq!(specs[9].capacity, 5_364);
+        assert_eq!(specs[10].capacity, 3_520);
         assert_eq!(specs[13].capacity, u32::try_from(capacity).unwrap());
         assert_eq!(
             specs,
-            ArchiveStagePlan::context_specs(variant, 8_597, 8_277, capacity).unwrap()
+            ArchiveStagePlan::context_specs(variant, 5_364, 3_520, capacity).unwrap()
         );
         assert!(specs[13].capacity > 3_456);
         assert_eq!(
@@ -87,10 +87,14 @@ fn archive_envelope_capacities_match_regenerated_g1_bounds() {
     let specs = ArchiveStagePlan::full_context_specs(Variant::ArchiveStatus).unwrap();
     assert_eq!(
         usize::try_from(specs[10].capacity).unwrap(),
-        number("payment_proof_budget_bytes")
+        number("sigma_proof_cap_bytes")
     );
     assert_eq!(
         usize::try_from(specs[9].capacity).unwrap(),
+        number("omega_proof_cap_bytes") + 320
+    );
+    assert_eq!(
+        usize::try_from(specs[9].capacity + specs[10].capacity).unwrap(),
         number("payment_proof_budget_bytes") + 320
     );
 }
@@ -431,7 +435,7 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
                 payment: vec![0; specs[7].capacity as usize],
                 statement: [Fp::ZERO; 26],
                 omega: vec![0; 320],
-                sigma: vec![0; 8277],
+                sigma: vec![0; 3520],
             },
             evidence: if variant == Variant::ArchiveReceive {
                 receive.clone()
@@ -492,6 +496,25 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
         );
         changed = input.clone();
         changed.retained.omega.push(0);
+        assert_eq!(
+            plan.validate_original_shapes(&changed),
+            Ok(()),
+            "a bounded malformed retained proof remains a soft original"
+        );
+        changed.retained.omega.resize(specs[9].capacity as usize, 0);
+        assert_eq!(plan.validate_original_shapes(&changed), Ok(()));
+        changed.retained.omega.push(0);
+        assert_eq!(
+            plan.validate_original_shapes(&changed),
+            Err(native::Error::Input)
+        );
+        changed = input.clone();
+        changed
+            .retained
+            .sigma
+            .resize(specs[10].capacity as usize, 0);
+        assert_eq!(plan.validate_original_shapes(&changed), Ok(()));
+        changed.retained.sigma.push(0);
         assert_eq!(
             plan.validate_original_shapes(&changed),
             Err(native::Error::Input)
@@ -608,7 +631,7 @@ fn native_source_import_sweep_with_incoming_k(
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).unwrap(),
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .unwrap()
@@ -921,7 +944,7 @@ fn archive_source_proposals_require_complete_schema_and_uint32_without_certifyin
     use iroha_plonk::frontend::synthesize;
     for variant in [Variant::ArchiveReceive, Variant::ArchiveStatus] {
         let (operation, _, _) = operation(variant);
-        let specs = ArchiveStagePlan::context_specs(variant, 8597, 3456, 3456).unwrap();
+        let specs = ArchiveStagePlan::context_specs(variant, 5364, 3456, 3456).unwrap();
         let partition = vec![vec![0], vec![1], vec![2], vec![], vec![]];
         let unowned = ContextPlan::with_schedule(
             operation.clone(),

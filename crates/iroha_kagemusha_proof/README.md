@@ -12,6 +12,21 @@ or instance profiles. The `kgwvkey1` base-field Poseidon verifying-key digest
 binds the descriptor digest, transcript representation, counts and ordered
 commitment coordinates. The shared engine owns this digest definition.
 
+Each new native proof consumes fresh OS entropy through `ProverRandomness`;
+shipping producers have no seeded recovery callback. Recovery verifies and
+restores retained exact proof bytes under the authenticated checkpoint context.
+A new attempt receives fresh randomness, and cancellation issues no partial proof.
+Local committed-mask folds use the 2,176-byte private witness defined by
+`iroha_plonk_recursion`. `PrivateFoldBytes` shares one clearing allocation across
+clones; only the final release clears that allocation. Witnessless source
+construction replaces it with unknown bytes. It is private checkpoint material,
+not an added Payment or public lineage field.
+
+Numerical layouts, proof lengths and run results below retain their recorded
+source scope. They do not qualify the changed norm-product, total-role and
+committed-mask sources. Current keys, size assertions and genuine composed
+proofs require fresh validation before catalog or device qualification.
+
 ## Protocol layout
 
 The implementation follows G1 revision 4 and owner decisions B1, B5–B8 in
@@ -56,7 +71,8 @@ and Λ; σ binds their carried successor roots.
 `q_sigma` checks own σ hard and optional incoming σ soft on one shared
 verifier lane. It binds the complete witness-key digest to a circuit-fixed
 allowlist and exports the same LE32-length-prefixed proof bytes in 31-byte
-chunks (107 for k12 and 112 for k14). The parent A relation recomputes the
+chunks, with the chunk count derived from the exact source proof length.
+The parent A relation recomputes the
 statement digest and checks the operation/mask selector and global mode rule.
 One σ forwards a checked source-k claim; two σ use a hard local PIPA-AS fold
 with the selected incoming claim and an explicit pinned k16 trivial input.
@@ -563,20 +579,22 @@ predate this added constraint, so they cannot qualify the changed owner key.
 The [Archive composition argument](../../specs/kagemusha_recursion_soundness_v1.md#archive-original-sources-and-conditional-terminal-closure)
 has passed independent internal source review, conditional on executing all
 fixed owners and closing every obligation. A subsequent capacity review found
-that the earlier3,456-byte incoming sigma buffer did not cover the complete
-Credited envelope. The canonical Archive context now fixes retained raw Omega
-at8,597 bytes and sigma at8,277 bytes, with their separate hard joint bound;
-incoming Receive sigma has9,321 bytes and incoming Status raw Omega8,132 bytes.
-Descriptor-length mismatches remain soft proof failures. Pending membership
-authenticates the seven-word Send descriptor, not old proof lengths or bytes.
-The isolated retained owner passes strict constraints and known/unknown layout
-parity at the full capacities and inclusive joint boundary, using at most26,973
-rows. All five retained/incoming-source tests pass. The shared full-domain
-constructor pins the owner order and Q assignment used by the complete runner;
-a new re-signed9,321-byte incoming-proof-tail case requires the no-op branch.
-Fresh complete layouts and chains for this domain are required before native
-installation or artifact admission; historical narrow-buffer runs do not
-qualify it.
+that the earlier 3,456-byte incoming sigma buffer did not cover the declared
+owner capacity. The current Archive context fixes retained raw Omega at 5,364
+bytes and sigma at 3,520 bytes, with an independent 8,884-byte joint raw bound.
+Incoming Receive sigma uses the same 3,520-byte role cap; incoming Status raw
+Omega uses 5,364 bytes. These source limits are stricter than the 9,321-byte
+Receive and 7,812-byte Status envelope budgets. Descriptor-length mismatches
+remain soft proof failures. Pending membership authenticates the seven-word Send
+descriptor, not old proof lengths or bytes.
+
+The earlier isolated retained-owner capture passed strict constraints and
+known/unknown parity at its former capacities, using at most 26,973 rows, with
+five retained/incoming-source tests passing. That capture and its re-signed
+9,321-byte incoming-proof-tail case do not qualify the current owner keys. The
+shared full-domain constructor retains the owner order and Q assignment used by
+the complete runner. Fresh complete layouts, inclusive role/joint-bound tests
+and genuine chains are required before native installation or artifact admission.
 
 TODO: compose and qualify retained-Payment, evidence, signature, corrected-claim
 and all recursive owners under admitted terminal keys. These components do not
@@ -853,6 +871,16 @@ they regenerate no key and reject substitutions. Default and explicit serialized
 Q profiles never fall back to another profile. Original/domain bounds do not
 qualify total synthesis or prover memory.
 
+A qualified wallet does not import σ originals again for each operation. Like
+Q/A/W/Ω, it rebuilds the key with `from_source_view_cancellable` (on `SigmaProver`
+and on each administrative owner) from the private seal that strict or exact
+closed built-in admission minted. Its installation owner first binds that seal to
+the signed member and revalidates the member's descriptor, VK and PK originals
+under the current limits. The rebuild applies the typed profile checks, takes the
+circuit only from the selector's compiled source, and reconstructs and checks the
+complete source against the seal. A failure returns no key and never falls back
+to an original import.
+
 `q_sigma::native::QSigmaSource` removes live prepared-operation input from
 original-key installation. It checks one genuine member VK per fixed slot
 against the complete independently installed plan/catalog and descriptor. The
@@ -935,9 +963,13 @@ composed operation or runtime qualification.
   wrong-head and consistent-forgery attacks, and release per-cell tampering.
 - `shapes`: exact shapes, row counts, joint byte budget and verifier rebuilds.
 - `real_proofs`: real valid and rejected proofs, selector binding, byte
-  tampering and deterministic keys/proofs; quota shapes use k14. The two
+  tampering, deterministic keys, fresh-proof verification and retained-proof
+  replay; quota shapes use k14. The two
   `installed_sigma_originals_` release cases exercise imported Send/Receive keys
   on both Pasta curves, actual proofs, public-input tampering and import refusals.
+  The `sealed_sigma_sources_` release case rebuilds k12 Send/Receive and k14 quota
+  keys from their admission seals: each is the exact original and proves for the
+  installed verifier; another source, other parameters and cancellation fail.
 - `q_sigma`: `actual_two_sigma_q_proof_verifies` and
   `installed_serialized_q_originals_prove_and_reject_default_profile` exercise
   original-key continuity, explicit profile refusals and genuine imported Q
@@ -961,6 +993,10 @@ composed operation or runtime qualification.
   checks cover the import boundary. Test producers generate fixture originals;
   Native imports do not. These cases do not establish a signed producer catalog,
   final Omega, Native wallet open or physical-device qualification.
+  `sealed_admin_sigma_sources_rebuild_only_their_own_compiled_operation` runs
+  the same four-by-four matrix on seal rebuilds: only the owner's own operation
+  rebuilds its exact original, which proves for the installed VK; every other
+  operation fails as `Source`, and other parameters and cancellation fail.
 
 - `archive_sigma`: complete rehashed unchanged-field and statement/opening
   mutations, source-layout equality, imported-key proofs for Active and Retiring

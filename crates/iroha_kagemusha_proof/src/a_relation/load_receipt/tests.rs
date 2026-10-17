@@ -243,6 +243,21 @@ fn malformed_terms_reject_even_with_recomputed_digest_and_public_fields() {
 }
 
 #[test]
+fn payer_identity_must_be_nonzero_even_with_recomputed_digest() {
+    let mut bytes = sample();
+    bytes[250..282].fill(0);
+    assert!(!valid(&bytes, &public(&bytes)));
+
+    // Either bounded half suffices; this is a nonzero identity, not two
+    // independently nonzero limbs.
+    for offset in [250, 266] {
+        let mut nonzero = bytes.clone();
+        nonzero[offset] = 1;
+        assert!(valid(&nonzero, &public(&nonzero)));
+    }
+}
+
+#[test]
 fn every_receipt_advice_cell_is_constrained() {
     let bytes = sample();
     let circuit = ReceiptCircuit {

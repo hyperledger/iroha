@@ -195,6 +195,8 @@ CORE_RECOVERY_SUPPORT_PATHS = tuple(
         "executor/private_fees.rs",
         "executor_contract_owner_permission_tests.rs",
         "executor_asset_lock_admission_tests.rs",
+        "executor_conditional_escrow_repo_admission_tests.rs",
+        "executor_bond_admission_tests.rs",
         "executor/resource_return_tests.rs",
         "executor/argument_refusal_tests.rs",
         "executor/settlement_replay.rs",

@@ -86,7 +86,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
             request_id: [41; 32],
             action: OperationActionV1::Retire,
         }),
-        native: vec![1],
+        native: std::sync::Arc::new(PrivateArchiveBytes::copy_from(&[1]).unwrap()),
         source: manifest.capsule,
         draft,
     };

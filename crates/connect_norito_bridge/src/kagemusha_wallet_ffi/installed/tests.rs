@@ -125,3 +125,19 @@ fn registration_original_extends_exact_c_layout_without_role_aliases() {
         15 * word
     );
 }
+
+#[test]
+fn install_refuses_invalid_originals_before_any_platform_upcall() {
+    // `install` runs the whole admission, including any memo lookup, before the platform
+    // factory, custody root and owner; a refused attempt never reaches the platform factory.
+    let mut input = base();
+    input.app_manifest = b"";
+    let refused = install(
+        input,
+        false,
+        || -> Result<(CallbackPlatform, std::path::PathBuf)> {
+            panic!("no platform upcall before admission")
+        },
+    );
+    assert_eq!(refused.err(), Some(Failure::code(INVALID)));
+}

@@ -46,6 +46,7 @@ import org.hyperledger.iroha.sdk.client.stream.ToriiEventStreamClient
 import org.hyperledger.iroha.sdk.tx.SignedTransaction
 import org.hyperledger.iroha.sdk.tx.SignedTransactionHasher
 import org.hyperledger.iroha.sdk.client.transport.TransportRequest
+import org.hyperledger.iroha.sdk.client.transport.TransportRequestNotDispatchedException
 import org.hyperledger.iroha.sdk.client.transport.TransportResponse
 import org.hyperledger.iroha.sdk.core.model.zk.VerifyingKeyBackendTag
 import org.hyperledger.iroha.sdk.core.model.FeePaymentIntent
@@ -155,7 +156,7 @@ class HttpClientTransport private constructor(
             config.allowPlaintextLoopback(),
         )
         return ensureTransactionSubmissionCompatibility()
-            .thenCompose { executeAccepted(request, "transaction JSON submit", 202) }
+            .thenCompose { executeAccepted(request, "transaction JSON submit", 202, preserveUndispatchedFailure = true) }
     }
 
     override fun submitTransactionEntrypoint(encodedVersionedEntrypoint: ByteArray): CompletableFuture<ClientResponse> {
@@ -171,7 +172,8 @@ class HttpClientTransport private constructor(
             notifyRequest(request)
             executor.execute(request).handle { response, throwable ->
                 if (throwable != null) {
-                    val cause = unwrapCompletion(throwable)
+                    val failure = unwrapCompletion(throwable)
+                    val cause = if (failure is TransportRequestNotDispatchedException) failure.originalFailure else failure
                     notifyFailure(request, cause)
                     val failed = CompletableFuture<ClientResponse>()
                     failed.completeExceptionally(cause)
@@ -298,7 +300,7 @@ class HttpClientTransport private constructor(
             config.allowPlaintextLoopback(),
         )
         return ensureTransactionSubmissionCompatibility()
-            .thenCompose { executeAccepted(request, "transaction entrypoint JSON submit", 202) }
+            .thenCompose { executeAccepted(request, "transaction entrypoint JSON submit", 202, preserveUndispatchedFailure = true) }
     }
 
     override fun waitForTransactionStatus(hashHex: String, options: PipelineStatusOptions?): CompletableFuture<Map<String, Any>> {
@@ -2079,13 +2081,17 @@ class HttpClientTransport private constructor(
             executor.execute(request).handle { response, throwable ->
                 if (throwable != null) {
                     val cause = unwrapCompletion(throwable)
-                    val error = AmbiguousTransactionSubmissionException(
-                        hashHex,
-                        null,
-                        null,
-                        null,
-                        cause,
-                    )
+                    val error = if (cause is TransportRequestNotDispatchedException) {
+                        cause.originalFailure
+                    } else {
+                        AmbiguousTransactionSubmissionException(
+                            hashHex,
+                            null,
+                            null,
+                            null,
+                            cause,
+                        )
+                    }
                     notifyFailure(request, error)
                     return@handle CompletableFuture<ClientResponse>().also {
                         it.completeExceptionally(error)
@@ -2579,6 +2585,7 @@ class HttpClientTransport private constructor(
     private fun <T> executeResponse(
         request: TransportRequest,
         errorContext: String,
+        preserveUndispatchedFailure: Boolean = false,
         consume: (TransportResponse) -> T,
     ): CompletableFuture<T> = CompletableFuture.completedFuture(Unit).thenCompose {
         notifyRequest(request)
@@ -2586,7 +2593,11 @@ class HttpClientTransport private constructor(
     }.handle { response, failure ->
         try {
             if (failure != null) {
-                throw RuntimeException("$errorContext request failed", unwrapCompletion(failure))
+                val cause = unwrapCompletion(failure)
+                if (preserveUndispatchedFailure && cause is TransportRequestNotDispatchedException) {
+                    throw cause.originalFailure
+                }
+                throw RuntimeException("$errorContext request failed", cause)
             }
             consume(response)
         } catch (error: Throwable) {
@@ -2939,8 +2950,13 @@ class HttpClientTransport private constructor(
         }
     }
 
-    private fun executeAccepted(request: TransportRequest, errorContext: String, acceptedStatus: Int): CompletableFuture<ClientResponse> {
-        return executeResponse(request, errorContext) { response ->
+    private fun executeAccepted(
+        request: TransportRequest,
+        errorContext: String,
+        acceptedStatus: Int,
+        preserveUndispatchedFailure: Boolean = false,
+    ): CompletableFuture<ClientResponse> {
+        return executeResponse(request, errorContext, preserveUndispatchedFailure) { response ->
             val clientResponse = ClientResponse(response.statusCode, response.body, response.message, null, extractRejectCode(response))
             if (response.statusCode != acceptedStatus) {
                 throw ToriiApiException.fromResponse(response.statusCode, response.headers, response.body, errorContext)

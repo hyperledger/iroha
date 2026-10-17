@@ -2,10 +2,10 @@
 //!
 //! [`AccumulatorT`] and [`FoldInput`] are checked, **undecided** claims.
 //! [`verify_fold`] checks only the succinct IPA equation: acceptance requires
-//! deciding its returned accumulator. [`create_fold`] constructs the non-hiding
-//! opening of `h - h(z)e_0`, using the pinned generator prefix and no hiding
-//! generator. Salt is an explicit canonical base-field input, outside the
-//! 1,088-byte IPA body. No API silently inserts or removes a fold input.
+//! deciding its returned accumulator. [`create_fold`] consumes one private coin
+//! tape for the committed-mask diagnostic construction. The 2,176-byte local
+//! witness is a clearing owner. No API silently inserts or removes a fold input.
+//! This staged component has no complete caller or dependency memory qualification.
 //!
 //! The [`transcript`] and [`codec`] modules provide the constrained base-field
 //! sponge, canonical message cells and full-width challenge map. [`verifier`]
@@ -15,16 +15,23 @@
 //! close both generator decisions and qualify the composed recursive artifacts.
 //! Component tests do not establish full-lineage or release qualification.
 
-mod accumulation;
+pub mod accumulation;
 pub mod accumulation_circuit;
 mod claim;
 pub mod codec;
+mod fold_tape;
 pub mod obligation;
+mod private;
+mod purpose;
+pub mod terminal;
 pub mod transcript;
 pub mod verifier;
 
 pub use accumulation::{FoldConfig, FoldWitness, create_fold, verify_fold};
 pub use claim::{AccumulatorT, CorrectedInput, FoldInput};
+pub use fold_tape::FoldTape;
+pub use private::PrivateWitnessBytes;
+pub use purpose::FoldPurpose;
 
 use core::fmt;
 
@@ -37,10 +44,10 @@ const K_U32: u32 = 16;
 pub const GENERATORS: usize = 1 << K;
 /// Canonical `G || u[0..16]` bytes, without a curve or version discriminator.
 pub const ACCUMULATOR_BYTES: usize = 32 * (1 + K);
-/// The non-hiding IPA body: sixteen L/R pairs, c and the unabsorbed G suffix.
-pub const FOLD_BODY_BYTES: usize = 32 * (2 * K + 2);
-/// Canonical local witness: a 32-byte base-field salt followed by the body.
-pub const FOLD_WITNESS_BYTES: usize = 32 + FOLD_BODY_BYTES;
+/// Commitment D, sixteen masked L/R pairs, c and the unabsorbed G suffix.
+pub const FOLD_BODY_BYTES: usize = 32 * (2 * K + 3);
+/// Canonical private witness: body followed by rho and thirty-two ordered masks.
+pub const FOLD_WITNESS_BYTES: usize = FOLD_BODY_BYTES + 32 * (1 + 2 * K);
 
 /// Compressed Pallas `ACC_TRIV.G = sum_{i<2^16} g_i`, pinned by an independent sum KAT.
 pub const PALLAS_TRIVIAL_GENERATOR: [u8; 32] = [
@@ -83,6 +90,8 @@ pub enum Error {
     /// At least one source-k16 slot is required; short-only callers must
     /// explicitly supply the pinned trivial accumulator as an additional slot.
     MissingFullLengthInput,
+    /// The compiled purpose, curve, slot count or closed binding differs.
+    Purpose,
     /// The slot count cannot be represented by the transcript framing.
     InputCount,
     /// The pinned parameters do not cover the required prefix.
@@ -109,6 +118,7 @@ impl fmt::Display for Error {
             Self::MissingFullLengthInput => {
                 f.write_str("fold requires an explicit source-k16 slot")
             }
+            Self::Purpose => f.write_str("fold purpose, curve, slots or closed binding differs"),
             Self::InputCount => f.write_str("fold input count is not representable"),
             Self::Parameters(error) => write!(f, "parameters: {error}"),
             Self::Undecidable => f.write_str("the accumulator does not decide"),

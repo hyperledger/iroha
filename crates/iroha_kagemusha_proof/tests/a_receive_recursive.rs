@@ -62,9 +62,7 @@ use iroha_kagemusha_proof::{
     q_signature::{QSignatureCircuit, QSignaturePlan, SignatureWitness},
     tree::IndexedInsert,
 };
-use iroha_pasta::{
-    Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
-};
+use iroha_pasta::{Ep, Eq, EqAffine, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     ProverConfig, ProverOutput, ProvingKey, VerifyingKey, Witness,
     check::{CheckMode, check},
@@ -167,7 +165,7 @@ impl Source {
         }
     }
     fn vesta_correction_words(&self) -> [Fp; 4] {
-        let (x, y) = self.vesta_correction.coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&self.vesta_correction);
         let [x0, x1] = foreign_limbs(&x).map(Fp::from_u128);
         let [y0, y1] = foreign_limbs(&y).map(Fp::from_u128);
         [x0, x1, y0, y1]
@@ -321,7 +319,6 @@ fn signature_q(
     params: &PinnedParams<Ep>,
     schema: &QSignaturePlan,
     witnesses: Vec<SignatureWitness>,
-    seed: u8,
 ) -> QSource {
     let circuit = QSignatureCircuit::new(schema.clone(), witnesses).unwrap();
     let instances = circuit
@@ -338,7 +335,7 @@ fn signature_q(
         params,
         &key,
         Witness::from_circuit(&key, &circuit, &instances).unwrap(),
-        common::recovery(seed),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -499,7 +496,6 @@ fn source_with_correction(
             credential.signature,
             certificate.signature,
         ],
-        245,
     );
     let request_signature = {
         let (_, _, receiver) =
@@ -520,7 +516,7 @@ fn source_with_correction(
     if variant == Variant::ReceiveRenewed {
         incoming_signatures.extend([quoted.signature, certificate.signature]);
     }
-    let q_incoming = signature_q(&params, &schemas[1], incoming_signatures, 246);
+    let q_incoming = signature_q(&params, &schemas[1], incoming_signatures);
     let q = vec![
         QSource {
             plan: own.q.clone(),
@@ -678,7 +674,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &FoldInput<Ep>,
     ) -> Result<FoldInputCells<Ep>, Error> {
-        let point = chip.witness_point(region, self.value(Ep::from(*value.g())))?;
+        let point = chip.witness_generator(region, self.value(Ep::from(*value.g())))?;
         let scalars = value
             .challenges()
             .iter()
@@ -694,7 +690,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &AccumulatorT<Eq>,
     ) -> Result<VestaClaimCells, Error> {
-        let (x, y) = Option::from(value.g().coordinates()).ok_or(Error::Synthesis)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(value.g());
         let coordinates = [self.scalar(chip, region, x)?, self.scalar(chip, region, y)?];
         let challenges = self.words(chip, region, value.challenges())?;
         VestaClaimCells::constrain(chip, region, 16, coordinates, challenges)
@@ -829,7 +825,7 @@ struct Stage {
     source: Arc<Source>,
     continuation: Option<Continuation>,
     pallas: AccumulatorT<Ep>,
-    fold: Vec<u8>,
+    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     known: bool,
     mutation: Option<ContinuationMutation>,
 }
@@ -1024,11 +1020,11 @@ impl Circuit<Fp> for Stage {
                 let trivial = AccumulatorT::trivial(&source.params, MemoryBudget::DEFAULT)
                     .map_err(|_| Error::Synthesis)?;
                 let corrections = [
-                    chip.witness_point(&mut region, cells.value(Ep::from(*trivial.g())))?,
-                    chip.witness_point(&mut region, cells.value(Ep::from(*trivial.g())))?,
+                    chip.witness_generator(&mut region, cells.value(Ep::from(*trivial.g())))?,
+                    chip.witness_generator(&mut region, cells.value(Ep::from(*trivial.g())))?,
                 ];
                 let (x, y) =
-                    Option::from(source.vesta_correction.coordinates()).ok_or(Error::Synthesis)?;
+                    iroha_plonk::transcript::generator_coordinates::<Eq>(&source.vesta_correction);
                 let vcorrections = [[
                     cells.scalar(&mut chip, &mut region, x)?,
                     cells.scalar(&mut chip, &mut region, y)?,
@@ -1537,14 +1533,14 @@ impl Circuit<Fp> for Stage {
 }
 
 fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) {
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(claim.g());
     words.extend([Fp::from(u64::from(claim.source_k())), x, y]);
     for u in claim.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
     }
 }
 fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
     let mut out = Vec::new();
     for v in [x, y] {
         out.extend(foreign_limbs(&v).map(Fp::from_u128));
@@ -1602,7 +1598,7 @@ fn context_digest(source: &Source) -> Fp {
         words.extend(source.mode_words(index));
     }
     let trivial = AccumulatorT::trivial(&source.params, MemoryBudget::DEFAULT).unwrap();
-    let (x, y) = trivial.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(trivial.g());
     words.extend([x, y, x, y]);
     words.extend(source.vesta_correction_words());
     hash_with_domain(u64::from_le_bytes(*b"kgwctx_1"), &words)
@@ -1649,7 +1645,8 @@ impl Stage {
             return internal_public(digest, &continuation.vesta.as_input());
         }
         let mut lineage = self.source.own.witness.after.lineage.to_vec();
-        let (x, y) = self.pallas.g().coordinates().unwrap();
+        let (x, y) =
+            iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(self.pallas.g());
         lineage.extend([x, y]);
         for u in self.pallas.challenges() {
             lineage.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -1721,7 +1718,7 @@ fn prove_stage(circuit: &Stage) -> (ProvingKey<Eq>, ProverOutput<Eq>, Vec<Vec<Fp
         &params,
         &key,
         Witness::from_circuit(&key, circuit, &public).unwrap(),
-        common::recovery(200 + u8::try_from(stage).unwrap()),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -2018,19 +2015,12 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
     let pallas = AccumulatorT::trivial(&source.params, MemoryBudget::DEFAULT).unwrap();
     let vparams = common::vesta_params(16);
     let vesta = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT).unwrap();
-    let (first_fold, _) = create_fold(
-        &source.params,
-        &[pallas.as_input(), pallas.as_input()],
-        Fp::from(901).to_repr(),
-        &FoldConfig::default(),
-    )
-    .unwrap();
     let mut stage = Stage {
         source: source.clone(),
         continuation: None,
         pallas: pallas.clone(),
 
-        fold: first_fold.to_bytes().to_vec(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
         known: false,
         mutation: None,
     };
@@ -2069,18 +2059,6 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
             let proof_length = VerifierPlan::new(key.binding().clone(), vparams.clone())
                 .unwrap()
                 .proof_length();
-            let (fold, _) = create_fold(
-                &vparams,
-                &[
-                    vesta.as_input(),
-                    vesta.as_input(),
-                    vesta.as_input(),
-                    vesta.as_input(),
-                ],
-                Fq::from(902).to_repr(),
-                &FoldConfig::default(),
-            )
-            .unwrap();
             let wrapper = WCircuit::new(
                 source.plan.context(),
                 index,
@@ -2092,7 +2070,7 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
                     instances: stage.public()[0].clone(),
                     length: u32::try_from(proof_length).unwrap(),
                     proof: vec![0; proof_length],
-                    fold: fold.to_bytes(),
+                    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
                 },
             )
             .unwrap()
@@ -2120,16 +2098,6 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
             &source.params,
         )
         .unwrap();
-        let count = 2
-            + if split.is_terminal() { 2 } else { 0 }
-            + source.plan.context().q_partition(index + 1).unwrap().len();
-        let (fold, _) = create_fold(
-            &source.params,
-            &vec![pallas.as_input(); count],
-            Fp::from(903).to_repr(),
-            &FoldConfig::default(),
-        )
-        .unwrap();
         stage = Stage {
             source: source.clone(),
             continuation: Some(Continuation {
@@ -2140,7 +2108,7 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
             }),
             pallas: pallas.clone(),
 
-            fold: fold.to_bytes().to_vec(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
             known: false,
             mutation: None,
         };
@@ -2259,7 +2227,7 @@ fn assert_native_first_relation(source: &Source, first: &Stage) {
     );
     let prepared = plan.prepare(inputs, MemoryBudget::DEFAULT).unwrap();
     let (native, public) = prepared
-        .first_circuit(Fp::from(247), &FoldConfig::default())
+        .first_circuit(common::public_fixture_tape(247), &FoldConfig::default())
         .unwrap();
     assert_eq!(public, first.public()[0]);
     let actual = synthesize(first, 16, Some(&first.public())).unwrap();
@@ -2331,7 +2299,7 @@ impl NativeCheckpoints {
         );
         let prepared = plan.prepare(inputs.clone(), MemoryBudget::DEFAULT).unwrap();
         let (first_circuit, _) = prepared
-            .first_circuit(Fp::from(247), &FoldConfig::default())
+            .first_circuit(common::public_fixture_tape(247), &FoldConfig::default())
             .unwrap();
         // Validate the actual known source against the metadata-only unknown
         // factory before any subsequent one-stage native proving call.
@@ -2472,7 +2440,7 @@ impl NativeCheckpoints {
             let (native_circuit, native_public) = session
                 .next_circuit(
                     &wrapper,
-                    Fp::from(262 + u64::try_from(stage).unwrap()),
+                    common::public_fixture_tape(262 + u64::try_from(stage).unwrap()),
                     &FoldConfig::default(),
                 )
                 .unwrap();
@@ -2492,9 +2460,9 @@ impl NativeCheckpoints {
                     matches!(
                         session.first(
                             &native_key,
-                            Fp::from(247),
+                            common::public_fixture_tape(247),
                             &FoldConfig::default(),
-                            common::recovery(200),
+                            common::fresh_randomness(),
                             ProverConfig::default(),
                         ),
                         Err(native::Error::Artifact)
@@ -2505,16 +2473,17 @@ impl NativeCheckpoints {
                     .advance(
                         &native_key,
                         &wrapper,
-                        Fp::from(262),
+                        common::public_fixture_tape(262),
                         &FoldConfig::default(),
-                        common::recovery(201),
+                        common::fresh_randomness(),
                         ProverConfig::default(),
                     )
                     .unwrap();
+                assert_ne!(reproved.proof(), self.a_proofs[1], "fresh rebuilt proof");
                 assert_eq!(
-                    reproved.proof(),
-                    self.a_proofs[1],
-                    "metadata-rebuilt native stage key preserves exact deterministic proof bytes"
+                    reproved.instances(),
+                    native_public,
+                    "fresh proof retains the exact source statement"
                 );
             }
             let native_tables = synthesize(
@@ -2668,7 +2637,7 @@ fn check_native_w_import(
             instances: vec![Fp::ZERO; 69],
             proof: vec![0; length],
             length: u32::try_from(length).unwrap(),
-            fold: [0; 1120],
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
         },
     )
     .unwrap()
@@ -2804,19 +2773,12 @@ fn terminal_identity_from_source(
     let pallas = AccumulatorT::trivial(&source.params, MemoryBudget::DEFAULT).unwrap();
     let vparams = common::vesta_params(16);
     let vesta = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT).unwrap();
-    let (first_fold, _) = create_fold(
-        &source.params,
-        &[pallas.as_input(), pallas.as_input()],
-        Fp::from(907).to_repr(),
-        &FoldConfig::default(),
-    )
-    .unwrap();
     let mut stage = Stage {
         source: source.clone(),
         continuation: None,
         pallas: pallas.clone(),
 
-        fold: first_fold.to_bytes().to_vec(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
         known: false,
         mutation: None,
     };
@@ -2834,13 +2796,6 @@ fn terminal_identity_from_source(
         let proof_length = VerifierPlan::new(binding.clone(), vparams.clone())
             .unwrap()
             .proof_length();
-        let (fold, _) = create_fold(
-            &vparams,
-            &vec![vesta.as_input(); 4],
-            Fq::from(908).to_repr(),
-            &FoldConfig::default(),
-        )
-        .unwrap();
         let wrapper = WCircuit::new(
             source.plan.context(),
             index,
@@ -2852,7 +2807,7 @@ fn terminal_identity_from_source(
                 instances: stage.public()[0].clone(),
                 length: u32::try_from(proof_length).unwrap(),
                 proof: vec![0; proof_length],
-                fold: fold.to_bytes(),
+                fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .unwrap()
@@ -2875,16 +2830,6 @@ fn terminal_identity_from_source(
             &source.params,
         )
         .unwrap();
-        let count = 2
-            + if split.is_terminal() { 2 } else { 0 }
-            + source.plan.context().q_partition(index + 1).unwrap().len();
-        let (fold, _) = create_fold(
-            &source.params,
-            &vec![pallas.as_input(); count],
-            Fp::from(909).to_repr(),
-            &FoldConfig::default(),
-        )
-        .unwrap();
         stage = Stage {
             source: source.clone(),
             continuation: Some(Continuation {
@@ -2895,7 +2840,7 @@ fn terminal_identity_from_source(
             }),
             pallas: pallas.clone(),
 
-            fold: fold.to_bytes().to_vec(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
             known: false,
             mutation: None,
         };
@@ -2939,7 +2884,8 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
             source.predecessor.pallas.as_input(),
             source.predecessor.opening.clone(),
         ],
-        Fp::from(247).to_repr(),
+        common::public_fixture_tape(247),
+        iroha_plonk_recursion::FoldPurpose::AInitial,
         &FoldConfig::default(),
     )
     .unwrap();
@@ -2948,7 +2894,9 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
         continuation: None,
         pallas: pallas.clone(),
 
-        fold: first_fold.to_bytes().to_vec(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            first_fold.to_private_bytes(),
+        ),
         known: true,
         mutation: None,
     };
@@ -2962,28 +2910,32 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
     native.a_proofs.push(proof.proof.clone());
     native.pallas.push(pallas.to_bytes());
     let mut carried = pallas;
-    let mut part = source.own.part.clone();
     let mut previous_wrapper: Option<Vec<u8>> = None;
     let vparams = common::vesta_params(16);
     for stage in 1..source.plan.context().stage_count() {
-        let own = FoldInput::from_opening(*proof.opening.g(), proof.opening.challenges()).unwrap();
-        let trivial = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT)
-            .unwrap()
-            .as_input();
-        let (vfold, vesta) = create_fold(
-            &vparams,
-            &[part, own, trivial.clone(), trivial],
-            Fq::from(251 + u64::try_from(stage).unwrap()).to_repr(),
-            &FoldConfig::default(),
+        let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+            key.binding().encoded(),
+            &[key.vk().to_bytes().to_vec()],
+            vparams.clone(),
         )
         .unwrap();
+        let (vfold, vesta) = terminal
+            .read(0, &public, &proof.proof, &FoldConfig::default())
+            .unwrap()
+            .create(
+                common::public_fixture_tape(251 + stage as u64),
+                &FoldConfig::default(),
+            )
+            .unwrap();
         vesta.decide(&vparams, MemoryBudget::DEFAULT).unwrap();
         let witness = iroha_kagemusha_proof::omega::OmegaWitness {
             key: key.vk().clone(),
             instances: public[0].clone(),
             length: proof.proof.len().try_into().unwrap(),
             proof: proof.proof,
-            fold: vfold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                vfold.to_private_bytes(),
+            ),
         };
         let wrapper = WCircuit::new(
             source.plan.context(),
@@ -3003,7 +2955,7 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
         );
         drop(key);
         let (wkey, wprover) = WKey::keygen(&wrapper, &source.params).unwrap();
-        let (x, y) = vesta.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
         let wpublic = vec![
             vec![Fq::from_repr(public[0][0].to_repr()).unwrap()],
             vec![x, y],
@@ -3017,7 +2969,7 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
             &source.params,
             &wprover,
             Witness::from_circuit(&wprover, &wrapper, &wpublic).unwrap(),
-            common::recovery(210 + u8::try_from(stage).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -3070,10 +3022,21 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
                 .iter()
                 .map(|i| source.q[*i].opening.clone()),
         );
+        let purpose = if split.is_terminal() {
+            assert!(claims.len() <= 4);
+            let filler = AccumulatorT::trivial(&source.params, MemoryBudget::DEFAULT).unwrap();
+            while claims.len() < 4 {
+                claims.push(filler.as_input());
+            }
+            iroha_plonk_recursion::FoldPurpose::ATerminal
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
         let (fold, pallas) = create_fold(
             &source.params,
             &claims,
-            Fp::from(261 + u64::try_from(stage).unwrap()).to_repr(),
+            common::public_fixture_tape(261 + stage as u64),
+            purpose,
             &FoldConfig::default(),
         )
         .unwrap();
@@ -3087,7 +3050,9 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
             }),
             pallas: pallas.clone(),
 
-            fold: fold.to_bytes().to_vec(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            ),
             known: true,
             mutation: None,
         };
@@ -3143,7 +3108,6 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
             assert_continuation_rejects(&continuation, ContinuationMutation::WPart);
         }
         carried = pallas;
-        part = vesta.as_input();
     }
     carried
         .decide(&source.params, MemoryBudget::DEFAULT)

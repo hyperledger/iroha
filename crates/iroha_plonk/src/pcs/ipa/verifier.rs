@@ -1,8 +1,8 @@
 //! The IPA opening verifier (vendored `poly/ipa/commitment/verifier.rs` and
 //! `GuardIPA`).
 //!
-//! [`read_opening`] reads `S`, the `k` rounds and `c`, `f`, rejecting a zero
-//! round challenge, and returns a [`PendingOpening`]: the left-hand side
+//! [`read_opening`] reads `S`, the `k` rounds and `c`, `f`, maps masking and
+//! actual round challenges with `nz`, and returns a [`PendingOpening`]: the left-hand side
 //!
 //! ```text
 //! P' + sum_j (u_j^-1 L_j + u_j R_j) - c b(x) z U - f W,   P' = P - v g_0 + xi S
@@ -30,13 +30,10 @@
 //! (`decide`, `batch_decide` or [`PendingOpening::verify_full`]) accepts.
 
 use ff::{BatchInvert, Field};
-use group::prime::PrimeCurveAffine;
 use iroha_pasta::{PastaCurve, msm::MemoryBudget};
 
 use super::{
-    GeneratorClaim, IpaError, PinnedParams,
-    accumulator::PendingAccumulator,
-    commit::{Msm, msm_complete},
+    GeneratorClaim, IpaError, PinnedParams, accumulator::PendingAccumulator, commit::Msm,
     fold_evaluation, fold_scalars,
 };
 use crate::transcript::TranscriptRead;
@@ -66,8 +63,8 @@ pub struct PendingOpening<C: PastaCurve> {
 ///
 /// # Errors
 ///
-/// [`IpaError::Transcript`] for a truncated or non-canonical proof message;
-/// [`IpaError::ZeroChallenge`] if a round challenge is zero.
+/// [`IpaError::Transcript`] for a truncated or non-canonical proof message.
+/// Xi and actual round challenges use the total nonzero map.
 // The single-letter names follow the BGH19 and spec section 9.2 notation.
 #[allow(clippy::many_single_char_names)]
 pub fn read_opening<C, T>(
@@ -83,20 +80,17 @@ where
 {
     let mut msm = commitment;
     let s_commitment = transcript.read_point()?;
-    let xi = transcript.squeeze_challenge();
+    let xi = crate::transcript::pipa_r::nonzero_challenge(transcript.squeeze_challenge());
     msm.push(xi, s_commitment);
     let z = transcript.squeeze_challenge();
 
     let rounds = k as usize;
     let mut points = Vec::with_capacity(rounds);
     let mut challenges = Vec::with_capacity(rounds);
-    for round in 0..rounds {
+    for _ in 0..rounds {
         let l_j = transcript.read_point()?;
         let r_j = transcript.read_point()?;
-        let u_j = transcript.squeeze_challenge();
-        if bool::from(u_j.is_zero()) {
-            return Err(IpaError::ZeroChallenge { round });
-        }
+        let u_j = crate::transcript::pipa_r::nonzero_challenge(transcript.squeeze_challenge());
         points.push((l_j, r_j));
         challenges.push(u_j);
     }
@@ -162,6 +156,7 @@ impl<C: PastaCurve> PendingOpening<C> {
         params.require_k(self.k)?;
         let s = fold_scalars(&self.challenges, C::ScalarExt::ONE);
         let g = &params.params().g()[..s.len()];
+        crate::verification_counters::record_generator_msm(g.len());
         Ok(super::commit::msm_complete_cancellable::<C>(
             &s,
             g,
@@ -234,10 +229,40 @@ impl<C: PastaCurve> PendingOpening<C> {
     ) -> Result<(), IpaError> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let folded = self.folded_generator_cancellable(params, budget, cancellation)?;
-        if suffix.is_some_and(|claimed| *claimed != folded) {
+        self.check_full(params, suffix, &folded, budget, cancellation)
+    }
+
+    /// [`Self::verify_full_cancellable`] for production full verification: `G'_0`
+    /// comes from the parameter owner's memo of accepted folded generators or is
+    /// computed now, and is retained only after this verification accepted.
+    pub(crate) fn verify_full_memoized_cancellable(
+        self,
+        params: &PinnedParams<C>,
+        suffix: Option<&C::AffineExt>,
+        budget: MemoryBudget,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), IpaError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        let folded =
+            params.folded_generator_entry_cancellable(&self.challenges, budget, cancellation)?;
+        self.check_full(params, suffix, folded.point(), budget, cancellation)?;
+        params.remember_folded_generator(folded);
+        Ok(())
+    }
+
+    /// The suffix equality and the opening equation with `G'_0 = folded`.
+    fn check_full(
+        &self,
+        params: &PinnedParams<C>,
+        suffix: Option<&C::AffineExt>,
+        folded: &C::AffineExt,
+        budget: MemoryBudget,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), IpaError> {
+        if suffix.is_some_and(|claimed| claimed != folded) {
             return Err(IpaError::FoldedGeneratorMismatch);
         }
-        let identity = bool::from(self.left_hand_side(params, &folded, budget).is_identity());
+        let identity = bool::from(self.left_hand_side(params, folded, budget).is_identity());
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         if identity {
             Ok(())
@@ -261,9 +286,8 @@ impl<C: PastaCurve> PendingOpening<C> {
     ///
     /// # Errors
     ///
-    /// [`IpaError::ParamsTooSmall`] or [`IpaError::OpeningFailed`] (an
-    /// identity `folded` fails the equation's precondition and is rejected
-    /// the same way).
+    /// [`IpaError::ParamsTooSmall`] or [`IpaError::OpeningFailed`].
+    /// Identity G obeys the same full-group equation and remains undecided.
     pub fn accumulate(
         self,
         params: &PinnedParams<C>,
@@ -283,7 +307,7 @@ impl<C: PastaCurve> PendingOpening<C> {
     /// treating that claim as decided.
     ///
     /// # Errors
-    /// Insufficient parameters, an identity claim or a failed succinct equation.
+    /// Insufficient parameters or a failed succinct equation.
     pub fn check_claim(
         &self,
         params: &PinnedParams<C>,
@@ -291,9 +315,7 @@ impl<C: PastaCurve> PendingOpening<C> {
         budget: MemoryBudget,
     ) -> Result<(), IpaError> {
         params.require_k(self.k)?;
-        if bool::from(folded.is_identity())
-            || !bool::from(self.left_hand_side(params, folded, budget).is_identity())
-        {
+        if !bool::from(self.left_hand_side(params, folded, budget).is_identity()) {
             return Err(IpaError::OpeningFailed);
         }
         Ok(())
@@ -302,7 +324,7 @@ impl<C: PastaCurve> PendingOpening<C> {
     /// Checks the equation and returns its undecided generator obligation.
     ///
     /// # Errors
-    /// Insufficient parameters, an identity claim or a failed succinct equation.
+    /// Insufficient parameters or a failed succinct equation.
     pub fn into_generator_claim(
         self,
         params: &PinnedParams<C>,
@@ -314,19 +336,22 @@ impl<C: PastaCurve> PendingOpening<C> {
     }
 }
 
-/// The folded generator of `challenges` against `params` without a pending
-/// opening (tests and accumulator decisions).
+/// The folded generator of `challenges` against `params`, computed directly
+/// without a pending opening or the owner's memo (tests only).
+#[cfg(test)]
 pub(crate) fn folded_generator_of<C: PastaCurve>(
     params: &PinnedParams<C>,
     challenges: &[C::ScalarExt],
     budget: MemoryBudget,
 ) -> C {
     let s = fold_scalars(challenges, C::ScalarExt::ONE);
-    msm_complete::<C>(&s, &params.params().g()[..s.len()], budget)
+    crate::verification_counters::record_generator_msm(s.len());
+    super::commit::msm_complete::<C>(&s, &params.params().g()[..s.len()], budget)
 }
 
 #[cfg(test)]
 mod tests {
+    use group::prime::PrimeCurveAffine;
     use iroha_pasta::{Ep, EpAffine, Eq, Fp, Fq};
     use rand_chacha::ChaCha20Rng;
     use rand_core_06::SeedableRng;
@@ -594,13 +619,16 @@ mod tests {
         );
     }
 
-    /// A transcript whose challenges are all zero (an injected degenerate
-    /// challenge, spec section 15).
-    struct ZeroChallenges;
+    /// Nonzero xi/z followed by an injected zero round challenge.
+    #[derive(Default)]
+    struct ZeroChallenges {
+        calls: usize,
+    }
 
     impl Transcript<Ep> for ZeroChallenges {
         fn squeeze_challenge(&mut self) -> Fq {
-            Fq::ZERO
+            self.calls += 1;
+            if self.calls <= 2 { Fq::ONE } else { Fq::ZERO }
         }
         fn common_point(&mut self, _point: &EpAffine) -> Result<(), TranscriptError> {
             Ok(())
@@ -618,17 +646,38 @@ mod tests {
     }
 
     #[test]
-    fn zero_round_challenge_is_a_typed_rejection() {
+    fn zero_round_answer_maps_to_one_without_additional_squeezes() {
+        let mut transcript = ZeroChallenges::default();
+        let pending = read_opening(
+            2,
+            Msm::<Ep>::from_point(EpAffine::generator()),
+            &mut transcript,
+            &Fq::ONE,
+            &Fq::ONE,
+        )
+        .unwrap();
+        assert_eq!(pending.challenges(), &[Fq::ONE; 2]);
+        assert_eq!(transcript.calls, 4);
+    }
+    #[test]
+    fn identity_generator_satisfies_full_group_equation_but_still_needs_decision() {
+        let params = PinnedParams::<Ep>::derive(1).unwrap();
+        let pending = PendingOpening::<Ep> {
+            k: 1,
+            msm: Msm::from_point(EpAffine::identity()),
+            g0_scalar: Fq::ZERO,
+            u_scalar: Fq::ZERO,
+            w_scalar: Fq::ZERO,
+            neg_c: -Fq::ONE,
+            challenges: vec![Fq::ONE],
+        };
+        let claim = pending
+            .into_generator_claim(&params, &EpAffine::identity(), MemoryBudget::DEFAULT)
+            .expect("full-group equation");
+        assert!(bool::from(claim.g().is_identity()));
         assert_eq!(
-            read_opening(
-                2,
-                Msm::<Ep>::from_point(EpAffine::generator()),
-                &mut ZeroChallenges,
-                &Fq::ONE,
-                &Fq::ONE
-            )
-            .err(),
-            Some(IpaError::ZeroChallenge { round: 0 })
+            claim.decide(&params, MemoryBudget::DEFAULT),
+            Err(IpaError::OpeningFailed)
         );
     }
 }

@@ -86,20 +86,15 @@ fn identity<C: PastaCurve>() {
         &params,
         &original,
         Witness::from_circuit(&original, &source, &public).unwrap(),
-        recovery(),
+        ProverRandomness::hedged(),
         ProverConfig::default(),
     )
     .unwrap();
     drop(original);
     let cancelled = iroha_pasta::CancellationToken::new();
     cancelled.cancel();
-    let no_entropy = || {
-        ProverRandomness::recovery(
-            |_: &[u8; 32]| -> Result<rand_chacha::ChaCha20Rng, std::convert::Infallible> {
-                panic!("refused rebuild must not request recovery entropy")
-            },
-        )
-    };
+    let early = crate::proof_entry_probe::Guard::new(None);
+    let no_entropy = ProverRandomness::hedged;
     assert!(matches!(
         proving::prove(
             &params,
@@ -126,15 +121,11 @@ fn identity<C: PastaCurve>() {
         ),
         Err(proving::Error::Artifact)
     ));
+    assert_eq!(early.entries(), 0);
+    drop(early);
     let late_cancel = iroha_pasta::CancellationToken::new();
-    let requested = std::sync::atomic::AtomicBool::new(false);
-    let late = ProverRandomness::recovery(|_: &[u8; 32]| {
-        requested.store(true, std::sync::atomic::Ordering::SeqCst);
-        late_cancel.cancel();
-        Ok::<rand_chacha::ChaCha20Rng, std::convert::Infallible>(
-            rand_chacha::rand_core::SeedableRng::from_seed([91; 32]),
-        )
-    });
+    let late_entry = crate::proof_entry_probe::Guard::new(Some(late_cancel.clone()));
+    let late = ProverRandomness::hedged();
     assert!(matches!(
         proving::prove(
             &params,
@@ -149,19 +140,31 @@ fn identity<C: PastaCurve>() {
         ),
         Err(proving::Error::Cancelled)
     ));
-    assert!(requested.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(late_entry.entries(), 1);
+    drop(late_entry);
     let rebuilt = proving::prove(
         &params,
         &metadata.view(),
         &source,
         &public,
-        recovery(),
+        ProverRandomness::hedged(),
         ProverConfig::default(),
     )
     .unwrap();
-    assert_eq!(rebuilt.proof, baseline.proof);
-    assert_eq!(rebuilt.opening.g(), baseline.opening.g());
-    assert_eq!(rebuilt.opening.challenges(), baseline.opening.challenges());
+    assert_ne!(rebuilt.proof, baseline.proof, "fresh proof entropy");
+    let retained = baseline.proof.clone();
+    let restored = iroha_plonk::verifier::accumulate_generator(
+        &params,
+        metadata.binding(),
+        metadata.verifying_key(),
+        &public,
+        &retained,
+        iroha_pasta::msm::MemoryBudget::DEFAULT,
+    )
+    .unwrap();
+    assert_eq!(restored.g(), baseline.opening.g());
+    assert_eq!(restored.challenges(), baseline.opening.challenges());
+    assert_eq!(retained, baseline.proof, "original bytes are immutable");
     for output in [&baseline, &rebuilt] {
         verify_full(
             &params,
@@ -198,13 +201,6 @@ fn identity<C: PastaCurve>() {
         KeyArtifact::new(larger.binding().clone(), foreign.vk().clone()),
         Err(ArtifactError::Identity)
     ));
-}
-fn recovery() -> ProverRandomness<'static> {
-    ProverRandomness::recovery(|_: &[u8; 32]| {
-        Ok::<rand_chacha::ChaCha20Rng, std::convert::Infallible>(
-            rand_chacha::rand_core::SeedableRng::from_seed([91; 32]),
-        )
-    })
 }
 #[test]
 fn pallas_metadata_rejects_foreign_stage_and_releases_proving_buffers() {

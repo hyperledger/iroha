@@ -152,7 +152,7 @@ fn genuine_retiring_sources_reject_an_oversized_predecessor() {
         &leaf_params,
         &leaf_key,
         Witness::from_circuit(&leaf_key, &leaf, &public).unwrap(),
-        common::recovery(221),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -214,13 +214,17 @@ fn genuine_retiring_sources_reject_an_oversized_predecessor() {
             },
             None,
             &vparams,
-            Fq::from(131),
+            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
             &FoldConfig::default(),
         )
         .unwrap();
     let q = QSigmaProver::keygen_serialized_foreign(&prepared, params.clone(), 4).unwrap();
     let qproof = q
-        .prove(&prepared, common::recovery(222), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     verify_full(
         &params,
@@ -267,7 +271,10 @@ fn genuine_retiring_sources_reject_an_oversized_predecessor() {
     .unwrap();
     rooted.source.pallas.decide(&params, budget).unwrap();
     rooted.vesta.decide(&vparams, budget).unwrap();
-    assert!(rooted.proof.len() + 1_088 > consuming::OMEGA_TRANSPORT_CAP);
+    assert!(
+        rooted.proof.len() + 1_088
+            > iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP
+    );
     // The genuine Bootstrap predecessor is not a funded Unload predecessor.
     // This original is retained solely to prove the actual descriptor-size gate
     // rejects a real outer proof instead of fabricating a compact replacement.
@@ -362,7 +369,7 @@ fn genuine_retiring_sources_reject_an_oversized_predecessor() {
         &params,
         &signature_key,
         Witness::from_circuit(&signature_key, &signatures, &instances).unwrap(),
-        common::recovery(223),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();

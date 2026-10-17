@@ -14,16 +14,16 @@
 //! the Payment budget [`KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1`], the `σ_recv` length fits
 //! [`KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1`], and the Ω length fits the
 //! Credited bound with the fixed 32-sibling opening
-//! ([`KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1`]). Until the artifacts freeze, structural
-//! validation of the wire objects enforces only the frame bounds.
+//! ([`KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1`]). Each σ and Ω also fits its source capacity; structural
+//! validation of Payment also enforces each role capacity before native admission.
 
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
 use super::{
     KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1, KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1,
-    KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1, KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1, WalletResult,
-    WalletVersionsV1, decode_frame_v1,
+    KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1, KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1,
+    KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1, WalletResult, WalletVersionsV1, decode_frame_v1,
     digest::{KagemushaWalletDigestRoleV1 as Role, WalletTranscriptV1, kagemusha_wallet_digest_v1},
     encode_frame_v1,
     identity::{
@@ -146,7 +146,7 @@ impl KagemushaWalletVerifyingKeyAllowlistV1 {
     /// blacklist bit or missing with one, zero digests or lengths, an Ω length plus the largest
     /// `σ_send` length above the Payment budget (R9), a `σ_recv` length above its complete
     /// Credited envelope budget, an Ω length above the Credited cap, and a σ longer than a
-    /// message.
+    /// source capacity.
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("verifying_keys.version", self.version)?;
         if self.steps.len() > KAGEMUSHA_WALLET_VERIFYING_KEY_ENTRIES_MAX_V1 {
@@ -161,7 +161,7 @@ impl KagemushaWalletVerifyingKeyAllowlistV1 {
             previous = Some(entry.selector());
             let proof_bytes = usize::try_from(entry.proof_bytes)
                 .map_err(|_| overflow_v1("verifying_keys.proof_bytes"))?;
-            if proof_bytes > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
+            if proof_bytes > KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1 {
                 return Err(invalid_v1("verifying_keys.proof_bytes"));
             }
             if entry.kind == KagemushaWalletOperationKindV1::Receive
@@ -197,8 +197,10 @@ impl KagemushaWalletVerifyingKeyAllowlistV1 {
             "verifying_keys.lineage_verifying_key_digest",
             &self.lineage_verifying_key_digest,
         )?;
-        let lineage_cap = u64::try_from(KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1)
-            .map_err(|_| overflow_v1("verifying_keys.lineage_proof_bytes"))?;
+        let lineage_cap = u64::try_from(
+            KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1.min(KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1),
+        )
+        .map_err(|_| overflow_v1("verifying_keys.lineage_proof_bytes"))?;
         if self.lineage_proof_bytes == 0 || u64::from(self.lineage_proof_bytes) > lineage_cap {
             return Err(invalid_v1("verifying_keys.lineage_proof_bytes"));
         }

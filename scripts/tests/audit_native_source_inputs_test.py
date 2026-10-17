@@ -201,3 +201,186 @@ def test_snapshot_uses_explicit_root_and_current_pins(tmp_path, monkeypatch):
 def test_evaluator_cannot_guess_a_host_dependency(tmp_path):
     with pytest.raises(ValueError, match='exact selected host plonk'):
         audit.build_snapshot_tool(tmp_path, [])
+
+
+@pytest.fixture
+def native_artifact(tmp_path, monkeypatch):
+    root = tmp_path / 'workspace'
+    monkeypatch.setattr(audit, 'ROOT', root)
+    source = root / 'crates/ordinary_sdk/src/lib.rs'
+    source.parent.mkdir(parents=True)
+    source.write_text('pub fn sdk() {}')
+    manifest = source.parent.parent / 'Cargo.toml'
+    manifest.write_text('[package]\nname = "ordinary_sdk"\nversion = "0.1.0"\n')
+    name = 'ordinary_sdk'
+    def arrange(types=('staticlib',), tag='-1234abcd', dynamic='.dylib', external=False):
+        profile = tmp_path / 'fixed-native-lane/release' if external else root / 'target/warm/target/release'
+        (profile / 'deps').mkdir(parents=True)
+        extensions = {'staticlib': '.a', 'cdylib': dynamic, 'rlib': '.rlib'}
+        outputs, deps = [], []
+        for kind in types:
+            output = profile / ('lib' + name + extensions[kind])
+            dependency = profile / 'deps' / ('lib' + name + tag + extensions[kind])
+            output.write_bytes(b'native fixture for ' + kind.encode())
+            dependency.write_bytes(output.read_bytes())
+            outputs.append(output)
+            deps.append(dependency)
+        direct = profile / 'deps' / (name + tag + '.d')
+        aggregate = profile / ('lib' + name + '.d')
+        direct.write_text(''.join(str(path) + ': ' + str(source) + '\n\n'
+                                 for path in [direct, *deps]) + str(source) + ':\n# env-dep:SDKROOT=/sdk\n')
+        aggregate.write_text(str(outputs[-1]) + ': ' + str(source) + '\n')
+        event = {'reason': 'compiler-artifact', 'manifest_path': str(manifest),
+                 'target': {'name': name, 'kind': list(types), 'crate_types': list(types), 'src_path': str(source)},
+                 'filenames': [str(path) for path in outputs]}
+        return SimpleNamespace(event=event, outputs=outputs, deps=deps, direct=direct,
+                               aggregate=aggregate, source=source, profile=profile)
+    return arrange
+
+
+@pytest.mark.parametrize('types,tag,dynamic', [
+    (('staticlib',), '-1234abcd', '.dylib'),
+    (('cdylib', 'staticlib', 'rlib'), '', '.dylib'),
+    (('cdylib', 'staticlib', 'rlib'), '-fedc4321', '.so'),
+])
+def test_top_level_native_outputs_use_exact_direct_and_aggregate(native_artifact, types, tag, dynamic):
+    selected = native_artifact(types, tag, dynamic)
+    records = []
+    assert audit.artifact_depfiles(selected.event, records) == {selected.direct, selected.aggregate}
+    assert len(records) == 1 and len(records[0]['outputs']) == len(types)
+    assert {row['output'] for row in records[0]['outputs']} == set(selected.event['filenames'])
+    assert audit.native_artifact_depfiles(selected.event)[1] == records[0]
+
+
+def test_ordinary_depfile_selection_is_unchanged(native_artifact):
+    selected = native_artifact()
+    selected.event['filenames'] = [str(selected.deps[0])]
+    records = []
+    assert audit.artifact_depfiles(selected.event, records) == {selected.direct}
+    assert records == []
+
+
+def test_native_outputs_can_use_an_external_fixed_target_directory(native_artifact):
+    selected = native_artifact(external=True)
+    assert not selected.profile.is_relative_to(audit.ROOT)
+    assert audit.artifact_depfiles(selected.event) == {selected.direct, selected.aggregate}
+
+
+def test_unrelated_nonmatching_native_output_is_not_selected(native_artifact):
+    selected = native_artifact()
+    (selected.profile / 'deps/libordinary_sdk-deadbeef.a').write_bytes(b'stale')
+    assert audit.artifact_depfiles(selected.event) == {selected.direct, selected.aggregate}
+
+
+@pytest.mark.parametrize('change', ['mismatch', 'missing', 'ambiguous', 'symlink', 'different_family'])
+def test_every_native_companion_must_bind_uniquely(native_artifact, change):
+    selected = native_artifact(('cdylib', 'staticlib', 'rlib'), '')
+    companion = selected.deps[1]
+    if change == 'mismatch':
+        companion.write_bytes(b'stale archive')
+    elif change == 'missing':
+        companion.unlink()
+    elif change == 'ambiguous':
+        companion.with_name('libordinary_sdk-deadbeef.a').write_bytes(companion.read_bytes())
+    elif change == 'different_family':
+        companion.rename(companion.with_name('libordinary_sdk-deadbeef.a'))
+    else:
+        companion.unlink()
+        companion.symlink_to(selected.outputs[1])
+    with pytest.raises(ValueError):
+        audit.artifact_depfiles(selected.event)
+
+
+@pytest.mark.parametrize('change', ['wrong_target', 'missing_source', 'different_inputs', 'extra_rule',
+                                  'duplicate_rule', 'malformed', 'unknown_phony', 'missing', 'symlink'])
+def test_native_direct_depfile_cannot_drop_or_guess_inputs(native_artifact, change):
+    selected = native_artifact()
+    text = selected.direct.read_text()
+    if change == 'wrong_target':
+        text = text.replace(str(selected.deps[0]), str(selected.outputs[0]))
+    elif change == 'missing_source':
+        text = text.replace(str(selected.source), str(selected.source.with_name('other.rs')))
+    elif change == 'different_inputs':
+        text = text.replace(str(selected.deps[0]) + ': ' + str(selected.source),
+                            str(selected.deps[0]) + ': other.rs')
+    elif change == 'extra_rule':
+        text += str(selected.outputs[0]) + ': ' + str(selected.source) + '\n'
+    elif change == 'duplicate_rule':
+        text += str(selected.deps[0]) + ': ' + str(selected.source) + '\n'
+    elif change == 'malformed':
+        text += 'not a dependency rule\n'
+    elif change == 'unknown_phony':
+        text += 'not-an-input.rs:\n'
+    elif change == 'missing':
+        selected.direct.unlink()
+    else:
+        selected.direct.unlink()
+        selected.direct.symlink_to(selected.aggregate)
+    if change not in {'missing', 'symlink'}:
+        selected.direct.write_text(text)
+    with pytest.raises(ValueError):
+        audit.artifact_depfiles(selected.event)
+
+
+@pytest.mark.parametrize('change', ['wrong_target', 'missing_source', 'different_inputs', 'missing'])
+def test_native_aggregate_is_supplemental_but_must_match_event(native_artifact, change):
+    selected = native_artifact()
+    if change == 'missing':
+        selected.aggregate.unlink()
+    else:
+        text = selected.aggregate.read_text()
+        if change == 'wrong_target':
+            text = text.replace(str(selected.outputs[0]), str(selected.deps[0]))
+        elif change == 'missing_source':
+            text = text.replace(str(selected.source), 'other.rs')
+        else:
+            text += str(selected.outputs[0]) + ': other.rs\n'
+        selected.aggregate.write_text(text)
+    with pytest.raises(ValueError):
+        audit.artifact_depfiles(selected.event)
+
+
+@pytest.mark.parametrize('change', ['extra_filename', 'wrong_kind', 'wrong_name', 'wrong_source'])
+def test_native_event_declaration_must_match_all_outputs(native_artifact, change):
+    selected = native_artifact()
+    if change == 'extra_filename':
+        selected.event['filenames'].append(str(selected.aggregate))
+    elif change == 'wrong_kind':
+        selected.event['target']['kind'] = ['rlib']
+    elif change == 'wrong_name':
+        selected.event['target']['name'] = 'different_sdk'
+    else:
+        selected.event['target']['src_path'] = str(selected.source.with_name('missing.rs'))
+    with pytest.raises(ValueError):
+        audit.artifact_depfiles(selected.event)
+
+
+def test_native_output_guards_remain_active_with_optimized_python(native_artifact):
+    selected = native_artifact()
+    selected.deps[0].write_bytes(b'different artifact')
+    command = [sys.executable, '-O', '-B', '-c',
+               'import json,runpy,sys; from pathlib import Path; '
+               'm=runpy.run_path(sys.argv[1]); f=m["artifact_depfiles"]; '
+               'f.__globals__["ROOT"]=Path(sys.argv[2]); f(json.loads(sys.argv[3]))',
+               str(Path(audit.__file__).resolve()), str(audit.ROOT), json.dumps(selected.event)]
+    result = subprocess.run(command, text=True, capture_output=True)
+    assert result.returncode != 0 and 'ValueError: Need one byte-identical' in result.stderr
+
+
+def test_native_mapping_changes_during_containment_are_rejected(native_artifact):
+    artifact = native_artifact()
+    _, mapping = audit.native_artifact_depfiles(artifact.event)
+    artifact.deps[0].write_bytes(b'changed after selection')
+    with pytest.raises(ValueError, match='byte-identical'):
+        audit.recheck_native_artifact_mappings([mapping])
+
+
+def test_native_mapping_failure_prevents_a_passing_audit_output(selected, monkeypatch):
+    def changed(_event):
+        raise ValueError('Native outputs changed during audit')
+    monkeypatch.setattr(audit, 'native_artifact_depfiles', changed)
+    with pytest.raises(ValueError, match='outputs changed'):
+        audit.audit(selected.args, [], {selected.depfile}, {selected.out}, [],
+                    selected.args.output.parent / 'source-snapshot',
+                    selected.digest, selected.digest, selected.watched, [{'event': {}}])
+    assert not selected.args.output.exists()

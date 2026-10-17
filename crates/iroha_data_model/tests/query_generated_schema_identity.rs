@@ -179,6 +179,8 @@ fn generated_queries() -> Vec<Value> {
     rows.push(record([query::asset::FindAssetDefinitions]));
     rows.push(record([query::block::FindBlockHeaders]));
     rows.push(record([query::block::FindBlocks]));
+    rows.push(record([query::bond::FindBondById::new(asset_definition())]));
+    rows.push(record([query::bond::FindBonds]));
     rows.push(record([query::da::FindDaPinIntentByAlias::new(
         "merchant@market.universal".to_owned(),
     )]));
@@ -702,12 +704,12 @@ fn generated_queries() -> Vec<Value> {
 #[test]
 fn generated_queries_preserve_captured_frames() {
     let rows = generated_queries();
-    assert_eq!(rows.len(), 127);
+    assert_eq!(rows.len(), 129);
     assert_eq!(
         rows.iter()
             .map(|row| row.get("cases").unwrap().as_array().unwrap().len())
             .sum::<usize>(),
-        171,
+        173,
     );
     let captured: Value = json::from_str(include_str!(
         "fixtures/query_generated_identity_frames.json"

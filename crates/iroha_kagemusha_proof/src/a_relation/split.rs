@@ -21,7 +21,8 @@ use iroha_plonk::{
     keys::{KeygenConfigV2, keygen_pk_v2},
     pcs::ipa::PinnedParams,
 };
-use iroha_plonk_gadgets::{GlueChip, Word, ecc::NonIdentityPoint};
+use iroha_plonk_gadgets::{GlueChip, Word};
+use iroha_plonk_recursion::codec::GeneratorPoint;
 use iroha_plonk_recursion::{
     accumulation_circuit::{FoldInputCells, FoldPlan, FoldSource},
     codec::ScalarCells,
@@ -201,7 +202,22 @@ impl SplitPlan {
                 .ok_or(Error::Synthesis)?
                 .len()
         ]);
-        let stage_fold = FoldPlan::with_sources(params, sources).map_err(|_| Error::Synthesis)?;
+        if stage + 1 == context.stage_count() {
+            if sources.len() > 4 {
+                return Err(Error::Synthesis);
+            }
+            sources.resize(4, FoldSource::Fixed(16));
+        }
+        let stage_fold = FoldPlan::with_sources(
+            params,
+            sources,
+            if stage + 1 == context.stage_count() {
+                iroha_plonk_recursion::FoldPurpose::ATerminal
+            } else {
+                iroha_plonk_recursion::FoldPurpose::AContinuation
+            },
+        )
+        .map_err(|_| Error::Synthesis)?;
         Ok(Self {
             context,
             wrap,
@@ -340,8 +356,12 @@ pub fn close_first(
         }
         claims[0].clone()
     } else {
-        let plan = FoldPlan::with_sources(params, vec![FoldSource::Fixed(16); claims.len()])
-            .map_err(|_| Error::Synthesis)?;
+        let plan = FoldPlan::with_sources(
+            params,
+            vec![FoldSource::Fixed(16); claims.len()],
+            iroha_plonk_recursion::FoldPurpose::AInitial,
+        )
+        .map_err(|_| Error::Synthesis)?;
         let proof = fold.ok_or(Error::Synthesis)?;
         let output = chip.verify_fold(
             region,
@@ -373,7 +393,7 @@ struct BoundIncoming {
     lineage: BoundLineage,
     proof: IncomingProofBinding,
     modes: [ModeCells<Fp>; 3],
-    pallas_corrections: [NonIdentityPoint<Fp>; 2],
+    pallas_corrections: [GeneratorPoint<Fp>; 2],
     vesta_correction: [ScalarCells<Ep>; 2],
 }
 /// Hard-authenticated context, its separate P obligations and full-k V carry.
@@ -756,6 +776,14 @@ pub fn close_stage(
         claims.extend([incoming.pallas.clone(), incoming.opening.clone()]);
     }
     claims.extend(q.iter().map(|q| q.opening.clone()));
+    if plan.is_terminal() {
+        if claims.len() > 4 {
+            return Err(Error::Synthesis);
+        }
+        while claims.len() < 4 {
+            claims.push(FoldInputCells::pinned_trivial(chip, region)?);
+        }
+    }
     let result = chip.verify_fold(
         region,
         &plan.stage_fold,

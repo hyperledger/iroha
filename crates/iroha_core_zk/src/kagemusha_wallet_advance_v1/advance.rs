@@ -386,10 +386,11 @@ where
     /// # Errors
     ///
     /// `Terminal` for a terminal slot, `Invalid` for a slot without an enrollment marker,
-    /// `OperationIdConflict` when the operation identity is retained with other inputs, and the
-    /// reconcile errors. Unknown write outcomes from A4 on, and every failure after the
-    /// Selected marker is durable except custody loss (`LostCustody`, `KeyLost`), are
-    /// `Ok(Pending)`, never errors.
+    /// `OperationIdConflict` when the operation identity is retained with other inputs, the
+    /// reconcile errors and the errors of publishing the slot's staged archive records
+    /// ([`Self::drain_archive`]), before anything is selected. Unknown write outcomes from A4
+    /// on, and every failure after the Selected marker is durable except custody loss
+    /// (`LostCustody`, `KeyLost`), are `Ok(Pending)`, never errors.
     pub fn advance(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
@@ -415,6 +416,10 @@ where
                 });
             }
         };
+        // Archive records staged by the open call are durable before any effect of Advance (the
+        // capacity check, the capsule and every marker): a selected capsule never names an
+        // unpublished record.
+        self.drain_archive(slot)?;
         let Ok(frame) = request.capsule.encode_frame() else {
             return Ok(KagemushaWalletAdvanceOutcomeV1::NotPerformed(invalid(
                 "capsule",
@@ -690,6 +695,16 @@ where
         current: &KagemushaWalletMarkerRecordV1,
         operation_id: &[u8; 32],
     ) -> Result<KagemushaWalletLookupV1<R>, KagemushaWalletProviderErrorV1> {
+        // The permanent collection decision dominates any completion copy whose earlier
+        // unlink lost its writeback and later resurfaced. An unreadable or malformed decision
+        // never restores delivery authority or makes the operation identity reusable.
+        match read_tombstone(&self.store, slot, operation_id)? {
+            Some(Some(tombstone)) => {
+                return Ok(KagemushaWalletLookupV1::Archived(Box::new(tombstone)));
+            }
+            Some(None) => return Ok(KagemushaWalletLookupV1::DeliveryDataLoss),
+            None => {}
+        }
         let binding = R::marker_binding(current.marker());
         Ok(
             match load_older_completion::<F, R>(&self.store, slot, operation_id, &binding)? {
@@ -697,12 +712,7 @@ where
                     KagemushaWalletRetainedV1::from_pair(pair),
                 )),
                 OlderCompletionV1::Invalid => KagemushaWalletLookupV1::DeliveryDataLoss,
-                OlderCompletionV1::Absent => match read_tombstone(&self.store, slot, operation_id)?
-                {
-                    Some(Some(tombstone)) => KagemushaWalletLookupV1::Archived(Box::new(tombstone)),
-                    Some(None) => KagemushaWalletLookupV1::DeliveryDataLoss,
-                    None => KagemushaWalletLookupV1::Unknown,
-                },
+                OlderCompletionV1::Absent => KagemushaWalletLookupV1::Unknown,
             },
         )
     }

@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use ff::{Field, PrimeField};
 use iroha_pasta::{
-    Ep, EpAffine, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
+    Ep, EpAffine, Eq, EqAffine, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain,
 };
 use iroha_plonk::{DescriptorBinding, VerifyingKey, cs::InstanceType, pcs::ipa::PinnedParams};
 use iroha_plonk_gadgets::{bytes::p_bytes_native, statement::foreign_limbs};
@@ -44,7 +44,8 @@ use crate::{
         context::{ContextObjectSpec, ContextPlan},
         own::OwnPolicy,
         receive::{
-            MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES, PAYMENT_PROOF_BUDGET, ReceiveStagePlan,
+            MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES, PAYMENT_PROOF_BUDGET,
+            PAYMENT_RAW_PROOF_BUDGET, ReceiveStagePlan,
         },
     },
     admin_sigma::StateWitness,
@@ -63,7 +64,7 @@ pub const A_STAGE_COUNT: usize = 10;
 /// Exact internal wrapper count for the fixed Receive owner sequence.
 pub const W_STAGE_COUNT: usize = A_STAGE_COUNT - 1;
 /// Maximum combined original Omega/public and sigma bytes within Payment.
-pub const MAX_PAYMENT_ORIGINAL_BYTES: usize = 320 + PAYMENT_PROOF_BUDGET;
+pub const MAX_PAYMENT_ORIGINAL_BYTES: usize = PAYMENT_RAW_PROOF_BUDGET;
 
 /// Native source/artifact/proof error. No failure changes monetary state.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -610,14 +611,19 @@ pub struct Prepared {
     source: Arc<Source>,
 }
 impl Prepared {
-    fn first(&self, salt: Fp, config: &FoldConfig) -> Result<Stage, Error> {
+    fn first(
+        &self,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
+        config: &FoldConfig,
+    ) -> Result<Stage, Error> {
         let (fold, pallas) = create_fold(
             &self.plan.pallas,
             &[
                 self.source.predecessor.pallas.as_input(),
                 self.source.predecessor.opening.clone(),
             ],
-            salt.to_repr(),
+            tape,
+            iroha_plonk_recursion::FoldPurpose::AInitial,
             config,
         )
         .map_err(|error| {
@@ -644,7 +650,7 @@ impl Prepared {
             source: self.source.clone(),
             continuation: None,
             pallas: pallas.clone(),
-            fold: fold.to_bytes().to_vec(),
+            fold: crate::private_fold::PrivateFoldBytes::from_fold(fold),
             known: true,
         })
     }
@@ -653,10 +659,10 @@ impl Prepared {
     /// A failed two-input predecessor fold or public-frame conversion.
     pub fn first_circuit(
         &self,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         config: &FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>), Error> {
-        let inner = self.first(salt, config)?;
+        let inner = self.first(tape, config)?;
         let public = stage_public(&inner)?;
         Ok((StageCircuit { inner }, public))
     }
@@ -682,7 +688,7 @@ pub fn check_payment_original_sizes(omega: usize, sigma: usize) -> Result<(), Er
         || sigma > MAX_SIGMA_RAW_BYTES
         || omega
             .checked_add(sigma)
-            .is_none_or(|total| total > 320 + PAYMENT_PROOF_BUDGET)
+            .is_none_or(|total| total > PAYMENT_RAW_PROOF_BUDGET)
     {
         return Err(Error::Input);
     }
@@ -803,11 +809,10 @@ fn context_digest(source: &Source) -> Result<Fp, Error> {
         words.extend(mode_words(mode));
     }
     for point in source.pallas_corrections {
-        let (x, y) = Option::<(Fp, Fp)>::from(point.coordinates()).ok_or(Error::Input)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(&point);
         words.extend([x, y]);
     }
-    let (x, y) =
-        Option::<(Fq, Fq)>::from(source.vesta_correction.coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&source.vesta_correction);
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
     }
@@ -844,8 +849,7 @@ fn stage_public(c: &Stage) -> Result<Vec<Fp>, Error> {
     words.extend(vesta_words(&c.source.predecessor.vesta.as_input())?);
     words.extend(vesta_words(&c.source.incoming_head.vesta.as_input())?);
     words.extend(c.source.mode_words(2));
-    let (x, y) =
-        Option::<(Fq, Fq)>::from(c.source.vesta_correction.coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&c.source.vesta_correction);
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
     }

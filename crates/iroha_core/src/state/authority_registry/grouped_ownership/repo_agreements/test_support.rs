@@ -40,7 +40,7 @@ pub(in crate::state) fn fixture(custodian: bool) -> World {
         100,
         1_000,
         1,
-        RepoGovernance::with_defaults(1_000, 60),
+        RepoGovernance::new(1_000, 60, false),
         custodian.then(|| BOB_ID.clone()),
     );
     world.repo_agreements.insert(id(), record);

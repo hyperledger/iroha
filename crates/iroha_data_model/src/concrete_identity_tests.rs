@@ -552,6 +552,7 @@ fn data_event_schema_reserves_disabled_capability_discriminants() {
         ("GameSession", 22),
         ("Sccp", 23),
         ("KagemushaLoadCommitted", 24),
+        ("Bond", 25),
     ]
     .into_iter()
     .filter(|(name, _)| *name != "Governance" || cfg!(feature = "governance"))

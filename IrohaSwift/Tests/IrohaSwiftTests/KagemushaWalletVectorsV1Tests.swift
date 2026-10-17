@@ -124,13 +124,19 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
         "lineage_max_bytes", "lineage_proof_cap_bytes", "message_max_bytes",
         "quota_tree_depth", "quota_usage_slots",
         "message_text_max_bytes", "payment_fixed_bytes", "payment_proof_budget_bytes",
+        "sigma_proof_cap_bytes", "omega_proof_cap_bytes",
         "proof_caps", "session_max_bytes", "session_text_max_bytes", "text_prefix",
         "verifying_key_allowlist_max_bytes", "verifying_key_entries_max", "version",
       ])
     XCTAssertEqual(try int(bounds, "payment_fixed_bytes"), Wire.paymentFixedBytes)
     XCTAssertEqual(try int(bounds, "payment_proof_budget_bytes"), Wire.paymentProofBudgetBytes)
-    XCTAssertEqual(Wire.paymentFixedBytes, 1_723)
-    XCTAssertEqual(Wire.paymentProofBudgetBytes, 8_277)
+    XCTAssertEqual(Wire.paymentFixedBytes, 1_436)
+    XCTAssertEqual(Wire.paymentProofBudgetBytes, 8_564)
+    XCTAssertEqual(try int(bounds, "sigma_proof_cap_bytes"), Wire.paymentSigmaProofCapBytes)
+    XCTAssertEqual(try int(bounds, "omega_proof_cap_bytes"), Wire.paymentOmegaProofCapBytes)
+    XCTAssertEqual(Wire.paymentSigmaProofCapBytes, 3_520)
+    XCTAssertEqual(Wire.paymentOmegaProofCapBytes, 5_044)
+    XCTAssertEqual(Wire.paymentSigmaProofCapBytes + Wire.paymentOmegaProofCapBytes, Wire.paymentProofBudgetBytes)
     XCTAssertEqual(try int(bounds, "credited_receive_fixed_bytes"), Wire.creditedReceiveFixedBytes)
     XCTAssertEqual(
       try int(bounds, "credited_receive_proof_budget_bytes"), Wire.creditedReceiveProofBudgetBytes)
@@ -769,18 +775,17 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(offer.fields.count, 4)
     XCTAssertEqual(request.fields.count, 5)
 
-    // Compact Payment {version, request: {body, signature}, payer_payment_key,
-    // payer_credential_digest, send}: the signed Request is exactly the Request message's body
-    // and signature, and the Send package's lineage slot is Present (Ω(pred)).
+    // Payment stores each signed value once; reconstruct all 19 Request body fields
+    // from its unique fields, Send effect and predecessor lineage.
     let payment = try vectorMessage(XCTUnwrap(vectors["Payment"]))
-    XCTAssertEqual(payment.fields.count, 5)
-    let signedRequest = try XCTUnwrap(compactFields(payment.payload, payment.fields[1]))
-    XCTAssertEqual(signedRequest.count, 2)
-    XCTAssertEqual(payment.bytes(signedRequest[0]), request.bytes(request.fields[0]))
-    XCTAssertEqual(payment.bytes(signedRequest[1]), request.bytes(request.fields[4]))
-    XCTAssertTrue(Wire.isValidPublicKey(payment.bytes(payment.fields[2])))
-    XCTAssertEqual(payment.fields[3].count, Wire.digestBytes)
-    let send = try XCTUnwrap(compactFields(payment.payload, payment.fields[4]))
+    XCTAssertEqual(payment.fields.count, 3)
+    let signedRequest = try reconstructedPaymentRequest(
+      VectorFrame(envelopeFrame(fixture, "Payment")))
+    XCTAssertEqual(signedRequest.body, request.bytes(request.fields[0]))
+    XCTAssertEqual(signedRequest.signature, request.bytes(request.fields[4]))
+    XCTAssertTrue(Wire.isValidPublicKey(signedRequest.payerKey))
+    XCTAssertEqual(signedRequest.payerCredential.count, Wire.digestBytes)
+    let send = try XCTUnwrap(compactFields(payment.payload, payment.fields[2]))
     XCTAssertEqual(send.count, 5)
     XCTAssertEqual(payment.tag(send[2]), 1)
     let paymentObject = try XCTUnwrap(
@@ -1183,7 +1188,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
     // Statement field elements are re-derived from the canonical package records.
     let paymentFrame = try VectorFrame(envelopeFrame(fixture, "Payment"))
-    let sendPackage = try paymentFrame.envelopeMessage().fields[4]
+    let sendPackage = try paymentFrame.envelopeMessage().fields[2]
     XCTAssertEqual(try statementFieldElements(paymentFrame, paymentFrame.field(sendPackage, 1)), send)
     let receiveFrame = try VectorFrame(objectFrame(fixture, "KagemushaWalletPackageV1", variant: "Receive"))
     XCTAssertEqual(try statementFieldElements(receiveFrame, receiveFrame.field(receiveFrame.root, 1)), receive)
@@ -1467,8 +1472,8 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let paymentFrame = try VectorFrame(envelopeFrame(fixture, "Payment"))
     let payment = try paymentFrame.envelopeMessage()
     XCTAssertEqual(payment.tag, 3)
-    XCTAssertEqual(payment.fields.count, 5)
-    let send = try paymentFrame.fields(payment.fields[4])
+    XCTAssertEqual(payment.fields.count, 3)
+    let send = try paymentFrame.fields(payment.fields[2])
     XCTAssertEqual(send.count, 5)
     let slot = try paymentFrame.variant(send[2])
     XCTAssertEqual(slot.tag, 1)
@@ -1556,8 +1561,9 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     guard transcript.count == 163 else { return }
     XCTAssertEqual(Array(transcript[0..<2]), [1, 0])
     XCTAssertEqual(Data(transcript[2..<34]), try fieldElements(object(fixture, "field_encodings"), "pending_outgoing_value")[6])
-    XCTAssertEqual(Data(transcript[34..<99]), paymentFrame.data(payment.fields[2]))
-    XCTAssertEqual(Data(transcript[99..<131]), paymentFrame.data(payment.fields[3]))
+    let signedRequest = try reconstructedPaymentRequest(paymentFrame)
+    XCTAssertEqual(Data(transcript[34..<99]), signedRequest.payerKey)
+    XCTAssertEqual(Data(transcript[99..<131]), signedRequest.payerCredential)
     XCTAssertEqual(Data(transcript[99..<131]), try fieldElements(object(object(fixture, "field_encodings"), "send_statement"), "items")[7])
     XCTAssertEqual(Data(transcript[131..<163]), try hexData(string(packageVector, "digest_hex")))
     let paymentValue = try packedDigest(paymentRow, domain: "kgwpay_1")
@@ -2160,13 +2166,13 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let feeClaim = try VectorFrame(objectFrame(fixture, "KagemushaWalletFeeClaimV1"))
     let activation = try VectorFrame(objectFrame(fixture, "KagemushaWalletActivationV1"))
     let packages: [(String, VectorFrame, Range<Int>)] = try [
-      ("Payment envelope Send", payment, payment.envelopeMessage().fields[4]),
+      ("Payment envelope Send", payment, payment.envelopeMessage().fields[2]),
       ("Credited::Receive", receive, XCTUnwrap(receiveEvidence.fields.first)),
-      ("Payment object Send", paymentObject, paymentObject.field(paymentObject.root, 4)),
+      ("Payment object Send", paymentObject, paymentObject.field(paymentObject.root, 2)),
       ("Receive package object", packageObject, packageObject.root),
       ("Unload claim", unloadClaim, unloadClaim.field(unloadClaim.root, 2)),
       ("Close loads Retiring", closeLoads, closeLoads.field(closeLoads.root, 3)),
-      ("Fee claim Send", feeClaim, feeClaim.field(feeClaim.root, 1, 4)),
+      ("Fee claim Send", feeClaim, feeClaim.field(feeClaim.root, 1, 2)),
       ("Activation Bootstrap", activation, activation.field(activation.root, 3)),
     ]
     var tags = Set<UInt32>()
@@ -2326,7 +2332,15 @@ private struct SyntheticEnvelope {
     switch kind {
     case .offer, .request:
       variant = compactField(compactField(leaf))
-    case .payment, .lineage:
+    case .payment:
+      let emptyVector = [UInt8](repeating: 0, count: 8)
+      let lineage = compactField([]) + compactField(emptyVector)
+      let present = [UInt8]([1, 0, 0, 0]) + compactField(lineage)
+      let step = compactField(emptyVector)
+      let send = version + compactField(leaf) + compactField(present)
+        + compactField(step) + compactField([])
+      variant = compactField(version + compactField([]) + compactField(send))
+    case .lineage:
       variant = compactField(version + compactField(compactField(leaf)))
     case .credited, .sessionControl, .policyData:
       variant = compactField(leaf)
@@ -3049,6 +3063,41 @@ private func packageProofs(
   default: mask = 0
   }
   return (tag, mask, sigma, omega)
+}
+
+/// Independent fixture reconstruction of the exact signed Request and payer identity.
+private func reconstructedPaymentRequest(
+  _ frame: VectorFrame
+) throws -> (body: Data, signature: Data, payerKey: Data, payerCredential: Data) {
+  let payment = try frame.envelopeMessage()
+  guard payment.tag == 3, payment.fields.count == 3 else {
+    throw WalletFixtureFailure.malformed("Payment fields")
+  }
+  let p = payment.fields
+  let unique = try frame.fields(p[1])
+  let send = try frame.fields(p[2])
+  guard unique.count == 12, send.count == 5 else {
+    throw WalletFixtureFailure.malformed("Payment unique Request or Send")
+  }
+  let statement = try frame.fields(send[1])
+  let slot = try frame.variant(send[2])
+  guard statement.count == 14, slot.tag == 1, slot.fields.count == 1 else {
+    throw WalletFixtureFailure.malformed("Payment statement or lineage")
+  }
+  let lineage = try frame.fields(slot.fields[0])
+  guard lineage.count == 2 else { throw WalletFixtureFailure.malformed("lineage") }
+  let omega = try frame.fields(lineage[0])
+  let effect = try frame.variant(statement[13])
+  guard omega.count == 13, effect.tag == 3, effect.fields.count == 8 else {
+    throw WalletFixtureFailure.malformed("Payment predecessor or Send effect")
+  }
+  let e = effect.fields
+  let body = [p[0], statement[1], statement[4], omega[4], unique[0],
+    e[1], unique[1], e[2], unique[2], e[3], unique[3], e[4], unique[4],
+    unique[5], unique[6], unique[7], unique[8], unique[9], unique[10]]
+  return (
+    Data(body.flatMap { compactField(Array(frame.data($0))) }),
+    frame.data(unique[11]), frame.data(omega[6]), frame.data(omega[5]))
 }
 
 /// One σ entry of the verifying-key allowlist.

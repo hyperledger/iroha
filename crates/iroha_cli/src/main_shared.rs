@@ -7103,7 +7103,8 @@ mod repo {
     pub enum Command {
         /// Initiate or roll a repo agreement between two counterparties
         Initiate(Initiate),
-        /// Unwind an active repo agreement (reverse repo leg)
+        /// Settle an active repo agreement (reverse repo leg): at or after maturity by
+        /// any participant, or earlier by the initiator when early repayment was agreed
         Unwind(Unwind),
         /// List repo agreements (`/v1/repo/agreements`) with filter, sort, projection and paging
         List(crate::collection_list::ListArgs),
@@ -7176,6 +7177,10 @@ mod repo {
         /// Cadence between margin checks, in seconds (0 disables margining)
         #[arg(long)]
         pub margin_frequency_secs: u64,
+        /// Allow the initiator (cash borrower) to repay before maturity, paying
+        /// interest accrued to the committed block time. Bound into both consents.
+        #[arg(long)]
+        pub allow_early_repayment: bool,
     }
     impl Initiate {
         fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
@@ -7199,8 +7204,11 @@ mod repo {
                 quantity: self.collateral_quantity,
                 metadata: Metadata::default(),
             };
-            let governance =
-                RepoGovernance::with_defaults(self.haircut_bps, self.margin_frequency_secs);
+            let governance = RepoGovernance::new(
+                self.haircut_bps,
+                self.margin_frequency_secs,
+                self.allow_early_repayment,
+            );
             let instruction = RepoIsi::new(
                 self.agreement_id,
                 initiator,
@@ -7220,7 +7228,8 @@ mod repo {
     }
     #[derive(clap::Args, Debug)]
     pub struct Unwind {
-        /// Stable identifier to settle at maturity as any recorded participant
+        /// Stable identifier to settle; any participant at or after maturity, or the
+        /// initiator earlier when the agreement allows early repayment
         #[arg(long)]
         pub agreement_id: RepoAgreementId,
     }
@@ -7230,7 +7239,7 @@ mod repo {
             let instruction: RepoInstructionBox = instruction.into();
             context
                 .finish([InstructionBox::from(instruction)])
-                .wrap_err("Failed to settle repo agreement at maturity")
+                .wrap_err("Failed to settle repo agreement")
         }
     }
     #[derive(clap::Args, Debug)]

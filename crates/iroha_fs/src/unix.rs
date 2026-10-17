@@ -501,6 +501,7 @@ impl Directory {
     }
 
     fn revalidate_from(&self, first: usize) -> io::Result<()> {
+        crate::custody_work::record_ancestry_walk(self.links.len().saturating_sub(first));
         for (index, link) in self.links.iter().enumerate().skip(first) {
             let held_identity = validate_directory(&link.file, link.private)?;
             let named = if index == 0 {

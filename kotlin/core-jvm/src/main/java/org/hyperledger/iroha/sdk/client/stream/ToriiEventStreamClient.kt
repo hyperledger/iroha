@@ -133,6 +133,46 @@ class ToriiEventStreamClient private constructor(
     )
 
     /**
+     * Opens `/v1/accounts/{accountId}/history/sse`: every account-history row of each height
+     * published after the stream opens, oldest first, as [org.hyperledger.iroha.sdk.client.collections.AccountHistoryRow]s
+     * (`specs/torii/streaming.md`). The feed is live-only; after
+     * [AccountHistoryStreamListener.onOpen] read the first history page and deduplicate by row id.
+     * [filter] narrows rows with the account-history collection grammar, e.g.
+     * `Filter.field("direction").eq("incoming")`.
+     */
+    @JvmOverloads
+    fun streamAccountHistory(
+        accountId: String,
+        filter: Filter?,
+        listener: AccountHistoryStreamListener,
+        options: ToriiEventStreamOptions = ToriiEventStreamOptions.defaultOptions(),
+    ): ToriiEventStream {
+        val resolved = if (filter == null) options else options.toBuilder().setFilter(filter).build()
+        return openSseStream(accountHistoryStreamPath(accountId), resolved, accountHistoryFrames(listener))
+    }
+
+    /**
+     * A reconnecting [streamAccountHistory]: failures, terminal stream errors and normal closes
+     * reopen the stream with backoff (and Torii `retry:` hints), and
+     * [AccountHistoryStreamListener.onOpen] runs for every connection so the caller re-reads the
+     * first history page each time. Configure the returned builder, then `build().start()`.
+     */
+    @JvmOverloads
+    fun accountHistorySubscription(
+        accountId: String,
+        filter: Filter?,
+        listener: AccountHistoryStreamListener,
+        options: ToriiEventStreamOptions = ToriiEventStreamOptions.defaultOptions(),
+    ): ToriiEventStreamSubscription.Builder {
+        val path = accountHistoryStreamPath(accountId)
+        val resolved = if (filter == null) options else options.toBuilder().setFilter(filter).build()
+        return ToriiEventStreamSubscription.builder(
+            { delegate -> openSseStream(path, resolved, delegate) },
+            accountHistoryFrames(listener),
+        )
+    }
+
+    /**
      * Opens an SSE stream against `path` using the supplied options.
      *
      * Callers must close the returned `ToriiEventStream` or this client. Caller-initiated closure
@@ -479,7 +519,8 @@ class ToriiEventStreamClient private constructor(
         }
 
         private fun isCanonicalLiveSseRawPath(rawPath: String?): Boolean =
-            rawPath == "/v1/events/sse" || rawPath == "/v1/contracts/events/sse"
+            rawPath == "/v1/events/sse" || rawPath == "/v1/contracts/events/sse" ||
+                isAccountHistoryStreamRawPath(rawPath)
 
         /** Option query parameters plus the canonical `filter` text, which may be given only once. */
         private fun streamQueryParameters(options: ToriiEventStreamOptions): Map<String, String> {

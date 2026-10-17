@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{a_relation::context::ContextObjectCells, q_sigma::SigmaClass};
+use iroha_pasta::PastaAffine;
 use iroha_pasta::PastaField;
 use iroha_plonk::{
     ProverConfig, ProverRandomness, Witness,
@@ -94,6 +95,13 @@ fn q_parts_require_exact_plan_lengths_source_and_normalized_challenges() {
         columns[3][0] = Fq::ONE;
         columns[4][0] = Fq::from(u64::from(plan.part_source_k()));
         assert_eq!(q_sigma_part(&columns, &plan).unwrap(), claim);
+        let mut identity_columns = columns.clone();
+        identity_columns[1] = vec![Fq::ZERO; 2];
+        let identity = iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap();
+        let identity_part = q_sigma_part(&identity_columns, &plan).unwrap();
+        assert_eq!(*identity_part.g(), identity);
+        assert_eq!(identity_part.challenges(), claim.challenges());
+        assert_eq!(identity_part.source_k(), claim.source_k());
         for column in 0..5 {
             for extend in [false, true] {
                 let mut bad = columns.clone();
@@ -113,7 +121,7 @@ fn q_parts_require_exact_plan_lengths_source_and_normalized_challenges() {
                 }
                 1 => bad[3][0] = Fq::ZERO,
                 2 => bad[4][0] += Fq::ONE,
-                3 => bad[1] = vec![Fq::ZERO; 2],
+                3 => bad[1] = vec![Fq::ZERO, Fq::ONE],
                 4 => bad[0][plan.challenge_range().end - 1] = Fq::ZERO,
                 _ => bad[0][plan.challenge_range().start] = if paired { Fq::ZERO } else { Fq::ONE },
             }

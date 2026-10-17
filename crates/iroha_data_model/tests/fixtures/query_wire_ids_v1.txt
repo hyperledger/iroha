@@ -5,6 +5,7 @@ ErasedIterQuery<crate::asset::definition::AssetDefinition>	iroha.query.v1::itera
 ErasedIterQuery<crate::asset::value::Asset>	iroha.query.v1::iterable::asset::Asset
 ErasedIterQuery<crate::block::BlockHeader>	iroha.query.v1::iterable::block::BlockHeader
 ErasedIterQuery<crate::block::SignedBlock>	iroha.query.v1::iterable::block::SignedBlock
+ErasedIterQuery<crate::bond::BondRecord>	iroha.query.v1::iterable::bond::BondRecord
 ErasedIterQuery<crate::domain::Domain>	iroha.query.v1::iterable::domain::Domain
 ErasedIterQuery<crate::escrow::AssetEscrowRecord>	iroha.query.v1::iterable::escrow::AssetEscrowRecord
 ErasedIterQuery<crate::events::data::oracle::FeedEventRecord>	iroha.query.v1::iterable::oracle::FeedEventRecord

@@ -254,6 +254,18 @@ pub trait KagemushaWalletFsV1 {
         from: &str,
         to: &str,
     ) -> io::Result<()>;
+    /// Move an existing private regular file to an absent same-directory name, retaining
+    /// its exact native identity. This is separate from publication of a staged writer.
+    ///
+    /// # Errors
+    /// Missing source, existing destination, changed custody, unsupported no-replace or I/O.
+    /// An error after the native rename is indeterminate.
+    fn rename_entry_noreplace(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        from: &str,
+        to: &str,
+    ) -> io::Result<()>;
     /// Unlink `name` in `dir`.
     ///
     /// # Errors

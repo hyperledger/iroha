@@ -7,8 +7,10 @@ verifiers, and the incoming-mode rule and static obligation ledger. Component
 constraints and native equivalence are tested; recursive relation composition
 and release qualification remain open.
 
-`codec` links exact 32-byte messages to canonical proof scalars and finite points,
-including total soft decoders with fixed dummies. Scalar cells retain injective
+`codec` links exact 32-byte messages to canonical proof scalars and points,
+including total soft decoders with fixed dummies. Absorbed commitments and IPA
+`L`/`R` messages must be finite and nonidentity; the deferred generator `G` alone
+admits the canonical all-zero identity encoding. Scalar cells retain injective
 S6 limbs. The transcript absorbs Pallas scalars as two limbs and Vesta scalars
 as one native word. Its challenge map proves the canonical base-field integer
 and Vesta's exact conditional subtraction of p. Instance membership separately
@@ -23,33 +25,50 @@ by exact proving-cell identities, never witness values. The existing FF carry
 and quotient envelope remains unchanged.
 
 `codec::foreign` total-decodes Vesta accumulator bytes inside the Fp relation,
-including the constrained square/nonsquare witness and canonical sign. Invalid
-bytes retain a false verdict and select the pinned finite accumulator dummy.
+including the constrained square/nonsquare witness and canonical sign. Its
+scoped generator decoder also admits the canonical identity. Invalid bytes
+retain a false verdict and select the pinned finite accumulator dummy.
 
-`AccumulatorT` encodes exactly 544 bytes (`G`, sixteen nonzero challenges).
-`FoldInput` checks source k and leading-zero padding. `FoldWitness` encodes a
-canonical 32-byte base-field salt followed by the 1,088-byte non-hiding IPA
-body. These fixed protocol encodings have no implicit tags or alternate decoder.
+`AccumulatorT` encodes exactly 544 bytes (`G`, sixteen challenge slots).
+`FoldInput` checks source k, nonzero actual source challenges and leading-zero
+normalization padding. The local private `FoldWitness` is exactly 2,176 bytes:
+a 1,120-byte body (`D`, sixteen masked `L`/`R` pairs, `c`, unabsorbed `G`), then
+33 canonical private scalars (the commitment blind `rho` and 32 ordered masks).
+There is no salt field or alternate decoder. This private witness is not a
+wallet Payment or public lineage carrier.
 
-`create_fold` opens `h − h(z)e_0`, self-checks its succinct equation, and returns
-an undecided accumulator. `verify_fold` also returns an undecided accumulator;
-call `decide` before accepting it. The decision uses the independent complete
-MSM kernel. All Horner joins are complete, including identity intermediates.
+`create_fold` consumes a clearing `FoldTape` for the committed-mask construction.
+The compiled `FoldPurpose` binds the curve, role and input count; the commitment
+`D` binds the corresponding private input digest and mask context. Masked rounds
+and the constrained mask subtraction use the same native and circuit equations.
+The function self-checks its succinct equation and returns an undecided
+accumulator. `verify_fold` also returns an undecided accumulator; call `decide`
+before accepting it. The decision uses the independent complete MSM kernel.
+All Horner joins are complete, including identity intermediates.
+
+The `WrapperVesta` purpose is available through the closed `TerminalPlan` owner.
+It derives its inputs and raw first challenge from the same complete native
+`SuccinctFrame`, checks the authorized source schema and key, and retains the
+same proof's own opening. A caller cannot substitute an arbitrary raw prefix or
+independently supplied terminal claims.
 
 At least one explicitly supplied source-k16 slot is required. Short-only
 callers add `AccumulatorT::trivial(...).as_input()` as an additional fixed slot
-in their bound input list. No function silently appends a slot. This prevents
-the necessarily zero first L point of a non-hiding, short-only polynomial.
-Rare identity messages and zero round challenges are errors, not panics or
-implicit salt retries.
+in their bound input list. No generic fold function silently appends a slot.
+Actual IPA round challenges use the total nonzero map; normalization padding
+stays zero. Invalid finite messages are errors, with no implicit randomness or
+salt retry. Shipping KAGEMUSHA owners sample fresh OS entropy for each new tape;
+retained private bytes may be restored only through authenticated custody.
 
 `FoldInput::corrected` computes a deciding replacement, requires a different G,
 and retains the original claim. The consuming relation must still authorize
 Corrected mode and bind both claims; this native helper does not authorize burn.
 
-The prover owns at most 8 MiB of polynomial, powers and generator work vectors
-at k16, borrows pinned parameters, and admits bounded generator chunks and MSM
-scratch through `FoldConfig`. No runtime environment switch controls behavior.
+The earlier 8 MiB accounting covers polynomial, powers and generator work vectors
+at k16. The committed-mask construction also owns private tapes and clearing
+leases; complete caller/dependency memory remains unqualified. It borrows pinned
+parameters and admits bounded generator chunks and MSM scratch through
+`FoldConfig`. No runtime environment switch controls behavior.
 
 The full k16 adversarial tests are ignored in the default debug suite. Run
 `cargo test -p iroha_plonk_recursion --release -- --include-ignored` to exercise
@@ -69,8 +88,13 @@ source, mode and claim and must close both curves' generator decisions.
 TODO: complete relation-level composition and obligation-ledger integration,
 independent reference-verifier fixtures,
 and the M4 Fiat–Shamir/composition security review before artifact qualification.
-The current generic wrapper exceeds the transport cap; compact layout and
-composed row/performance qualification remain release gates.
+The earlier generic-wrapper capture exceeded its then-selected transport cap.
+Current compact layout, composed rows and performance require fresh qualification.
+
+The numerical captures below describe their original descriptors and source
+revisions. They do not qualify the changed norm-product, total-role or
+committed-mask construction; current shape, size and row assertions require
+actual synthesis. The current wallet role caps are in the wire specification.
 
 `tests/compact_components.rs` exercises shared Glue, complete ECC, transcript,
 CRT, dot-product and algebraic/running-sum range constraints. The explicit compact
@@ -83,7 +107,7 @@ and 2^255. Staged Pasta results explicitly range their top limb to81 bits and
 preserve that bound through copies; selection takes the wider arm bound. Lazy
 inputs, division and wider dots retain their original carry admission. Its constant values
 are constrained through fixed Glue coefficients on the same bounded shared
-cursor. The current degree-nine descriptor has 3,680 proof bytes plus the
+cursor. That captured degree-nine descriptor has 3,680 proof bytes plus the
 1,088-byte accumulator: **4,768 bytes**, within the 4,821-byte cap. This is a
 descriptor result; a complete production compact proof has not been generated.
 

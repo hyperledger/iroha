@@ -81,9 +81,10 @@
 //!
 //! Layouts, keys and digests are pure functions of their inputs: ordered
 //! containers, checked row arithmetic, no environment variables and no
-//! `unsafe`. Proofs depend only on the inputs and the caller's
-//! [`iroha_plonk::ProverRandomness`]; the Rayon pool size changes no key or
-//! proof byte (`tests/real_proofs.rs` checks 1, 2, 4 and 7 threads).
+//! `unsafe`. Proof production obtains fresh OS-backed entropy through
+//! [`iroha_plonk::ProverRandomness`]. The Rayon pool size changes no key bytes;
+//! `tests/real_proofs.rs` verifies the same retained original proof under pools
+//! of 1, 2, 4 and 7 threads. Separate fresh proofs need not have identical bytes.
 #![forbid(unsafe_code)]
 
 pub mod a_relation;
@@ -95,6 +96,7 @@ pub mod controls;
 pub mod omega;
 pub mod operation_relation;
 mod original_admission;
+pub mod private_fold;
 pub mod proof;
 pub mod q_sigma;
 pub mod q_signature;
@@ -130,3 +132,16 @@ pub use witness::{
     RECEIVE_CONTROLS, ReceiveInputs, RequestBody, RequestTerms, SendInputs, SigmaRelation,
     StateRest, StateV1, StepDigests, StepInputs, StepPublic, StepWitness, Violation,
 };
+
+// Private proof-entry instrumentation and genuine owner boundaries exist only
+// in this crate's unit-test build. Integration targets retain their own suites.
+#[cfg(test)]
+extern crate self as iroha_kagemusha_proof;
+#[cfg(test)]
+mod omega_boundary_tests;
+#[cfg(test)]
+mod proof_entry_probe;
+#[cfg(test)]
+mod q_sigma_owner_tests;
+#[cfg(test)]
+mod q_signature_owner_tests;

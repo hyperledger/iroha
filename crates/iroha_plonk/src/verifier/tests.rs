@@ -255,12 +255,13 @@ fn structured_tampers_are_rejected_with_typed_reasons() {
                 setup.verify(&instances, &tampered)
             };
             if *point {
-                assert_eq!(
-                    replace(&[0; 32]),
-                    Err(VerifyError::Transcript(TranscriptError::IdentityPoint)),
-                    "message {index}"
-                );
                 let last = suffix && index + 1 == kinds.len();
+                let zero_error = if last {
+                    VerifyError::Ipa(IpaError::FoldedGeneratorMismatch)
+                } else {
+                    VerifyError::Transcript(TranscriptError::IdentityPoint)
+                };
+                assert_eq!(replace(&[0; 32]), Err(zero_error), "message {index}");
                 let other = replace(&generator);
                 if last {
                     assert_eq!(
@@ -675,7 +676,7 @@ where
         verify_full_from_bytes_v2(
             &setup.params,
             binding.encoded(),
-            vk.to_bytes(),
+            &vk.to_bytes(),
             &false_statement,
             &forged,
             BUDGET,

@@ -2,9 +2,11 @@
 //! circuits. These isolate wrapper binding; they are not operation A proofs or
 //! lineage qualification. Full operation composition has separate gates.
 
+mod common;
+
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::omega::{OmegaCircuit, OmegaPlan, OmegaWitness};
-use iroha_pasta::{Eq, Fp, Fq, PastaAffine, msm::MemoryBudget};
+use iroha_pasta::{Eq, Fp, Fq, msm::MemoryBudget};
 use iroha_plonk::{
     Protocol, ProverConfig, ProverRandomness, Witness,
     check::{CheckMode, check},
@@ -19,9 +21,7 @@ use iroha_plonk::{
     pcs::ipa::PinnedParams,
 };
 use iroha_plonk_gadgets::{GlueChip, GlueConfig, statement::foreign_limbs};
-use iroha_plonk_recursion::{
-    AccumulatorT, FoldConfig, FoldInput, create_fold, verifier::CompactSpans,
-};
+use iroha_plonk_recursion::{AccumulatorT, FoldConfig, FoldInput, verifier::CompactSpans};
 
 #[derive(Clone)]
 struct Frame(Vec<Fp>);
@@ -62,7 +62,7 @@ impl Circuit<Fp> for Frame {
     }
 }
 fn coordinates(claim: &FoldInput<Eq>) -> Vec<Fp> {
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
     foreign_limbs(&x)
         .into_iter()
         .chain(foreign_limbs(&y))
@@ -169,16 +169,24 @@ fn exercise_omega(compact: bool) {
             ProverConfig::default(),
         )
         .unwrap();
-        let own = FoldInput::from_opening(*proof.opening.g(), proof.opening.challenges()).unwrap();
-        let (fold, output) = create_fold(
-            &params,
-            &[part, own, trivial.clone(), trivial.clone()],
-            Fq::from(91).to_repr(),
-            &FoldConfig::default(),
+        let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+            key.binding().encoded(),
+            &[key.vk().to_bytes().to_vec()],
+            params.clone(),
         )
         .unwrap();
+        let (fold, output) = terminal
+            .read(
+                0,
+                std::slice::from_ref(&values),
+                &proof.proof,
+                &FoldConfig::default(),
+            )
+            .unwrap()
+            .create(common::public_fixture_tape(91), &FoldConfig::default())
+            .unwrap();
         output.decide(&params, MemoryBudget::DEFAULT).unwrap();
-        let (x, y) = output.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(output.g());
         let public = vec![
             vec![Fq::from(17)],
             vec![x, y],
@@ -194,7 +202,9 @@ fn exercise_omega(compact: bool) {
                 instances: values,
                 length: u32::try_from(proof.proof.len()).unwrap(),
                 proof: proof.proof,
-                fold: fold.to_bytes(),
+                fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                    fold.to_private_bytes(),
+                ),
             },
             public,
         ));
@@ -344,7 +354,7 @@ fn exercise_omega(compact: bool) {
             &public
         ));
         let mut bad = witness;
-        bad.fold[0] ^= 1;
+        bad.fold = common::mutated_private_fold(&bad.fold, 0);
         assert!(!is_satisfied(
             &OmegaCircuit::new(plan.clone(), bad).unwrap(),
             &public

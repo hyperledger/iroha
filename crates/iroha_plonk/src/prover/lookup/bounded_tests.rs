@@ -122,7 +122,6 @@ where
             ProverRandomness::fixed_seed_for_tests([31; 32]),
             ProverConfig::default(),
             Mode {
-                oracle: false,
                 transcript_repr: *setup.pk.vk().transcript_repr(),
             },
             &mut FullWidthReference,

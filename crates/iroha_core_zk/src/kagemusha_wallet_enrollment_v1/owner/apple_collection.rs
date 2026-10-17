@@ -82,6 +82,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
                 .with_archive(&slot, |archive| {
                     archive.read_record(&key, BOUNDS[usize::from(stage - 1)])
                 })?
+                .map(|bytes| bytes.as_slice().to_vec())
                 .unwrap_or_default();
         }
         if (originals[0].is_empty() && (!originals[1].is_empty() || !originals[2].is_empty()))

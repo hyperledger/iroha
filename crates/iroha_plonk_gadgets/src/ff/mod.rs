@@ -1157,6 +1157,25 @@ fn mul_witness<F: PastaField>(
     fused_witness_fields(&c, &quotient, &carries)
 }
 
+/// Fixed nonnegative representative of -5; only Pasta norm arithmetic admits it.
+fn norm_padding(modulus: ForeignModulus) -> Result<[u128; LIMBS], Error> {
+    if modulus != ForeignModulus::PASTA_FP && modulus != ForeignModulus::PASTA_FQ {
+        return Err(Error::Synthesis);
+    }
+    to_limbs(&modulus.nat().wrapping_sub(&Nat::from_u128(5))).ok_or(Error::Synthesis)
+}
+fn norm_witness<F: PastaField>(modulus: ForeignModulus, a: &[Nat; LIMBS]) -> FusedWitness<F> {
+    let padding = norm_padding(modulus).expect("Pasta norm modulus");
+    let product = recompose_nat(a)
+        .wrapping_mul(&recompose_nat(a))
+        .wrapping_add(&from_limbs(&padding));
+    let (q, r) = product.div_rem(&modulus.nat()).expect("positive modulus");
+    let c = nat_limbs(&r);
+    let q = nat_limbs(&q);
+    let carry = carries(a, a, &c, &padding, &q, &modulus.limbs());
+    fused_witness_fields(&c, &q, &carry)
+}
+
 /// The honest division witness `c = a / b` (limbs) modulo `modulus`: the
 /// gate proves `b c = a + q m - K`.
 fn div_witness<F: PastaField>(
@@ -1801,6 +1820,64 @@ impl<F: PastaField> FfChip<F> {
         self.mul(region, a, a)
     }
 
+    /// `a^2 - 5 mod m`, using the unchanged CRT equality with fixed
+    /// nonnegative padding `m-5` on the compact staged Pasta profile.
+    /// Non-staged profiles retain square followed by bounded subtraction.
+    /// The staged fast path accepts only the two Pasta foreign moduli.
+    /// # Errors
+    /// Mixed/unconfigured modulus, failed bound admission, or layout error.
+    pub fn norm(
+        &mut self,
+        glue: &mut GlueChip<F>,
+        region: &mut Region<'_, F>,
+        a: &FfValue<F>,
+    ) -> Result<FfValue<F>, Error> {
+        self.gates_of(a.modulus, &[])?;
+        if self.serialized.is_some() {
+            norm_padding(a.modulus)?;
+            let (a, _) = self.make_admissible(region, a, a)?;
+            let layout =
+                Self::carry_layout(Mode::Mul, a.modulus, Operand::value(&a), Operand::value(&a));
+            if layout != CarryLayout::Full {
+                let witness = a.limb_values().map(|v| norm_witness::<F>(a.modulus, &v));
+                let state = self.serialized.as_mut().ok_or(Error::Synthesis)?;
+                let limbs = if let Some(kernel) = state.kernel.filter(|k| k.is_staged()) {
+                    kernel.constrain_short_product_padding(
+                        &mut state.glue,
+                        &mut state.range,
+                        region,
+                        Mode::Mul,
+                        (&a.limbs, &a.limbs),
+                        witness,
+                        layout,
+                        true,
+                    )?
+                } else {
+                    serialized::constrain_fused_padding(
+                        &mut state.glue,
+                        &mut state.range,
+                        region,
+                        Mode::Mul,
+                        a.modulus,
+                        (&a.limbs, &a.limbs),
+                        witness,
+                        layout,
+                        true,
+                    )?
+                };
+                return Ok(FfValue::from_parts(
+                    limbs,
+                    NARROW_PROPER_BOUNDS,
+                    a.modulus,
+                    Form::Proper,
+                ));
+            }
+        }
+        let squared = self.square(region, a)?;
+        let five = self.constant(glue, region, a.modulus, &Nat::from_u128(5))?;
+        self.sub(glue, region, &squared, &five)
+    }
+
     /// `a k mod m` for a constant `k` (reduced modulo `m`; its limbs are
     /// placed through the constants column).
     ///
@@ -2324,3 +2401,6 @@ fn scale_bounds(x: &[u128; LIMBS], k: u64) -> Option<[u128; LIMBS]> {
         x[2].checked_mul(k)?,
     ])
 }
+
+#[cfg(test)]
+mod norm_tests;

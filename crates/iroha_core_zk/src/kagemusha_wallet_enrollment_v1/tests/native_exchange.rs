@@ -36,6 +36,12 @@ use std::{
 
 #[path = "native_exchange/archive.rs"]
 mod archive;
+#[path = "native_exchange/controls.rs"]
+mod controls;
+#[path = "native_exchange/fee.rs"]
+mod fee;
+#[path = "native_exchange/fee_confirmation.rs"]
+mod fee_confirmation;
 #[path = "native_exchange/load.rs"]
 mod load;
 #[path = "native_exchange/load_seam.rs"]
@@ -44,6 +50,10 @@ mod load_seam;
 mod message_census;
 #[path = "native_exchange/network_settlement.rs"]
 mod network_settlement;
+#[path = "native_exchange/omega_replay.rs"]
+mod omega_replay;
+#[path = "native_exchange/online_charge.rs"]
+mod online_charge;
 #[path = "native_exchange/proof_negative.rs"]
 mod proof_negative;
 #[path = "native_exchange/send_recovery.rs"]
@@ -326,6 +336,13 @@ fn complete(result: Completion) -> Vec<u8> {
         panic!("not a durable completion: {result:?}")
     };
     bytes
+}
+/// Run one coordinator call; return its result and the native derivations it started
+/// before Advance (B13: two for a fresh operation, none once Advance has selected it).
+fn derived<T>(call: impl FnOnce() -> T) -> (T, u64) {
+    let (result, counts) =
+        crate::kagemusha_wallet_preparation_v1::KagemushaWalletDerivationCountsV1::observe(call);
+    (result, counts.before_advance)
 }
 fn action(id: u8, action: OperationActionV1) -> OperationRequestV1 {
     OperationRequestV1 {
@@ -719,14 +736,22 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     device_a
         .platform
         .with(|state| state.sign_fault_at = Some(state.sign_calls));
+    let (pending, derivations) = derived(|| a.execute(send_ab.clone()).unwrap());
     assert_eq!(
-        a.execute(send_ab.clone()).unwrap(),
+        pending,
         Completion::Pending,
         "post-Advance receipt-signing outage must never report a rejected debit"
     );
+    assert_eq!(
+        derivations, 2,
+        "fresh Send: plan reused through proving, then commit"
+    );
     drop(a);
     let mut a = sources.open(&device_a, &f, &frames_a);
-    assert_eq!(a.execute(send_ab.clone()).unwrap(), Completion::Pending);
+    assert_eq!(
+        derived(|| a.execute(send_ab.clone()).unwrap()),
+        (Completion::Pending, 0)
+    );
     let payment_ab = complete(a.resume().unwrap().expect("selected Send remains pending"));
     finish_exchange(
         output,
@@ -828,14 +853,15 @@ fn finish_exchange(
         before_invalid,
         "invalid incoming proof cannot credit"
     );
-    let receive_ab = receive(&payment_ab, &frames_a, 213);
-    let received_ab = complete(b.execute(receive_ab.clone()).unwrap());
+    let incoming_ab = receive(&payment_ab, &frames_a, 213);
+    let (received_ab, derivations) = derived(|| complete(b.execute(incoming_ab.clone()).unwrap()));
+    assert_eq!(derivations, 2, "fresh Receive");
     assert_eq!(
-        complete(b.execute(receive_ab.clone()).unwrap()),
-        received_ab
+        derived(|| complete(b.execute(incoming_ab.clone()).unwrap())),
+        (received_ab.clone(), 0)
     );
     let before_duplicate = b.snapshot().unwrap();
-    let mut duplicate = receive_ab.clone();
+    let mut duplicate = incoming_ab.clone();
     duplicate.request_id = [214; 32];
     assert!(
         b.execute(duplicate).is_err(),
@@ -889,7 +915,8 @@ fn finish_exchange(
     assert!(b.execute(send_bc.clone()).is_err());
     device_b.platform.with(|s| s.storage = Ok(()));
     assert_eq!(b.snapshot().unwrap(), before);
-    let payment_bc = complete(b.execute(send_bc.clone()).unwrap());
+    let (payment_bc, derivations) = derived(|| complete(b.execute(send_bc.clone()).unwrap()));
+    assert_eq!(derivations, 2, "Send after a refused attempt");
     require_payment_bound(&payment_bc, &f.config.scheme.scheme_id());
     assert_eq!(complete(b.execute(send_bc).unwrap()), payment_bc);
     let receive_bc = receive(&payment_bc, &frames_b, 223);
@@ -897,9 +924,47 @@ fn finish_exchange(
     let signed = device_c.platform.with(|state| state.sign_calls);
     drop(c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
-    assert_eq!(complete(c.execute(receive_bc).unwrap()), received_bc);
+    assert_eq!(
+        complete(c.execute(receive_bc.clone()).unwrap()),
+        received_bc
+    );
     assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
     fold(&mut c);
+    // A fresh operation identity must not bypass permanent credit consumption after
+    // reopening fully folded receiver custody. FoldRequired is not a passing refusal.
+    let folded_c = c.snapshot().unwrap();
+    assert_eq!(folded_c.folded_balance, Some(LOAD_AMOUNT));
+    drop(c);
+    let mut c = sources.open(&device_c, &f_c, &frames_c);
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(
+        complete(c.execute(receive_bc.clone()).unwrap()),
+        received_bc
+    );
+    let mut duplicate_after_restart = receive_bc.clone();
+    duplicate_after_restart.request_id = [224; 32];
+    assert!(matches!(
+        c.execute(duplicate_after_restart),
+        Err(state::Error::Invalid(_))
+    ));
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
+    assert_eq!(complete(c.execute(receive_bc).unwrap()), received_bc);
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
+    publish(
+        &output.join("receiver-fresh-id-replay-after-restart.json"),
+        &norito::json::to_vec(&norito::json!({
+            "schema": "iroha.kagemusha.reopened-receiver-credit-replay.v1",
+            "same_folded_custody_reopened": true,
+            "fresh_operation_id_refused_as_invalid": true,
+            "exact_receive_original_before_and_after_refusal": true,
+            "head_balance_and_sequence_unchanged": true,
+            "new_payment_signatures": 0,
+            "scope": "Actual same-C native host custody with genuine incoming Payment; simulated hardware. This component record does not assert physical restart, power-loss or the enclosing campaign terminal."
+        }))
+        .unwrap(),
+    );
     assert_eq!(
         a.snapshot().unwrap().owned_balance
             + b.snapshot().unwrap().owned_balance
@@ -921,7 +986,10 @@ fn finish_exchange(
     let credited_ab = credited(&received_ab);
     let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
     let status_bc = c
-        .credit_status(&bc.request.credit_id(), &bc.payment_digest().unwrap())
+        .credit_status(
+            &bc.signed_request().unwrap().body.credit_id(),
+            &bc.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(
         status_bc.lineage.public.wallet_id,
@@ -1029,7 +1097,10 @@ fn finish_unload(
     // pending-outgoing root after folding the independently verified C evidence.
     let ab: KagemushaWalletPaymentV1 = decode(&payment_ab);
     let b_status = b
-        .credit_status(&ab.request.credit_id(), &ab.payment_digest().unwrap())
+        .credit_status(
+            &ab.signed_request().unwrap().body.credit_id(),
+            &ab.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(
         b_status.lineage.public.pending_outgoing_root,
@@ -1044,8 +1115,12 @@ fn finish_unload(
         },
     );
     let unload_id = unload.request_id;
-    let unloaded = complete(c.execute(unload.clone()).unwrap());
-    assert_eq!(complete(c.execute(unload).unwrap()), unloaded);
+    let (unloaded, derivations) = derived(|| complete(c.execute(unload.clone()).unwrap()));
+    assert_eq!(derivations, 2, "fresh Unload");
+    assert_eq!(
+        derived(|| complete(c.execute(unload).unwrap())),
+        (unloaded.clone(), 0)
+    );
     let claim_original = c.unload_claim_bytes(&unload_id, None).unwrap();
     drop(c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);

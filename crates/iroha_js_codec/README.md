@@ -38,6 +38,40 @@ retains the registered model and exact u64 duration in both frame and archive
 operations; missing, extra, renamed and choice fields on conviction updates are
 rejected before generic instruction admission. Decoding rechecks that contract.
 
+The repo lifecycle uses one closed `Repo` envelope mirroring the registered
+`RepoInstructionBox` (`iroha.repo`): exactly one of `Initiate` (complete
+`RepoIsi`, including `governance.allow_early_repayment`), `Reverse` or
+`MarginCall` (`{"agreement_id": ...}`). Payloads must equal their canonical
+model JSON, so the parsed proposal keeps the consented initiation and maturity
+intent hashes; generic base64 instruction literals cannot bypass the envelope.
+
+The native bond-servicing kernel uses one closed `Bond` envelope mirroring the
+registered `BondInstructionBox` (`iroha.bond`): exactly one of `Register`,
+`RecordCashflow`, `FundCashflow`, `ClaimCashflow`, `CloseCashflow`, `Call`,
+`DeclareDefault`, `ReplacePayingAgent` or `RetireTreasuryUnits`, each equal to
+its canonical model JSON (canonical quantities,
+lowercase 32-byte hex digests, explicit `null` for absent optional terms).
+Terms validation and every state check stay with Core
+(`specs/finance/bond_ops.md`). `bond_vault_account_literal` renders the
+key-less bond vault account for a caller-selected network prefix. The shared
+vectors in `javascript/iroha_js/test/fixtures/bond-v1-codec.json` are generated
+from the data model by `bond_instruction_tests.rs`; rerun its ignored
+`regenerate_bond_js_fixture` test to accept an intended change.
+
+Native conditional escrow instructions use closed `OpenConditionalEscrow`,
+`AttestEscrowCondition` and `ExpireConditionalEscrow` envelopes whose payloads
+must equal the canonical model JSON (including `evidence_hashes`). Atomic
+settlement JSON requires the `escrows` array (possibly empty); every escrow leg
+field is mandatory because the leg is part of the consented intent hash.
+
+Declarative alias setup (`EnsureAlias`) and `SetKeyValue.AssetDefinition` also
+admit exactly their native model JSON. `canonical_atomic_settlement_json` sorts
+`Settlement.Atomic` movements by native `(AssetId, AccountId)` order,
+`atomic_settlement_intent_hash` and `repo_intent_hashes` return the exact
+`CanExecuteSettlement` consent hashes computed by the model methods Core checks,
+and `instruction_json_from_wire_pair` admits a planner-issued
+`(wire_id, frame)` pair only after an exact decode and re-frame check.
+
 Native bindings convert buffers and error categories only. They also reuse the
 typed helper operations for their existing transaction builders and inspection
 APIs. There is no Node, daemon, network, filesystem, or key-custody dependency in

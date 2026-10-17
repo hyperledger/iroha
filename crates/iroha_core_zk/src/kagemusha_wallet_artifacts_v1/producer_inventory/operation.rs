@@ -113,9 +113,9 @@ fn source<T, E>(result: Result<T, E>) -> Result<T, OperationQualificationErrorV1
     result.map_err(|_| OperationQualificationErrorV1::Source)
 }
 fn metadata<C: PastaCurve>(
-    original: ArtifactOriginalV1,
+    original: DecodedVerifierOriginal,
 ) -> Result<KeyArtifact<C>, OperationQualificationErrorV1> {
-    let binding = source(DescriptorBinding::decode_v2(&original.descriptor))?;
+    let binding = source(original.binding)?;
     let key = source(VerifyingKey::read(&original.verifying_key, &binding))?;
     source(KeyArtifact::new(binding, key))
 }
@@ -526,9 +526,12 @@ impl AuthenticatedProducerInventoryV1 {
             originals,
             config,
             super::builtin::Admission::Strict,
+            &DescriptorMemo::default(),
         )
     }
 
+    // `descriptors` belongs to the calling qualification and is dropped with it.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn qualify_operation_route_with_admission(
         &self,
         installed: &InstalledVerifierPackV1,
@@ -537,6 +540,7 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
         admission: super::builtin::Admission<'_>,
+        descriptors: &DescriptorMemo,
     ) -> Result<QualifiedOperationRouteV1, OperationQualificationErrorV1> {
         let identity = (
             installed.verifier().scheme().scheme_id(),
@@ -563,10 +567,13 @@ impl AuthenticatedProducerInventoryV1 {
                 config,
                 route_index,
                 admission,
+                descriptors,
             )?;
-            let terminal = metadata(
-                self.read_verifier_original(*record.a.last().ok_or(Error::Inventory)?, originals)?,
-            )?;
+            let terminal = metadata(self.read_verifier_metadata(
+                *record.a.last().ok_or(Error::Inventory)?,
+                originals,
+                descriptors,
+            )?)?;
             let stage_memory = owner.stage_memory_bytes();
             return Ok(QualifiedOperationRouteV1 {
                 installation: identity,
@@ -580,7 +587,8 @@ impl AuthenticatedProducerInventoryV1 {
                 stage_memory,
             });
         }
-        let omega = metadata(self.read_verifier_original(self.inventory.omega, originals)?)?;
+        let omega =
+            metadata(self.read_verifier_metadata(self.inventory.omega, originals, descriptors)?)?;
         let plan = plan_with_parameters(
             route,
             SourceScopeV1::from_scheme(installed.verifier().scheme())?,
@@ -604,12 +612,12 @@ impl AuthenticatedProducerInventoryV1 {
         let a = record
             .a
             .iter()
-            .map(|index| metadata(self.read_verifier_original(*index, originals)?))
+            .map(|index| metadata(self.read_verifier_metadata(*index, originals, descriptors)?))
             .collect::<Result<Vec<_>, OperationQualificationErrorV1>>()?;
         let w = record
             .w
             .iter()
-            .map(|index| metadata(self.read_verifier_original(*index, originals)?))
+            .map(|index| metadata(self.read_verifier_metadata(*index, originals, descriptors)?))
             .collect::<Result<Vec<_>, OperationQualificationErrorV1>>()?;
         let terminal = a.last().ok_or(Error::Inventory)?.clone();
         let stage_memory = peak_proving_memory(&a)?.max(peak_proving_memory(&w)?);

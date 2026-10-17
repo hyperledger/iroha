@@ -937,7 +937,7 @@ impl PreparationV1<'_> {
         &self,
         step: &MonetaryStepV1,
         prover: &SigmaProver<Eq>,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         budget: MemoryBudget,
     ) -> Result<KagemushaWalletStepProofV1, Error> {
         if step.manifest_digest != self.installed.verifier().manifest_digest() {
@@ -1173,7 +1173,9 @@ impl PreparationV1<'_> {
             sigma: capsule.body().step_proof.bytes.clone(),
             objects: [
                 signed_tape(
-                    incoming.payment.request.body.transcript(),
+                    authority(incoming.payment.signed_request())?
+                        .body
+                        .transcript(),
                     &incoming.payment.request.signature,
                 ),
                 payer.credential_tape.clone(),

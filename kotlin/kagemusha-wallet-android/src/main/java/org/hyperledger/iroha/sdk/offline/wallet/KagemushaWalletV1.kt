@@ -189,26 +189,26 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         val input = identity.copyOf()
         require(selector in 0..3 && if (selector == 0) input.isEmpty() else input.size == 32 && input.any { it != 0.toByte() })
         val owner = handle() // same close/deletion fence as every ordinary owner operation
-        val result = try { KagemushaWalletObservationNativeV1.observe(owner, selector, input) }
+        val result = try { KagemushaWalletNativeWorkerV1.shared.run { KagemushaWalletObservationNativeV1.observe(owner, selector, input) } }
             catch (_: LinkageError) { throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE) }
             ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         return result.original(intArrayOf(5268, 20_066, 20_066, 65_756)[selector])
     }
     private fun call(operation: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf()): KagemushaWalletCallV1 {
-        val value = KagemushaWalletNativeV1.call(handle(), operation, first.copyOf(), second.copyOf())
+        val value = KagemushaWalletNativeCallsV1.call(handle(), operation, first.copyOf(), second.copyOf())
             ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         if (value.status < 0) throw KagemushaWalletExceptionV1(value.status, value.reason, value.platformCode)
         return value.completion()
     }
     private fun execute(input: KagemushaWalletOperationInputV1): KagemushaWalletCallV1 {
-        val value = KagemushaWalletNativeV1.execute(handle(), input.requestId(), input.selector,
+        val value = KagemushaWalletNativeCallsV1.execute(handle(), input.requestId(), input.selector,
             input.amount.low, input.amount.high, input.first(), input.second(), input.third())
             ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         if (value.status < 0) throw KagemushaWalletExceptionV1(value.status, value.reason, value.platformCode)
         return value.completion()
     }
     private fun setup(input: KagemushaWalletSetupInputV1): KagemushaWalletCallV1 {
-        val value = KagemushaWalletNativeV1.setup(handle(), input.identity(), input.selector,
+        val value = KagemushaWalletNativeCallsV1.setup(handle(), input.identity(), input.selector,
             input.amount.low, input.amount.high, input.token, input.first(), input.second(), input.third())
             ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         if (value.status < 0) throw KagemushaWalletExceptionV1(value.status, value.reason, value.platformCode)
@@ -227,7 +227,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
     fun discardCustodyDeletionReview(review: KagemushaWalletDeletionReviewV1) =
         deletionGate.discard(review) { token -> setup(KagemushaWalletSetupInputV1(51, token = token)) }
     private fun deletionSetup(input: KagemushaWalletSetupInputV1): KagemushaWalletCallV1 {
-        val value = KagemushaWalletNativeV1.setup(custodyHandle(), input.identity(), input.selector,
+        val value = KagemushaWalletNativeCallsV1.setup(custodyHandle(), input.identity(), input.selector,
             input.amount.low, input.amount.high, input.token, input.first(), input.second(), input.third())
             ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         if (value.status < 0) throw KagemushaWalletExceptionV1(value.status, value.reason, value.platformCode)
@@ -464,14 +464,14 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         val wallet = handle()
         var reply: KagemushaWalletReviewReplyV1? = null
         try {
-            reply = KagemushaWalletNativeV1.review(wallet, selector, amount.low, amount.high, first.copyOf(), second.copyOf())
+            reply = KagemushaWalletNativeCallsV1.review(wallet, selector, amount.low, amount.high, first.copyOf(), second.copyOf())
             return (reply ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)).review(this, expected)
         } catch (failure: KagemushaWalletExceptionV1) {
             if (failure.status == KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT) {
                 val token = reply?.cleanupToken()
                 try {
                     if (token == null) close()
-                    else checked(KagemushaWalletNativeV1.discardReview(wallet, token))
+                    else checked(KagemushaWalletNativeCallsV1.discardReview(wallet, token))
                 } catch (cleanup: Throwable) {
                     if(failure !== cleanup)failure.addSuppressed(cleanup)
                     try { close() } catch (retirement: Throwable) { if(failure !== retirement)failure.addSuppressed(retirement) }
@@ -486,7 +486,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         val value = handle()
         val token = review.consume(this)
         try {
-            val reply = KagemushaWalletNativeV1.executeReviewed(value, token, requestId.copyOf())
+            val reply = KagemushaWalletNativeCallsV1.executeReviewed(value, token, requestId.copyOf())
                 ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
             if (reply.status < 0) throw KagemushaWalletExceptionV1(reply.status, reply.reason, reply.platformCode)
             return reply.completion()
@@ -494,7 +494,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
             // Native may have consumed this token before failure. Closed then means no unused
             // review remains; it is never treated as acknowledgement of owner release.
             try {
-                val status=KagemushaWalletNativeV1.discardReview(value,token)
+                val status=KagemushaWalletNativeCallsV1.discardReview(value,token)
                 if(status!=0 && status!=-2)checked(status)
             }catch(cleanup:Throwable){
                 if(failure !== cleanup)failure.addSuppressed(cleanup)
@@ -506,7 +506,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
     /** Discard an unused review on a worker without creating intent, payment or monetary authority. */
     fun discardReview(review: KagemushaWalletReviewV1) {
         val value = handle(); val token = review.consume(this)
-        checked(KagemushaWalletNativeV1.discardReview(value, token))
+        checked(KagemushaWalletNativeCallsV1.discardReview(value, token))
     }
     /** Same actual one-use discard operation, retained for the current managed integration. */
     fun cancelReview(review:KagemushaWalletReviewV1)=discardReview(review)
@@ -528,7 +528,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
     fun foldOnce(): KagemushaWalletCallV1 = call(3)
     /** Native ownership and proof backlog, without operation readiness. Call on a worker. */
     fun snapshot(): KagemushaWalletSnapshotV1 {
-        val reply = KagemushaWalletNativeV1.snapshot(handle()) ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
+        val reply = KagemushaWalletNativeCallsV1.snapshot(handle()) ?: throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         if (reply.status < 0) throw KagemushaWalletExceptionV1(reply.status, reply.reason, reply.platformCode)
         return KagemushaWalletSnapshotV1(reply)
     }
@@ -538,7 +538,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
     }
     /** Foreground or charging enables folding; leaving both cancels at a cooperative boundary. */
     fun setActivity(foreground: Boolean, charging: Boolean) {
-        checked(KagemushaWalletNativeV1.activity(handle(), if (foreground) 1 else 0, if (charging) 1 else 0))
+        checked(KagemushaWalletNativeCallsV1.activity(handle(), if (foreground) 1 else 0, if (charging) 1 else 0))
     }
     /** Release exclusive native custody. Never deletes key material, markers or retained bytes. */
     override fun close() = synchronized(closeGate) { closeFailure?.let{throw it}; closeAttempt() }
@@ -549,7 +549,7 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         retired.set(true)
         val handle=owner.get()
         if(handle>0) {
-            try{checked(KagemushaWalletNativeV1.close(handle));owner.set(0);closeFailure=null}
+            try{checked(KagemushaWalletNativeCallsV1.close(handle));owner.set(0);closeFailure=null}
             catch(failure:Throwable){
                 closeFailure=failure
                 KagemushaWalletInstalledRuntimeV1.retainFailure(this,failure)

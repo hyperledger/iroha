@@ -242,7 +242,7 @@ impl Plan {
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .map_err(|_| Error::Artifact)?
@@ -287,7 +287,7 @@ impl Plan {
                 source,
                 continuation,
                 pallas: pallas.clone(),
-                fold: vec![0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
                 known: false,
             },
         })

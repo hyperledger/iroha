@@ -449,7 +449,7 @@ fn kagemusha_wallet_v1_verifying_key_allowlist_rules() {
         KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1,
         10_000 - KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1
     );
-    let cap = u32::try_from(KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1).expect("cap");
+    let cap = u32::try_from(KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1).expect("source cap");
     let mut at_cap = sample_allowlist();
     at_cap.lineage_proof_bytes = cap;
     at_cap.validate().expect("Ω exactly at the cap");
@@ -478,21 +478,21 @@ fn kagemusha_wallet_v1_verifying_key_allowlist_rules() {
     );
     let budget = u32::try_from(KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1).expect("budget");
     let mut at_budget = sample_allowlist();
-    at_budget.steps[4].proof_bytes = 3_296;
-    at_budget.lineage_proof_bytes = budget - 3_296;
+    at_budget.steps[4].proof_bytes = 3_520;
+    at_budget.lineage_proof_bytes = budget - 3_520;
     at_budget
         .validate()
         .expect("joint proofs exactly at the budget");
     let mut over = at_budget.clone();
     over.lineage_proof_bytes += 1;
-    assert_invalid(over.validate(), "verifying_keys.budget");
-    // The budget binds Send only; another relation's σ may be longer.
+    assert_invalid(over.validate(), "verifying_keys.lineage_proof_bytes");
+    // The joint budget binds Send; every selector also respects the uniform source capacity.
     let mut receive = at_budget;
     assert_eq!(receive.steps[5].kind, Kind::Receive);
     receive.steps[5].proof_bytes = 9_000;
-    receive
-        .validate()
-        .expect("σ_recv outside the Payment budget");
+    assert_invalid(receive.validate(), "verifying_keys.proof_bytes");
+    receive.steps[5].proof_bytes = 3_520;
+    receive.validate().expect("Receive at its source capacity");
 }
 
 #[test]
@@ -505,6 +505,9 @@ fn kagemusha_wallet_v1_verifying_key_receive_budget_preserves_exact_selectors() 
         10_000 - KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1
     );
     assert_eq!(budget, 9_321);
+    let capacity = KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1;
+    assert_eq!(capacity, 3_520);
+    assert!(capacity < budget);
     for mask in [0, KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1] {
         let mut allowlist = sample_allowlist();
         let selected = allowlist
@@ -512,12 +515,12 @@ fn kagemusha_wallet_v1_verifying_key_receive_budget_preserves_exact_selectors() 
             .iter_mut()
             .find(|entry| entry.selector() == (Kind::Receive.tag(), mask))
             .expect("Receive selector");
-        selected.proof_bytes = u32::try_from(budget).expect("budget");
+        selected.proof_bytes = u32::try_from(capacity).expect("source capacity");
         let digest = selected.verifying_key_digest;
         allowlist
             .validate()
-            .expect("Receive exactly at its envelope budget");
-        let proof = stand_in_proof(budget);
+            .expect("Receive exactly at its source capacity");
+        let proof = stand_in_proof(capacity);
         assert_eq!(
             allowlist
                 .check_step_proof(Kind::Receive, mask, &proof)
@@ -525,11 +528,11 @@ fn kagemusha_wallet_v1_verifying_key_receive_budget_preserves_exact_selectors() 
             digest
         );
         assert_invalid(
-            allowlist.check_step_proof(Kind::Receive, mask, &stand_in_proof(budget - 1)),
+            allowlist.check_step_proof(Kind::Receive, mask, &stand_in_proof(capacity - 1)),
             "step_proof.length",
         );
         assert_invalid(
-            allowlist.check_step_proof(Kind::Receive, mask, &stand_in_proof(budget + 1)),
+            allowlist.check_step_proof(Kind::Receive, mask, &stand_in_proof(capacity + 1)),
             "step_proof.length",
         );
         assert_invalid(
@@ -550,10 +553,10 @@ fn kagemusha_wallet_v1_verifying_key_receive_budget_preserves_exact_selectors() 
             .find(|entry| entry.selector() == (Kind::Receive.tag(), mask))
             .expect("Receive selector")
             .proof_bytes += 1;
-        assert_invalid(allowlist.validate(), "verifying_keys.receive_proof_bytes");
+        assert_invalid(allowlist.validate(), "verifying_keys.proof_bytes");
         assert_invalid(
             allowlist.verifying_key_set_digest(),
-            "verifying_keys.receive_proof_bytes",
+            "verifying_keys.proof_bytes",
         );
     }
 }
@@ -561,9 +564,9 @@ fn kagemusha_wallet_v1_verifying_key_receive_budget_preserves_exact_selectors() 
 #[test]
 fn kagemusha_wallet_v1_verifying_key_lineage_cap_and_joint_budget_are_independent() {
     use KagemushaWalletOperationKindV1 as Kind;
-    let cap = u32::try_from(KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1).expect("cap");
+    let cap = u32::try_from(KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1).expect("source cap");
     let budget = u32::try_from(KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1).expect("budget");
-    assert_eq!(budget, 8_277);
+    assert_eq!(budget, 8_564);
     let mut allowlist = sample_allowlist();
     allowlist.lineage_proof_bytes = cap;
     let largest_send = budget - cap;
@@ -594,7 +597,7 @@ fn kagemusha_wallet_v1_verifying_key_lineage_cap_and_joint_budget_are_independen
         .find(|entry| entry.kind == Kind::Send)
         .expect("Send")
         .proof_bytes += 1;
-    assert_invalid(over_joint.validate(), "verifying_keys.budget");
+    assert_invalid(over_joint.validate(), "verifying_keys.proof_bytes");
 }
 
 #[test]

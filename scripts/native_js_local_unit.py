@@ -232,6 +232,10 @@ def environment(root, config, output):
             "RUSTC": config["rustc"], "RUSTDOC": config["rustdoc"],
             "SDKROOT": config["sdk"], "MACOSX_DEPLOYMENT_TARGET": "13.0",
             "DEVELOPER_DIR": config["developer_dir"], "NODE_OPTIONS": "",
+            # Client-side sccache creates a per-process Unix socket under TMPDIR;
+            # private source-capture paths can exceed macOS's SUN_LEN limit.
+            # Keep the persistent server cache and the private compiler scratch.
+            "SCCACHE_CLIENT_SIDE": "0",
             "CC": config["clang"], "CXX": str(Path(config["clang"]).with_name("clang++")),
             "AR": str(Path(config["clang"]).with_name("ar")),
             "RANLIB": str(Path(config["clang"]).with_name("ranlib"))}

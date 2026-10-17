@@ -69,6 +69,8 @@ class KagemushaWalletVectorsV1Test {
                 "message_text_max_bytes",
                 "payment_fixed_bytes",
                 "payment_proof_budget_bytes",
+                "sigma_proof_cap_bytes",
+                "omega_proof_cap_bytes",
                 "proof_caps",
                 "quota_tree_depth",
                 "quota_usage_slots",
@@ -95,8 +97,13 @@ class KagemushaWalletVectorsV1Test {
         assertTrue(bounds.text("proof_caps").contains("lineage_proof_cap_bytes"), bounds.text("proof_caps"))
         assertEquals(KagemushaWalletWireV1.PAYMENT_FIXED_BYTES, bounds.int("payment_fixed_bytes"))
         assertEquals(KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES, bounds.int("payment_proof_budget_bytes"))
-        assertEquals(1_723, KagemushaWalletWireV1.PAYMENT_FIXED_BYTES)
-        assertEquals(8_277, KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES)
+        assertEquals(KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES, bounds.int("sigma_proof_cap_bytes"))
+        assertEquals(KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES, bounds.int("omega_proof_cap_bytes"))
+        assertEquals(3_520, KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES)
+        assertEquals(5_044, KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES)
+        assertEquals(KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES, KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES + KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES)
+        assertEquals(1_436, KagemushaWalletWireV1.PAYMENT_FIXED_BYTES)
+        assertEquals(8_564, KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES)
         assertEquals(
             KagemushaWalletWireV1.MESSAGE_MAX_BYTES,
             KagemushaWalletWireV1.PAYMENT_FIXED_BYTES + KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES,
@@ -370,20 +377,20 @@ class KagemushaWalletVectorsV1Test {
         assertEquals(packedElements(fromLineage).size, lineage.int("elements"))
         assertPoseidonValue(lineage.hex("digest_hex"), "lineage digest")
 
-        // Payment `{version, request, key, credential digest, send}`; Send package `{version,
+        // Payment `{version, unique Request fields, send}`; Send package `{version,
         // statement, lineage slot, step proof, receipt}` with the slot Present (tag 1) `{lineage}`.
         val payment = recordFields(envelopeMessage(envelope("Payment")))
-        assertEquals(5, payment.size)
-        val send = recordFields(payment[4])
+        assertEquals(3, payment.size)
+        val send = recordFields(payment[2])
         assertEquals(5, send.size)
         val slot = send[2]
         assertEquals(1, readIntLe(slot, 0), "Send package lineage slot is Present")
         val present = recordFields(slot.copyOfRange(4, slot.size)).single()
         assertContentEquals(fromLineage, omegaBytes(present))
-        // The Payment's carried payer key and credential digest are Ω's.
+        // The sole payer key and credential digest come from Ω and retain the digest binding.
         val exposed = recordFields(recordFields(present)[0])
-        assertContentEquals(exposed[6], payment[2])
-        assertContentEquals(exposed[5], payment[3])
+        assertContentEquals(key("payer_payment"), exposed[6])
+        assertContentEquals(largeInput("kgwpay_1").hex("body_hex").copyOfRange(99, 131), exposed[5])
         // A Receive package carries no Ω(pred): its slot is None (tag 0) with no fields.
         val receive = recordFields(objectVector("KagemushaWalletPackageV1", "Receive").let { frame ->
             NoritoHeader.decode(frame, null).payload
@@ -772,6 +779,41 @@ class KagemushaWalletVectorsV1Test {
         assertEquals(KagemushaWalletMessageKindV1.REQUEST, KagemushaWalletWireV1.inspectEnvelope(changed).kind)
     }
 
+    @Test fun `Payment proof roles reject individual overflow even within the joint frame`() {
+        val payment = vectors.array("envelopes").map { it.jsonObject }.first { it.text("variant") == "Payment" }.hex("canonical_hex")
+        val request = vectors.array("envelopes").map { it.jsonObject }.first { it.text("variant") == "Request" }.hex("canonical_hex")
+        for ((sigma, omega) in listOf(0 to 0, 3520 to 0, 0 to 5044, 3520 to 5044)) {
+            val changed = withPaymentProofVectors(payment, proofVector(sigma), proofVector(omega))
+            assertTrue(changed.size <= KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
+            assertEquals(KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletWireV1.inspectEnvelope(changed).kind)
+            KagemushaWalletWireV1.requireExchangeBinding(request, changed)
+        }
+        for ((sigma, omega, label) in listOf(
+            Triple(3521, 0, "sigma"), Triple(0, 5045, "Omega"),
+            Triple(3521, 5043, "sigma"), Triple(3519, 5045, "Omega"),
+        )) {
+            val changed = withPaymentProofVectors(payment, proofVector(sigma), proofVector(omega))
+            assertTrue(changed.size <= KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
+            assertTrue(sigma + omega <= KagemushaWalletWireV1.PAYMENT_PROOF_BUDGET_BYTES)
+            val inspected = assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.inspectEnvelope(changed) }
+            assertTrue(inspected.message.orEmpty().contains("$label proof exceeds its source role maximum"))
+            val bound = assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.requireExchangeBinding(request, changed) }
+            assertEquals(inspected.message, bound.message)
+        }
+    }
+
+    @Test fun `Payment proof vectors bind declared lengths to exact original bytes`() {
+        val payment = vectors.array("envelopes").map { it.jsonObject }.first { it.text("variant") == "Payment" }.hex("canonical_hex")
+        for (bad in listOf(ByteArray(0), ByteArray(7), proofVector(1, 0), proofVector(1, 2), proofVector(1, -1))) {
+            for (sigma in listOf(true, false)) {
+                val changed = withPaymentProofVectors(payment,
+                    if (sigma) bad else proofVector(0), if (sigma) proofVector(0) else bad)
+                val failure = assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.inspectEnvelope(changed) }
+                assertTrue(failure.message.orEmpty().contains("not a canonical byte vector"))
+            }
+        }
+    }
+
     @Test fun `exchange record parsing rejects unsigned high-bit lengths beyond inspected paths`() {
         val request = envelope("Request")
         val payment = envelope("Payment")
@@ -790,7 +832,7 @@ class KagemushaWalletVectorsV1Test {
         // These deliberate amount mutations invalidate signatures/proofs. The display codec
         // still reads their DATA; only genuine Native completion can authenticate a receipt.
         for (amount in listOf(BigInteger.ONE, BigInteger.ONE.shiftLeft(127), BigInteger.ONE.shiftLeft(128) - BigInteger.ONE)) {
-            val changed = withReplacedMessageField(envelope("Payment"), listOf(1, 0, 9),
+            val changed = withPaymentAmount(envelope("Payment"),
                 amount.toByteArray().reversedArray().copyOf(16))
             assertEquals(amount, KagemushaWalletWireV1.paymentAmountData(changed))
         }
@@ -798,12 +840,35 @@ class KagemushaWalletVectorsV1Test {
 
     @Test fun `Payment display amount rejects noncanonical scalar shape and other message kinds`() {
         for (bytes in listOf(ByteArray(16), ByteArray(15) { 1 }, ByteArray(17) { 1 })) {
-            val changed = withReplacedMessageField(envelope("Payment"), listOf(1, 0, 9), bytes)
+            val changed = withPaymentAmount(envelope("Payment"), bytes)
             assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.paymentAmountData(changed) }
         }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.paymentAmountData(envelope("Request")) }
         val payment = envelope("Payment")
         assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.paymentAmountData(payment.copyOf(payment.size - 1)) }
+    }
+
+    @Test fun `Request display amount is the exact quoted body DATA and grants no verification`() {
+        // The vector Payment carries the vector Request, so both read the same quoted amount.
+        assertEquals(KagemushaWalletWireV1.paymentAmountData(envelope("Payment")),
+            KagemushaWalletWireV1.requestAmountData(envelope("Request")))
+        // These deliberate amount mutations invalidate the Request signature. The display codec
+        // still reads their DATA; only the receiver's own Native output may supply a Request.
+        for (amount in listOf(BigInteger.ONE, BigInteger.ONE.shiftLeft(127), BigInteger.ONE.shiftLeft(128) - BigInteger.ONE)) {
+            val changed = withReplacedMessageField(envelope("Request"), listOf(0, 9),
+                amount.toByteArray().reversedArray().copyOf(16))
+            assertEquals(amount, KagemushaWalletWireV1.requestAmountData(changed))
+        }
+    }
+
+    @Test fun `Request display amount rejects noncanonical scalar shape and other message kinds`() {
+        for (bytes in listOf(ByteArray(16), ByteArray(15) { 1 }, ByteArray(17) { 1 })) {
+            val changed = withReplacedMessageField(envelope("Request"), listOf(0, 9), bytes)
+            assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.requestAmountData(changed) }
+        }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.requestAmountData(envelope("Payment")) }
+        val request = envelope("Request")
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.requestAmountData(request.copyOf(request.size - 1)) }
     }
 
     @Test fun `vector Request Payment and Credited envelopes are structurally bound`() {
@@ -817,11 +882,11 @@ class KagemushaWalletVectorsV1Test {
         KagemushaWalletWireV1.requireExchangeBinding(request, payment)
         KagemushaWalletWireV1.requireExchangeBinding(request, payment, receive)
         KagemushaWalletWireV1.requireExchangeBinding(request, payment, status)
-        // The compact Payment carries the Request's signed body, not the whole Request message.
-        val signedRequest = recordFields(recordFields(envelopeMessage(payment))[1])
+        // Reconstruct every signed field from its sole owner in the Payment.
+        val signedRequest = reconstructedPaymentRequest(payment)
         val requestMessage = recordFields(envelopeMessage(request))
-        assertContentEquals(requestMessage[0], signedRequest[0])
-        assertContentEquals(requestMessage[4], signedRequest[1])
+        assertContentEquals(requestMessage[0], signedRequest.first)
+        assertContentEquals(requestMessage[4], signedRequest.second)
 
         val rejected = listOf(
             "kinds swapped" to { KagemushaWalletWireV1.requireExchangeBinding(payment, request) },
@@ -869,7 +934,7 @@ class KagemushaWalletVectorsV1Test {
         // The removed 17-field form omitted the receiver's recorded blacklist version and root.
         request[0] = encodeRecord(body.filterIndexed { index, _ -> index != 15 && index != 16 })
         val payment = recordFields(envelopeMessage(envelope("Payment"))).toMutableList()
-        payment[1] = encodeRecord(listOf(request[0], request[4]))
+        payment[1] = encodeRecord(recordFields(payment[1]).filterIndexed { index, _ -> index != 7 && index != 8 })
         val oldRequest = envelopeWithMessage(KagemushaWalletMessageKindV1.REQUEST, encodeRecord(request))
         val oldPayment = envelopeWithMessage(KagemushaWalletMessageKindV1.PAYMENT, encodeRecord(payment))
         assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.requireExchangeBinding(oldRequest, oldPayment) }
@@ -1243,7 +1308,7 @@ class KagemushaWalletVectorsV1Test {
         }
 
         // Statement elements re-derive from canonical package records, without a parallel transcript.
-        val sendRecord = recordFields(recordFields(envelopeMessage(envelope("Payment")))[4])[1]
+        val sendRecord = recordFields(recordFields(envelopeMessage(envelope("Payment")))[2])[1]
         val receiveRecord = recordFields(objectPayload("KagemushaWalletPackageV1", "Receive"))[1]
         assertElements(lists.getValue("send_statement"), statementElements(sendRecord), "send statement")
         assertElements(lists.getValue("receive_statement"), statementElements(receiveRecord), "receive statement")
@@ -1949,13 +2014,13 @@ class KagemushaWalletVectorsV1Test {
         val payment = recordFields(envelopeMessage(envelope("Payment")))
         val creditedReceive = recordFields(envelopeMessage(envelope("Credited::Receive")))[2]
         val packages = listOf(
-            "Payment envelope Send" to payment[4],
+            "Payment envelope Send" to payment[2],
             "Credited::Receive" to recordFields(creditedReceive.copyOfRange(4, creditedReceive.size)).single(),
-            "Payment object Send" to recordFields(objectPayload("KagemushaWalletPaymentV1", "fee, Ω(pred)"))[4],
+            "Payment object Send" to recordFields(objectPayload("KagemushaWalletPaymentV1", "fee, Ω(pred)"))[2],
             "Receive package object" to objectPayload("KagemushaWalletPackageV1", "Receive"),
             "Unload claim" to recordFields(objectPayload("KagemushaWalletUnloadClaimV1", "quoted"))[2],
             "Close loads Retiring" to recordFields(objectPayload("KagemushaWalletCloseLoadsV1", ""))[3],
-            "Fee claim Send" to recordFields(recordFields(objectPayload("KagemushaWalletFeeClaimV1", ""))[1])[4],
+            "Fee claim Send" to recordFields(recordFields(objectPayload("KagemushaWalletFeeClaimV1", ""))[1])[2],
             "Activation Bootstrap" to recordFields(objectPayload("KagemushaWalletActivationV1", ""))[3],
         )
         val omegas = ArrayList<Pair<String, ByteArray>>()
@@ -2096,6 +2161,24 @@ class KagemushaWalletVectorsV1Test {
             return frameOf(byteArrayOf(2, 1, 0) + Varint.encode(tagged.size.toLong()) + tagged)
         }
 
+        /** Deliberately controllable vector count for exact original-length refusal controls. */
+        fun proofVector(count: Int, declared: Long = count.toLong()): ByteArray =
+            ByteArray(8) { index -> (declared ushr (8 * index)).toByte() } + ByteArray(count) { 0x5a }
+
+        /** Rebuild only original proof fields and every enclosing canonical record/header. */
+        fun withPaymentProofVectors(frame: ByteArray, sigma: ByteArray, omega: ByteArray): ByteArray {
+            val payment = recordFields(envelopeMessage(frame)).toMutableList()
+            val send = recordFields(payment[2]).toMutableList()
+            val present = send[2]
+            assertEquals(1, readIntLe(present, 0))
+            val lineage = recordFields(recordFields(present.copyOfRange(4, present.size)).single()).toMutableList()
+            lineage[1] = omega
+            send[2] = le32(1) + encodeRecord(listOf(encodeRecord(lineage)))
+            send[3] = encodeRecord(listOf(sigma))
+            payment[2] = encodeRecord(send)
+            return envelopeWithMessage(KagemushaWalletMessageKindV1.PAYMENT, encodeRecord(payment))
+        }
+
         /** Complete compact-length record of [fields], preserving every field's exact bytes. */
         fun encodeRecord(fields: List<ByteArray>): ByteArray =
             fields.fold(ByteArray(0)) { all, field -> all + Varint.encode(field.size.toLong()) + field }
@@ -2109,9 +2192,12 @@ class KagemushaWalletVectorsV1Test {
             val vector = vectors.array("envelopes").map { it.jsonObject }.first { it.int("tag") == tag }
             val kind = assertNotNull(KagemushaWalletMessageKindV1.fromWireTag(tag))
             val fields = recordFields(envelopeMessage(vector.hex("canonical_hex"))).toMutableList()
-            val last = fields.last()
+            // Keep Payment proof-bearing Send fields exact; its unique Request field is opaque here.
+            val paddingIndex = if (kind == KagemushaWalletMessageKindV1.PAYMENT) 1 else fields.lastIndex
+            val last = fields[paddingIndex]
             val overhead = NoritoHeader.HEADER_LENGTH + KagemushaWalletWireV1.ENVELOPE_PADDING_BYTES
-            val prefixBytes = fields.dropLast(1).sumOf { Varint.encode(it.size.toLong()).size + it.size }
+            val prefixBytes = fields.filterIndexed { index, _ -> index != paddingIndex }
+                .sumOf { Varint.encode(it.size.toLong()).size + it.size }
             var padding = 0
             while (true) {
                 val lastLength = last.size + padding
@@ -2122,7 +2208,7 @@ class KagemushaWalletVectorsV1Test {
                 check(total < frameLength) { "no envelope of exactly $frameLength bytes" }
                 padding += 1
             }
-            fields[fields.lastIndex] = last + ByteArray(padding)
+            fields[paddingIndex] = last + ByteArray(padding)
             return envelopeWithMessage(kind, encodeRecord(fields))
         }
 
@@ -2377,10 +2463,48 @@ class KagemushaWalletVectorsV1Test {
             }
         }
 
+        /** Change the Send-owned amount without authenticating the altered proof or signature. */
+        fun withPaymentAmount(frame: ByteArray, amount: ByteArray): ByteArray =
+            withChangedMessageRecord(frame, listOf(2, 1)) { record ->
+                val statement = recordFields(record).toMutableList()
+                val tagged = statement[13]
+                assertEquals(SEND_TAG, readIntLe(tagged, 0))
+                val effect = recordFields(tagged.copyOfRange(4, tagged.size)).toMutableList()
+                effect[3] = amount
+                statement[13] = tagged.copyOfRange(0, 4) + encodeRecord(effect)
+                encodeRecord(statement)
+            }
+
+        /** Independent fixture reconstruction of all 19 signed Request fields and signature. */
+        fun reconstructedPaymentRequest(frame: ByteArray): Pair<ByteArray, ByteArray> {
+            val p = recordFields(envelopeMessage(frame))
+            assertEquals(3, p.size)
+            val unique = recordFields(p[1])
+            assertEquals(12, unique.size)
+            val send = recordFields(p[2])
+            assertEquals(5, send.size)
+            val statement = recordFields(send[1])
+            assertEquals(14, statement.size)
+            val slot = send[2]
+            assertEquals(1, readIntLe(slot, 0))
+            val lineage = recordFields(recordFields(slot.copyOfRange(4, slot.size)).single())
+            assertEquals(2, lineage.size)
+            val omega = recordFields(lineage[0])
+            assertEquals(13, omega.size)
+            val tagged = statement[13]
+            assertEquals(SEND_TAG, readIntLe(tagged, 0))
+            val effect = recordFields(tagged.copyOfRange(4, tagged.size))
+            assertEquals(8, effect.size)
+            val body = listOf(p[0], statement[1], statement[4], omega[4], unique[0],
+                effect[1], unique[1], effect[2], unique[2], effect[3], unique[3], effect[4],
+                unique[4], unique[5], unique[6], unique[7], unique[8], unique[9], unique[10])
+            return encodeRecord(body) to unique[11]
+        }
+
         /** Record path of the decode-time scheme below an envelope message of [kind]. */
         fun schemePath(kind: KagemushaWalletMessageKindV1): List<Int> = when (kind) {
             KagemushaWalletMessageKindV1.OFFER, KagemushaWalletMessageKindV1.REQUEST -> listOf(0, 1)
-            KagemushaWalletMessageKindV1.PAYMENT -> listOf(1, 0, 1)
+            KagemushaWalletMessageKindV1.PAYMENT -> listOf(2, 1, 1)
             KagemushaWalletMessageKindV1.CREDITED,
             KagemushaWalletMessageKindV1.SESSION_CONTROL,
             KagemushaWalletMessageKindV1.POLICY_DATA,

@@ -1749,7 +1749,7 @@ async fn repo_agreements_emit_i105_literals() -> Result<()> {
         RepoCollateralLeg::new(collateral_def_id.clone(), 1_100_u32),
         0,
         maturity_ms,
-        RepoGovernance::with_defaults(1_500, 43_200),
+        RepoGovernance::new(1_500, 43_200, false),
     );
     let mut builder = NetworkBuilder::new();
     for isi in setup_instructions {

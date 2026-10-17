@@ -616,9 +616,7 @@ where
                 field: "challenge.scheme_id",
             });
         }
-        self.platform
-            .storage_state()
-            .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+        self.require_storage()?;
         // A locally abandoned (pre-E2) slot never starts E2 or receives a generation grant.
         if self.abandoned_without_marker(&slot)? {
             return Ok(KagemushaWalletEnrollmentStepV1::SlotAbandoned { slot });
@@ -1146,6 +1144,19 @@ where
         // the same phase gate before anything is written.
         let gate = self.require_marker_publication(slot, &request_id, intent);
         self.guard(slot, gate)?;
+        // The archive barrier of this publication: archive records are staged only under a
+        // marker whose enrollment phase a reconcile has committed (the archive entry gate), and
+        // a committed marker is never published again, so none is pending here. A batch would
+        // be refused, never published after this marker (a drain here would reconcile the slot
+        // from inside its own enrollment): its records are discarded and its call failed, so no
+        // later barrier of the call passes over them.
+        if !self.archive_batch_is_empty(slot) {
+            let refused = KagemushaWalletProviderErrorV1::Invalid {
+                field: "archive.pending_records",
+            };
+            self.fail_archive_call(slot, refused);
+            return Err(refused);
+        }
         let marker =
             KagemushaWalletMarkerV1::enrollment(&intent.challenge, payment_key).map_err(|_| {
                 KagemushaWalletProviderErrorV1::Invalid {

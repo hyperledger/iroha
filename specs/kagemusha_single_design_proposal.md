@@ -694,10 +694,14 @@ To make a transition:
 4. Release the new complete package only after durable completion.
 5. In the background, prove Λ over the steps no Ω covers yet, in order, wrap
    it as Ω (§3.2), natively verify Ω including the decide, and record it
-   durably. One Λ may cover a contiguous run of steps where the artifact set has
-   a relation for that run length. It verifies each step's σ and τ, and only
-   the last head of the run receives Ω and becomes folded. Each head has at most
-   one recorded Ω. Every Lineage message, Payment and ledger package from that
+   durably. The fold owner verifies each new Ω exactly once, through the
+   installed verifier, before any credit, pending-map, archive or manifest
+   effect; the recorded bytes reuse that verification only on exact canonical
+   byte identity, and an adopted interrupted publication reuses the full
+   verification of its exact record bytes. One Λ may cover a contiguous run
+   of steps where the artifact set has a relation for that run length. It
+   verifies each step's σ and τ, and only the last head of the run receives Ω
+   and becomes folded. Each head has at most one recorded Ω. Every Lineage message, Payment and ledger package from that
    head carries those exact bytes.
 
 A head whose Ω is durable and self-verified is **folded**. Verifiers reject a
@@ -818,8 +822,8 @@ a package carrying Ω(pred), natively and in Λ, checks before mutation:
 - τ verifies under `Ω.payment_key`;
 - σ's `burned_total` and pending-outgoing inputs equal Ω's;
 - for a Payment: the Request's payer wallet equals `Ω.wallet_id`; its send
-  ordinal is the one σ_send consumes; and the Payment's carried credential
-  digest and `payment_key` equal Ω's.
+  ordinal is the one σ_send consumes; and the payer credential digest and `payment_key` are taken from Ω.
+  Assembly compares the reconstructed signed Request with the original in full.
 
 A mismatch is rejected before mutation. Statements and Ω carry one
 scheme-level relation identity, not one per relation. Each consumer selects σ's
@@ -1260,7 +1264,7 @@ the monetary interpretation.
 |---|---|
 | Offer | Payer advertises its next `s`, amount and supported scheme, and carries its `CredentialV1` (at most 1,024 bytes); its payment key signs the Offer. It is an authenticated session hint, with no debit or credit authority. The receiver verifies the credential natively and authenticates the Offer with it. A delivery retry also opens with an Offer, so the receiver always holds the payer's credential. After the Offer, the payer may send a Lineage message (§8) carrying Ω of its folded head. The receiver verifies it only after an authenticated Offer, rate-limits it, and checks Ω's `wallet_id`, credential digest and `payment_key` against the Offer's credential. |
 | Request | Receiver signs a nonmonetary setup quote containing the exact fields above, with the payer account digest taken from the Offer's credential. With its blacklist control enabled, it issues no Request when its committed list contains that account (§7); the Request records the version and root of that list, or `(0, 0)` when it enforces none, and the receiver retains the gap opening that shows the payer absent. It creates no state transition, receiver ordinal or reserved receive slot. The payer verifies its signature and the receiver credential natively before proving Send (below). |
-| Payment | From a folded head, the payer verifies the Request and the applicable Send policy in one native pre-check, which applies every enabled control (§7) and returns σ_send's control witnesses, and checks `s == next_send`. The Request's payer account digest must be the payer credential's and its receiver account digest the Request receiver credential's; with the payer's blacklist control enabled, its committed list must not contain the receiver's account (§7). It may prove σ_send *speculatively*, after verifying the Request and before the payer confirms; a declined speculative σ_send is discarded and never signed. It natively verifies σ_send and uses the Ω(pred) recorded as self-verified at fold time (§3.1), which is not re-verified on the payment path. It then permanently subtracts `amount + fee`, increments `next_send`, appends to `send_chain` and inserts the credit descriptor in its pending outbox. It commits and retains the full canonical Payment before first release. Payment contains the signed Request body, the payer's `payment_key` and credential digest (both equal to Ω(pred)'s), and the Send package {statement, Ω(pred), σ_send, τ_send}. The receiver's credential, fee schedule and certificates are bound by digest in the Request body, which the receiver holds. |
+| Payment | From a folded head, the payer verifies the Request and the applicable Send policy in one native pre-check, which applies every enabled control (§7) and returns σ_send's control witnesses, and checks `s == next_send`. The Request's payer account digest must be the payer credential's and its receiver account digest the Request receiver credential's; with the payer's blacklist control enabled, its committed list must not contain the receiver's account (§7). It may prove σ_send *speculatively*, after verifying the Request and before the payer confirms; a declined speculative σ_send is discarded and never signed. It natively verifies σ_send and uses the Ω(pred) recorded as self-verified at fold time (§3.1), which is not re-verified on the payment path. It then permanently subtracts `amount + fee`, increments `next_send`, appends to `send_chain` and inserts the credit descriptor in its pending outbox. It commits and retains the full canonical Payment before first release. Payment contains the unique signed Request fields and signature, and the Send package {statement, Ω(pred), σ_send, τ_send}. It reconstructs the exact signed Request from those single owners; the payer key and credential digest come from Ω(pred). Assembly rejects any mismatch with the original full signed Request before compaction. The receiver's credential, fee schedule and certificates are bound by digest in the Request body, which the receiver holds. |
 | Receive | After the §5.3 runtime capacity check passes on the receiving phone, the receiver natively verifies before mutation: the payer credential from the session's Offer, whose digest equals Payment's credential digest, σ_send's statement and `Ω(pred).credential`; Ω(pred), including the decide; the §3.2 consumer checks; σ_send and τ_send; its own bound identity, matched by the Request's receiver `wallet_id` and the `payment_key` of the Request's receiver credential, never by credential-digest equality, so that credential may be an earlier one of this incarnation; the Request it signed, whose payer account digest equals the Offer credential's; and, when that Request records a nonzero blacklist version, that the recorded list is in its blacklist history and, by the retained gap opening, does not contain that payer account, which σ_recv also proves against the recorded root (§7). Its current list and controls neither excuse nor add that check. If Payment's Ω(pred) is byte-identical to a Lineage Ω that the receiver already verified in this session, that verification is reused; otherwise it verifies Ω(pred) in full. It proves σ_recv (precomputed at Request signing, re-proved if its head changed), whose statement and successor commitment exclude the Payment digest (§3), and adds exactly `amount`. In the serialized Advance (§4.2) it checks nonmembership and inserts `credit_id → (amount, receive sequence)` into the permanent consumed-credit map; the Receive receipt also binds the full canonical Payment digest. Show complete only after durable completion. Λ_recv later proves the incoming objects, the map update and the receipt's Payment digest in-circuit and records the digest in the credit-digest root, or takes the burn branch (§3.2). |
 | Credited | Optional delivery evidence, in one of two forms. (i) The receiver's Receive package {statement, σ_recv, τ_recv}, whose receipt binds the exact Payment digest; its status is *credited, unfolded*. (ii) A read-only `CreditStatus` against a folded receiver head `h` that covers the credit: {statement(h), proof_digest(h), τ(h), Ω(h), 32-sibling membership opening of `credit_id → (Payment digest, burned flag)` in Ω(h)'s credit-digest root}, with no σ and no Ω(pred); its status is *credited* or *burned*. Credited advances no state. The receiver need not retain it. A payer keeps Credited evidence it consumed as a fold witness until its ArchiveSent step is folded (§4.1). |
 | ArchiveSent | Payer verifies matching Credited evidence (credited or burned) and proves removal of the matching pending outgoing descriptor. It may delete the delivered Payment bytes only after a durable Ω covers the ArchiveSent step on its archive branch (§3.2), and never the copies a fee claim still needs (§6.2). Balance, quotas and consumed-credit entries stay unchanged. |
@@ -1355,6 +1359,49 @@ capacity. Temporary capacity pressure postpones Receive while the immutable
 Payment remains deliverable; it does not cancel that credit. Do not strand an
 already accepted balance because its ancestry is long. Derive proving workspace
 bounds from the fixed relations.
+
+**Transactional preparation.** A new request first acknowledges a fixed binding
+of its wallet, scheme, request ID, operation kind and exact original digest.
+Changed bytes under that ID conflict, including after a refused preparation or
+restart. A bound request without a validated plan is Preparing; it does not owe
+an unvalidated original and does not authorize a proof, signature or monetary
+transition.
+
+Planning constructs map objects in a
+bounded, clearing memory workspace. A staged content address is not a durability
+acknowledgment. A new preparation that fails native planning before batch
+retention leaves neither those variable originals nor unpublished map objects.
+After planning, an immutable request-ID recovery batch retains the exact
+inputs, source, native choices, plan and objects.
+Only after every object and original is durably acknowledged may one manifest
+publication select the plan. Uncertain publication reopens the selected manifest
+and adopts any present exact batch. Fresh planning is allowed only after definitive batch absence
+before plan selection. Recovery never replaces retained choices, rebases a
+stale source or deletes possibly shared objects. Every materialized object is
+read back from durable storage after the plan publication and before cleanup.
+Cleanup removes only the acknowledged staging record. Subsequent validation can
+confirm retained objects and proving takes no custody; neither can create new
+preparation objects.
+
+The native derivation made by planning is reused through proving within the
+same exclusive call. It is never stored, persisted or shared, and it is used only
+while the request bytes, source capsule, archive checkpoint, plan choices and
+draft it was made from are unchanged; a changed archive checkpoint before proving
+is custody loss. A held plan after restart or retry, a recovered batch and a
+speculative entry instead replay native validation on fresh custody, and that one
+derivation is reused through proving. Before the capsule is published, the
+retained draft is checked against the proven successor state on durable custody.
+Commit derives the operation again, independently, from the durable plan.
+
+The runtime capacity owner checks the bounded intake workspace before fresh
+allocation, and checks memory before reading a retained batch. Fresh admission
+includes simultaneous redundant recovery and materialization, archive envelopes,
+and index publication growth. This is an admission bound, not an exclusive
+filesystem reservation; subsequent provider failures retain their error meaning.
+An existing selected monetary outcome still follows exact recovery rather than
+a new capacity verdict. These rules remove unvalidated retention; they do not
+claim constant storage use or identical physical failure outcomes for all valid
+private originals.
 
 **Runtime capacity check.** Before an operation proves its step, and again in
 §4.2 step 2 before it commits, the wallet checks the phone it is running on, at
@@ -1715,18 +1762,21 @@ additional carrier overhead, not hidden in the binary budget.
 | Request, Payment or Credited (a Receive package, or CreditStatus {statement, `proof_digest`, τ, Ω, opening} of a folded head), with required dependencies | 10,000 each |
 | Lineage (Ω of the payer's folded head) | 10,000 |
 
-Payment uses the compact §5.1 layout: the signed Request body, the payer's
-`payment_key` and credential digest, and {statement, Ω(pred), σ_send, τ_send},
+Payment uses the compact §5.1 layout: the unique signed Request fields and
+signature, and {statement, Ω(pred), σ_send, τ_send},
 with Ω in single-parity transport form. The σ and Ω byte caps are the exact
 proof lengths that the frozen artifact allowlist (§3.2) records. Under R9 they
 satisfy `|Ω| + |σ_send| ≤ 10,000 − F_payment`, where `|Ω|` is the Ω
 transport-proof length, `|σ_send|` the largest σ_send length in the allowlist,
-and `F_payment` every other byte of the largest valid Payment (about 1,723
-bytes with the Request's recorded blacklist fields, so about 8,277 bytes for
-both proofs; the wire record pins it). Until
-the artifacts freeze, G1 enforces only the frame bound. If the measured Ω
-cannot keep Payment within 10,000 bytes, any fallback layout or bound requires
-a new owner decision.
+and `F_payment` every other byte of the largest valid Payment (1,436
+bytes with the single-owner Request representation, leaving 8,564 bytes for
+both proofs; the wire record pins it). The current source catalog admits at most
+3,520 bytes for each σ and 5,044 bytes for the Ω transport. Payment admission
+checks these individual capacities as well as the independent joint and complete
+frame bounds before a consuming operation can Advance. Unused capacity in one
+role cannot enlarge the other role. Frozen keys still require their exact lengths.
+Artifact generation and measurement must establish that every admitted source
+fits these capacities and the complete 10,000-byte envelope.
 The same applies if CreditStatus cannot keep Credited within 10,000 bytes, for
 example a fallback in which Credited carries only the Receive package. Its
 opening has exactly 32 siblings, so a CreditStatus is a fixed number of bytes
@@ -1734,7 +1784,7 @@ plus `|Ω|` (the wire record pins it). A Lineage message is smaller than the
 Payment that carries the same Ω.
 
 Proofs summarize lineage; do not ship a certificate or transaction chain whose
-size grows with hops. Payment includes the signed Request body. σ_send binds
+size grows with hops. Payment reconstructs the exact signed Request body. σ_send binds
 its exact fields; both wallets verify the signature natively, and the
 receiver's Λ_recv verifies it in-circuit. Credited binds the full Payment
 digest. ArchiveSent consumes that evidence locally and creates no additional
@@ -1856,6 +1906,44 @@ parameter owner may reuse previously computed commitments for identical public
 columns; original VK points and declared fingerprints cannot populate it.
 Every source and VK commitment is still checked, and the complete operation
 graph is admitted before granting the wallet capability.
+Each pinned parameter owner also keeps two bounded, process-local
+verification memos (least recently used first out), filled only after
+acceptance and never from rejected, undecidable or cancelled work, prover-side
+MSMs, batch decisions or caller-supplied points, digests or flags. The first
+holds `<s(u), g>` keyed by the exact canonical challenge bytes, inserted only
+by an accepted generator-claim or accumulator decide or production full
+verification; every decide still compares its claimed `G` on every call, so a
+false claim with the same challenges is rejected and a correction still obtains
+the true point. The second holds full SHA-256 keys over the curve, `k`, the
+descriptor profile and digest, the key's `transcript_repr` and SHA-256 of its
+bytes, every length-framed instance and the exact proof bytes; production full
+verification of byte-identical inputs on the same owner returns that earlier
+acceptance after the structural checks and a cancellation checkpoint. Oracle,
+filtered, succinct and batch paths never use either memo. Neither memo is
+serialized, persisted, exposed over FFI or shared by independently admitted
+parameters, and neither changes a verdict: every wallet, custody, binding and
+allowlist check above the proof system still runs on every call.
+One process-local admitted-graph memo in the Native bridge may reuse the
+complete admission of the last fully successful installation for byte-identical
+originals: SHA-256 over the eight exact runtime originals, each length-framed,
+plus the kernel identity of the carrier root, with the whole framed key
+compared on lookup. Every attempt still authenticates its signed base,
+selection and genesis and checks every carrier metadata, layout and
+transport-selection original first. A hit then requires the stored pack's
+exact bytes and installation identity (an exact equivalent of loading it
+again), repeats the other installed-pack checks of a load, re-authenticates
+the producer inventory, requires the same transport rows and root object, closes
+custody over the reader's observed originals and re-hashes every stored frame
+against its transport identity, and only then builds a fresh provider, custody
+root and owner. It shares the same installed pack, pinned parameter owners,
+qualified sources and carrier reader; it holds no provider, custody, key or
+enrollment state, and the sources' verify-once memos are reused by a later
+installation in the same process for mathematical validity only. It mints no
+seal, grants nothing and is never serialized,
+persisted or exposed over FFI. It is stored only after complete success, is
+never reused once a live read through its reader has failed, and is evicted on
+a key mismatch, a refused revalidation or an INVALID or custody-loss result. It
+shortens in-process retries only; a restart qualifies again.
 This representation changes original hashes and therefore requires a newly
 authenticated catalogue and scheme; it does not change the monetary circuits
 or proof verification. Dense proving-key originals have no production fallback.
@@ -2123,12 +2211,13 @@ Update the finite-state model to match this exchange; a model's provider
 assumption is not proof that a phone API implements it. Each result identifies
 its code, artifacts, devices and trust assumptions.
 
-The current `optimizations` candidate implements the revision-4 G1 objects,
-Poseidon transcripts, fixed 64-slot quota usage, Request-recorded blacklist
-selection, share expiry and Send time-span bounds. Shared Rust/SDK vectors and
+The candidate implements the G1 objects, Poseidon transcripts, fixed 64-slot
+quota usage, Request-recorded blacklist selection, share expiry and Send time-span
+bounds. Shared Rust/SDK vectors and
 native σ relations cover all eight Send masks and both Receive selectors. The
-largest measured σ_send is 3,456 bytes; the fixed Payment overhead is 1,723
-bytes, leaving at most 4,821 bytes for the complete transported Ω. The retired
+codec budget reserves 3,456 bytes for σ_send; the fixed Payment overhead is 1,436
+bytes, leaving at most 5,108 bytes for the complete transported Ω. Final admitted
+proof lengths must be measured together after descriptor regeneration. The retired
 Reserve/Commit monetary engines and mint-finality authority are deleted.
 
 Native PIPA-R/PIPA-AS, total soft circuit verification and authenticated indexed
@@ -2136,9 +2225,10 @@ map components have tests. A real Q verifies a Receive-k12 and incoming Send-k14
 proof and produces a verified 10,496-byte local proof. The Q-to-A recursive
 frame fits k16 after bounded foreign-arithmetic optimization. These are
 component proofs: every operation's object signatures, effects and full
-recursive composition are still being connected. The current generic Ω frame
-exceeds the 4,821-byte transport cap; compact layout work continues without
-relaxing the cap or freezing artifacts from a failing descriptor.
+recursive composition are still being connected. The complete current Ω construction still needs capacity and size qualification
+against the 5,108-byte transport cap. Changes to proof constraints and fixed
+input capacities require regenerated descriptors and genuine proofs before
+artifact freeze; earlier component geometry does not establish this result.
 
 The shared Rust wallet coordinator now retains exact outputs, fold witnesses,
 checkpoints and permanent replay indexes around the existing durable `Advance`

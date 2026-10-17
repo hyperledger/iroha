@@ -435,7 +435,7 @@ class ToriiCollectionTest {
             200,
             """{"items":[{"id":"repo-1","initiator":"a@w","counterparty":"b@w","status":"active",""" +
                 """"cash_leg":{"asset_definition_id":"xor","quantity":"100"},"rate_bps":250,""" +
-                """"governance":{"haircut_bps":500}}],"next_cursor":null}""",
+                """"governance":{"haircut_bps":500,"allow_early_repayment":true}}],"next_cursor":null}""",
         )
         val client = client(executor)
         val balance = client.accountAssets("a@w").page().join().items.single()
@@ -456,6 +456,7 @@ class ToriiCollectionTest {
         assertEquals(BigDecimal("100"), repo.cashLeg!!.quantity)
         assertEquals(250L, repo.rateBps)
         assertEquals(500L, repo.governance!!.haircutBps)
+        assertEquals(true, repo.governance!!.allowEarlyRepayment)
         assertNull(repo.collateralLeg)
     }
 

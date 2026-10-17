@@ -602,7 +602,7 @@ test("ToriiBrowserClient rejects partial, precomputed, and redirected canonical 
       canonicalRequestAuth: { accountId: FIXTURE_ALICE_ID },
       fetchImpl: noFetch,
     }),
-    /requires exactly accountId and sign/u,
+    /requires accountId and sign/u,
   );
   assert.throws(
     () => new ToriiBrowserClient("https://localhost:8080", {
@@ -1439,6 +1439,42 @@ test("ToriiBrowserClient submits strict JSON multisig payloads to registered rou
   assert.equal(JSON.parse(calls[2].init.body).instructions_hash, "f".repeat(64));
   for (const field of ["private_key", "privateKeyHex", "instructionsHash"]) {
     await assert.rejects(client.submitMultisigPropose({[field]: "secret"}), /unexpected fields/);
+  }
+});
+
+test("ToriiBrowserClient resubmission of already committed or enqueued bytes waits for finality", async () => {
+  const signedTransaction = compactHashSignedTransactionFixture();
+  const entrypointHash = browserSignedTransactionHashHex(signedTransaction, 753);
+  const applied = {
+    kind: "Transaction",
+    content: { hash: entrypointHash, status: { kind: "Applied", content: null } },
+  };
+  for (const [status, body, idempotent] of [
+    [409, { code: "already_committed", message: "m", details: { reject_code: "PRTRY:ALREADY_COMMITTED" } }, true],
+    [409, { code: "already_enqueued", message: "m", details: { reject_code: "PRTRY:ALREADY_ENQUEUED" } }, true],
+    [409, { code: "already_committed", message: "m" }, true],
+    [409, { code: "transaction_rejected", message: "m", details: { reject_code: "transaction_rejected" } }, false],
+    [429, { code: "queue_full", message: "m", details: { reject_code: "PRTRY:QUEUE_FULL" } }, false],
+  ]) {
+    let waited = null;
+    const client = new ToriiBrowserClient("https://torii.example", {
+      networkPrefix: 753,
+      fetchImpl: async () => jsonResponse(body, { status }),
+    });
+    client.waitForTransactionStatus = async (hashHex) => {
+      waited = hashHex;
+      return applied;
+    };
+    if (idempotent) {
+      assert.strictEqual(await client.submitTransactionAndWait(signedTransaction), applied);
+      assert.equal(waited, entrypointHash);
+    } else {
+      await assert.rejects(
+        client.submitTransactionAndWait(signedTransaction),
+        (error) => error instanceof ToriiHttpError && error.status === status,
+      );
+      assert.equal(waited, null);
+    }
   }
 });
 

@@ -158,7 +158,7 @@ impl PreparationV1<'_> {
         authority(statement.validate_successor_of(&capsule.body().statement))?;
         // Blacklists retain one explicit complete-original archive reference under
         // their fixed update kind. Native publishes and authenticates that full
-        // original through the actual coordinator ObjectStore before proving.
+        // original through the actual coordinator ObjectWorkspace before proving.
         let retained_update = if originals.kind == KagemushaWalletPolicyUpdateKindV1::Blacklist {
             crate::kagemusha_wallet_state_v1::BlacklistOriginalReferenceV1::for_original(
                 &scheme.scheme_id(),

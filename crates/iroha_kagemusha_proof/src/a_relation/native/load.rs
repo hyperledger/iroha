@@ -21,9 +21,7 @@ use core::fmt;
 use std::sync::Arc;
 
 use ff::{Field, PrimeField};
-use iroha_pasta::{
-    Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
-};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     DescriptorBinding, ProverConfig, ProverRandomness, VerifyingKey,
     cs::{
@@ -631,7 +629,7 @@ struct First {
     source: Arc<Sources>,
     plan: ContextPlan,
     pallas: AccumulatorT<Ep>,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     known: bool,
 }
 // Circuit-only witness views. Optional claims become unknown circuit cells;
@@ -658,7 +656,7 @@ struct CircuitSources {
 struct FirstCircuit {
     source: Arc<CircuitSources>,
     plan: ContextPlan,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     known: bool,
 }
 impl First {
@@ -748,7 +746,7 @@ impl FirstCircuit {
         Ok(Self {
             source: Arc::new(source),
             plan: plan.context.clone(),
-            fold: vec![0; 1120],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             known: false,
         })
     }
@@ -796,7 +794,7 @@ impl FirstCircuit {
         region: &mut Region<'_, Fp>,
         input: Option<&FoldInput<Ep>>,
     ) -> Result<FoldInputCells<Ep>, LayoutError> {
-        let g = chip.witness_point(
+        let g = chip.witness_generator(
             region,
             input.map_or(Value::unknown(), |v| self.value(Ep::from(*v.g()))),
         )?;
@@ -819,9 +817,8 @@ impl FirstCircuit {
         region: &mut Region<'_, Fp>,
         input: Option<&AccumulatorT<Eq>>,
     ) -> Result<VestaClaimCells, LayoutError> {
-        let coordinates = input
-            .map(|v| Option::<(Fq, Fq)>::from(v.g().coordinates()).ok_or(LayoutError::Synthesis))
-            .transpose()?;
+        let coordinates =
+            input.map(|v| iroha_plonk::transcript::generator_coordinates::<Eq>(v.g()));
         let coordinates = [
             Self::scalar_value(
                 chip,
@@ -912,6 +909,7 @@ impl Circuit<Fp> for FirstCircuit {
     fn without_witnesses(&self) -> Self {
         Self {
             known: false,
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             ..self.clone()
         }
     }
@@ -1125,7 +1123,7 @@ struct Continuation {
     plan: crate::a_relation::split::SplitPlan,
     wrapper: Vec<u8>,
     vesta: AccumulatorT<Eq>,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     pallas: AccumulatorT<Ep>,
     carried: AccumulatorT<Ep>,
 }
@@ -1136,7 +1134,7 @@ struct ContinuationCircuit {
     plan: SplitPlan,
     wrapper: Vec<u8>,
     vesta: Option<AccumulatorT<Eq>>,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     carried: Option<FoldInput<Ep>>,
 }
 impl Continuation {
@@ -1160,7 +1158,7 @@ impl ContinuationCircuit {
             first,
             wrapper: vec![0; plan.wrap().verifier().proof_length()],
             vesta: None,
-            fold: vec![0; 1120],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             carried: None,
 
             plan,
@@ -1174,6 +1172,7 @@ impl Circuit<Fp> for ContinuationCircuit {
     fn without_witnesses(&self) -> Self {
         Self {
             first: self.first.without_witnesses(),
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             ..self.clone()
         }
     }
@@ -1425,14 +1424,19 @@ pub struct Prepared {
     source: Arc<Sources>,
 }
 impl Prepared {
-    fn first(&self, salt: Fp, config: &FoldConfig) -> Result<First, Error> {
+    fn first(
+        &self,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
+        config: &FoldConfig,
+    ) -> Result<First, Error> {
         let (fold, pallas) = create_fold(
             &self.plan.pallas,
             &[
                 self.source.predecessor.pallas.as_input(),
                 self.source.predecessor.opening.clone(),
             ],
-            salt.to_repr(),
+            tape,
+            iroha_plonk_recursion::FoldPurpose::AInitial,
             config,
         )
         .map_err(|error| {
@@ -1459,20 +1463,20 @@ impl Prepared {
             source: self.source.clone(),
             plan: self.plan.context.clone(),
             pallas,
-            fold: fold.to_bytes().to_vec(),
+            fold: crate::private_fold::PrivateFoldBytes::from_fold(fold),
             known: true,
         })
     }
     /// Build the actual A1 relation and exact public frame from checked originals.
-    /// The salt randomizes an actual fold; it does not choose a profile or obligation list.
+    /// The tape randomizes an actual fold; it does not choose a profile or obligation list.
     /// # Errors
     /// A failed exact predecessor two-input fold or complete decide.
     pub fn first_circuit(
         &self,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         config: &FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>), Error> {
-        let first = self.first(salt, config)?;
+        let first = self.first(tape, config)?;
         let public = first_public(&first)?;
         Ok((
             StageCircuit {
@@ -1867,7 +1871,7 @@ impl Plan {
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .map(|source| source.without_witnesses())
@@ -1961,9 +1965,9 @@ impl Session<'_> {
     pub fn first(
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -1978,7 +1982,7 @@ impl Session<'_> {
         self.prover.a[0]
             .require_source_bound(key)
             .map_err(|_| Error::Artifact)?;
-        let first = self.prepared.first(salt, fold)?;
+        let first = self.prepared.first(tape, fold)?;
         let public = first_public(&first)?;
         let circuit = StageCircuit {
             inner: StageData::First(Box::new(first.circuit())),
@@ -2040,7 +2044,7 @@ impl Session<'_> {
             source: self.prepared.source.clone(),
             plan: self.prepared.plan.context.clone(),
             pallas: pallas.clone(),
-            fold: vec![],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             known: true,
         };
         let public = first_public(&first)?;
@@ -2089,9 +2093,9 @@ impl Session<'_> {
         &self,
         source: &ACheckpoint,
         key: &SourceBoundViewV2<'_, Ep>,
-        salt: Fq,
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<WCheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -2113,27 +2117,14 @@ impl Session<'_> {
         if source.stage >= A_STAGE_COUNT - 1 {
             return Err(Error::Input);
         }
-        let trivial = AccumulatorT::trivial_cancellable(
+        let a = &self.prover.a[source.stage];
+        let (vfold, vesta) = crate::private_fold::wrapper(
             &self.prepared.plan.vesta,
-            fold.kernel_budget,
-            config.cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Proof
-            }
-        })?;
-        let (vfold, vesta) = create_fold(
-            &self.prepared.plan.vesta,
-            &[
-                source.part.clone(),
-                source.opening.clone(),
-                trivial.as_input(),
-                trivial.as_input(),
-            ],
-            salt.to_repr(),
+            a.binding(),
+            a.key(),
+            std::slice::from_ref(&source.public),
+            &source.proof,
+            tape,
             fold,
         )
         .map_err(|error| {
@@ -2172,7 +2163,7 @@ impl Session<'_> {
                 instances: source.public.clone(),
                 proof: source.proof.clone(),
                 length: u32::try_from(source.proof.len()).map_err(|_| Error::Input)?,
-                fold: vfold.to_bytes(),
+                fold: crate::private_fold::PrivateFoldBytes::from_fold(vfold),
             },
         )
         .map_err(|_| Error::Input)?;
@@ -2269,7 +2260,7 @@ impl Session<'_> {
         &self,
         wrapper: &WCheckpoint,
         pallas: AccumulatorT<Ep>,
-        fold: Vec<u8>,
+        fold: crate::private_fold::PrivateFoldBytes,
     ) -> Result<Continuation, Error> {
         self.require_source(&wrapper.source)?;
         let previous = wrapper.source.stage;
@@ -2301,9 +2292,9 @@ impl Session<'_> {
         &self,
         wrapper: &WCheckpoint,
         key: &SourceBoundViewV2<'_, Eq>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -2342,16 +2333,26 @@ impl Session<'_> {
                 .iter()
                 .map(|i| self.prepared.source.q_openings[*i].clone()),
         );
-        let (pfold, pallas) =
-            create_fold(&self.prepared.plan.pallas, &claims, salt.to_repr(), fold).map_err(
-                |error| {
+        let purpose = if next + 1 == A_STAGE_COUNT {
+            crate::private_fold::terminal_inputs(&self.prepared.plan.pallas, &mut claims, fold)
+                .map_err(|error| {
                     if error.is_cancelled() {
                         Error::Cancelled
                     } else {
                         Error::Proof
                     }
-                },
-            )?;
+                })?
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
+        let (pfold, pallas) = create_fold(&self.prepared.plan.pallas, &claims, tape, purpose, fold)
+            .map_err(|error| {
+                if error.is_cancelled() {
+                    Error::Cancelled
+                } else {
+                    Error::Proof
+                }
+            })?;
         pallas
             .decide_cancellable(
                 &self.prepared.plan.pallas,
@@ -2365,8 +2366,11 @@ impl Session<'_> {
                     Error::Proof
                 }
             })?;
-        let continuation =
-            self.continuation(&restored, pallas.clone(), pfold.to_bytes().to_vec())?;
+        let continuation = self.continuation(
+            &restored,
+            pallas.clone(),
+            crate::private_fold::PrivateFoldBytes::from_fold(pfold),
+        )?;
         let public = continuation_public(&continuation)?;
         let circuit = StageCircuit {
             inner: StageData::Continued(Box::new(continuation.circuit())),
@@ -2432,7 +2436,11 @@ impl Session<'_> {
                     Error::Proof
                 }
             })?;
-        let continuation = self.continuation(&restored, pallas.clone(), vec![])?;
+        let continuation = self.continuation(
+            &restored,
+            pallas.clone(),
+            crate::private_fold::PrivateFoldBytes::unknown(),
+        )?;
         let public = continuation_public(&continuation)?;
         let next = restored.source.stage + 1;
         let key = &self.prover.a[next];
@@ -2642,7 +2650,8 @@ fn q_sigma_part(input: &QInput, source_k: u32) -> Result<FoldInput<Eq>, Error> {
     {
         return Err(Error::Input);
     }
-    let g = Option::<EqAffine>::from(EqAffine::from_xy(point[0], point[1])).ok_or(Error::Input)?;
+    let g = iroha_plonk::transcript::generator_from_coordinates::<Eq>(point[0], point[1])
+        .map_err(|_| Error::Input)?;
     let challenges = bounded[bounded.len() - K..]
         .iter()
         .map(|v| Option::<Fp>::from(Fp::from_repr(v.to_repr())).ok_or(Error::Input))
@@ -2675,7 +2684,7 @@ fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<(), Error> 
     if claim.source_k() != 16 {
         return Err(Error::Input);
     }
-    let (x, y) = Option::<(Fp, Fp)>::from(claim.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(claim.g());
     words.extend([Fp::from(16), x, y]);
     for value in claim.challenges() {
         words.extend(foreign_limbs(value).map(Fp::from_u128));
@@ -2683,7 +2692,7 @@ fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<(), Error> 
     Ok(())
 }
 fn vesta_words(claim: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(claim.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(claim.g());
     let mut words = Vec::with_capacity(20);
     for value in [x, y] {
         words.extend(foreign_limbs(&value).map(Fp::from_u128));
@@ -2813,7 +2822,7 @@ fn terminal_digest(public: &[Fp; 18], pallas: &FoldInput<Ep>) -> Result<Fp, Erro
     Ok(hash_with_domain(super::super::LINEAGE_DOMAIN, &words))
 }
 fn omega_instances(context: Fp, vesta: &AccumulatorT<Eq>) -> Result<Vec<Vec<Fq>>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
     let digest = Option::<Fq>::from(Fq::from_repr(context.to_repr())).ok_or(Error::Input)?;
     let challenges = vesta
         .challenges()
@@ -2913,7 +2922,7 @@ fn prove_a(
     key: &SourceBoundViewV2<'_, Eq>,
     circuit: &StageCircuit,
     public: &[Fp],
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
     budget: MemoryBudget,
 ) -> Result<(Vec<u8>, FoldInput<Eq>), Error> {

@@ -37,3 +37,6 @@ mod tests {
         assert_eq!(curve_v1::<Eq>(), Some(CurveV1::Vesta));
     }
 }
+
+#[cfg(test)]
+mod refusal_tests;

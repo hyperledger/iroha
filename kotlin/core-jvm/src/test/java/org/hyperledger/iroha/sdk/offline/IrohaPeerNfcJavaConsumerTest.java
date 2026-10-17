@@ -9,59 +9,111 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 /**
- * Java consumers use the Kotlin NFC APDU vocabulary and the IPM1 wallet message kinds directly.
+ * Java consumers use the Kotlin NFC command vocabulary, its strict APDU codec, application
+ * identifiers and the IPM1 wallet message kinds directly.
  *
  * <p>These assertions moved here from the retired Java duplicate
  * {@code java/iroha_android/.../IrohaPeerNfcV1AdversarialTests}.
  */
 final class IrohaPeerNfcJavaConsumerTest {
+  private static final IrohaPeerNfcApplicationIdentifierV1 BPNG =
+      IrohaPeerNfcApplicationIdentifierV1.fromHex("F05047444B4E464301");
+  private static final byte[] SESSION = filled(16, 0x11);
+  private static final byte[] REQUEST_HASH = filled(32, 0x22);
+  private static final byte[] PAYMENT_HASH = filled(32, 0x44);
+
   @Test
-  void javaRoundTripsTheDirectApduVocabulary() {
-    final IrohaPeerNfcCommandV1 request = IrohaPeerNfcCommandV1.readRequest(17, 23);
+  void javaRoundTripsTheCommandVocabulary() {
+    final IrohaPeerNfcCommandV1 request =
+        new IrohaPeerNfcCommandV1.ReadRequest(SESSION, REQUEST_HASH, 17L, 23);
     final IrohaPeerNfcCommandV1 decodedRequest =
-        IrohaPeerNfcAPDUCodecV1.decode(IrohaPeerNfcAPDUCodecV1.encode(request));
-    assertEquals(IrohaPeerNfcCommandTypeV1.READ_REQUEST, decodedRequest.type);
-    assertEquals(17, decodedRequest.offset);
-    assertEquals(23, decodedRequest.length);
+        IrohaPeerNfcAPDUCodecV1.decode(IrohaPeerNfcAPDUCodecV1.encode(request), BPNG);
+    assertEquals(request, decodedRequest);
+    assertEquals(IrohaPeerNfcOperationV1.READ_REQUEST, decodedRequest.getOperation());
+    final IrohaPeerNfcCommandV1.ReadRequest typedRequest =
+        (IrohaPeerNfcCommandV1.ReadRequest) decodedRequest;
+    assertEquals(17L, typedRequest.offset);
+    assertEquals(23, typedRequest.length);
+    assertArrayEquals(SESSION, typedRequest.getSessionId());
 
     final IrohaPeerNfcCommandV1 payment =
-        IrohaPeerNfcCommandV1.writePayment(29, new byte[] {0x55, 0x66});
-    final IrohaPeerNfcCommandV1 decodedPayment =
-        IrohaPeerNfcAPDUCodecV1.decode(IrohaPeerNfcAPDUCodecV1.encode(payment));
-    assertEquals(IrohaPeerNfcCommandTypeV1.WRITE_PAYMENT, decodedPayment.type);
-    assertEquals(29, decodedPayment.offset);
-    assertArrayEquals(new byte[] {0x55, 0x66}, decodedPayment.bytes());
+        new IrohaPeerNfcCommandV1.Write(SESSION, PAYMENT_HASH, 29L, new byte[] {0x55, 0x66});
+    final IrohaPeerNfcCommandV1.Write decodedPayment =
+        (IrohaPeerNfcCommandV1.Write)
+            IrohaPeerNfcAPDUCodecV1.decode(IrohaPeerNfcAPDUCodecV1.encode(payment), BPNG);
+    assertEquals(29L, decodedPayment.offset);
+    assertArrayEquals(new byte[] {0x55, 0x66}, decodedPayment.getBytes());
 
-    for (final IrohaPeerNfcCommandV1 command : new IrohaPeerNfcCommandV1[] {
-        IrohaPeerNfcCommandV1.GET_INFO,
-        IrohaPeerNfcCommandV1.readRequest(0, 64),
-        IrohaPeerNfcCommandV1.COMMIT_PAYMENT,
-        IrohaPeerNfcCommandV1.readAcknowledgement(0, 32),
-        IrohaPeerNfcCommandV1.CONFIRM_ACKNOWLEDGEMENT,
-        IrohaPeerNfcCommandV1.GET_STATUS,
-        IrohaPeerNfcCommandV1.RESET_SESSION,
-    }) {
+    for (final IrohaPeerNfcCommandV1 command :
+        Arrays.asList(
+            new IrohaPeerNfcCommandV1.SelectApplication(BPNG),
+            IrohaPeerNfcCommandV1.GetIntake.INSTANCE,
+            new IrohaPeerNfcCommandV1.SubmitOffer(SESSION, filled(32, 0x66)),
+            IrohaPeerNfcCommandV1.GetInfo.INSTANCE,
+            new IrohaPeerNfcCommandV1.ReadRequest(SESSION, REQUEST_HASH, 0L, 64),
+            new IrohaPeerNfcCommandV1.Commit(SESSION, REQUEST_HASH, PAYMENT_HASH),
+            new IrohaPeerNfcCommandV1.ReadAcknowledgement(SESSION, PAYMENT_HASH, 0L, 32),
+            new IrohaPeerNfcCommandV1.ConfirmAcknowledgement(
+                SESSION, PAYMENT_HASH, filled(32, 0x55)),
+            new IrohaPeerNfcCommandV1.GetStatus(SESSION, REQUEST_HASH))) {
       final byte[] encoded = IrohaPeerNfcAPDUCodecV1.encode(command);
       assertArrayEquals(
-          encoded, IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcAPDUCodecV1.decode(encoded)));
+          encoded,
+          IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcAPDUCodecV1.decode(encoded, BPNG)));
     }
   }
 
   @Test
   void javaRejectsNonCanonicalExtendedApduAliases() {
     final byte[] aliasedGetInfo = new byte[] {(byte) 0x80, 0x10, 0, 0, 0, 0, 0x62};
-    assertThrows(
-        IllegalArgumentException.class, () -> IrohaPeerNfcAPDUCodecV1.decode(aliasedGetInfo));
+    final IrohaPeerNfcExceptionV1 failure =
+        assertThrows(
+            IrohaPeerNfcExceptionV1.class,
+            () -> IrohaPeerNfcAPDUCodecV1.decode(aliasedGetInfo, BPNG));
+    assertEquals(IrohaPeerNfcErrorV1.INVALID_APDU, failure.error);
+    assertEquals(
+        IrohaPeerNfcStatusWordV1.WRONG_DATA, IrohaPeerNfcStatusWordV1.forError(failure.error));
   }
 
   @Test
-  void noDataCommandHasOneCanonicalEncoding() {
+  void noDataCommandsHaveOneCanonicalEncoding() {
     assertArrayEquals(
-        new byte[] {(byte) 0x80, 0x10, 0, 0, 0, 0, 0},
-        IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GET_INFO));
+        new byte[] {(byte) 0x80, 0x10, 0, 0, 0x62},
+        IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetInfo.INSTANCE));
+    assertArrayEquals(
+        new byte[] {(byte) 0x80, 0x30, 0, 0, 0x44},
+        IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetIntake.INSTANCE));
+  }
+
+  @Test
+  void javaCardAnswersOnlyItsOwnApplicationIdentifier() {
+    final IrohaPeerNfcCardEndpointV1 card =
+        IrohaPeerNfcCardEndpointV1.intake(
+            BPNG, new IrohaPeerNfcProfilePolicyV1(IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1));
+    final byte[] selectBpng =
+        IrohaPeerNfcAPDUCodecV1.encode(new IrohaPeerNfcCommandV1.SelectApplication(BPNG));
+    final byte[] selectProtocol =
+        IrohaPeerNfcAPDUCodecV1.encode(
+            new IrohaPeerNfcCommandV1.SelectApplication(
+                IrohaPeerNfcApplicationIdentifierV1.PROTOCOL));
+    assertEquals(IrohaPeerNfcStatusWordV1.SUCCESS, card.process(selectBpng).statusWord);
+    assertEquals(IrohaPeerNfcStatusWordV1.NOT_FOUND, card.process(selectProtocol).statusWord);
+    final IrohaPeerNfcIntakeRecordV1 intake =
+        IrohaPeerNfcIntakeRecordV1.decode(
+            card.process(
+                    IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetIntake.INSTANCE))
+                .data());
+    assertEquals(IrohaPeerNfcIntakeStateV1.AWAITING_OFFER, intake.state);
+    assertArrayEquals(card.getSessionId(), intake.getSessionId());
+    assertEquals(
+        IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED,
+        card.process(IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetInfo.INSTANCE))
+            .statusWord);
+    assertEquals("F0504B45504B524E464301", IrohaPeerNfcApplicationIdentifierV1.PROTOCOL.hex());
   }
 
   @Test
@@ -85,5 +137,13 @@ final class IrohaPeerNfcJavaConsumerTest {
         IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1, IrohaPeerPayloadProfile.fromCode(1));
     assertNull(IrohaPeerPayloadProfile.fromCode(0));
     assertNull(IrohaPeerPayloadProfile.fromCode(2));
+    assertEquals(84 + 14_112, IrohaPeerNfcV1.MAXIMUM_MESSAGE_BYTES);
+    assertEquals(84 + 2_048, IrohaPeerNfcV1.MAXIMUM_OFFER_BYTES);
+  }
+
+  private static byte[] filled(final int size, final int value) {
+    final byte[] bytes = new byte[size];
+    Arrays.fill(bytes, (byte) value);
+    return bytes;
   }
 }

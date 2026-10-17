@@ -2,8 +2,8 @@
 //! `Fp` circuits, Pallas proofs over `Fq` circuits), with both transcripts:
 //! the KAGEMUSHA sponge, checked `u128` arithmetic, the glue gates and the
 //! G1 step statement digest. Each proof verifies in full, a wrong public
-//! input and a corrupted proof are rejected, and a fixed recovery stream
-//! reproduces the proof bytes.
+//! input and a corrupted proof are rejected, and repeated proofs use fresh
+//! randomness while preserving the same complete verification verdict.
 
 mod common;
 
@@ -45,7 +45,7 @@ where
     let keys = keys::<C>(circuit, k, transcript);
     let keygen = started.elapsed();
     let started = Instant::now();
-    let proof = keys.prove(circuit, public, 7);
+    let proof = keys.prove(circuit, public);
     let prove = started.elapsed();
     let started = Instant::now();
     assert_eq!(keys.verify(public, &proof), Ok(()));
@@ -59,12 +59,13 @@ where
         prove.as_millis(),
         verify.as_millis()
     );
-    assert_eq!(
-        keys.prove(circuit, public, 7),
-        proof,
-        "deterministic stream"
-    );
-    assert_ne!(keys.prove(circuit, public, 8), proof, "fresh blinds");
+    let second = keys.prove(circuit, public);
+    assert_eq!(keys.verify(public, &second), Ok(()));
+    assert_ne!(second, proof, "fresh blinds on the same statement");
+    let third = keys.prove(circuit, public);
+    assert_eq!(keys.verify(public, &third), Ok(()));
+    assert_ne!(third, proof, "fresh blinds on every attempt");
+    assert_ne!(third, second, "independent attempts use independent blinds");
     let mut wrong = public.to_vec();
     wrong[0] += C::ScalarExt::ONE;
     assert!(keys.verify(&wrong, &proof).is_err(), "wrong public input");

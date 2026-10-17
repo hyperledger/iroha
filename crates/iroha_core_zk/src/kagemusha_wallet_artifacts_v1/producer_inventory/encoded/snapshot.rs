@@ -2,6 +2,7 @@
 
 use std::io::Cursor;
 
+use super::super::SharedOriginalSourceV1;
 use super::*;
 
 /// Fixed per-transaction ceiling for the complete compressed original closure.
@@ -35,12 +36,24 @@ struct SnapshotSource {
     originals: BTreeMap<[u8; 32], SnapshotOriginal>,
 }
 
-impl OriginalSourceV1 for SnapshotSource {
-    fn open(&mut self, digest: [u8; 32]) -> Result<Box<dyn Read + '_>, Error> {
+// Reads only the immutable captured map: each open decodes and checks its own copy
+// of exact stored bytes, so any number of threads may read at once.
+impl SharedOriginalSourceV1 for SnapshotSource {
+    fn open_shared(&self, digest: [u8; 32]) -> Result<Box<dyn Read + '_>, Error> {
         let original = self.originals.get(&digest).ok_or(Error::Inventory)?;
         let reader = decode_stored(Cursor::new(original.stored.as_slice()), original.identity)
             .map_err(|_| Error::Inventory)?;
         Ok(Box::new(reader))
+    }
+}
+
+impl OriginalSourceV1 for SnapshotSource {
+    fn open(&mut self, digest: [u8; 32]) -> Result<Box<dyn Read + '_>, Error> {
+        self.open_shared(digest)
+    }
+
+    fn shared_view(&self) -> Option<&(dyn SharedOriginalSourceV1 + Sync)> {
+        Some(self)
     }
 }
 
@@ -53,6 +66,8 @@ impl EncodedDirectoryOriginalsV1 {
     /// decoder window. It grants no source, installation or wallet authority.
     /// The snapshot and its borrowed readers cannot escape the callback; it is
     /// dropped before returning, and live proof reads keep using this directory.
+    /// Its shared immutable view lets the body's bounded route workers read at
+    /// once; every worker joins inside the body, before closing custody runs.
     ///
     /// # Errors
     /// More than 16 MiB of declared stored bytes, an invalid or unavailable

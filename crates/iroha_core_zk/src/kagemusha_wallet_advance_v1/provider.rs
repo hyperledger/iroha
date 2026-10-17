@@ -17,7 +17,10 @@
 //! The durable store and the platform services are private to the provider: custody files
 //! and the payment key are reached only through its operations.
 
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
 use iroha_data_model::kagemusha::{
     KagemushaWalletCompletionRecordV1, KagemushaWalletRecoveryCapsuleV1,
@@ -131,6 +134,20 @@ pub struct KagemushaWalletProviderV1<
     /// Bytes are the phase, Client, Accepted permit and Slot selection, in that order.
     pub(super) slot_phases:
         std::cell::RefCell<BTreeMap<KagemushaWalletSlotIdV1, ([u8; 32], [Vec<u8>; 4])>>,
+    /// Exact archive records this process published durably (`archive.rs`): bounded, in memory
+    /// only, forgotten before removal and on full reconciliation.
+    pub(super) archive_writes: std::cell::RefCell<super::archive::ArchiveWritesV1>,
+    /// Current archive phase (`archive.rs`). Every custody call, poison, remembered status and
+    /// reconcile ends it, so its skipped reconcile never spans a custody operation.
+    pub(super) archive_phase: Option<super::archive::ArchivePhaseV1>,
+    /// Archive records staged by the open embedder call of each slot (`archive.rs`): an entry
+    /// exists exactly while a call is open. In memory only; phase ends, poison, remembered
+    /// statuses and reconciliation never touch it, and dropping the provider discards it.
+    pub(super) archive_batches: BTreeMap<KagemushaWalletSlotIdV1, super::archive::ArchiveBatchV1>,
+    /// Slots whose archive directory this provider swept of staging residue at a full
+    /// reconcile (R1) since its last failed archive access on the slot: later full reconciles
+    /// skip that listing, which grows with the archive (`reconcile.rs`).
+    pub(super) archive_swept: BTreeSet<KagemushaWalletSlotIdV1>,
     sentinel: KagemushaWalletRootSentinelV1,
     _lock: F::Lock,
     _frames: PhantomData<fn() -> (C, R)>,
@@ -165,8 +182,7 @@ where
                 field: "options.ballast_bytes",
             });
         }
-        platform
-            .storage_state()
+        super::counters::probe_storage(&platform)
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
         let store = KagemushaWalletDurableStoreV1::new(fs);
         let lock = store
@@ -206,6 +222,10 @@ where
             generation_dispatches: BTreeMap::new(),
             adopted: std::cell::RefCell::new(BTreeMap::new()),
             slot_phases: std::cell::RefCell::new(BTreeMap::new()),
+            archive_writes: std::cell::RefCell::default(),
+            archive_phase: None,
+            archive_batches: BTreeMap::new(),
+            archive_swept: BTreeSet::new(),
             sentinel,
             _lock: lock,
             _frames: PhantomData,
@@ -481,8 +501,7 @@ where
     ///
     /// `Unavailable` with the platform's reason.
     pub(super) fn require_storage(&self) -> Result<(), KagemushaWalletProviderErrorV1> {
-        self.platform
-            .storage_state()
+        super::counters::probe_storage(&self.platform)
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)
     }
 
@@ -556,8 +575,10 @@ where
             .insert((dir.clone(), name.as_str().to_owned()), bytes.to_vec());
     }
 
-    /// Forget the verified state of `slot`; the next operation reconciles it fully.
+    /// Forget the verified state of `slot`; the next operation reconciles it fully. This ends
+    /// the current archive phase.
     pub(super) fn poison(&mut self, slot: &KagemushaWalletSlotIdV1) {
+        self.archive_phase = None;
         self.cache.remove(slot);
     }
 
@@ -570,13 +591,14 @@ where
         self.pending_reasons.insert(*slot, reason);
     }
 
-    /// Remember a verified stable state of `slot`.
+    /// Remember a verified stable state of `slot`. This ends the current archive phase.
     pub(super) fn remember(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
         durable: KagemushaWalletDurableMarkerV1,
         status: KagemushaWalletSlotStatusV1,
     ) {
+        self.archive_phase = None;
         self.cache.insert(*slot, CachedSlotV1 { durable, status });
     }
 

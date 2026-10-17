@@ -16,6 +16,7 @@
 //! never be bound to an unvalidated one.
 
 use core::fmt;
+use std::sync::Arc;
 
 use iroha_pasta::{fft::FftError, msm::MsmError};
 
@@ -27,13 +28,16 @@ use crate::{
     frontend,
 };
 
+mod admission_work;
 pub mod keygen;
+pub mod masking;
 pub mod pk;
 mod source_fingerprint;
 #[cfg(test)]
 mod tests;
 pub mod vk;
 
+pub use admission_work::AdmissionWorkV1;
 pub use keygen::{
     BuiltinSourceErrorV1, BuiltinSourceMemberV1, BuiltinSourceProfileV1, KeygenConfig,
     KeygenConfigV2, RebuildError, SourceAdmissionSealV2, SourceBoundVerifyingKeyV2,
@@ -50,11 +54,39 @@ pub use vk::{VK_VERSION, VerifyingKey, VkError};
 
 /// A validated descriptor, its canonical Norito frame `D` and
 /// `descriptor_digest = BLAKE2b(32, "PIPA-v1-CircDesc", D)`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DescriptorBinding {
+///
+/// Immutable after construction, so clones share one allocation. Equality is
+/// exact: the same allocation, or an equal digest and an equal frame. The digest
+/// domain separates V1 from V2 frames, and each constructor either derives the
+/// frame from the validated descriptor or the descriptor from the canonical
+/// frame, so equal frames in one domain are equal descriptors.
+#[derive(Clone)]
+pub struct DescriptorBinding(Arc<BindingParts>);
+
+// Only the four checked constructors below build this.
+struct BindingParts {
     descriptor: ProtocolDescriptor,
     encoded: Vec<u8>,
     digest: [u8; 32],
+}
+
+impl PartialEq for DescriptorBinding {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.digest == other.0.digest && self.0.encoded == other.0.encoded)
+    }
+}
+
+impl Eq for DescriptorBinding {}
+
+impl fmt::Debug for DescriptorBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DescriptorBinding")
+            .field("descriptor", &self.0.descriptor)
+            .field("encoded", &self.0.encoded)
+            .field("digest", &self.0.digest)
+            .finish()
+    }
 }
 
 impl DescriptorBinding {
@@ -67,11 +99,11 @@ impl DescriptorBinding {
         descriptor.validate()?;
         let encoded = descriptor.encode()?;
         let digest = descriptor_digest(&encoded);
-        Ok(Self {
+        Ok(Self(Arc::new(BindingParts {
             descriptor: descriptor.into(),
             encoded,
             digest,
-        })
+        })))
     }
 
     /// Admission-decodes a canonical descriptor frame.
@@ -80,12 +112,13 @@ impl DescriptorBinding {
     ///
     /// [`DescriptorError`] naming the failed rule.
     pub fn decode(bytes: &[u8]) -> Result<Self, DescriptorError> {
+        admission_work::record_descriptor_decode();
         let descriptor = CircuitDescriptorV1::decode(bytes)?;
-        Ok(Self {
+        Ok(Self(Arc::new(BindingParts {
             descriptor: descriptor.into(),
             encoded: bytes.to_vec(),
             digest: descriptor_digest(bytes),
-        })
+        })))
     }
 
     /// Validates and binds an explicit V2 descriptor.
@@ -96,11 +129,11 @@ impl DescriptorBinding {
         descriptor.validate()?;
         let encoded = descriptor.encode()?;
         let digest = crate::cs::descriptor_v2::descriptor_digest_v2(&encoded);
-        Ok(Self {
+        Ok(Self(Arc::new(BindingParts {
             descriptor: descriptor.into(),
             encoded,
             digest,
-        })
+        })))
     }
 
     /// Admits V2 only; it never attempts V1 decoding.
@@ -110,42 +143,43 @@ impl DescriptorBinding {
     pub fn decode_v2(bytes: &[u8]) -> Result<Self, DescriptorError> {
         // Decode already validates the descriptor and compares its canonical
         // encoding to these bytes; retain that checked frame without a second pass.
+        admission_work::record_descriptor_decode();
         let descriptor = CircuitDescriptorV2::decode(bytes)?;
-        Ok(Self {
+        Ok(Self(Arc::new(BindingParts {
             descriptor: descriptor.into(),
             encoded: bytes.to_vec(),
             digest: crate::cs::descriptor_v2::descriptor_digest_v2(bytes),
-        })
+        })))
     }
 
     /// Whether this binding is from the explicit V2 schema.
     #[must_use]
     pub fn is_v2(&self) -> bool {
-        self.descriptor.instance_types.is_some()
+        self.0.descriptor.instance_types.is_some()
     }
 
     /// The descriptor.
     #[must_use]
     pub fn descriptor(&self) -> &ProtocolDescriptor {
-        &self.descriptor
+        &self.0.descriptor
     }
 
     /// The canonical frame `D`.
     #[must_use]
     pub fn encoded(&self) -> &[u8] {
-        &self.encoded
+        &self.0.encoded
     }
 
     /// `descriptor_digest`.
     #[must_use]
     pub fn digest(&self) -> &[u8; 32] {
-        &self.digest
+        &self.0.digest
     }
 
     /// The domain size `n = 2^k` (validated, so it fits `usize`).
     #[must_use]
     pub fn n(&self) -> usize {
-        1_usize << self.descriptor.k
+        1_usize << self.0.descriptor.k
     }
 }
 

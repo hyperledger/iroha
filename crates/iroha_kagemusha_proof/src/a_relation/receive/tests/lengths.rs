@@ -1,7 +1,7 @@
 //! Exhaustive joint-envelope boundary arithmetic using the production component.
 //! Individual active-tape capacity and byte provenance remain separate owners.
 
-use super::super::{MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES, joint_length_valid};
+use super::super::{MAX_SIGMA_RAW_BYTES, PAYMENT_RAW_PROOF_BUDGET, joint_length_valid};
 use ff::Field;
 use iroha_pasta::Fp;
 use iroha_plonk::{
@@ -85,7 +85,7 @@ fn every_joint_split_and_cap_plus_one_share_the_same_production_constraints() {
     let mut cases = Vec::new();
     cases.push(([0, 0], Fp::ONE));
     for sigma in 0..=u32::try_from(MAX_SIGMA_RAW_BYTES).unwrap() {
-        let omega = u32::try_from(MAX_OMEGA_RAW_BYTES).unwrap() - sigma;
+        let omega = u32::try_from(PAYMENT_RAW_PROOF_BUDGET).unwrap() - sigma;
         cases.extend([
             ([omega, sigma], Fp::ONE),
             ([omega + 1, sigma], Fp::ZERO),

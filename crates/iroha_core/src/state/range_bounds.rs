@@ -291,3 +291,65 @@ impl_as_dyn_key! {
     key: AssetIdAccountDefinitionCompare<'_>,
     trait: AsAssetIdAccountDefinitionCompare
 }
+/// Bond-scoped projection of a bond entitlement key, for range queries over one bond.
+#[derive(PartialEq, Eq, Ord, PartialOrd, Copy, Clone)]
+pub struct BondEntitlementBondCompare<'a> {
+    bond: &'a AssetDefinitionId,
+    index: MinMaxExt<u16>,
+    holder: MinMaxExt<&'a AccountId>,
+}
+/// Bounds for range queries over the entitlements of one bond, strictly after and before
+/// optional entitlements of the same bond.
+pub struct BondEntitlementsByBondBounds<'a> {
+    start: BondEntitlementBondCompare<'a>,
+    end: BondEntitlementBondCompare<'a>,
+}
+impl<'a> BondEntitlementsByBondBounds<'a> {
+    /// Create range bounds over `bond`'s entitlements; `after` and `before` must belong to `bond`.
+    pub fn new(
+        bond: &'a AssetDefinitionId,
+        after: Option<&'a iroha_data_model::bond::BondEntitlementId>,
+        before: Option<&'a iroha_data_model::bond::BondEntitlementId>,
+    ) -> Self {
+        Self {
+            start: after.map_or(
+                BondEntitlementBondCompare {
+                    bond,
+                    index: MinMaxExt::Min,
+                    holder: MinMaxExt::Min,
+                },
+                AsBondEntitlementBondCompare::as_key,
+            ),
+            end: before.map_or(
+                BondEntitlementBondCompare {
+                    bond,
+                    index: MinMaxExt::Max,
+                    holder: MinMaxExt::Max,
+                },
+                AsBondEntitlementBondCompare::as_key,
+            ),
+        }
+    }
+}
+impl<'a> RangeBounds<dyn AsBondEntitlementBondCompare + 'a> for BondEntitlementsByBondBounds<'a> {
+    fn start_bound(&self) -> Bound<&(dyn AsBondEntitlementBondCompare + 'a)> {
+        Bound::Excluded(&self.start)
+    }
+    fn end_bound(&self) -> Bound<&(dyn AsBondEntitlementBondCompare + 'a)> {
+        Bound::Excluded(&self.end)
+    }
+}
+impl AsBondEntitlementBondCompare for iroha_data_model::bond::BondEntitlementId {
+    fn as_key(&self) -> BondEntitlementBondCompare<'_> {
+        BondEntitlementBondCompare {
+            bond: &self.bond,
+            index: self.index.into(),
+            holder: (&self.holder).into(),
+        }
+    }
+}
+impl_as_dyn_key! {
+    target: iroha_data_model::bond::BondEntitlementId,
+    key: BondEntitlementBondCompare<'_>,
+    trait: AsBondEntitlementBondCompare
+}

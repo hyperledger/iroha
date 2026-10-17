@@ -2,6 +2,7 @@ import { ISO_PAYMENT_INTENT } from "./fixtures/isoNativePayment.js";
 import { withArtifactResponseIdentity } from "./contractArtifactReadTestHelpers.js";
 import { buildRegisterSmartContractCodeInstruction } from "../src/instructionBuilders.js";
 import { canonicalHashLiteral } from "../src/instructionBuilderPrimitives.js";
+import { computeHashLiteralCrc } from "../src/hashLiteralCrc.js";
 import { universalArtifactInput } from "./contractArtifactTestHelpers.js";
 
 async function normalizeArtifactManifestFixture(input) {
@@ -4282,6 +4283,49 @@ test("getUaidPortfolio preserves exact UAID literals and parses dataspace payloa
   await assert.rejects(() => client.getUaidPortfolio("short"), /uaid/);
 });
 
+test("getUaidPortfolio preserves raw u64 data space IDs and scoped holdings", async () => {
+  for (const [token, expected] of [
+    ["9007199254740991", Number.MAX_SAFE_INTEGER],
+    ["9007199254740992", 9007199254740992n],
+    ["8648377547929788715", 8648377547929788715n],
+    ["18446744073709551615", 18446744073709551615n],
+  ]) {
+    const fixture = canonicalUaidPortfolioFixture();
+    fixture.dataspaces = [fixture.dataspaces[0]];
+    fixture.totals.positions = 1;
+    fixture.dataspaces[0].dataspace_id = "__U64__";
+    const asset = fixture.dataspaces[0].accounts[0].assets[0];
+    asset.asset_id = `${asset.asset_definition_id}#${FIXTURE_ALICE_ID}#dataspace:${token}`;
+    const textBody = JSON.stringify(fixture).replace('"__U64__"', token);
+    const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+      status: 200, textBody, headers: { "content-type": "application/json" },
+    }) });
+    const result = await client.getUaidPortfolio(fixture.uaid);
+    assert.equal(result.dataspaces[0].dataspace_id, expected, token);
+    assert.equal(result.dataspaces[0].accounts[0].assets[0].asset_id, asset.asset_id);
+  }
+});
+
+test("getUaidPortfolio rejects invalid u64 IDs and exact large holding-scope mismatches", async () => {
+  const fixture = canonicalUaidPortfolioFixture();
+  fixture.dataspaces = [fixture.dataspaces[0]];
+  fixture.totals.positions = 1;
+  fixture.dataspaces[0].dataspace_id = "__U64__";
+  const read = (token) => {
+    const textBody = JSON.stringify(fixture).replace('"__U64__"', token);
+    const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+      status: 200, textBody, headers: { "content-type": "application/json" },
+    }) });
+    return client.getUaidPortfolio(fixture.uaid);
+  };
+  for (const token of ["-1", "18446744073709551616", '"8648377547929788715"', "1.5", "null"]) {
+    await assert.rejects(() => read(token), undefined, token);
+  }
+  const asset = fixture.dataspaces[0].accounts[0].assets[0];
+  asset.asset_id = `${asset.asset_definition_id}#${FIXTURE_ALICE_ID}#dataspace:8648377547929788716`;
+  await assert.rejects(() => read("8648377547929788715"), /dataspace scope does not match/u);
+});
+
 test("getUaidPortfolio rejects noncanonical UAID spellings before dispatch", async () => {
   let fetchCalled = false;
   const fixture = canonicalUaidPortfolioFixture();
@@ -4413,6 +4457,47 @@ test("getUaidBindings enforces UAID formats and normalizes entries", async () =>
   );
 });
 
+test("getUaidBindings preserves raw u64 dataspace tokens through the response boundary", async () => {
+  const fixture = canonicalUaidBindingsFixture();
+  fixture.dataspaces = [fixture.dataspaces[0]];
+  fixture.dataspaces[0].dataspace_id = "__DATASPACE_ID__";
+  for (const [token, expected] of [
+    ["0", 0],
+    ["9007199254740991", Number.MAX_SAFE_INTEGER],
+    ["9007199254740992", 9007199254740992n],
+    ["8648377547929788715", 8648377547929788715n],
+    ["18446744073709551615", 18446744073709551615n],
+  ]) {
+    const textBody = JSON.stringify(fixture).replace('"__DATASPACE_ID__"', token);
+    const client = new ToriiClient(BASE_URL, { fetchImpl: async () => {
+      const response = createResponse({
+        status: 200, textBody, headers: { "content-type": "application/json" },
+      });
+      response.json = async () => { throw new Error("JSON.parse would lose u64 precision"); };
+      return response;
+    }});
+    const result = await client.getUaidBindings(fixture.uaid);
+    assert.equal(result.dataspaces[0].dataspace_id, expected, token);
+    assert.equal(result.dataspaces[0].accounts[0], fixture.dataspaces[0].accounts[0]);
+  }
+});
+
+test("getUaidBindings rejects invalid u64 tokens and duplicate dataspace fields", async () => {
+  const fixture = canonicalUaidBindingsFixture();
+  fixture.dataspaces = [fixture.dataspaces[0]];
+  fixture.dataspaces[0].dataspace_id = "__DATASPACE_ID__";
+  for (const token of [
+    "-1", "18446744073709551616", '"8648377547929788715"', "1.5", "1e3",
+    '0,"dataspace_id":8648377547929788715',
+  ]) {
+    const textBody = JSON.stringify(fixture).replace('"__DATASPACE_ID__"', token);
+    const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+      status: 200, textBody, headers: { "content-type": "application/json" },
+    }) });
+    await assert.rejects(() => client.getUaidBindings(fixture.uaid), undefined, token);
+  }
+});
+
 test("uaidManifests validates full rows and posts collection filters", async () => {
   let captured;
   const fixture = canonicalUaidManifestsFixture();
@@ -4433,6 +4518,148 @@ test("uaidManifests validates full rows and posts collection filters", async () 
   assert.equal(result.items[0].lifecycle.activated_epoch, 4097);
   assert.equal(result.items[0].manifest.entries[0].effect.Allow.max_amount, "500000000");
   await assert.rejects(() => client.uaidManifests(fixture.uaid).list({ dataspaceId: 11 }), /dataspaceId/);
+});
+
+test("uaidManifests preserves raw u64 fields through collection queries", async () => {
+  for (const [token, expected] of [
+    ["0", 0],
+    ["9007199254740991", Number.MAX_SAFE_INTEGER],
+    ["9007199254740992", 9007199254740992n],
+    ["8648377547929788715", 8648377547929788715n],
+    ["18446744073709551615", 18446744073709551615n],
+  ]) {
+    const fixture = canonicalUaidManifestsFixture();
+    const row = fixture.items[0];
+    row.dataspace_id = "__U64__";
+    for (const key of ["dataspace", "issued_ms", "activation_epoch", "expiry_epoch"]) {
+      row.manifest[key] = "__U64__";
+    }
+    row.manifest.entries[0].scope.dataspace = "__U64__";
+    row.status = "Revoked";
+    row.lifecycle = {
+      activated_epoch: "__U64__", expired_epoch: "__U64__",
+      revocation: { epoch: "__U64__", reason: null },
+    };
+    const textBody = JSON.stringify(fixture).replaceAll('"__U64__"', token);
+    let captured;
+    const client = new ToriiClient(BASE_URL, { fetchImpl: async (url, init) => {
+      captured = { url, init };
+      return createResponse({
+        status: 200, textBody, headers: { "content-type": "application/json" },
+      });
+    } });
+    const result = await client.uaidManifests(fixture.uaid).list({
+      filter: field("dataspace_id").eq(expected),
+    });
+    assert.ok(new URL(captured.url).pathname.endsWith("/manifests/query"));
+    assert.ok(captured.init.body.includes(token));
+    const actual = result.items[0];
+    assert.equal(actual.dataspace_id, expected);
+    for (const key of ["dataspace", "issued_ms", "activation_epoch", "expiry_epoch"]) {
+      assert.equal(actual.manifest[key], expected, key);
+    }
+    assert.equal(actual.manifest.entries[0].scope.dataspace, expected);
+    assert.equal(actual.lifecycle.activated_epoch, expected);
+    assert.equal(actual.lifecycle.expired_epoch, expected);
+    assert.equal(actual.lifecycle.revocation.epoch, expected);
+  }
+});
+
+test("uaidManifests rejects out-of-range and noninteger u64 response fields", async () => {
+  const paths = [
+    ["dataspace_id"], ["manifest", "dataspace"], ["manifest", "issued_ms"],
+    ["manifest", "activation_epoch"], ["manifest", "expiry_epoch"],
+    ["manifest", "entries", 0, "scope", "dataspace"],
+    ["lifecycle", "activated_epoch"], ["lifecycle", "expired_epoch"],
+    ["lifecycle", "revocation", "epoch"],
+  ];
+  for (const path of paths) {
+    for (const token of ["-1", "18446744073709551616", '"8648377547929788715"', "1.5", "true"]) {
+      const fixture = canonicalUaidManifestsFixture();
+      const row = fixture.items[0];
+      row.status = "Revoked";
+      row.lifecycle.revocation = { epoch: 4098, reason: null };
+      let target = row;
+      for (const key of path.slice(0, -1)) target = target[key];
+      target[path.at(-1)] = "__U64__";
+      const textBody = JSON.stringify(fixture).replace('"__U64__"', token);
+      const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+        status: 200, textBody, headers: { "content-type": "application/json" },
+      }) });
+      await assert.rejects(() => client.uaidManifests(fixture.uaid).list(), undefined,
+        `${path.join(".")}: ${token}`);
+    }
+  }
+});
+
+for (const token of ["1e3", "1.0", "9007199254740991.1"]) {
+  test(`uaidManifests rejects raw noninteger token ${token} in rows and projections`, async () => {
+    for (const query of [{}, { select: ["manifest"] }]) {
+      const fixture = canonicalUaidManifestsFixture();
+      fixture.items[0].manifest.issued_ms = "__RAW_NUMBER__";
+      if (query.select) fixture.items = [{ manifest: fixture.items[0].manifest }];
+      const textBody = JSON.stringify(fixture).replace('"__RAW_NUMBER__"', token);
+      const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+        status: 200, textBody, headers: { "content-type": "application/json" },
+      }) });
+      await assert.rejects(() => client.uaidManifests(fixture.uaid).list(query),
+        /integer|fraction|exponent/u, query.select ? "projection" : "row");
+    }
+  });
+}
+
+for (const location of ["envelope", "manifest", "scope"]) {
+  test(`uaidManifests rejects raw __proto__ keys in the ${location}`, async () => {
+    const fixture = canonicalUaidManifestsFixture();
+    const needle = location === "envelope" ? "{" : `"${location}":{`;
+    const textBody = JSON.stringify(fixture).replace(needle, `${needle}"__proto__":null,`);
+    const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+      status: 200, textBody, headers: { "content-type": "application/json" },
+    }) });
+    await assert.rejects(() => client.uaidManifests(fixture.uaid).list(), /__proto__/u);
+    if (location === "envelope") {
+      await assert.rejects(() => client.uaidManifests(fixture.uaid).list({
+        select: ["manifest"],
+      }), /__proto__/u);
+    }
+  });
+}
+
+test("uaidManifests preserves projected raw keys without changing prototypes", async () => {
+  const uaid = canonicalUaidManifestsFixture().uaid;
+  const textBody = '{"items":[{"manifest":{"__proto__":null,"issued_ms":18446744073709551615}}],"next_cursor":null}';
+  const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+    status: 200, textBody, headers: { "content-type": "application/json" },
+  }) });
+  const page = await client.uaidManifests(uaid).list({ select: ["manifest"] });
+  const manifest = page.items[0].manifest;
+  assert.equal(Object.hasOwn(manifest, "__proto__"), true);
+  assert.equal(manifest["__proto__"], null);
+  assert.equal(Object.getPrototypeOf(manifest), Object.prototype);
+  assert.equal(manifest.issued_ms, 18446744073709551615n);
+});
+
+test("uaidManifests preserves exact projections and aggregate results", async () => {
+  const uaid = canonicalUaidManifestsFixture().uaid;
+  for (const [query, textBody, expected] of [
+    [
+      { select: ["dataspace_id", "manifest"] },
+      '{"items":[{"dataspace_id":8648377547929788715,"manifest":{"issued_ms":18446744073709551615}}],"next_cursor":null}',
+      { dataspace_id: 8648377547929788715n, manifest: { issued_ms: 18446744073709551615n } },
+    ],
+    [
+      { aggregate: { metrics: [{ alias: "mean_space", fn: "avg", field: "dataspace_id" }] } },
+      '{"items":[{"mean_space":"1.5"}],"next_cursor":null}',
+      { mean_space: "1.5" },
+    ],
+  ]) {
+    const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+      status: 200, textBody, headers: { "content-type": "application/json" },
+    }) });
+    const page = await client.uaidManifests(uaid).list(query);
+    assert.deepEqual(page.items, [expected]);
+    assert.equal(page.nextCursor, null);
+  }
 });
 
 test("UAID read responses require exact current server fields", async () => {
@@ -4549,6 +4776,54 @@ test("publishSpaceDirectoryManifest posts exact manifest fields", async () => {
   assert.equal("private_key" in parsedBody, false);
 });
 
+test("publishSpaceDirectoryManifest emits full u64 fields as exact raw JSON integers", async () => {
+  const manifest = cloneFixture(toriiFixtures.uaid.manifests.manifests[0].manifest);
+  manifest.dataspace = 8648377547929788715n;
+  manifest.issued_ms = 9007199254740992n;
+  manifest.activation_epoch = 9007199254740991;
+  manifest.expiry_epoch = 18446744073709551615n;
+  manifest.entries[0].scope.dataspace = manifest.dataspace;
+  let body;
+  const client = new ToriiClient(BASE_URL, { fetchImpl: async (_url, init) => {
+    body = init.body;
+    return createResponse({
+      status: 200, headers: { "content-type": "application/json" },
+      jsonData: verifyingKeyDraftForPayload(Buffer.from([1, 2, 3])),
+    });
+  } });
+  await client.publishSpaceDirectoryManifest({
+    authority: FIXTURE_AUTHORITY_ID, manifest,
+  }, { canonicalAuth: APPLICATION_CANONICAL_AUTH });
+  for (const [key, value] of Object.entries({
+    dataspace: 8648377547929788715n, issued_ms: 9007199254740992n,
+    activation_epoch: 9007199254740991, expiry_epoch: 18446744073709551615n,
+  })) {
+    assert.ok(body.includes(`"${key}":${value.toString()}`), key);
+    assert.ok(!body.includes(`"${key}":"${value.toString()}"`), key);
+  }
+  assert.equal((body.match(/"dataspace":8648377547929788715/gu) ?? []).length, 2);
+  assert.equal(manifest.dataspace, 8648377547929788715n);
+});
+
+test("publishSpaceDirectoryManifest rejects invalid u64 inputs before dispatch", async () => {
+  let calls = 0;
+  const client = new ToriiClient(BASE_URL, { fetchImpl: async () => {
+    calls += 1;
+    throw new Error("invalid u64 input must not dispatch");
+  } });
+  for (const key of ["dataspace", "issued_ms", "activation_epoch", "expiry_epoch", "scope"]) {
+    for (const value of [-1n, 18446744073709551616n, Number.MAX_SAFE_INTEGER + 1, "8648377547929788715", 1.5]) {
+      const manifest = cloneFixture(toriiFixtures.uaid.manifests.manifests[0].manifest);
+      if (key === "scope") manifest.entries[0].scope.dataspace = value;
+      else manifest[key] = value;
+      await assert.rejects(() => client.publishSpaceDirectoryManifest({
+        authority: FIXTURE_AUTHORITY_ID, manifest,
+      }, { canonicalAuth: APPLICATION_CANONICAL_AUTH }), undefined, `${key}: ${String(value)}`);
+    }
+  }
+  assert.equal(calls, 0);
+});
+
 test("publishSpaceDirectoryManifest rejects retired manifest aliases and coercions", async () => {
   let fetchCalled = false;
   const client = new ToriiClient(BASE_URL, {
@@ -4574,7 +4849,7 @@ test("publishSpaceDirectoryManifest rejects retired manifest aliases and coercio
         authority: FIXTURE_AUTHORITY_ID,
         manifest: candidate,
       }, { canonicalAuth: APPLICATION_CANONICAL_AUTH }),
-      /unsigned integer 1|exact server fields|JSON safe integer|omitted instead of null/u,
+      /unsigned integer 1|exact server fields|unsigned 64-bit JSON integer token|omitted instead of null/u,
     );
   }
   assert.equal(fetchCalled, false);
@@ -10252,6 +10527,130 @@ test("submitTransactionAndWait delegates to submitTransaction + waitForTransacti
   assert.equal(waitArgs.hashHex, finalHash, "an asserted hash that matches the bytes is accepted");
 });
 
+test("submitTransactionAndWait captures a rejection after opening the event subscription", async () => {
+  const finalHash = "55".repeat(32);
+  const client = new ToriiClient(BASE_URL, {
+    fetchImpl: async (url) => {
+      assert.equal(url, `${BASE_URL}/v1/explorer/transactions/${finalHash}`);
+      return createResponse({ status: 200, jsonData: {
+        hash: `hash:${finalHash.toUpperCase()}#2B05`,
+        status: "Rejected", block: 27,
+        rejection_reason: { message: "Validation failed: asset alias name segment must match the asset name" },
+      } });
+    },
+    [TORII_TEST_NATIVE_BINDING]: canonicalTransactionCodecNative({
+      hashSignedTransaction: () => Buffer.from(finalHash, "hex"),
+    }),
+  });
+  let opened = false;
+  let closeObserved = false;
+  let release;
+  const sent = new Promise((resolve) => { release = resolve; });
+  client._streamSse = async function* (path, options) {
+    assert.equal(path, "/v1/events/sse");
+    assert.equal(options.params.filter, `tx_hash = "${finalHash}"`);
+    opened = true;
+    options.onOpen();
+    try {
+      await sent;
+      // A mismatching event cannot supply another transaction's failure reason.
+      for (const hash of ["57".repeat(32), finalHash]) {
+        yield { event: null, data: { category: "Pipeline", event: "Transaction", hash,
+          status: "Rejected", rejection_code: "instruction_execution",
+          rejection_reason: "Instruction execution failed", block_height: 27 } };
+      }
+    } finally { closeObserved = true; }
+  };
+  client.submitTransaction = async () => { assert.equal(opened, true); release(); };
+  client.waitForTransactionStatus = async () => {
+    throw new TransactionStatusError(finalHash, "Rejected", {
+      hash: finalHash, status: { kind: "Rejected", block_height: 27 },
+    });
+  };
+  await assert.rejects(client.submitTransactionAndWait(Buffer.from([1]), { captureRejection: true }),
+    (error) => error instanceof TransactionStatusError && error.blockHeight === 27 &&
+      error.rejectionCode === "instruction_execution" &&
+      error.rejectionReason === "Validation failed: asset alias name segment must match the asset name");
+  assert.equal(closeObserved, true);
+});
+
+test("submitTransactionAndWait does not submit if a requested rejection subscription fails", async () => {
+  const client = new ToriiClient(BASE_URL, {
+    fetchImpl: async () => createResponse({ status: 200 }),
+    [TORII_TEST_NATIVE_BINDING]: canonicalTransactionCodecNative({
+      hashSignedTransaction: () => Buffer.from("55".repeat(32), "hex"),
+    }),
+  });
+  client._streamSse = async function* () { throw new Error("event route unavailable"); };
+  client.submitTransaction = async () => { assert.fail("must subscribe before submitting"); };
+  await assert.rejects(client.submitTransactionAndWait(Buffer.from([1]), { captureRejection: true }),
+    /event route unavailable/u);
+  await assert.rejects(client.submitTransactionAndWait(Buffer.from([1]), { captureRejection: "yes" }),
+    /captureRejection must be boolean/u);
+});
+
+test("submitTransactionAndWait treats already committed or enqueued resubmissions as idempotent", async () => {
+  const finalHash = "59".repeat(32);
+  const client = new ToriiClient(BASE_URL, {
+    fetchImpl: async () => createResponse({ status: 200 }),
+    [TORII_TEST_NATIVE_BINDING]: canonicalTransactionCodecNative({
+      hashSignedTransaction: () => Buffer.from(finalHash, "hex"),
+    }),
+  });
+  const applied = {
+    kind: "Transaction",
+    content: { hash: finalHash, status: { kind: "Applied", content: null } },
+  };
+  const queueRejection = (status, code, rejectCode) =>
+    client._buildHttpError(
+      createResponse({
+        status,
+        jsonData: { code, message: code, details: { reject_code: rejectCode } },
+      }),
+      [200, 201, 202, 204],
+    );
+  let rejection = null;
+  let waited = 0;
+  client.submitTransaction = async () => {
+    throw rejection;
+  };
+  client.waitForTransactionStatus = async (hashHex) => {
+    assert.equal(hashHex, finalHash);
+    waited += 1;
+    return applied;
+  };
+  for (const [code, rejectCode] of [
+    ["already_committed", "PRTRY:ALREADY_COMMITTED"],
+    ["already_enqueued", "PRTRY:ALREADY_ENQUEUED"],
+  ]) {
+    rejection = await queueRejection(409, code, rejectCode);
+    assert.equal(rejection.rejectCode, rejectCode);
+    assert.strictEqual(await client.submitTransactionAndWait(Buffer.from([1]), {}), applied);
+    // A proxy that strips the details still forwards the envelope code.
+    rejection = await client._buildHttpError(
+      createResponse({ status: 409, jsonData: { code, message: code } }),
+      [200, 201, 202, 204],
+    );
+    assert.strictEqual(await client.submitTransactionAndWait(Buffer.from([1]), {}), applied);
+  }
+  assert.equal(waited, 4);
+
+  for (const [status, code, rejectCode] of [
+    [409, "transaction_rejected", "transaction_rejected"],
+    [400, "already_committed", "PRTRY:ALREADY_COMMITTED"],
+    [429, "queue_full", "PRTRY:QUEUE_FULL"],
+  ]) {
+    rejection = await queueRejection(status, code, rejectCode);
+    await assert.rejects(
+      () => client.submitTransactionAndWait(Buffer.from([1]), {}),
+      (error) => error === rejection,
+    );
+  }
+  rejection = new Error("network down");
+  await assert.rejects(() => client.submitTransactionAndWait(Buffer.from([1]), {}), /network down/u);
+  assert.equal(waited, 4, "only exact idempotent rejections continue to the finality wait");
+});
+
 test("transaction finality policy cannot be overridden", async () => {
   const client = new ToriiClient(BASE_URL, {
     fetchImpl: async () => createResponse({ status: 200 }),
@@ -11717,16 +12116,19 @@ test("getMetrics forwards AbortSignal", async () => {
 });
 
 test("getBlock fetches block by height", async () => {
+  const blockHash = canonicalHashLiteral(Buffer.alloc(32, 0xab));
+  const previousHash = canonicalHashLiteral(Buffer.alloc(32, 0xcd));
+  const transactionsHash = canonicalHashLiteral(Buffer.alloc(32, 0xef));
   const fetchImpl = async (url) => {
     assert.equal(url, `${BASE_URL}/v1/explorer/blocks/42`);
     return createResponse({
       status: 200,
       jsonData: {
-        hash: "DEADBEEF",
+        hash: blockHash,
         height: 42,
         created_at: "2026-01-01T00:00:00Z",
-        prev_block_hash: null,
-        transactions_hash: "ABCD",
+        prev_block_hash: previousHash,
+        transactions_hash: transactionsHash,
         transactions_rejected: 1,
         transactions_total: 5,
       },
@@ -11736,14 +12138,74 @@ test("getBlock fetches block by height", async () => {
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   const block = await client.getBlock(42);
   assert.deepEqual(block, {
-    hash: "DEADBEEF",
+    hash: blockHash,
     height: 42,
     createdAt: "2026-01-01T00:00:00Z",
-    prevBlockHash: null,
-    transactionsHash: "ABCD",
+    prevBlockHash: previousHash,
+    transactionsHash,
     transactionsRejected: 1,
     transactionsTotal: 5,
   });
+});
+
+test("getBlock preserves the canonical hashes in a raw Torii genesis response", async () => {
+  const textBody = `{
+  "hash": "hash:CA7BEBB1579D7F490C23BCBABD27E116BF2F921A7DB69862F0AD28E22257B465#450F",
+  "height": 1,
+  "created_at": "2026-10-13T18:07:03.289Z",
+  "prev_block_hash": null,
+  "transactions_hash": "hash:0E6AF08E44AC00BF9CB2C801D9DBDC936E9E611FF93FC1EC29C3858532B6E6CD#D04C",
+  "transactions_rejected": 0,
+  "transactions_total": 0
+}`;
+  const client = new ToriiClient(BASE_URL, { fetchImpl: async (url) => {
+    assert.equal(url, `${BASE_URL}/v1/explorer/blocks/1`);
+    return createResponse({
+      status: 200, textBody, headers: { "content-type": "application/json" },
+    });
+  } });
+  const block = await client.getBlock(1);
+  assert.deepEqual(block, {
+    hash: "hash:CA7BEBB1579D7F490C23BCBABD27E116BF2F921A7DB69862F0AD28E22257B465#450F",
+    height: 1,
+    createdAt: "2026-10-13T18:07:03.289Z",
+    prevBlockHash: null,
+    transactionsHash: "hash:0E6AF08E44AC00BF9CB2C801D9DBDC936E9E611FF93FC1EC29C3858532B6E6CD#D04C",
+    transactionsRejected: 0,
+    transactionsTotal: 0,
+  });
+});
+
+test("getBlock rejects noncanonical, corrupt, and unmarked hash fields", async () => {
+  const valid = canonicalHashLiteral(Buffer.alloc(32, 0xab));
+  const unmarkedBody = "00".repeat(32);
+  const invalid = [
+    valid.slice(5, 69),
+    valid.toLowerCase(),
+    ` ${valid}`,
+    valid.slice(0, -1) + (valid.endsWith("0") ? "1" : "0"),
+    `hash:${unmarkedBody}#${computeHashLiteralCrc("hash", unmarkedBody)}`,
+    123,
+  ];
+  for (const field of ["hash", "prev_block_hash", "transactions_hash"]) {
+    for (const value of invalid) {
+      const client = new ToriiClient(BASE_URL, { fetchImpl: async () => createResponse({
+        status: 200,
+        jsonData: {
+          hash: valid, height: 2, created_at: "2026-01-01T00:00:00Z",
+          prev_block_hash: valid, transactions_hash: valid,
+          transactions_rejected: 0, transactions_total: 0,
+          [field]: value,
+        },
+        headers: { "content-type": "application/json" },
+      }) });
+      await assert.rejects(() => client.getBlock(2), (error) => {
+        assert.ok(error instanceof Error);
+        assert.ok(error.message.includes(`explorer block response.${field}`));
+        return true;
+      }, `${field}: ${String(value)}`);
+    }
+  }
 });
 
 test("getLedgerExecutedBlockWire fetches exact bounded Norito bytes", async () => {
@@ -11860,11 +12322,11 @@ test("getBlock forwards AbortSignal", async () => {
     return createResponse({
       status: 200,
       jsonData: {
-        hash: "aa",
+        hash: canonicalHashLiteral(Buffer.alloc(32, 0xab)),
         height: 7,
         created_at: "now",
         prev_block_hash: null,
-        transactions_hash: "bb",
+        transactions_hash: null,
         transactions_rejected: 0,
         transactions_total: 0,
       },
@@ -11874,6 +12336,7 @@ test("getBlock forwards AbortSignal", async () => {
   const client = new ToriiClient(BASE_URL, { fetchImpl });
   const block = await client.getBlock(7, { signal: controller.signal });
   assert.equal(block.height, 7);
+  assert.equal(block.transactionsHash, null);
 });
 
 test("getBlock returns null when Torii replies 404", async () => {
@@ -20073,7 +20536,7 @@ test("getSnsPolicy fetches and normalizes suffix policy", async () => {
         suffix_id: 2,
         suffix: "SORA",
         steward: SAMPLE_ACCOUNT_ID,
-        status: "Active",
+        status: { status: "Active", detail: null },
         min_term_years: 1,
         max_term_years: 5,
         grace_period_days: 30,
@@ -20086,7 +20549,7 @@ test("getSnsPolicy fetches and normalizes suffix policy", async () => {
             tier_id: 1,
             label_regex: ".*",
             base_price: { asset_id: FIXTURE_ASSET_ID_A, amount: "100" },
-            auction_kind: "DutchReopen",
+            auction_kind: { kind: "DutchReopen", detail: null },
             dutch_floor: { asset_id: FIXTURE_ASSET_ID_A, amount: "10" },
             min_duration_years: 1,
             max_duration_years: 5,
@@ -20104,6 +20567,7 @@ test("getSnsPolicy fetches and normalizes suffix policy", async () => {
   const policy = await client.getSnsPolicy(2);
   assert.equal(policy.suffixId, 2);
   assert.equal(policy.suffix, "sora");
+  assert.equal(policy.status, "Active");
   assert.equal(policy.pricing[0].auctionKind, "DutchReopen");
   assert.equal(policy.reservedLabels[0].normalizedLabel, "gov");
 });

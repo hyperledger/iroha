@@ -8,9 +8,17 @@
     clippy::struct_excessive_bools
 )]
 #[cfg(feature = "app_api")]
+mod account_history_multisig;
+#[cfg(feature = "app_api")]
+mod account_history_sse;
+#[cfg(feature = "app_api")]
+pub use account_history_sse::{AccountHistorySseRequest, handle_v1_account_history_sse};
+#[cfg(feature = "app_api")]
 pub mod collection_sources;
 #[cfg(feature = "app_api")]
 mod contract_return_attempt;
+#[cfg(feature = "app_api")]
+pub(crate) mod explorer_transaction_proof;
 #[cfg(feature = "app_api")]
 mod public_lane_rewards;
 use iroha_executor_data_model::isi::multisig::{MultisigProposalId, MultisigProposalNonce};
@@ -17836,30 +17844,35 @@ fn load_historical_multisig_terminal_record(
 }
 
 const MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW: Duration = Duration::from_secs(15);
-const MULTISIG_PROPOSAL_VISIBILITY_POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// Wait for a submitted proposal's record, re-reading it as each block commits.
+///
+/// Only a committed block can make the record visible, and a commit publishes its
+/// World writes with its height under one State generation. Waking on that
+/// publication answers with the block instead of on a later poll tick.
 async fn wait_for_multisig_proposal_record_visibility(
     state: &CoreState,
     multisig_account_id: &iroha_data_model::account::AccountId,
     spec: &iroha_executor_data_model::isi::multisig::MultisigSpec,
     proposal_id: &MultisigProposalId,
 ) -> Result<Option<MultisigProposalRecord>> {
-    let started_at = std::time::Instant::now();
+    let deadline = tokio::time::Instant::now() + MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW;
     loop {
+        // Sample the frontier before reading: a block published after this
+        // sample satisfies the wait below even if it lands before suspension.
+        let observed_height = u64::try_from(state.committed_height()).unwrap_or(u64::MAX);
         if let Some(record) =
             load_multisig_proposal_record(state, multisig_account_id, spec, proposal_id)?
         {
             return Ok(Some(record));
         }
-        let elapsed = started_at.elapsed();
-        if elapsed >= MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW {
-            return Ok(None);
+        let committed = state.wait_for_committed_height(observed_height.saturating_add(1));
+        let expired = tokio::time::sleep_until(deadline);
+        tokio::pin!(committed, expired);
+        tokio::select! {
+            biased;
+            () = &mut committed => {}
+            () = &mut expired => return Ok(None),
         }
-        let remaining = MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW.saturating_sub(elapsed);
-        let poll = MULTISIG_PROPOSAL_VISIBILITY_POLL_INTERVAL.min(remaining);
-        if poll.is_zero() {
-            return Ok(None);
-        }
-        tokio::time::sleep(poll).await;
     }
 }
 fn multisig_proposal_is_cancel_wrapper(
@@ -24021,6 +24034,522 @@ ENDPOINT_CONTRACTS_CALL_MULTISIG_PROPOSE,
         );
         assert_ne!(payload["proposal_id"], payload["instructions_hash"]);
         assert_exact_unsigned_transaction_draft(&payload);
+    }
+    /// Detached quorum-two proposal signed exactly as Torii prepares it.
+    fn signed_quorum_two_propose(
+        state: &State,
+        multisig_account_id: &dm::AccountId,
+        signer_id: &dm::AccountId,
+        signer_keypair: &KeyPair,
+        proposal_nonce: MultisigProposalNonce,
+        instructions: &[dm::InstructionBox],
+        creation_time_ms: u64,
+    ) -> MultisigProposeDtoV1 {
+        use base64::Engine as _;
+        let fee_payment = dm::FeePaymentIntent::authority(Vec::new(), None);
+        let mut builder = dm::TransactionBuilder::new(
+            *state.network_id_ref(),
+            signer_id.clone(),
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        );
+        builder.set_creation_time(Duration::from_millis(creation_time_ms));
+        let signed = sign_app_api_transaction(
+            builder
+                .with_fee_payment_intent(fee_payment.clone())
+                .with_metadata(build_multisig_propose_metadata(None))
+                .with_instructions([dm::InstructionBox::from(MultisigPropose::new(
+                    multisig_account_id.clone(),
+                    proposal_nonce,
+                    instructions.to_vec(),
+                    None,
+                ))]),
+            signer_keypair.private_key(),
+            ENDPOINT_MULTISIG_PROPOSE,
+        )
+        .expect("sign detached quorum-two proposal");
+        let (_, public_key_bytes) = signer_keypair.public_key().to_bytes();
+        MultisigProposeDtoV1 {
+            proposal_nonce,
+            selector: concrete_selector(multisig_account_id.clone()),
+            signer_account_id: signer_id.clone(),
+            public_key_hex: Some(hex::encode(public_key_bytes)),
+            signature_b64: Some(
+                base64::engine::general_purpose::STANDARD
+                    .encode(signed.signature().payload().payload()),
+            ),
+            creation_time_ms: Some(creation_time_ms),
+            fee_payment,
+            memo: None,
+            validation_fee_assessment: None,
+            instructions: instructions.to_vec(),
+        }
+    }
+    /// Commit the next block carrying the proposer's active proposal record, as
+    /// consensus does once the submitted transaction is applied.
+    fn publish_proposal_block(
+        state: &State,
+        multisig_account_id: &dm::AccountId,
+        proposer_id: &dm::AccountId,
+        proposal_nonce: MultisigProposalNonce,
+        instructions: &[dm::InstructionBox],
+        proposed_at_ms: u64,
+    ) -> MultisigProposalId {
+        let proposal_id = MultisigProposalId::derive(
+            state.network_id_ref(),
+            multisig_account_id,
+            &proposal_nonce,
+        );
+        let record = iroha_executor_data_model::isi::multisig::MultisigProposalState {
+            network_id: *state.network_id_ref(),
+            multisig_account_id: multisig_account_id.clone(),
+            proposal_nonce,
+            proposal_id,
+            instructions_hash: HashOf::new(&instructions.to_vec()),
+            transaction_ttl_ms: None,
+            instructions: instructions.to_vec(),
+            proposed_at_ms,
+            expires_at_ms: proposed_at_ms + 60_000,
+            approvals: BTreeSet::from([proposer_id.clone()]),
+        };
+        let height = u64::try_from(state.committed_height())
+            .expect("committed height fits u64")
+            .checked_add(1)
+            .expect("next block height");
+        let header = dm::BlockHeader::new(
+            NonZeroU64::new(height).expect("nonzero block height"),
+            None,
+            None,
+            0,
+            0,
+        );
+        let mut block = state.block(header.clone());
+        let mut transaction = block.transaction();
+        transaction
+            .world_mut_for_testing()
+            .smart_contract_state_mut_for_testing()
+            .insert(
+                multisig_proposal_state_contract_key(multisig_account_id, &proposal_id),
+                norito::to_bytes(&record).expect("encode active proposal state"),
+            );
+        transaction.apply();
+        block
+            .commit_world_overlay_for_testing()
+            .expect("commit proposal record");
+        state.append_committed_block_header_for_tests(header);
+        proposal_id
+    }
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn multisig_signed_propose_responds_with_its_publishing_block() {
+        let (world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+            multisig_test_world();
+        let signer_keypair =
+            checked_multisig_selector_keypair(0x60, "derive quorum-two proposal signer key");
+        let state = build_state(world);
+        let queue = build_queue();
+        let instructions = vec![dm::InstructionBox::from(dm::Log::new(
+            dm::Level::INFO,
+            "proposal awaiting its block".to_owned(),
+        ))];
+        let proposal_nonce = MultisigProposalNonce::new([0x42; 32]).unwrap();
+        let creation_time_ms = current_time_millis();
+        let request = signed_quorum_two_propose(
+            &state,
+            &multisig_account_id,
+            &signer_id,
+            &signer_keypair,
+            proposal_nonce,
+            &instructions,
+            creation_time_ms,
+        );
+        let handler = tokio::spawn(handle_post_multisig_propose(
+            Arc::clone(&queue),
+            Arc::clone(&state),
+            MaybeTelemetry::disabled(),
+            NoritoJson(request),
+        ));
+        // The paused clock only advances once every task idles, so the handler
+        // admits its transaction and suspends without any virtual time passing.
+        while queue.active_len() == 0 {
+            if handler.is_finished() {
+                let outcome = handler.await.expect("propose task");
+                panic!("signed propose ended before admission: {:?}", outcome.err());
+            }
+            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
+        assert!(
+            !handler.is_finished(),
+            "the proposal is not visible before its block"
+        );
+        let proposal_id = publish_proposal_block(
+            &state,
+            &multisig_account_id,
+            &signer_id,
+            proposal_nonce,
+            &instructions,
+            creation_time_ms,
+        );
+        let published = tokio::time::Instant::now();
+        let response = handler
+            .await
+            .expect("propose task")
+            .expect("signed proposal should submit");
+        assert_eq!(
+            published.elapsed(),
+            Duration::ZERO,
+            "the response must leave with the block that publishes the proposal, not on a later poll",
+        );
+        let payload = decode_json_response(response).await;
+        assert_eq!(payload["submitted"].as_bool(), Some(true));
+        assert_eq!(
+            payload["proposal_id"].as_str(),
+            Some(proposal_id.to_string().as_str())
+        );
+    }
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn multisig_signed_propose_gives_up_after_the_visibility_window() {
+        let (world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+            multisig_test_world();
+        let signer_keypair =
+            checked_multisig_selector_keypair(0x60, "derive quorum-two proposal signer key");
+        let state = build_state(world);
+        let started = tokio::time::Instant::now();
+        let response = handle_post_multisig_propose(
+            build_queue(),
+            Arc::clone(&state),
+            MaybeTelemetry::disabled(),
+            NoritoJson(signed_quorum_two_propose(
+                &state,
+                &multisig_account_id,
+                &signer_id,
+                &signer_keypair,
+                MultisigProposalNonce::new([0x43; 32]).unwrap(),
+                &[dm::InstructionBox::from(dm::Log::new(
+                    dm::Level::INFO,
+                    "proposal whose block never lands".to_owned(),
+                ))],
+                current_time_millis(),
+            )),
+        )
+        .await
+        .expect("an admitted proposal still reports its submission");
+        assert_eq!(started.elapsed(), MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW);
+        let payload = decode_json_response(response).await;
+        assert_eq!(payload["submitted"].as_bool(), Some(true));
+    }
+    /// Temporary local latency probe for `POST /v1/multisig/propose`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "latency probe"]
+    async fn multisig_propose_latency_probe() {
+        fn summary(label: &str, samples: &mut [Duration]) {
+            samples.sort();
+            let total: Duration = samples.iter().sum();
+            let count = u32::try_from(samples.len()).expect("sample count");
+            eprintln!(
+                "PROBE {label}: n={} mean={:.2}ms p50={:.2}ms max={:.2}ms",
+                samples.len(),
+                (total / count).as_secs_f64() * 1e3,
+                samples[samples.len() / 2].as_secs_f64() * 1e3,
+                samples[samples.len() - 1].as_secs_f64() * 1e3,
+            );
+        }
+        let (mut world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+            multisig_test_world();
+        // Retained proposal history under the multisig account.
+        for index in 0..2_000_u32 {
+            insert_active_multisig_proposal(
+                &mut world,
+                &multisig_account_id,
+                vec![dm::InstructionBox::from(dm::Log::new(
+                    dm::Level::INFO,
+                    format!("history {index}"),
+                ))],
+                1_700_000_000_000,
+                4_000_000_000_000,
+                BTreeSet::new(),
+            );
+        }
+        let signer_keypair =
+            checked_multisig_selector_keypair(0x60, "derive quorum-two proposal signer key");
+        let state = build_state(world);
+        let queue = build_queue();
+        let instructions = vec![dm::InstructionBox::from(dm::Log::new(
+            dm::Level::INFO,
+            "probe".to_owned(),
+        ))];
+        let fee_payment = dm::FeePaymentIntent::authority(Vec::new(), None);
+        let iterations = 40_u8;
+        let mut draft = Vec::new();
+        let (mut resolve, mut route, mut view, mut fee, mut encode) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for index in 0..iterations {
+            let proposal_nonce = MultisigProposalNonce::new([index + 1; 32]).unwrap();
+            let creation_time_ms = current_time_millis();
+            let started = std::time::Instant::now();
+            let response = handle_post_multisig_propose(
+                Arc::clone(&queue),
+                Arc::clone(&state),
+                MaybeTelemetry::disabled(),
+                NoritoJson(MultisigProposeDtoV1 {
+                    proposal_nonce,
+                    selector: concrete_selector(multisig_account_id.clone()),
+                    signer_account_id: signer_id.clone(),
+                    public_key_hex: None,
+                    signature_b64: None,
+                    creation_time_ms: Some(creation_time_ms),
+                    fee_payment: fee_payment.clone(),
+                    memo: None,
+                    validation_fee_assessment: None,
+                    instructions: instructions.clone(),
+                }),
+            )
+            .await
+            .expect("draft propose");
+            draft.push(started.elapsed());
+            assert_eq!(
+                decode_json_response(response).await["submitted"].as_bool(),
+                Some(false)
+            );
+            let started = std::time::Instant::now();
+            let (account, _spec) = resolve_multisig_account_and_spec(
+                &state,
+                &concrete_selector(multisig_account_id.clone()),
+                Some(&signer_id),
+            )
+            .expect("resolve");
+            resolve.push(started.elapsed());
+            let mut builder = dm::TransactionBuilder::new(
+                *state.network_id_ref(),
+                signer_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            );
+            builder.set_creation_time(Duration::from_millis(creation_time_ms));
+            let mut payload = builder
+                .with_fee_payment_intent(fee_payment.clone())
+                .with_metadata(build_multisig_propose_metadata(None))
+                .with_instructions([dm::InstructionBox::from(MultisigPropose::new(
+                    account,
+                    proposal_nonce,
+                    instructions.clone(),
+                    None,
+                ))])
+                .into_payload()
+                .expect("payload");
+            let started = std::time::Instant::now();
+            let RoutingPlan::Single(single) = queue
+                .route_payload_plan_with_state(&payload, &state)
+                .expect("route")
+            else {
+                panic!("single route expected");
+            };
+            route.push(started.elapsed());
+            let started = std::time::Instant::now();
+            let quote_view = state.query_view();
+            let committed =
+                iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&quote_view)
+                    .expect("committed time");
+            let next_block_height = u64::try_from(quote_view.height()).unwrap() + 1;
+            view.push(started.elapsed());
+            let started = std::time::Instant::now();
+            let quote = iroha_core::executor::quote_nexus_fee_admission_draft(
+                quote_view.world(),
+                quote_view.nexus(),
+                quote_view.pipeline(),
+                &quote_view.zk().gas,
+                &payload,
+                committed.unwrap_or(0),
+                committed,
+                next_block_height,
+                Some(single.route.dataspace_id),
+            )
+            .expect("fee quote");
+            fee.push(started.elapsed());
+            drop(quote_view);
+            payload.fee_payment = quote.recommended_intent;
+            let builder = dm::TransactionBuilder::from_payload(payload).expect("builder");
+            let started = std::time::Instant::now();
+            let _ = app_api_transaction_draft(&builder);
+            encode.push(started.elapsed());
+        }
+        summary("draft handler", &mut draft);
+        summary("draft resolve spec", &mut resolve);
+        summary("draft route plan", &mut route);
+        summary("draft query view", &mut view);
+        summary("draft fee quote", &mut fee);
+        summary("draft encode", &mut encode);
+        drop((state, queue));
+        // Previous 250 ms poll, kept only to compare against the commit wakeup.
+        async fn legacy_poll_wait(
+            state: &CoreState,
+            multisig_account_id: &dm::AccountId,
+            spec: &MultisigSpec,
+            proposal_id: &MultisigProposalId,
+        ) -> Result<Option<MultisigProposalRecord>> {
+            let started_at = std::time::Instant::now();
+            loop {
+                if let Some(record) =
+                    load_multisig_proposal_record(state, multisig_account_id, spec, proposal_id)?
+                {
+                    return Ok(Some(record));
+                }
+                let elapsed = started_at.elapsed();
+                if elapsed >= MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW {
+                    return Ok(None);
+                }
+                tokio::time::sleep(
+                    Duration::from_millis(250)
+                        .min(MULTISIG_PROPOSAL_VISIBILITY_WAIT_WINDOW.saturating_sub(elapsed)),
+                )
+                .await;
+            }
+        }
+        async fn publish_after(
+            state: &Arc<State>,
+            multisig_account_id: &dm::AccountId,
+            signer_id: &dm::AccountId,
+            proposal_nonce: MultisigProposalNonce,
+            instructions: &[dm::InstructionBox],
+            creation_time_ms: u64,
+            delay: Duration,
+        ) -> std::time::Instant {
+            tokio::time::sleep(delay).await;
+            let state = Arc::clone(state);
+            let multisig_account_id = multisig_account_id.clone();
+            let signer_id = signer_id.clone();
+            let instructions = instructions.to_vec();
+            crate::panic_recovery::join_recoverable(
+                crate::panic_recovery::spawn_blocking_recoverable(move || {
+                    publish_proposal_block(
+                        &state,
+                        &multisig_account_id,
+                        &signer_id,
+                        proposal_nonce,
+                        &instructions,
+                        creation_time_ms,
+                    )
+                }),
+            )
+            .await
+            .expect("publish block");
+            std::time::Instant::now()
+        }
+        let delays = [0_u64, 30, 60, 90, 120, 150, 180, 210, 240, 270, 400, 900];
+        let proposal_nonce = MultisigProposalNonce::new([0x80; 32]).unwrap();
+        // Handler: the signed submit is admitted, then answers once its block lands.
+        let (mut handler_lags, mut admissions) = (Vec::new(), Vec::new());
+        for delay_ms in delays {
+            let (world, multisig_account_id, signer_id, _signer_two_id, _alias_literal, _active) =
+                multisig_test_world();
+            let state = build_state(world);
+            let queue = build_queue();
+            let creation_time_ms = current_time_millis();
+            let request = signed_quorum_two_propose(
+                &state,
+                &multisig_account_id,
+                &signer_id,
+                &signer_keypair,
+                proposal_nonce,
+                &instructions,
+                creation_time_ms,
+            );
+            let started = std::time::Instant::now();
+            let handler = tokio::spawn(handle_post_multisig_propose(
+                Arc::clone(&queue),
+                Arc::clone(&state),
+                MaybeTelemetry::disabled(),
+                NoritoJson(request),
+            ));
+            while queue.active_len() == 0 {
+                if handler.is_finished() {
+                    let outcome = handler.await.expect("propose task");
+                    panic!("signed propose ended before admission: {:?}", outcome.err());
+                }
+                tokio::time::sleep(Duration::from_micros(100)).await;
+            }
+            admissions.push(started.elapsed());
+            let published = publish_after(
+                &state,
+                &multisig_account_id,
+                &signer_id,
+                proposal_nonce,
+                &instructions,
+                creation_time_ms,
+                Duration::from_millis(delay_ms),
+            )
+            .await;
+            let response = handler
+                .await
+                .expect("propose task")
+                .expect("signed propose");
+            let lag = published.elapsed();
+            assert_eq!(
+                decode_json_response(response).await["submitted"].as_bool(),
+                Some(true)
+            );
+            eprintln!(
+                "PROBE handler commit_after={delay_ms}ms total={:.2}ms lag_after_commit={:.3}ms",
+                started.elapsed().as_secs_f64() * 1e3,
+                lag.as_secs_f64() * 1e3,
+            );
+            handler_lags.push(lag);
+        }
+        summary("signed handler admission", &mut admissions);
+        summary("signed handler lag after commit", &mut handler_lags);
+        // Same publications against the previous poll and the commit wakeup.
+        for legacy in [true, false] {
+            let mut lags = Vec::new();
+            for delay_ms in delays {
+                let (world, multisig_account_id, signer_id, _signer_two_id, _alias, _active) =
+                    multisig_test_world();
+                let state = build_state(world);
+                let (account, spec) = resolve_multisig_account_and_spec(
+                    &state,
+                    &concrete_selector(multisig_account_id.clone()),
+                    Some(&signer_id),
+                )
+                .expect("resolve");
+                let proposal_id =
+                    MultisigProposalId::derive(state.network_id_ref(), &account, &proposal_nonce);
+                let waiter = {
+                    let state = Arc::clone(&state);
+                    tokio::spawn(async move {
+                        if legacy {
+                            legacy_poll_wait(&state, &account, &spec, &proposal_id).await
+                        } else {
+                            wait_for_multisig_proposal_record_visibility(
+                                &state,
+                                &account,
+                                &spec,
+                                &proposal_id,
+                            )
+                            .await
+                        }
+                    })
+                };
+                tokio::task::yield_now().await;
+                let published = publish_after(
+                    &state,
+                    &multisig_account_id,
+                    &signer_id,
+                    proposal_nonce,
+                    &instructions,
+                    current_time_millis(),
+                    Duration::from_millis(delay_ms),
+                )
+                .await;
+                let record = waiter.await.expect("wait task").expect("wait");
+                lags.push(published.elapsed());
+                assert!(record.is_some(), "published proposal must be visible");
+            }
+            summary(
+                if legacy {
+                    "wait lag after commit: previous 250 ms poll"
+                } else {
+                    "wait lag after commit: commit wakeup"
+                },
+                &mut lags,
+            );
+        }
     }
 }
 /// POST /v1/contracts/call/multisig/propose — propose a multisig participation envelope
@@ -31738,29 +32267,10 @@ None,
         }
         return out;
     }
-    if let Some(batch) = any.downcast_ref::<TransferAssetBatch>() {
-        for entry in batch.entries() {
-            let definition = entry.asset_definition().to_string();
-            let source_asset_id = iroha_data_model::asset::AssetId::new(
-                entry.asset_definition().clone(),
-                entry.from().clone(),
-            )
-            .to_string();
-            let destination_asset_id = iroha_data_model::asset::AssetId::new(
-                entry.asset_definition().clone(),
-                entry.to().clone(),
-            )
-            .to_string();
-            account_history_push_directional(
-&mut out,
-entry.from(),
-entry.to(),
-(Some(source_asset_id), Some(destination_asset_id)),
-Some(definition),
-Some(entry.amount().to_string()),
-"TRANSFER",
-);
-        }
+    if any.is::<TransferAssetBatch>() {
+        // Both batch modes write durable per-leg outcomes. Project those once
+        // from the transaction result, including nested multisig execution,
+        // because successful independent batches may contain rejected legs.
         return out;
     }
     if let Some(mint) = any.downcast_ref::<MintBox>() {
@@ -31795,12 +32305,17 @@ Some(entry.amount().to_string()),
         if let Ok(MultisigInstructionBox::Propose(propose)) =
             MultisigInstructionBox::try_from(custom.payload())
         {
-            for nested in &propose.instructions {
-                out.extend(account_history_movements_from_instruction(nested));
-            }
-            if !out.is_empty() {
-                return out;
-            }
+            // A proposal records intent. Only a matched Finalized terminal
+            // and Executed outcome identify the transaction that moved value.
+            return vec![AccountHistoryMovement {
+                account: propose.account.clone(),
+                direction: "affected",
+                counterparty: None,
+                asset_id: None,
+                asset_definition_id: None,
+                amount: None,
+                history_type: "RAW_ON_CHAIN",
+            }];
         }
     }
     crate::account_activity::instruction_account_activities(instr)
@@ -32980,6 +33495,8 @@ pub const ENDPOINT_ACCOUNTS_TRANSACTIONS_QUERY: &str =
 pub const ENDPOINT_TRANSACTIONS_QUERY: &str = "/v1/transactions/query";
 pub const ENDPOINT_ACCOUNTS_TRANSACTIONS: &str = "/v1/accounts/{account_id}/transactions";
 pub const ENDPOINT_ACCOUNTS_HISTORY: &str = "/v1/accounts/{account_id}/history";
+/// Live account-history movement stream.
+pub const ENDPOINT_ACCOUNTS_HISTORY_SSE: &str = "/v1/accounts/{account_id}/history/sse";
 pub const ENDPOINT_CONTRACTS_ACTIVITY: &str = "/v1/contracts/activity";
 pub const ENDPOINT_CONTRACTS_EVENTS: &str = "/v1/contracts/events";
 pub const ENDPOINT_CONTRACTS_ROLLUPS_SWAPS_FILLS: &str = "/v1/contracts/rollups/swaps/fills";
@@ -33506,53 +34023,6 @@ impl HistoryVisibilityReads {
                 block: None,
                 error: None,
             }),
-        }
-    }
-    fn allows(
-        &self,
-        visibility: &DataspaceReadVisibility,
-        height: u64,
-        expected: Option<HashOf<BlockHeader>>,
-        source: HashOf<TransactionEntrypoint>,
-    ) -> bool {
-        if visibility.can_read_all() {
-            return true;
-        }
-        let mut reads = self
-            .reads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if reads.error.is_some() {
-            return false;
-        }
-        let result = (|| -> Result<bool> {
-            if height == 0 || height > self.height {
-                return Err(conversion_error(
-                    "visibility source exceeds its captured prefix".into(),
-                ));
-            }
-            let height = usize::try_from(height)
-                .ok()
-                .and_then(NonZeroUsize::new)
-                .ok_or_else(|| conversion_error("visibility height exceeds host range".into()))?;
-            if reads.block.as_ref().is_none_or(|(cached_height, _)| *cached_height != height.get()) {
-                let block = reads.budget.read(&self.state, height)?;
-                reads.block = Some((height.get(), block));
-            }
-            let (_, block) = reads.block.as_ref().expect("retained authenticated carrier");
-            if expected.is_some_and(|hash| hash != block.hash()) {
-                return Err(conversion_error(
-                    "visibility carrier differs from the projected source".into(),
-                ));
-            }
-            Ok(visibility.allows_external_entrypoint_hash(block, source))
-        })();
-        match result {
-            Ok(allowed) => allowed,
-            Err(error) => {
-                reads.error = Some(error);
-                false
-            }
         }
     }
     fn allows_contract_event(&self, visibility: &DataspaceReadVisibility, projection: &ContractEventProjection) -> bool {
@@ -34748,39 +35218,18 @@ mod tx_query_filter_tests {
             Some(source_asset_literal.as_str())
         );
     }
-    routing_test! { sync account_history_movements_project_transfer_batch_recipient_asset_ids
+    routing_test! { sync account_history_movements_require_batch_execution_receipts
         let (alice, _) = account_with_key();
         let (bob, _) = account_with_key();
-        let (carol, _) = account_with_key();
-        let (dave, _) = account_with_key();
         let def = test_asset_definition_id();
-        let entry_a = dm::TransferAssetBatchEntry::new(alice, bob.clone(), def.clone(), 1_u32);
-        let entry_b = dm::TransferAssetBatchEntry::new(carol, dave.clone(), def.clone(), 2_u32);
-        let instruction: dm::InstructionBox =
-            dm::TransferAssetBatch::new(vec![entry_a, entry_b]).into();
-        let bob_asset_id = dm::AssetId::new(def.clone(), bob.clone()).to_string();
-        let dave_asset_id = dm::AssetId::new(def, dave.clone()).to_string();
-        let movements = account_history_movements_from_instruction(&instruction);
-        let bob_incoming = movements
-            .iter()
-            .find(|movement| movement.account == bob)
-            .expect("Bob incoming batch movement");
-        assert_eq!(bob_incoming.direction, "incoming");
-        assert_eq!(
-            bob_incoming.asset_id.as_deref(),
-            Some(bob_asset_id.as_str())
-        );
-        assert_eq!(bob_incoming.amount.as_deref(), Some("1"));
-        let dave_incoming = movements
-            .iter()
-            .find(|movement| movement.account == dave)
-            .expect("Dave incoming batch movement");
-        assert_eq!(dave_incoming.direction, "incoming");
-        assert_eq!(
-            dave_incoming.asset_id.as_deref(),
-            Some(dave_asset_id.as_str())
-        );
-        assert_eq!(dave_incoming.amount.as_deref(), Some("2"));
+        let entry = dm::TransferAssetBatchEntry::new(alice, bob, def, 1_u32);
+        for batch in [
+            dm::TransferAssetBatch::new(vec![entry.clone()]),
+            dm::TransferAssetBatch::independent(vec![entry]),
+        ] {
+            let instruction: dm::InstructionBox = batch.into();
+            assert!(account_history_movements_from_instruction(&instruction).is_empty());
+        }
     }
     routing_test! { sync account_transaction_subject_matches_authority_and_transfer_participants
         let (authority, keypair): (dm::AccountId, KeyPair) = account_with_key();
@@ -37843,6 +38292,143 @@ mod explorer_lookup_tests {
         );
         assert_eq!(items[0]["kind"].as_str(), Some(dm::CustomInstruction::WIRE_ID));
     }
+    routing_test! { async explorer_transaction_proof_is_selective_and_preserves_native_inclusion
+        use base64::Engine as _;
+        use iroha_data_model::sumeragi_finality::{CertifiedResultScope, CertifiedResultV1};
+        let selected_instruction: dm::InstructionBox =
+            dm::Log::new(dm::Level::INFO, "selected-proof-marker".to_owned()).into();
+        let unrelated_instruction: dm::InstructionBox =
+            dm::Log::new(dm::Level::INFO, "unrelated-private-marker".to_owned()).into();
+        // Native InstructionBox JSON carries framed base64, not the plaintext log.
+        let selected_instruction_json = norito::json::to_json(&selected_instruction).unwrap();
+        let unrelated_instruction_json = norito::json::to_json(&unrelated_instruction).unwrap();
+        assert_ne!(selected_instruction_json, unrelated_instruction_json);
+        let (state, hashes) = build_state_with_transactions(vec![
+            vec![selected_instruction.clone()],
+            vec![unrelated_instruction],
+        ]);
+        let visibility = DataspaceReadVisibility::new(BTreeSet::from([DataSpaceId::UNIVERSAL]), false);
+        let response = crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+            explorer_transaction_proof::response(
+                Arc::clone(&state), MaybeTelemetry::disabled(), visibility, hashes[0].to_string(),
+            )
+        }).expect("visible transaction proof");
+        assert_eq!(response.status(), http::StatusCode::OK);
+        assert_eq!(response.headers().get(http::header::CACHE_CONTROL).unwrap(), "private, no-store");
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let text = std::str::from_utf8(&bytes).unwrap();
+        assert!(text.contains(&selected_instruction_json));
+        assert!(!text.contains(&unrelated_instruction_json));
+        if let Some(path) = std::env::var_os("IROHA_EXPLORER_PROOF_FIXTURE_OUTPUT") {
+            std::fs::write(path, &bytes).expect("write requested native SDK contract fixture");
+        }
+        assert!(!text.contains("unrelated-private-marker"));
+        assert!(!text.contains("block_wire"));
+        let json: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            json.as_object().unwrap().keys().map(|key| key.as_str()).collect::<BTreeSet<_>>(),
+            BTreeSet::from(["version", "network_id", "block_height", "block_header", "transaction", "certificate"]),
+        );
+        assert_eq!(json["version"].as_u64(), Some(1));
+        assert_eq!(json["network_id"].as_str(), Some(state.network_id_ref().to_string().as_str()));
+        assert_eq!(json["certificate"].as_object().unwrap().len(), 3);
+        let transaction: iroha_data_model::query::CommittedTransaction = norito::json::from_value(json["transaction"].clone()).unwrap();
+        let header: BlockHeader = norito::json::from_value(json["block_header"].clone()).unwrap();
+        assert_eq!(transaction.entrypoint_hash, hashes[0]);
+        assert_eq!(transaction.entrypoint.hash(), hashes[0]);
+        // Require the exact native DTO, including all nested fields, with no extra payload.
+        assert_eq!(json["transaction"], norito::json::to_value(&transaction).unwrap());
+        let TransactionEntrypoint::External(selected) = &transaction.entrypoint else {
+            panic!("selected fixture must remain an external signed transaction");
+        };
+        assert_eq!(
+            selected.instructions(),
+            &dm::Executable::from(vec![selected_instruction]),
+        );
+        let decode = |name: &str| base64::engine::general_purpose::STANDARD
+            .decode(json["certificate"][name].as_str().unwrap()).unwrap();
+        let original = iroha_data_model::sumeragi_finality::SumeragiCommitCertificateV1 {
+            consensus_header: decode("consensus_header"),
+            commit_qc: decode("commit_qc"),
+            result_preimage: decode("result_preimage"),
+        };
+        original.to_canonical_bytes().expect("original compact native certificate");
+        let certified = CertifiedResultV1::decode(&original.result_preimage, CertifiedResultScope::TairaGlobal).unwrap();
+        // This checks selective membership only. Signature/epoch authority is separately
+        // owned by the reader; the HTTP response does not confer a verified capability.
+        assert!(transaction.verify_selective_in_authenticated_execution(
+            state.network_id_ref(), &header, &certified.commitment().execution,
+        ));
+        let mut substituted = transaction.clone();
+        substituted.entrypoint_hash = hashes[1];
+        assert!(!substituted.verify_selective_in_authenticated_execution(
+            state.network_id_ref(), &header, &certified.commitment().execution,
+        ));
+        let mut wrong_output = transaction;
+        wrong_output.output_proof = iroha_crypto::MerkleProof::from_audit_path(u32::MAX, Vec::new());
+        assert!(!wrong_output.verify_selective_in_authenticated_execution(
+            state.network_id_ref(), &header, &certified.commitment().execution,
+        ));
+    }
+
+    routing_test! { sync explorer_transaction_proof_hides_private_and_missing_transactions
+        let public = DataSpaceId::new(7);
+        let private = DataSpaceId::new(8);
+        let (state, hashes) = build_state_with_routed_transactions(vec![
+            vec![dm::Log::new(dm::Level::INFO, "public proof".to_owned()).into()],
+            vec![dm::Log::new(dm::Level::INFO, "private proof".to_owned()).into()],
+        ], vec![public, private], None);
+        let request = |target: String, visible: BTreeSet<DataSpaceId>| {
+            crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+                explorer_transaction_proof::response(
+                    Arc::clone(&state), MaybeTelemetry::disabled(),
+                    DataspaceReadVisibility::new(visible, false), target,
+                )
+            })
+        };
+        assert_eq!(request(hashes[0].to_string(), BTreeSet::from([public])).unwrap().status(), http::StatusCode::OK);
+        let hidden = request(hashes[1].to_string(), BTreeSet::from([public])).unwrap_err().into_response();
+        let absent = request(Hash::new(b"absent transaction proof").to_string(), BTreeSet::from([public])).unwrap_err().into_response();
+        assert_eq!(hidden.status(), http::StatusCode::NOT_FOUND);
+        assert_eq!(absent.status(), hidden.status());
+        assert_eq!(request(hashes[1].to_string(), BTreeSet::from([private])).unwrap().status(), http::StatusCode::OK);
+        assert_eq!(request("invalid-hash".to_owned(), BTreeSet::from([public])).unwrap_err().into_response().status(), http::StatusCode::BAD_REQUEST);
+    }
+
+    routing_test! { sync explorer_transaction_proof_refuses_corrupt_history_and_response_overflow
+        let (chain, hashes) = build_chain_with_executables_and_route_plans(
+            vec![dm::Executable::from(vec![dm::InstructionBox::from(dm::Log::new(dm::Level::INFO, "bounded proof".to_owned()))])],
+            None, None,
+        );
+        let state = Arc::clone(chain.state());
+        let request = |limit| crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+            explorer_transaction_proof::response_with_limit(
+                Arc::clone(&state), MaybeTelemetry::disabled(),
+                DataspaceReadVisibility::new(BTreeSet::from([DataSpaceId::UNIVERSAL]), false),
+                hashes[0].to_string(), limit,
+            )
+        });
+        assert_eq!(request(16 * 1024 * 1024).unwrap().status(), http::StatusCode::OK);
+        let overflow = request(1).expect_err("bounded encoder must not return a partial proof");
+        assert_eq!(overflow.into_response().status(), http::StatusCode::TOO_MANY_REQUESTS);
+        chain.kura().corrupt_canonical_body_for_testing(
+            NonZeroUsize::new(state.committed_height()).unwrap(),
+        ).expect("damage the actual committed canonical body");
+        // This fixture preserves the committed hash but removes its body. That is
+        // an explicit availability failure, distinct from a decoded hash/height mismatch.
+        let unavailable = request(16 * 1024 * 1024).expect_err("hash-only carrier must not yield proof data");
+        assert!(matches!(
+            &unavailable,
+            Error::Query(dm::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::CanonicalHistory(
+                    iroha_data_model::query::error::CanonicalHistoryError::BodyUnavailable { height, expected_hash }
+                )
+            )) if *height == state.committed_height() as u64
+                && Some(*expected_hash) == state.committed_block_hash_at_height(*height)
+        ));
+        assert_eq!(unavailable.into_response().status(), http::StatusCode::SERVICE_UNAVAILABLE);
+    }
+
     routing_test! { sync explorer_detail_lookup_returns_transaction_and_instruction
         let instructions = vec![
             dm::Log::new(dm::Level::INFO, "first".to_owned()).into(),
@@ -41127,6 +41713,7 @@ fn data_event_kind(event: &iroha_data_model::events::data::DataEvent) -> &'stati
         E::GameSession(_) => "GameSession",
         E::Sccp(_) => "Sccp",
         E::KagemushaLoadCommitted(_) => "KagemushaLoadCommitted",
+        E::Bond(_) => "Bond",
     }
 }
 app_api_items! {
@@ -44131,6 +44718,7 @@ struct RepoLegDto {
 struct RepoGovernanceDto {
     haircut_bps: u16,
     margin_frequency_secs: u64,
+    allow_early_repayment: bool,
 }
 (Debug, Clone, crate::json_macros::JsonSerialize)
 struct RepoAgreementDto {
@@ -44181,6 +44769,7 @@ impl RepoAgreementProjection {
         let governance = RepoGovernanceDto {
             haircut_bps: agreement.governance().haircut_bps(),
             margin_frequency_secs: agreement.governance().margin_frequency_secs(),
+            allow_early_repayment: agreement.governance().allow_early_repayment(),
         };
         let dto = RepoAgreementDto {
             id: canonical_id.clone(),
@@ -44388,6 +44977,10 @@ fn repo_agreement_projection_to_query_row(proj: &RepoAgreementProjection) -> nor
     governance.insert(
         "margin_frequency_secs".into(),
         Value::from(proj.dto.governance.margin_frequency_secs),
+    );
+    governance.insert(
+        "allow_early_repayment".into(),
+        Value::from(proj.dto.governance.allow_early_repayment),
     );
     row.insert("governance".into(), Value::Object(governance));
     row.insert(

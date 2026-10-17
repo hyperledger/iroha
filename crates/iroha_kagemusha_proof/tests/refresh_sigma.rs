@@ -437,11 +437,7 @@ fn installed_refresh_sigma_one_original_proves_all_five_kinds_and_refuses_refund
     for kind in KINDS {
         let source = witness(kind);
         let proof = installed
-            .prove(
-                &source,
-                common::recovery(220 + kind as u8),
-                ProverConfig::default(),
-            )
+            .prove(&source, common::fresh_randomness(), ProverConfig::default())
             .unwrap();
         assert_eq!(proof.instances, RefreshCircuit::new(&source).instances());
         let opening = accumulate_generator(
@@ -488,11 +484,7 @@ fn installed_refresh_sigma_one_original_proves_all_five_kinds_and_refuses_refund
         rebind(&mut refund);
         assert!(
             installed
-                .prove(
-                    &refund,
-                    common::recovery(230 + kind as u8),
-                    ProverConfig::default()
-                )
+                .prove(&refund, common::fresh_randomness(), ProverConfig::default())
                 .is_err()
         );
         eprintln!(
@@ -760,7 +752,7 @@ fn genuine_refresh_q_sigma_keeps_one_class_key_and_every_opening() {
             &leaf_params,
             &leaf_key,
             Witness::from_circuit(&leaf_key, &circuit, &public).unwrap(),
-            common::recovery(kind as u8 + 50),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -774,7 +766,7 @@ fn genuine_refresh_q_sigma_keeps_one_class_key_and_every_opening() {
                 },
                 None,
                 &outer_vesta,
-                Fq::from(71 + kind as u64),
+                iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
                 &FoldConfig::default(),
             )
             .unwrap();
@@ -792,7 +784,7 @@ fn genuine_refresh_q_sigma_keeps_one_class_key_and_every_opening() {
         let proof = q
             .prove(
                 &prepared,
-                common::recovery(kind as u8 + 60),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();

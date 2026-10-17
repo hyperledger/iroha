@@ -182,7 +182,7 @@ fn sequential_imports(variant: Variant) {
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).unwrap(),
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .unwrap()

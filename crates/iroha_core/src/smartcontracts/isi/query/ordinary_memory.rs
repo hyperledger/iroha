@@ -750,6 +750,7 @@ fn iterable_query_name(
         QueryItemKind::FeeSponsorProgram if parameterized => "FindFeeSponsorProgramsBySponsor",
         QueryItemKind::FeeSponsorProgram => "FindFeeSponsorPrograms",
         QueryItemKind::FeeSponsorProgramId => "FindFeeSponsorProgramIds",
+        QueryItemKind::BondRecord => "FindBonds",
     }
 }
 fn ensure_world_state_start_shape(
@@ -1036,6 +1037,7 @@ define_singular_source_admission! {
     FindAssetDefinitionDirectHome: ProvenBounded,
     FindNftById: ProvenBounded,
     FindAssetEscrowById: ProvenBounded,
+    FindBondById: ProvenBounded,
     FindTriggerById: ProvenBounded,
     FindTwitterBindingByHash: ProvenBounded,
     FindOracleFeedById: ProvenBounded,
@@ -1384,6 +1386,11 @@ pub(super) fn preflight_server_singular_source_materialization(
         }
         SingularQueryBox::FindAssetEscrowById(query) => {
             if let Some(record) = world.asset_escrows().get(&query.escrow_id) {
+                charge(record, &mut remaining)?;
+            }
+        }
+        SingularQueryBox::FindBondById(query) => {
+            if let Some(record) = world.bonds().get(query.bond()) {
                 charge(record, &mut remaining)?;
             }
         }
@@ -1737,7 +1744,7 @@ mod tests {
     }
     #[test]
     fn singular_source_admission_audit_covers_every_variant() {
-        assert_eq!(SINGULAR_SOURCE_ADMISSION_AUDIT.len(), 102);
+        assert_eq!(SINGULAR_SOURCE_ADMISSION_AUDIT.len(), 103);
         let mut names = std::collections::BTreeSet::new();
         for (name, class) in SINGULAR_SOURCE_ADMISSION_AUDIT {
             assert!(!name.is_empty());

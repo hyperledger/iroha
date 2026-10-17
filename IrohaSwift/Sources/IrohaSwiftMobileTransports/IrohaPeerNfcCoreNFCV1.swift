@@ -343,31 +343,39 @@ public enum IrohaPeerNfcCoreNFCAdapterV1 {
     }
 }
 
-/// App-owned presentation strings and bounded CardSession deadlines.
-/// The AID is deliberately not configurable: every V1 implementation uses
-/// `IrohaPeerNfcV1.applicationIdentifier` and fails closed on entitlement or
-/// provisioning mismatches.
+/// App-owned presentation strings, the application identifier and bounded
+/// CardSession deadlines. `applicationIdentifier` is the identifier the app
+/// registered: its HCE entitlement `select-identifier-prefixes` and its
+/// Info.plist reader `select-identifiers` must both list it, and both phones of
+/// an exchange must use the same one. A mismatch fails closed.
 public struct IrohaPeerNfcCoreNFCConfigurationV1: Equatable, Sendable {
     public static let maximumDurabilityTimeoutMilliseconds: UInt64 = 5_000
     public static let maximumReaderOperationTimeoutMilliseconds: UInt64 = 60_000
     public static let maximumPlatformCallTimeoutMilliseconds: UInt64 = 10_000
     public static let maximumCardSessionStartupTimeoutMilliseconds: UInt64 = 15_000
+    public static let maximumRequestPreparationTimeoutMilliseconds: UInt64 = 15_000
     public let cardAlertMessage: String
     public let readerAlertMessage: String
     public let completionAlertMessage: String
+    public let applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1
     public let durabilityTimeoutMilliseconds: UInt64
     public let readerOperationTimeoutMilliseconds: UInt64
     public let platformCallTimeoutMilliseconds: UInt64
     public let cardSessionStartupTimeoutMilliseconds: UInt64
+    /// How long the card's wallet may take to sign a Request for a submitted
+    /// Offer, and how long the payer's reader waits for it on tap 1.
+    public let requestPreparationTimeoutMilliseconds: UInt64
 
     public init(
         cardAlertMessage: String,
         readerAlertMessage: String,
         completionAlertMessage: String,
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1 = .protocolDefault,
         durabilityTimeoutMilliseconds: UInt64 = 5_000,
         readerOperationTimeoutMilliseconds: UInt64 = 30_000,
         platformCallTimeoutMilliseconds: UInt64 = 3_000,
-        cardSessionStartupTimeoutMilliseconds: UInt64 = 10_000
+        cardSessionStartupTimeoutMilliseconds: UInt64 = 10_000,
+        requestPreparationTimeoutMilliseconds: UInt64 = 8_000
     ) {
         precondition(Self.isValidDurabilityTimeout(durabilityTimeoutMilliseconds))
         precondition(Self.isValidReaderOperationTimeout(readerOperationTimeoutMilliseconds))
@@ -375,13 +383,18 @@ public struct IrohaPeerNfcCoreNFCConfigurationV1: Equatable, Sendable {
         precondition(Self.isValidCardSessionStartupTimeout(
             cardSessionStartupTimeoutMilliseconds
         ))
+        precondition(Self.isValidRequestPreparationTimeout(
+            requestPreparationTimeoutMilliseconds
+        ))
         self.cardAlertMessage = cardAlertMessage
         self.readerAlertMessage = readerAlertMessage
         self.completionAlertMessage = completionAlertMessage
+        self.applicationIdentifier = applicationIdentifier
         self.durabilityTimeoutMilliseconds = durabilityTimeoutMilliseconds
         self.readerOperationTimeoutMilliseconds = readerOperationTimeoutMilliseconds
         self.platformCallTimeoutMilliseconds = platformCallTimeoutMilliseconds
         self.cardSessionStartupTimeoutMilliseconds = cardSessionStartupTimeoutMilliseconds
+        self.requestPreparationTimeoutMilliseconds = requestPreparationTimeoutMilliseconds
     }
 
     static func isValidDurabilityTimeout(_ milliseconds: UInt64) -> Bool {
@@ -398,6 +411,14 @@ public struct IrohaPeerNfcCoreNFCConfigurationV1: Equatable, Sendable {
 
     static func isValidCardSessionStartupTimeout(_ milliseconds: UInt64) -> Bool {
         (1...maximumCardSessionStartupTimeoutMilliseconds).contains(milliseconds)
+    }
+
+    static func isValidRequestPreparationTimeout(_ milliseconds: UInt64) -> Bool {
+        (1...maximumRequestPreparationTimeoutMilliseconds).contains(milliseconds)
+    }
+
+    var requestPreparationTimeoutNanoseconds: UInt64 {
+        requestPreparationTimeoutMilliseconds * 1_000_000
     }
 
     var durabilityTimeoutNanoseconds: UInt64 {
@@ -439,6 +460,12 @@ public enum IrohaPeerNfcCardFailureV1: Error, Equatable, Sendable {
 
 public enum IrohaPeerNfcCardEventV1: Equatable, Sendable {
     case emulationStarted
+    /// Tap 1: the payer's complete Offer arrived; the wallet is signing a Request.
+    case offerReceived
+    /// Tap 1: the Request is hosted; the payer reads it, approves, then taps again.
+    case requestReady
+    /// Tap 1: the wallet declined the Offer; the payer sees this reason.
+    case requestDeclined(reason: UInt16)
     case paymentAdmitted
     case acknowledgementReady
     case acknowledgementConfirmed
@@ -459,6 +486,11 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
         IrohaPeerNfcCommitContextV1
     ) async throws -> IrohaPeerNfcDurableAcknowledgementV1
     public typealias EventHandler = @Sendable (IrohaPeerNfcCardEventV1) -> Void
+    /// Signs the Request for a submitted Offer and returns its IPM1 bytes, or
+    /// throws (`IrohaPeerNfcOfferDeclinedV1` carries the reason the payer sees).
+    public typealias PrepareRequest = @Sendable (
+        IrohaPeerNfcOfferIntakeContextV1
+    ) async throws -> Data
 
     public static func availability(
         configuration: IrohaPeerNfcCoreNFCConfigurationV1
@@ -520,14 +552,75 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
             durableAcknowledgement: restoredDurableAcknowledgement,
             restoredPaymentAdmission: restoredPaymentAdmission,
             profilePolicy: profilePolicy,
-            limits: limits
+            limits: limits,
+            applicationIdentifier: configuration.applicationIdentifier
         )
+        try await startRuntime(
+            endpoint: IrohaPeerNfcCardEndpointV1(receiver: receiver),
+            startupBudget: startupBudget,
+            onEvent: onEvent,
+            authorizeRequest: authorizeRequest,
+            prepareRequest: nil,
+            admitPayment: admitPayment,
+            durableCommit: durableCommit
+        )
+        return receiver.identity
+    }
+
+    /// Starts card emulation awaiting the payer's Offer (tap 1). When the Offer
+    /// arrives, `prepareRequest` signs the Request the card then hosts for the
+    /// payer's tap 2. Returns the session identifier that Request must keep: if
+    /// the card stops between taps, restart it with `start(sessionID:receiveRequest:)`
+    /// and the same Request bytes so the payer's retained checkpoint still matches.
+    @discardableResult
+    public func startIntake(
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        onEvent: @escaping EventHandler,
+        prepareRequest: @escaping PrepareRequest,
+        admitPayment: @escaping AdmitPayment,
+        durableCommit: @escaping DurableCommit
+    ) async throws -> Data {
+        let startupBudget = IrohaPeerNfcDeadlineBudgetV1(
+            timeoutMilliseconds: configuration.cardSessionStartupTimeoutMilliseconds,
+            nowNanoseconds: DispatchTime.now().uptimeNanoseconds
+        )
+        try await Self.requireAvailability(
+            configuration: configuration,
+            budget: startupBudget
+        )
+        let intake = try IrohaPeerNfcOfferIntakeV1(profilePolicy: profilePolicy, limits: limits)
+        try await startRuntime(
+            endpoint: IrohaPeerNfcCardEndpointV1(
+                applicationIdentifier: configuration.applicationIdentifier,
+                intake: intake
+            ),
+            startupBudget: startupBudget,
+            onEvent: onEvent,
+            authorizeRequest: {},
+            prepareRequest: prepareRequest,
+            admitPayment: admitPayment,
+            durableCommit: durableCommit
+        )
+        return intake.sessionID
+    }
+
+    private func startRuntime(
+        endpoint: IrohaPeerNfcCardEndpointV1,
+        startupBudget: IrohaPeerNfcDeadlineBudgetV1,
+        onEvent: @escaping EventHandler,
+        authorizeRequest: @escaping AuthorizeRequest,
+        prepareRequest: PrepareRequest?,
+        admitPayment: @escaping AdmitPayment,
+        durableCommit: @escaping DurableCommit
+    ) async throws {
         let replacement = IrohaPeerNfcCardRuntimeV1(
             owner: self,
             configuration: configuration,
-            receiver: receiver,
+            endpoint: endpoint,
             onEvent: onEvent,
             authorizeRequest: authorizeRequest,
+            prepareRequest: prepareRequest,
             admitPayment: admitPayment,
             durableCommit: durableCommit
         )
@@ -544,7 +637,6 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
             } onCancel: {
                 replacement.stop()
             }
-            return receiver.identity
         } catch {
             lock.lock()
             if runtime === replacement { runtime = nil }
@@ -602,9 +694,14 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
 private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
     private weak var owner: IrohaPeerNfcCardSessionControllerV1?
     private let configuration: IrohaPeerNfcCoreNFCConfigurationV1
-    private var receiver: IrohaPeerNfcReceiverSessionV1
+    /// Mutated only by the event loop; a finished Request preparation is
+    /// installed there before the next APDU is answered.
+    private var endpoint: IrohaPeerNfcCardEndpointV1
     private let onEvent: IrohaPeerNfcCardSessionControllerV1.EventHandler
     private let authorizeRequest: IrohaPeerNfcCardSessionControllerV1.AuthorizeRequest
+    private let prepareRequest: IrohaPeerNfcCardSessionControllerV1.PrepareRequest?
+    private var preparationTask: Task<Void, Never>?
+    private var preparedRequest: Result<Data, Error>?
     private let admitPayment: IrohaPeerNfcCardSessionControllerV1.AdmitPayment
     private let durableCommit: IrohaPeerNfcCardSessionControllerV1.DurableCommit
     private let lock = NSLock()
@@ -623,17 +720,21 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
     init(
         owner: IrohaPeerNfcCardSessionControllerV1,
         configuration: IrohaPeerNfcCoreNFCConfigurationV1,
-        receiver: IrohaPeerNfcReceiverSessionV1,
+        endpoint: IrohaPeerNfcCardEndpointV1,
         onEvent: @escaping IrohaPeerNfcCardSessionControllerV1.EventHandler,
         authorizeRequest: @escaping IrohaPeerNfcCardSessionControllerV1.AuthorizeRequest,
+        prepareRequest: IrohaPeerNfcCardSessionControllerV1.PrepareRequest?,
         admitPayment: @escaping IrohaPeerNfcCardSessionControllerV1.AdmitPayment,
         durableCommit: @escaping IrohaPeerNfcCardSessionControllerV1.DurableCommit
     ) {
         self.owner = owner
         self.configuration = configuration
-        self.receiver = receiver
+        self.endpoint = endpoint
         self.onEvent = onEvent
         self.authorizeRequest = authorizeRequest
+        self.prepareRequest = prepareRequest
+        // The intake's wallet callback is the consent to expose its own Request.
+        self.requestAuthorized = prepareRequest != nil
         self.admitPayment = admitPayment
         self.durableCommit = durableCommit
     }
@@ -730,6 +831,8 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
 
     func stop() {
         lock.lock()
+        let preparationTask = self.preparationTask
+        self.preparationTask = nil
         let startupTask = self.startupTask
         self.startupTask = nil
         let mustDefer = protectedBoundaryInFlight
@@ -747,6 +850,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                 || task != nil || session != nil || startupTask != nil
         )
         lock.unlock()
+        preparationTask?.cancel()
         startupTask?.cancel()
         if mustDefer { return }
         task?.cancel()
@@ -774,17 +878,24 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                         onEvent(.emulationStarted)
                     }
                 case .received(let apdu):
+                    installPreparedRequestIfReady()
                     let command = try? IrohaPeerNfcCoreNFCAdapterV1.cardCommand(from: apdu)
                     let response: IrohaPeerNfcAPDUResponseV1
                     var protectedCommand = false
                     var terminalFailure: IrohaPeerNfcCardFailureV1?
-                    if let command, Self.exposesRequest(command), !requestAuthorized {
+                    if let command, IrohaPeerNfcCardEndpointV1.route(command) != .request {
+                        response = answerSelectionOrIntake(command)
+                    } else if let command, endpoint.receiver == nil {
+                        // Request commands before the wallet signed a Request.
+                        _ = command
+                        response = IrohaPeerNfcAPDUResponseV1(statusWord: .conditionsNotSatisfied)
+                    } else if let command, Self.exposesRequest(command), !requestAuthorized {
                         do {
                             try await authorizeRequest()
                             try Task.checkCancellation()
                             guard mayContinue(session) else { return }
                             requestAuthorized = true
-                            response = receiver.process(apdu: apdu.payload)
+                            response = endpoint.process(apdu: apdu.payload).response
                         } catch is CancellationError {
                             terminalFailure = .authorizationCancelled
                             response = IrohaPeerNfcAPDUResponseV1(
@@ -798,7 +909,9 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                         }
                     } else if let command, case .beginPayment = command {
                         do {
-                            switch try receiver.preparePaymentAdmission(command) {
+                            switch try endpoint.withReceiver({
+                                try $0.preparePaymentAdmission(command)
+                            }) {
                             case .alreadyAdmitted:
                                 response = IrohaPeerNfcAPDUResponseV1(statusWord: .success)
                                 // A replay after process restart is also a state observation for
@@ -848,7 +961,9 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                                     guard record.context == context else {
                                         throw IrohaPeerNfcErrorV1.continuityMismatch
                                     }
-                                    try receiver.installPaymentAdmission(record)
+                                    try endpoint.withReceiver {
+                                        try $0.installPaymentAdmission(record)
+                                    }
                                     response = IrohaPeerNfcAPDUResponseV1(statusWord: .success)
                                     onEvent(.paymentAdmitted)
                                 } catch {
@@ -866,7 +981,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                         }
                     } else if let command, case .commit = command {
                         do {
-                            switch try receiver.prepareCommit(command) {
+                            switch try endpoint.withReceiver({ try $0.prepareCommit(command) }) {
                             case .alreadyCommitted:
                                 response = IrohaPeerNfcAPDUResponseV1(statusWord: .success)
                                 onEvent(.acknowledgementReady)
@@ -911,7 +1026,9 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                                         )
                                         break
                                     }
-                                    try receiver.installDurableAcknowledgement(record)
+                                    try endpoint.withReceiver {
+                                        try $0.installDurableAcknowledgement(record)
+                                    }
                                     response = IrohaPeerNfcAPDUResponseV1(statusWord: .success)
                                     onEvent(.acknowledgementReady)
                                 } catch {
@@ -928,7 +1045,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                             )
                         }
                     } else {
-                        response = receiver.process(apdu: apdu.payload)
+                        response = endpoint.process(apdu: apdu.payload).response
                     }
                     if !protectedCommand {
                         try Task.checkCancellation()
@@ -1258,6 +1375,86 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         return .transportFailure
     }
 
+    /// SELECT and the Offer intake of tap 1. A newly submitted Offer starts the
+    /// wallet's Request preparation off the event loop.
+    private func answerSelectionOrIntake(
+        _ command: IrohaPeerNfcCommandV1
+    ) -> IrohaPeerNfcAPDUResponseV1 {
+        if IrohaPeerNfcCardEndpointV1.route(command) == .select {
+            return endpoint.select(command)
+        }
+        do {
+            switch try endpoint.handleIntake(command) {
+            case .response(let data):
+                return IrohaPeerNfcAPDUResponseV1(data: data, statusWord: .success)
+            case .offerSubmitted(let offer):
+                beginRequestPreparation(offer)
+                return IrohaPeerNfcAPDUResponseV1(statusWord: .success)
+            }
+        } catch let error as IrohaPeerNfcErrorV1 {
+            return IrohaPeerNfcReceiverSessionV1.failureResponse(for: error)
+        } catch {
+            return IrohaPeerNfcAPDUResponseV1(statusWord: .wrongData)
+        }
+    }
+
+    private func beginRequestPreparation(_ offer: IrohaPeerWireMessageV1) {
+        guard let prepareRequest else { return }
+        let context = IrohaPeerNfcOfferIntakeContextV1(sessionID: endpoint.sessionID, offer: offer)
+        let timeout = configuration.requestPreparationTimeoutNanoseconds
+        onEvent(.offerReceived)
+        let task = Task.detached { [weak self] in
+            let result: Result<Data, Error>
+            do {
+                result = .success(try await irohaPeerNfcWithDeadlineV1(
+                    timeoutNanoseconds: timeout,
+                    operation: { try await prepareRequest(context) }
+                ))
+            } catch {
+                result = .failure(error)
+            }
+            self?.storePreparedRequest(result)
+        }
+        lock.lock()
+        preparationTask = task
+        lock.unlock()
+    }
+
+    private func storePreparedRequest(_ result: Result<Data, Error>) {
+        lock.lock()
+        preparedRequest = result
+        preparationTask = nil
+        lock.unlock()
+    }
+
+    /// Runs on the event loop, the endpoint's only writer. The payer's reader
+    /// polls GET_INTAKE, so a finished preparation is installed promptly.
+    private func installPreparedRequestIfReady() {
+        lock.lock()
+        let result = preparedRequest
+        preparedRequest = nil
+        lock.unlock()
+        guard let result else { return }
+        let declinedReason: UInt16
+        switch result {
+        case .success(let request):
+            do {
+                try endpoint.installRequest(request)
+                requestAuthorized = true
+                onEvent(.requestReady)
+                return
+            } catch {
+                declinedReason = IrohaPeerNfcOfferDeclinedV1.unspecifiedReason
+            }
+        case .failure(let error):
+            declinedReason = (error as? IrohaPeerNfcOfferDeclinedV1)?.reason
+                ?? IrohaPeerNfcOfferDeclinedV1.unspecifiedReason
+        }
+        if (try? endpoint.decline(reason: declinedReason)) != nil {
+            onEvent(.requestDeclined(reason: declinedReason))
+        }
+    }
+
     private static func isConfirmation(_ command: IrohaPeerNfcCommandV1) -> Bool {
         if case .confirmAcknowledgement = command { return true }
         return false
@@ -1271,6 +1468,20 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             return false
         }
     }
+}
+
+/// What one reader operation produced: tap 1's Request or tap 2's completion.
+private enum IrohaPeerNfcReaderOutcomeV1: Sendable {
+    case request(IrohaPeerNfcRequestReadV1)
+    case payment(IrohaPeerNfcReaderExchangeResultV1)
+}
+
+/// The guarded transport handed to one contact of a reader operation.
+private struct IrohaPeerNfcReaderContactV1: @unchecked Sendable {
+    let limits: IrohaPeerNfcLimitsV1
+    let progressReporter: IrohaPeerNfcReaderProgressReporterV1
+    let validate: () throws -> Void
+    let transceive: IrohaPeerNfcReaderExchangeV1.Transceive
 }
 
 @available(iOS 15.0, *)
@@ -1287,12 +1498,12 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
     private let configuration: IrohaPeerNfcCoreNFCConfigurationV1
     private let lock = NSLock()
     private var session: NFCTagReaderSession?
-    private var continuation: CheckedContinuation<IrohaPeerNfcReaderExchangeResultV1, Error>?
+    private var continuation: CheckedContinuation<IrohaPeerNfcReaderOutcomeV1, Error>?
     private var exchange: (@Sendable (
         NFCISO7816Tag,
         UInt64,
         NFCTagReaderSession
-    ) async throws -> IrohaPeerNfcReaderExchangeResultV1)?
+    ) async throws -> IrohaPeerNfcReaderOutcomeV1)?
     private var exchangeTask: Task<Void, Never>?
     private var progressReporter: IrohaPeerNfcReaderProgressReporterV1?
     private var platformCallGate: IrohaPeerNfcReaderPlatformCallGateV1?
@@ -1319,6 +1530,121 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         updateDurableCheckpoint: @escaping
             IrohaPeerNfcReaderExchangeV1.UpdateDurableCheckpoint
     ) async throws -> IrohaPeerNfcReaderExchangeResultV1 {
+        let checkpointBox = IrohaPeerNfcCheckpointBoxV1(restoredCheckpoint)
+        let applicationIdentifier = configuration.applicationIdentifier
+        let outcome = try await perform(
+            limits: limits,
+            retryPolicy: retryPolicy,
+            onTypedProgress: onTypedProgress
+        ) { contact in
+            .payment(try await IrohaPeerNfcReaderExchangeV1.run(
+                restoredCheckpoint: checkpointBox.load(),
+                applicationIdentifier: applicationIdentifier,
+                profilePolicy: profilePolicy,
+                limits: contact.limits,
+                transceive: contact.transceive,
+                loadOrCreateDurableCheckpoint: { info, request in
+                    try contact.validate()
+                    contact.progressReporter.emit(
+                        .requestRead,
+                        bytes: request.encoded.count
+                    )
+                    let checkpoint = try await irohaPeerNfcGuardedAwaitV1(
+                        validate: contact.validate,
+                        operation: {
+                            try await loadOrCreateDurableCheckpoint(info, request)
+                        }
+                    )
+                    // The application contract guarantees this value is
+                    // already durable. Cache it only after the boundary
+                    // returns so a CoreNFC reconnect can resume without
+                    // invoking value creation again.
+                    checkpointBox.store(checkpoint.encoded)
+                    return checkpoint
+                },
+                updateDurableCheckpoint: { encoded in
+                    try contact.validate()
+                    let checkpoint = try IrohaPeerNfcSenderCheckpointV1.decode(
+                        encoded,
+                        profilePolicy: profilePolicy,
+                        limits: contact.limits
+                    )
+                    guard checkpoint.durableAcknowledgement != nil else {
+                        throw IrohaPeerNfcErrorV1.continuityMismatch
+                    }
+                    // A validated acknowledgement can only be read after
+                    // the receiver durably commits the payment. Publish
+                    // this before the app persists that ACK so the two
+                    // durability boundaries retain their order.
+                    contact.progressReporter.emit(
+                        .paymentCommitted,
+                        bytes: checkpoint.payment.encoded.count
+                    )
+                    _ = try await irohaPeerNfcGuardedAwaitV1(
+                        validate: contact.validate,
+                        operation: {
+                            try await updateDurableCheckpoint(encoded)
+                        }
+                    )
+                    checkpointBox.store(encoded)
+                }
+            ))
+        }
+        guard case .payment(let result) = outcome else {
+            throw IrohaPeerNfcErrorV1.stateMismatch
+        }
+        return result
+    }
+
+    /// Tap 1 of the payer: hands `offer` to the receiver's card and returns the
+    /// Request its wallet signed. No value moves. Review and approve away from
+    /// the card, retain the exact Payment in an `IrohaPeerNfcSenderCheckpointV1`,
+    /// then call `run(restoredCheckpoint:)` for tap 2.
+    public func readRequest(
+        offer: IrohaPeerWireMessageV1,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        retryPolicy: IrohaPeerNfcReaderRetryPolicyV1 = .default,
+        onTypedProgress: ((IrohaPeerNfcProgressEventV1) -> Void)? = nil
+    ) async throws -> IrohaPeerNfcRequestReadV1 {
+        let applicationIdentifier = configuration.applicationIdentifier
+        let preparationTimeout = configuration.requestPreparationTimeoutMilliseconds
+        let outcome = try await perform(
+            limits: limits,
+            retryPolicy: retryPolicy,
+            onTypedProgress: onTypedProgress
+        ) { contact in
+            let read = try await IrohaPeerNfcOfferExchangeV1.run(
+                offer: offer,
+                applicationIdentifier: applicationIdentifier,
+                profilePolicy: profilePolicy,
+                limits: contact.limits,
+                preparationTimeoutMilliseconds: preparationTimeout,
+                transceive: contact.transceive,
+                sleep: { nanoseconds in
+                    try contact.validate()
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                    try contact.validate()
+                },
+                onOfferDelivered: {
+                    contact.progressReporter.emit(.offerDelivered, bytes: offer.encoded.count)
+                }
+            )
+            contact.progressReporter.emit(.requestRead, bytes: read.request.encoded.count)
+            return .request(read)
+        }
+        guard case .request(let read) = outcome else {
+            throw IrohaPeerNfcErrorV1.stateMismatch
+        }
+        return read
+    }
+
+    private func perform(
+        limits: IrohaPeerNfcLimitsV1,
+        retryPolicy: IrohaPeerNfcReaderRetryPolicyV1,
+        onTypedProgress: ((IrohaPeerNfcProgressEventV1) -> Void)?,
+        body: @escaping @Sendable (IrohaPeerNfcReaderContactV1) async throws -> IrohaPeerNfcReaderOutcomeV1
+    ) async throws -> IrohaPeerNfcReaderOutcomeV1 {
         guard Self.isAvailable else { throw IrohaPeerNfcCoreNFCErrorV1.unavailable }
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
@@ -1344,7 +1670,6 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
             self.progressReporter = progressReporter
             let platformCallGate = IrohaPeerNfcReaderPlatformCallGateV1()
             self.platformCallGate = platformCallGate
-            let checkpointBox = IrohaPeerNfcCheckpointBoxV1(restoredCheckpoint)
             let retryLimitsBox = IrohaPeerNfcRetryLimitsBoxV1(limits)
             self.retryLimitsBox = retryLimitsBox
             self.retryGate = IrohaPeerNfcRetryGateV1(retryPolicy)
@@ -1362,105 +1687,61 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                 }
                 try validate()
                 let exchangeLimits = retryLimitsBox.load()
-                let result = try await IrohaPeerNfcReaderExchangeV1.run(
-                    restoredCheckpoint: checkpointBox.load(),
-                    profilePolicy: profilePolicy,
-                    limits: exchangeLimits,
-                    transceive: { command in
-                        do {
-                            let response = try await irohaPeerNfcGuardedAwaitV1(
-                                validate: validate,
-                                operation: {
-                                    try await irohaPeerNfcWithDeadlineV1(
-                                        timeoutNanoseconds: platformCallTimeout,
-                                        operation: {
-                                            try await IrohaPeerNfcCoreNFCAdapterV1
-                                                .transceive(
-                                                    command,
-                                                    using: tagBox.tag
-                                                )
-                                        }
-                                    )
-                                }
-                            )
-                            if IrohaPeerNfcStartupResponseRetryPolicyV1
-                                .shouldRetry(response, for: command) {
-                                // The peer was discovered while its CardSession
-                                // was still installing the selected application.
-                                // Re-enter through SELECT/INFO and the exact
-                                // durable checkpoint, if one already exists.
-                                throw IrohaPeerNfcRetryableTransportErrorV1()
+                let transceive: IrohaPeerNfcReaderExchangeV1.Transceive = { command in
+                    do {
+                        let response = try await irohaPeerNfcGuardedAwaitV1(
+                            validate: validate,
+                            operation: {
+                                try await irohaPeerNfcWithDeadlineV1(
+                                    timeoutNanoseconds: platformCallTimeout,
+                                    operation: {
+                                        try await IrohaPeerNfcCoreNFCAdapterV1
+                                            .transceive(
+                                                command,
+                                                using: tagBox.tag
+                                            )
+                                    }
+                                )
                             }
-                            return response
-                        } catch is CancellationError {
-                            throw CancellationError()
-                        } catch is IrohaPeerNfcOperationDeadlineErrorV1 {
-                            try validate()
-                            throw IrohaPeerNfcCoreNFCErrorV1.platformCallTimedOut
-                        } catch let error as IrohaPeerNfcCoreNFCErrorV1 {
-                            try validate()
-                            if case .invalidCommandAPDU = error,
-                               retryLimitsBox.downgradeForRetry() {
-                                throw IrohaPeerNfcRetryableTransportErrorV1()
-                            }
-                            throw error
-                        } catch let error as NFCReaderError
-                            where Self.isRetryableContactError(error) {
-                            try validate()
+                        )
+                        if IrohaPeerNfcStartupResponseRetryPolicyV1
+                            .shouldRetry(response, for: command) {
+                            // The peer was discovered while its CardSession
+                            // was still installing the selected application.
+                            // Re-enter through SELECT/INFO and the exact
+                            // durable checkpoint, if one already exists.
                             throw IrohaPeerNfcRetryableTransportErrorV1()
-                        } catch {
-                            try validate()
-                            throw error
                         }
-                    },
-                    loadOrCreateDurableCheckpoint: { info, request in
+                        return response
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch is IrohaPeerNfcOperationDeadlineErrorV1 {
                         try validate()
-                        progressReporter.emit(
-                            .requestRead,
-                            bytes: request.encoded.count
-                        )
-                        let checkpoint = try await irohaPeerNfcGuardedAwaitV1(
-                            validate: validate,
-                            operation: {
-                                try await loadOrCreateDurableCheckpoint(info, request)
-                            }
-                        )
-                        // The application contract guarantees this value is
-                        // already durable. Cache it only after the boundary
-                        // returns so a CoreNFC reconnect can resume without
-                        // invoking value creation again.
-                        checkpointBox.store(checkpoint.encoded)
-                        return checkpoint
-                    },
-                    updateDurableCheckpoint: { encoded in
+                        throw IrohaPeerNfcCoreNFCErrorV1.platformCallTimedOut
+                    } catch let error as IrohaPeerNfcCoreNFCErrorV1 {
                         try validate()
-                        let checkpoint = try IrohaPeerNfcSenderCheckpointV1.decode(
-                            encoded,
-                            profilePolicy: profilePolicy,
-                            limits: exchangeLimits
-                        )
-                        guard checkpoint.durableAcknowledgement != nil else {
-                            throw IrohaPeerNfcErrorV1.continuityMismatch
+                        if case .invalidCommandAPDU = error,
+                           retryLimitsBox.downgradeForRetry() {
+                            throw IrohaPeerNfcRetryableTransportErrorV1()
                         }
-                        // A validated acknowledgement can only be read after
-                        // the receiver durably commits the payment. Publish
-                        // this before the app persists that ACK so the two
-                        // durability boundaries retain their order.
-                        progressReporter.emit(
-                            .paymentCommitted,
-                            bytes: checkpoint.payment.encoded.count
-                        )
-                        _ = try await irohaPeerNfcGuardedAwaitV1(
-                            validate: validate,
-                            operation: {
-                                try await updateDurableCheckpoint(encoded)
-                            }
-                        )
-                        checkpointBox.store(encoded)
+                        throw error
+                    } catch let error as NFCReaderError
+                        where Self.isRetryableContactError(error) {
+                        try validate()
+                        throw IrohaPeerNfcRetryableTransportErrorV1()
+                    } catch {
+                        try validate()
+                        throw error
                     }
-                )
+                }
+                let outcome = try await body(IrohaPeerNfcReaderContactV1(
+                    limits: exchangeLimits,
+                    progressReporter: progressReporter,
+                    validate: validate,
+                    transceive: transceive
+                ))
                 try validate()
-                return result
+                return outcome
             }
             guard let readerSession = NFCTagReaderSession(
                 pollingOption: [.iso14443],
@@ -1515,6 +1796,19 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         finish(.failure(IrohaPeerNfcCoreNFCErrorV1.cancelled), invalidating: true)
     }
 
+    /// Replaces the scan sheet's message while this reader's session is active,
+    /// for example a hint once no tag has answered for a while. The sheet
+    /// covers the app, so this is where the person reads it. Does nothing
+    /// before the session begins or after the operation finished.
+    public func updateAlertMessage(_ message: String) {
+        lock.lock()
+        let session = completed ? nil : self.session
+        let platformCallGate = self.platformCallGate
+        lock.unlock()
+        guard let session, let platformCallGate else { return }
+        platformCallGate.performIfActive { session.alertMessage = message }
+    }
+
     public func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
         lock.lock()
         let reporter = !completed && self.session === session
@@ -1549,16 +1843,17 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
               case .iso7816(let isoTag) = tag else {
             lock.lock()
             let operationEpoch = operationGate.activeEpoch
-            let isCurrent = !completed
-                && self.session === session
-                && operationGate.mayMutate(capturedEpoch: operationEpoch)
-            let disposition = isCurrent
-                ? retryGate?.recordInvalidDetection()
-                : nil
-            let platformCallGate = isCurrent ? self.platformCallGate : nil
+            guard !completed,
+                  self.session === session,
+                  operationGate.mayMutate(capturedEpoch: operationEpoch) else {
+                lock.unlock()
+                return
+            }
+            let disposition = retryGate?.recordInvalidDetection()
+            let platformCallGate = self.platformCallGate
             let retryTimeoutTask = self.retryTimeoutTask
             self.retryTimeoutTask = nil
-            let reporter = isCurrent ? progressReporter : nil
+            let reporter = progressReporter
             lock.unlock()
             retryTimeoutTask?.cancel()
             reporter?.emit(.tagDetected)
@@ -1730,7 +2025,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
     }
 
     private func finish(
-        _ result: Result<IrohaPeerNfcReaderExchangeResultV1, Error>,
+        _ result: Result<IrohaPeerNfcReaderOutcomeV1, Error>,
         invalidating: Bool,
         expectedEpoch: UInt64? = nil,
         expectedSession: NFCTagReaderSession? = nil

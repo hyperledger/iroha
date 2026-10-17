@@ -246,7 +246,7 @@ fn retiring_is_one_way_and_has_no_monetary_effect() {
     assert!(!accepts(&reversed, true));
 }
 
-fn prove<C: Circuit<Fp>>(circuit: &C, public: &[Vec<Fp>], seed: u8) {
+fn prove<C: Circuit<Fp>>(circuit: &C, public: &[Vec<Fp>]) {
     let params = common::vesta_params(K);
     let key = keygen_pk_v2(
         &params,
@@ -258,7 +258,7 @@ fn prove<C: Circuit<Fp>>(circuit: &C, public: &[Vec<Fp>], seed: u8) {
         &params,
         &key,
         Witness::from_circuit(&key, circuit, public).unwrap(),
-        common::recovery(seed),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -311,13 +311,13 @@ fn prove<C: Circuit<Fp>>(circuit: &C, public: &[Vec<Fp>], seed: u8) {
 #[test]
 fn native_consuming_proofs_verify_complete_openings_and_reject_mutations() {
     let unload = UnloadCircuit::new(&witness(false));
-    prove(&unload, &unload.instances(), 197);
+    prove(&unload, &unload.instances());
     let retiring = RetiringCircuit::new(&witness(true));
     assert_eq!(
         RetiringCircuit::instance_types(),
         UnloadCircuit::instance_types()
     );
-    prove(&retiring, &retiring.instances(), 198);
+    prove(&retiring, &retiring.instances());
 }
 
 fn archive_witness() -> ArchiveWitness {
@@ -408,11 +408,11 @@ fn native_archive_leaf_verifies_complete_opening_and_rejects_mutations() {
         ArchiveCircuit::instance_types(),
         UnloadCircuit::instance_types()
     );
-    prove(&circuit, &circuit.instances(), 199);
+    prove(&circuit, &circuit.instances());
 }
 
 macro_rules! installed_consuming_case {
-    ($test:ident, $owner:ident, $circuit:ident, $retiring:literal, $seed:literal) => {
+    ($test:ident, $owner:ident, $circuit:ident, $retiring:literal) => {
         #[test]
         fn $test() {
             use iroha_kagemusha_proof::admin_sigma::native::$owner;
@@ -447,7 +447,11 @@ macro_rules! installed_consuming_case {
                 original
             );
             let proof = installed
-                .prove(&witness, common::recovery($seed), ProverConfig::default())
+                .prove(
+                    &witness,
+                    common::fresh_randomness(),
+                    ProverConfig::default(),
+                )
                 .unwrap();
             assert_eq!(proof.instances, circuit.instances());
             let opening = accumulate_generator(
@@ -494,7 +498,7 @@ macro_rules! installed_consuming_case {
             rebind(&mut wrong);
             assert!(
                 installed
-                    .prove(&wrong, common::recovery($seed + 1), ProverConfig::default())
+                    .prove(&wrong, common::fresh_randomness(), ProverConfig::default())
                     .is_err()
             );
         }
@@ -505,13 +509,11 @@ installed_consuming_case!(
     installed_admin_sigma_originals_prove_unload_and_reject_rehashed_value,
     UnloadProver,
     UnloadCircuit,
-    false,
-    205
+    false
 );
 installed_consuming_case!(
     installed_admin_sigma_originals_prove_retiring_and_reject_rehashed_value,
     RetiringProver,
     RetiringCircuit,
-    true,
-    207
+    true
 );

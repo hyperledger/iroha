@@ -4035,11 +4035,7 @@ def test_funded_offender_graph_mutation_uses_original_lane_pool_and_exact_contro
     assert 'all(test, sumeragi_core_mutation = "HC180")' in owner
     assert "AllocationBudget::new(budget.limit_bytes())" in owner
     controls = (source / "sumeragi/evidence_history/lane/tests.rs").read_text()
-<<<<<<< HEAD
     body = named_rust_function(controls, name)
-=======
-    body = controls.split("fn " + name + "(", 1)[1].split("\n}", 1)[0]
->>>>>>> origin/optimizations
     for obligation in ["reader.poll().unwrap()", ".try_reserve_bytes(", "reader.verify(&proof)",
                        "occupied original offender pool must refuse", "let error = result.expect_err(",
                        "EvidencePreparationError::Admission(actual)", "actual == expected",

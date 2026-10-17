@@ -3,56 +3,114 @@
 This test implementation derives its parser, integer field arithmetic, point
 arithmetic and verifier equations from `specs/plonk_ipa_v1.md` and `norito.md`.
 It does not load Rust, a native module, a circuit builder or a cryptographic
-Python package. `kats_v1.json` supplies the retained RP57 constants and pinned
-parameter digests; it does not supply proof acceptance results.
+Python package. `kats_v1.json` supplies retained RP57 constants and pinned
+parameter digests, not proof acceptance results.
 
-The public `verify` entry point takes an explicitly selected V1 or V2 descriptor,
-processed verifying-key bytes, complete parameter bytes, public instances and
-proof bytes. It checks descriptor semantics and identity, exact key and instance
-layouts, all gate/permutation/lookup constraints, multiopen reduction and the
-complete IPA equation. A folded-generator suffix must independently satisfy
-`G = <s(u), g>`. Standalone `decide` admits the same pinned parameter bytes and a
-canonical nonidentity encoded claim; caller-created Python parameter or point
-objects are not an admission boundary. Neither entry point returns soft success.
+The retained `reference_v1.json` contains 46 ancestor proofs. Current-source
+qualification requires a new native-generated corpus plus matching independent
+norm-product, total-role and scoped-generator equations. The selected Python
+implementation now implements those equations without an override API, but
+source-only changes or unchanged parameter pins do not establish full-proof
+parity. Preserve the original capture and its provenance separately; do not
+relabel historical proof bytes.
 
-Supported profiles are Blake2b/Challenge255, scalar RP57 and V2 base-field
-RP57 PIPA-R on both Pasta curves, using the existing parameter pins at k6 through
-k10. Direct and committed instances, compressed and uncompressed selectors,
-permutation constraints, lookups, and absent/folded-generator suffixes are
-covered where the selected profile permits them. V2 Field, Bounded and Bits
-instances retain their specified transcript encodings. The separate
-`verify_captured_oracle` entry point accepts only an explicit historical oracle
-transcript binding; production verification never falls back to that framing.
+The selected public `verify` contract takes an explicit V1 or V2 descriptor,
+processed key bytes, complete parameter bytes, public instances and proof bytes.
+It checks descriptor identity, exact key and instance layouts, all constraints,
+multiopen reduction and the complete IPA equation. A folded suffix independently
+satisfies `G = <s(u), g>`. Only deferred generator `G` carriers admit canonical
+identity; ordinary proof points remain finite and nonidentity. Standalone `decide`
+uses the same pinned parameters and scoped generator rule. Caller-created Python
+parameter/point objects or a historical transcript override are not admission
+boundaries; neither entry point returns soft success. Returned challenge tapes
+contain scalars after transcript field conversion and before role maps, with
+mapped nonzero IPA round challenges returned separately.
 
-`reference_v1.json` freezes 46 genuine full proofs and ten complete public
-parameter sets. The temporary Rust oracle test
-`reference_fixture::reference_verifier_inputs_match_genuine_sources` recomputes
-the complete document from genuine key generation, proving and full verification.
-It compares native parameter bytes with the original vendored serialization.
-The ignored maintenance printer never rewrites the fixture. Review a recapture
-independently before changing the frozen document. Retain the document and this
-reference after temporary-oracle deletion.
+The replacement document uses `iroha.native_prover.reference.v1`, ten complete
+parameter sets (`ep` and `eq`, k6 through k10), and exactly 23 cases per curve:
 
-Run from the original checkout:
+- Eight V1 combinations: Blake2b/scalar RP57, Committed/Direct instances, and
+  selector compression off/on.
+- Four V2 combinations: Blake2b/scalar RP57 and Committed/Direct Field instances.
+- Seven base-field RP57 cases: Direct Field, Bits(4), and typed instances at
+  every k6 through k10.
+- Four ordinary native Sigma/Wide cases: Blake2b/scalar RP57 at k6/k8, named
+  `{ep|eq}/native/{blake|poseidon}/{6|8}`. These replace the old oracle labels;
+  they do not accept `oracle_repr` or override descriptor-bound transcripts.
+
+Every descriptor, key, public input, parameter and proof must come from actual
+native construction and pass native full verification before the independent
+reference checks it. Native output is a test input, not an independent oracle.
+The separate 42/8 producer described in [the fixture README](../README.md) does
+not generate this 46-case document.
+
+## Capture the current reference
+
+The maintained owner is the ignored native test
+`native_reference_capture::export_current_reference_corpus`. It rebuilds the
+source circuits and parameters, proves the exact matrix and uses full native
+verification to check every original plus wrong-instance, altered-proof,
+trailing-byte and truncation mutations. The eight `native` records use the same
+Sigma k6/Wide k8 public source families as the succinct matrix. Test-only fixed
+seeds do not expose a shipping randomness option.
+
+After the source/build hold is released and the combined source and lock are
+reviewed, run from that checkout. The output directory must be new, absolute and
+outside the checkout, beneath an existing owner-only parent. It must be distinct
+from the 42/8 output directory:
+
+```sh
+IROHA_NATIVE_PROVER_CAPTURE_DIR=/absolute/private-parent/native-reference-current \
+  scripts/cargo_fast.sh --target-slot kagemusha-cohort --stable-local-metadata -- \
+  test --locked --release -p iroha_plonk --lib \
+  native_reference_capture::export_current_reference_corpus -- \
+  --exact --ignored --nocapture --test-threads=1
+```
+
+The exporter never installs fixtures. Retain `capture-start.json`,
+`reference_v1.json`, `capture-result.json`, the exact source/executable/output pins
+and the actual successful process exit with terminal
+`NATIVE_REFERENCE_CAPTURE_COMPLETE cases=46 parameters=10`. Its complete compiled
+source census includes bootstrap seed fixtures and generated catalog DATA;
+those inputs do not qualify the binary as a final catalog or release artifact.
+Top-level `capture` provenance is custody metadata and never a proof-acceptance
+input to the independent reader. Review captures before installation, then
+freeze and rebuild the final source/catalog candidate.
+
+## Independent checks
+
+The fast role, norm-product, descriptor and scoped-identity controls do not need
+a generated proof corpus:
+
+```sh
+python3 -I -B -S pytests/scripts/test_native_reference_roles.py
+```
+
+Verify the captured reference directly before installation:
+
+```sh
+python3 -I -B -S fixtures/native_prover/verify_reference_v1.py \
+  /absolute/private-parent/native-reference-current/reference_v1.json
+```
+
+Review and install all matching current native captures together, then run:
 
 ```sh
 python3 -I -B -S fixtures/native_prover/verify_reference_v1.py
 python3 -B -m pytest -q pytests/scripts/native_prover_reference_test.py
-RUSTFLAGS='--cfg iroha_plonk_oracle' cargo test --release -p iroha_plonk_oracle \
-    --test vendored_goldens reference_fixture::reference_verifier_inputs_match_genuine_sources
 ```
 
-The first command uses only the standard library and enforces an exact
-descriptor-bound fixture matrix. The adversarial suite covers altered proof,
-key, public input and parameter bytes; missing/duplicate/mislabeled fixture
-cases; explicit descriptor versions; canonical Norito spans; malformed points;
-typed-instance limits; and Python boolean/float aliases. Constructive false
-generator claims preserve the succinct IPA equation yet must fail the complete
-generator decision. The suite also compares every retained challenge and G/u
-against the independently captured original succinct corpus.
+These commands require the matching current corpus and reader. The adversarial
+suite must retain wrong proof/key/public/parameter rejection; exact case matrices;
+canonical Norito spans, points and typed-instance bounds; and boolean/float alias
+rejection. Constructive false generator claims may preserve the succinct IPA
+equation but must fail the complete decision. The suite also reads the eight-case
+`succinct_v1.json`; replacing that input requires its reader and raw/mapped
+challenge comparisons to migrate coherently. Current native and independent
+Python execution remains pending until those inputs are actually regenerated.
 
-This is individual proof and generator-decision evidence. It does not implement
-batch verification weights, encoded `AccumulatorV1` admission, k16 verification,
-recursive PIPA-AS, wallet catalog qualification or production fallback decoding.
-Its variable-time arithmetic and test resource bounds are not a proving-time,
-memory, side-channel or physical-device qualification.
+This is individual proof and generator-decision validation. It does not establish
+batch weights, encoded `AccumulatorV1` admission, k16 verification, recursive
+PIPA-AS, wallet catalog qualification or a production fallback decoder. Variable-
+time arithmetic and test resource limits do not qualify proving latency, memory,
+side channels or physical devices.

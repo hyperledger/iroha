@@ -17,36 +17,9 @@ use iroha_plonk::{
     prover::{ProverConfig, ProverRandomness, Witness, create_proof_owned},
     verifier::verify_full,
 };
-use rand_chacha::{
-    ChaCha20Rng,
-    rand_core::{RngCore as NewRngCore, SeedableRng},
-};
-use rand_core_06::{CryptoRng, RngCore};
-
 const BACKEND: &str = "pipa-r/pasta";
 const CIRCUIT_ID: &str = "pipa-r/pasta/dev-vote-membership-v1";
 const K: u32 = 6;
-
-// Deliberately public deterministic stream for a public fixed-witness fixture.
-// It is confined to this non-shipping module; production proving uses hedged
-// entropy. The engine additionally binds recovery randomness to this witness.
-struct FixtureRng(ChaCha20Rng);
-impl RngCore for FixtureRng {
-    fn next_u32(&mut self) -> u32 {
-        NewRngCore::next_u32(&mut self.0)
-    }
-    fn next_u64(&mut self) -> u64 {
-        NewRngCore::next_u64(&mut self.0)
-    }
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        NewRngCore::fill_bytes(&mut self.0, dest);
-    }
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-impl CryptoRng for FixtureRng {}
 
 #[derive(Clone)]
 struct Config {
@@ -167,6 +140,8 @@ struct GeneratedBundle {
     proof: Vec<u8>,
 }
 
+// Each generation creates a new proof. Reusing a completed fixture means
+// reading and verifying its retained original bytes, never replaying an RNG.
 fn generate() -> Result<GeneratedBundle, Box<dyn Error>> {
     let params = PinnedParams::<Eq>::derive(K)?;
     let circuit = Membership { known: true };
@@ -182,9 +157,7 @@ fn generate() -> Result<GeneratedBundle, Box<dyn Error>> {
         &params,
         &key,
         witness,
-        ProverRandomness::recovery(|context| {
-            Ok::<_, ()>(FixtureRng(ChaCha20Rng::from_seed(*context)))
-        }),
+        ProverRandomness::hedged(),
         ProverConfig::default(),
     )?;
     verify_full(
@@ -276,7 +249,7 @@ pub(super) fn write_bundle(out_dir: &Path) -> Result<BundleSummary, Box<dyn Erro
 mod tests {
     use super::*;
     #[test]
-    fn native_fixture_is_deterministic_and_canonical() {
+    fn native_fixture_uses_fresh_proofs_and_canonical_retained_bytes() {
         let GeneratedBundle {
             summary,
             key,
@@ -288,9 +261,18 @@ mod tests {
             ..
         } = generate().unwrap();
         assert_eq!(key, key_again);
-        assert_eq!(proof, proof_again);
-        let envelope: OpenVerifyEnvelope = norito::decode_canonical(&proof).unwrap();
-        assert_eq!(norito::encode_canonical(&envelope).unwrap(), proof);
+        assert_ne!(proof, proof_again, "each generation consumes fresh entropy");
+        // generate() fully verifies both independent proofs and their negative
+        // public-input controls. Restoring either exact byte string is canonical
+        // and does not generate a replacement proof.
+        for original in [&proof, &proof_again] {
+            let retained = original.to_vec();
+            for _ in 0..2 {
+                let envelope: OpenVerifyEnvelope = norito::decode_canonical(&retained).unwrap();
+                assert_eq!(norito::encode_canonical(&envelope).unwrap(), retained);
+            }
+            assert_eq!(&retained, original);
+        }
         assert_eq!(
             summary.commit_hex,
             "20574662a58708e02e0000000000000000000000000000000000000000000000"

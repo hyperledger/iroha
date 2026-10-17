@@ -2,7 +2,7 @@
 //!
 //! [`PermutationArgument`] lists the equality-enabled columns in
 //! `enable_equality` order. With degree `d` the columns split into sets of
-//! `d - 2` consecutive columns, one grand product per set (spec section 2).
+//! `floor((d - 2) / 2)` consecutive columns, one grand product per set (spec section 2).
 //!
 //! [`PermutationAssembly`] records copy constraints using the historical
 //! union-find rule retained after prover retirement. This pins the permutation
@@ -56,13 +56,16 @@ impl PermutationArgument {
     }
 
     /// The degree the permutation constraints need on their own.
-    pub const REQUIRED_DEGREE: usize = 3;
+    pub const REQUIRED_DEGREE: usize = 4;
 
     /// The column ranges of the grand-product sets for circuit degree `degree`:
-    /// set `s` covers `[s (d-2), min((s+1)(d-2), m))`. `None` when `degree < 3`.
+    /// set `s` covers consecutive chunks of `floor((d-2)/2)`. `None` below degree 4.
     #[must_use]
     pub fn sets(&self, degree: usize) -> Option<Vec<Range<usize>>> {
-        let chunk = degree.checked_sub(2).filter(|chunk| *chunk > 0)?;
+        let chunk = degree
+            .checked_sub(2)
+            .map(|v| v / 2)
+            .filter(|chunk| *chunk > 0)?;
         let total = self.columns.len();
         let mut sets = Vec::with_capacity(total.div_ceil(chunk));
         let mut start = 0;
@@ -383,11 +386,11 @@ mod tests {
         assert_eq!(argument.columns(), &[a, f]);
         assert_eq!(argument.position(f), Some(1));
         assert_eq!(argument.position(Column::new(3, Any::Instance)), None);
-        assert_eq!(PermutationArgument::REQUIRED_DEGREE, 3);
+        assert_eq!(PermutationArgument::REQUIRED_DEGREE, 4);
     }
 
     #[test]
-    fn sets_chunk_by_degree_minus_two() {
+    fn sets_chunk_by_half_degree_minus_two() {
         let columns: Vec<Column<Any>> = (0..5).map(|i| Column::new(i, Any::Advice)).collect();
         let argument = argument(&columns);
         let bounds = |degree: usize| {
@@ -397,13 +400,14 @@ mod tests {
                     .collect::<Vec<_>>()
             })
         };
-        assert_eq!(bounds(4), Some(vec![(0, 2), (2, 4), (4, 5)]));
-        assert_eq!(bounds(7), Some(vec![(0, 5)]));
+        assert_eq!(bounds(6), Some(vec![(0, 2), (2, 4), (4, 5)]));
+        assert_eq!(bounds(12), Some(vec![(0, 5)]));
         assert_eq!(
-            bounds(3),
+            bounds(4),
             Some(vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)])
         );
         assert_eq!(bounds(2), None);
+        assert_eq!(bounds(3), None);
         assert_eq!(PermutationArgument::new().sets(5).map(|s| s.len()), Some(0));
     }
 

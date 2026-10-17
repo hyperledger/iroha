@@ -102,6 +102,27 @@ public struct IrohaPeerNearbyDiscoveryContextV1: Equatable, Sendable {
         )
     }
 
+    /// Receiver context for a session that starts before the receiver holds a
+    /// Request: a random session identifier and a random 32-byte binding in
+    /// place of the Request hash. The Offer, Request, Payment and Credited then
+    /// all travel inside the authenticated session
+    /// (`specs/kagemusha_wallet_wire_v1.md` §6).
+    public static func freshReceiver(profile: IrohaPeerPayloadProfile) throws -> Self {
+        var generator = SystemRandomNumberGenerator()
+        func randomNonzero(_ count: Int) -> Data {
+            while true {
+                let bytes = Data((0..<count).map { _ in UInt8.random(in: .min ... .max, using: &generator) })
+                if bytes.contains(where: { $0 != 0 }) { return bytes }
+            }
+        }
+        return try Self(
+            profile: profile,
+            role: .receiver,
+            sessionID: randomNonzero(16),
+            requestCanonicalHash: randomNonzero(32)
+        )
+    }
+
     private init(
         profile: IrohaPeerPayloadProfile,
         role: IrohaPeerNearbyRoleV1,

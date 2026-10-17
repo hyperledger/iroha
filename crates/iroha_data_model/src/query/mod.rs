@@ -792,6 +792,8 @@ define_builtin_query_registry! {
         => "iroha.query.v1::iterable::nexus::FeeSponsorProgram",
     ErasedIterQuery<crate::nexus::FeeSponsorProgramId>
         => "iroha.query.v1::iterable::nexus::FeeSponsorProgramId",
+    ErasedIterQuery<crate::bond::BondRecord>
+        => "iroha.query.v1::iterable::bond::BondRecord",
 }
 /// Set the global query registry used to decode queries by stable wire identifier.
 ///
@@ -1189,6 +1191,8 @@ mod model {
         FeeSponsorProgram(Vec<crate::nexus::FeeSponsorProgram>),
         /// Batch of fee sponsor program identifiers.
         FeeSponsorProgramId(Vec<crate::nexus::FeeSponsorProgramId>),
+        /// Batch of native bond records.
+        BondRecord(Vec<crate::bond::BondRecord>),
     }
     #[derive(Debug, Clone, PartialEq, Eq, Encode, IntoSchema, crate :: DeriveJsonSerialize)]
     /// Helper tuple to materialise batches into Norito collections.
@@ -1439,6 +1443,8 @@ mod model {
         FindNftSaleOfferById(nft_market::FindNftSaleOfferById),
         /// Fetch the immutable direct dataspace home row of an asset definition.
         FindAssetDefinitionDirectHome(asset::prelude::FindAssetDefinitionDirectHome),
+        /// Fetch the authoritative record of one native bond.
+        FindBondById(bond::prelude::FindBondById),
     }
     /// An enum of all possible singular query outputs
     #[derive(
@@ -1666,6 +1672,8 @@ mod model {
         NftSaleRecord(crate::nft_market::NftSaleRecordV1),
         /// Immutable direct dataspace home row of one live asset-definition incarnation.
         AssetDefinitionDirectHome(crate::asset::AssetDefinitionDirectHomeV1),
+        /// Authoritative native bond record.
+        BondRecord(crate::bond::BondRecord),
     }
     /// The results of a single iterable query request.
     #[derive(
@@ -1786,6 +1794,7 @@ mod model {
             try_build!(crate::oracle::TwitterBindingRecord, TwitterBindingRecord);
             try_build!(crate::oracle::DefiOracleAttestation, DefiOracleAttestation);
             try_build!(crate::escrow::AssetEscrowRecord, AssetEscrowRecord);
+            try_build!(crate::bond::BondRecord, BondRecord);
             Err(QueryWithParamsError::unsupported(query.type_name_key()))
         }
         /// Access the canonical iterable-query payload components.
@@ -1882,6 +1891,8 @@ mod model {
         AssetEscrowsByBuyer,
         /// Native asset escrows filtered by lifecycle status (wire tag 30).
         AssetEscrowsByStatus,
+        /// Native bond records (wire tag 31).
+        BondRecord,
     }
     /// Trait mapping item types to a `QueryItemKind` marker.
     ///
@@ -2028,6 +2039,11 @@ mod model {
     impl ItemKindTag for crate::nexus::FeeSponsorProgramId {
         fn kind() -> QueryItemKind {
             QueryItemKind::FeeSponsorProgramId
+        }
+    }
+    impl ItemKindTag for crate::bond::BondRecord {
+        fn kind() -> QueryItemKind {
+            QueryItemKind::BondRecord
         }
     }
     // Manual schema for QueryWithParams: represent only `params` field.
@@ -2825,6 +2841,7 @@ impl QueryOutputBatchBox {
             (Self::AssetEscrowRecord(v1), Self::AssetEscrowRecord(v2)) => v1.extend(v2),
             (Self::FeeSponsorProgram(v1), Self::FeeSponsorProgram(v2)) => v1.extend(v2),
             (Self::FeeSponsorProgramId(v1), Self::FeeSponsorProgramId(v2)) => v1.extend(v2),
+            (Self::BondRecord(v1), Self::BondRecord(v2)) => v1.extend(v2),
             _ => return Err(QueryOutputBatchBoxTypeMismatch),
         }
         Ok(())
@@ -2879,6 +2896,7 @@ impl QueryOutputBatchBox {
             Self::AssetEscrowRecord(v) => v.len(),
             Self::FeeSponsorProgram(v) => v.len(),
             Self::FeeSponsorProgramId(v) => v.len(),
+            Self::BondRecord(v) => v.len(),
         }
     }
     /// Returns `true` if this batch column contains no rows.
@@ -4035,6 +4053,7 @@ mod json_roundtrip_tests {
             QueryItemKind::AssetEscrowsBySeller,
             QueryItemKind::AssetEscrowsByBuyer,
             QueryItemKind::AssetEscrowsByStatus,
+            QueryItemKind::BondRecord,
         ];
         for (index, kind) in kinds.into_iter().enumerate() {
             let expected = u32::try_from(index)
@@ -4285,6 +4304,7 @@ impl_iter_queries! {
     escrow::FindAssetEscrowsByStatus => [crate::escrow::AssetEscrowRecord, AssetEscrowsByStatus],
     nexus::prelude::FindFeeSponsorPrograms => crate::nexus::FeeSponsorProgram,
     nexus::prelude::FindFeeSponsorProgramIds => crate::nexus::FeeSponsorProgramId,
+    bond::FindBonds => crate::bond::BondRecord,
     nexus::prelude::FindFeeSponsorProgramsBySponsor => crate::nexus::FeeSponsorProgram,
     FindTransactions => CommittedTransaction,
     FindAccountsWithAsset => crate::account::Account,
@@ -4352,6 +4372,7 @@ impl_singular_queries! {
     account::prelude::FindAccountByAlias => crate::account::Account,
     domain::prelude::FindDomainById => crate::domain::Domain,
     nft::prelude::FindNftById => crate::nft::Nft,
+    bond::prelude::FindBondById => crate::bond::BondRecord,
 }
 // NOTE: Query DSL projection traits are provided generically in dsl module now.
 #[cfg(test)]

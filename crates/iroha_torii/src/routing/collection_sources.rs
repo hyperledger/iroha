@@ -3,7 +3,12 @@
 //! Each collection turns this node's state into JSON rows whose fields match
 //! its [`CollectionSpec`]; the engine then filters, orders and pages them.
 //! Execution here returns full rows: projection happens before returning the page.
+use super::account_history_multisig::{MultisigHistoryBudget, append_executed_multisig_history};
 use super::*;
+
+#[cfg(test)]
+mod account_history_multisig_tests;
+
 use crate::collections::{self, CollectionError, CollectionSpec, Limits, RowPage, specs};
 use iroha_torii_shared::list_query::ListQuery;
 
@@ -44,6 +49,10 @@ pub enum CollectionTarget {
     Subscriptions,
     /// `/v1/space-directory/uaids/{uaid}/manifests`
     UaidManifests(String),
+    /// `/v1/bonds`
+    Bonds,
+    /// `/v1/bonds/{bond_id}/entitlements` (path literal: canonical bond address)
+    BondEntitlements(String),
 }
 
 impl CollectionTarget {
@@ -67,6 +76,8 @@ impl CollectionTarget {
             Self::SubscriptionPlans => &specs::SUBSCRIPTION_PLANS,
             Self::Subscriptions => &specs::SUBSCRIPTIONS,
             Self::UaidManifests(_) => &specs::UAID_MANIFESTS,
+            Self::Bonds => &specs::BONDS,
+            Self::BondEntitlements(_) => &specs::BOND_ENTITLEMENTS,
         }
     }
 
@@ -79,7 +90,8 @@ impl CollectionTarget {
             | Self::AccountTransactions(literal)
             | Self::AccountHistory(literal)
             | Self::AccountPermissions(literal)
-            | Self::UaidManifests(literal) => literal,
+            | Self::UaidManifests(literal)
+            | Self::BondEntitlements(literal) => literal,
             Self::Domains
             | Self::Accounts
             | Self::AssetDefinitions
@@ -90,7 +102,8 @@ impl CollectionTarget {
             | Self::ContractEvents
             | Self::RepoAgreements
             | Self::SubscriptionPlans
-            | Self::Subscriptions => "",
+            | Self::Subscriptions
+            | Self::Bonds => "",
         }
     }
 
@@ -114,8 +127,67 @@ impl CollectionTarget {
             Self::SubscriptionPlans => ENDPOINT_SUBSCRIPTION_PLANS_LIST,
             Self::Subscriptions => ENDPOINT_SUBSCRIPTIONS_LIST,
             Self::UaidManifests(_) => ENDPOINT_SPACE_DIRECTORY_MANIFESTS,
+            Self::Bonds => ENDPOINT_BONDS,
+            Self::BondEntitlements(_) => ENDPOINT_BOND_ENTITLEMENTS,
         }
     }
+}
+
+/// Collection endpoint label of `GET /v1/bonds`.
+const ENDPOINT_BONDS: &str = "/v1/bonds";
+/// Collection endpoint label of `GET /v1/bonds/{bond_id}/entitlements`.
+const ENDPOINT_BOND_ENTITLEMENTS: &str = "/v1/bonds/{bond_id}/entitlements";
+
+/// Parse a bond entitlement cursor or row id `<index>:<holder>`.
+fn parse_bond_entitlement_id(
+    bond: &AssetDefinitionId,
+    id: &str,
+) -> Option<iroha_data_model::bond::BondEntitlementId> {
+    let (index, holder) = id.split_once(':')?;
+    if index.is_empty() || (index.len() > 1 && index.starts_with('0')) {
+        return None;
+    }
+    Some(iroha_data_model::bond::BondEntitlementId::new(
+        bond.clone(),
+        index.parse().ok()?,
+        AccountId::parse_encoded(holder).ok()?,
+    ))
+}
+
+/// Row of one bond record: its canonical JSON (`id`, `vault`, `terms`, `state`).
+fn bond_record_row(record: &iroha_data_model::bond::BondRecord) -> Result<Map> {
+    match norito::json::to_value(record) {
+        Ok(Value::Object(row)) => Ok(row),
+        Ok(_) | Err(_) => Err(Error::from(CollectionError::new(
+            "internal",
+            "row",
+            "bond record did not render as a JSON object",
+        ))),
+    }
+}
+
+/// Row of one bond entitlement; `id` is `<index>:<holder>`.
+fn bond_entitlement_row(entitlement: &iroha_data_model::bond::BondEntitlement) -> Map {
+    let mut row = Map::new();
+    let id = &entitlement.id;
+    row.insert(
+        "id".into(),
+        Value::from(format!("{}:{}", id.index, id.holder)),
+    );
+    row.insert("bond".into(), Value::from(id.bond.to_string()));
+    row.insert("index".into(), Value::from(u64::from(id.index)));
+    row.insert("holder".into(), Value::from(id.holder.to_string()));
+    row.insert("units".into(), Value::from(entitlement.units.to_string()));
+    row.insert("amount".into(), Value::from(entitlement.amount.to_string()));
+    row.insert(
+        "claimed".into(),
+        Value::from(entitlement.claimed_at_ms.is_some()),
+    );
+    row.insert(
+        "claimed_at_ms".into(),
+        entitlement.claimed_at_ms.map_or(Value::Null, Value::from),
+    );
+    row
 }
 
 /// Engine bounds derived from the configured app-API page limits.
@@ -791,6 +863,76 @@ async fn execute_prepared_collection_local(
         CollectionTarget::ContractEvents => {
             return contract_emission_page(state, prepared, visibility);
         }
+        CollectionTarget::Bonds => {
+            let world = state.world_view();
+            let scan = prepared.ordered_scan();
+            let parse = |id: &str| AssetDefinitionId::parse_address_literal(id).ok();
+            let after = cursor_key(scan.and_then(|scan| scan.after), parse)?;
+            let descending = scan.is_some_and(|scan| scan.descending);
+            let mut failure = None;
+            let rows = until_error(
+                seek_keys(
+                    world.bonds(),
+                    id_candidates(query, parse),
+                    after.as_ref().filter(|_| !query.include_total),
+                    descending,
+                )
+                .map(|(id, record)| {
+                    bond_record_row(record).map(|row| {
+                        (
+                            entry_after_cursor(id, after.as_ref(), descending),
+                            Some(row),
+                        )
+                    })
+                }),
+                &mut failure,
+            );
+            let page = if scan.is_some() {
+                prepared.execute_ordered(rows, &limits)
+            } else {
+                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+            };
+            if let Some(error) = failure {
+                return Err(error);
+            }
+            page
+        }
+        CollectionTarget::BondEntitlements(bond_literal) => {
+            let bond = AssetDefinitionId::parse_address_literal(bond_literal).map_err(|error| {
+                Error::from(CollectionError::new(
+                    "invalid_scope",
+                    "bond_id",
+                    format!("invalid bond identifier: {error}"),
+                ))
+            })?;
+            let world = state.world_view();
+            let scan = prepared.ordered_scan();
+            let after = cursor_key(scan.and_then(|scan| scan.after), |id| {
+                parse_bond_entitlement_id(&bond, id)
+            })?;
+            let descending = scan.is_some_and(|scan| scan.descending);
+            let seek = after.as_ref().filter(|_| !query.include_total);
+            let entries: Box<dyn Iterator<Item = _>> = if descending {
+                Box::new(
+                    world
+                        .bond_entitlements_of_bond_iter(&bond, None, seek)
+                        .rev(),
+                )
+            } else {
+                Box::new(world.bond_entitlements_of_bond_iter(&bond, seek, None))
+            };
+            let rows = entries.map(|(id, entitlement)| {
+                (
+                    entry_after_cursor(id, after.as_ref(), descending),
+                    Some(bond_entitlement_row(entitlement)),
+                )
+            });
+            if scan.is_some() {
+                prepared.execute_ordered(rows, &limits)
+            } else {
+                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+            }
+        }
         CollectionTarget::RepoAgreements => {
             let world = state.world_view();
             let scan = prepared.ordered_scan();
@@ -826,6 +968,8 @@ async fn execute_prepared_collection_local(
 }
 
 /// Page movements inside authenticated transactions without indexing the full chain.
+/// Borrow the input/result from each authenticated carrier: display rows do not
+/// need the proof-bearing query DTO, its per-row encoding, or cloned instructions.
 /// The third cursor coordinate keeps multiple movements from one transaction on
 /// separate pages; only caller-visible movements may provide a continuation.
 fn account_subrow_page(
@@ -837,7 +981,7 @@ fn account_subrow_page(
 ) -> Result<RowPage> {
     use iroha_core::smartcontracts::isi::tx::{
         TransactionHistoryPageEnd, TransactionHistoryPosition, transaction_history_byte_limit,
-        visit_committed_transaction_page,
+        visit_borrowed_committed_transaction_page,
     };
     let after = prepared.resume_subrow_position();
     // Revisit the cursor transaction, then skip movements at or above its
@@ -871,20 +1015,30 @@ fn account_subrow_page(
         .cloned()
         .map(TxHistoryAssetSelector::DefinitionId);
     let view = state.view();
-    let reads = HistoryVisibilityReads::new(Arc::clone(state));
+    let anchor = view
+        .latest_block_hash()
+        .map(|hash| (view.height() as u64, hash));
     let mut items = Vec::new();
     let mut last_visible = None;
     let mut below_range = false;
     let mut expansion_exceeded = false;
+    let mut projection_error = None;
     let mut scanned = 0u64;
     let account_literal = account.to_string();
     let work = app_query_limits().max_fetch_size;
-    let end = visit_committed_transaction_page(
+    let mut multisig_budget =
+        MultisigHistoryBudget::new(work, transaction_history_byte_limit(work));
+    let end = visit_borrowed_committed_transaction_page(
         &view,
         resume,
         work,
         transaction_history_byte_limit(work),
-        |transaction, position| {
+        |entrypoint, result, position, block| {
+            let transaction = BorrowedNetworkTransaction {
+                entrypoint,
+                entrypoint_hash: entrypoint.hash(),
+                result,
+            };
             if scanned >= work {
                 return std::ops::ControlFlow::Break(());
             }
@@ -893,12 +1047,8 @@ fn account_subrow_page(
                 return std::ops::ControlFlow::Break(());
             }
             if !(visibility.can_read_all()
-                || reads.allows(
-                    visibility,
-                    position.height(),
-                    Some(transaction.block_hash),
-                    *transaction.entrypoint_hash(),
-                ))
+                || visibility
+                    .allows_external_entrypoint_hash(block, *transaction.entrypoint_hash()))
             {
                 return std::ops::ControlFlow::Continue(());
             }
@@ -908,6 +1058,17 @@ fn account_subrow_page(
                 &transaction,
                 position.height(),
             );
+            if let Err(error) = append_executed_multisig_history(
+                &mut projected,
+                &transaction,
+                position.height(),
+                view.world(),
+                state.network_id_ref(),
+                &mut multisig_budget,
+            ) {
+                projection_error = Some(error);
+                return std::ops::ControlFlow::Break(());
+            }
             // Carrier bytes bound decoding, including movements at or above the
             // resume coordinate that are decoded again but not examined again.
             // Bound each expansion before JSON projection; `scanned` charges all
@@ -953,7 +1114,12 @@ fn account_subrow_page(
     )
     .map_err(|error| Error::Query(iroha_data_model::ValidationFail::QueryFailed(error)))?;
     drop(view);
-    reads.finish()?;
+    if let Some((height, hash)) = anchor {
+        require_history_anchor(state, height, hash)?;
+    }
+    if let Some(error) = projection_error {
+        return Err(error);
+    }
     if expansion_exceeded {
         return Err(CollectionError::new(
             "query_scan_limit_exceeded",
@@ -977,6 +1143,53 @@ fn account_subrow_page(
     prepared
         .subrow_page(items, continuation)
         .map_err(Into::into)
+}
+
+/// Movement rows of `account` committed at `heights`, oldest first, exactly as
+/// `/v1/accounts/{account_id}/history` pages project them for `visibility`.
+/// The height bounds join the caller's filter as top-level conjuncts, so each
+/// page scans only those blocks.
+pub(crate) fn account_history_rows_between(
+    state: &Arc<CoreState>,
+    account: &AccountId,
+    filter: Option<&iroha_torii_shared::list_query::FilterExpr>,
+    allowed_definition: Option<&AssetDefinitionId>,
+    visibility: &DataspaceReadVisibility,
+    heights: std::ops::RangeInclusive<u64>,
+) -> Result<Vec<Map>> {
+    use iroha_torii_shared::list_query::{FieldPath, FilterExpr};
+    let mut conjuncts: Vec<FilterExpr> = filter.cloned().into_iter().collect();
+    conjuncts.push(FilterExpr::Gte(
+        FieldPath::new("block_height"),
+        Value::from(*heights.start()),
+    ));
+    conjuncts.push(FilterExpr::Lte(
+        FieldPath::new("block_height"),
+        Value::from(*heights.end()),
+    ));
+    let filter = FilterExpr::And(conjuncts);
+    let limits = collection_limits();
+    let scope = account.to_string();
+    let mut rows = Vec::new();
+    let mut cursor = None;
+    loop {
+        let query = ListQuery {
+            filter: Some(filter.clone()),
+            limit: Some(limits.max_limit),
+            cursor: cursor.take(),
+            ..ListQuery::default()
+        };
+        let prepared = collections::prepare(&specs::ACCOUNT_HISTORY, &scope, &query, &limits)?;
+        let page = account_subrow_page(state, &prepared, account, allowed_definition, visibility)?;
+        rows.extend(page.items);
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    // History pages run newest first; streams deliver oldest first.
+    rows.reverse();
+    Ok(rows)
 }
 
 /// Page the canonical emission coordinates, including Pipeline and Time roots.
@@ -1160,10 +1373,12 @@ fn transaction_page(
     let allowed = allowed_definition
         .cloned()
         .map(TxHistoryAssetSelector::DefinitionId);
-    // The walk's view is captured before the visibility reads so every visited
-    // carrier lies inside the prefix the reads authenticate.
+    // Visibility uses the authenticated carrier borrowed from this same history
+    // walk, so it cannot observe a different prefix or repeat source verification.
     let view = state.view();
-    let reads = HistoryVisibilityReads::new(Arc::clone(state));
+    let anchor = view
+        .latest_block_hash()
+        .map(|hash| (view.height() as u64, hash));
     let limit = prepared.limit();
     let mut items = Vec::new();
     let mut last_visible = None;
@@ -1174,18 +1389,14 @@ fn transaction_page(
         resume,
         work,
         transaction_history_byte_limit(work),
-        |transaction, position| {
+        |transaction, position, block| {
             if position.height() < lowest {
                 below_range = true;
                 return std::ops::ControlFlow::Break(());
             }
             let visible = visibility.can_read_all()
-                || reads.allows(
-                    visibility,
-                    position.height(),
-                    Some(transaction.block_hash),
-                    *transaction.entrypoint_hash(),
-                );
+                || visibility
+                    .allows_external_entrypoint_hash(block, *transaction.entrypoint_hash());
             if !visible
                 || subject.is_some_and(|account| {
                     !tx_matches_account_history_subject(&transaction, account)
@@ -1212,7 +1423,9 @@ fn transaction_page(
     )
     .map_err(|error| Error::Query(iroha_data_model::ValidationFail::QueryFailed(error)))?;
     drop(view);
-    reads.finish()?;
+    if let Some((height, hash)) = anchor {
+        require_history_anchor(state, height, hash)?;
+    }
     let resume = match end {
         TransactionHistoryPageEnd::Stopped(_) if below_range => None,
         TransactionHistoryPageEnd::Stopped(_) | TransactionHistoryPageEnd::BudgetSpent(_) => {
@@ -2246,6 +2459,44 @@ mod tests {
         .await
         .expect("movement filter");
         assert_eq!(filtered.items[0]["id"], second.items[0]["id"]);
+
+        // Ordinary readers must apply route visibility using the same authenticated
+        // carrier as the page. This covers both the transaction and movement paths.
+        let committed = chain.committed(chain.height());
+        let visible = DataspaceReadVisibility::new(
+            DataspaceReadVisibility::external_entrypoint_dataspaces(committed.block(), 0)
+                .expect("fixture has committed execution routing")
+                .into_iter()
+                .collect(),
+            false,
+        );
+        assert!(visible.allows_account(&state.world_view(), &alice));
+        for target in [&target, &movements, &CollectionTarget::Transactions] {
+            let query = ListQuery::new().filter(field("block_height").eq(chain.height()));
+            let expected = run(&state, target, query.clone()).await.unwrap();
+            assert!(!expected.items.is_empty());
+            for (visibility, authorized) in [
+                (&visible, true),
+                (&DataspaceReadVisibility::default(), false),
+            ] {
+                let page = execute_collection_local(
+                    None,
+                    &state,
+                    target,
+                    query.clone(),
+                    &MaybeTelemetry::for_tests(),
+                    visibility,
+                )
+                .await
+                .expect("scoped authenticated history");
+                if authorized {
+                    assert_eq!(page.items, expected.items);
+                } else {
+                    assert!(page.items.is_empty(), "hidden routes must not leak rows");
+                    assert_eq!(page.next_cursor, None);
+                }
+            }
+        }
     }
 
     #[tokio::test]

@@ -8,7 +8,7 @@ use eyre::Result;
 use iroha_crypto::{HashOf, MerkleTree};
 use iroha_data_model::{
     AccountId,
-    block::BlockHeader,
+    block::{BlockHeader, SignedBlock},
     kaigi::KaigiId,
     query::{
         CommittedTransaction, CommittedTxFilters, dsl::CompoundPredicate,
@@ -454,6 +454,23 @@ pub(crate) fn canonical_network_projection_calls_for_test() -> usize {
     CANONICAL_NETWORK_PROJECTION_CALLS.get()
 }
 
+/// Validate the complete Network source/output shape before either projection form.
+fn validate_network_carrier(block: &SignedBlock) -> Result<u32, QueryExecutionFail> {
+    if block
+        .execution_context()
+        .is_some_and(|context| !context.has_current_version())
+    {
+        return Err(canonical_transaction_history_error(
+            "retired merge carrier is not a Network source",
+        ));
+    }
+    block
+        .validate_output_merkle_cache()
+        .map_err(canonical_transaction_history_error)?;
+    u32::try_from(block.network_entrypoint_count())
+        .map_err(|_| canonical_transaction_history_error("Network count exceeds proof index space"))
+}
+
 /// Validated source/output structure and one input proof tree for a single carrier.
 /// Finality and physical byte admission belong to the caller's canonical reader.
 struct NetworkCarrierProjection {
@@ -465,20 +482,7 @@ impl NetworkCarrierProjection {
     fn new(block: iroha_data_model::block::SharedSignedBlock) -> Result<Self, QueryExecutionFail> {
         #[cfg(test)]
         CANONICAL_NETWORK_PROJECTION_CALLS.set(CANONICAL_NETWORK_PROJECTION_CALLS.get() + 1);
-        if block
-            .execution_context()
-            .is_some_and(|context| !context.has_current_version())
-        {
-            return Err(canonical_transaction_history_error(
-                "retired merge carrier is not a Network source",
-            ));
-        }
-        block
-            .validate_output_merkle_cache()
-            .map_err(canonical_transaction_history_error)?;
-        let count = u32::try_from(block.network_entrypoint_count()).map_err(|_| {
-            canonical_transaction_history_error("Network count exceeds proof index space")
-        })?;
+        let count = validate_network_carrier(&block)?;
         Ok(Self {
             inputs: block.network_input_merkle_tree(),
             block,
@@ -1527,7 +1531,7 @@ pub(crate) fn visit_committed_transactions(
         resume.map(HistoryResume::After),
         max_row_bytes,
         before_project,
-        |transaction, matches, visit| visitor(transaction, matches, visit.next),
+        |transaction, matches, visit, _block| visitor(transaction, matches, visit.next),
     )
 }
 /// Where a history walk authenticates its first block.
@@ -1593,10 +1597,75 @@ fn walk_committed_transactions(
         CommittedTransaction,
         bool,
         HistoryVisit,
+        &SignedBlock,
+    ) -> Result<ControlFlow<()>, QueryExecutionFail>,
+) -> Result<bool, QueryExecutionFail> {
+    let (predicate_json, candidate_heights) = transaction_query_plan(filter, state_ro);
+    walk_committed_transaction_carriers(
+        state_ro,
+        anchor,
+        start,
+        resume,
+        candidate_heights,
+        before_project,
+        |block, height, transaction_offset, before_project| {
+            let projection = NetworkCarrierProjection::new(block)?;
+            let transaction_count = projection.count as usize;
+            for index in transaction_offset..transaction_count {
+                let input_index = projection.count
+                    - 1
+                    - u32::try_from(index).map_err(|_| QueryExecutionFail::CursorMismatch)?;
+                let transaction =
+                    projection.transaction_at(input_index, max_row_bytes, |bytes| {
+                        before_project(0, bytes)
+                    })?;
+                let matches =
+                    transaction_filter_applies(filter, predicate_json.as_ref(), &transaction);
+                let next_cursor = if index + 1 < transaction_count {
+                    TransactionHistoryCursor {
+                        height: height.get(),
+                        transaction_offset: index + 1,
+                    }
+                } else {
+                    TransactionHistoryCursor {
+                        height: height.get() - 1,
+                        transaction_offset: 0,
+                    }
+                };
+                let visit = HistoryVisit {
+                    next: next_cursor,
+                    position: TransactionHistoryPosition {
+                        height: height.get(),
+                        block_index: input_index as usize,
+                    },
+                };
+                if visitor(transaction, matches, visit, &projection.block)?.is_break() {
+                    return Ok(ControlFlow::Break(()));
+                }
+            }
+            Ok(ControlFlow::Continue(()))
+        },
+    )
+}
+
+/// Share source authentication, admission and resume handling between proof-bearing
+/// query rows and borrowed display projections. The callback owns at most the
+/// current authenticated carrier, and must admit additional owned row bytes.
+fn walk_committed_transaction_carriers(
+    state_ro: &impl StateReadOnly,
+    anchor: TransactionHistoryAnchor,
+    start: HistoryStart,
+    resume: Option<HistoryResume>,
+    candidate_heights: Option<BTreeSet<NonZeroUsize>>,
+    before_project: impl FnMut(u64, u64) -> Result<(), QueryExecutionFail>,
+    mut visitor: impl FnMut(
+        iroha_data_model::block::SharedSignedBlock,
+        NonZeroUsize,
+        usize,
+        &mut dyn FnMut(u64, u64) -> Result<(), QueryExecutionFail>,
     ) -> Result<ControlFlow<()>, QueryExecutionFail>,
 ) -> Result<bool, QueryExecutionFail> {
     anchor.validate(state_ro)?;
-    let (predicate_json, candidate_heights) = transaction_query_plan(filter, state_ro);
     reject_unbounded_emergency_fast_transaction_history(state_ro, candidate_heights.as_ref())?;
     let maximum_height = resume.map_or(anchor.height, |resume| resume.height().min(anchor.height));
     let candidates = candidate_heights.map(|mut heights| {
@@ -1644,45 +1713,20 @@ fn walk_committed_transactions(
             u64::try_from(work - 1).map_err(|_| QueryExecutionFail::GasBudgetExceeded)?,
             0,
         )?;
-        let projection = NetworkCarrierProjection::new(block)?;
-        let transaction_count = projection.count as usize;
+        let transaction_count = block.network_entrypoint_count();
         let transaction_offset = resume.map_or(Ok(0), |resume| {
             resume.offset_in(height.get(), transaction_count)
         })?;
         if transaction_offset > transaction_count {
             return Err(QueryExecutionFail::CursorMismatch.into());
         }
-        for index in transaction_offset..transaction_count {
-            let input_index = projection.count
-                - 1
-                - u32::try_from(index).map_err(|_| QueryExecutionFail::CursorMismatch)?;
-            let transaction = projection.transaction_at(input_index, max_row_bytes, |bytes| {
-                before_project.borrow_mut()(0, bytes)
-            })?;
-            let matches = transaction_filter_applies(filter, predicate_json.as_ref(), &transaction);
-            let next_cursor = if index + 1 < transaction_count {
-                TransactionHistoryCursor {
-                    height: height.get(),
-                    transaction_offset: index + 1,
-                }
-            } else {
-                TransactionHistoryCursor {
-                    height: height.get() - 1,
-                    transaction_offset: 0,
-                }
-            };
-            let visit = HistoryVisit {
-                next: next_cursor,
-                position: TransactionHistoryPosition {
-                    height: height.get(),
-                    block_index: input_index as usize,
-                },
-            };
-            if visitor(transaction, matches, visit)?.is_break() {
-                return Ok(ControlFlow::Break(()));
-            }
-        }
-        Ok(ControlFlow::Continue(()))
+        visitor(
+            block,
+            height,
+            transaction_offset,
+            &mut *before_project.borrow_mut(),
+        )
+        .map_err(crate::execution_attempt::ExecutionAttemptError::Rejected)
     };
     let history = state_ro.canonical_history();
     match start {
@@ -1826,6 +1870,8 @@ pub enum TransactionHistoryPageEnd {
 /// Every off-chain walk authenticates history downward from the nearest verified
 /// checkpoint at or above the requested position. Its work and byte budgets
 /// include checkpoint-to-position authentication as well as visited transactions.
+/// The visitor borrows the same authenticated carrier that produced each transaction,
+/// so visibility checks can inspect committed routing without a second history read.
 /// Consensus execution retains its cache-independent accounting. Running out of budget after visiting a
 /// transaction ends the page with the position to resume from
 /// ([`TransactionHistoryPageEnd::BudgetSpent`]); running out before reaching
@@ -1839,7 +1885,11 @@ pub fn visit_committed_transaction_page(
     resume: Option<TransactionHistoryPosition>,
     max_projection_work: u64,
     max_history_bytes: u64,
-    mut visitor: impl FnMut(CommittedTransaction, TransactionHistoryPosition) -> ControlFlow<()>,
+    mut visitor: impl FnMut(
+        CommittedTransaction,
+        TransactionHistoryPosition,
+        &SignedBlock,
+    ) -> ControlFlow<()>,
 ) -> Result<TransactionHistoryPageEnd, QueryExecutionFail> {
     let canonical_max = iroha_data_model::query::parameters::MAX_FETCH_SIZE.get();
     if max_projection_work == 0 || max_projection_work > canonical_max || max_history_bytes == 0 {
@@ -1873,11 +1923,106 @@ pub fn visit_committed_transaction_page(
                 Err(QueryExecutionFail::GasBudgetExceeded)
             }
         },
-        |transaction, _matches, visit| {
+        |transaction, _matches, visit, block| {
             last = Some(visit.position);
-            let flow = visitor(transaction, visit.position);
+            let flow = visitor(transaction, visit.position, block);
             stopped = flow.is_break();
             Ok(flow)
+        },
+    );
+    match (walk, last) {
+        (Ok(_), Some(position)) if stopped => Ok(TransactionHistoryPageEnd::Stopped(position)),
+        (Ok(_), _) => Ok(TransactionHistoryPageEnd::Exhausted),
+        (Err(QueryExecutionFail::GasBudgetExceeded), Some(position)) if budget_spent => {
+            Ok(TransactionHistoryPageEnd::BudgetSpent(position))
+        }
+        (Err(QueryExecutionFail::GasBudgetExceeded), None) if budget_spent => {
+            Ok(TransactionHistoryPageEnd::OutOfReach)
+        }
+        (Err(error), _) => Err(error),
+    }
+}
+
+/// Visit borrowed finalized Network inputs and results for an off-chain history page.
+///
+/// This uses the same checkpoint-rooted authentication, complete source/output
+/// validation, source-byte admission and carrier work limits as the proof-bearing
+/// history visitor. No Merkle proof DTO is constructed, encoded or cloned: the
+/// callback borrows its input and result from that same authenticated carrier.
+/// Bytes cover source frames; callers must separately bound their retained display
+/// rows. Coordinates, exclusive resume and budget-exhaustion behavior are unchanged.
+/// This API must not be used for consensus metering or as a portable finality proof.
+///
+/// # Errors
+/// Rejects zero or oversized limits, unavailable or inconsistent canonical history,
+/// invalid continuation coordinates, and an anchor that moved underneath the walk.
+pub fn visit_borrowed_committed_transaction_page(
+    state_ro: &impl StateReadOnly,
+    resume: Option<TransactionHistoryPosition>,
+    max_projection_work: u64,
+    max_history_bytes: u64,
+    mut visitor: impl FnMut(
+        &TransactionEntrypoint,
+        &TransactionResult,
+        TransactionHistoryPosition,
+        &SignedBlock,
+    ) -> ControlFlow<()>,
+) -> Result<TransactionHistoryPageEnd, QueryExecutionFail> {
+    let canonical_max = iroha_data_model::query::parameters::MAX_FETCH_SIZE.get();
+    if max_projection_work == 0 || max_projection_work > canonical_max || max_history_bytes == 0 {
+        return Err(QueryExecutionFail::FetchSizeTooBig);
+    }
+    let mut total_work = 0_u64;
+    let mut total_bytes = 0_u64;
+    let mut budget_spent = false;
+    let mut last = None;
+    let mut stopped = false;
+    let walk = walk_committed_transaction_carriers(
+        state_ro,
+        TransactionHistoryAnchor::capture(state_ro),
+        HistoryStart::Checkpoint,
+        resume.map(HistoryResume::Before),
+        None,
+        |items, bytes| {
+            let work = total_work
+                .checked_add(items)
+                .filter(|work| *work <= max_projection_work);
+            let size = total_bytes
+                .checked_add(bytes)
+                .filter(|size| *size <= max_history_bytes);
+            if let (Some(work), Some(size)) = (work, size) {
+                total_work = work;
+                total_bytes = size;
+                Ok(())
+            } else {
+                budget_spent = true;
+                Err(QueryExecutionFail::GasBudgetExceeded)
+            }
+        },
+        |block, height, transaction_offset, _before_project| {
+            let count = validate_network_carrier(&block)? as usize;
+            for index in transaction_offset..count {
+                let input_index = count - 1 - index;
+                let input = block.network_entrypoint_at(input_index).ok_or_else(|| {
+                    canonical_transaction_history_error("Network source is missing")
+                })?;
+                let input_index_u32 =
+                    u32::try_from(input_index).map_err(|_| QueryExecutionFail::CursorMismatch)?;
+                let (_, output) = block.network_output_at(input_index_u32).ok_or_else(|| {
+                    canonical_transaction_history_error("Network input has no exact output")
+                })?;
+                let position = TransactionHistoryPosition {
+                    height: height.get(),
+                    block_index: input_index,
+                };
+                last = Some(position);
+                let flow = visitor(input, &output.result, position, &block);
+                stopped = flow.is_break();
+                if stopped {
+                    return Ok(ControlFlow::Break(()));
+                }
+            }
+            Ok(ControlFlow::Continue(()))
         },
     );
     match (walk, last) {
@@ -2104,6 +2249,7 @@ pub(crate) mod tests {
         let parent = empty_query_block(None);
         let block = canonical_query_carrier(&parent, 1, true, 0);
         let committed = block_committed_transactions(&block).unwrap();
+        assert_eq!(validate_network_carrier(&block).unwrap(), 2);
         assert_eq!(committed.len(), 2);
         assert_eq!(committed[0].entrypoint_proof.leaf_index(), 1);
         assert_eq!(committed[1].entrypoint_proof.leaf_index(), 0);
@@ -2133,6 +2279,7 @@ pub(crate) mod tests {
         let bad = mutable_query_block(&block, |result| {
             result.outputs[0] = changed.execution_outputs()[0].clone();
         });
+        assert!(validate_network_carrier(&bad).is_err());
         assert!(block_committed_transactions(&bad).is_err());
     }
     #[test]
@@ -3049,7 +3196,200 @@ pub(crate) mod tests {
             error, expected_error,
             "query must reject the exact original execution commitment mismatch"
         );
+        let borrowed_error = visit_borrowed_committed_transaction_page(
+            &fixture.state.view(),
+            None,
+            1_000,
+            TRANSACTION_HISTORY_MAX_BYTES,
+            |_, _, _, _| ControlFlow::Continue(()),
+        )
+        .expect_err("borrowed display history must reject a self-consistent changed output");
+        assert_eq!(
+            borrowed_error, expected_error,
+            "the borrowed path must retain the exact native execution commitment check"
+        );
     }
+    #[test]
+    fn borrowed_transaction_history_matches_owned_pages_without_proof_projection() {
+        let fixture = canonical_query_fixture();
+        let view = fixture.state.view();
+        let mut expected = Vec::new();
+        let end = visit_committed_transaction_page(
+            &view,
+            None,
+            1_000,
+            TRANSACTION_HISTORY_MAX_BYTES,
+            |transaction, position, _| {
+                expected.push((
+                    transaction.entrypoint.clone(),
+                    transaction.result().clone(),
+                    position,
+                ));
+                ControlFlow::Continue(())
+            },
+        )
+        .expect("owned reference page");
+        assert_eq!(end, TransactionHistoryPageEnd::Exhausted);
+        reset_canonical_network_projection_calls_for_test();
+        view.kura().reset_canonical_query_reads_for_test();
+        let mut actual = Vec::new();
+        let end = visit_borrowed_committed_transaction_page(
+            &view,
+            None,
+            1_000,
+            TRANSACTION_HISTORY_MAX_BYTES,
+            |input, result, position, block| {
+                assert!(std::ptr::eq(
+                    input,
+                    block
+                        .network_entrypoint_at(position.block_index() as usize)
+                        .unwrap()
+                ));
+                assert!(std::ptr::eq(
+                    result,
+                    &block
+                        .network_output_at(position.block_index() as u32)
+                        .unwrap()
+                        .1
+                        .result
+                ));
+                actual.push((input.clone(), result.clone(), position));
+                ControlFlow::Continue(())
+            },
+        )
+        .expect("borrowed page");
+        assert_eq!(end, TransactionHistoryPageEnd::Exhausted);
+        assert_eq!(actual, expected);
+        assert_eq!(
+            canonical_network_projection_calls_for_test(),
+            0,
+            "display history must not construct unused transaction proof DTOs"
+        );
+        assert_eq!(
+            view.kura().canonical_query_reads_for_test().0,
+            view.height(),
+            "each carrier is authenticated once for all of its borrowed rows"
+        );
+
+        let mut actual = Vec::new();
+        let mut resume = None;
+        loop {
+            let mut page_len = 0;
+            let end = visit_borrowed_committed_transaction_page(
+                &view,
+                resume,
+                1_000,
+                TRANSACTION_HISTORY_MAX_BYTES,
+                |input, result, position, _| {
+                    actual.push((input.clone(), result.clone(), position));
+                    page_len += 1;
+                    if page_len == 3 {
+                        ControlFlow::Break(())
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                },
+            )
+            .expect("borrowed continuation");
+            match end {
+                TransactionHistoryPageEnd::Stopped(position) => resume = Some(position),
+                TransactionHistoryPageEnd::Exhausted => break,
+                other => panic!("ample page budget: {other:?}"),
+            }
+        }
+        assert_eq!(
+            actual, expected,
+            "exclusive cursors retain every original row exactly once"
+        );
+        assert_eq!(canonical_network_projection_calls_for_test(), 0);
+    }
+
+    #[test]
+    fn borrowed_transaction_history_charges_source_work_and_bytes_before_io() {
+        let fixture = canonical_query_fixture();
+        let view = fixture.state.view();
+        for (work, bytes) in [(0, TRANSACTION_HISTORY_MAX_BYTES), (1_000, 0)] {
+            assert_eq!(
+                visit_borrowed_committed_transaction_page(
+                    &view,
+                    None,
+                    work,
+                    bytes,
+                    |_, _, _, _| panic!("invalid budget cannot visit"),
+                ),
+                Err(QueryExecutionFail::FetchSizeTooBig)
+            );
+        }
+        view.kura().history_checkpoints().clear();
+        view.kura().reset_canonical_query_reads_for_test();
+        assert_eq!(
+            visit_borrowed_committed_transaction_page(&view, None, 1_000, 1, |_, _, _, _| panic!(
+                "source bytes must be prepaid"
+            ),)
+            .unwrap(),
+            TransactionHistoryPageEnd::OutOfReach
+        );
+        assert_eq!(view.kura().canonical_query_reads_for_test(), (0, 0));
+        assert_eq!(
+            visit_borrowed_committed_transaction_page(
+                &view,
+                TransactionHistoryPosition::new(3, 0),
+                1,
+                TRANSACTION_HISTORY_MAX_BYTES,
+                |_, _, _, _| panic!("one source cannot reach the cold deep page"),
+            )
+            .unwrap(),
+            TransactionHistoryPageEnd::OutOfReach
+        );
+        assert_eq!(view.kura().canonical_query_reads_for_test().0, 1);
+
+        let mut previous = None;
+        let mut count = 0;
+        let mut resume = None;
+        loop {
+            let end = visit_borrowed_committed_transaction_page(
+                &view,
+                resume,
+                5,
+                TRANSACTION_HISTORY_MAX_BYTES,
+                |_, _, position, _| {
+                    assert!(previous.is_none_or(|prior| position < prior));
+                    previous = Some(position);
+                    count += 1;
+                    ControlFlow::Continue(())
+                },
+            )
+            .expect("bounded borrowed page");
+            match end {
+                TransactionHistoryPageEnd::BudgetSpent(position) => resume = Some(position),
+                TransactionHistoryPageEnd::Exhausted | TransactionHistoryPageEnd::OutOfReach => {
+                    break;
+                }
+                other => panic!("visitor does not stop: {other:?}"),
+            }
+        }
+        assert!(count > 0, "bounded pages reach real transactions");
+    }
+
+    #[test]
+    fn borrowed_transaction_history_rejects_corrupt_originals() {
+        let fixture = canonical_query_fixture();
+        fixture.store.corrupt_body(fixture.target_height);
+        let view = fixture.state.view();
+        let error = visit_borrowed_committed_transaction_page(
+            &view,
+            None,
+            1_000,
+            TRANSACTION_HISTORY_MAX_BYTES,
+            |_, _, _, _| ControlFlow::Continue(()),
+        )
+        .expect_err("borrowed rows still require authenticated exact originals");
+        assert!(
+            matches!(error, QueryExecutionFail::Conversion(_)),
+            "{error:?}"
+        );
+    }
+
     #[test]
     fn transaction_history_pages_resume_strictly_before_their_position() {
         let fixture = canonical_query_fixture();
@@ -3061,7 +3401,16 @@ pub(crate) mod tests {
                 resume,
                 work,
                 TRANSACTION_HISTORY_MAX_BYTES,
-                |transaction, position| {
+                |transaction, position, block| {
+                    assert_eq!(transaction.block_hash, block.hash());
+                    assert_eq!(position.height(), block.header().height().get());
+                    assert_eq!(
+                        transaction.entrypoint_hash,
+                        block
+                            .network_entrypoint_at(position.block_index() as usize)
+                            .unwrap()
+                            .hash(),
+                    );
                     page.push((transaction.entrypoint_hash, position));
                     if page.len() == stop_after {
                         ControlFlow::Break(())
@@ -3155,6 +3504,44 @@ pub(crate) mod tests {
             rest[..],
             all[first_older..first_older + rest.len()],
             "a warm deep page continues exactly where history stands"
+        );
+    }
+    #[test]
+    fn transaction_history_page_reuses_authenticated_carriers_for_visibility() {
+        let fixture = canonical_query_fixture();
+        let state_view = fixture.state.view();
+        state_view.kura().history_checkpoints().clear();
+        state_view.kura().reset_canonical_query_reads_for_test();
+        let mut visited = 0;
+        let end = visit_committed_transaction_page(
+            &state_view,
+            None,
+            1_000,
+            TRANSACTION_HISTORY_MAX_BYTES,
+            |transaction, position, block| {
+                // Visibility needs the original committed execution routing, not
+                // a reconstructed transaction body or a separately loaded block.
+                assert_eq!(block.hash(), transaction.block_hash);
+                assert_eq!(block.header().height().get(), position.height());
+                let source = block
+                    .network_entrypoint_at(position.block_index() as usize)
+                    .expect("carrier contains its projected transaction");
+                assert_eq!(source.hash(), transaction.entrypoint_hash);
+                let (_, output) = block
+                    .network_output_at(position.block_index() as u32)
+                    .expect("carrier contains the exact committed output");
+                assert_eq!(&output.result, transaction.result());
+                visited += 1;
+                ControlFlow::Continue(())
+            },
+        )
+        .expect("authenticated page");
+        assert_eq!(end, TransactionHistoryPageEnd::Exhausted);
+        assert!(visited > state_view.height());
+        assert_eq!(
+            state_view.kura().canonical_query_reads_for_test().0,
+            state_view.height(),
+            "all projected rows share one authenticated source read per carrier"
         );
     }
     #[test]

@@ -103,6 +103,9 @@ mod model {
         /// Ordinary Load execution events, optionally matching one receipt digest.
         #[codec(index = 26)]
         KagemushaLoadCommitted(Option<[u8; 32]>),
+        /// Native bond-servicing kernel events, optionally restricted to one bond.
+        #[codec(index = 27)]
+        Bond(Option<crate::bond::BondId>),
     }
     /// An event filter for [`crate::sccp::events::SccpEvent`] values (`specs/sccp.md` §4.17).
     #[derive(
@@ -1919,6 +1922,7 @@ impl DataEventFilter {
                 updated |= replace_selector(&mut filter.buyer_matcher);
             }
             Self::GameSession(_)
+            | Self::Bond(_)
             | Self::KagemushaLoadCommitted(_)
             | Self::Sccp(_)
             | Self::Any
@@ -2035,6 +2039,9 @@ impl EventFilter for DataEventFilter {
             ) => digest
                 .as_ref()
                 .is_none_or(|digest| digest == &event.receipt_digest),
+            (DataEventFilter::Bond(bond), DataEvent::Bond(event)) => {
+                bond.as_ref().is_none_or(|bond| bond == event.bond())
+            }
             (DataEventFilter::Escrow(filter), DataEvent::Escrow(escrow_event)) => {
                 filter.matches(escrow_event)
             }

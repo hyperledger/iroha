@@ -2435,6 +2435,27 @@ pub mod streaming {
     .with_path_policy(PathPolicy::ProtocolException {
         reason: "SSE transport endpoint; stream contract is not an ordinary resource",
     });
+    /// Live account-history movement SSE stream.
+    ///
+    /// Each height published after admission is projected with the
+    /// `/v1/accounts/{account_id}/history` row producer; rows arrive oldest
+    /// first as `event: movement`. The stream is live-only.
+    pub const ACCOUNT_HISTORY_SSE: RouteDescriptor = RouteDescriptor::new(
+        "accounts.history_stream_sse",
+        HttpMethod::Get,
+        "/v1/accounts/{account_id}/history/sse",
+        ApiSurface::Protocol,
+        Listener::Torii,
+        RouteEffect::LongLivedStream,
+        AdmissionPolicy::DataspaceVisible,
+    )
+    .with_feature_gate(FeatureGate::Feature("app_api"))
+    .with_authentication(AuthenticationPolicy::OptionalCanonicalAccountSignature)
+    .with_transport(RouteTransport::ServerSentEvents)
+    .with_projections(RouteProjections::OPENAPI)
+    .with_path_policy(PathPolicy::ProtocolException {
+        reason: "SSE transport endpoint; stream contract is not an ordinary resource",
+    });
     /// Event subscription WebSocket.
     pub const SUBSCRIPTION_WS: RouteDescriptor = RouteDescriptor::new(
         "events.stream_websocket",
@@ -2470,8 +2491,13 @@ pub mod streaming {
         reason: "WebSocket transport endpoint",
     });
     /// Application streaming routes registered when `app_api` is compiled.
-    pub const APP_ROUTES: &[RouteDescriptor] =
-        &[EVENTS_SSE, CONTRACT_EVENTS_SSE, SUBSCRIPTION_WS, BLOCKS_WS];
+    pub const APP_ROUTES: &[RouteDescriptor] = &[
+        EVENTS_SSE,
+        CONTRACT_EVENTS_SSE,
+        ACCOUNT_HISTORY_SSE,
+        SUBSCRIPTION_WS,
+        BLOCKS_WS,
+    ];
 }
 /// Iroha Connect pairing and relay routes.
 #[path = "route_catalog/connect.rs"]
@@ -4084,6 +4110,9 @@ pub mod application_api {
         IDENTIFIERS_RESOLVE_POST => account_compute_post("application.identifiers_resolve_post", "/v1/identifiers/resolve");
         REPO_AGREEMENTS_GET => app_get("application.repo_agreements_get", "/v1/repo/agreements");
         REPO_AGREEMENTS_QUERY_POST => account_read_post("application.repo_agreements_query_post", "/v1/repo/agreements/query");
+        BONDS_GET => app_get("application.bonds_get", "/v1/bonds");
+        BONDS_BY_BOND_ID_GET => app_get("application.bonds_by_bond_id_get", "/v1/bonds/{bond_id}");
+        BONDS_BY_BOND_ID_ENTITLEMENTS_GET => app_get("application.bonds_by_bond_id_entitlements_get", "/v1/bonds/{bond_id}/entitlements");
         NOTIFY_DEVICES_POST => push_post("application.notify_devices_post", "/v1/notify/devices");
         NOTIFY_DEVICES_DELETE => push_delete("application.notify_devices_delete", "/v1/notify/devices");
         SNS_NAMES_BY_NAMESPACE_BY_LITERAL_GET => app_get("application.sns_names_by_namespace_by_literal_get", "/v1/sns/names/{namespace}/{literal}");
@@ -4206,6 +4235,7 @@ pub mod application_api {
         EXPLORER_RWAS_BY_RWA_ID_GET => dataspace_get("application.explorer_rwas_by_rwa_id_get", "/v1/explorer/rwas/{rwa_id}");
         EXPLORER_BLOCKS_BY_IDENTIFIER_GET => dataspace_get("application.explorer_blocks_by_identifier_get", "/v1/explorer/blocks/{identifier}");
         EXPLORER_TRANSACTIONS_BY_HASH_GET => dataspace_get("application.explorer_transactions_by_hash_get", "/v1/explorer/transactions/{hash}");
+        EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET => dataspace_get("application.explorer_transactions_by_hash_proof_get", "/v1/explorer/transactions/{hash}/proof");
         EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET => dataspace_get("application.explorer_instructions_by_hash_by_index_get", "/v1/explorer/instructions/{hash}/{index}");
         EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_CONTRACT_VIEW_GET => dataspace_sdk_get("application.explorer_instructions_by_hash_by_index_contract_view_get", "/v1/explorer/instructions/{hash}/{index}/contract-view");
         KAIGI_CALLS_BY_CALL_ID_GET => app_sdk_get("application.kaigi_calls_by_call_id_get", "/v1/kaigi/calls/{call_id}");
@@ -4424,6 +4454,8 @@ pub mod contracts_and_verification_keys {
         KAGEMUSHA_LOAD_ISSUANCE_GET => app_account_read_sdk_get("contracts.kagemusha_load_issuance_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}");
         KAGEMUSHA_LOAD_FINALITY_GET => app_account_read_sdk_get("contracts.kagemusha_load_finality_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality");
         KAGEMUSHA_LOAD_EPOCH_GET => app_account_read_sdk_get("contracts.kagemusha_load_epoch_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/epochs/{boundary}");
+        KAGEMUSHA_LEDGER_FINALITY_GET => app_account_read_sdk_get("contracts.kagemusha_ledger_finality_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/finality");
+        KAGEMUSHA_LEDGER_EPOCH_GET => app_account_read_sdk_get("contracts.kagemusha_ledger_epoch_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/epochs/{boundary}");
         SORAFS_RESERVE_ACCOUNT_PROOF_GET => app_account_read_sdk_get("contracts.sorafs_reserve_account_proof_get", "/v1/sorafs/reserve/providers/{provider_id}/proof/{height}");
         SORAFS_RESERVE_PROVIDERS_GET => app_account_read_sdk_get("contracts.sorafs_reserve_providers_get", "/v1/sorafs/reserve/providers");
         SORAFS_RESERVE_PROVIDERS_BY_PROVIDER_ID_HEX_GET => app_account_read_sdk_get("contracts.sorafs_reserve_providers_by_provider_id_hex_get", "/v1/sorafs/reserve/providers/{provider_id_hex}");

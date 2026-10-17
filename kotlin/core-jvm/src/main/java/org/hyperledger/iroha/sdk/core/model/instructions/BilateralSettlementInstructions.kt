@@ -222,7 +222,15 @@ object BilateralSettlementInstructions {
     }
 
     /** Governance terms fixed for the lifetime of a repo agreement. */
-    class RepoGovernance(haircutBps: Int, marginFrequencySecs: BigInteger) {
+    class RepoGovernance(
+        haircutBps: Int,
+        marginFrequencySecs: BigInteger,
+        /**
+         * Whether the initiator (cash borrower) may settle before maturity. Interest then accrues
+         * only to the committed block time. Bound into both consent hashes.
+         */
+        val allowEarlyRepayment: Boolean,
+    ) {
         /** Collateral haircut in basis points. */
         val haircutBps: Int = requireU16(haircutBps, "haircutBps").also {
             require(it <= 10_000) { "haircutBps must not exceed 10000" }
@@ -232,8 +240,12 @@ object BilateralSettlementInstructions {
         val marginFrequencySecs: BigInteger = requireU64(marginFrequencySecs, "marginFrequencySecs")
 
         /** Convenience constructor for non-negative signed-long cadence values. */
-        constructor(haircutBps: Int, marginFrequencySecs: Long) :
-            this(haircutBps, requireNonNegativeLong(marginFrequencySecs, "marginFrequencySecs"))
+        constructor(haircutBps: Int, marginFrequencySecs: Long, allowEarlyRepayment: Boolean) :
+            this(
+                haircutBps,
+                requireNonNegativeLong(marginFrequencySecs, "marginFrequencySecs"),
+                allowEarlyRepayment,
+            )
     }
 
     /** Atomic repo-open instruction with complete, consent-bound economic terms. */
@@ -455,6 +467,7 @@ private object BilateralSettlementWire {
     private val U16 = NoritoAdapters.uint(16)
     private val U32 = NoritoAdapters.uint(32)
     private val STRING = NoritoAdapters.stringAdapter()
+    private val BOOL = NoritoAdapters.boolAdapter()
     private val OPTIONAL_RAW = NoritoAdapters.option(RawAdapter)
     private val METADATA = MetadataAdapter()
 
@@ -604,6 +617,7 @@ private object BilateralSettlementWire {
     private fun encodeRepoGovernance(value: BilateralSettlementInstructions.RepoGovernance): ByteArray = bare {
         sized(it, U16, value.haircutBps.toLong())
         sized(it, U64Adapter, value.marginFrequencySecs)
+        sized(it, BOOL, value.allowEarlyRepayment)
     }
 
     private fun encodeSettlementId(value: BilateralSettlementInstructions.SettlementId): ByteArray = bare {

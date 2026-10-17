@@ -9,14 +9,15 @@ representations; the benchmark compares an identical economic payment vector.
 ## Signed intent and canonical representation
 
 `SettleAtomic` contains exactly `network_id`, `settlement_id`, `movements`,
-`expires_at_height` and `metadata`. The network is identified by genesis.
+`escrows`, `expires_at_height` and `metadata`. The network is identified by genesis.
 Expiry is inclusive: execution at the signed height is allowed; execution at
 a greater height fails. A successful receipt permanently occupies the business
 identifier, so the same identifier cannot execute a second time.
 
 `SettlementId` is the structured pair `{ owner: AccountId, reference: Name }`.
-The owner is an explicitly signed participating debit owner; a single movement
-therefore uses its payer. All native Atomic, DvP, PvP and FX receipt writers
+The owner is an explicitly signed participating debit owner: the owner of the
+source bucket of at least one movement or conditional escrow leg. A single
+movement therefore uses its payer. All native Atomic, DvP, PvP and FX receipt writers
 enforce this namespace. FX uses the signing source payer, never the protocol
 reserve owner. Equal references belonging to different owners are independent.
 The network scopes the ledger, so durable client/customer-credit keys include
@@ -30,9 +31,14 @@ closed owner/reference object. CLI text and JSON map keys require exactly
 `reference$canonical_account`. Bare-name IDs and string-valued native JSON have
 no decoder fallback in this first release.
 
-`AtomicSettlementMovements` contains 1 through 255 movements. A single payment
-uses the same consent, business-identifier uniqueness and immutable receipt
-rules as a multi-payment batch. Each movement is
+`AtomicSettlementMovements` contains 0 through 255 movements and
+`AtomicSettlementEscrows` 0 through 16 escrow legs; together they must contain at
+least one leg (`ATOMIC_SETTLEMENT_MIN_LEGS`). One fee movement plus four escrow
+legs, two escrow legs without any movement, a single payment or a single escrow
+leg are therefore valid intents, while an intent without any leg is rejected by
+`validate()`, the hand-written decoder and Core. A single payment uses the same
+consent, business-identifier uniqueness and immutable receipt rules as a
+multi-payment batch. Each movement is
 an exact source `AssetId`, a canonical domainless recipient `AccountId`, and a
 positive `Quantity`. The destination has the source's asset definition and
 explicit balance scope. Account aliases, ambient lane context and an asset's
@@ -40,8 +46,21 @@ display name cannot substitute another bucket. Self-transfers, duplicate
 movement keys and unsorted vectors are rejected. Ordering is strictly by
 `(source, recipient)`; implementations must not sort an incoming signed value.
 
-Norito binary decoding bounds the vector before allocation and validates its
-contents. The canonical layout carries its decode flags; missing scope fields
+Escrow legs are ordered by strictly increasing `escrow_id`. Each
+`AtomicSettlementEscrow` is an exact
+Global-scope `source` `AssetId`, an `escrow_id`, a `beneficiary`, a positive
+`amount`, the ordered `conditions`, an absolute `expires_at_ms` refund deadline
+and the opening `evidence_hashes`. The source bucket is debited into the
+escrow's deterministic protocol custody; the source owner becomes the escrow
+opener (`seller`) and therefore the refund recipient at expiry; the beneficiary
+is independent of the source. A buyer can thus escrow its own cash for the
+issuer while, in the same intent, the issuer's consented bond-unit bucket is
+escrowed for the buyer: units reach the buyer only when the condition passes and
+return to the issuer at expiry. Every field is required; there is no default
+that could hide an omitted escrow term.
+
+Norito binary decoding bounds both vectors before allocation and validates
+their contents. The canonical layout carries its decode flags; missing scope fields
 or alternative layouts are not inferred. JSON uses the same exact closed
 fields and validated model. The JavaScript JSON boundary belongs to
 `iroha_js_codec`; the host does not maintain a second settlement codec.
@@ -49,50 +68,98 @@ fields and validated model. The JavaScript JSON boundary belongs to
 The consent digest is `Hash::new_from_chunks` over
 `iroha:settlement:atomic-intent:v1\0` and the complete canonical Norito
 instruction frame. Consequently network, business identifier, all movements,
-expiry and metadata are covered together. It is not a digest of just the
-consenting owner's movement.
+all escrow terms, expiry and metadata are covered together. It is not a digest
+of just the consenting owner's movement. An owner that consents to an intent
+containing an escrow leg therefore also consents to that exact escrow: a
+submitter cannot drop or alter the escrow (for example to underpay a
+counterparty that expected a retained escrow share) without invalidating every
+consent.
 
 ## Authorization, preparation and application
 
 The transaction authority authorizes debits from its own buckets. Each other
-debited bucket requires a live owner-issued `CanExecuteSettlement` permission
-binding that exact bucket, business identifier and complete intent hash.
+debited bucket, including every foreign escrow source, requires a live
+owner-issued `CanExecuteSettlement` permission binding that exact bucket,
+business identifier and complete intent hash.
 Admission and execution check current consent in their own immutable logical
 state view. An earlier admission does not preserve a revoked permission.
 
+Each escrow leg is validated by the same Core owner as `OpenConditionalEscrow`
+(`prepare_conditional_escrow_opening`): unused and unreserved identifier,
+1..=64 conditions with contiguous oracle sequences and existing attestors, at
+most one ledger-time window, at most 64 evidence hashes, an expiry later than
+the committed block time, existing opener and beneficiary, and an amount valid
+for the definition's `NumericSpec`. Movements may not credit an escrow custody
+account of the same intent.
+
 Core prepares the complete numeric movement batch in one `StateTransaction`.
-Every destination account must already exist. Existing balance policy, transfer
-controls, numeric limits and protected reserves still apply. Aggregate outgoing
-obligations for each source must be funded by its pre-settlement balance;
-incoming movements cannot finance another outgoing obligation in the batch.
+Every movement destination account must already exist; the deterministic
+escrow custody accounts are created immediately before preparation and removed
+again if any leg fails. Each escrow funding (source bucket to custody bucket)
+joins the same prepared batch as the movements. Existing balance policy,
+transfer controls, numeric limits and protected reserves still apply.
+Aggregate outgoing obligations for each source, including its escrow amounts,
+must be funded by its pre-settlement balance; incoming movements cannot
+finance another outgoing obligation or an escrow in the batch.
 
 Preparation validates every movement, combined transfer-control update and its
 bounded serialization before application. It retains the exact signed source
 and destination buckets, pre-state balances and one authenticated transfer
-transcript. A late invalid movement therefore rejects the complete batch before
-an earlier movement can become visible. The receipt is constructed before the
-first balance mutation and inserted after successful batch application.
+transcript. A late invalid movement or escrow funding therefore rejects the
+complete batch before an earlier movement can become visible. The receipt is
+constructed before the first balance mutation. After successful batch
+application Core records each escrow exactly as `OpenConditionalEscrow` does
+(`Locked`, `Conditional`, opener as seller, beneficiary as buyer, effective
+expiry), emits its `EscrowEvent::Opened`, and inserts the receipt. Opened
+escrows then follow the ordinary `AttestEscrowCondition` and
+`ExpireConditionalEscrow` lifecycle: the final attestation releases custody to
+the beneficiary and expiry refunds the source owner.
 
-Routing collects every explicit movement scope. A single scoped dataspace can
+Routing collects every explicit movement scope; any escrow leg is a Global
+balance. A single scoped dataspace can
 execute locally; multiple scopes or any Global balance require the universal
 coordinator. Direct instructions and `SettlementInstructionBox::Atomic` resolve
 to the same routes, fee operation and execution checks.
 
-A direct one-instruction, one-movement `SettleAtomic` carrier with namespace
-owner equal to source owner and signed authority, on the same network, checks
-for an existing receipt before fee admission and metering. Its new carrier is
-rejected with typed `ValidationFail::SettlementReplay`: `AlreadySettled` for
-the same intent, or `ConflictingIntent` for changed terms, plus the original
-block height/hash locator. Both classifications leave the original receipt
-unchanged and produce no second monetary effect or fee. Expiry does not prevent
-recovering an already committed original. Composite and delegated carriers
-retain ordinary execution and rejection fee policy. A duplicate rejection is
-not a newly successful settlement.
+A direct one-instruction, one-movement `SettleAtomic` carrier without escrow
+legs, with namespace owner equal to source owner and signed authority, on the
+same network, checks for an existing receipt before fee admission and metering.
+Its new carrier is rejected with typed `ValidationFail::SettlementReplay`:
+`AlreadySettled` for the same intent, or `ConflictingIntent` for changed terms,
+plus the original block height/hash locator. Both classifications leave the
+original receipt unchanged and produce no second monetary effect or fee. Expiry
+does not prevent recovering an already committed original. Composite and
+delegated carriers retain ordinary execution and rejection fee policy. A
+duplicate rejection is not a newly successful settlement.
+
+## Escrow custody retention
+
+Unregistering an asset definition, directly or by unregistering its domain,
+deletes every balance of that definition, including deterministic escrow
+custody. Core therefore rejects both operations while any native escrow record
+of the definition (marketplace escrow, asset lock or conditional escrow, whether
+opened directly or by an atomic settlement leg) is still active or its custody
+bucket holds a balance, and likewise for active or funded VPN lease custody.
+The escrow must first reach its release, refund, drawdown or expiry terminal
+path; closed records with empty custody remain audit history and no longer
+retain the definition. Repo agreements already retain their cash and
+collateral definitions (see `specs/finance/repo_ops.md`).
+
+Registered bonds add three constraints (see `specs/finance/bond_ops.md`): a
+bond and its payment-asset definition are retained permanently; while a bond's
+books are closed (from a record date until that cash flow is recorded) its
+units cannot move, `SettleAtomic` movements and escrow legs included
+(`bond.books_closed`); and once its redemption is recorded every movement is
+rejected with `bond.transfers_frozen`, except an escrow returning custody to
+its seller. Units in escrow custody count for the escrow's seller at a record
+date.
 
 ## Receipt and query boundary
 
 `SettlementDetails::Atomic` stores the complete validated
-`ResolvedSettlementMovements` and the intent hash. Each resolved movement
+`ResolvedSettlementMovements`, the intent hash and `escrow_ids`, the opened
+escrow identifiers in signed order (empty when the intent has no escrow legs).
+The escrow records themselves retain custody, terms and lifecycle state. Each resolved movement
 records the exact source, destination and positive quantity; atomic movements
 have no separate per-leg metadata. Shared receipt consumers iterate the full
 movement vector, including the 255-movement limit, rather than assuming a pair.

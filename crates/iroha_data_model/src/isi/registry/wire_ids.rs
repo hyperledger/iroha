@@ -85,6 +85,7 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(rwa::RwaInstructionBox => "iroha.rwa"),
     built_in_wire_id!(defi::DeFiInstructionBox => "iroha.defi", register),
     built_in_wire_id!(repo::RepoInstructionBox => "iroha.repo"),
+    built_in_wire_id!(bond::BondInstructionBox => "iroha.bond"),
     built_in_wire_id!(settlement::SettlementInstructionBox => "iroha.settlement"),
     built_in_wire_id!(SetParameter => "iroha.set_parameter"),
     built_in_wire_id!(SetKeyValueBox => "iroha.set_key_value"),

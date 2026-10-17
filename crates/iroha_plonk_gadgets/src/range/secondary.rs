@@ -41,7 +41,7 @@ impl SecondaryPhase {
     }
     const fn radix_bits(self) -> usize {
         match self {
-            Self::Glue => 12,
+            Self::Glue => 15,
             Self::Poseidon | Self::PairedPoseidon => 15,
         }
     }
@@ -125,7 +125,7 @@ impl SecondaryRangeConfig {
                 gates.push((low.clone() + high.clone()) * roots(&values[index], 8));
             }
             for index in [6, 7, 8] {
-                gates.push(low.clone() * (constant(1) - high.clone()) * roots(&values[index], 4));
+                gates.push(low.clone() * (constant(1) - high.clone()) * roots(&values[index], 8));
             }
             for index in [0, 1, 2] {
                 gates.push(high.clone() * roots(&values[index], 8));
@@ -136,16 +136,16 @@ impl SecondaryRangeConfig {
             // Their factor is zero. The public prefix uses idle-ECC phase.
             gates.push(
                 (primary.clone() - constant(2))
-                    * indicator(&mode, 3, 3)
+                    * indicator(&mode, 3, 4)
                     * high.clone()
                     * roots(&values[2], 4),
             );
             gates.push(
                 (primary - constant(2))
-                    * indicator(&mode, 0, 3)
+                    * indicator(&mode, 3, 4)
                     * low
                     * (constant(1) - high)
-                    * roots(&values[7], 2),
+                    * roots(&values[6], 4),
             );
             gates
         });
@@ -157,48 +157,51 @@ impl SecondaryRangeConfig {
             let values: [_; 10] =
                 core::array::from_fn(|i| cells.query_advice(ports[i], Rotation::cur()));
             let next = cells.query_advice(ports[4], Rotation::next());
-            let glue = packed(&values, &[(5, 3), (9, 3), (6, 2), (7, 2), (8, 2)]);
+            let glue = packed(&values, &[(5, 3), (9, 3), (6, 3), (7, 3), (8, 3)]);
             let sponge = packed(&values, &[(0, 3), (1, 3), (2, 3), (5, 3), (9, 3)]);
             let step = values[4].clone()
-                - (constant(1) - high.clone()) * (next.clone() * F::from(1 << 12) + glue)
+                - (constant(1) - high.clone()) * (next.clone() * F::from(1 << 15) + glue)
                 - high.clone() * (next * F::from(1 << 15) + sponge);
-            let top81 = values[4].clone()
-                - values[5].clone()
-                - values[9].clone() * F::from(8)
-                - (constant(1) - high.clone())
-                    * (values[6].clone() * F::from(64) + values[7].clone() * F::from(256));
-            let unused81 = (constant(1) - high.clone()) * values[8].clone()
+            let top81 = values[4].clone() - values[5].clone() - values[9].clone() * F::from(8);
+            let unused81 = (constant(1) - high.clone())
+                * (values[6].clone() + values[7].clone() + values[8].clone())
                 + high.clone() * (values[0].clone() + values[1].clone() + values[2].clone());
             let top87 = values[4].clone()
-                - (constant(1) - high.clone()) * values[5].clone()
+                - (constant(1) - high.clone()) * packed(&values, &[(5, 3), (9, 3), (6, 3), (7, 3)])
                 - high.clone() * packed(&values, &[(0, 3), (1, 3), (5, 3), (9, 3)]);
+            let unused87 =
+                (constant(1) - high.clone()) * values[8].clone() + high.clone() * values[2].clone();
             let top128 = values[4].clone()
                 - values[5].clone()
                 - values[9].clone() * F::from(8)
                 - ((constant(1) - high.clone()) * values[6].clone()
                     + high.clone() * values[2].clone())
                     * F::from(64);
-            let unused87 = (constant(1) - high.clone())
-                * (values[9].clone() + values[6].clone() + values[7].clone() + values[8].clone())
-                + high.clone() * values[2].clone();
             let unused128 = (constant(1) - high.clone()) * (values[7].clone() + values[8].clone())
                 + high.clone() * (values[0].clone() + values[1].clone());
+            let top93 = values[4].clone() - values[5].clone();
+            let unused93 = values[9].clone()
+                + (constant(1) - high.clone())
+                    * (values[6].clone() + values[7].clone() + values[8].clone())
+                + high.clone() * (values[0].clone() + values[1].clone() + values[2].clone());
             let forbidden = (constant(1) - low) * (constant(1) - high);
             let optional = (primary.clone() - constant(2)) * (constant(1) - forbidden.clone());
             // Code zero also occurs on ordinary inactive/narrow primary
             // rows. Gate its exact top by the eligible phase and exclude
             // only primary tagged-top code2, whose control is a width.
             let top_zero = (primary.clone() - constant(2))
-                * indicator(&mode, 0, 3)
+                * indicator(&mode, 0, 4)
                 * (constant(1) - forbidden.clone());
             vec![
                 top_zero.clone() * top81,
                 top_zero * unused81,
-                optional.clone() * indicator(&mode, 1, 3) * step.clone(),
-                optional.clone() * indicator(&mode, 2, 3) * top87,
-                optional.clone() * indicator(&mode, 2, 3) * unused87,
-                optional.clone() * indicator(&mode, 3, 3) * top128,
-                optional.clone() * indicator(&mode, 3, 3) * unused128,
+                optional.clone() * indicator(&mode, 1, 4) * step.clone(),
+                optional.clone() * indicator(&mode, 2, 4) * top87,
+                optional.clone() * indicator(&mode, 2, 4) * unused87,
+                optional.clone() * indicator(&mode, 3, 4) * top128,
+                optional.clone() * indicator(&mode, 3, 4) * unused128,
+                optional.clone() * indicator(&mode, 4, 4) * top93,
+                optional.clone() * indicator(&mode, 4, 4) * unused93,
                 // Primary exact-tag tops need no spare fixed control: every
                 // eligible row is a secondary step. Unused states are zero.
                 indicator(&primary, 2, 4) * (constant(1) - forbidden) * step,
@@ -234,7 +237,7 @@ impl SecondaryRangeConfig {
         value: Value<F>,
         forced_tops: &[bool],
     ) -> Result<Word<F>, Error> {
-        if !(matches!(bits, 81 | 87 | 128) || bits == 93 && phase == SecondaryPhase::Glue) {
+        if !matches!(bits, 8 | 18 | 66 | 68 | 81 | 87 | 93 | 128) {
             return Err(Error::Synthesis);
         }
         let mut shape = RangeShape::new(
@@ -264,9 +267,10 @@ impl SecondaryRangeConfig {
                 1
             } else {
                 match bits {
-                    81 | 93 => 0,
+                    66 | 81 => 0,
                     87 => 2,
-                    128 => 3,
+                    8 | 68 | 128 => 3,
+                    18 | 93 => 4,
                     _ => unreachable!(),
                 }
             });
@@ -295,25 +299,27 @@ impl SecondaryRangeConfig {
         region.reserve_advice(self.ports[4], row)?;
         let word = assign_word(region, self.ports[4], row, entry)?;
         let parts: &[(usize, usize)] = match (phase, bits, top) {
-            (SecondaryPhase::Glue, _, false) => &[(5, 3), (9, 3), (6, 2), (7, 2), (8, 2)],
+            (SecondaryPhase::Glue, _, false) => &[(5, 3), (9, 3), (6, 3), (7, 3), (8, 3)],
             (_, _, false) => &[(0, 3), (1, 3), (2, 3), (5, 3), (9, 3)],
-            (SecondaryPhase::Glue, 81 | 93, true) => &[(5, 3), (9, 3), (6, 2), (7, 1)],
-            (_, 81, true) => &[(5, 3), (9, 3)],
-            (SecondaryPhase::Glue, 87, true) => &[(5, 3)],
+            (_, 66 | 81, true) => &[(5, 3), (9, 3)],
+            (SecondaryPhase::Glue, 87, true) => &[(5, 3), (9, 3), (6, 3), (7, 3)],
             (_, 87, true) => &[(0, 3), (1, 3), (5, 3), (9, 3)],
-            (SecondaryPhase::Glue, 128, true) => &[(5, 3), (9, 3), (6, 2)],
-            (_, 128, true) => &[(5, 3), (9, 3), (2, 2)],
+            (SecondaryPhase::Glue, 8 | 68 | 128, true) => &[(5, 3), (9, 3), (6, 2)],
+            (_, 8 | 68 | 128, true) => &[(5, 3), (9, 3), (2, 2)],
+            (_, 18 | 93, true) => &[(5, 3)],
             _ => return Err(Error::Synthesis),
         };
         let mut shift = 0;
         if top {
             let unused: &[usize] = match (phase, bits) {
-                (SecondaryPhase::Glue, 81 | 93) => &[8],
-                (_, 81) => &[0, 1, 2],
-                (SecondaryPhase::Glue, 87) => &[9, 6, 7, 8],
+                (SecondaryPhase::Glue, 66 | 81) => &[6, 7, 8],
+                (_, 66 | 81) => &[0, 1, 2],
+                (SecondaryPhase::Glue, 87) => &[8],
                 (_, 87) => &[2],
-                (SecondaryPhase::Glue, 128) => &[7, 8],
-                (_, 128) => &[0, 1],
+                (SecondaryPhase::Glue, 8 | 68 | 128) => &[7, 8],
+                (_, 8 | 68 | 128) => &[0, 1],
+                (SecondaryPhase::Glue, 18 | 93) => &[9, 6, 7, 8],
+                (_, 18 | 93) => &[9, 0, 1, 2],
                 _ => return Err(Error::Synthesis),
             };
             for port in unused {

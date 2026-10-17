@@ -102,6 +102,50 @@ fn snapshot_reads_exact_originals_repeatedly_without_persisting_decoded_data() {
 }
 
 #[test]
+fn snapshot_shares_one_immutable_view_with_concurrent_readers_and_live_reads_do_not() {
+    let raws: &[&[u8]] = &[b"first shared original", b"second shared original"];
+    let (_temp, root, source) = fixture(raws);
+    // A live directory keeps its per-read custody checks on the thread holding it.
+    assert!(source.shared_view().is_none());
+    let before = root.entries(10).unwrap();
+    source
+        .with_snapshot::<_, Error>(|snapshot| {
+            let view = snapshot.shared_view().ok_or(Error::Inventory)?;
+            std::thread::scope(|scope| {
+                for _ in 0..4 {
+                    scope.spawn(|| {
+                        for _ in 0..3 {
+                            for raw in raws {
+                                let mut bytes = Vec::new();
+                                view.open_shared(BlobV1::of(raw).sha256)
+                                    .unwrap()
+                                    .read_to_end(&mut bytes)
+                                    .unwrap();
+                                assert_eq!(bytes, *raw);
+                            }
+                        }
+                        assert!(matches!(
+                            view.open_shared([0xff; 32]),
+                            Err(Error::Inventory)
+                        ));
+                    });
+                }
+            });
+            // Every reader has joined; the exclusive handle reads the same bytes.
+            let mut bytes = Vec::new();
+            snapshot
+                .open(BlobV1::of(raws[1]).sha256)?
+                .read_to_end(&mut bytes)
+                .unwrap();
+            assert_eq!(bytes, raws[1]);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(source.observed.lock().unwrap().len(), raws.len());
+    assert_eq!(root.entries(10).unwrap(), before);
+}
+
+#[test]
 fn snapshot_body_reads_immutable_memory_but_cannot_return_after_file_replacement() {
     let raw = b"immutable borrowed public bytes";
     let (_temp, root, source) = fixture(&[raw]);

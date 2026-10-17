@@ -1143,7 +1143,9 @@ class TransactionDraft:
     ) -> TransactionDraft:
         """Append a `RepoIsi` instruction for repo initiation or rolling."""
 
-        governance = governance or RepoGovernance(haircut_bps=0, margin_frequency_secs=0)
+        governance = governance or RepoGovernance(
+            haircut_bps=0, margin_frequency_secs=0, allow_early_repayment=False
+        )
         cash_payload: Dict[str, Any] = {
             "asset_definition_id": cash_leg.asset_definition_id,
             "quantity": _normalize_quantity(cash_leg.quantity),
@@ -1155,10 +1157,7 @@ class TransactionDraft:
         if collateral_leg.metadata:
             collateral_payload["metadata"] = _normalize_metadata(collateral_leg.metadata)
 
-        governance_payload = {
-            "haircut_bps": int(governance.haircut_bps),
-            "margin_frequency_secs": int(governance.margin_frequency_secs),
-        }
+        governance_payload = governance.to_payload()
 
         instruction = Instruction.repo_initiate(
             agreement_id,

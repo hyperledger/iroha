@@ -2334,8 +2334,6 @@ fn p256_leaf_window_sha_and_sampled_cells_are_pinned() {
 #[test]
 #[ignore = "k = 16 proof; run in release"]
 fn p256_proof_measurement_release() {
-    use std::convert::Infallible;
-
     use iroha_pasta::{Ep, msm::MemoryBudget};
     use iroha_plonk::{
         ProverConfig, ProverRandomness,
@@ -2361,9 +2359,7 @@ fn p256_proof_measurement_release() {
     let started = Instant::now();
     let pk = keygen_pk(&params, &circuit.without_witnesses(), &config).expect("keys");
     let keygen_ms = started.elapsed().as_millis();
-    let randomness = ProverRandomness::recovery(move |_context: &[u8; 32]| {
-        Ok::<_, Infallible>(ChaCha20Rng::from_seed([7; 32]))
-    });
+    let randomness = ProverRandomness::hedged();
     let started = Instant::now();
     let proof = prove_circuit(
         &params,

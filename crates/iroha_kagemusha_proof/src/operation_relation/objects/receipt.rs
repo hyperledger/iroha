@@ -33,7 +33,7 @@ pub struct ReceiptContext<'a, S = StatementCells> {
 
 /// Bind a decoded receipt to all derived fields and return a total verdict.
 ///
-/// Includes byte-structure validity, nonzero proof/capsule requirements and
+/// Includes byte-structure validity, nonzero operation/proof/capsule requirements and
 /// the Receive-only Payment digest rule. Signature authentication is supplied
 /// by `SignedObjectCells::bind_signature` under the credential's payment key.
 /// A hard own receipt requires both verdicts true; incoming receipts include
@@ -188,6 +188,11 @@ fn bind_context(
     bits.push(nonzero(
         uint.glue(),
         region,
+        core::slice::from_ref(context.operation),
+    )?);
+    bits.push(nonzero(
+        uint.glue(),
+        region,
         core::slice::from_ref(context.proof_digest),
     )?);
     bits.push(nonzero(uint.glue(), region, receipt.identifier(10)?)?);
@@ -202,3 +207,6 @@ fn bind_context(
     );
     all(uint.glue(), region, &bits)
 }
+
+#[cfg(test)]
+mod tests;

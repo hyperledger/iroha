@@ -433,8 +433,12 @@ fn genuine_receive_source_for_send(
         common::vesta_params(12),
     )
     .unwrap();
-    let own_proof = own.prove(&witness.step, common::recovery(241)).unwrap();
-    let incoming_proof = incoming.prove(&send.step, common::recovery(242)).unwrap();
+    let own_proof = own
+        .prove(&witness.step, common::fresh_randomness())
+        .unwrap();
+    let incoming_proof = incoming
+        .prove(&send.step, common::fresh_randomness())
+        .unwrap();
     let mut incoming_sigma = incoming_proof.bytes;
     if !incoming_valid {
         // The first commitment encoding is noncanonical in either Pasta field;
@@ -470,13 +474,19 @@ fn genuine_receive_source_for_send(
                 mode,
             }),
             &vparams,
-            Fq::from(243),
+            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::Fresh(
+                common::public_fixture_tape(243),
+            ),
             &FoldConfig::default(),
         )
         .unwrap();
     let q = QSigmaProver::keygen_serialized_foreign(&prepared, params.clone(), 2).unwrap();
     let proof = q
-        .prove(&prepared, common::recovery(244), ProverConfig::default())
+        .prove(
+            &prepared,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     let claim = accumulate_generator(
         &params,

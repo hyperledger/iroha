@@ -19,7 +19,6 @@ use crate::{
     },
     omega::OmegaWitness,
 };
-use ff::PrimeField;
 use iroha_pasta::msm::MemoryBudget;
 use iroha_plonk::DescriptorBinding;
 use iroha_plonk::{ProverConfig, ProverRandomness};
@@ -269,7 +268,7 @@ impl Session<'_> {
         stage: usize,
         circuit: Stage,
         key: &SourceBoundViewV2<'_, Eq>,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
         budget: MemoryBudget,
     ) -> Result<ACheckpoint, Error> {
@@ -300,9 +299,9 @@ impl Session<'_> {
     pub fn first(
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -319,7 +318,7 @@ impl Session<'_> {
             .map_err(|_| Error::Artifact)?;
         self.prove_a(
             0,
-            self.prepared.first(salt, fold)?,
+            self.prepared.first(tape, fold)?,
             key,
             randomness,
             config,
@@ -353,7 +352,7 @@ impl Session<'_> {
             source: self.prepared.clone(),
             continuation: None,
             pallas: pallas.clone(),
-            fold: vec![],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             known: true,
         };
         self.checked_a_cancellable(0, circuit, proof, budget, cancellation)
@@ -371,9 +370,9 @@ impl Session<'_> {
         &self,
         key: &SourceBoundViewV2<'_, Ep>,
         source: &ACheckpoint,
-        salt: Fq,
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<WCheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -395,27 +394,14 @@ impl Session<'_> {
         if source.stage + 1 >= A_STAGE_COUNT {
             return Err(Error::Input);
         }
-        let trivial = AccumulatorT::trivial_cancellable(
+        let a = &self.prover.a[source.stage];
+        let (vfold, vesta) = crate::private_fold::wrapper(
             &self.prepared.plan().vesta,
-            fold.kernel_budget,
-            config.cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Proof
-            }
-        })?;
-        let (vfold, vesta) = create_fold(
-            &self.prepared.plan().vesta,
-            &[
-                source.part.clone(),
-                source.opening.clone(),
-                trivial.as_input(),
-                trivial.as_input(),
-            ],
-            salt.to_repr(),
+            a.binding(),
+            a.key(),
+            std::slice::from_ref(&source.public),
+            &source.proof,
+            tape,
             fold,
         )
         .map_err(|error| {
@@ -454,7 +440,7 @@ impl Session<'_> {
                 instances: source.public.clone(),
                 length: u32::try_from(source.proof.len()).map_err(|_| Error::Input)?,
                 proof: source.proof.clone(),
-                fold: vfold.to_bytes(),
+                fold: crate::private_fold::PrivateFoldBytes::from_fold(vfold),
             },
         )
         .map_err(|_| Error::Input)?;
@@ -551,7 +537,7 @@ impl Session<'_> {
         &self,
         wrapper: &WCheckpoint,
         pallas: AccumulatorT<Ep>,
-        fold: Vec<u8>,
+        fold: crate::private_fold::PrivateFoldBytes,
     ) -> Result<Stage, Error> {
         self.require_a(&wrapper.source)?;
         let index = wrapper.source.stage + 1;
@@ -582,7 +568,7 @@ impl Session<'_> {
     fn prepare_advance(
         &self,
         wrapper: &WCheckpoint,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
     ) -> Result<Stage, Error> {
         let wrapper = self.restore_wrapper_cancellable(
@@ -611,8 +597,20 @@ impl Session<'_> {
                 .iter()
                 .map(|i| self.prepared.q_openings()[*i].clone()),
         );
+        let purpose = if index + 1 == A_STAGE_COUNT {
+            crate::private_fold::terminal_inputs(&self.prepared.plan().pallas, &mut claims, fold)
+                .map_err(|error| {
+                    if error.is_cancelled() {
+                        Error::Cancelled
+                    } else {
+                        Error::Proof
+                    }
+                })?
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
         let (proof, pallas) =
-            create_fold(&self.prepared.plan().pallas, &claims, salt.to_repr(), fold).map_err(
+            create_fold(&self.prepared.plan().pallas, &claims, tape, purpose, fold).map_err(
                 |error| {
                     if error.is_cancelled() {
                         Error::Cancelled
@@ -634,7 +632,11 @@ impl Session<'_> {
                     Error::Proof
                 }
             })?;
-        self.continuation(&wrapper, pallas, proof.to_bytes().to_vec())
+        self.continuation(
+            &wrapper,
+            pallas,
+            crate::private_fold::PrivateFoldBytes::from_fold(proof),
+        )
     }
     /// Prepare the exact next owner circuit and public frame from a checked W.
     /// Artifact verification can compare its fixed columns and copy constraints
@@ -644,10 +646,10 @@ impl Session<'_> {
     pub fn next_circuit(
         &self,
         wrapper: &WCheckpoint,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>), Error> {
-        let circuit = self.prepare_advance(wrapper, salt, fold)?;
+        let circuit = self.prepare_advance(wrapper, tape, fold)?;
         let public = circuit.public()?;
         Ok((StageCircuit { inner: circuit }, public))
     }
@@ -664,9 +666,9 @@ impl Session<'_> {
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
         wrapper: &WCheckpoint,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -685,7 +687,7 @@ impl Session<'_> {
             .ok_or(Error::Artifact)?
             .require_source_bound(key)
             .map_err(|_| Error::Artifact)?;
-        let circuit = self.prepare_advance(wrapper, salt, fold)?;
+        let circuit = self.prepare_advance(wrapper, tape, fold)?;
         self.prove_a(index, circuit, key, randomness, config, fold.kernel_budget)
     }
     /// Restore a subsequent A from its exact W predecessor and carried Pallas bytes.
@@ -720,7 +722,11 @@ impl Session<'_> {
             cancellation,
         )?;
         let pallas = AccumulatorT::from_bytes(pallas).map_err(|_| Error::Input)?;
-        let circuit = self.continuation(&wrapper, pallas, vec![])?;
+        let circuit = self.continuation(
+            &wrapper,
+            pallas,
+            crate::private_fold::PrivateFoldBytes::unknown(),
+        )?;
         self.checked_a_cancellable(
             wrapper.source.stage + 1,
             circuit,

@@ -1,12 +1,12 @@
 # Generated instruction record identities
 
 `instruction_record_generated_identity_frames.json` contains immutable captures
-for the current instruction records and concrete generic instantiations. Its 327
-type rows preserve 370 populated values and 1,480 complete root, vector, option
+for the current instruction records and concrete generic instantiations. Its 341
+type rows preserve 384 populated values and 1,536 complete root, vector, option
 and map frames.
 
 The fixture SHA-256 is
-`4dcc87d9f3fd55847fb3a9609a2868c287d18254dcd822048c87bc9254c0a8ba`.
+`52370ddede6c0eeb654dbf2bf18b465e61e7cd43cef0ecb9ddb9f9955c24f33e`.
 `ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
 against funded XOR custody. The manual recipient instruction and its record-ledger
 claim fields are removed. The external `staking_reward_identity_capture` native
@@ -205,3 +205,31 @@ applied by script (three deletions and one replacement, with the fixture's own
 JSON formatting) rather than by a complete native capture. The other 326 rows
 are byte-identical, and the inventory holds 327 rows and 370 cases. The retired
 wire identifiers are covered by `retired_sccp_wire_ids_are_unregistered`.
+
+On 2026-10-13 the single `RepoIsi` case was recaptured after `RepoGovernance`
+gained its explicit `allow_early_repayment` term. The current typed value keeps
+the original agreement, parties, legs, rate, maturity, haircut and cadence and
+sets `allow_early_repayment = false`; root, vector, option and map frames were
+produced and round-tripped by the current native codec through a temporary
+capture test that was removed afterwards. Nominal and directional identities and
+every other row are unchanged.
+
+Also on 2026-10-13, the single `SettleAtomic` case was recaptured after the
+instruction gained its bounded `escrows` list (conditional escrow legs bound
+into the consent intent). On 2026-10-15, after rebasing onto the owner-qualified
+`SettlementId`, it was recaptured again with the maintained ignored producer
+`print_scoped_settlement_atomic_fixture_rows`: the captured value is the
+owner-qualified three-movement atomic fixture with an empty escrow list. The
+same producer's box case replaced the `Atomic` case of
+`instruction_box_generated_identity_frames.json`. Only these frames differ; the
+nominal and directional identities and every other row are unchanged.
+
+The eight bond-kernel leaf records (`RegisterBond`, `RecordBondCashflow`,
+`FundBondCashflow`, `ClaimBondCashflow`, `CloseBondCashflow`, `CallBond`,
+`DeclareBondDefault`, `ReplaceBondPayingAgent`) were added on 2026-10-14 with one
+populated value each from `generated_record_values.rs` (`bond_values`, printed by
+the ignored `print_bond_record_fixture_rows`). They travel only inside
+`BondInstructionBox`; these rows pin their leaf identities and frames.
+The ninth leaf, `RetireBondTreasuryUnits`, was added on 2026-10-15 with one
+populated value from the same producer; the eight earlier bond rows are
+unchanged.

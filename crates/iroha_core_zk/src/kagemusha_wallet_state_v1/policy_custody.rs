@@ -5,7 +5,7 @@
 //! The actual Native owner publishes and reads back the complete original before proving,
 //! and resolves it again before the existing issuer-role and full-list admission checks.
 
-use super::{Error, ObjectStore, archive, read_model_original};
+use super::{Error, ObjectWorkspace, archive, read_model_original};
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1 as object_digest;
 use iroha_data_model::kagemusha::*;
 
@@ -102,12 +102,12 @@ impl BlacklistOriginalReferenceV1 {
 /// Publish through the actual coordinator/archive capability and authenticate exact readback.
 /// Successful publication changes no manifest, selected monetary head, receipt or proof.
 pub(crate) fn publish_blacklist_original(
-    objects: &mut dyn ObjectStore,
+    objects: &mut dyn ObjectWorkspace,
     scheme_id: &[u8; 32],
     original: &[u8],
 ) -> Result<BlacklistOriginalReferenceV1, Error> {
     let reference = BlacklistOriginalReferenceV1::for_original(scheme_id, original)?;
-    let key = objects.write_object(original, KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1)?;
+    let key = objects.stage_object(original, KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1)?;
     if key != reference.original_digest {
         return Err(Error::WitnessLost("blacklist source publication key"));
     }
@@ -121,12 +121,12 @@ pub(crate) fn publish_blacklist_original(
 /// Read the complete original named by an actual source-selected opaque reference.
 /// Native still joins its signed object digest to the current state before using it.
 pub(crate) fn read_blacklist_original(
-    objects: &mut dyn ObjectStore,
+    objects: &mut dyn ObjectWorkspace,
     reference: &BlacklistOriginalReferenceV1,
     scheme_id: &[u8; 32],
 ) -> Result<Vec<u8>, Error> {
     let maximum = reference.require(scheme_id)?;
-    let original = objects.read_object(&reference.original_digest, maximum)?;
+    let original = objects.read_staged_object(&reference.original_digest, maximum)?;
     reference.verify_original(scheme_id, &original)?;
     Ok(original)
 }

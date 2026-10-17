@@ -55,20 +55,25 @@ pub(super) fn joint_length_valid(
 ) -> Result<Bit<Fp>, Error> {
     let length = uint.glue().add(region, omega.word(), sigma.word())?;
     let length = uint.range_check::<33>(region, &length)?;
-    let limit = uint.constant::<33>(region, (MAX_OMEGA_RAW_BYTES + 1) as u128)?;
+    let limit = uint.constant::<33>(region, (PAYMENT_RAW_PROOF_BUDGET + 1) as u128)?;
     uint.lt(region, &length, &limit)
 }
 
-/// Wire section4 joint raw Omega-transport and sigma budget: `10,000 - 1,723`.
+/// Wire section4 joint raw Omega-transport and sigma budget: `10,000 - 1,436`.
 ///
 /// This is an envelope bound, not an admitted proof length. Exact lengths still
 /// come from the frozen verifier descriptors and participate in the soft check.
-pub const PAYMENT_PROOF_BUDGET: usize = 8_277;
-/// Largest incoming Omega raw tape, including its 320-byte public transcript.
-/// The other proof may be empty on the total malformed-input path.
-pub const MAX_OMEGA_RAW_BYTES: usize = PAYMENT_PROOF_BUDGET + 320;
-/// Largest incoming sigma raw tape when the other proof is empty.
-pub const MAX_SIGMA_RAW_BYTES: usize = PAYMENT_PROOF_BUDGET;
+pub const PAYMENT_PROOF_BUDGET: usize = 8_564;
+/// Independent joint budget including the exact320-byte public Omega prefix.
+pub const PAYMENT_RAW_PROOF_BUDGET: usize = PAYMENT_PROOF_BUDGET + 320;
+/// Largest Send sigma in the source-derived selector-budget-seven catalog.
+pub const MAX_SEND_PROOF_BYTES: usize = 3_520;
+/// Uniform Omega proof plus both claims, after the largest admitted Send sigma.
+pub const OMEGA_TRANSPORT_CAP: usize = PAYMENT_PROOF_BUDGET - MAX_SEND_PROOF_BYTES;
+/// Individual incoming Omega tape cap, including its public320-byte transcript.
+pub const MAX_OMEGA_RAW_BYTES: usize = OMEGA_TRANSPORT_CAP + 320;
+/// Individual incoming Send/Receive sigma tape cap from the admitted source catalog.
+pub const MAX_SIGMA_RAW_BYTES: usize = MAX_SEND_PROOF_BYTES;
 
 /// Fixed signed Request, retained payer credential, Send receipt and Payment tape.
 #[derive(Clone, Copy)]
@@ -218,7 +223,7 @@ impl ReceiveObjects {
         GlueChip::assert_equal(region, input.sigma.key_index(), payment.sigma_index())?;
         let own = input.own.fields();
         let mut checks = vec![payment.payment().valid().clone()];
-        // Wire section4: |Omega transport| + |sigma| <= 10,000 - 1,723.
+        // Wire section4: |Omega transport| + |sigma| <= 10,000 - 1,436.
         // The active Omega source additionally contains its 320-byte public
         // transcript. UInt32 sources make the sum an exact 33-bit integer.
         checks.push(joint_length_valid(

@@ -1,6 +1,9 @@
 //! Bounded persistent wallet IMT, including genuine intermediate insertion/removal paths.
 
-use super::{Error, IndexRoot, ObjectStore, archive, valid};
+#[cfg(test)]
+use super::ObjectStore;
+use super::{Error, IndexRoot, ObjectWorkspace, archive, valid};
+use crate::kagemusha_wallet_advance_v1::counters::{self, EventV1};
 use iroha_data_model::kagemusha::*;
 
 /// Fixed immutable description; selecting it belongs to the authenticated source owner.
@@ -99,7 +102,7 @@ impl PersistentMapV1 {
     }
     fn hash(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         height: usize,
         slot: u32,
         defaults: &[[u8; 32]; 33],
@@ -120,7 +123,7 @@ impl PersistentMapV1 {
     }
     fn opening(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         slot: u32,
     ) -> Result<KagemushaWalletIndexedOpeningV1, Error> {
         let defaults = Self::defaults()?;
@@ -132,7 +135,11 @@ impl PersistentMapV1 {
         }
         Ok(KagemushaWalletIndexedOpeningV1 { slot, siblings })
     }
-    fn entry(&self, store: &mut impl ObjectStore, key: &[u8; 32]) -> Result<Option<Entry>, Error> {
+    fn entry(
+        &self,
+        store: &mut impl ObjectWorkspace,
+        key: &[u8; 32],
+    ) -> Result<Option<Entry>, Error> {
         self.validate()?;
         let Some(bytes) = self.leaves.get(store, &ordered(*key))? else {
             return Ok((*key == [0; 32]).then(Entry::sentinel));
@@ -149,7 +156,7 @@ impl PersistentMapV1 {
     }
     fn require_opening(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         entry: &Entry,
     ) -> Result<KagemushaWalletIndexedOpeningV1, Error> {
         let opening = self.opening(store, entry.slot)?;
@@ -158,7 +165,7 @@ impl PersistentMapV1 {
         }
         Ok(opening)
     }
-    fn low(&self, store: &mut impl ObjectStore, key: &[u8; 32]) -> Result<Entry, Error> {
+    fn low(&self, store: &mut impl ObjectWorkspace, key: &[u8; 32]) -> Result<Entry, Error> {
         key_valid(key)?;
         let entry = match self.leaves.predecessor(store, &ordered(*key))? {
             Some((held, bytes)) => {
@@ -179,7 +186,7 @@ impl PersistentMapV1 {
     /// Exact current-root member, without collecting the map or wallet history.
     pub(crate) fn member_or_low(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<
         (
@@ -201,7 +208,7 @@ impl PersistentMapV1 {
     /// Exact current-root member, without collecting the map or wallet history.
     pub(crate) fn membership(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<
         (
@@ -220,7 +227,7 @@ impl PersistentMapV1 {
     /// Absence is established by an actual authenticated low-leaf path, never a null lookup.
     pub(crate) fn non_membership(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<
         (
@@ -241,7 +248,7 @@ impl PersistentMapV1 {
     }
     fn write_slot(
         &mut self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         slot: u32,
         leaf: Option<&Entry>,
     ) -> Result<(), Error> {
@@ -272,7 +279,7 @@ impl PersistentMapV1 {
     }
     fn insertion_source(
         &self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: [u8; 32],
     ) -> Result<(Self, Entry, u32, KagemushaWalletIndexedInsertV1), Error> {
         let low = self.low(store, &key)?;
@@ -301,14 +308,15 @@ impl PersistentMapV1 {
         };
         Ok((next, low, slot, witness))
     }
-    /// Make both durable paths before returning the new descriptor and witness.
-    /// Failed publication leaves this descriptor unchanged; unreachable objects have no authority.
+    /// Construct both view paths before returning the new descriptor and witness.
+    /// Failed staging leaves this descriptor unchanged; unreachable objects have no authority.
     pub(crate) fn insert(
         &mut self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: [u8; 32],
         value: [u8; 32],
     ) -> Result<KagemushaWalletIndexedInsertV1, Error> {
+        counters::count(EventV1::MapInsert);
         if value == [0; 32] || !kagemusha_wallet_is_canonical_field_v1(&value) {
             return Err(Error::Invalid("map field value"));
         }
@@ -330,9 +338,10 @@ impl PersistentMapV1 {
     /// Actual predecessor opening, followed by the removed leaf's intermediate-root opening.
     pub(crate) fn remove(
         &mut self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<KagemushaWalletIndexedRemoveV1, Error> {
+        counters::count(EventV1::MapRemove);
         key_valid(key)?;
         let entry = self
             .entry(store, key)?

@@ -6,8 +6,26 @@ use iroha_sumeragi::proposal_admission::{BuiltPayload, ProposalAdmission};
 
 /// Original restart body, paid decode progress and one captured publication owner.
 pub(super) struct ProposalRecovery {
-    pub(super) decode: SignatureDecodeAttempt,
+    pub(super) source: AvailableBody,
+    pub(super) block_hash: Hash32,
+    pub(super) decode: Option<SignatureDecodeAttempt>,
     admission: Option<ProposalAdmission>,
+}
+
+impl ProposalRecovery {
+    /// Move the paid graph into ordinary execution while retaining its signing admission.
+    /// Incomplete recovery and mismatched candidates keep their original decoder.
+    pub(super) fn take_execution_decode(
+        &mut self,
+        body: &AvailableBody,
+        block_hash: Hash32,
+    ) -> Option<SignatureDecodeAttempt> {
+        if self.admission.is_some() && self.block_hash == block_hash && self.source == *body {
+            self.decode.take()
+        } else {
+            None
+        }
+    }
 }
 
 impl Worker<'_> {
@@ -134,7 +152,7 @@ impl Worker<'_> {
         if self
             .proposal_decode
             .as_ref()
-            .is_some_and(|original| original.decode.source != *body)
+            .is_some_and(|original| original.source != *body)
         {
             self.proposal_decode = None;
         }
@@ -155,7 +173,9 @@ impl Worker<'_> {
                         }
                     })?;
             self.proposal_decode = Some(ProposalRecovery {
-                decode: SignatureDecodeAttempt {
+                source: body.clone(),
+                block_hash,
+                decode: Some(SignatureDecodeAttempt {
                     block_hash,
                     source: body.clone(),
                     decoder,
@@ -164,7 +184,7 @@ impl Worker<'_> {
                     amx_legs: None,
                     parent_service:
                         super::super::certified_chain::ParentServicePreparation::default(),
-                },
+                }),
                 admission: None,
             });
         }
@@ -177,6 +197,8 @@ impl Worker<'_> {
         }
         let decoded = original
             .decode
+            .as_mut()
+            .expect("unadmitted recovery retains its original decoder")
             .original_decoded(&budget)
             .map_err(|error| match error {
                 payload::PayloadError::DecodeResource(original) => {
@@ -215,6 +237,127 @@ impl Worker<'_> {
 mod tests {
     use super::*;
     use iroha_sumeragi::{crypto::SigningError, testing::proposal_signing_request};
+
+    #[test]
+    fn recovery_decode_handoff_retains_refusals_and_requires_exact_source() {
+        publication_tests::with_worker(|chain, worker, _blocks, _events| {
+            let body = publication_tests::proposal(chain, worker);
+            let other =
+                publication_tests::proposal_with_transaction(chain, worker, |chain, time| {
+                    chain.tick(time.checked_sub(1).unwrap())
+                });
+            assert_ne!(body, other);
+            let hash = body.hash(&**worker.context.crypto.as_ref().unwrap());
+            assert_ne!(hash, Hash32::ZERO);
+            let budget = worker.state.ivm_execution_budget();
+            let mut decode = SignatureDecodeAttempt {
+                block_hash: hash,
+                source: body.clone(),
+                decoder: iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&budget)
+                    .unwrap(),
+                decoded: None,
+                returned_refusal: None,
+                amx_legs: None,
+                parent_service:
+                    super::super::super::certified_chain::ParentServicePreparation::default(),
+            };
+            // Refuse inside this original decoder, rather than an earlier genesis
+            // authentication performed by the ordinary recovery entry point.
+            norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, 64),
+                || {
+                    assert!(matches!(
+                        decode.original_decoded(&budget),
+                        Err(payload::PayloadError::DecodeResource(_))
+                    ));
+                },
+            );
+            worker.proposal_decode = Some(ProposalRecovery {
+                source: body.clone(),
+                block_hash: hash,
+                decode: Some(decode),
+                admission: None,
+            });
+            let original = worker.proposal_decode.as_mut().unwrap();
+            let retained = std::ptr::from_ref(original.decode.as_ref().unwrap());
+            assert!(original.take_execution_decode(&body, hash).is_none());
+            assert_eq!(
+                std::ptr::from_ref(original.decode.as_ref().unwrap()),
+                retained,
+                "a deferred recovery keeps its original decode progress"
+            );
+
+            let admission = worker.recover_proposal_admission(&body).unwrap();
+            let original = worker.proposal_decode.as_mut().unwrap();
+            assert!(
+                original
+                    .take_execution_decode(&body, Hash32::ZERO)
+                    .is_none()
+            );
+            assert!(original.take_execution_decode(&other, hash).is_none());
+            assert_eq!(
+                std::ptr::from_ref(original.decode.as_ref().unwrap()),
+                retained,
+                "a mismatched candidate cannot take the original graph"
+            );
+            assert_eq!(worker.recover_proposal_admission(&body).unwrap(), admission);
+        });
+    }
+
+    #[test]
+    fn execution_reuses_recovered_proposal_decode_and_keeps_signing_admission() {
+        publication_tests::with_worker(|chain, worker, _blocks, _events| {
+            let body = publication_tests::proposal(chain, worker);
+            let hash = body.hash(&**worker.context.crypto.as_ref().unwrap());
+            let admission = worker.recover_proposal_admission(&body).unwrap();
+            let original = worker
+                .proposal_decode
+                .as_ref()
+                .unwrap()
+                .decode
+                .as_ref()
+                .unwrap()
+                .decoded
+                .as_ref()
+                .unwrap();
+            assert!(!original.external_entrypoints_slice().is_empty());
+            let entries = original.external_entrypoints_slice().as_ptr();
+            let request = proposal_signing_request(
+                &body,
+                hash,
+                body.header().origin_view,
+                Hash32::ZERO,
+                false,
+            );
+            assert_eq!(admission.check(&request), Ok(()));
+
+            assert!(matches!(
+                worker.execute(&body, hash, false),
+                Ok(Some(ExecOutcome::Valid { .. }))
+            ));
+            let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase
+            else {
+                panic!("the recovered original must complete ordinary validation");
+            };
+            assert_eq!(
+                valid.as_ref().external_entrypoints_slice().as_ptr(),
+                entries,
+                "execution must consume the paid recovery graph, not decode another copy"
+            );
+
+            // Execution owns the graph now; a signing retry must still borrow the
+            // original admission without allocating or reconstructing that graph.
+            let epoch = crossbeam_epoch::pin();
+            let budget = worker.state.ivm_execution_budget();
+            let occupied = budget.reserved_bytes();
+            let retry = worker.recover_proposal_admission(&body).unwrap();
+            assert_eq!(retry, admission);
+            assert_eq!(retry.check(&request), Ok(()));
+            assert_eq!(budget.reserved_bytes(), occupied);
+            assert_eq!(worker.state.view().height(), 1);
+            drop(epoch);
+        });
+    }
 
     #[test]
     fn native_original_proposal_rechecks_clock_after_worker_wait_and_restart() {
@@ -258,6 +401,8 @@ mod tests {
                         .as_ref()
                         .unwrap()
                         .decode
+                        .as_ref()
+                        .unwrap()
                         .decoded
                         .as_ref()
                         .unwrap(),
@@ -274,6 +419,8 @@ mod tests {
                             .as_ref()
                             .unwrap()
                             .decode
+                            .as_ref()
+                            .unwrap()
                             .decoded
                             .as_ref()
                             .unwrap()

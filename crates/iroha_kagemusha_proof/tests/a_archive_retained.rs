@@ -347,11 +347,13 @@ fn retained_payment_binds_original_bytes_lengths_credential_field_and_send_descr
 
 #[test]
 fn retained_payment_joint_limit_rejects_resigned_and_rehashed_oversize() {
-    use iroha_kagemusha_proof::a_relation::receive::MAX_OMEGA_RAW_BYTES;
+    use iroha_kagemusha_proof::a_relation::receive::PAYMENT_RAW_PROOF_BUDGET;
     let mut exact = Retained::fixture();
+    // Wider component-only tapes isolate the joint predicate: both cap+1
+    // mutations remain within these tapes. Production role caps are separate.
     exact.capacities = [5_000; 2];
     exact.omega = vec![41; 4_000];
-    exact.sigma = vec![79; MAX_OMEGA_RAW_BYTES - exact.omega.len()];
+    exact.sigma = vec![79; PAYMENT_RAW_PROOF_BUDGET - exact.omega.len()];
     exact.rebind_proofs();
     assert!(exact.accepts(&exact.public()), "inclusive joint bound");
     let known = synthesize(&exact, 16, None).unwrap();
@@ -383,7 +385,7 @@ fn retained_full_payment_capacities_have_witness_independent_layout() {
     let mut source = Retained::fixture();
     source.capacities = [MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES];
     source.sigma = vec![79; MAX_SIGMA_RAW_BYTES];
-    source.omega = vec![41; MAX_OMEGA_RAW_BYTES - MAX_SIGMA_RAW_BYTES];
+    source.omega = vec![41; MAX_OMEGA_RAW_BYTES];
     source.rebind_proofs();
     let public = vec![source.public()];
     // Full carrier capacities are fixed by the admitted envelope domain, even

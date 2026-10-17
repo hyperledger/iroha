@@ -125,6 +125,7 @@ fn native_payment_two_concurrent_gateways_recover_one_paid_effect_without_later_
                     quantity: 250_000_u32.into(),
                 }])
                 .map_err(|error| eyre!(error))?,
+                AtomicSettlementEscrows::empty(),
                 NonZeroU64::new(initial_height + 100).unwrap(),
                 Metadata::default(),
             ),

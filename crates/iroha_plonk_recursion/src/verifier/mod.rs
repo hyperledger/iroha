@@ -20,7 +20,9 @@ pub(crate) mod scalar;
 mod tests;
 
 use crate::{
-    codec::{ScalarCells, decode_point_soft, decode_scalar_soft},
+    codec::{
+        GeneratorPoint, ScalarCells, decode_generator_soft, decode_point_soft, decode_scalar_soft,
+    },
     transcript::{Domain, TranscriptChip},
 };
 use ff::{Field, PrimeField};
@@ -136,7 +138,7 @@ pub struct VerifierKeyCells<C: PastaCurve> {
 #[derive(Clone, Debug)]
 pub struct GeneratorClaimCells<C: PastaCurve> {
     pub(crate) k: u32,
-    pub(crate) g: NonIdentityPoint<C::Base>,
+    pub(crate) g: GeneratorPoint<C::Base>,
     pub(crate) challenges: Vec<ScalarCells<C>>,
 }
 impl<C: PastaCurve> GeneratorClaimCells<C> {
@@ -147,7 +149,7 @@ impl<C: PastaCurve> GeneratorClaimCells<C> {
     }
     /// Claimed folded generator.
     #[must_use]
-    pub const fn g(&self) -> &NonIdentityPoint<C::Base> {
+    pub const fn g(&self) -> &GeneratorPoint<C::Base> {
         &self.g
     }
     /// Nonzero source challenges, without normalization padding.
@@ -168,6 +170,24 @@ pub struct SuccinctOutput<C: PastaCurve> {
     pub key_digest: Word<C::Base>,
     /// The proof claim, or `(sum g_i, [1; k])` if the verdict is zero.
     pub claim: GeneratorClaimCells<C>,
+    hard_frame: Option<HardVerifiedFrame<C>>,
+}
+
+/// Opaque cells owned by one complete hard succinct verification. Public callers
+/// cannot construct or alter its prefix, frame, descriptor or own opening claim.
+#[derive(Clone, Debug)]
+pub struct HardVerifiedFrame<C: PastaCurve> {
+    pub(crate) binding: DescriptorBinding,
+    pub(crate) first_raw: Word<C::Base>,
+    pub(crate) instances: Vec<Vec<ScalarCells<C>>>,
+    pub(crate) own_claim: GeneratorClaimCells<C>,
+}
+impl<C: PastaCurve> SuccinctOutput<C> {
+    /// Transfers the exact frame retained by a hard verifier. Soft outputs have
+    /// no such owner, including soft outputs whose witness verdict is true.
+    pub fn into_hard_frame(self) -> Result<HardVerifiedFrame<C>, Error> {
+        self.hard_frame.ok_or(Error::Synthesis)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -364,7 +384,7 @@ struct Read<C: PastaCurve> {
     points: Vec<(ProofMessage, NonIdentityPoint<C::Base>)>,
     challenges: Vec<(Challenge, Scalar<C>)>,
     round_cells: Vec<ScalarCells<C>>,
-    suffix: Option<NonIdentityPoint<C::Base>>,
+    suffix: Option<GeneratorPoint<C::Base>>,
 }
 impl<C: PastaCurve> Read<C> {
     fn scalar(&self, id: ProofMessage) -> Result<Scalar<C>, Error> {
@@ -407,7 +427,9 @@ impl<C: PastaCurve> VerifierChip<C> {
                 let range =
                     RunningSumChip::banked(ranges).expect("validated fixed range-bank metadata");
                 let rows = SharedRows::new(RowCursor::starting_at(0));
-                let glue = GlueChip::with_shared_cursor(config.glue, &rows);
+                let glue = GlueChip::with_shared_cursor(config.glue, &rows)
+                    .with_shared_ordinary_witness_pool()
+                    .expect("shared ordinary Glue owner");
                 let ff =
                     FfChip::serialized(glue.clone(), range.clone(), &[Arithmetic::<C>::modulus()])
                         .with_rotated_kernel(&kernel)
@@ -523,6 +545,44 @@ impl<C: PastaCurve> VerifierChip<C> {
     ) -> Result<NonIdentityPoint<C::Base>, Error> {
         self.ecc.constrain_non_identity(region, x, y)
     }
+    /// Assigns a complete generator claim point, including canonical identity.
+    /// # Errors
+    /// Layout failure.
+    pub fn witness_generator(
+        &mut self,
+        region: &mut Region<'_, C::Base>,
+        value: Value<C>,
+    ) -> Result<GeneratorPoint<C::Base>, Error> {
+        Ok(GeneratorPoint::from_assigned(
+            self.ecc.witness_point(region, value)?,
+        ))
+    }
+    /// Pins a complete generator claim point.
+    /// # Errors
+    /// Layout failure.
+    pub fn constant_generator(
+        &mut self,
+        region: &mut Region<'_, C::Base>,
+        value: &C,
+    ) -> Result<GeneratorPoint<C::Base>, Error> {
+        Ok(GeneratorPoint::from_assigned(
+            self.ecc.constant_point(region, value)?,
+        ))
+    }
+    /// Constrains generator coordinates to the curve or exactly (0, 0).
+    /// # Errors
+    /// Layout failure; off-curve coordinates are unsatisfiable.
+    pub fn constrain_generator(
+        &mut self,
+        region: &mut Region<'_, C::Base>,
+        x: &Word<C::Base>,
+        y: &Word<C::Base>,
+    ) -> Result<GeneratorPoint<C::Base>, Error> {
+        Ok(GeneratorPoint::from_assigned(
+            self.ecc.constrain_point(region, x, y)?,
+        ))
+    }
+
     /// Assigns a circuit-fixed key, checking its descriptor binding first.
     ///
     /// # Errors
@@ -639,6 +699,55 @@ impl<C: PastaCurve> VerifierChip<C> {
             b,
         )
     }
+    // These maps are applied after the existing canonical base-to-scalar map.
+    // They absorb nothing and preserve the first raw Theta certificate.
+    pub(crate) fn total_challenge(
+        &mut self,
+        region: &mut Region<'_, C::Base>,
+        challenge: Challenge,
+        cells: ScalarCells<C>,
+    ) -> Result<(ScalarCells<C>, Scalar<C>), Error> {
+        if matches!(challenge, Challenge::Xi | Challenge::Round(_)) {
+            let cells = cells.nonzero_or_one(&mut self.uint(), region)?;
+            let value = self.import(region, &cells)?;
+            return Ok((cells, value));
+        }
+        let cells = if matches!(challenge, Challenge::X | Challenge::X3) {
+            cells.nonzero_or_one(&mut self.uint(), region)?
+        } else {
+            cells
+        };
+        let value = self.import(region, &cells)?;
+        if !matches!(challenge, Challenge::X | Challenge::X3) {
+            return Ok((cells, value));
+        }
+        let square = self.arithmetic.square(
+            &mut UintChip::new(&mut self.glue, &mut self.range),
+            region,
+            &value,
+        )?;
+        let (value, scale) = if challenge == Challenge::X3 {
+            (
+                self.arithmetic.square(
+                    &mut UintChip::new(&mut self.glue, &mut self.range),
+                    region,
+                    &square,
+                )?,
+                25,
+            )
+        } else {
+            (square, 5)
+        };
+        let scale = self.constant(region, C::ScalarExt::from(scale))?;
+        let value = self.mul(region, &value, &scale)?;
+        // Export/import once retains the canonical mapped integer at this
+        // challenge boundary. Reusing that narrow owner avoids propagating a
+        // large lazy polynomial representative into later products.
+        let cells = self.export(region, &value)?;
+        let value = self.import(region, &cells)?;
+        Ok((cells, value))
+    }
+
     pub(crate) fn horner(
         &mut self,
         region: &mut Region<'_, C::Base>,
@@ -880,6 +989,7 @@ impl<C: PastaCurve> VerifierChip<C> {
             round_cells: vec![],
             suffix: None,
         };
+        let mut first_raw = None;
         let mut cursor = proof.iter();
         for step in plan.protocol.transcript_schedule() {
             match *step {
@@ -926,15 +1036,24 @@ impl<C: PastaCurve> VerifierChip<C> {
                         .push((message, self.import(region, &decoded.value)?));
                 }
                 TranscriptStep::Squeeze(challenge) => {
-                    let cells = transcript.squeeze_scalar::<C>(&mut self.uint(), region)?;
-                    let scalar = self.import(region, &cells)?;
+                    // Retain the first raw base word, before the noninjective
+                    // Vesta Fq -> Fp map. This does not add a squeeze or row.
+                    let raw = transcript.squeeze_base(region)?;
+                    if first_raw.is_none() {
+                        if challenge != Challenge::Theta {
+                            return Err(Error::Synthesis);
+                        }
+                        first_raw = Some(raw.clone());
+                    }
+                    let cells = crate::codec::map_challenge::<C>(&mut self.uint(), region, &raw)?;
+                    let (cells, scalar) = self.total_challenge(region, challenge, cells)?;
                     if matches!(challenge, Challenge::Round(_)) {
                         read.round_cells.push(cells);
                     }
                     read.challenges.push((challenge, scalar));
                 }
                 TranscriptStep::Suffix => {
-                    let decoded = decode_point_soft::<C>(
+                    let decoded = decode_generator_soft::<C>(
                         &mut UintChip::new(&mut self.glue, &mut self.range),
                         &mut self.ecc,
                         region,
@@ -950,7 +1069,7 @@ impl<C: PastaCurve> VerifierChip<C> {
         }
         self.duplex = Some(transcript.into_duplex());
         let (evaluations, xn) =
-            self.constraint_evaluations(region, plan, &read, &instance_values, &mut valid)?;
+            self.constraint_evaluations(region, plan, &read, &instance_values)?;
         let equation =
             self.opening_equation(region, plan, key, &read, &evaluations, &xn, &mut valid)?;
         self.combine(region, &mut valid, &equation)?;
@@ -959,23 +1078,31 @@ impl<C: PastaCurve> VerifierChip<C> {
                 .enforce_constant(region, valid.word(), C::Base::ONE)?;
             // Every message/typed-instance check, round nonzero test and the
             // complete IPA equation have entered `valid`. The hard assertion
-            // proves the original finite suffix and canonical round cells are
+            // proves the original canonical generator suffix and round cells are
             // already the accepted claim; no conditional dummy is needed.
+            let claim = GeneratorClaimCells {
+                k: u32::from(descriptor.k),
+                g: read.suffix.ok_or(Error::Synthesis)?,
+                challenges: read.round_cells,
+            };
+            let hard_frame = Some(HardVerifiedFrame {
+                binding: plan.binding.clone(),
+                first_raw: first_raw.ok_or(Error::Synthesis)?,
+                instances: instances.to_vec(),
+                own_claim: claim.clone(),
+            });
             return Ok(SuccinctOutput {
                 valid,
                 key_digest,
-                claim: GeneratorClaimCells {
-                    k: u32::from(descriptor.k),
-                    g: read.suffix.ok_or(Error::Synthesis)?,
-                    challenges: read.round_cells,
-                },
+                claim,
+                hard_frame,
             });
         }
         let suffix = read.suffix.ok_or(Error::Synthesis)?;
         let dummy = self.ecc.constant_point(region, &plan.dummy.to_curve())?;
         let selected =
             EccChip::<C>::select(&mut self.glue, region, &valid, suffix.point(), &dummy)?;
-        let g = EccChip::<C>::assert_non_identity(&mut self.glue, region, &selected)?;
+        let g = GeneratorPoint::from_assigned(selected);
         let one = self.constant(region, C::ScalarExt::ONE)?;
         let mut challenges = Vec::with_capacity(read.round_cells.len());
         for cells in read.round_cells {
@@ -992,11 +1119,29 @@ impl<C: PastaCurve> VerifierChip<C> {
         Ok(SuccinctOutput {
             valid,
             key_digest,
+            hard_frame: None,
             claim: GeneratorClaimCells {
                 k: u32::from(descriptor.k),
                 g,
                 challenges,
             },
         })
+    }
+}
+
+/// Diagnostic-only completed-chip cursor collector; no protocol decisions.
+pub fn diagnostic_take_usage() -> Vec<VerifierUsage> {
+    diagnostic_usage().lock().unwrap().drain(..).collect()
+}
+fn diagnostic_usage() -> &'static std::sync::Mutex<Vec<VerifierUsage>> {
+    static USAGE: std::sync::OnceLock<std::sync::Mutex<Vec<VerifierUsage>>> =
+        std::sync::OnceLock::new();
+    USAGE.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+impl<C: PastaCurve> Drop for VerifierChip<C> {
+    fn drop(&mut self) {
+        if let Ok(usage) = self.usage() {
+            diagnostic_usage().lock().unwrap().push(usage);
+        }
     }
 }

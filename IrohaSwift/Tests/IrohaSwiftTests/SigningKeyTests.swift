@@ -22,6 +22,143 @@ private struct Ed25519PublicKeyAdmissionFixture: Decodable {
 }
 
 final class SigningKeyTests: XCTestCase {
+    func testConcurrentPublicKeyAdmissionKeepsMixedInputsExact() async throws {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures/crypto/ed25519_public_key_admission_v1.json")
+        let fixture = try JSONDecoder().decode(Ed25519PublicKeyAdmissionFixture.self,
+                                               from: Data(contentsOf: fixtureURL))
+        let vectors = try fixture.vectors.map { vector in
+            let bytes = try XCTUnwrap(Data(hexString: vector.keyHex), vector.name)
+            XCTAssertEqual(Ed25519CompressedPointAdmission.isValidCompressedPoint(bytes), vector.valid, vector.name)
+            return (name: vector.name, bytes: bytes, valid: vector.valid)
+        }
+        let workerKeys = try (0..<8).map { worker in
+            let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: UInt8(0x70 + worker), count: 32))
+                .publicKey.rawRepresentation
+            XCTAssertTrue(Ed25519CompressedPointAdmission.isValidCompressedPoint(key))
+            return key
+        }
+        let warm = try XCTUnwrap(vectors.first { $0.valid })
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(warm.bytes))
+
+        struct Observation: Sendable {
+            let worker: Int
+            let name: String
+            let actual: Bool
+            let expected: Bool
+        }
+        let observations = await withTaskGroup(of: [Observation].self) { group in
+            for worker in workerKeys.indices {
+                group.addTask {
+                    var result: [Observation] = []
+                    for pass in 0..<2 {
+                        // Distinct generated keys exercise concurrent insertion; the shared
+                        // valid vector exercises hits among invalid length/curve/subgroup inputs.
+                        result.append(Observation(worker: worker, name: "generated-key-\(pass)",
+                            actual: Ed25519PublicKeyAdmission.isValidPublicKey(workerKeys[worker]), expected: true))
+                        for offset in vectors.indices {
+                            let vector = vectors[(worker + pass + offset) % vectors.count]
+                            result.append(Observation(worker: worker, name: vector.name,
+                                actual: Ed25519PublicKeyAdmission.isValidPublicKey(vector.bytes), expected: vector.valid))
+                        }
+                    }
+                    return result
+                }
+            }
+            var result: [Observation] = []
+            for await workerResult in group { result.append(contentsOf: workerResult) }
+            return result
+        }
+        XCTAssertEqual(observations.count, workerKeys.count * 2 * (vectors.count + 1))
+        for worker in workerKeys.indices {
+            let rows = observations.filter { $0.worker == worker }
+            XCTAssertEqual(rows.count, 2 * (vectors.count + 1))
+            for vector in vectors { XCTAssertEqual(rows.filter { $0.name == vector.name }.count, 2) }
+            for row in rows { XCTAssertEqual(row.actual, row.expected, "worker \(worker): \(row.name)") }
+        }
+    }
+
+    func testPublicKeyAdmissionOwnsBorrowedStorageBeforeItsCallerMutatesIt() throws {
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 0x6d, count: 32))
+        let original = key.publicKey.rawRepresentation
+        XCTAssertTrue(Ed25519CompressedPointAdmission.isValidCompressedPoint(original))
+        let storage = UnsafeMutableRawPointer.allocate(byteCount: original.count, alignment: 1)
+        defer { storage.deallocate() }
+        original.withUnsafeBytes { bytes in
+            storage.copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
+        let borrowed = Data(bytesNoCopy: storage, count: original.count, deallocator: .none)
+        XCTAssertEqual(borrowed, original)
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(borrowed))
+
+        // This is a sequential external-buffer mutation, not Swift Data copy-on-write.
+        // The memo must retain its own validated bytes rather than this caller-owned view.
+        storage.initializeMemory(as: UInt8.self, repeating: 0, count: original.count)
+        XCTAssertEqual(borrowed, Data(repeating: 0, count: 32))
+        XCTAssertFalse(Ed25519PublicKeyAdmission.isValidPublicKey(borrowed))
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(original))
+        original.withUnsafeBytes { bytes in
+            storage.copyMemory(from: bytes.baseAddress!, byteCount: bytes.count)
+        }
+        XCTAssertEqual(borrowed, original)
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(borrowed))
+    }
+
+    func testRepeatedPublicKeyAdmissionMatchesUncachedSharedVectors() throws {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures/crypto/ed25519_public_key_admission_v1.json")
+        let fixture = try JSONDecoder().decode(Ed25519PublicKeyAdmissionFixture.self,
+                                               from: Data(contentsOf: fixtureURL))
+        for vector in fixture.vectors {
+            let bytes = try XCTUnwrap(Data(hexString: vector.keyHex), vector.name)
+            let uncached = Ed25519CompressedPointAdmission.isValidCompressedPoint(bytes)
+            XCTAssertEqual(uncached, vector.valid, vector.name)
+            for _ in 0..<3 {
+                XCTAssertEqual(Ed25519PublicKeyAdmission.isValidPublicKey(bytes), uncached, vector.name)
+            }
+        }
+    }
+
+    func testPreviouslyAdmittedPublicKeyDoesNotAuthorizeChangedOrSlicedBytes() throws {
+        let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 0x2a, count: 32))
+        let original = key.publicKey.rawRepresentation
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(original))
+        var framed = Data([0xaa])
+        framed.append(original)
+        framed.append(0xbb)
+        let slice = framed[1..<33]
+        XCTAssertNotEqual(slice.startIndex, 0)
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(slice))
+        framed.replaceSubrange(1..<33, with: Data(repeating: 0, count: 32))
+        XCTAssertFalse(Ed25519PublicKeyAdmission.isValidPublicKey(framed[1..<33]))
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(slice))
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(original))
+        XCTAssertFalse(Ed25519PublicKeyAdmission.isValidPublicKey(Data(original.dropLast())))
+    }
+
+    func testPublicKeyAdmissionRemainsExactAfterMoreThanOneMemoCapacity() throws {
+        let first = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 0x29, count: 32))
+            .publicKey.rawRepresentation
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(first))
+        // More distinct valid keys than the bounded128-entry memo can retain.
+        for value in UInt16(0)..<UInt16(129) {
+            var seed = Data(repeating: 0, count: 32)
+            seed[0] = UInt8(truncatingIfNeeded: value)
+            seed[1] = UInt8(truncatingIfNeeded: value >> 8)
+            let key = try Curve25519.Signing.PrivateKey(rawRepresentation: seed).publicKey.rawRepresentation
+            XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(key))
+        }
+        XCTAssertTrue(Ed25519PublicKeyAdmission.isValidPublicKey(first))
+        let mixedTorsion = try XCTUnwrap(Data(hexString:
+            "6AEBC0B955CE4A2F1344029986B775E6EA5C40F93F1112B86EC51678EB9DC0FB"))
+        XCTAssertFalse(Ed25519PublicKeyAdmission.isValidPublicKey(mixedTorsion))
+        XCTAssertFalse(Ed25519CompressedPointAdmission.isValidCompressedPoint(mixedTorsion))
+    }
+
     func testEd25519SigningProducesEnvelope() throws {
         let key = Curve25519.Signing.PrivateKey()
         let signingKey = try SigningKey.ed25519(privateKey: key.rawRepresentation,

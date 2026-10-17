@@ -4,6 +4,7 @@ export type * from "./index.js";
 export {
   NetworkId,
   inspectAccountViaNativeTransport,
+  inspectToriiAccountIdentityViaNativeTransport,
   requestNativeMultisigViaTransport,
   inspectNativeMultisigPrepareViaTransport,
   inspectNativeMultisigSignedViaTransport,

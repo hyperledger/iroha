@@ -2,15 +2,15 @@
 //!
 //! A caller supplies the incoming mode after evaluating the complete operation's
 //! soft checks. This module never chooses or authorizes a burn. It derives the
-//! selected local claim, creates the exact local fold, binds every exported
+//! selected local claim, creates or verifies the retained local fold, binds every exported
 //! instance and self-verifies each generated Q proof. Only source-bound verifier
 //! metadata survives native key generation or strict original import. Each proof
 //! reconstructs temporary on-demand buffers, then drops them before verification.
 
 use core::fmt;
 
-use ff::{Field, PrimeField};
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, PastaField, msm::MemoryBudget};
+use ff::Field;
+use iroha_pasta::{Ep, Eq, Fp, Fq, PastaField, msm::MemoryBudget};
 use iroha_plonk::{
     DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, VerifyError,
     VerifyingKey, Witness, create_proof_owned,
@@ -27,12 +27,12 @@ use iroha_plonk::{
 };
 use iroha_plonk_gadgets::bytes::tape::{ByteOrder, segment_value};
 use iroha_plonk_recursion::{
-    AccumulatorT, FoldConfig, FoldInput, create_fold, verifier::VerifierPlan,
+    AccumulatorT, FoldConfig, FoldInput, FoldPurpose, FoldTape, FoldWitness, create_fold,
+    verifier::VerifierPlan, verify_fold,
 };
 
 use super::{
-    FOLD_WITNESS_BYTES, IncomingSigmaWitness, QSigmaCircuit, QSigmaPlan, QSigmaWitness, SigmaClass,
-    SigmaSlotWitness,
+    IncomingSigmaWitness, QSigmaCircuit, QSigmaPlan, QSigmaWitness, SigmaClass, SigmaSlotWitness,
 };
 use crate::SigmaVerifier;
 
@@ -45,6 +45,8 @@ pub enum QSigmaError {
     UnauthorizedKey,
     /// The selected incoming mode cannot be realized by the actual claim.
     IncomingMode,
+    /// The selected coin/witness source does not match the actual incoming slot.
+    FoldSource,
     /// Own sigma has the wrong original carrier length.
     OwnLength,
     /// Outer parameters must cover exactly k16.
@@ -115,6 +117,59 @@ pub struct IncomingSigma {
     /// Mode selected by the complete operation coordinator.
     pub mode: IncomingMode,
 }
+/// Exact local fold source selected by the private attempt/checkpoint owner.
+///
+/// An incoming route consumes a fresh tape once or verifies its original retained
+/// witness. A route without an incoming slot takes no tape or fold witness.
+/// Syntax or possession of retained bytes never grants source/proof authority.
+#[derive(Debug)]
+pub enum QSigmaFoldSource<'a> {
+    /// No incoming sigma slot, so the own opening is forwarded without a fold.
+    NoIncoming,
+    /// One fresh private tape for a new incoming-sigma fold attempt.
+    Fresh(FoldTape<Eq>),
+    /// Exact private witness retained by this source-bound attempt's checkpoint.
+    Retained(&'a crate::private_fold::PrivateFoldBytes),
+}
+impl QSigmaFoldSource<'_> {
+    fn check_presence(&self, incoming: bool) -> Result<(), QSigmaError> {
+        if incoming == !matches!(self, Self::NoIncoming) {
+            Ok(())
+        } else {
+            Err(QSigmaError::FoldSource)
+        }
+    }
+    fn resolve(
+        self,
+        params: &PinnedParams<Eq>,
+        inputs: &[FoldInput<Eq>],
+        config: &FoldConfig,
+    ) -> Result<(crate::private_fold::PrivateFoldBytes, AccumulatorT<Eq>), QSigmaError> {
+        let (bytes, part) = match self {
+            Self::NoIncoming => return Err(QSigmaError::FoldSource),
+            Self::Fresh(tape) => {
+                let (witness, part) =
+                    create_fold(params, inputs, tape, FoldPurpose::SigmaBatch, config)
+                        .map_err(QSigmaError::Fold)?;
+                (
+                    crate::private_fold::PrivateFoldBytes::from_fold(witness),
+                    part,
+                )
+            }
+            Self::Retained(bytes) => {
+                let witness = FoldWitness::<Eq>::from_private_bytes(bytes.as_slice())
+                    .map_err(QSigmaError::Fold)?;
+                let part = verify_fold(params, inputs, &witness, FoldPurpose::SigmaBatch, config)
+                    .map_err(QSigmaError::Fold)?;
+                (bytes.clone(), part)
+            }
+        };
+        part.decide_cancellable(params, config.kernel_budget, config.cancellation.as_ref())
+            .map_err(QSigmaError::Fold)?;
+        Ok((bytes, part))
+    }
+}
+
 /// A fully prepared local circuit and its exact public frame.
 #[must_use = "prove this Q relation and register its returned obligation in A"]
 #[derive(Clone, Debug)]
@@ -131,6 +186,16 @@ impl PreparedQSigma {
     /// Public columns in the exact homogeneous Q schema.
     pub fn instances(&self) -> &[Vec<Fq>] {
         &self.instances
+    }
+    /// Borrow the exact verified private fold for an incoming route's checkpoint.
+    /// The private persistence owner must bind it to this source, stage and attempt.
+    /// No-incoming routes return None and require no fold entropy or retained tape.
+    pub fn retained_fold(&self) -> Option<&crate::private_fold::PrivateFoldBytes> {
+        self.circuit
+            .witness
+            .incoming
+            .as_ref()
+            .map(|incoming| &incoming.fold)
     }
     /// Selected forwarded or folded Vesta part.
     pub const fn part(&self) -> &FoldInput<Eq> {
@@ -238,6 +303,12 @@ fn chunks(witness: &SigmaSlotWitness) -> Vec<Fq> {
         .collect()
 }
 impl QSigmaPlan {
+    /// Whether this fixed route has an incoming slot and retains a private fold.
+    /// This query depends only on the installed plan, never on an operation witness.
+    pub const fn requires_private_fold(&self) -> bool {
+        self.incoming.is_some()
+    }
+
     /// Derive the exact incoming original opening before operation-wide mode selection.
     /// The selected VK must occupy the source-derived global index in this plan's
     /// installed incoming class. A malformed original proof is soft only under the
@@ -291,16 +362,22 @@ impl QSigmaPlan {
     /// authorize the selected mode in A's global branch rule.
     ///
     /// # Errors
-    /// Wrong slots/lengths/classes, invalid own proof, an impossible incoming
-    /// mode, or a local accumulator/fold failure.
+    /// Wrong slots/lengths/classes or fold source, invalid own proof, an impossible
+    /// incoming mode, or failed fresh/retained fold verification and decision.
+    /// Retained preparation never samples coins and rederives the complete public
+    /// frame from the exact source proofs; callers must compare the whole frame
+    /// against the retained original Q proof before accepting a checkpoint.
     pub fn prepare(
         &self,
         own: SigmaSlotWitness,
         incoming: Option<IncomingSigma>,
         params: &PinnedParams<Eq>,
-        salt: Fq,
+        fold_source: QSigmaFoldSource<'_>,
         config: &FoldConfig,
     ) -> Result<PreparedQSigma, QSigmaError> {
+        iroha_pasta::CancellationToken::checkpoint(config.cancellation.as_ref())
+            .map_err(|_| QSigmaError::Fold(iroha_plonk_recursion::Error::Cancelled))?;
+        fold_source.check_presence(incoming.is_some())?;
         if own.proof.len() != self.own.verifier.proof_length()
             || self.incoming.is_some() != incoming.is_some()
             || self
@@ -371,15 +448,8 @@ impl QSigmaPlan {
                     )
                 }
             };
-            let (fold, part) = create_fold(
-                params,
-                &[own_claim, selected, trivial.as_input()],
-                salt.to_repr(),
-                config,
-            )
-            .map_err(QSigmaError::Fold)?;
-            part.decide_cancellable(params, config.kernel_budget, config.cancellation.as_ref())
-                .map_err(QSigmaError::Fold)?;
+            let (fold, part) =
+                fold_source.resolve(params, &[own_claim, selected, trivial.as_input()], config)?;
             statements.push(scalar(input.sigma.statement));
             exported.extend(chunks(&input.sigma));
             indices.push(Fq::from(u64::from(index)));
@@ -390,7 +460,7 @@ impl QSigmaPlan {
                     sigma: input.sigma,
                     mode: input.mode.bits(),
                     corrected,
-                    fold: fold.to_bytes(),
+                    fold,
                 }),
                 part.as_input(),
             )
@@ -399,8 +469,7 @@ impl QSigmaPlan {
         };
         statements.extend(exported);
         statements.extend(part.challenges().iter().copied().map(scalar));
-        let (x, y) =
-            Option::<(Fq, Fq)>::from(part.g().coordinates()).ok_or(QSigmaError::IncomingMode)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(part.g());
         let instances = vec![
             statements,
             vec![x, y],
@@ -529,7 +598,7 @@ impl QSigmaSource {
                     sigma: slot(class, key)?,
                     mode: [false; 3],
                     corrected: self.plan.trivial,
-                    fold: [0; FOLD_WITNESS_BYTES],
+                    fold: crate::private_fold::PrivateFoldBytes::unknown(),
                 })
             })
             .transpose()?;
@@ -1079,7 +1148,7 @@ impl<'a> QSigmaProverView<'a> {
         &self,
         circuit: &C,
         prepared: &PreparedQSigma,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<Vec<u8>, QSigmaError> {
         let source = circuit.without_witnesses();
@@ -1099,6 +1168,8 @@ impl<'a> QSigmaProverView<'a> {
             config.cancellation,
         )
         .map_err(QSigmaError::Prover)?;
+        #[cfg(test)]
+        crate::proof_entry_probe::reached();
         create_proof_owned(self.params, &key, witness, randomness, config)
             .map_err(QSigmaError::Prover)
     }
@@ -1214,6 +1285,8 @@ mod tests {
     fn pre_q_original_checks_exact_class_and_global_selector_before_soft_length() {
         let (one, keys, params) = source_fixture();
         let plan = QSigmaPlan::new(one.own.clone(), Some(one.own.clone()), &params).unwrap();
+        assert!(!one.requires_private_fold());
+        assert!(plan.requires_private_fold());
         let length = plan.class(1).unwrap().verifier().proof_length();
         let mut original = SigmaSlotWitness {
             key: keys[0].clone(),
@@ -1448,3 +1521,6 @@ mod tests {
 
 #[cfg(test)]
 mod public_witness_tests;
+
+#[cfg(test)]
+mod retained_fold_tests;

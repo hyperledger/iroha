@@ -266,13 +266,25 @@ fn visibility_refusal_is_sticky_until_consuming_finish() {
         iroha_core::query::store::LiveQueryStore::start_test(),
     ));
     let restricted = DataspaceReadVisibility::new(BTreeSet::new(), false);
-    let source = HashOf::from_untyped_unchecked(Hash::new(b"unavailable source"));
+    let projection = contract_event_projection(
+        (
+            1,
+            HashOf::from_untyped_unchecked(Hash::new(b"unavailable source")),
+            1,
+        ),
+        0,
+        0,
+        Hash::new(b"unavailable execution"),
+        &emission_fixture(DataSpaceId::UNIVERSAL),
+        None,
+    )
+    .unwrap();
     let owner = HistoryVisibilityReads::new(Arc::clone(&state));
-    assert!(!owner.allows(&restricted, 1, None, source));
-    assert!(!owner.allows(&restricted, 1, None, source));
+    assert!(!owner.allows_contract_event(&restricted, &projection));
+    assert!(!owner.allows_contract_event(&restricted, &projection));
     assert!(owner.reads.lock().unwrap().block.is_none());
     // A later globally visible row cannot erase the earlier admission refusal.
-    assert!(owner.allows(&DataspaceReadVisibility::all_for_tests(), 1, None, source));
+    assert!(!owner.allows_contract_event(&DataspaceReadVisibility::all_for_tests(), &projection));
     assert!(owner.finish().is_err());
     HistoryVisibilityReads::new(state).finish().unwrap();
 }

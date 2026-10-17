@@ -11,15 +11,17 @@
 //! SDKs should own I/O and call this shared state machine rather than reproduce its rules.
 //!
 //! Archive storage must share the provider's non-backup custody root and exclusive lifetime.
-//! [`ProviderArchive`] and [`AdvanceHandle`] share one exclusive provider. Every archive call
-//! uses its protected-data bracket; fixed manifests bind index roots in source-selected
-//! metadata generations and the existing iOS rollback anchor. [`FsArchive`] is a low-level
+//! [`ProviderArchive`] and [`AdvanceHandle`] share one exclusive provider. Archive calls between
+//! two custody calls share one protected-data bracket (an archive phase: one reconcile, then a
+//! storage probe after every call that touches storage); fixed manifests bind index roots in
+//! source-selected metadata generations and the existing iOS rollback anchor. [`FsArchive`] is a low-level
 //! standalone store for tests/diagnostics and does not itself provide those brackets.
 //! No archive record grants monetary authority independently of Advance.
 //!
 //! Collection records a source-selected intent before deleting historical witness objects.
 //! A newer verified Ω supplies coverage; Send additionally needs pending-map nonmembership.
 //! Earned-fee Payments have separate custody until their exact finalized payout is verified.
+use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 // TODO(G3/G4): qualify the installed full-catalog native owner through wallet/SDK delivery and
 // the complete custody/proof lifetime on stock phones. Run relations remain artifact-dependent.
 // Persistent replay metadata and unreachable immutable index nodes remain retained; a future
@@ -44,6 +46,7 @@ mod credit_tree;
 mod custody;
 mod fee_claims;
 mod fold_custody;
+mod fold_metrics;
 mod folding;
 mod index;
 mod lifecycle;
@@ -77,8 +80,14 @@ pub use custody::{
 };
 pub use fee_claims::{FEE_CLAIM_MAX_BYTES_V1, FinalizedPayoutEvidence, RetainedFeeClaim};
 pub use fold_custody::FoldCustodyV1;
-pub use folding::{FoldStatus, LineageCache};
-pub use index::{IndexRoot, ObjectStore};
+pub use fold_metrics::{
+    FOLD_METRICS_RECORDS_V1, FOLD_METRICS_SCHEMA_V1, FoldCallClassV1, FoldCancelCauseV1,
+    FoldCountsV1, FoldMetricsV1, FoldObserverV1, FoldOutcomeV1, FoldPhaseV1, FoldStageV1,
+    FoldSubProofV1,
+};
+pub use folding::{FoldJobV1, FoldStatus, FoldTurnStatusV1, LineageCache, ProvedFoldV1};
+pub use index::{IndexRoot, ObjectStore, ObjectWorkspace};
+mod object_workspace;
 pub(crate) use lifecycle::ArchiveIntentV1;
 pub use lifecycle::{
     ChargeOriginalsV1, CreditProjectionV1, NativeIntentV1, NativePreparation, OperationActionV1,
@@ -372,22 +381,34 @@ pub trait NativeProofs {
         cancellation: Option<&Cancellation>,
     ) -> Result<(), Error>;
 
-    /// Compute exactly the next sub-proof of one released transition. `checkpoints` holds
-    /// every prior original checkpoint in authenticated schedule order, after the coordinator
-    /// checked its exact layout and durable source chain. Genuine native restoration must
-    /// rederive each prior A/W source in order; the latest proof alone cannot supply that source.
-    /// Poll cancellation at every task boundary and release proof workspaces before returning.
+    /// Prepare exactly the next sub-proof of one released transition under the wallet owner:
+    /// owner replay and input assembly from `custody`, and revalidation of the selected
+    /// stage's proving originals. `checkpoints` holds every prior original checkpoint in
+    /// authenticated schedule order, after the coordinator checked its exact layout and
+    /// durable source chain. The returned job owns every input and holds no custody, archive
+    /// or original-store handle, so it proves after the wallet owner is released.
     ///
     /// # Errors
     /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
-    fn fold_next(
+    fn fold_prepare(
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[Vec<u8>],
+        checkpoints: Vec<PrivateArchiveBytes>,
         custody: Option<&mut FoldCustodyV1<'_>>,
         cancellation: &Cancellation,
-    ) -> Result<FoldProgress, Error>;
+    ) -> Result<Box<dyn NativeFoldJobV1>, Error>;
+}
+
+/// The owned native work of one prepared sub-proof, proved without the wallet owner.
+pub trait NativeFoldJobV1 {
+    /// Compute the sub-proof. Genuine native restoration must rederive each prior A/W source
+    /// in order; the latest proof alone cannot supply that source. Poll cancellation at every
+    /// task boundary and release proof workspaces before returning.
+    ///
+    /// # Errors
+    /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
+    fn prove(self: Box<Self>, cancellation: &Cancellation) -> Result<FoldProgress, Error>;
 }
 
 /// One authenticated released transition; inputs and output remain byte-exact.
@@ -424,10 +445,10 @@ impl CheckpointLayout {
 }
 
 /// One sub-proof result, checked against the authenticated native stage's exact layout.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FoldProgress {
     /// Persist this result before asking for the next sub-proof.
-    Checkpoint(Vec<u8>),
+    Checkpoint(PrivateArchiveBytes),
     /// Final Ω. A Receive's burn result determines its first credit-digest leaf.
     Complete {
         /// Candidate lineage, verified natively before it becomes folded.
@@ -468,7 +489,7 @@ pub struct ConsumedCredit {
     pub sequence: u128,
 }
 
-#[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[derive(Debug, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::Checkpoint")]
 struct Checkpoint {
     layout: CheckpointLayout,
@@ -476,7 +497,7 @@ struct Checkpoint {
     predecessor_fold: [u8; 32],
     previous: [u8; 32],
     ordinal: u32,
-    proof: Vec<u8>,
+    proof: PrivateArchiveBytes,
 }
 
 #[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -701,7 +722,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 if credit.payment_digest != c.body().payment_digest
                     || identity.payment != credit.payment_digest
                     || identity.credit_id != credit_id
-                    || payment.request.body.amount != credit.amount
+                    || valid(payment.signed_request())?.body.amount != credit.amount
                 {
                     return Err(Error::CreditConflict);
                 }

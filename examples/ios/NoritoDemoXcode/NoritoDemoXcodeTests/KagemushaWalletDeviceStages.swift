@@ -19,6 +19,7 @@ import LocalAuthentication
       return wallet
     }
     func releaseWallet() throws {
+      guard !nearbyBusy else { throw EnrollmentProbeFailure.lifecycle }
       if let wallet {
         // close owns the entire Native review/exchange lifetime. On failure retain the owner.
         try wallet.close()
@@ -208,6 +209,9 @@ import LocalAuthentication
 
     func executeMonetary(_ command: Command, sequence: Int) async throws -> String {
       let inputs = try monetaryInputs(command, sequence: sequence)
+      if command.action.hasPrefix("nearby-") {
+        return try await executeNearby(command, inputs: inputs, sequence: sequence)
+      }
       func input(_ name: String) throws -> Data {
         guard let value = inputs[name] else { throw EnrollmentProbeFailure.input }
         return value

@@ -438,8 +438,8 @@ internal class TestEnvironmentV1(private val directory: File) : KagemushaWalletA
         return unlocked
     }
 
-    override fun noBackupFilesDir(): File {
+    override fun preparedCustodyRoot(): File {
         directoryFailure?.let { throw it }
-        return directory
+        return File(directory.canonicalFile, KAGEMUSHA_WALLET_ANDROID_CUSTODY_DIR_NAME_V1)
     }
 }

@@ -213,7 +213,7 @@ mod tests {
         let mut tops = vec![Fq::ZERO; 20];
         tops[19] = Fq::from(7);
         assert_eq!(range_widths(&pattern, &tops, 20).unwrap(), [1, 2, 22]);
-        assert_eq!(range_widths(&pattern, &tops, 16).unwrap(), []);
+        assert!(range_widths(&pattern, &tops, 16).unwrap().is_empty());
     }
 
     #[test]

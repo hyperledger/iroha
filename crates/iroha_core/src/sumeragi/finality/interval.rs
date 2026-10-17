@@ -1,17 +1,25 @@
 //! Finite original-owner contiguous full proofs with one native prefix and source join.
 //!
-//! This Core producer is a request-sized custody primitive, not a cache or HTTP
-//! admission. Configured identity and an immutable captured State hash generation
+//! This Core producer is a request-sized custody primitive, not a response cache or
+//! HTTP admission. Configured identity and an immutable captured State hash generation
 //! come from its caller. Signed genesis and every original authority/QC/availability
 //! check remain in CertifiedChain. A digest only joins freshly read physical bytes
 //! to those completed checks; it never authenticates a frame independently.
+//!
+//! A State-owned source also carries the node's bounded ladder of completed prefixes.
+//! A walk resumes from the nearest checkpoint below its first target, verifies every
+//! later height natively and joins every frame it read, so its cost follows its
+//! distance from that checkpoint instead of its height. Successful walks extend the
+//! ladder; a checkpoint whose pinned frame changed is discarded.
 
 use super::{NativeFinalityProofBudget, ProofDestinationError, proof_destination::OwnedProof};
 use crate::{
     execution_attempt::ExecutionAttemptError,
     kura::Kura,
     state::{BlockHashRead, StateView},
-    sumeragi::certified_chain::{CertifiedChain, ChainReadError, QcVerification},
+    sumeragi::certified_chain::{
+        CertifiedChain, ChainReadError, FinalityPrefixCheckpoints, PrefixCheckpoint, QcVerification,
+    },
 };
 #[cfg(not(all(test, sumeragi_core_mutation = "HC211")))]
 use crate::{
@@ -19,7 +27,6 @@ use crate::{
     sumeragi::certified_chain::{proof_source_append, proof_source_start},
 };
 use iroha_allocation::{ChargedBuffer, ChargedBufferError};
-#[cfg(not(all(test, sumeragi_core_mutation = "HC211")))]
 use iroha_crypto::Hash;
 use iroha_data_model::{
     NetworkId,
@@ -28,7 +35,10 @@ use iroha_data_model::{
 use iroha_model_base::chain::ChainId;
 use std::{
     num::{NonZeroU64, NonZeroUsize},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Instant,
 };
 
@@ -44,6 +54,8 @@ pub struct NativeFinalityProofSource<'source> {
     network: &'source NetworkId,
     hashes: &'source dyn BlockHashRead,
     kura: &'source Kura,
+    // The owning State's resume ladder; a source without one always walks from genesis.
+    checkpoints: Option<&'source FinalityPrefixCheckpoints>,
 }
 impl<'source> NativeFinalityProofSource<'source> {
     /// Borrow the original caller-owned cut without cloning history or authority.
@@ -58,6 +70,27 @@ impl<'source> NativeFinalityProofSource<'source> {
             network,
             hashes,
             kura,
+            checkpoints: None,
+        }
+    }
+
+    /// Resume walks from, and retain completed walks in, the owning State's ladder.
+    /// Each checkpoint is rechecked against this source's pinned cut before use.
+    pub(crate) fn with_checkpoints(
+        mut self,
+        checkpoints: &'source FinalityPrefixCheckpoints,
+    ) -> Self {
+        self.checkpoints = Some(checkpoints);
+        self
+    }
+
+    fn resume_point(&self, from: u64) -> Option<Arc<PrefixCheckpoint>> {
+        self.checkpoints?.resume_point(from)
+    }
+
+    fn forget_from(&self, height: u64) {
+        if let Some(checkpoints) = self.checkpoints {
+            checkpoints.forget_from(height);
         }
     }
 }
@@ -303,6 +336,8 @@ impl NativeFinalityProofInterval {
 /// reusable after a physical phase retires. Truly inherited limits still apply.
 /// Portable proofs are exact projections of this one native authority path;
 /// consumers independently verify them, as the genuine producer regressions do.
+/// With a State checkpoint ladder the prefix resumes from the nearest retained
+/// height below `from`; the proofs are identical to a walk from signed genesis.
 ///
 /// # Errors
 /// Preserves native typed refusals and completed authentication errors. Deadline,
@@ -350,6 +385,21 @@ fn build_interval(
             let mut proofs = ChargedBuffer::new(count, budget)?;
             let mut response_bytes = 0usize;
             let reader = &cursor.as_slice()[0];
+            // Continue from the nearest retained prefix below the first target. A frame
+            // that no longer matches its checkpoint retires that region and the walk
+            // starts at signed genesis, exactly as without a ladder.
+            let resumed = match source.resume_point(limits.from) {
+                Some(checkpoint) => {
+                    if workspace.stage(|| reader.resume_proof_prefix(&checkpoint))? {
+                        Some(checkpoint)
+                    } else {
+                        source.forget_from(checkpoint.height());
+                        None
+                    }
+                }
+                None => None,
+            };
+            progress()?;
             for height in limits.from..=limits.to {
                 progress()?;
                 let retained = reader.with_certified_workspace(
@@ -396,20 +446,40 @@ fn build_interval(
             after_verified();
             progress()?;
             #[cfg(all(test, sumeragi_core_mutation = "HC211"))]
-            let _ = original_digest;
+            let parent_source: Option<Hash> = {
+                let _ = (original_digest, &resumed);
+                None
+            };
             #[cfg(not(all(test, sumeragi_core_mutation = "HC211")))]
-            join_source(
+            let parent_source = Some(join_source(
                 source,
                 owner,
                 limits,
+                resumed.as_ref().map_or_else(
+                    || (0, proof_source_start()),
+                    |checkpoint| checkpoint.join_start(),
+                ),
                 original_digest,
                 &mut progress,
                 &workspace,
-            )?;
+            )?);
             progress()?;
+            // Only a walk whose complete native verification and source join succeeded
+            // becomes a resume point; it owns no frame or request-pool charge.
+            let checkpoint =
+                parent_source
+                    .zip(source.checkpoints)
+                    .and_then(|(parent, checkpoints)| {
+                        reader
+                            .proof_prefix_checkpoint(parent)
+                            .map(|checkpoint| (checkpoints, checkpoint))
+                    });
             // Cursor/result/authority graphs retire after their physical guards, still
             // inside the original pool's refund fence, before exposing any response.
             drop(cursor);
+            if let Some((checkpoints, checkpoint)) = checkpoint {
+                checkpoints.retain(checkpoint);
+            }
             Ok(NativeFinalityProofInterval {
                 proofs,
                 from: limits.from,
@@ -439,18 +509,22 @@ fn check(
     Ok(())
 }
 
-// One complete byte pass, with original namespace/index/object/start/length checks
-// and a coherent journal-image bracket. Loss never selects another source/pool or
+// One complete byte pass over every frame this walk read, with original
+// namespace/index/object/start/length checks and a coherent journal-image bracket.
+// `start` is the fence before the first read frame: signed genesis for a fresh walk,
+// or the resumed checkpoint's parent. Loss never selects another source/pool or
 // returns previously verified graphs. This constant digest is only a local join.
+// Returns the fence through the final frame's parent for that frame's checkpoint.
 #[cfg(not(all(test, sumeragi_core_mutation = "HC211")))]
 fn join_source(
     source: &NativeFinalityProofSource<'_>,
     owner: &NativeFinalityProofBudget,
     limits: &NativeFinalityProofIntervalLimits,
+    start: (u64, Hash),
     original: Hash,
     progress: &mut impl FnMut() -> Result<(), NativeFinalityProofIntervalError>,
     workspace: &super::FinalityDecodeWorkspace,
-) -> Result<(), NativeFinalityProofIntervalError> {
+) -> Result<Hash, NativeFinalityProofIntervalError> {
     let unavailable = |height| NativeFinalityProofIntervalError::Source { height };
     let get = |height: u64| {
         let index = usize::try_from(height)
@@ -473,8 +547,12 @@ fn join_source(
     };
     progress()?;
     let first = get(1)?;
-    let mut digest = proof_source_start();
-    for height in 1..=limits.to {
+    let (joined, mut digest) = start;
+    if joined >= limits.to {
+        return Err(unavailable(limits.to));
+    }
+    let mut parent = digest;
+    for height in joined + 1..=limits.to {
         progress()?;
         let current = get(height)?;
         if !first.same_journal_image(&current) {
@@ -497,6 +575,7 @@ fn join_source(
                 .ok_or_else(|| unavailable(height))
         })?;
         progress()?;
+        parent = digest;
         digest = proof_source_append(digest, height, length, Hash::new(bytes.as_slice()));
     }
     progress()?;
@@ -504,7 +583,7 @@ fn join_source(
     if !first.same_journal_image(&after) || digest != original {
         return Err(unavailable(limits.to));
     }
-    Ok(())
+    Ok(parent)
 }
 
 #[cfg(test)]
