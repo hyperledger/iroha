@@ -259,9 +259,9 @@ mod tests {
     fn body(network: &NetworkId, account: &str) -> Vec<u8> {
         norito::json::to_vec(&norito::json!({
             "version": 1,
-            "network_id": network.to_string(),
+            "network_id": (network.to_string()),
             "request_id": "8a70f738-e08d-4d2c-bb07-f3eec382f441",
-            "nonce": "a1".repeat(32),
+            "nonce": ("a1".repeat(32)),
             "account_id": account,
         }))
         .unwrap()
@@ -381,8 +381,8 @@ mod tests {
             ("8a70f738-e08d-4d2c-bb07-f3eec382f441", "00".repeat(32)),
             ("8a70f738-e08d-4d2c-bb07-f3eec382f441", "A1".repeat(32)),
         ] {
-            let invalid = norito::json!({"version": 1, "network_id": network.to_string(),
-                "request_id": request_id, "nonce": nonce, "account_id": account(0xc4).to_string()});
+            let invalid = norito::json!({"version": 1, "network_id": (network.to_string()),
+                "request_id": request_id, "nonce": nonce, "account_id": (account(0xc4).to_string())});
             assert!(inspect(&network, &norito::json::to_vec(&invalid).unwrap()).is_err());
         }
     }

@@ -607,7 +607,11 @@ pub(crate) fn request_status(id: u64, request: &[u8]) -> Result<Response> {
 }
 pub(crate) fn retry(id: u64, operation: &[u8]) -> Result<Response> {
     let operation = operation.try_into().map_err(|_| Failure::code(INVALID))?;
-    with_wallet(id, true, |wallet| wallet.retry(operation))
+    // Exact-byte output lookup cannot advance custody. A transport retry must not restart
+    // the sender's local proof; only resume can finish a pending hardware-signed operation.
+    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| {
+        wallet.retry(operation)
+    })
 }
 pub(crate) fn resume(id: u64) -> Result<Response> {
     with_wallet(id, true, |wallet| wallet.resume())
@@ -632,7 +636,12 @@ fn explicit_fold(owner: &Arc<Owner>) -> Result<Response> {
 pub(crate) fn credit(id: u64, credit: &[u8], payment: &[u8]) -> Result<Response> {
     let credit = credit.try_into().map_err(|_| Failure::code(INVALID))?;
     let payment = payment.try_into().map_err(|_| Failure::code(INVALID))?;
-    with_wallet(id, true, |wallet| wallet.credit(credit, payment))
+    // A credit opening reads the latest already-durable covering fold. Polling while the
+    // next fold is proving must not discard that work, including when no covering fold
+    // exists yet and this call returns FoldRequired.
+    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| {
+        wallet.credit(credit, payment)
+    })
 }
 /// Observation-only fold telemetry of one open wallet handle: its last 64 sub-proofs with
 /// phase times, outcome, cancellation cause and process peak RSS, plus cumulative counts

@@ -234,6 +234,83 @@ class ToriiKagemushaWalletLoadIssuanceV1Test {
     }
 
     @Test
+    fun combinedOriginalsDispatchBothReadsBeforeEitherResponseAndOwnProofBytes() {
+        val executor = RecordingExecutor()
+        val pending = ArrayList<CompletableFuture<TransportResponse>>()
+        executor.response = { CompletableFuture<TransportResponse>().also(pending::add) }
+        val result = client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable {})
+        assertEquals(2, executor.requests.size)
+        assertFalse(result.isDone)
+        assertEquals(listOf(selection().path, selection().path + "/finality"),
+            executor.requests.map { it.uri.path.removePrefix("/torii") })
+        fun complete(index: Int, bytes: ByteArray) = pending[index].complete(TransportResponse(
+            200, bytes, "", mapOf("Content-Type" to listOf("application/x-norito")), executor.requests[index].uri, false))
+        complete(1, byteArrayOf(4, 5, 6))
+        assertFalse(result.isDone)
+        complete(0, byteArrayOf(1, 2, 3))
+        val originals = result.join()
+        assertContentEquals(byteArrayOf(1, 2, 3), originals.issuance.unverifiedResponseOriginal)
+        originals.finalityOriginal.fill(0)
+        assertContentEquals(byteArrayOf(4, 5, 6), originals.finalityOriginal)
+        assertEquals(payer, originals.issuance.payerAccountId)
+        assertEquals(network, originals.issuance.networkId)
+    }
+
+    @Test
+    fun combinedOriginalFailureCancelsTheOtherPendingReadImmediately() {
+        for (failed in 0..1) {
+            val executor = RecordingExecutor()
+            val pending = ArrayList<CompletableFuture<TransportResponse>>()
+            executor.response = { CompletableFuture<TransportResponse>().also(pending::add) }
+            val result = client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable {})
+            val failure = IllegalStateException("read unavailable")
+            pending[failed].completeExceptionally(failure)
+            assertTrue(result.isCompletedExceptionally)
+            assertTrue(pending[1 - failed].isCancelled)
+            assertEquals(failure, assertFailsWith<CompletionException> { result.join() }.cause)
+        }
+    }
+
+    @Test
+    fun cancellingCombinedOriginalsCancelsBothUpstreamReads() {
+        val executor = RecordingExecutor()
+        val pending = ArrayList<CompletableFuture<TransportResponse>>()
+        executor.response = { CompletableFuture<TransportResponse>().also(pending::add) }
+        val result = client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable {})
+        result.cancel(false)
+        assertEquals(2, pending.size)
+        assertTrue(pending.all { it.isCancelled })
+    }
+
+    @Test
+    fun combinedOriginalsCannotPublishAfterTheOwnerChanges() {
+        var current = true
+        val executor = RecordingExecutor()
+        val pending = ArrayList<CompletableFuture<TransportResponse>>()
+        executor.response = { CompletableFuture<TransportResponse>().also(pending::add) }
+        val result = client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable { check(current) })
+        pending[0].complete(TransportResponse(200, byteArrayOf(1), "",
+            mapOf("Content-Type" to listOf("application/x-norito")), executor.requests[0].uri, false))
+        current = false
+        pending[1].complete(TransportResponse(200, byteArrayOf(2), "",
+            mapOf("Content-Type" to listOf("application/x-norito")), executor.requests[1].uri, false))
+        assertTrue(assertFailsWith<CompletionException> { result.join() }.cause is IllegalStateException)
+    }
+
+    @Test
+    fun combinedOriginalsCancelIssuanceWhenFinalityCannotStart() {
+        var current = true
+        val executor = RecordingExecutor()
+        val pending = CompletableFuture<TransportResponse>()
+        executor.response = { current = false; pending }
+        assertFailsWith<IllegalStateException> {
+            client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable { check(current) })
+        }
+        assertEquals(1, executor.requests.size)
+        assertTrue(pending.isCancelled)
+    }
+
+    @Test
     fun compactFinalityRejectsOversizeWrongTransportAndUnavailableWithoutFallback() {
         for (failure in 0..6) for (epoch in listOf(false, true)) {
             val executor = RecordingExecutor()

@@ -54,9 +54,10 @@ class IrohaPeerNfcAmbiguousTransceiveExceptionV1(cause: IOException) :
 
 /**
  * Reader-side IsoDep transceiver of one tag, selecting [applicationIdentifier] (the identifier
- * both phones registered). Pass [transceive] to [IrohaPeerNfcOfferExchangeV1.run] (tap 1) or
- * [IrohaPeerNfcReaderExchangeV1.run] (tap 2) with [localLimits]; each exchange begins with SELECT
- * for the same identifier. A transport failure after a command was sent is an
+ * both phones registered). Pass [transceive] to [IrohaPeerNfcOfferExchangeV1.run], retain the
+ * connection during approval, then continue with [IrohaPeerNfcReaderExchangeV1.run] using
+ * [localLimits]. Each phase begins with SELECT for the same identifier without closing this
+ * transceiver. A transport failure after a command was sent is an
  * [IrohaPeerNfcAmbiguousTransceiveExceptionV1].
  */
 class IrohaPeerIsoDepTransceiverV1 private constructor(
@@ -169,7 +170,7 @@ interface IrohaPeerNfcRequestPreparationV1 {
  */
 interface IrohaPeerNfcCardCallbacksV1 {
     /**
-     * Tap 1: the card verified the payer's [offer] and answered SUBMIT_OFFER. Build and sign the
+     * The card verified the payer's [offer] and answered SUBMIT_OFFER. Build and sign the
      * Request bound to it (the Request rule), or decline. Never called in direct mode.
      */
     fun prepareRequest(offer: IrohaPeerWireMessageV1, preparation: IrohaPeerNfcRequestPreparationV1)
@@ -239,7 +240,7 @@ fun interface IrohaPeerNfcCardEventListenerV1 {
 }
 
 /**
- * Host card emulation bridge of one [IrohaPeerNfcCardEndpointV1] (intake mode for tap 1 and 2, or
+ * Host card emulation bridge of one [IrohaPeerNfcCardEndpointV1] (intake mode for a full payment, or
  * direct/restored mode) and its application [callbacks].
  *
  * SUBMIT_OFFER answers `9000` at once and the Offer goes to [IrohaPeerNfcCardCallbacksV1.prepareRequest]

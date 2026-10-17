@@ -144,6 +144,8 @@ fn measured_ownership<T>(operation: impl FnOnce() -> T) -> (T, OwnershipMeasurem
 }
 
 fn assert_fully_released(built: &OwnershipMeasurement, dropped: &OwnershipMeasurement) {
+    assert!(built.allocations > built.deallocations);
+    assert!(built.allocated_bytes > built.deallocated_bytes);
     // These fixtures use exact-size vectors and BTreeMap insertions. Refuse an
     // unnoticed realloc rather than treating it as a measured free event.
     assert_eq!(built.reallocations, 0);

@@ -846,6 +846,43 @@ class HttpClientTransport private constructor(
         return request
     }
 
+    /** Read the independent issuance and compact finality routes concurrently for one exact
+     * selection. Both requests retain their ordinary signatures, bounds and owner checks. A
+     * failure or cancellation cancels the other read; no half-result is delivered or retained.
+     * The returned originals remain DATA for the canonical decoder and Native verifier. */
+    fun getKagemushaWalletLoadOriginalsV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ToriiKagemushaWalletLoadOriginalsV1> {
+        val issuance = getKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth, requireCurrentOwner)
+        val finality = try {
+            getKagemushaWalletLoadFinalityOriginalV1(selection, canonicalAuth, requireCurrentOwner)
+        } catch (failure: Throwable) {
+            issuance.cancel(false)
+            throw failure
+        }
+        val result = CompletableFuture<ToriiKagemushaWalletLoadOriginalsV1>()
+        result.whenComplete { _, failure ->
+            if (failure != null) { issuance.cancel(false); finality.cancel(false) }
+        }
+        // thenCombine alone waits for both failures/completions; stop a failing pair immediately.
+        issuance.whenComplete { _, failure ->
+            if (failure != null) result.completeExceptionally(unwrapCompletion(failure))
+        }
+        finality.whenComplete { _, failure ->
+            if (failure != null) result.completeExceptionally(unwrapCompletion(failure))
+        }
+        issuance.thenCombine(finality) { receipt, proof ->
+            requireCurrentOwner.run()
+            ToriiKagemushaWalletLoadOriginalsV1(receipt, proof)
+        }.whenComplete { originals, failure ->
+            if (failure == null) result.complete(originals)
+            else result.completeExceptionally(unwrapCompletion(failure))
+        }
+        return result
+    }
+
     /** One native BLS certificate and exact Load event inclusion. The response remains DATA
      * until Native verifies the signed genesis, epoch transitions and receipt binding. */
     fun getKagemushaWalletLoadFinalityOriginalV1(

@@ -12,8 +12,8 @@ import org.hyperledger.iroha.sdk.norito.Varint
  * Transport-neutral Iroha peer NFC V1 constants (`specs/kagemusha_wallet_wire_v1.md` §6, NFC).
  *
  * The receiver's phone is the card (host card emulation) and the payer's phone is the reader.
- * Tap 1 carries the payer's Offer to the card, which answers with the receiver's Request
- * ([IrohaPeerNfcOfferExchangeV1], [IrohaPeerNfcOfferIntakeV1]). Tap 2 carries the approved
+ * One continuous hold carries the payer's Offer to the card and the receiver's Request back
+ * ([IrohaPeerNfcOfferExchangeV1], [IrohaPeerNfcOfferIntakeV1]), then carries the approved
  * Payment and returns the receiver's durable acknowledgement, the wallet's Credited envelope
  * ([IrohaPeerNfcReaderExchangeV1], [IrohaPeerNfcReceiverSessionV1]). Every value matches the
  * Swift `IrohaPeerNfcV1` byte for byte. TODO(G4): SessionControl and Lineage over NFC.

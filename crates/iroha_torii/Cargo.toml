@@ -201,6 +201,7 @@ rustix = { version = "1.1.4", features = ["fs", "process"] }
 bytes = { workspace = true, optional = true, features = ["std"] }
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true, features = ["fmt", "json"] }
 iroha_p2p = { workspace = true, features = ["test-fixtures"] }
 fastpq_prover = { workspace = true }
 humantime = { workspace = true }

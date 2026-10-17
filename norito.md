@@ -613,6 +613,10 @@ from an existing `Value` uses a bounded, allocation-free borrowed traversal
 before cloning or serializing it, and the consuming conversion retains its
 iterative cleanup path on refusal. Transparent `Box` ownership does not add a
 JSON structural level; its separate fixed recursion guard remains enforced.
+Owned JSON cleanup threads parent ownership through existing child slots and
+releases only leaves or empty containers with ordinary drop. It therefore uses
+constant native stack space and allocates no cleanup storage, including for
+manually constructed branching trees beyond the parser's fixed depth ceiling.
 
 Checked JSON writers stream into the original `JsonWriteSink`. Every container
 they successfully enter is released when the write returns, including byte,

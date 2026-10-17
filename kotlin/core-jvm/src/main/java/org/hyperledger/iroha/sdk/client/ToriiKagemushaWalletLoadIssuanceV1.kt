@@ -86,3 +86,16 @@ class ToriiKagemushaWalletLoadIssuanceOriginalV1 internal constructor(
         const val MAXIMUM_BYTES: Int = 64 * 1024
     }
 }
+
+/** The two independently fetched originals for one exact Load selection. These are unverified
+ * transport DATA; the canonical decoder and Native still establish their binding and finality. */
+class ToriiKagemushaWalletLoadOriginalsV1 internal constructor(
+    /** Immutable issuance original, including the captured payer, network and selection. */
+    @JvmField val issuance: ToriiKagemushaWalletLoadIssuanceOriginalV1,
+    finalityOriginal: ByteArray,
+) {
+    private val finality = finalityOriginal.copyOf().also { require(it.isNotEmpty() && it.size <= 256 * 1024) }
+
+    /** Owned copy of the compact finality original. */
+    val finalityOriginal: ByteArray get() = finality.copyOf()
+}

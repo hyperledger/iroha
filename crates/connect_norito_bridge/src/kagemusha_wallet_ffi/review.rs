@@ -235,14 +235,16 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> NativeWa
     }
 }
 pub(crate) fn review(id: u64, input: Input) -> Result<Response> {
-    with_wallet(id, true, |wallet| wallet.review(input))
+    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| wallet.review(input))
 }
 pub(crate) fn execute_reviewed(id: u64, token: u64, request: &[u8]) -> Result<Response> {
     let request = request.try_into().map_err(|_| Failure::code(INVALID))?;
     with_wallet(id, true, |wallet| wallet.execute_reviewed(token, request))
 }
 pub(crate) fn discard_review(id: u64, token: u64) -> Result<()> {
-    with_wallet(id, true, |wallet| wallet.discard_review(token))
+    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| {
+        wallet.discard_review(token)
+    })
 }
 
 /// Authenticate Send/Unload and retain the genuine one-use review. No monetary operation.

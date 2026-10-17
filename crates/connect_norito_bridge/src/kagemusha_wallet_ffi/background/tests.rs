@@ -152,11 +152,11 @@ fn payment_priority_resumes_after_expected_cancellation_without_sticky_error() {
     });
     activity(id, true, false).unwrap();
     entered.recv_timeout(Duration::from_secs(5)).unwrap();
-    let payment = thread::spawn(move || retry(id, &[1; 32]));
+    let payment = thread::spawn(move || resume(id));
     // Payment reservation precedes its wait on the wallet and survives cancellation.
     wait(&owner, |state| state.payments == 1);
     release.send(()).unwrap();
-    assert_eq!(payment.join().unwrap().unwrap().bytes, [0, 255, 0, 7]);
+    assert_eq!(payment.join().unwrap().unwrap().kind, 2);
     wait(&owner, |state| {
         state.backlog.is_some() && !state.running && !state.wake
     });
@@ -197,7 +197,7 @@ fn terminal_error_is_preserved_until_observed_then_explicit_wake_can_retry() {
     activity(id, true, false).unwrap();
     wait(&owner, |state| state.error.is_some());
     activity(id, true, false).unwrap();
-    retry(id, &[1; 32]).unwrap();
+    resume(id).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         setup(id, setup::Setup::BackgroundStatus)
@@ -332,7 +332,7 @@ fn a_failed_turn_forgets_the_backlog_so_activity_retries_after_the_error_is_obse
         state.backlog == Some(0) && !state.running && !state.wake
     });
     // A payment wakes the worker unconditionally; that turn fails.
-    retry(id, &[1; 32]).unwrap();
+    resume(id).unwrap();
     wait(&owner, |state| state.error.is_some() && !state.running);
     assert_eq!(owner.background.inner.lock().backlog, None);
     assert_eq!(
@@ -545,7 +545,8 @@ fn ingests_and_status_reads_during_an_unlocked_proof_never_cancel_it() {
             original: vec![1],
         },
     ]);
-    let ingests = inputs.len() + 2;
+    const READ_REPEATS: usize = 32;
+    let ingests = inputs.len() + 5 + 2 * READ_REPEATS;
     for input in inputs {
         assert_eq!(setup(id, input).unwrap().kind, 12);
     }
@@ -554,6 +555,31 @@ fn ingests_and_status_reads_during_an_unlocked_proof_never_cancel_it() {
         observation::observe(id, 0, &[]).unwrap_err().status,
         INVALID
     );
+    // Repeated exact-byte retries and early credit polls must not cancel the very proof
+    // needed to make the latest credit onward-spendable.
+    for _ in 0..READ_REPEATS {
+        assert_eq!(retry(id, &[1; 32]).unwrap().bytes, [0, 255, 0, 7]);
+        assert_eq!(
+            credit(id, &[1; 32], &[2; 32]).unwrap_err().status,
+            FOLD_REQUIRED
+        );
+    }
+    // Reviews and discarded UI review tokens have no monetary effect. Even rejected
+    // reviews must leave the useful sub-proof running until its durable checkpoint.
+    for input in [
+        review::Input::Send {
+            request: vec![1],
+            destination_account: vec![2],
+        },
+        review::Input::Unload {
+            amount: 1,
+            charge: None,
+            beneficiary: None,
+        },
+    ] {
+        assert_eq!(review::review(id, input).unwrap_err().status, INVALID);
+    }
+    assert_eq!(review::discard_review(id, 1).unwrap_err().status, INVALID);
     {
         let state = owner.background.inner.lock();
         assert!(state.running, "the sub-proof is still proving");
@@ -747,7 +773,7 @@ fn fold_telemetry_counts_payment_activity_and_close_cancellations() {
     activity(id, true, false).unwrap();
     started();
     // A payment returns only after its own cancellation was reported.
-    assert_eq!(retry(id, &[1; 32]).unwrap().bytes, [0, 255, 0, 7]);
+    assert_eq!(resume(id).unwrap().kind, 2);
     assert_eq!(counts().cancelled_by_payment, 1);
     started();
     // A status read and a setup ingest leave the same sub-proof proving.

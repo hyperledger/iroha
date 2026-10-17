@@ -434,6 +434,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 
     /// Authenticate an exact signed Request against the current folded payer and all controls.
     /// No nonce, map insertion, proof, hardware signature or Advance is produced.
+    /// A running local fold continues; an uncovered current head returns `FoldRequired`.
     /// # Errors
     /// Invalid/foreign Request, missing or changed source/fold/originals, failed controls or unavailable storage/observations.
     pub fn review_send(
@@ -441,7 +442,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         request_original: &[u8],
         destination_account_original: &[u8],
     ) -> Result<ReviewedOperationV1, Error> {
-        let _payment = self.scheduler.payment();
         if request_original.is_empty()
             || request_original.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
             || destination_account_original.is_empty()
@@ -461,6 +461,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     /// Authenticate current folded Unload amount/destination and optional signed charge.
     /// The fee is withheld from the ledger payout; the offline debit remains the face amount.
     /// No nonce, map insertion, proof, signature or Advance is produced.
+    /// A running local fold continues; execution alone takes payment priority and rechecks
+    /// the review's source after hardware approval.
     /// # Errors
     /// Unavailable or changed source, missing fold, invalid amount or foreign/malformed
     /// quote/certificates/beneficiary. Charged reviews require the exact canonical beneficiary.
@@ -470,7 +472,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         charge: Option<ChargeOriginalsV1>,
         beneficiary_original: Option<&[u8]>,
     ) -> Result<ReviewedOperationV1, Error> {
-        let _payment = self.scheduler.payment();
         self.review_action(
             OperationActionV1::Unload { amount, charge },
             None,

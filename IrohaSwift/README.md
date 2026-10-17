@@ -368,14 +368,23 @@ of an exchange use the same one. Pass it as
 their own registration use the protocol identifier `F0504B45504B524E464301`
 (`IrohaPeerNfcApplicationIdentifierV1.protocolDefault`), as shown.
 
-An exchange takes two taps. On the receiver, `IrohaPeerNfcCardSessionControllerV1.startIntake`
+An exchange completes in one continuous hold. On the receiver, `IrohaPeerNfcCardSessionControllerV1.startIntake`
 emulates a card that awaits the payer's Offer and calls `prepareRequest` to sign the
-Request. On the payer, `IrohaPeerNfcReaderServiceV1.readRequest(offer:)` (tap 1) writes
-the Offer and returns that Request; the payer reviews and approves away from the card,
-retains the exact Payment in an `IrohaPeerNfcSenderCheckpointV1`, then calls
-`run(restoredCheckpoint:)` (tap 2), which delivers the Payment and returns the
-receiver's Credited acknowledgement. A card that stops between taps restarts with
+Request. On the payer, `IrohaPeerNfcReaderServiceV1.run(offer:)` writes the Offer,
+reads the Request, and keeps the same reader session and tag connection open while
+`loadOrCreateDurableCheckpoint` confirms the exact payment with hardware-backed
+authentication and durably stores its `IrohaPeerNfcSenderCheckpointV1`. That same
+hold then delivers the Payment, persists the receiver's Credited acknowledgement,
+and confirms it. The normal flow does not close the reader or ask for another tap.
+If contact is interrupted, `run(restoredCheckpoint:)` resumes the exact retained
+Payment without another debit. A receiver whose card session stops restarts with
 `start(sessionID:receiveRequest:)` and the same session identifier and Request bytes.
+While a receiver finishes saving, the reader retries admission/commit storage-failure
+replies within the same hold, bounded by twelve attempts and the operation deadline.
+The iOS card retains one context-bound durability worker across APDU timeouts;
+replays await that same work. Cancellation or session retirement prevents late
+results from entering another session and retains the shared worker lease until
+the callback actually returns.
 
 Reader builds also need the Near Field Communication Tag Reading capability,
 which produces this entitlement:

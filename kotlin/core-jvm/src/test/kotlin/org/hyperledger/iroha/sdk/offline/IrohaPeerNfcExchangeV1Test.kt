@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Tap 1 (Offer → Request) and tap 2 (Payment → Credited) over an in-memory card, crossing the
+ * Offer → Request → Payment → Credited over one in-memory card connection, crossing the
  * canonical APDU codec, with loss of every value-phase response and receiver restoration.
  */
 class IrohaPeerNfcExchangeV1Test {
@@ -47,7 +47,7 @@ class IrohaPeerNfcExchangeV1Test {
     )
 
     @Test
-    fun `two taps carry offer request payment and credited`() {
+    fun `one connection carries offer request approval payment and credited`() {
         val card = IrohaPeerNfcCardEndpointV1.intake(fixtures.BPNG_AID, fixtures.POLICY)
         val reader = IrohaPeerNfcLoopbackV1(card, preparationPolls = 3)
 
@@ -67,9 +67,12 @@ class IrohaPeerNfcExchangeV1Test {
             reader.log.take(3),
         )
 
-        // The payer approves away from the card, then persists the exact ISC1 before tap 2.
+        // Approval and checkpoint persistence happen while the same card connection stays open.
+        // These are application markers, not hardware authentication or physical RF evidence.
+        reader.log += "approve:payment"
         val checkpoint = read.senderCheckpoint(fixtures.payment.encode()).encode()
-        reader.log.clear()
+        reader.log += "persist:payment"
+        val requestReads = reader.count(IrohaPeerNfcOperationV1.READ_REQUEST)
         reader.writeSizes.clear()
         reader.readSizes.clear()
         val result = tap2(reader, checkpoint)
@@ -80,14 +83,17 @@ class IrohaPeerNfcExchangeV1Test {
         assertEquals(1, reader.admissionRecords.size)
         assertEquals(1, reader.persistedCheckpoints.size)
         assertEquals(result.checkpoint, IrohaPeerNfcSenderCheckpointV1.decode(reader.persistedCheckpoints.single()))
+        assertTrue(reader.log.indexOf("READ_REQUEST") < reader.log.indexOf("approve:payment"))
+        assertTrue(reader.log.indexOf("approve:payment") < reader.log.indexOf("persist:payment"))
+        assertTrue(reader.log.indexOf("persist:payment") < reader.log.indexOf("BEGIN_PAYMENT"))
         // The acknowledgement-bearing checkpoint is durable before CONFIRM_ACK is sent.
         assertTrue(reader.log.indexOf("persist:checkpoint") < reader.log.indexOf("CONFIRM_ACKNOWLEDGEMENT"))
         assertEquals("CONFIRM_ACKNOWLEDGEMENT", reader.log.last())
         assertTrue(reader.writeSizes.all { it <= 200 } && reader.writeSizes.sum() == fixtures.payment.byteCount)
         assertEquals(IrohaPeerNfcPhaseV1.COMPLETE, assertNotNull(card.receiver).phase)
-        assertEquals(0, reader.count(IrohaPeerNfcOperationV1.READ_REQUEST))
+        assertEquals(requestReads, reader.count(IrohaPeerNfcOperationV1.READ_REQUEST))
 
-        // A third tap with the final checkpoint observes COMPLETE without another debit.
+        // Recovery with the final checkpoint observes COMPLETE without another debit.
         val again = tap2(reader, result.checkpoint.encode())
         assertEquals(fixtures.credited, again.acknowledgement)
         assertEquals(1, reader.durableCommits)
