@@ -104,7 +104,7 @@ pub(super) mod allocation_inspection {
 
     /// Counts from the allocation after live destructors and before deallocation.
     #[derive(Debug)]
-    pub(crate) struct AllocationErasureV1 {
+    pub struct AllocationErasureV1 {
         pub(crate) bytes: usize,
         pub(crate) nonzero_after: usize,
     }
@@ -137,7 +137,7 @@ pub(super) mod allocation_inspection {
     }
 
     /// Observe whole-allocation wiping without retaining private values.
-    pub(crate) fn observe_v1<T>(operation: impl FnOnce() -> T) -> (T, Vec<AllocationErasureV1>) {
+    pub fn observe_v1<T>(operation: impl FnOnce() -> T) -> (T, Vec<AllocationErasureV1>) {
         struct Scope;
         impl Drop for Scope {
             fn drop(&mut self) {
@@ -254,7 +254,7 @@ pub(super) mod inspection {
 
     /// Counts observed around the real field-cell erasure operation.
     #[derive(Default)]
-    pub(crate) struct ErasureObservationV1 {
+    pub struct ErasureObservationV1 {
         pub(crate) cells: usize,
         pub(crate) nonzero_before: usize,
         pub(crate) nonzero_after: usize,
@@ -277,7 +277,7 @@ pub(super) mod inspection {
     }
 
     /// Run one fallible construction and inspect only its clearing operations.
-    pub(crate) fn observe_v1<T>(operation: impl FnOnce() -> T) -> (T, Vec<ErasureObservationV1>) {
+    pub fn observe_v1<T>(operation: impl FnOnce() -> T) -> (T, Vec<ErasureObservationV1>) {
         struct ObservationScope;
         impl Drop for ObservationScope {
             fn drop(&mut self) {
@@ -326,7 +326,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        let (_, allocations) = allocation_inspection::observe_v1(|| drop(values));
+        let ((), allocations) = allocation_inspection::observe_v1(|| drop(values));
         assert_eq!(dropped.get(), 3);
         assert_eq!(allocations.len(), 1);
         assert_eq!(allocations[0].bytes, expected_bytes);
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn clearing_vector_wipes_empty_and_zero_sized_allocations() {
-        let (_, allocations) = allocation_inspection::observe_v1(|| {
+        let ((), allocations) = allocation_inspection::observe_v1(|| {
             drop(ClearingVecV1::<u8>::from_vec_for_test_v1(Vec::new()));
             drop(ClearingVecV1::from_vec_for_test_v1(vec![(); 3]));
         });
@@ -370,7 +370,7 @@ mod tests {
             format!("{values:?}"),
             "ClearingVecV1 { <private owners redacted> }"
         );
-        let (_, allocations) = allocation_inspection::observe_v1(|| drop(values));
+        let ((), allocations) = allocation_inspection::observe_v1(|| drop(values));
         assert_eq!(allocations.len(), 1);
         assert_eq!(allocations[0].bytes, capacity * core::mem::size_of::<u64>());
         assert_eq!(allocations[0].nonzero_after, 0);
@@ -429,7 +429,7 @@ mod tests {
         let mut fields = [F(7), F(11)];
         let mut bytes = [19u8; 3];
         let mut limbs = [23u16; 5];
-        let (_, observations) = inspection::observe_v1(|| {
+        let ((), observations) = inspection::observe_v1(|| {
             zeroize_fields_v1(&mut fields);
             zeroize_words_v1(&mut bytes);
             zeroize_words_v1(&mut limbs);

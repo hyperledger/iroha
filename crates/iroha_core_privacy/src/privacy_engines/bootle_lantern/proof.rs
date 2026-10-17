@@ -475,7 +475,7 @@ fn prove_attempt(
         )
         .map_err(PresentationProofErrorV1::Toolbox)?,
     );
-    let weights = derive_schwartz_weights(transcript, &*t_b)?;
+    let weights = derive_schwartz_weights(transcript, &t_b)?;
     let variables = QuadraticVariablesV1 {
         short: short
             .polynomials()
@@ -508,7 +508,7 @@ fn prove_attempt(
     });
     require_schwartz_commitment_shape(&h)?;
     let multipliers =
-        derive_equation_multipliers(transcript, &*t_b, &h, &z3.polynomials, &z4.polynomials)?;
+        derive_equation_multipliers(transcript, &t_b, &h, &z3.polynomials, &z4.polynomials)?;
     equation.bind_final_equations(h.clone(), multipliers);
     // These two values are invariant across every response-mask retry.  In
     // particular, checking Q(secret) here preserves the witness soundness
@@ -559,7 +559,7 @@ fn prove_attempt(
             array_suffix::<TBOX_KMSIS_V1, TBOX_M2_V1>(&y2.polynomials),
         )?;
         let pre_challenge =
-            pre_challenge_wire(&*t_b, &h, &t_a1, &z3.polynomials, &z4.polynomials, &w1, v)?;
+            pre_challenge_wire(&t_b, &h, &t_a1, &z3.polynomials, &z4.polynomials, &w1, v)?;
         let challenge = transcript
             .derive_final_challenge(&pre_challenge)
             .map_err(|error| {
@@ -624,7 +624,7 @@ fn prove_attempt(
             array_suffix::<TBOX_KMSIS_V1, TBOX_M2_V1>(&z2.polynomials),
         )?;
         let proof = construct_proof(
-            &*t_b,
+            &t_b,
             &h,
             &t_a1,
             challenge,
@@ -2084,7 +2084,7 @@ fn finalize_bootle_lantern_prepared_presentation_privacy_action_v1(
         &prepared.issuer_policy,
         prepared.integrity(),
     )
-    .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+    .map_err(|()| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     Ok(prepared)
 }
 #[cfg(test)]
@@ -2168,7 +2168,7 @@ pub fn sign_prepared_bootle_lantern_presentation_privacy_action_v1(
         &prepared.issuer_policy,
         integrity,
     )
-    .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+    .map_err(|()| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     let BootleLanternPreparedPresentationPrivacyActionV1 {
         payload,
         issuer_policy,
@@ -2197,7 +2197,7 @@ pub fn sign_prepared_bootle_lantern_presentation_privacy_action_v1(
         &issuer_policy,
         integrity,
     )
-    .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
+    .map_err(|()| BootleLanternPresentationPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
     let transaction_hash = *signed_transaction.hash().as_ref();
     let adaptive_signed_transaction_bytes =
         u32::try_from(norito::codec::encode_adaptive(&signed_transaction).len()).map_err(|_| {
@@ -3656,10 +3656,12 @@ mod tests {
     }
     #[test]
     fn complete_native_proof_round_trip_and_adversarial_matrix() {
-        assert!(
-            BOOTLE_LANTERN_FULL_ENGINE_AVAILABLE_V1,
-            "the first-release public Bootle/Lantern engine must be active"
-        );
+        const {
+            assert!(
+                BOOTLE_LANTERN_FULL_ENGINE_AVAILABLE_V1,
+                "the first-release public Bootle/Lantern engine must be active"
+            )
+        };
         let fixture = fixture();
         let mut rng = TestRng::healthy(0x9e37_79b9_7f4a_7c15);
         let proof = prove_bound_presentation_v1(

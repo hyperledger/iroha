@@ -123,7 +123,7 @@ fn joined_mixed_native_commitment_matches_independent_horner_rows_and_frontier()
         let polynomials = polynomial_groups(&plan);
         let borrowed = polynomials.iter().collect::<Vec<_>>();
         let rows = materialized_rows(&plan, &polynomials);
-        let (leaf, node) = plan.roles_v1(domains);
+        let (leaf, node) = plan.roles_v1(&domains);
         let leaves = rows
             .iter()
             .enumerate()
@@ -140,14 +140,14 @@ fn joined_mixed_native_commitment_matches_independent_horner_rows_and_frontier()
             .collect::<Vec<_>>();
         let tree =
             PrivacyOuterMerkleTreeV1::from_leaves(leaves, domains.digest_context, node).unwrap();
-        let root_only = plan.commit_v1(domains, &borrowed, &[]).unwrap();
+        let root_only = plan.commit_v1(&domains, &borrowed, &[]).unwrap();
         assert_eq!(root_only.commitment.root, tree.root());
         assert!(root_only.opened_rows.is_empty());
         let indices = [0, 1, 7, 63, 1024, 2047];
-        let opened = plan.commit_v1(domains, &borrowed, &indices).unwrap();
+        let opened = plan.commit_v1(&domains, &borrowed, &indices).unwrap();
         let replayed = plan
             .commit_replayed_v1(
-                domains,
+                &domains,
                 &indices,
                 |group, column| Ok(polynomials[group].column_coefficients_v1(column)?.to_vec()),
                 evaluate_replayed_cpu_v1,
@@ -168,7 +168,7 @@ fn joined_mixed_native_commitment_matches_independent_horner_rows_and_frontier()
             let slices = (0..polynomials.len())
                 .map(|group| &rows[index][plan.group_range_v1(group).unwrap()])
                 .collect::<Vec<_>>();
-            authenticated.insert(index, plan.leaf_hash_v1(domains, index, &slices).unwrap());
+            authenticated.insert(index, plan.leaf_hash_v1(&domains, index, &slices).unwrap());
         }
         verify_canonical_multiproof_v1(
             domains.digest_context,
@@ -182,7 +182,7 @@ fn joined_mixed_native_commitment_matches_independent_horner_rows_and_frontier()
         authenticated.insert(
             0,
             plan.leaf_hash_v1(
-                domains,
+                &domains,
                 1,
                 &(0..polynomials.len())
                     .map(|group| &rows[0][plan.group_range_v1(group).unwrap()])
@@ -204,7 +204,7 @@ fn joined_mixed_native_commitment_matches_independent_horner_rows_and_frontier()
         assert_ne!(
             row_leaf_hash_v1(domains.digest_context, leaf, 0, 0, &rows[0]).unwrap(),
             plan.leaf_hash_v1(
-                domains,
+                &domains,
                 0,
                 &(0..polynomials.len())
                     .map(|group| &rows[0][plan.group_range_v1(group).unwrap()])
@@ -223,40 +223,40 @@ fn joined_trace_rejects_group_width_domain_order_field_and_index_substitution() 
             .unwrap();
     let mut polynomials = polynomial_groups(&plan);
     assert!(plan.group_range_v1(2).is_err());
-    assert!(plan.commit_v1(domains, &[&polynomials[0]], &[]).is_err());
+    assert!(plan.commit_v1(&domains, &[&polynomials[0]], &[]).is_err());
     assert!(
-        plan.commit_v1(domains, &[&polynomials[1], &polynomials[0]], &[])
+        plan.commit_v1(&domains, &[&polynomials[1], &polynomials[0]], &[])
             .is_err()
     );
     for indices in [&[2, 1][..], &[1, 1], &[2048]] {
         assert!(
-            plan.commit_v1(domains, &polynomials.iter().collect::<Vec<_>>(), indices)
+            plan.commit_v1(&domains, &polynomials.iter().collect::<Vec<_>>(), indices)
                 .is_err()
         );
     }
     polynomials[0].commitment_lde_log2 += 1;
     assert!(
-        plan.commit_v1(domains, &polynomials.iter().collect::<Vec<_>>(), &[])
+        plan.commit_v1(&domains, &polynomials.iter().collect::<Vec<_>>(), &[])
             .is_err()
     );
     polynomials[0].commitment_lde_log2 -= 1;
     polynomials[0].columns[0].0[0] =
         F(crate::privacy_engines::transparent_stark::GOLDILOCKS_MODULUS_V1);
     assert!(
-        plan.commit_v1(domains, &polynomials.iter().collect::<Vec<_>>(), &[])
+        plan.commit_v1(&domains, &polynomials.iter().collect::<Vec<_>>(), &[])
             .is_err()
     );
     assert!(
-        plan.leaf_hash_v1(domains, 0, &[&[F::ZERO; 8], &[F::ZERO; 3]])
+        plan.leaf_hash_v1(&domains, 0, &[&[F::ZERO; 8], &[F::ZERO; 3]])
             .is_err()
     );
     assert!(
-        plan.leaf_hash_v1(domains, 2048, &[&[F::ZERO; 9], &[F::ZERO; 3]])
+        plan.leaf_hash_v1(&domains, 2048, &[&[F::ZERO; 9], &[F::ZERO; 3]])
             .is_err()
     );
     assert!(
         plan.leaf_hash_v1(
-            domains,
+            &domains,
             0,
             &[
                 &[F::ZERO; 9],
@@ -277,7 +277,7 @@ fn joined_replayed_columns_reject_indices_before_source_and_abort_failed_batches
     let mut calls = 0;
     assert!(
         plan.commit_replayed_v1(
-            domains,
+            &domains,
             &[2048],
             |_, _| {
                 calls += 1;
@@ -290,7 +290,7 @@ fn joined_replayed_columns_reject_indices_before_source_and_abort_failed_batches
     assert_eq!(calls, 0);
     assert!(
         plan.commit_replayed_v1(
-            domains,
+            &domains,
             &[0],
             |group, column| {
                 calls += 1;
@@ -306,7 +306,7 @@ fn joined_replayed_columns_reject_indices_before_source_and_abort_failed_batches
     assert_eq!(calls, 9);
     assert!(
         plan.commit_replayed_v1(
-            domains,
+            &domains,
             &[0],
             |group, column| {
                 let mut values = polynomials[group].column_coefficients_v1(column)?.to_vec();
@@ -389,15 +389,15 @@ fn joined_trace_authentication_rejects_swapped_equal_width_native_group_slices()
         let polynomials = polynomial_groups(&plan);
         let indices = [0, 31, 2047];
         let opened = plan
-            .commit_v1(domains, &polynomials.iter().collect::<Vec<_>>(), &indices)
+            .commit_v1(&domains, &polynomials.iter().collect::<Vec<_>>(), &indices)
             .unwrap();
-        let (_, node) = plan.roles_v1(domains);
+        let (_, node) = plan.roles_v1(&domains);
         let mut authenticated = BTreeMap::new();
         for &index in &indices {
             let row = &opened.opened_rows[&index];
             let slices = [&row[0..2], &row[2..4]];
             assert_ne!(slices[0], slices[1]);
-            authenticated.insert(index, plan.leaf_hash_v1(domains, index, &slices).unwrap());
+            authenticated.insert(index, plan.leaf_hash_v1(&domains, index, &slices).unwrap());
         }
         verify_canonical_multiproof_v1(
             domains.digest_context,
@@ -412,7 +412,7 @@ fn joined_trace_authentication_rejects_swapped_equal_width_native_group_slices()
         // Equal widths pass shape validation, so this rejection requires the
         // joined leaf to authenticate the canonical native-group column order.
         let swapped = plan
-            .leaf_hash_v1(domains, 31, &[&row[2..4], &row[0..2]])
+            .leaf_hash_v1(&domains, 31, &[&row[2..4], &row[0..2]])
             .unwrap();
         assert_ne!(authenticated[&31], swapped);
         authenticated.insert(31, swapped);
@@ -444,7 +444,7 @@ fn joined_trace_commitment_is_identical_across_worker_counts() {
             .unwrap()
             .install(|| {
                 plan.commit_v1(
-                    domains,
+                    &domains,
                     &polynomials.iter().collect::<Vec<_>>(),
                     &[0, 17, 2047],
                 )
@@ -557,7 +557,7 @@ fn sampling_before_join_preserves_masks_source_order_and_early_rejection() {
         sampled.push(polynomials);
     }
     assert!(
-        plan.commit_v1(domains, &sampled.iter().collect::<Vec<_>>(), &[0, 2047])
+        plan.commit_v1(&domains, &sampled.iter().collect::<Vec<_>>(), &[0, 2047])
             .is_ok()
     );
     for (native, common, width, mask) in [
@@ -625,7 +625,7 @@ fn joined_replay_rejects_wrong_evaluator_shapes_before_commitment_publication() 
     for wrong_width in [true, false] {
         assert!(
             plan.commit_replayed_v1(
-                domains,
+                &domains,
                 &[0],
                 |group, column| { Ok(polynomials[group].column_coefficients_v1(column)?.to_vec()) },
                 |columns, native, common| {
@@ -652,7 +652,7 @@ fn retained_initial_and_selected_replay_preserve_both_joined_phase_roots_rows_an
         let borrowed = polynomials.iter().collect::<Vec<_>>();
         let rows = 1usize << plan.commitment_lde_log2;
         let queries = [0, 15, 16, 17, rows - 1];
-        let expected = plan.commit_v1(domains, &borrowed, &queries).unwrap();
+        let expected = plan.commit_v1(&domains, &borrowed, &queries).unwrap();
         let evaluate =
             |columns: &[ZeroizingFieldColumnV1], native, common, selected: Option<&[usize]>| {
                 columns
@@ -673,7 +673,7 @@ fn retained_initial_and_selected_replay_preserve_both_joined_phase_roots_rows_an
         let mut calls = Vec::new();
         let (initial, cut) = plan
             .commit_retained_replayed_v1(
-                domains,
+                &domains,
                 &[],
                 None,
                 |group, column| {
@@ -692,7 +692,7 @@ fn retained_initial_and_selected_replay_preserve_both_joined_phase_roots_rows_an
         calls.clear();
         let (replayed, absent_cut) = plan
             .commit_retained_replayed_v1(
-                domains,
+                &domains,
                 &queries,
                 Some(&cut),
                 |group, column| {
@@ -715,7 +715,7 @@ fn retained_initial_and_selected_replay_preserve_both_joined_phase_roots_rows_an
                 .is_err()
         );
         let changed = plan.commit_retained_replayed_v1(
-            domains,
+            &domains,
             &queries,
             Some(&cut),
             |group, column| {
@@ -739,7 +739,7 @@ fn retained_replay_rejects_inconsistent_root_only_queries_and_source_failure_wit
             .unwrap();
     let mut source_calls = 0;
     let result = plan.commit_retained_replayed_v1(
-        domains,
+        &domains,
         &[0],
         None,
         |_, _| {
@@ -751,7 +751,7 @@ fn retained_replay_rejects_inconsistent_root_only_queries_and_source_failure_wit
     assert!(result.is_err());
     assert_eq!(source_calls, 0);
     let result = plan.commit_retained_replayed_v1(
-        domains,
+        &domains,
         &[],
         None,
         |_, _| {

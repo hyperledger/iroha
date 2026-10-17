@@ -33,7 +33,7 @@ mod main_fixed_replay_batch_tests;
 #[path = "main_fri_retention.rs"]
 mod main_fri_retention;
 #[path = "main_joint.rs"]
-pub(crate) mod main_joint;
+pub mod main_joint;
 #[path = "main_key_joins.rs"]
 pub(super) mod main_key_joins;
 #[cfg(test)]
@@ -166,7 +166,7 @@ fn map_credential_pre_aux_error_v1(
 /// exposes only a consuming transition accepting the opaque outer credential binding; raw challenge
 /// families and auxiliary commitment APIs are intentionally absent.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509MainAwaitingCredentialBindingV1<'a> {
+pub struct ZkX509MainAwaitingCredentialBindingV1<'a> {
     layout: AggregateProofLayoutV1,
     statement: &'a IrohaZkX509StarkP256StatementV1,
     assembly: &'a ZkX509MainTraceAssemblyV1,
@@ -224,7 +224,7 @@ impl ZkX509MainAwaitingCredentialBindingV1<'_> {
 /// composition coefficients are retained together. A future composition/DEEP/FRI continuation
 /// cannot resample challenges or return to either earlier phase.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509MainCompositionPhaseV1<'a> {
+pub struct ZkX509MainCompositionPhaseV1<'a> {
     layout: AggregateProofLayoutV1,
     statement: &'a IrohaZkX509StarkP256StatementV1,
     assembly: &'a ZkX509MainTraceAssemblyV1,
@@ -366,7 +366,7 @@ impl ZkX509MainCompositionPhaseV1<'_> {
 /// until the credential layer combines its joined base root with the compact-CA
 /// root and supplies the resulting opaque 272-challenge X5B1 binding.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn commit_zk_x509_main_base_phase_v1_with_rng<'a, R: TryRngCore>(
+pub fn commit_zk_x509_main_base_phase_v1_with_rng<'a, R: TryRngCore>(
     proof_instance: ZkX509ProofInstanceV1,
     statement: &'a IrohaZkX509StarkP256StatementV1,
     assembly: &'a ZkX509MainTraceAssemblyV1,
@@ -475,7 +475,7 @@ pub(crate) fn commit_zk_x509_main_base_phase_v1_with_rng<'a, R: TryRngCore>(
     )];
     aggregate::absorb_base_roots_v1(
         &mut transcript,
-        main_domains_v1(proof_instance),
+        &main_domains_v1(proof_instance),
         &trace_groups,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -576,7 +576,7 @@ impl<'a> ZkX509MainAwaitingCredentialBindingV1<'a> {
         trace_groups[0].aux_root = commitment.commitment.root;
         aggregate::absorb_aux_roots_v1(
             &mut transcript,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &trace_groups,
         )
         .map_err(map_aggregate_error_v1)?;
@@ -693,7 +693,7 @@ impl ZkX509MainCompositionPhaseV1<'_> {
             fri_materials.push(
                 aggregate::build_streaming_fri_lane_v1(
                     AGGREGATE_PARAMETERS_V1,
-                    main_domains_v1(proof_instance),
+                    &main_domains_v1(proof_instance),
                     &shared_layout,
                     lane,
                     core::mem::take(&mut base_values.0),
@@ -781,7 +781,7 @@ impl ZkX509MainCompositionPhaseV1<'_> {
             .map_err(|_| ZkX509StarkErrorV1::AllocationFailure)?;
         for (lane, composition) in compositions.iter().enumerate() {
             let commitment = aggregate::streaming_composition_commitment_v1(
-                main_domains_v1(proof_instance),
+                &main_domains_v1(proof_instance),
                 lane,
                 composition,
                 &composition_opening_indices,
@@ -812,7 +812,7 @@ impl ZkX509MainCompositionPhaseV1<'_> {
             fri_openings.push(
                 aggregate::open_streaming_fri_lane_v1(
                     AGGREGATE_PARAMETERS_V1,
-                    main_domains_v1(proof_instance),
+                    &main_domains_v1(proof_instance),
                     &shared_layout,
                     lane,
                     core::mem::take(&mut base_values.0),
@@ -3320,7 +3320,7 @@ impl RfcMainFp4AirEvaluatorV1 {
                 .try_into()
                 .map_err(|_| ZkX509StarkErrorV1::ProfileMismatch)?,
             context.der,
-            context.rfc,
+            &context.rfc,
         )
         .map_err(|_| ZkX509StarkErrorV1::ConstraintOpening)?;
         if residues.len() != self.registration.segment.constraint_count {
@@ -3461,7 +3461,7 @@ impl ShaMainFp4AirEvaluatorV1 {
                 next,
                 context.word,
                 context.call,
-                context.rfc,
+                &context.rfc,
                 context.segment,
             )
             .map_err(|_| ZkX509StarkErrorV1::ConstraintOpening)?;
@@ -3712,7 +3712,7 @@ fn main_pre_aux_from_decoded_proof_v1(
 /// This performs the exact aggregate shape decode before exposing the opaque
 /// pre-auxiliary token. The returned value contains no proof-selected
 /// challenge and can only be consumed by the joint MAIN-plus-CA transcript.
-pub(crate) fn zk_x509_main_pre_aux_from_proof_v1(
+pub fn zk_x509_main_pre_aux_from_proof_v1(
     proof_instance: ZkX509ProofInstanceV1,
     public: ZkX509CredentialPublicBindingV1,
     proof_bytes: &[u8],

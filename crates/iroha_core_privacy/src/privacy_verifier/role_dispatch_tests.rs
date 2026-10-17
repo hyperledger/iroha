@@ -83,7 +83,7 @@ fn every_role_reaches_its_own_native_verifier_or_its_typed_refusal() {
     for sample in &samples {
         let result = verify_privacy_envelope_after_compiled_activation_v1(
             &sample.envelope,
-            role_sample_context(sample),
+            &role_sample_context(sample),
         );
         match privacy_role_dispatch_row_v1(sample.role).verification {
             PrivacyRoleVerificationV1::Unsupported(limitation) => {
@@ -122,7 +122,7 @@ fn unsupported_refusal_keeps_its_place_in_the_failure_precedence() {
     // Through the public entry the compiled-activation check comes first: the
     // sample activation is not the compiled profile of this binary.
     assert!(matches!(
-        verify_privacy_envelope_v1(&refused.envelope, role_sample_context(&refused)),
+        verify_privacy_envelope_v1(&refused.envelope, &role_sample_context(&refused)),
         Err(PrivacyVerificationErrorV1::CompiledActivation(_))
     ));
 
@@ -132,7 +132,7 @@ fn unsupported_refusal_keeps_its_place_in_the_failure_precedence() {
     assert!(matches!(
         verify_privacy_envelope_after_compiled_activation_v1(
             &foreign_proof,
-            role_sample_context(&refused)
+            &role_sample_context(&refused)
         ),
         Err(PrivacyVerificationErrorV1::Envelope(_))
     ));
@@ -141,14 +141,14 @@ fn unsupported_refusal_keeps_its_place_in_the_failure_precedence() {
     let mut wrong_index = role_sample_context(&refused);
     wrong_index.expected_action_index = 1;
     assert!(matches!(
-        verify_privacy_envelope_after_compiled_activation_v1(&refused.envelope, wrong_index),
+        verify_privacy_envelope_after_compiled_activation_v1(&refused.envelope, &wrong_index),
         Err(PrivacyVerificationErrorV1::Context(detail))
             if detail.code == PrivacyVerificationContextFailureCodeV1::ActionIndexMismatch
     ));
     let mut zero_genesis = role_sample_context(&refused);
     zero_genesis.genesis_hash = [0; 32];
     assert!(matches!(
-        verify_privacy_envelope_after_compiled_activation_v1(&refused.envelope, zero_genesis),
+        verify_privacy_envelope_after_compiled_activation_v1(&refused.envelope, &zero_genesis),
         Err(PrivacyVerificationErrorV1::Context(detail))
             if detail.code == PrivacyVerificationContextFailureCodeV1::ZeroGenesisHash
     ));
@@ -157,7 +157,7 @@ fn unsupported_refusal_keeps_its_place_in_the_failure_precedence() {
     assert!(matches!(
         verify_privacy_envelope_after_compiled_activation_v1(
             &refused.envelope,
-            role_sample_context(&refused)
+            &role_sample_context(&refused)
         ),
         Err(PrivacyVerificationErrorV1::UnsupportedOperation(_))
     ));
@@ -198,7 +198,7 @@ fn dispatch_rejects_substitution_between_every_pair_of_roles_before_any_verifier
                     let mut context = role_sample_context(own);
                     context.activation = activation;
                     let error =
-                        verify_privacy_envelope_after_compiled_activation_v1(&envelope, context)
+                        verify_privacy_envelope_after_compiled_activation_v1(&envelope, &context)
                             .expect_err("a substituted envelope is never verified");
                     assert!(
                         matches!(error, PrivacyVerificationErrorV1::Envelope(_)),
@@ -440,26 +440,26 @@ fn verified_real_proofs_seal_the_role_of_their_envelope() {
     let (verange, verange_activation, verange_network) = valid_envelope();
     let verange_effects = verify_privacy_envelope_v1(
         &verange,
-        verification_context(&verange_activation, &verange_network),
+        &verification_context(&verange_activation, &verange_network),
     )
     .expect("valid VeRange proof");
     let pgc = PgcFixture::new();
-    let pgc_effects = verify_privacy_envelope_v1(&pgc.envelope, pgc.verification_context())
+    let pgc_effects = verify_privacy_envelope_v1(&pgc.envelope, &pgc.verification_context())
         .expect("valid PGC payment");
     let jindo = jindo_fixture();
     let jindo_effects = verify_privacy_envelope_v1(
         &jindo.envelope,
-        jindo.verification_context(&TEST_CONSENSUS_LIMITS),
+        &jindo.verification_context(&TEST_CONSENSUS_LIMITS),
     )
     .expect("valid Jindo evaluation");
     let orchard = orchard_fixture();
     let orchard_effects =
-        verify_privacy_envelope_v1(&orchard.envelope, orchard.verification_context())
+        verify_privacy_envelope_v1(&orchard.envelope, &orchard.verification_context())
             .expect("valid Orchard bundle");
     let fcmp = fcmp_fixture();
     let fcmp_effects = verify_privacy_envelope_v1(
         &fcmp.envelope,
-        fcmp.verification_context(Some(&fcmp.snapshot)),
+        &fcmp.verification_context(Some(&fcmp.snapshot)),
     )
     .expect("valid FCMP++ transaction");
 

@@ -2826,12 +2826,16 @@ fn subscribe_with_filter_returns_error_when_closed() {
 }
 fn default_accept_params() -> AcceptThrottleParams {
     AcceptThrottleParams::new(
-        None,
-        None,
+        AcceptRate {
+            rate_per_sec: None,
+            burst: None,
+        },
         iroha_config::parameters::defaults::network::ACCEPT_PREFIX_V4_BITS,
         iroha_config::parameters::defaults::network::ACCEPT_PREFIX_V6_BITS,
-        None,
-        None,
+        AcceptRate {
+            rate_per_sec: None,
+            burst: None,
+        },
         iroha_config::parameters::defaults::network::MAX_ACCEPT_BUCKETS.get(),
         iroha_config::parameters::defaults::network::ACCEPT_BUCKET_IDLE,
     )
@@ -2843,12 +2847,16 @@ fn accept_params_with(
     ip_rate: Option<f64>,
 ) -> AcceptThrottleParams {
     AcceptThrottleParams::new(
-        prefix_rate,
-        None,
+        AcceptRate {
+            rate_per_sec: prefix_rate,
+            burst: None,
+        },
         iroha_config::parameters::defaults::network::ACCEPT_PREFIX_V4_BITS,
         iroha_config::parameters::defaults::network::ACCEPT_PREFIX_V6_BITS,
-        ip_rate,
-        None,
+        AcceptRate {
+            rate_per_sec: ip_rate,
+            burst: None,
+        },
         max_buckets,
         bucket_idle,
     )
@@ -3277,12 +3285,16 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
             max_incoming: None,
             max_total_connections: None,
             accept_params: AcceptThrottleParams::new(
-                None,
-                None,
+                AcceptRate {
+                    rate_per_sec: None,
+                    burst: None,
+                },
                 iroha_config::parameters::defaults::network::ACCEPT_PREFIX_V4_BITS,
                 iroha_config::parameters::defaults::network::ACCEPT_PREFIX_V6_BITS,
-                None,
-                None,
+                AcceptRate {
+                    rate_per_sec: None,
+                    burst: None,
+                },
                 iroha_config::parameters::defaults::network::MAX_ACCEPT_BUCKETS.get(),
                 iroha_config::parameters::defaults::network::ACCEPT_BUCKET_IDLE,
             ),

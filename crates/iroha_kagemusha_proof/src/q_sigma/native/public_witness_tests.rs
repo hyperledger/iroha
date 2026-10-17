@@ -597,7 +597,7 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
                 },
             )
         },
-        |error| error.is_cancelled(),
+        super::QSigmaError::is_cancelled,
     );
 
     let refused = crate::proof_entry_probe::Guard::new(None);

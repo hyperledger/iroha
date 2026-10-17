@@ -858,12 +858,12 @@ impl<T: message::ClassifyTopic> message::ClassifyTopic for RelayMessage<T> {
         self.payload.is_outbound_allowed()
     }
 }
-fn peer_message_channel<T: Pload>(
-    cap: core::num::NonZeroUsize,
-) -> (
+/// Sender and receiver retaining the same authenticated peer-message owner.
+type PeerMessageChannel<T> = (
     mpsc::Sender<PeerMessage<WireMessage<T>>>,
     mpsc::Receiver<PeerMessage<WireMessage<T>>>,
-) {
+);
+fn peer_message_channel<T: Pload>(cap: core::num::NonZeroUsize) -> PeerMessageChannel<T> {
     mpsc::channel(cap.get())
 }
 #[derive(Debug)]
@@ -3296,6 +3296,18 @@ impl ActorProgressClass {
         }
     }
 }
+/// One exact source admission owns its payload, delivery authority, retry ticket, and reply ACK.
+struct ProgressSourceRequest<T: Pload> {
+    message: NetworkMessage<T>,
+    topic: message::Topic,
+    broadcast: bool,
+    source: ActorProgressSource,
+    authority: ProgressDeliveryAuthority,
+    ticket: Option<NetworkActorAdmissionTicket>,
+    reply_writer_timeout_attempt: Option<u8>,
+    reply_flush_ack: Option<tokio::sync::oneshot::Sender<NetworkReplyFlushCompletion>>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ActorProgressByteLimits {
     safety: usize,
@@ -6518,18 +6530,39 @@ struct TransportQueueGeometry {
     /// Exact per-source actor limits for safety, lane, and bulk progress.
     actor_progress_bytes: ActorProgressByteLimits,
 }
+/// Deferred ownership limits measured before transport tasks are spawned.
+#[derive(Clone, Copy, Debug)]
+struct DeferredSendLimits {
+    total_bytes: usize,
+    per_peer_bytes: usize,
+    per_peer_frames: usize,
+}
+
+/// Count limits for the actor, peer-post, and subscriber channels.
+#[derive(Clone, Copy, Debug)]
+struct TransportChannelCapacities {
+    high: usize,
+    low: usize,
+    post: usize,
+    subscriber: usize,
+}
+
 fn validate_transport_queue_geometry<E: Enc>(
     max_frame_bytes: usize,
     topic_caps: TopicFrameCaps,
     high_max_bytes: usize,
     low_max_bytes: usize,
-    deferred_send_max_bytes_total: usize,
-    deferred_send_max_bytes_per_peer: usize,
-    deferred_send_max_per_peer: usize,
-    high_channel_cap: usize,
-    low_channel_cap: usize,
-    post_channel_cap: usize,
-    subscriber_channel_cap: usize,
+    DeferredSendLimits {
+        total_bytes: deferred_send_max_bytes_total,
+        per_peer_bytes: deferred_send_max_bytes_per_peer,
+        per_peer_frames: deferred_send_max_per_peer,
+    }: DeferredSendLimits,
+    TransportChannelCapacities {
+        high: high_channel_cap,
+        low: low_channel_cap,
+        post: post_channel_cap,
+        subscriber: subscriber_channel_cap,
+    }: TransportChannelCapacities,
 ) -> Result<TransportQueueGeometry, Error> {
     validate_encrypted_frame_cap(max_frame_bytes)?;
     validate_channel_capacity_geometry(
@@ -6643,6 +6676,17 @@ fn network_actor_byte_budget(
         .into()
     })
 }
+/// Capability declarations installed together before any authenticated peer is admitted.
+#[derive(Debug)]
+pub struct HandshakeCapabilities {
+    /// Consensus mode, protocol, and parameter commitments.
+    pub consensus: Option<crate::ConsensusHandshakeCaps>,
+    /// Confidential transaction feature commitments.
+    pub confidential: Option<crate::ConfidentialHandshakeCaps>,
+    /// Cryptographic algorithm and signature-policy commitments.
+    pub crypto: Option<crate::CryptoHandshakeCaps>,
+}
+
 impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<T, E> {
     /// Maximum independent authenticated reply sources reserved by this actor.
     #[must_use]
@@ -6667,9 +6711,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             identity_keys,
             config,
             network_id,
-            consensus_caps,
-            confidential_caps,
-            None,
+            HandshakeCapabilities {
+                consensus: consensus_caps,
+                confidential: confidential_caps,
+                crypto: None,
+            },
             shutdown_signal,
         ))
         .await
@@ -6801,18 +6847,22 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         identity_keys: P2pIdentityKeys,
         config: Config,
         network_id: NetworkId,
-        consensus_caps: Option<crate::ConsensusHandshakeCaps>,
-        confidential_caps: Option<crate::ConfidentialHandshakeCaps>,
-        crypto_caps: Option<crate::CryptoHandshakeCaps>,
+        HandshakeCapabilities {
+            consensus: consensus_caps,
+            confidential: confidential_caps,
+            crypto: crypto_caps,
+        }: HandshakeCapabilities,
         shutdown_signal: ShutdownSignal,
     ) -> Result<(Self, Child), Error> {
         Self::start_with_crypto_and_initial_trusted_sources(
             identity_keys,
             config,
             network_id,
-            consensus_caps,
-            confidential_caps,
-            crypto_caps,
+            HandshakeCapabilities {
+                consensus: consensus_caps,
+                confidential: confidential_caps,
+                crypto: crypto_caps,
+            },
             HashSet::new(),
             shutdown_signal,
         )
@@ -6837,9 +6887,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         identity_keys: P2pIdentityKeys,
         config: Config,
         network_id: NetworkId,
-        consensus_caps: Option<crate::ConsensusHandshakeCaps>,
-        confidential_caps: Option<crate::ConfidentialHandshakeCaps>,
-        crypto_caps: Option<crate::CryptoHandshakeCaps>,
+        HandshakeCapabilities {
+            consensus: consensus_caps,
+            confidential: confidential_caps,
+            crypto: crypto_caps,
+        }: HandshakeCapabilities,
         initial_trusted_sources: HashSet<PeerId>,
         shutdown_signal: ShutdownSignal,
     ) -> Result<(Self, Child), Error> {
@@ -6847,9 +6899,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             identity_keys,
             config,
             network_id,
-            consensus_caps,
-            confidential_caps,
-            crypto_caps,
+            HandshakeCapabilities {
+                consensus: consensus_caps,
+                confidential: confidential_caps,
+                crypto: crypto_caps,
+            },
             initial_trusted_sources,
             HashSet::new(),
             shutdown_signal,
@@ -6953,9 +7007,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         // Canonical chain identity bound into every peer handshake signature.
         network_id: NetworkId,
         // Optional consensus capabilities for handshake gating (mode/proto/fingerprint)
-        consensus_caps: Option<crate::ConsensusHandshakeCaps>,
-        confidential_caps: Option<crate::ConfidentialHandshakeCaps>,
-        crypto_caps: Option<crate::CryptoHandshakeCaps>,
+        HandshakeCapabilities {
+            consensus: consensus_caps,
+            confidential: confidential_caps,
+            crypto: crypto_caps,
+        }: HandshakeCapabilities,
         mut initial_trusted_sources: HashSet<PeerId>,
         mut initial_validator_dial_roster: HashSet<PeerId>,
         shutdown_signal: ShutdownSignal,
@@ -7004,13 +7060,17 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             topic_frame_caps,
             p2p_outbound_frame_queue_max_high_bytes.get(),
             p2p_outbound_frame_queue_max_low_bytes.get(),
-            deferred_send_max_bytes_total,
-            deferred_send_max_bytes_per_peer,
-            deferred_send_max_per_peer,
-            p2p_queue_cap_high.get(),
-            p2p_queue_cap_low.get(),
-            p2p_post_queue_cap.get(),
-            p2p_subscriber_queue_cap.get(),
+            DeferredSendLimits {
+                total_bytes: deferred_send_max_bytes_total,
+                per_peer_bytes: deferred_send_max_bytes_per_peer,
+                per_peer_frames: deferred_send_max_per_peer,
+            },
+            TransportChannelCapacities {
+                high: p2p_queue_cap_high.get(),
+                low: p2p_queue_cap_low.get(),
+                post: p2p_post_queue_cap.get(),
+                subscriber: p2p_subscriber_queue_cap.get(),
+            },
         )?;
         let low_bytes_burst = f64::from(resolve_low_byte_burst(
             low_priority_bytes_per_sec,
@@ -7476,20 +7536,24 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         .await?;
         listener_tasks.push(task);
         let accept_params = AcceptThrottleParams::new(
-            accept_rate_per_prefix_per_sec
-                .map(core::num::NonZeroU32::get)
-                .map(f64::from),
-            accept_burst_per_prefix
-                .map(core::num::NonZeroU32::get)
-                .map(f64::from),
+            AcceptRate {
+                rate_per_sec: accept_rate_per_prefix_per_sec
+                    .map(core::num::NonZeroU32::get)
+                    .map(f64::from),
+                burst: accept_burst_per_prefix
+                    .map(core::num::NonZeroU32::get)
+                    .map(f64::from),
+            },
             accept_prefix_v4_bits,
             accept_prefix_v6_bits,
-            accept_rate_per_ip_per_sec
-                .map(core::num::NonZeroU32::get)
-                .map(f64::from),
-            accept_burst_per_ip
-                .map(core::num::NonZeroU32::get)
-                .map(f64::from),
+            AcceptRate {
+                rate_per_sec: accept_rate_per_ip_per_sec
+                    .map(core::num::NonZeroU32::get)
+                    .map(f64::from),
+                burst: accept_burst_per_ip
+                    .map(core::num::NonZeroU32::get)
+                    .map(f64::from),
+            },
             max_accept_buckets.get(),
             accept_bucket_idle,
         );
@@ -7864,14 +7928,16 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
     )]
     fn submit_progress_message_to_source(
         &self,
-        message: NetworkMessage<T>,
-        topic: message::Topic,
-        broadcast: bool,
-        source: ActorProgressSource,
-        authority: ProgressDeliveryAuthority,
-        ticket: Option<NetworkActorAdmissionTicket>,
-        reply_writer_timeout_attempt: Option<u8>,
-        reply_flush_ack: Option<tokio::sync::oneshot::Sender<NetworkReplyFlushCompletion>>,
+        ProgressSourceRequest {
+            message,
+            topic,
+            broadcast,
+            source,
+            authority,
+            ticket,
+            reply_writer_timeout_attempt,
+            reply_flush_ack,
+        }: ProgressSourceRequest<T>,
     ) -> Result<
         Option<NetworkActorAdmittedTicketIdentity>,
         NetworkActorAdmissionError<NetworkMessage<T>>,
@@ -8116,16 +8182,16 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         };
         let source = ActorProgressSource::for_message(&message)
             .expect("a reliable post must have one exact target/class source");
-        self.submit_progress_message_to_source(
+        self.submit_progress_message_to_source(ProgressSourceRequest {
             message,
             topic,
-            false,
+            broadcast: false,
             source,
-            ProgressDeliveryAuthority::Topology(membership),
+            authority: ProgressDeliveryAuthority::Topology(membership),
             ticket,
-            None,
-            None,
-        )
+            reply_writer_timeout_attempt: None,
+            reply_flush_ack: None,
+        })
         .map(|_| ())
         .map_err(|error| error.map_message(restore_requested_priority))
     }
@@ -8331,16 +8397,16 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             target: Some(reply_route.tenure.delivery_peer.clone()),
             class,
         };
-        self.submit_progress_message_to_source(
+        self.submit_progress_message_to_source(ProgressSourceRequest {
             message,
             topic,
-            false,
+            broadcast: false,
             source,
-            ProgressDeliveryAuthority::Reply(reply_route.clone()),
+            authority: ProgressDeliveryAuthority::Reply(reply_route.clone()),
             ticket,
-            Some(reply_writer_timeout_attempt),
-            Some(reply_flush_sender),
-        )
+            reply_writer_timeout_attempt: Some(reply_writer_timeout_attempt),
+            reply_flush_ack: Some(reply_flush_sender),
+        })
         .map(|admitted_ticket| {
             admitted_ticket.map(|ticket| {
                 let identity = NetworkReplyFlushIdentity::from_admitted_ticket(ticket)
@@ -8493,16 +8559,16 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
                 class,
             };
             let target_message = NetworkMessage::Broadcast(msg.clone());
-            match self.submit_progress_message_to_source(
-                target_message,
+            match self.submit_progress_message_to_source(ProgressSourceRequest {
+                message: target_message,
                 topic,
-                true,
+                broadcast: true,
                 source,
-                ProgressDeliveryAuthority::Topology(Arc::clone(&target.membership)),
-                target.actor_ticket.take(),
-                None,
-                None,
-            ) {
+                authority: ProgressDeliveryAuthority::Topology(Arc::clone(&target.membership)),
+                ticket: target.actor_ticket.take(),
+                reply_writer_timeout_attempt: None,
+                reply_flush_ack: None,
+            }) {
                 Ok(_new_owner) => {}
                 Err(NetworkActorAdmissionError::Backpressured {
                     message: _,
@@ -9353,13 +9419,17 @@ mod accept_stream_tests {
             topic_caps,
             max_ordinary,
             max_ordinary,
-            exact_total,
-            exact_total,
-            3,
-            6,
-            2,
-            1,
-            2,
+            DeferredSendLimits {
+                total_bytes: exact_total,
+                per_peer_bytes: exact_total,
+                per_peer_frames: 3,
+            },
+            TransportChannelCapacities {
+                high: 6,
+                low: 2,
+                post: 1,
+                subscriber: 2,
+            },
         );
         assert_eq!(
             exact.expect("exact boundary must be valid"),
@@ -9378,13 +9448,17 @@ mod accept_stream_tests {
             topic_caps,
             max_ordinary,
             max_ordinary,
-            exact_total - 1,
-            exact_total,
-            3,
-            6,
-            2,
-            1,
-            2,
+            DeferredSendLimits {
+                total_bytes: exact_total - 1,
+                per_peer_bytes: exact_total,
+                per_peer_frames: 3,
+            },
+            TransportChannelCapacities {
+                high: 6,
+                low: 2,
+                post: 1,
+                subscriber: 2,
+            },
         );
         assert!(
             matches!(below, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput),
@@ -9395,13 +9469,17 @@ mod accept_stream_tests {
             topic_caps,
             max_ordinary,
             max_ordinary,
-            exact_total,
-            exact_total - 1,
-            3,
-            6,
-            2,
-            1,
-            2,
+            DeferredSendLimits {
+                total_bytes: exact_total,
+                per_peer_bytes: exact_total - 1,
+                per_peer_frames: 3,
+            },
+            TransportChannelCapacities {
+                high: 6,
+                low: 2,
+                post: 1,
+                subscriber: 2,
+            },
         );
         assert!(
             matches!(per_peer_below, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput),
@@ -9412,13 +9490,17 @@ mod accept_stream_tests {
             topic_caps,
             max_ordinary,
             max_ordinary,
-            exact_total,
-            exact_total,
-            1,
-            1,
-            1,
-            1,
-            1,
+            DeferredSendLimits {
+                total_bytes: exact_total,
+                per_peer_bytes: exact_total,
+                per_peer_frames: 1,
+            },
+            TransportChannelCapacities {
+                high: 1,
+                low: 1,
+                post: 1,
+                subscriber: 1,
+            },
         );
         assert!(
             matches!(one_slot, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput),
@@ -9437,13 +9519,17 @@ mod accept_stream_tests {
                 caps,
                 16 * 1024 * 1024,
                 low_bytes,
-                32 * 1024 * 1024,
-                32 * 1024 * 1024,
-                3,
-                message::TransportAdmissionClass::ORDINARY_HIGH.len(),
-                message::TransportAdmissionClass::LOW.len(),
-                1,
-                2,
+                DeferredSendLimits {
+                    total_bytes: 32 * 1024 * 1024,
+                    per_peer_bytes: 32 * 1024 * 1024,
+                    per_peer_frames: 3,
+                },
+                TransportChannelCapacities {
+                    high: message::TransportAdmissionClass::ORDINARY_HIGH.len(),
+                    low: message::TransportAdmissionClass::LOW.len(),
+                    post: 1,
+                    subscriber: 2,
+                },
             )
         };
         validate(required).expect("exact low-stream Connect frame capacity");
@@ -9472,13 +9558,17 @@ mod accept_stream_tests {
             topic_caps,
             defaults::P2P_OUTBOUND_FRAME_QUEUE_MAX_HIGH_BYTES.get(),
             defaults::P2P_OUTBOUND_FRAME_QUEUE_MAX_LOW_BYTES.get(),
-            defaults::DEFERRED_SEND_MAX_BYTES_TOTAL,
-            defaults::DEFERRED_SEND_MAX_BYTES_PER_PEER,
-            defaults::DEFERRED_SEND_MAX_PER_PEER,
-            defaults::P2P_QUEUE_CAP_HIGH.get(),
-            defaults::P2P_QUEUE_CAP_LOW.get(),
-            defaults::P2P_POST_QUEUE_CAP.get(),
-            defaults::P2P_SUBSCRIBER_QUEUE_CAP.get(),
+            DeferredSendLimits {
+                total_bytes: defaults::DEFERRED_SEND_MAX_BYTES_TOTAL,
+                per_peer_bytes: defaults::DEFERRED_SEND_MAX_BYTES_PER_PEER,
+                per_peer_frames: defaults::DEFERRED_SEND_MAX_PER_PEER,
+            },
+            TransportChannelCapacities {
+                high: defaults::P2P_QUEUE_CAP_HIGH.get(),
+                low: defaults::P2P_QUEUE_CAP_LOW.get(),
+                post: defaults::P2P_POST_QUEUE_CAP.get(),
+                subscriber: defaults::P2P_SUBSCRIBER_QUEUE_CAP.get(),
+            },
         )
         .expect("the shipped network configuration must pass pre-bind transport validation");
         assert_eq!(

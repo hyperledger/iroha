@@ -1,9 +1,9 @@
 //! A uniform fold schema binds k12/k14/k16 sigma parts without relabelling,
 //! omitted transcript metadata or witness-dependent circuit shape.
 
-use ff::Field;
+use ff::{Field, PrimeField};
 use group::prime::PrimeCurveAffine;
-use iroha_pasta::{Ep, Eq, PastaCurve, PastaField, msm::MemoryBudget, poseidon::PoseidonField};
+use iroha_pasta::{Ep, Eq, PastaCurve, msm::MemoryBudget, poseidon::PoseidonField};
 use iroha_plonk::{
     check::{CheckMode, check},
     cs::{Column, ConstraintSystem, Instance},

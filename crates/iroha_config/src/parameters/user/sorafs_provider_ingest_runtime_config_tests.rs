@@ -1,4 +1,4 @@
-//! Focused parser tests for the SoraFS provider-ingest runtime policy.
+//! Focused parser tests for the `SoraFS` provider-ingest runtime policy.
 use super::*;
 fn provider_id() -> ProviderId {
     ProviderId::new([0x51; 32])
@@ -408,13 +408,23 @@ fn defaults_and_actual_projection_respect_provider_broker_limits() {
     assert_eq!(outbox::CHECKPOINT_MAX_BYTES_LIMIT, 192 * 1024 * 1024);
     assert_eq!(outbox::MAX_SIGNED_TRANSACTION_BYTES_LIMIT, 64 * 1024 * 1024);
     assert_eq!(outbox::MAX_SIGNED_TRANSACTION_BYTES_MIN, 64 * 1024);
-    assert!(
-        outbox::MAX_SIGNED_TRANSACTION_BYTES_MIN
-            > outbox::SIGNED_TRANSACTION_ENVELOPE_RESERVE_BYTES_V1
-    );
-    assert!(outbox::CHECKPOINT_MAX_BYTES.0 <= outbox::CHECKPOINT_MAX_BYTES_LIMIT);
-    assert!(outbox::MAX_SIGNED_TRANSACTION_BYTES.0 >= outbox::MAX_SIGNED_TRANSACTION_BYTES_MIN);
-    assert!(outbox::MAX_SIGNED_TRANSACTION_BYTES.0 <= outbox::MAX_SIGNED_TRANSACTION_BYTES_LIMIT);
+    const {
+        assert!(
+            outbox::MAX_SIGNED_TRANSACTION_BYTES_MIN
+                > outbox::SIGNED_TRANSACTION_ENVELOPE_RESERVE_BYTES_V1
+        );
+    };
+    const {
+        assert!(outbox::CHECKPOINT_MAX_BYTES.0 <= outbox::CHECKPOINT_MAX_BYTES_LIMIT);
+    };
+    const {
+        assert!(outbox::MAX_SIGNED_TRANSACTION_BYTES.0 >= outbox::MAX_SIGNED_TRANSACTION_BYTES_MIN);
+    };
+    const {
+        assert!(
+            outbox::MAX_SIGNED_TRANSACTION_BYTES.0 <= outbox::MAX_SIGNED_TRANSACTION_BYTES_LIMIT
+        );
+    };
     let mut emitter = Emitter::new();
     let parsed = large_valid_outbox_config()
         .parse(true, Some(&provider_id()), &mut emitter)
@@ -674,11 +684,14 @@ fn worst_case_outbox_transactions_must_fit_checkpoint() {
 }
 #[test]
 fn disabled_policy_rejects_stale_runtime_bindings() {
-    let mut config = SorafsProviderIngestRuntimeConfig::default();
-    config.authenticated_source_fetch_handle =
-        Some("network.sorafs.authenticated-source.primary".to_owned());
-    config.completion_signer_resolver_policy_digest_hex = Some("b2".repeat(32));
-    config.checkpoint_store_revision = Some(1);
+    let config = SorafsProviderIngestRuntimeConfig {
+        authenticated_source_fetch_handle: Some(
+            "network.sorafs.authenticated-source.primary".to_owned(),
+        ),
+        completion_signer_resolver_policy_digest_hex: Some("b2".repeat(32)),
+        checkpoint_store_revision: Some(1),
+        ..SorafsProviderIngestRuntimeConfig::default()
+    };
     let mut emitter = Emitter::new();
     assert!(config.parse(false, None, &mut emitter).is_none());
     assert!(emitter.into_result().is_err());
@@ -719,8 +732,10 @@ fn native_completion_credential_is_explicit_absolute_and_disabled_configs_reject
         let diagnostics = emitter.into_result();
         assert_eq!(result.is_some() && diagnostics.is_ok(), accepted);
     }
-    let mut config = SorafsProviderIngestRuntimeConfig::default();
-    config.native_completion_credential = Some(PathBuf::from("/runtime/credentials/completion"));
+    let config = SorafsProviderIngestRuntimeConfig {
+        native_completion_credential: Some(PathBuf::from("/runtime/credentials/completion")),
+        ..SorafsProviderIngestRuntimeConfig::default()
+    };
     let mut emitter = Emitter::new();
     assert!(config.parse(false, None, &mut emitter).is_none());
     assert!(emitter.into_result().is_err());

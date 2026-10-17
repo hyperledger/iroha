@@ -13,14 +13,14 @@ const HEALTH_PREFIX_BYTES_V1: usize = 64;
 const HEALTH_HALF_BYTES_V1: usize = HEALTH_PREFIX_BYTES_V1 / 2;
 const PROHIBITED_PERIODS_V1: [usize; 6] = [1, 2, 4, 8, 16, 32];
 /// Canonical producer policy committed by every curve-engine manifest.
-pub(crate) const CURVE_PROVER_RANDOMNESS_POLICY_V1: &[u8] = b"prover-rng:fixed64-reservoir:fallible-refill:reject-initial-constant-half+periods-1,2,4,8,16,32:retain-tail-max63:zeroize+poison-on-error-or-unwind:v1";
+pub const CURVE_PROVER_RANDOMNESS_POLICY_V1: &[u8] = b"prover-rng:fixed64-reservoir:fallible-refill:reject-initial-constant-half+periods-1,2,4,8,16,32:retain-tail-max63:zeroize+poison-on-error-or-unwind:v1";
 /// Canonical rand 0.9 `TryCryptoRng` producer and seed-bridge policy.
-pub(crate) const TRY_CRYPTO_PROVER_RANDOMNESS_POLICY_V1: &[u8] = b"prover-rng-api=rand0.9-TryCryptoRng:fixed64-reservoir:fallible-refill:reject-initial-constant-half+periods-1,2,4,8,16,32:retain-reservoir-tail-max63+initial-block64-until-phase-transition:zeroize+poison-on-error-or-unwind:seed-bridge=sha256-domain+all64+exact-initial64+fresh-fixed64:partition=initial64-replay+fresh64-seed:v1";
+pub const TRY_CRYPTO_PROVER_RANDOMNESS_POLICY_V1: &[u8] = b"prover-rng-api=rand0.9-TryCryptoRng:fixed64-reservoir:fallible-refill:reject-initial-constant-half+periods-1,2,4,8,16,32:retain-reservoir-tail-max63+initial-block64-until-phase-transition:zeroize+poison-on-error-or-unwind:seed-bridge=sha256-domain+all64+exact-initial64+fresh-fixed64:partition=initial64-replay+fresh64-seed:v1";
 const TRY_CRYPTO_DERIVED_SEED_DOMAIN_V1: &[u8] =
     b"iroha:privacy:try-crypto-prover:derived-entropy-seed:v1";
 /// Failure while preflighting one cryptographic prover random source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum ProverRandomnessErrorV1 {
+pub enum ProverRandomnessErrorV1 {
     /// The source returned an error, including after partially filling the prefix.
     #[error("cryptographic prover randomness is unavailable")]
     Unavailable,
@@ -98,7 +98,7 @@ fn core_unavailable_error_v1() -> rand_core_06::Error {
     rand_core_06::Error::new(ProverRandomnessErrorV1::Unavailable)
 }
 /// A cryptographic RNG health-checked through canonical source blocks.
-pub(crate) struct HealthCheckedCryptoRngV1<'a, R> {
+pub struct HealthCheckedCryptoRngV1<'a, R> {
     source: &'a mut R,
     reservoir: Zeroizing<[u8; HEALTH_PREFIX_BYTES_V1]>,
     cursor: usize,
@@ -185,7 +185,7 @@ where
 }
 impl<R> CryptoRng for HealthCheckedCryptoRngV1<'_, R> where R: CryptoRng + RngCore {}
 /// A rand 0.9 cryptographic RNG health-checked through canonical source blocks.
-pub(crate) struct HealthCheckedTryCryptoRngV1<'a, R: ?Sized> {
+pub struct HealthCheckedTryCryptoRngV1<'a, R: ?Sized> {
     source: &'a mut R,
     reservoir: Zeroizing<[u8; HEALTH_PREFIX_BYTES_V1]>,
     initial_block: Zeroizing<[u8; HEALTH_PREFIX_BYTES_V1]>,
@@ -363,9 +363,7 @@ where
 }
 impl<R> TryCryptoRng for HealthCheckedTryCryptoRngV1<'_, R> where R: TryCryptoRng + ?Sized {}
 /// One-way prover phase after block two is reserved for an independent seed.
-pub(crate) struct PartitionedProverTryCryptoRngV1<'a, R: ?Sized>(
-    HealthCheckedTryCryptoRngV1<'a, R>,
-);
+pub struct PartitionedProverTryCryptoRngV1<'a, R: ?Sized>(HealthCheckedTryCryptoRngV1<'a, R>);
 impl<R> TryRngCore for PartitionedProverTryCryptoRngV1<'_, R>
 where
     R: TryCryptoRng + ?Sized,
@@ -390,7 +388,7 @@ impl<R> TryCryptoRng for PartitionedProverTryCryptoRngV1<'_, R> where R: TryCryp
 ///
 /// Every sampled byte influences the result. Both the source block and
 /// derived seed are zeroized on every exit path.
-pub(crate) fn derive_healthy_try_crypto_seed_v1<R: TryCryptoRng + ?Sized>(
+pub fn derive_healthy_try_crypto_seed_v1<R: TryCryptoRng + ?Sized>(
     rng: &mut R,
     purpose: &[u8],
 ) -> Result<Zeroizing<[u8; 32]>, TryCryptoProverRandomnessErrorV1> {

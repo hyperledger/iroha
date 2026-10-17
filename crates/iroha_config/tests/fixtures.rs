@@ -1202,19 +1202,23 @@ exit_multiaddr = "/dns/retired.example/udp/9443/quic"
 }
 #[test]
 fn streaming_bundled_requires_build_flag() {
-    assert!(
-        norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-        "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-    );
+    const {
+        assert!(
+            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+        );
+    };
     let result = load_config_from_fixtures("streaming_bundled.toml");
     result.expect("streaming_bundled config should load on bundled builds");
 }
 #[test]
 fn streaming_bundle_width_above_tables_rejected() {
-    assert!(
-        norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-        "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-    );
+    const {
+        assert!(
+            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+        );
+    };
     let result = load_config_from_fixtures("bad.streaming_bundle_width.toml");
     let err = result.expect_err("bundle width above available bundled tables must be rejected");
     let debug = format!("{err:?}");
@@ -1229,10 +1233,12 @@ fn streaming_bundle_width_above_tables_rejected() {
 }
 #[test]
 fn streaming_bundle_width_below_minimum_rejected() {
-    assert!(
-        norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-        "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-    );
+    const {
+        assert!(
+            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+        );
+    };
     let result = load_config_from_fixtures("bad.streaming_bundle_width_small.toml");
     let err = result.expect_err("bundle width below minimum must be rejected");
     let debug = format!("{err:?}");
@@ -1247,10 +1253,12 @@ fn streaming_bundle_width_below_minimum_rejected() {
 }
 #[test]
 fn streaming_bundle_width_zero_rejected() {
-    assert!(
-        norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-        "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-    );
+    const {
+        assert!(
+            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+        );
+    };
     let result = load_config_from_fixtures("bad.streaming_bundle_width_zero.toml");
     let err = result.expect_err("zero bundle width must be rejected");
     let debug = format!("{err:?}");

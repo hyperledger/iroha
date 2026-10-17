@@ -311,15 +311,9 @@ impl<C: PastaCurve, H: TranscriptHash<C>> TranscriptWriter<C, H> {
 
     /// Appends a canonical full-group G without absorbing it.
     /// This sole suffix is an undecided generator claim, including identity.
-    /// # Errors
-    /// This fixed-width in-memory append currently has no recoverable error.
-    pub fn append_unabsorbed_generator(
-        &mut self,
-        point: &C::AffineExt,
-    ) -> Result<(), TranscriptError> {
+    pub fn append_unabsorbed_generator(&mut self, point: &C::AffineExt) {
         let encoded = Zeroizing::new(encode_point::<C>(point));
         self.proof.append(encoded.as_ref());
-        Ok(())
     }
 
     /// Finishes the transcript and returns the proof bytes.
@@ -747,9 +741,7 @@ mod tests {
         let first = writer.squeeze_challenge();
         writer.write_scalar(&Fq::from(9));
         let second = writer.squeeze_challenge();
-        writer
-            .append_unabsorbed_generator(&point)
-            .expect("finite point");
+        writer.append_unabsorbed_generator(&point);
         assert_eq!(writer.proof().len(), 3 * MESSAGE_BYTES);
         let mut proof = writer.finish();
 
@@ -790,9 +782,7 @@ mod tests {
             Err(TranscriptError::IdentityPoint)
         );
         assert!(writer.proof().is_empty());
-        writer
-            .append_unabsorbed_generator(&EpAffine::identity())
-            .expect("canonical G");
+        writer.append_unabsorbed_generator(&EpAffine::identity());
         assert_eq!(writer.proof(), &[0; 32]);
         let mut poseidon = TranscriptWriter::<Eq, PoseidonHash<Eq>>::new(PoseidonHash::new());
         assert_eq!(

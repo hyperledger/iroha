@@ -36,7 +36,7 @@ NON_PRODUCTION_DIRECTORIES = frozenset({"tests", "benches", "examples"})
 _LEXEME = re.compile(
     r"//[^\n]*"
     r"|/\*"
-    r'|(?<![A-Za-z0-9_])b?r(?P<raw>#*)"'
+    r'|(?<![A-Za-z0-9_])(?:b|c)?r(?P<raw>#*)"'
     r'|"(?:[^"\\]|\\.)*"'
     r"|'(?:[^'\\\n]|\\(?:u\{[0-9A-Fa-f_]{1,8}\}|x[0-9A-Fa-f]{2}|.))'",
     re.S,

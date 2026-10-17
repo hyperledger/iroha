@@ -105,15 +105,15 @@ impl Fixture {
                 &mut row[COMPARISONS + i * COMPARE_WIDTH..COMPARISONS + (i + 1) * COMPARE_WIDTH];
             let mut borrow = 0_i64;
             for limb in 0..4 {
-                let difference = pack(&left[limb * 16..(limb + 1) * 16]).0 as i64
-                    - pack(&right[limb * 16..(limb + 1) * 16]).0 as i64
+                let difference = u64::cast_signed(pack(&left[limb * 16..(limb + 1) * 16]).0)
+                    - u64::cast_signed(pack(&right[limb * 16..(limb + 1) * 16]).0)
                     - borrow;
                 borrow = i64::from(difference < 0);
                 bits(
                     &mut bank[limb * 16..(limb + 1) * 16],
                     difference.rem_euclid(1 << 16) as u64,
                 );
-                bank[64 + limb] = F(borrow as u64);
+                bank[64 + limb] = F(i64::cast_unsigned(borrow));
             }
         }
         row[LIVE] = field(live);

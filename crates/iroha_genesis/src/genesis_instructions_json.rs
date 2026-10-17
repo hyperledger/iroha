@@ -90,47 +90,45 @@ fn value_to_instruction(value: Value) -> Result<InstructionBox, json::Error> {
         )),
         Value::String(encoded) => decode_base64_instruction(&encoded),
         Value::Object(map) => {
-            if map.len() == 1 {
-                if let Some((kind, inner)) = map.iter().next() {
-                    let decoded = match kind.as_str() {
-                        "Register" => try_decode_register(inner.clone())?,
-                        "Unregister" => try_decode_unregister(inner.clone())?,
-                        "Mint" => try_decode_mint(inner.clone())?,
-                        "Transfer" => try_decode_transfer(inner.clone())?,
-                        "SetParameter" => try_decode_set_parameter(inner.clone())?,
-                        "Grant" => try_decode_grant(inner.clone())?,
-                        "SetAssetDefinitionAlias" => {
-                            try_decode_set_asset_definition_alias(inner.clone())?
-                        }
-                        "EnsureAlias" => try_decode_ensure_alias(inner.clone())?,
-                        "Custom" => try_decode_custom(inner.clone())?,
-                        "RegisterCitizen" => try_decode_register_citizen(inner.clone())?,
-                        "RegisterPublicLaneValidator" => {
-                            try_decode_register_public_lane_validator(inner.clone())?
-                        }
-                        "ActivatePublicLaneValidator" => {
-                            try_decode_activate_public_lane_validator(inner.clone())?
-                        }
-                        "CreateFeeSponsorProgram" => {
-                            try_decode_create_fee_sponsor_program(inner.clone())?
-                        }
-                        "StageFeeSponsorProgramRevision" => {
-                            try_decode_stage_fee_sponsor_program_revision(inner.clone())?
-                        }
-                        "EnrollFeeSponsorBeneficiary" => {
-                            try_decode_enroll_fee_sponsor_beneficiary(inner.clone())?
-                        }
-                        "FundFeeSponsorProgram" => {
-                            try_decode_fund_fee_sponsor_program(inner.clone())?
-                        }
-                        "ActivateFeeSponsorProgramRevision" => {
-                            try_decode_activate_fee_sponsor_program_revision(inner.clone())?
-                        }
-                        _ => None,
-                    };
-                    if let Some(instr) = decoded {
-                        return Ok(instr);
+            if map.len() == 1
+                && let Some((kind, inner)) = map.iter().next()
+            {
+                let decoded = match kind.as_str() {
+                    "Register" => try_decode_register(inner.clone())?,
+                    "Unregister" => try_decode_unregister(inner.clone())?,
+                    "Mint" => try_decode_mint(inner.clone())?,
+                    "Transfer" => try_decode_transfer(inner.clone())?,
+                    "SetParameter" => try_decode_set_parameter(inner.clone())?,
+                    "Grant" => try_decode_grant(inner.clone())?,
+                    "SetAssetDefinitionAlias" => {
+                        try_decode_set_asset_definition_alias(inner.clone())?
                     }
+                    "EnsureAlias" => try_decode_ensure_alias(inner.clone())?,
+                    "Custom" => try_decode_custom(inner.clone())?,
+                    "RegisterCitizen" => try_decode_register_citizen(inner.clone())?,
+                    "RegisterPublicLaneValidator" => {
+                        try_decode_register_public_lane_validator(inner.clone())?
+                    }
+                    "ActivatePublicLaneValidator" => {
+                        try_decode_activate_public_lane_validator(inner.clone())?
+                    }
+                    "CreateFeeSponsorProgram" => {
+                        try_decode_create_fee_sponsor_program(inner.clone())?
+                    }
+                    "StageFeeSponsorProgramRevision" => {
+                        try_decode_stage_fee_sponsor_program_revision(inner.clone())?
+                    }
+                    "EnrollFeeSponsorBeneficiary" => {
+                        try_decode_enroll_fee_sponsor_beneficiary(inner.clone())?
+                    }
+                    "FundFeeSponsorProgram" => try_decode_fund_fee_sponsor_program(inner.clone())?,
+                    "ActivateFeeSponsorProgramRevision" => {
+                        try_decode_activate_fee_sponsor_program_revision(inner.clone())?
+                    }
+                    _ => None,
+                };
+                if let Some(instr) = decoded {
+                    return Ok(instr);
                 }
             }
             norito::json::value::from_value::<InstructionBox>(Value::Object(map)).map_err(|err| {

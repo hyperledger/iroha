@@ -12,7 +12,7 @@ use iroha_fhe::modular::{mod_pow_u64, reduce_i128_to_u64_mod};
 use zeroize::Zeroize;
 /// One pinned NTT prime and primitive `2d`-th root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JindoPrimeModulusV1 {
+pub struct JindoPrimeModulusV1 {
     modulus: u64,
     psi: u64,
 }
@@ -28,18 +28,18 @@ impl JindoPrimeModulusV1 {
     }
 }
 /// Inner-commitment modulus `q` from the current N=256, batch=4 reference profile.
-pub(crate) const JINDO_INNER_MODULI_V1: [JindoPrimeModulusV1; 2] = [
+pub const JINDO_INNER_MODULI_V1: [JindoPrimeModulusV1; 2] = [
     JindoPrimeModulusV1::new(70_368_744_067_073, 22_701_904_919_461),
     JindoPrimeModulusV1::new(70_368_744_183_809, 12_022_014_596_385),
 ];
 /// Outer-commitment modulus `q_o` from the same closed profile.
-pub(crate) const JINDO_OUTER_MODULI_V1: [JindoPrimeModulusV1; 2] = [
+pub const JINDO_OUTER_MODULI_V1: [JindoPrimeModulusV1; 2] = [
     JindoPrimeModulusV1::new(48_591_984_641, 25_236_428_417),
     JindoPrimeModulusV1::new(48_592_009_217, 4_690_178_537),
 ];
 /// One application-ring element in a fixed two-prime RNS basis.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct JindoRnsPolynomialV1 {
+pub struct JindoRnsPolynomialV1 {
     residues: [[u64; JINDO_RING_DEGREE_V1]; 2],
 }
 impl Zeroize for JindoRnsPolynomialV1 {
@@ -201,9 +201,9 @@ impl JindoRnsPolynomialV1 {
         let value = self.reconstruct_coefficient(coefficient_index, moduli);
         let product = u128::from(moduli[0].modulus) * u128::from(moduli[1].modulus);
         if value > product / 2 {
-            value as i128 - product as i128
+            u128::cast_signed(value) - u128::cast_signed(product)
         } else {
-            value as i128
+            u128::cast_signed(value)
         }
     }
 }

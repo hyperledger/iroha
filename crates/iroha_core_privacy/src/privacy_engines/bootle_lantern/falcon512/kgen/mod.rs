@@ -16,24 +16,24 @@ use comm::PRNG as _;
 use zeroize::{Zeroize, Zeroizing};
 pub(super) const MAX_PARITY_ATTEMPTS_PER_POLYNOMIAL: u32 = 128;
 struct Workspace {
-    temporary_u16: Vec<u16>,
-    temporary_u32: Vec<u32>,
-    temporary_fxr: Vec<fxp::FXR>,
+    residues: Vec<u16>,
+    integers: Vec<u32>,
+    fixed_points: Vec<fxp::Fxr>,
 }
 impl Workspace {
     fn new() -> Self {
         Self {
-            temporary_u16: vec![0; 2 * DEGREE],
-            temporary_u32: vec![0; 6 * DEGREE],
-            temporary_fxr: vec![fxp::FXR::ZERO; 5 * DEGREE / 2],
+            residues: vec![0; 2 * DEGREE],
+            integers: vec![0; 6 * DEGREE],
+            fixed_points: vec![fxp::Fxr::ZERO; 5 * DEGREE / 2],
         }
     }
 }
 impl Drop for Workspace {
     fn drop(&mut self) {
-        self.temporary_u16.zeroize();
-        self.temporary_u32.zeroize();
-        self.temporary_fxr.zeroize();
+        self.residues.zeroize();
+        self.integers.zeroize();
+        self.fixed_points.zeroize();
     }
 }
 pub(super) fn generate_from_seed(seed: &[u8], max_candidates: u32) -> Option<Trapdoor> {
@@ -51,12 +51,12 @@ pub(super) fn generate_from_seed(seed: &[u8], max_candidates: u32) -> Option<Tra
         if !gauss::sample_f_bounded(
             LOG_DEGREE,
             &mut generator,
-            &mut **f,
+            &mut f,
             MAX_PARITY_ATTEMPTS_PER_POLYNOMIAL,
         ) || !gauss::sample_f_bounded(
             LOG_DEGREE,
             &mut generator,
-            &mut **g,
+            &mut g,
             MAX_PARITY_ATTEMPTS_PER_POLYNOMIAL,
         ) {
             continue;
@@ -74,29 +74,26 @@ pub(super) fn generate_from_seed(seed: &[u8], max_candidates: u32) -> Option<Tra
         if squared_norm >= 16_823 {
             continue;
         }
-        if !comm::mq::mqpoly_small_is_invertible(
-            LOG_DEGREE,
-            &**f,
-            &mut workspace.temporary_u16[..DEGREE],
-        ) {
+        if !comm::mq::mqpoly_small_is_invertible(LOG_DEGREE, &f, &mut workspace.residues[..DEGREE])
+        {
             continue;
         }
-        if !ntru::check_ortho_norm(LOG_DEGREE, &**f, &**g, &mut workspace.temporary_fxr) {
+        if !ntru::check_ortho_norm(LOG_DEGREE, &f, &g, &mut workspace.fixed_points) {
             continue;
         }
         if !ntru::solve_NTRU(
             LOG_DEGREE,
-            &**f,
-            &**g,
-            &mut **capital_f,
-            &mut **capital_g,
-            &mut workspace.temporary_u32,
-            &mut workspace.temporary_fxr,
+            &f,
+            &g,
+            &mut capital_f,
+            &mut capital_g,
+            &mut workspace.integers,
+            &mut workspace.fixed_points,
         ) {
             continue;
         }
-        let (division_temporary, _) = workspace.temporary_u16.split_at_mut(DEGREE);
-        comm::mq::mqpoly_div_small(LOG_DEGREE, &**f, &**g, &mut **h, division_temporary);
+        let (division_temporary, _) = workspace.residues.split_at_mut(DEGREE);
+        comm::mq::mqpoly_div_small(LOG_DEGREE, &f, &g, &mut h, division_temporary);
         if ntru_equation_holds(
             f.as_ref(),
             g.as_ref(),

@@ -67,11 +67,12 @@ impl<C: PastaCurve> Circuit<C::Base> for Norm<C> {
     }
     fn synthesize(
         &self,
-        (g, r, k): Self::Config,
+        (glue_config, range_config, kernel): Self::Config,
         mut layouter: impl Layouter<C::Base>,
     ) -> Result<(), Error> {
-        let mut glue = GlueChip::with_shared_cursor(g, &SharedRows::new(RowCursor::starting_at(0)));
-        let mut range = RunningSumChip::new(r);
+        let mut glue =
+            GlueChip::with_shared_cursor(glue_config, &SharedRows::new(RowCursor::starting_at(0)));
+        let mut range = RunningSumChip::new(range_config);
         range.load_table(&mut layouter)?;
         layouter.assign_region(
             || "norm",
@@ -96,7 +97,7 @@ impl<C: PastaCurve> Circuit<C::Base> for Norm<C> {
                 let mut ff = if self.plain {
                     ff
                 } else {
-                    ff.with_rotated_kernel(&k)?
+                    ff.with_rotated_kernel(&kernel)?
                 };
                 let out = if self.reference {
                     let sq = ff.square(&mut region, &a)?;
@@ -131,17 +132,19 @@ impl<C: PastaCurve> Circuit<C::Base> for Norm<C> {
                         Operand::value(&a),
                         Operand::value(&a),
                     );
-                    let limbs = k.constrain_short_product_padding(
+                    let limbs = kernel.constrain_short_product_padding(
                         &mut glue,
                         &mut range,
                         &mut region,
-                        Mode::Mul,
+                        FusedPadding {
+                            mode: Mode::Mul,
+                            layout,
+                            norm: self.attack != 5,
+                        },
                         (&a.limbs, &a.limbs),
                         w,
-                        layout,
-                        self.attack != 5,
                     )?;
-                    FfValue::from_parts(limbs, k.result_bounds(), self.modulus, Form::Proper)
+                    FfValue::from_parts(limbs, kernel.result_bounds(), self.modulus, Form::Proper)
                 };
                 let out = ff.assert_canonical(&mut region, &out)?;
                 let value = from_limbs(&self.values);
@@ -175,51 +178,54 @@ fn cases<C: PastaCurve>() {
             attack: 0,
             marker: core::marker::PhantomData,
         };
-        let m = modulus.nat();
+        let modulus_value = modulus.nat();
         let points = [
             Nat::ZERO,
             Nat::ONE,
             Nat::from_u128(2),
             Nat::from_u128(3),
-            m.wrapping_sub(&Nat::ONE),
-            m,
-            m.wrapping_add(&Nat::ONE),
+            modulus_value.wrapping_sub(&Nat::ONE),
+            modulus_value,
+            modulus_value.wrapping_add(&Nat::ONE),
             Nat::pow2(255).wrapping_sub(&Nat::ONE),
         ];
         for value in points {
-            let mut c = blank.clone();
-            c.values = to_limbs(&value).unwrap();
-            c.widths = [88, 88, 81];
-            let report = check_circuit(&c, 10, &[], CheckMode::Strict).unwrap();
+            let mut circuit = blank.clone();
+            circuit.values = to_limbs(&value).unwrap();
+            circuit.widths = [88, 88, 81];
+            let report = check_circuit(&circuit, 10, &[], CheckMode::Strict).unwrap();
             assert!(report.is_satisfied(), "{:?}", report.failures().first());
         }
         for widths in [[87, 87, 81], [88, 88, 80], [94, 94, 80]] {
-            let c = Norm {
+            let circuit = Norm {
                 values: widths.map(|w| (1u128 << w) - 1),
                 widths,
                 ..blank.clone()
             };
-            let rep = check_circuit(&c, 10, &[], CheckMode::Strict).unwrap();
+            let rep = check_circuit(&circuit, 10, &[], CheckMode::Strict).unwrap();
             assert!(
                 rep.is_satisfied(),
                 "{widths:?}: {:?}",
                 rep.failures().first()
             );
-            let a = synthesize(&c, 10, Some(&[])).unwrap();
-            let u = synthesize(&c.without_witnesses(), 10, None).unwrap();
-            assert_eq!(a.tables.fixed(), u.tables.fixed());
-            assert_eq!(a.tables.selectors(), u.tables.selectors());
-            assert_eq!(a.tables.permutation(), u.tables.permutation());
-            assert_eq!(a.tables.advice_assigned(), u.tables.advice_assigned());
+            let assigned = synthesize(&circuit, 10, Some(&[])).unwrap();
+            let unknown = synthesize(&circuit.without_witnesses(), 10, None).unwrap();
+            assert_eq!(assigned.tables.fixed(), unknown.tables.fixed());
+            assert_eq!(assigned.tables.selectors(), unknown.tables.selectors());
+            assert_eq!(assigned.tables.permutation(), unknown.tables.permutation());
+            assert_eq!(
+                assigned.tables.advice_assigned(),
+                unknown.tables.advice_assigned()
+            );
             if widths == [88, 88, 80] {
-                assert!(undetected_tampers(&c, 10, &[]).unwrap().is_empty());
+                assert!(undetected_tampers(&circuit, 10, &[]).unwrap().is_empty());
                 for attack in 1..=5 {
-                    let x = Norm {
+                    let tampered = Norm {
                         attack,
-                        ..c.clone()
+                        ..circuit.clone()
                     };
                     assert!(
-                        !check_circuit(&x, 10, &[], CheckMode::Strict)
+                        !check_circuit(&tampered, 10, &[], CheckMode::Strict)
                             .unwrap()
                             .is_satisfied(),
                         "attack {attack}"
@@ -246,8 +252,8 @@ fn fused_norm_actual_gate_degree() {
         let actual = cs
             .gates()
             .iter()
-            .flat_map(|g| g.polynomials())
-            .map(|p| p.degree())
+            .flat_map(iroha_plonk::cs::Gate::polynomials)
+            .map(iroha_plonk::Expression::degree)
             .max()
             .unwrap();
         assert_eq!(actual, crate::phase::MAX_COMPACT_GATE_DEGREE);

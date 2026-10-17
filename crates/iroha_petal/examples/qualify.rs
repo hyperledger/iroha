@@ -3,14 +3,28 @@
 //! `cargo run --release -p iroha_petal --example qualify -- [trials] [filter] [--verbose]`
 //!
 //! `--verbose` prints one line per trial (pose and the lanes that decoded).
-use std::sync::atomic::{AtomicUsize, Ordering};
+#[path = "support/count.rs"]
+mod count;
+#[path = "support/floor.rs"]
+mod floor;
+
+use count::count_as_f64;
+use floor::floor_u64;
+
+#[path = "support/trial.rs"]
+mod trial;
+
+use std::sync::atomic::AtomicUsize;
 use std::time::Instant;
+use trial::next_trial;
 
 use iroha_petal::decode::{DecodeOptions, decode};
 use iroha_petal::locate::locate;
 use iroha_petal::render::{RenderOptions, render};
 use iroha_petal::sim::{CaptureConfig, capture, fit_to_frame, pixels_per_unit};
 use iroha_petal::stream::StreamEncoder;
+
+type TrialResult = (bool, bool, bool, f64, bool);
 
 #[derive(Clone)]
 struct Scenario {
@@ -27,10 +41,18 @@ impl Rng {
             .0
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1_442_695_040_888_963_407);
-        ((self.0 >> 11) as f64) / (1u64 << 53) as f64
+        count_as_f64(self.0 >> 11) / 9_007_199_254_740_992.0
     }
+    fn frame(&mut self) -> u16 {
+        let frame =
+            floor_u64(self.next() * 60_000.0).expect("random frame is finite and nonnegative");
+        u16::try_from(frame).expect("random frame is below 60000")
+    }
+
     fn range(&mut self, lo: f64, hi: f64) -> f64 {
-        lo + (hi - lo) * self.next()
+        // Preserve the established separate product and addition rounding.
+        let offset = (hi - lo) * self.next();
+        lo + offset
     }
 }
 
@@ -112,7 +134,7 @@ fn main() {
     let trials: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(24);
     let filter = args.next();
     let payload: Vec<u8> = (0..900u32)
-        .map(|i| (i.wrapping_mul(2_654_435_761) >> 11) as u8)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 11).to_le_bytes()[0])
         .collect();
     let encoder = StreamEncoder::new(&payload, 2).expect("payload");
     let threads = std::thread::available_parallelism().map_or(4, usize::from);
@@ -134,14 +156,12 @@ fn main() {
         std::thread::scope(|scope| {
             for _ in 0..threads {
                 scope.spawn(|| {
-                    loop {
-                        let trial = next.fetch_add(1, Ordering::SeqCst);
-                        if trial >= trials {
-                            break;
-                        }
-                        let mut rng =
-                            Rng(0x1234_5678 ^ (trial as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
-                        let frame = (rng.next() * 60000.0) as u16;
+                    while let Some(trial) = next_trial(&next, trials) {
+                        let mut rng = Rng(0x1234_5678
+                            ^ u64::try_from(trial)
+                                .expect("trial fits u64")
+                                .wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                        let frame = rng.frame();
                         let source = render(
                             &encoder.cells(frame),
                             &RenderOptions {
@@ -151,7 +171,10 @@ fn main() {
                             },
                         );
                         let mut config = scenario.base;
-                        config.seed = trial as u64 + 1;
+                        config.seed = u64::try_from(trial)
+                            .expect("trial fits u64")
+                            .checked_add(1)
+                            .expect("camera seed fits u64");
                         if scenario.rotate_any {
                             config.rotation_deg = rng.range(0.0, 360.0);
                         }
@@ -166,10 +189,9 @@ fn main() {
                         let t0 = Instant::now();
                         let outcome = decode(&image, &DecodeOptions::default());
                         let ms = t0.elapsed().as_secs_f64() * 1000.0;
-                        let (p, k, d) = match &outcome {
-                            Ok(f) => (f.p.is_some(), f.k.is_some(), f.d.is_some()),
-                            Err(_) => (false, false, false),
-                        };
+                        let (p, k, d) = outcome.as_ref().map_or((false, false, false), |frame| {
+                            (frame.p.is_some(), frame.k.is_some(), frame.d.is_some())
+                        });
                         if verbose {
                             println!(
                                 "  trial {trial}: rot {:.0} tilt ({:.0},{:.0}) -> {:?}",
@@ -192,10 +214,10 @@ fn main() {
         });
         let results = results.into_inner().unwrap();
         let scales = scale_sum.into_inner().unwrap();
-        let mean_scale = scales.iter().sum::<f64>() / scales.len().max(1) as f64;
-        let n = results.len() as f64;
-        let pct = |f: &dyn Fn(&(bool, bool, bool, f64, bool)) -> bool| {
-            100.0 * results.iter().filter(|r| f(r)).count() as f64 / n
+        let mean_scale = scales.iter().sum::<f64>() / count_as_f64(scales.len().max(1));
+        let n = count_as_f64(results.len());
+        let pct = |f: &dyn Fn(&TrialResult) -> bool| {
+            100.0 * count_as_f64(results.iter().filter(|r| f(r)).count()) / n
         };
         println!(
             "{:<34} {:>6.0} {:>6.0} {:>6.0} {:>6.0} {:>7.0} {:>6.1}px  loc {:>3.0}%  ({:.0}s)",
@@ -209,5 +231,42 @@ fn main() {
             pct(&|r| r.4),
             started.elapsed().as_secs_f64()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn random_stream_and_frame_selection_preserve_exact_samples() {
+        let mut rng = Rng(0x1234_5678);
+        let mut state = 0x1234_5678_u64;
+        for _ in 0..1000 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let high = u32::try_from(state >> 32).unwrap();
+            let low = u32::try_from((state >> 11) & 0x1F_FFFF).unwrap();
+            let whole = f64::from(high) * 2_097_152.0 + f64::from(low);
+            let expected = whole / 9_007_199_254_740_992.0;
+            assert_eq!(rng.next().to_bits(), expected.to_bits());
+        }
+        let mut rng = Rng(0x1234_5678);
+        for expected in [47590, 32141, 2261, 6379, 19654, 36929, 29392, 34167] {
+            assert_eq!(rng.frame(), expected);
+        }
+    }
+
+    #[test]
+    fn random_ranges_keep_separate_rounding_and_one_draw() {
+        let mut actual = Rng(0x1234_5678);
+        let mut reference = Rng(0x1234_5678);
+        for (lo, hi) in [(-22.0, 22.0), (-0.04, 0.04), (0.0, 360.0)] {
+            let product = (hi - lo) * reference.next();
+            let expected = lo + product;
+            assert_eq!(actual.range(lo, hi).to_bits(), expected.to_bits());
+            assert_eq!(actual.0, reference.0);
+        }
     }
 }

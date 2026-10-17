@@ -55,7 +55,8 @@ mod tests {
         let mut buffer = ProofBuffer::new();
         let mut expected = Vec::new();
         for length in [0, 1, 31, 32, 33, 511, 2048, 4097] {
-            let message = vec![(length % 251) as u8; length];
+            let message =
+                vec![u8::try_from(length % 251).expect("remainder fits one byte"); length];
             buffer.append(&message);
             expected.extend_from_slice(&message);
             assert_eq!(buffer.as_slice(), expected);

@@ -8,7 +8,7 @@
 //! sorted leaf position.
 //!
 //! Revocation has no second tree.  The complete signed CRL is parsed in the
-//! RFC adapter, its TBSCertList digest is bound to P-256, and its exact signed
+//! RFC adapter, its `TBSCertList` digest is bound to P-256, and its exact signed
 //! DER bytes are domain-framed and hashed to the governed CRL-record digest.
 //! Keeping these commitments here gives the native reference code and the SHA
 //! adapter one canonical preimage encoder.
@@ -28,26 +28,26 @@ use iroha_data_model::privacy::{
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 /// Number of leaves in the governed compact trust-anchor tree.
-pub(crate) const ZK_X509_CA_COMPACT_TREE_CAPACITY_V1: usize = 4_096;
+pub const ZK_X509_CA_COMPACT_TREE_CAPACITY_V1: usize = 4_096;
 /// Depth of the governed compact trust-anchor tree.
-pub(crate) const ZK_X509_CA_COMPACT_TREE_DEPTH_V1: usize = 12;
+pub const ZK_X509_CA_COMPACT_TREE_DEPTH_V1: usize = 12;
 /// Exact DER width of the sole admitted uncompressed P-256 SPKI.
-pub(crate) const ZK_X509_CA_SPKI_DER_BYTES_V1: usize = 91;
+pub const ZK_X509_CA_SPKI_DER_BYTES_V1: usize = 91;
 /// Maximum exact signed CRL DER bytes admitted by the closed relation.
-pub(crate) const ZK_X509_CRL_COMMITMENT_MAX_DER_BYTES_V1: usize = 4_096;
+pub const ZK_X509_CRL_COMMITMENT_MAX_DER_BYTES_V1: usize = 4_096;
 /// Exact framed width of every trust-anchor governance record.
-pub(crate) const ZK_X509_TRUST_ANCHOR_RECORD_PREIMAGE_BYTES_V1: usize = 289;
+pub const ZK_X509_TRUST_ANCHOR_RECORD_PREIMAGE_BYTES_V1: usize = 289;
 /// Maximum framed width of a certificate-policy governance record.
-pub(crate) const ZK_X509_CERTIFICATE_POLICY_RECORD_MAX_PREIMAGE_BYTES_V1: usize = 313;
+pub const ZK_X509_CERTIFICATE_POLICY_RECORD_MAX_PREIMAGE_BYTES_V1: usize = 313;
 /// Exact framed width of every signed-CRL governance record.
-pub(crate) const ZK_X509_CRL_RECORD_PREIMAGE_BYTES_V1: usize = 352;
+pub const ZK_X509_CRL_RECORD_PREIMAGE_BYTES_V1: usize = 352;
 const _: () = assert!(ZK_X509_CA_COMPACT_TREE_CAPACITY_V1 == 1 << ZK_X509_CA_COMPACT_TREE_DEPTH_V1);
 /// One SHA-256 commitment digest.
-pub(crate) type ZkX509MerkleDigestV1 = [u8; 32];
+pub type ZkX509MerkleDigestV1 = [u8; 32];
 /// Fixed-shape compact-tree membership witness.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, norito::SerializePayload)]
-pub(crate) struct ZkX509CaMembershipPathV1 {
+pub struct ZkX509CaMembershipPathV1 {
     /// Canonical sorted-leaf index.  Only the low twelve bits are legal.
     pub(crate) index: u16,
     /// Siblings ordered from the occupied leaf to the root.
@@ -127,14 +127,14 @@ pub enum ZkX509MerkleErrorV1 {
 /// The frame is:
 /// `frame-domain || u16(domain-len) || domain || u16(field-count) ||
 /// repeated(u64(field-len) || field)`.
-pub(crate) fn hash_frame_v1(
+pub fn hash_frame_v1(
     domain: &[u8],
     fields: &[&[u8]],
 ) -> Result<ZkX509MerkleDigestV1, ZkX509MerkleErrorV1> {
     Ok(Sha256::digest(encode_hash_frame_v1(domain, fields)?).into())
 }
 /// Encode the sole canonical SHA-256 field frame.
-pub(crate) fn encode_hash_frame_v1(
+pub fn encode_hash_frame_v1(
     domain: &[u8],
     fields: &[&[u8]],
 ) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
@@ -195,25 +195,23 @@ fn validate_spki_v1(root_spki_der: &[u8]) -> Result<(), ZkX509MerkleErrorV1> {
 }
 /// Hash one occupied compact-tree leaf from exact root-SPKI DER.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn ca_leaf_v1(
-    root_spki_der: &[u8],
-) -> Result<ZkX509MerkleDigestV1, ZkX509MerkleErrorV1> {
+pub fn ca_leaf_v1(root_spki_der: &[u8]) -> Result<ZkX509MerkleDigestV1, ZkX509MerkleErrorV1> {
     validate_spki_v1(root_spki_der)?;
     hash_frame_v1(ZK_X509_CA_LEAF_DOMAIN_V1, &[root_spki_der])
 }
 /// Encode one occupied compact-tree leaf preimage for the SHA call manifest.
-pub(crate) fn ca_leaf_preimage_v1(root_spki_der: &[u8]) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
+pub fn ca_leaf_preimage_v1(root_spki_der: &[u8]) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
     validate_spki_v1(root_spki_der)?;
     encode_hash_frame_v1(ZK_X509_CA_LEAF_DOMAIN_V1, &[root_spki_der])
 }
 /// Derive the unique padded compact-tree leaf.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn ca_empty_leaf_v1() -> ZkX509MerkleDigestV1 {
+pub fn ca_empty_leaf_v1() -> ZkX509MerkleDigestV1 {
     hash_frame_v1(ZK_X509_CA_EMPTY_LEAF_DOMAIN_V1, &[])
         .expect("fixed empty trust-anchor leaf frame is representable")
 }
 /// Encode one height-bound compact-tree node preimage.
-pub(crate) fn ca_node_preimage_v1(
+pub fn ca_node_preimage_v1(
     level: usize,
     left: &ZkX509MerkleDigestV1,
     right: &ZkX509MerkleDigestV1,
@@ -228,7 +226,7 @@ pub(crate) fn ca_node_preimage_v1(
 }
 /// Hash one height-bound compact-tree node.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn ca_node_v1(
+pub fn ca_node_v1(
     level: usize,
     left: &ZkX509MerkleDigestV1,
     right: &ZkX509MerkleDigestV1,
@@ -299,7 +297,7 @@ fn reduce_compact_level_v1(
 /// strings are rejected, and all unused leaves receive the unique empty-leaf
 /// digest.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn ca_root_from_complete_spkis_v1(
+pub fn ca_root_from_complete_spkis_v1(
     root_spkis_der: &[&[u8]],
 ) -> Result<ZkX509MerkleDigestV1, ZkX509MerkleErrorV1> {
     let canonical = canonical_spkis_v1(root_spkis_der)?;
@@ -315,7 +313,7 @@ pub(crate) fn ca_root_from_complete_spkis_v1(
 }
 /// Construct the unique compact-tree membership witness for one governed SPKI.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn ca_membership_path_from_complete_spkis_v1(
+pub fn ca_membership_path_from_complete_spkis_v1(
     root_spkis_der: &[&[u8]],
     member_spki_der: &[u8],
 ) -> Result<ZkX509CaMembershipPathV1, ZkX509MerkleErrorV1> {
@@ -342,7 +340,7 @@ pub(crate) fn ca_membership_path_from_complete_spkis_v1(
 }
 /// Reconstruct the compact governed root selected by one private path.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn ca_root_from_path_v1(
+pub fn ca_root_from_path_v1(
     root_spki_der: &[u8],
     path: &ZkX509CaMembershipPathV1,
 ) -> Result<ZkX509MerkleDigestV1, ZkX509MerkleErrorV1> {
@@ -362,7 +360,7 @@ pub(crate) fn ca_root_from_path_v1(
 }
 /// Verify compact trust-anchor membership against the governed root.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn verify_ca_membership_v1(
+pub fn verify_ca_membership_v1(
     governed_root: ZkX509MerkleDigestV1,
     root_spki_der: &[u8],
     path: &ZkX509CaMembershipPathV1,
@@ -373,7 +371,7 @@ pub(crate) fn verify_ca_membership_v1(
     Ok(())
 }
 /// Encode the exact signed CRL commitment preimage.
-pub(crate) fn crl_commitment_preimage_v1(
+pub fn crl_commitment_preimage_v1(
     exact_signed_crl_der: &[u8],
 ) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
     if exact_signed_crl_der.is_empty() {
@@ -391,21 +389,19 @@ pub(crate) fn crl_commitment_preimage_v1(
 }
 /// Hash the exact complete signed CRL to the governed record commitment.
 #[cfg(test)]
-pub(crate) fn crl_commitment_v1(
+pub fn crl_commitment_v1(
     exact_signed_crl_der: &[u8],
 ) -> Result<ZkX509MerkleDigestV1, ZkX509MerkleErrorV1> {
     Ok(Sha256::digest(crl_commitment_preimage_v1(exact_signed_crl_der)?).into())
 }
 /// Encode the exact issuer-SPKI digest preimage governed by the CRL record.
-pub(crate) fn crl_issuer_spki_preimage_v1(
-    issuer_spki_der: &[u8],
-) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
+pub fn crl_issuer_spki_preimage_v1(issuer_spki_der: &[u8]) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
     validate_spki_v1(issuer_spki_der)?;
     encode_hash_frame_v1(ZK_X509_CRL_ISSUER_SPKI_DIGEST_DOMAIN_V1, &[issuer_spki_der])
 }
 /// Hash the exact CRL issuer SPKI to the governed record digest.
 #[cfg(test)]
-pub(crate) fn crl_issuer_spki_digest_v1(
+pub fn crl_issuer_spki_digest_v1(
     issuer_spki_der: &[u8],
 ) -> Result<ZkX509MerkleDigestV1, ZkX509MerkleErrorV1> {
     Ok(Sha256::digest(crl_issuer_spki_preimage_v1(issuer_spki_der)?).into())
@@ -447,7 +443,7 @@ const fn governance_eku_code_v1(usage: PrivacyX509ExtendedKeyUsageV1) -> u8 {
 /// Keeping the explicit fields here prevents the prover from treating the
 /// public record digest as an unconstrained host assertion.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn trust_anchor_record_preimage_v1(
+pub fn trust_anchor_record_preimage_v1(
     record: &PrivacyZkX509TrustAnchorRecordV1,
 ) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
     record
@@ -483,7 +479,7 @@ pub(crate) fn trust_anchor_record_preimage_v1(
 }
 /// Encode the exact certificate-policy governance-record digest preimage.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn certificate_policy_record_preimage_v1(
+pub fn certificate_policy_record_preimage_v1(
     record: &PrivacyZkX509CertificatePolicyRecordV1,
 ) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
     record
@@ -545,7 +541,7 @@ pub(crate) fn certificate_policy_record_preimage_v1(
 }
 /// Encode the exact signed-CRL governance-record digest preimage.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn crl_record_preimage_v1(
+pub fn crl_record_preimage_v1(
     record: &PrivacyZkX509CrlRecordV1,
 ) -> Result<Vec<u8>, ZkX509MerkleErrorV1> {
     record

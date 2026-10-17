@@ -1,6 +1,6 @@
 //! Original Name structure and forced OID-census uniqueness constraints.
 //!
-//! The separate NameValue family authenticates the complete value census and
+//! The separate `NameValue` family authenticates the complete value census and
 //! directory-string transition policy; release qualification remains separate.
 use super::*;
 

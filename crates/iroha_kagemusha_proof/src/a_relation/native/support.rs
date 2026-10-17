@@ -331,14 +331,14 @@ pub(super) fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<
 }
 
 /// Encode Vesta point limbs and all normalized challenges in context word order.
-pub(super) fn vesta_words(claim: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
+pub(super) fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
     let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(claim.g());
     let mut words = Vec::with_capacity(20);
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
     }
     words.extend(claim.challenges());
-    Ok(words)
+    words
 }
 
 /// Derive the exact `D_A` digest from public18 and the full-k16 Pallas claim.
@@ -564,9 +564,9 @@ pub(super) fn internal_public(
     part: &FoldInput<Eq>,
 ) -> Result<Vec<Fp>, Error> {
     let mut words = vec![digest, Fp::from(u64::from(part.source_k()))];
-    words.extend(vesta_words(part)?);
+    words.extend(vesta_words(part));
     let trivial = AccumulatorT::trivial(params, MemoryBudget::DEFAULT).map_err(|_| Error::Proof)?;
-    let trivial = vesta_words(&trivial.as_input())?;
+    let trivial = vesta_words(&trivial.as_input());
     words.extend(&trivial);
     words.extend(&trivial);
     words.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);

@@ -130,7 +130,7 @@ pub(crate) fn wrap_receive(
     let frame = plan
         .read(
             0,
-            &[terminal.instances.clone()],
+            std::slice::from_ref(&terminal.instances),
             &terminal.proof,
             &FoldConfig::default(),
         )

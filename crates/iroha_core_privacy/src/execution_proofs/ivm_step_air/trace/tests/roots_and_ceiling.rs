@@ -147,11 +147,15 @@ fn div_ceil_matches_native_all_signs_overflow_zero_aliases_r0_and_gas_precedence
                 let (segment, records) = attempted(
                     &[enc::encode_rr(wide::arithmetic::DIV_CEIL, rd, rs1, rs2)],
                     1,
-                    &[(6, left as u64), (7, right as u64), (8, 91)],
+                    &[
+                        (6, i64::cast_unsigned(left)),
+                        (7, i64::cast_unsigned(right)),
+                        (8, 91),
+                    ],
                     gas,
                 );
-                let a = i128::from(segment.before.registers[usize::from(rs1)] as i64);
-                let b = i128::from(segment.before.registers[usize::from(rs2)] as i64);
+                let a = i128::from(u64::cast_signed(segment.before.registers[usize::from(rs1)]));
+                let b = i128::from(u64::cast_signed(segment.before.registers[usize::from(rs2)]));
                 let result = if gas < 12 {
                     Err(SegmentOutcome::OutOfGas)
                 } else if b == 0 || (a == i128::from(i64::MIN) && b == -1) {
@@ -174,12 +178,17 @@ fn root_and_ceiling_all_interior_columns_are_bound_on_success_and_native_traps()
         (wide::arithmetic::ISQRT, u64::MAX, 99, 6),
         (
             wide::arithmetic::DIV_CEIL,
-            (-17_i64) as u64,
-            (-5_i64) as u64,
+            i64::cast_unsigned(-17_i64),
+            i64::cast_unsigned(-5_i64),
             13,
         ),
         (wide::arithmetic::DIV_CEIL, 17, 0, 13),
-        (wide::arithmetic::DIV_CEIL, i64::MIN as u64, u64::MAX, 12),
+        (
+            wide::arithmetic::DIV_CEIL,
+            i64::cast_unsigned(i64::MIN),
+            u64::MAX,
+            12,
+        ),
     ] {
         let (segment, records) = attempted(
             &[
@@ -265,14 +274,19 @@ fn div_ceil_rejects_truncation_wrong_sign_correction_and_false_remainder_zero() 
     for (a, b, false_value) in [
         (17_i64, 5_i64, 3_u64),
         (-17, -5, 3),
-        (-17, 5, (-2_i64) as u64),
+        (-17, 5, i64::cast_unsigned(-2_i64)),
         (20, 5, 5),
     ] {
-        let (segment, records) = single(wide::arithmetic::DIV_CEIL, a as u64, b as u64, 12);
+        let (segment, records) = single(
+            wide::arithmetic::DIV_CEIL,
+            i64::cast_unsigned(a),
+            i64::cast_unsigned(b),
+            12,
+        );
         let (changed, mut rows) = changed_destination(&segment, &records, false_value);
         replace_word(&mut rows[0][ABSOLUTE..MEAN_GAS], 0, false_value);
         rows[0][ABSOLUTE + 36..ABSOLUTE + 40].fill(F::ZERO);
-        rows[0][ABSOLUTE + 42] = F(u64::from(false_value != (a / b) as u64));
+        rows[0][ABSOLUTE + 42] = F(u64::from(false_value != i64::cast_unsigned(a / b)));
         assert!(rejects(&changed, &rows));
         rows[0][ABSOLUTE + 40] = F::ZERO;
         rows[0][ABSOLUTE + 41] = F::ZERO;

@@ -27,7 +27,7 @@ fn checked(instruction: u32, inputs: &[(usize, u64, bool)]) -> (Program, ScalarF
     let value = if register_move {
         packet::half(&p[SCALAR_RIGHT], BEFORE, 0)
     } else {
-        i64::from(wide::imm8(instruction)) as u64
+        i64::cast_unsigned(i64::from(wide::imm8(instruction)))
     };
     assert_eq!(
         packet::half(&p[SCALAR_DESTINATION], AFTER, 0),
@@ -96,7 +96,7 @@ fn native_conditional_immediates_cover_all_signed_bytes_and_preserve_untaken_des
         for condition in [0, 1, 0xffff_ffff_0000_0001] {
             for rd in [0, 2, 4] {
                 checked(
-                    enc::encode_ri(wide::arithmetic::CMOVI, rd, 2, raw as i8),
+                    enc::encode_ri(wide::arithmetic::CMOVI, rd, 2, u8::cast_signed(raw)),
                     &[
                         (2, condition, false),
                         (4, 0x8000_ffff_0000_0001, true),
@@ -209,7 +209,7 @@ fn conditional_move_zero_test_is_canonical_on_unused_and_padding_rows() {
     );
     let padding = ScalarFixture(Fixture::padding());
     assert!(padding.accepts(&program));
-    for original in [fixture, padding] {
+    for original in [&fixture, &padding] {
         for offset in [MOVE_ZERO, MOVE_INVERSE] {
             let mut changed = original.clone();
             changed.0.row[SCALAR + offset] = changed.0.row[SCALAR + offset].add(F::ONE);

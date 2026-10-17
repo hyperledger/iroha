@@ -41,27 +41,26 @@ const SHA_BASE_FOLD_EQUALITIES_V1: u8 = 1;
 /// No certificate is installed while the joint relation, transcript security
 /// and correlated-opening hiding analysis await independent qualification.
 /// TODO: review the complete joint protocol before installing a certificate.
-pub(crate) const ZK_X509_SOUNDNESS_CERTIFICATE_SHA256_V1: [u8; 32] = [0; 32];
+pub const ZK_X509_SOUNDNESS_CERTIFICATE_SHA256_V1: [u8; 32] = [0; 32];
 /// Schema version of the canonical native-resource certificate payload.
 pub const ZK_X509_RESOURCE_CERTIFICATE_SCHEMA_VERSION_V1: u16 = 1;
 const RESOURCE_CERTIFICATE_DOMAIN_V1: &[u8] =
     b"iroha.zk-x509.native-resource-certificate.payload.v1";
 const RESOURCE_CERTIFICATE_FIELD_COUNT_V1: u16 = 60;
-pub(crate) const ZK_X509_RESOURCE_OPERATING_SYSTEM_V1: &str = "linux";
-pub(crate) const ZK_X509_RESOURCE_ARCHITECTURE_V1: &str = "aarch64";
-pub(crate) const ZK_X509_RESOURCE_ENDIANNESS_V1: &str = "little";
-pub(crate) const ZK_X509_RESOURCE_KERNEL_MINIMUM_MAJOR_V1: u16 = 6;
-pub(crate) const ZK_X509_RESOURCE_KERNEL_MINIMUM_MINOR_V1: u16 = 3;
-pub(crate) const ZK_X509_RESOURCE_RUSTC_RELEASE_V1: &str = "1.93.1";
-pub(crate) const ZK_X509_RESOURCE_RUSTC_HOST_V1: &str = "aarch64-unknown-linux-gnu";
-pub(crate) const ZK_X509_RESOURCE_RUSTC_COMMIT_HASH_V1: &str =
-    "01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf";
-pub(crate) const ZK_X509_RESOURCE_RUSTC_COMMIT_DATE_V1: &str = "2026-02-11";
-pub(crate) const ZK_X509_RESOURCE_INSTANCE_TYPE_V1: &str = "c7g.4xlarge";
-pub(crate) const ZK_X509_RESOURCE_CPU_MODEL_V1: &str = "Neoverse-V1";
-pub(crate) const ZK_X509_RESOURCE_LOGICAL_CPU_COUNT_V1: u16 = 16;
-pub(crate) const ZK_X509_RESOURCE_ONLINE_CPU_COUNT_V1: u16 = 16;
-pub(crate) const ZK_X509_RESOURCE_AFFINITY_CPU_COUNT_V1: u16 = 16;
+pub const ZK_X509_RESOURCE_OPERATING_SYSTEM_V1: &str = "linux";
+pub const ZK_X509_RESOURCE_ARCHITECTURE_V1: &str = "aarch64";
+pub const ZK_X509_RESOURCE_ENDIANNESS_V1: &str = "little";
+pub const ZK_X509_RESOURCE_KERNEL_MINIMUM_MAJOR_V1: u16 = 6;
+pub const ZK_X509_RESOURCE_KERNEL_MINIMUM_MINOR_V1: u16 = 3;
+pub const ZK_X509_RESOURCE_RUSTC_RELEASE_V1: &str = "1.93.1";
+pub const ZK_X509_RESOURCE_RUSTC_HOST_V1: &str = "aarch64-unknown-linux-gnu";
+pub const ZK_X509_RESOURCE_RUSTC_COMMIT_HASH_V1: &str = "01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf";
+pub const ZK_X509_RESOURCE_RUSTC_COMMIT_DATE_V1: &str = "2026-02-11";
+pub const ZK_X509_RESOURCE_INSTANCE_TYPE_V1: &str = "c7g.4xlarge";
+pub const ZK_X509_RESOURCE_CPU_MODEL_V1: &str = "Neoverse-V1";
+pub const ZK_X509_RESOURCE_LOGICAL_CPU_COUNT_V1: u16 = 16;
+pub const ZK_X509_RESOURCE_ONLINE_CPU_COUNT_V1: u16 = 16;
+pub const ZK_X509_RESOURCE_AFFINITY_CPU_COUNT_V1: u16 = 16;
 const RESOURCE_MAIN_THREAD_STACK_BYTES_V1: u64 = 8 * 1024 * 1024;
 const RESOURCE_RAYON_WORKER_STACK_BYTES_V1: u64 = 8 * 1024 * 1024;
 const RESOURCE_WATCHDOG_THREAD_STACK_BYTES_V1: u64 = 8 * 1024 * 1024;
@@ -72,23 +71,23 @@ const RESOURCE_CORE_DUMP_BYTES_V1: u64 = 0;
 const RESOURCE_LANDLOCK_ABI_MINIMUM_V1: u16 = 3;
 const RESOURCE_MINIMUM_EFFECTIVE_MEMORY_BYTES_V1: u64 = 12 * 1024 * 1024 * 1024;
 /// Independently reviewed elapsed time observed for the positive stage.
-pub(crate) const ZK_X509_RESOURCE_POSITIVE_ELAPSED_MILLIS_V1: u64 = 0;
+pub const ZK_X509_RESOURCE_POSITIVE_ELAPSED_MILLIS_V1: u64 = 0;
 /// Independently reviewed peak RSS observed for the positive stage.
-pub(crate) const ZK_X509_RESOURCE_POSITIVE_PEAK_RSS_BYTES_V1: u64 = 0;
+pub const ZK_X509_RESOURCE_POSITIVE_PEAK_RSS_BYTES_V1: u64 = 0;
 /// Independently reviewed peak address space observed for the positive stage.
-pub(crate) const ZK_X509_RESOURCE_POSITIVE_PEAK_ADDRESS_SPACE_BYTES_V1: u64 = 0;
+pub const ZK_X509_RESOURCE_POSITIVE_PEAK_ADDRESS_SPACE_BYTES_V1: u64 = 0;
 /// Independently reviewed elapsed time observed for the maximum-shape stage.
-pub(crate) const ZK_X509_RESOURCE_MAXIMUM_ELAPSED_MILLIS_V1: u64 = 0;
+pub const ZK_X509_RESOURCE_MAXIMUM_ELAPSED_MILLIS_V1: u64 = 0;
 /// Independently reviewed peak RSS observed for the maximum-shape stage.
-pub(crate) const ZK_X509_RESOURCE_MAXIMUM_PEAK_RSS_BYTES_V1: u64 = 0;
+pub const ZK_X509_RESOURCE_MAXIMUM_PEAK_RSS_BYTES_V1: u64 = 0;
 /// Independently reviewed peak address space observed for the maximum-shape stage.
-pub(crate) const ZK_X509_RESOURCE_MAXIMUM_PEAK_ADDRESS_SPACE_BYTES_V1: u64 = 0;
+pub const ZK_X509_RESOURCE_MAXIMUM_PEAK_ADDRESS_SPACE_BYTES_V1: u64 = 0;
 /// Independent SHA-256 pin for the typed native-resource payload.
 ///
 /// This bootstrap pin remains zero until native Linux capture has populated
 /// and reviewers have accepted every observation. It is not hashed into the
 /// payload it authenticates.
-pub(crate) const ZK_X509_RESOURCE_CERTIFICATE_SHA256_V1: [u8; 32] = [0; 32];
+pub const ZK_X509_RESOURCE_CERTIFICATE_SHA256_V1: [u8; 32] = [0; 32];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ZkX509SoundnessCertificateV1 {
     schema_version: u16,

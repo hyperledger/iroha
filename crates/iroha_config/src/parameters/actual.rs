@@ -4004,6 +4004,10 @@ fn nexus_consensus_unit_ratio_bits(
 /// budgets, relay-worker scheduling, manifest filesystem paths, and compliance filesystem
 /// locations are intentionally excluded because path placement is not a protocol input; loaded
 /// compliance and lane-manifest policy-set digests are bound separately.
+///
+/// # Errors
+/// Rejects invalid floating-point policy or an enabled compliance policy, since
+/// this helper supplies no authenticated compliance-policy digest.
 #[cfg(test)]
 pub fn nexus_consensus_policy_digest(
     nexus: &Nexus,
@@ -4014,6 +4018,10 @@ pub fn nexus_consensus_policy_digest(
 ///
 /// `compliance_policy_digest` is required whenever [`LaneCompliance::enabled`] is true so two
 /// validators cannot execute the same transaction against different filesystem policy bundles.
+///
+/// # Errors
+/// Rejects invalid floating-point policy or an enabled compliance policy without
+/// its authenticated digest, as in [`nexus_consensus_policy_digest_with_runtime_policies`].
 #[cfg(test)]
 pub fn nexus_consensus_policy_digest_with_compliance(
     nexus: &Nexus,

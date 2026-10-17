@@ -63,13 +63,45 @@ def test_named_rust_function_rejects_missing_or_ambiguous_controls(source):
         named_rust_function(source, "original")
 
 
+def empty_custody():
+    """Explicit accounting-layer double; never represents native execution evidence."""
+    return {"artifact": None, "errors": [], "compiler_errors": []}
+
+
+def fixture_artifact(args, target, mutation):
+    """A real temporary file plus synthetic Cargo metadata for pure subprocess tests."""
+    path = target / "original-libtest"
+    if not path.exists():
+        path.write_bytes(b"unit-test artifact bytes; never executed")
+        path.chmod(0o700)
+    crate, features, _ = gate.package_options(args)
+    directory = "irohad" if crate == "irohad_lib" else crate
+    owner = ROOT / "crates" / directory
+    artifact = {"package_id": "path+" + owner.as_uri() + "#fixture-version",
+            "manifest_path": str(owner / "Cargo.toml"),
+            "target": {"kind": ["lib"], "crate_types": ["lib"],
+                       "name": "irohad" if crate == "irohad_lib" else crate,
+                       "src_path": str(owner / "src/lib.rs"), "test": True},
+            "profile": {"test": True}, "features": features.split(","),
+            "executable": str(path), "mutation": mutation,
+            "identity": gate.executable_identity(path, target)}
+    environment = {key: None for key in gate.CARGO_RUNTIME_FIELDS}
+    environment[gate.runtime_loader_key()] = "/synthetic/runtime"
+    environment.update(CARGO="/synthetic/cargo", CARGO_MANIFEST_DIR=str(owner),
+                       CARGO_MANIFEST_PATH=str(owner / "Cargo.toml"), CARGO_PKG_NAME=crate)
+    artifact["runtime"] = {"argv": [str(path)], "cwd": str(owner), "environment": environment}
+    artifact["build_options"] = gate.cargo_build_options(args)
+    artifact["binding_sha256"] = gate.artifact_digest(artifact)
+    return artifact
+
+
 def selected_cargo_results(monkeypatch, code, output, names=("tests::named",), seconds=1.0):
     """Supply a completed executable inventory and a separate runtime response."""
-    def cargo_test(*args):
+    def cargo_test(*args, **_kwargs):
         if "--list" in args[3]:
             listing = "".join(name + ": test\n" for name in names)
-            return 0, listing + f"\n{len(names)} tests, 0 benchmarks\n", 0.0
-        return code, output, seconds
+            return 0, listing + f"\n{len(names)} tests, 0 benchmarks\n", 0.0, empty_custody()
+        return code, output, seconds, empty_custody()
     monkeypatch.setattr(gate, "cargo_test", cargo_test)
 
 
@@ -236,9 +268,9 @@ def test_every_actual_substring_match_is_accounted_before_passing_or_killing(
     "tests::named: test\ntests::named: test\n\n2 tests, 0 benchmarks\n",  # Duplicate.
 ])
 def test_incomplete_executable_discovery_cannot_run_or_kill_a_mutant(monkeypatch, tmp_path, listing):
-    def cargo_test(*args):
+    def cargo_test(*args, **_kwargs):
         assert "--list" in args[3], "invalid discovery must stop before execution"
-        return 0, listing, 0.0
+        return 0, listing, 0.0, empty_custody()
     monkeypatch.setattr(gate, "cargo_test", cargo_test)
     step = gate.run_step(SimpleNamespace(), tmp_path, "MS1", ["named"], None, 5,
                          tmp_path / "named.log")
@@ -249,12 +281,12 @@ def test_discovery_and_execution_share_the_original_step_deadline(monkeypatch, t
     moments = iter((100.0, 101.0, 102.0))
     monkeypatch.setattr(gate.time, "monotonic", lambda: next(moments))
     calls = []
-    def cargo_test(*args):
+    def cargo_test(*args, **_kwargs):
         calls.append((args[3], args[5]))
         if "--list" in args[3]:
-            return 0, "tests::named: test\n\n1 test, 0 benchmarks\n", 1.0
+            return 0, "tests::named: test\n\n1 test, 0 benchmarks\n", 1.0, empty_custody()
         return 0, ("running 1 test\ntest tests::named ... ok\ntest result: ok. 1 passed; 0 failed; "
-                   "0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n"), 1.0
+                   "0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n"), 1.0, empty_custody()
     monkeypatch.setattr(gate, "cargo_test", cargo_test)
     step = gate.run_step(SimpleNamespace(), tmp_path, None, ["named"], None, 5,
                          tmp_path / "named.log")
@@ -264,9 +296,9 @@ def test_discovery_and_execution_share_the_original_step_deadline(monkeypatch, t
 
 
 def test_discovery_timeout_never_replenishes_or_disables_the_execution_deadline(monkeypatch, tmp_path):
-    def cargo_test(*args):
+    def cargo_test(*args, **_kwargs):
         assert "--list" in args[3], "the exhausted deadline cannot launch a test"
-        return 0, "tests::named: test\n\n1 test, 0 benchmarks\n", 5.0
+        return 0, "tests::named: test\n\n1 test, 0 benchmarks\n", 5.0, empty_custody()
     monkeypatch.setattr(gate, "cargo_test", cargo_test)
     step = gate.run_step(SimpleNamespace(), tmp_path, None, ["named"], None, 5,
                          tmp_path / "named.log")
@@ -277,6 +309,7 @@ def test_discovery_timeout_never_replenishes_or_disables_the_execution_deadline(
 def test_explicit_unbounded_wait_never_installs_a_process_deadline(
     monkeypatch, tmp_path, timeout, expected
 ):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
     deadlines = []
 
     class Process:
@@ -284,13 +317,13 @@ def test_explicit_unbounded_wait_never_installs_a_process_deadline(
 
         def communicate(self, *, timeout):
             deadlines.append(timeout)
-            return "test tests::named ... ok\n", None
+            return ("test tests::named ... ok\n").encode(), None
 
     monkeypatch.setattr(gate.subprocess, "Popen", lambda *args, **kwargs: Process())
-    code, output, _ = gate.cargo_test(
+    code, output, _, _custody = gate.cargo_test(
         SimpleNamespace(), tmp_path, "MS1", ["named"], None, timeout,
         tmp_path / "named.log",
-    )
+        expected_artifact=fixture_artifact(SimpleNamespace(), tmp_path, "MS1"))
     assert deadlines == [expected]
     assert code == 0
     assert "tests::named ... ok" in output
@@ -327,7 +360,7 @@ def test_package_mutation_environment_is_confined_to_its_actual_owner(monkeypatc
         returncode = 0
         def communicate(self, timeout):
             captured["timeout"] = timeout
-            return "test result: ok. 1 passed; 0 failed;", None
+            return ("test result: ok. 1 passed; 0 failed;").encode(), None
     def popen(command, **options):
         captured["command"] = command
         captured["env"] = options["env"]
@@ -337,12 +370,12 @@ def test_package_mutation_environment_is_confined_to_its_actual_owner(monkeypatc
     monkeypatch.setattr(gate.subprocess, "Popen", popen)
     args = SimpleNamespace(core=core)
     mutation = "HC1" if core else "MS1"
-    code, _, _ = gate.cargo_test(args, tmp_path, mutation, ["named"], None, 0, tmp_path / "log")
+    code, _, _, _custody = gate.cargo_test(args, tmp_path, mutation, ["named"], None, 0, tmp_path / "log", expected_artifact=fixture_artifact(args, tmp_path, mutation))
     crate, features, environment = gate.package_options(args)
     assert code == 0
-    profile_options = ["--profile", "test"] if core else ["--release"]
-    assert captured["command"] == ["cargo", "test", "--locked", "-p", crate,
-                                   *profile_options, "--features", features, "--lib", "--", "named"]
+    assert (crate, features) == (("iroha_core", "mutation-testing,iroha-core-tests") if core
+                                 else ("iroha_sumeragi", "mutation-testing,sim"))
+    assert captured["command"] == [str(tmp_path / "original-libtest"), "named"]
     assert captured["env"][environment] == mutation
     foreign = "SUMERAGI_MUTATION" if core else "SUMERAGI_CORE_MUTATION"
     assert foreign not in captured["env"]
@@ -385,7 +418,9 @@ def test_registered_core_rules_have_real_hooks_and_named_core_regressions():
 
 
 def test_mutation_ids_select_one_rule_across_all_implementation_owners():
-    mutations = [*gate.MUTATIONS, *gate.CORE_MUTATIONS, *gate.DAEMON_MUTATIONS, *gate.MODEL_MUTATIONS]
+    mutations = [*gate.MUTATIONS, *gate.CORE_MUTATIONS, *gate.DAEMON_MUTATIONS, *gate.MODEL_MUTATIONS,
+                 *gate.SDK_MUTATIONS, *gate.DEPLOY_MUTATIONS, *gate.TORII_MUTATIONS,
+                 *gate.NORITO_MUTATIONS, *gate.P2P_MUTATIONS]
     assert len(gate.index_mutations(mutations)) == len(mutations)
     core_and_daemon = gate.index_mutations([*gate.CORE_MUTATIONS, *gate.DAEMON_MUTATIONS])
     rows = re.findall(
@@ -520,7 +555,7 @@ def test_core_profile_is_identical_for_baseline_and_mutant_and_recorded(monkeypa
         returncode = 0
         def communicate(self, timeout):
             assert timeout is None
-            return "test result: ok. 1 passed; 0 failed;", None
+            return ("test result: ok. 1 passed; 0 failed;").encode(), None
     def popen(command, **options):
         captured.append(command)
         return Process()
@@ -528,10 +563,13 @@ def test_core_profile_is_identical_for_baseline_and_mutant_and_recorded(monkeypa
     args = SimpleNamespace(core=True, core_profile=profile)
     for mutation in (None, "HC1"):
         assert gate.cargo_test(args, tmp_path, mutation, ["named"], None, 0,
-                               tmp_path / f"{mutation}.log")[0] == 0
+                               tmp_path / f"{mutation}.log", expected_artifact=fixture_artifact(args, tmp_path, mutation))[0] == 0
     assert captured[0] == captured[1]
     expected_profile = profile or "test"
-    assert captured[0][5:7] == ["--profile", expected_profile]
+    stub_compiler_host(monkeypatch)
+    command, _ = gate.capture_build_command(args, {}, tmp_path / "profile.build.log", 0, 0)
+    assert command[5:7] == ["--profile", expected_profile]
+    assert captured[0] == [str(tmp_path / "original-libtest"), "named"]
     profile_option = ["--core-profile", profile] if profile else []
     monkeypatch.setattr(sys, "argv", ["sumeragi_mutation_gate.py", "--core", *profile_option,
                                      "--only", "HC1", "--strict", "--fast", "--target-dir", str(tmp_path)])
@@ -991,6 +1029,7 @@ def test_original_checkpoint_decode_resource_stays_a_typed_attempt():
 def test_deadline_waits_for_owned_cargo_without_signalling_or_counting_late_result(
     monkeypatch, tmp_path, late_verdict, late_exit
 ):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
     late_output = (
         f"test tests::named ... {late_verdict}\n"
         + ("test result: ok. 1 passed; 0 failed;\n" if late_exit == 0
@@ -1007,7 +1046,7 @@ def test_deadline_waits_for_owned_cargo_without_signalling_or_counting_late_resu
             calls.append(timeout)
             if timeout is not omitted:
                 raise subprocess.TimeoutExpired("cargo test", timeout)
-            return late_output, None
+            return (late_output).encode(), None
 
     monkeypatch.setattr(gate.subprocess, "Popen", lambda *args, **kwargs: Process())
     monkeypatch.setattr(
@@ -1016,11 +1055,12 @@ def test_deadline_waits_for_owned_cargo_without_signalling_or_counting_late_resu
     )
     args = SimpleNamespace(core=True, core_profile="test")
     log = tmp_path / "owned-deadline.log"
-    code, output, _ = gate.cargo_test(args, tmp_path, None, ["named"], None, 7, log)
+    code, output, _, _custody = gate.cargo_test(args, tmp_path, None, ["named"], None, 7, log, expected_artifact=fixture_artifact(args, tmp_path, None))
     assert calls == [7, omitted], "original deadline is retained; then wait for natural exit"
     assert code is None, "neither late success nor a late failed test satisfies its deadline"
     assert output == late_output
-    assert "# exit None" in log.read_text()
+    assert log.read_bytes() == late_output.encode()
+    assert json.loads(log.with_suffix(".artifact.json").read_text())["exit_code"] is None
     selected_cargo_results(monkeypatch, code, output, seconds=8)
     step = gate.run_step(args, tmp_path, None, ["named"], None, 7, log)
     assert step.status == "timeout"
@@ -1638,7 +1678,7 @@ def test_daemon_mutation_environment_never_reaches_dependency_owners(
     class Process:
         returncode = 0
         def communicate(self, *, timeout):
-            return "test result: ok. 1 passed; 0 failed;", None
+            return ("test result: ok. 1 passed; 0 failed;").encode(), None
     def popen(command, **options):
         captured.update(command=command, environment=options["env"])
         return Process()
@@ -1646,14 +1686,10 @@ def test_daemon_mutation_environment_never_reaches_dependency_owners(
         monkeypatch.setenv(name, "inherited-foreign-rule")
     monkeypatch.setattr(gate.subprocess, "Popen", popen)
     args = SimpleNamespace(core=owner == "core", daemon=owner == "daemon")
-    code, _, _ = gate.cargo_test(args, tmp_path, mutation, ["named"], None, 0, tmp_path / "log")
+    code, _, _, _custody = gate.cargo_test(args, tmp_path, mutation, ["named"], None, 0, tmp_path / "log", expected_artifact=fixture_artifact(args, tmp_path, mutation))
     assert code == 0
     package, features, selected_environment = gate.package_options(args)
-    profile_options = ["--profile", "test"] if owner == "core" else ["--release"]
-    assert captured["command"] == [
-        "cargo", "test", "--locked", "-p", package, *profile_options,
-        "--features", features, "--lib", "--", "named"
-    ]
+    assert captured["command"] == [str(tmp_path / "original-libtest"), "named"]
     if owner == "daemon":
         assert (package, features, selected_environment) == (
             "irohad_lib", "mutation-testing", "SUMERAGI_DAEMON_MUTATION"
@@ -1745,11 +1781,12 @@ def capture_command(monkeypatch,tmp_path):
     captured={}
     class Child:
         returncode=0
-        def communicate(self,*,timeout=None): return '',None
+        def communicate(self,*,timeout=None): return ('').encode(),None
     def popen(command,**kwargs):
         captured.update(command=command,seed_base=kwargs['env'].get('SUMERAGI_SIM_SEED_BASE'))
         return Child()
     monkeypatch.setattr(gate.subprocess,'Popen',popen)
+    stub_compiler_host(monkeypatch)
     gate.cargo_test(SimpleNamespace(),tmp_path,None,[],None,900,tmp_path/'cargo.log',no_run=True)
     return captured
 
@@ -1765,7 +1802,7 @@ def test_actual_baseline_keeps_original_named_and_scenario_deadlines(monkeypatch
     if scenarios: scenarios=(next(iter(gate.SCENARIOS)),)
     calls=[]
     monkeypatch.setattr(gate,'build',lambda *args:gate.Step(status='pass'))
-    def step(args,target,mutation,filters,seeds,timeout,log):
+    def step(args,target,mutation,filters,seeds,timeout,log, artifact=None):
         calls.append(timeout);return gate.Step(status='pass')
     monkeypatch.setattr(gate,'run_step',step)
     args=SimpleNamespace(target_dir=tmp_path,timeout_test=900,timeout_scenario=3600,seeds=200,fast=False)
@@ -1803,13 +1840,13 @@ def test_mutation_command_retains_cap_failure_after_late_natural_completion(
     class Process:
         returncode = completed_code
         def communicate(self, *, timeout=None):
-            return output, None
-    moments = iter((100.0, 100.0 + timeout + 1.0))
+            return (output).encode(), None
+    moments = iter((100.0, 100.0, 100.0 + timeout + 1.0))
     monkeypatch.setattr(gate.time, "monotonic", lambda: next(moments))
     monkeypatch.setattr(gate.subprocess, "Popen", lambda *_args, **_kwargs: Process())
-    code, retained, elapsed = gate.cargo_test(
-        SimpleNamespace(), tmp_path, None, ["named"], None, timeout, tmp_path / "late.log"
-    )
+    code, retained, elapsed, _custody = gate.cargo_test(
+        SimpleNamespace(), tmp_path, None, ["named"], None, timeout, tmp_path / "late.log",
+        expected_artifact=fixture_artifact(SimpleNamespace(), tmp_path, None))
     assert elapsed == timeout + 1.0
     assert retained == output
     assert code is None, "a late natural completion cannot pass or kill a mutant"
@@ -1822,13 +1859,13 @@ def test_mutation_command_keeps_explicit_unbounded_diagnostic_wait(
         returncode = 0
         def communicate(self, *, timeout=None):
             assert timeout is None
-            return "retained original output", None
+            return ("retained original output").encode(), None
     moments = iter((100.0, 10000.0))
     monkeypatch.setattr(gate.time, "monotonic", lambda: next(moments))
     monkeypatch.setattr(gate.subprocess, "Popen", lambda *_args, **_kwargs: Process())
-    code, retained, elapsed = gate.cargo_test(
-        SimpleNamespace(), tmp_path, None, [], None, 0, tmp_path / "unbounded.log"
-    )
+    code, retained, elapsed, _custody = gate.cargo_test(
+        SimpleNamespace(), tmp_path, None, [], None, 0, tmp_path / "unbounded.log",
+        expected_artifact=fixture_artifact(SimpleNamespace(), tmp_path, None))
     assert (code, retained, elapsed) == (0, "retained original output", 9900.0)
 
 
@@ -2111,7 +2148,7 @@ def test_baseline_keeps_distinct_ordered_named_tuples_and_scenario_union(monkeyp
                  gate.m('SYNTHETIC_C', 'fixture', ['tests::b', 'tests::a'], [scenarios[1]])]
     builds, calls = [], []
     monkeypatch.setattr(gate, 'build', lambda *args: builds.append(args) or gate.Step(status='pass'))
-    def run_step(args, target, mutation, filters, seeds, timeout, log):
+    def run_step(args, target, mutation, filters, seeds, timeout, log, artifact=None):
         calls.append((tuple(filters), seeds, timeout, log))
         return gate.Step(status='pass', selected=list(filters), ran=list(filters), log=str(log))
     monkeypatch.setattr(gate, 'run_step', run_step)
@@ -2135,7 +2172,7 @@ def test_baseline_group_plan_preserves_every_current_registry_filter(monkeypatch
     mutations = getattr(gate, table)
     calls = []
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
-    def run_step(args, target, mutation, filters, seeds, timeout, log):
+    def run_step(args, target, mutation, filters, seeds, timeout, log, artifact=None):
         calls.append((tuple(filters), seeds, timeout))
         return gate.Step(status='pass', selected=list(filters), ran=list(filters))
     monkeypatch.setattr(gate, 'run_step', run_step)
@@ -2155,7 +2192,7 @@ def test_any_baseline_group_refusal_survives_later_pass_and_preserves_union(monk
                  gate.m('SYNTHETIC_B', 'fixture', ['tests::b'])]
     calls = []
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
-    def run_step(args, target, mutation, filters, seeds, timeout, log):
+    def run_step(args, target, mutation, filters, seeds, timeout, log, artifact=None):
         calls.append(tuple(filters))
         status = bad_status if len(calls) == 1 else 'pass'
         return gate.Step(status=status, selected=list(filters), ran=list(filters),
@@ -2173,15 +2210,15 @@ def test_grouped_discovery_timeout_never_launches_or_replenishes_that_step(monke
     monkeypatch.setattr(gate.time, 'monotonic', lambda: 100.0)
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
     calls = []
-    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False):
+    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False, **_kwargs):
         calls.append((tuple(filters), timeout))
         if filters[0] == 'tests::a':
             assert '--list' in filters, 'an exhausted discovery cannot launch runtime'
-            return 0, 'tests::a: test\n\n1 test, 0 benchmarks\n', 900.0
+            return 0, 'tests::a: test\n\n1 test, 0 benchmarks\n', 900.0, empty_custody()
         if '--list' in filters:
-            return 0, 'tests::b: test\n\n1 test, 0 benchmarks\n', 1.0
+            return 0, 'tests::b: test\n\n1 test, 0 benchmarks\n', 1.0, empty_custody()
         return 0, ('running 1 test\ntest tests::b ... ok\ntest result: ok. 1 passed; 0 failed; '
-                   '0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n'), 1.0
+                   '0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n'), 1.0, empty_custody()
     monkeypatch.setattr(gate, 'cargo_test', cargo_test)
     mutations = [gate.m('SYNTHETIC_A', 'fixture', ['tests::a']),
                  gate.m('SYNTHETIC_B', 'fixture', ['tests::b'])]
@@ -2203,10 +2240,10 @@ def test_grouped_discovery_timeout_never_launches_or_replenishes_that_step(monke
 def test_grouped_baseline_requires_exact_actual_discovered_terminals(monkeypatch, tmp_path, output, code):
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
     monkeypatch.setattr(gate.time, 'monotonic', lambda: 100.0)
-    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False):
+    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False, **_kwargs):
         if '--list' in filters:
-            return 0, 'tests::a: test\n\n1 test, 0 benchmarks\n', 0.0
-        return code, output, 1.0
+            return 0, 'tests::a: test\n\n1 test, 0 benchmarks\n', 0.0, empty_custody()
+        return code, output, 1.0, empty_custody()
     monkeypatch.setattr(gate, 'cargo_test', cargo_test)
     result = gate.evaluate_baseline(synthetic_scheduling_args(tmp_path), tmp_path,
                                     [gate.m('SYNTHETIC_A', 'fixture', ['tests::a'])])
@@ -2223,7 +2260,7 @@ def test_mutant_preserves_named_tuple_and_runs_each_distinct_scenario_once(monke
     calls, builds = [], []
     monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
     monkeypatch.setattr(gate, 'build', lambda *args: builds.append(args) or gate.Step(status='pass'))
-    def run_step(args, target, mutation, filters, seeds, timeout, log):
+    def run_step(args, target, mutation, filters, seeds, timeout, log, artifact=None):
         calls.append((mutation, tuple(filters), seeds, timeout, log))
         return gate.Step(status='fail' if seeds is None else 'pass',
                          failed=['tests::a'] if seeds is None else [], selected=list(filters), ran=list(filters))
@@ -2263,7 +2300,7 @@ def test_independent_steps_may_exceed_union_budget_without_replenishing_a_step(m
     """The prospective policy is per invocation; no historical timeout is reclassified."""
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
     calls = []
-    def run_step(args, target, mutation, filters, seeds, timeout, log):
+    def run_step(args, target, mutation, filters, seeds, timeout, log, artifact=None):
         calls.append(timeout)
         return gate.Step(status='pass', seconds=800.0, selected=list(filters), ran=list(filters))
     monkeypatch.setattr(gate, 'run_step', run_step)
@@ -2282,7 +2319,7 @@ def test_baseline_and_mutant_fast_mode_preserve_named_coverage_only(monkeypatch,
     calls = []
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
     monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
-    def run_step(args, target, mutation, filters, seeds, timeout, log):
+    def run_step(args, target, mutation, filters, seeds, timeout, log, artifact=None):
         calls.append((mutation, tuple(filters), seeds, timeout))
         return gate.Step(status='pass')
     monkeypatch.setattr(gate, 'run_step', run_step)
@@ -2310,7 +2347,7 @@ def test_main_report_preserves_strict_and_error_semantics_of_grouped_scenarios(
     monkeypatch.setattr(gate, 'MUTATIONS', [mu])
     monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
-    def run_step(args, target, mutation, filters, seeds, timeout, log):
+    def run_step(args, target, mutation, filters, seeds, timeout, log, artifact=None):
         if mutation is None:
             status = 'pass'
         elif seeds is None:
@@ -2336,13 +2373,13 @@ def test_grouped_substring_discovery_preserves_extra_and_overlapping_actual_name
     monkeypatch.setattr(gate.time, 'monotonic', lambda: 100.0)
     actual_names = ['tests::named', 'tests::named_extra', 'tests::other']
     runtime = []
-    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False):
+    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False, **_kwargs):
         selected = [name for name in actual_names if any(f in name for f in filters if not f.startswith('--'))]
         if '--list' in filters:
-            return 0, ''.join(f'{name}: test\n' for name in selected) + f'\n{len(selected)} tests, 0 benchmarks\n', 0.0
+            return 0, ''.join(f'{name}: test\n' for name in selected) + f'\n{len(selected)} tests, 0 benchmarks\n', 0.0, empty_custody()
         runtime.append(selected)
         return 0, (f'running {len(selected)} tests\n' + ''.join(f'test {name} ... ok\n' for name in selected)
-                   + f'test result: ok. {len(selected)} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n'), 1.0
+                   + f'test result: ok. {len(selected)} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n'), 1.0, empty_custody()
     monkeypatch.setattr(gate, 'cargo_test', cargo_test)
     mutations = [gate.m('SYNTHETIC_A', 'fixture', ['tests::named']),
                  gate.m('SYNTHETIC_B', 'fixture', ['tests::named_extra']),
@@ -2361,18 +2398,18 @@ def test_mutant_scenario_runtime_cannot_reset_discovery_budget_or_hide_late_pass
     monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
     monkeypatch.setattr(gate.time, 'monotonic', lambda: 100.0)
     calls = []
-    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False):
+    def cargo_test(args, target, mutation, filters, seeds, timeout, log, no_run=False, **_kwargs):
         assert len([f for f in filters if f == 'tests::named' or f in (gate.SCENARIOS[s] for s in scenarios)]) == 1
         name = filters[0]
         calls.append((name, '--list' in filters, timeout))
         if '--list' in filters:
-            return 0, f'{name}: test\n\n1 test, 0 benchmarks\n', 2.0
+            return 0, f'{name}: test\n\n1 test, 0 benchmarks\n', 2.0, empty_custody()
         late = name == gate.SCENARIOS[scenarios[1]]
         verdict = 'ok' if late else 'FAILED'
         output = (f'running 1 test\ntest {name} ... {verdict}\ntest result: {verdict}. '
                   f'{1 if late else 0} passed; {0 if late else 1} failed; '
                   '0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n')
-        return (0 if late else 101), output, (3598.5 if late else 1.0)
+        return (0 if late else 101), output, (3598.5 if late else 1.0), empty_custody()
     monkeypatch.setattr(gate, 'cargo_test', cargo_test)
     result = gate.evaluate(synthetic_scheduling_args(tmp_path), tmp_path, mu)
     assert result['named']['status'] == 'fail'
@@ -2886,12 +2923,13 @@ def test_original_begin_depth_mutation_bypasses_only_its_participant_payload_con
 
 @pytest.mark.parametrize("selected", [None, *MODEL_NAMES])
 def test_model_actual_cargo_argv_profile_and_isolated_environment(monkeypatch, tmp_path, selected):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
     captured = {}
     class Process:
         returncode = 0
         def communicate(self, *, timeout):
             assert timeout == 900
-            return "isolated process result", None
+            return ("isolated process result").encode(), None
     def popen(command, **options):
         captured.update(command=command, options=options)
         return Process()
@@ -2901,13 +2939,12 @@ def test_model_actual_cargo_argv_profile_and_isolated_environment(monkeypatch, t
     for variable in ("SUMERAGI_SIM_SEED", "SUMERAGI_SIM_SEED_BASE", "SUMERAGI_SIM_SEEDS"):
         monkeypatch.setenv(variable, "7")
     monkeypatch.setattr(gate.subprocess, "Popen", popen)
-    code, output, elapsed = gate.cargo_test(SimpleNamespace(model=True), tmp_path, selected,
-        ["isi::amx_owner::tests::named"], None, 900, tmp_path / "model.log")
+    code, output, elapsed, _custody = gate.cargo_test(SimpleNamespace(model=True), tmp_path, selected,
+        ["isi::amx_owner::tests::named"], None, 900, tmp_path / "model.log", expected_artifact=fixture_artifact(SimpleNamespace(model=True), tmp_path, selected))
     assert code == 0 and output == "isolated process result" and elapsed >= 0
-    assert captured["command"] == ["cargo", "test", "--locked", "-p", "iroha_data_model",
-        "--profile", "test", "--features", "mutation-testing", "--lib", "--", "isi::amx_owner::tests::named"]
+    assert captured["command"] == [str(tmp_path / "original-libtest"), "isi::amx_owner::tests::named"]
     environment = captured["options"]["env"]
-    assert captured["options"]["cwd"] == ROOT
+    assert captured["options"]["cwd"] == ROOT / "crates/iroha_data_model"
     assert captured["options"]["start_new_session"] is True
     assert environment["CARGO_TARGET_DIR"] == str(tmp_path)
     for variable in foreign:
@@ -3240,6 +3277,7 @@ MANAGED_BOOTSTRAP_OWNERS = (
 UNIT_TEST_MUTATION_OWNERS = MANAGED_BOOTSTRAP_OWNERS + (
     ("torii", "iroha_torii", "TOR", "sumeragi_torii_mutation", "SUMERAGI_TORII_MUTATION"),
     ("norito", "norito", "NC", "sumeragi_norito_mutation", "SUMERAGI_NORITO_MUTATION"),
+    ("p2p", "iroha_p2p", "NET", "sumeragi_p2p_mutation", "SUMERAGI_P2P_MUTATION"),
 )
 
 
@@ -3303,31 +3341,31 @@ def test_managed_bootstrap_owned_registry_has_real_hooks_and_original_named_cont
 def test_managed_bootstrap_cargo_preserves_exact_owner_profile_caps_and_isolates_all_selectors(
     monkeypatch, tmp_path, owner, package, prefix, cfg, environment, selected
 ):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
     identifier = prefix + "1" if selected else None
     captured = {}
     class Process:
         returncode = 0
         def communicate(self, *, timeout):
             assert timeout == 900
-            return "original isolated native output", None
+            return ("original isolated native output").encode(), None
     def popen(command, **options):
         captured.update(command=command, options=options)
         return Process()
     variables = ("SUMERAGI_MUTATION", "SUMERAGI_CORE_MUTATION", "SUMERAGI_DAEMON_MUTATION",
                  "SUMERAGI_MODEL_MUTATION", "SUMERAGI_SDK_MUTATION", "SUMERAGI_DEPLOY_MUTATION",
-                 "SUMERAGI_TORII_MUTATION", "SUMERAGI_NORITO_MUTATION")
+                 "SUMERAGI_TORII_MUTATION", "SUMERAGI_NORITO_MUTATION", "SUMERAGI_P2P_MUTATION")
     for variable in variables:
         monkeypatch.setenv(variable, "foreign-inherited-rule")
     for variable in ("SUMERAGI_SIM_SEED", "SUMERAGI_SIM_SEED_BASE", "SUMERAGI_SIM_SEEDS"):
         monkeypatch.setenv(variable, "7")
     monkeypatch.setattr(gate.subprocess, "Popen", popen)
     args = SimpleNamespace(**{owner: True})
-    code, output, elapsed = gate.cargo_test(args, tmp_path, identifier, ["original::named"], None, 900, tmp_path / "run.log")
+    code, output, elapsed, _custody = gate.cargo_test(args, tmp_path, identifier, ["original::named"], None, 900, tmp_path / "run.log", expected_artifact=fixture_artifact(args, tmp_path, identifier))
     assert code == 0 and output == "original isolated native output" and elapsed >= 0
-    assert captured["command"] == ["cargo", "test", "--locked", "-p", package, "--profile", "test",
-                                   "--features", "mutation-testing", "--lib", "--", "original::named"]
+    assert captured["command"] == [str(tmp_path / "original-libtest"), "original::named"]
     options = captured["options"]
-    assert options["cwd"] == ROOT and options["start_new_session"] is True
+    assert options["cwd"] == ROOT / "crates" / package and options["start_new_session"] is True
     assert options["env"]["CARGO_TARGET_DIR"] == str(tmp_path)
     for variable in variables:
         assert options["env"].get(variable) == (identifier if variable == environment else None)
@@ -3350,7 +3388,10 @@ def test_managed_bootstrap_kill_requires_actual_complete_named_failure(
     calls = []
     def named(*args):
         calls.append(args)
-        return gate.Step(status=status, failed=list(args[3]) if status == "fail" else [])
+        panics = {name: [{"thread": name, "source": expected.source, "message": expected.cause}]
+                  for name, expected in zip(rule.tests, rule.causes)} if status == "fail" else {}
+        return gate.Step(status=status, failed=list(args[3]) if status == "fail" else [],
+                         panics=panics, panic_owners_valid=True)
     monkeypatch.setattr(gate, "run_step", named)
     args = SimpleNamespace(**{owner: True}, target_dir=tmp_path, timeout_test=900, fast=False)
     rule = getattr(gate, owner.upper() + "_MUTATIONS")[0]
@@ -3426,7 +3467,7 @@ def test_managed_bootstrap_nightly_owns_all_rules_and_ordinary_feature_policy_re
     module = importlib.util.module_from_spec(ci_spec)
     sys.modules[ci_spec.name] = module
     ci_spec.loader.exec_module(module)
-    assert module.MUTATION_FEATURE_OWNERS == {"iroha_data_model", "iroha_core", "irohad_lib", "iroha_sumeragi", "iroha", "iroha_deploy", "iroha_torii", "norito"}
+    assert module.MUTATION_FEATURE_OWNERS == {"iroha_data_model", "iroha_core", "irohad_lib", "iroha_sumeragi", "iroha", "iroha_deploy", "iroha_torii", "norito", "iroha_p2p"}
 
 
 # Genuine standalone compiler guard checks are part of the subsequent owner gate review.
@@ -3614,10 +3655,10 @@ def test_exact_control_missing_refuses_before_runtime_even_if_substring_replacem
         # A real exact leaf in a different module is deliberately a named match.
         replacement += "_extra"
     calls = []
-    def cargo_test(*args):
+    def cargo_test(*args, **_kwargs):
         calls.append(args[3])
         if "--list" in args[3]:
-            return 0, f"{replacement}: test\n\n1 test, 0 benchmarks\n", 0.0
+            return 0, f"{replacement}: test\n\n1 test, 0 benchmarks\n", 0.0, empty_custody()
         return exact_control_output([(replacement, "FAILED")]) + (1.0,)
     monkeypatch.setattr(gate, "cargo_test", cargo_test)
     monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
@@ -3710,14 +3751,14 @@ def test_exact_control_scenario_extras_cannot_replace_declared_failure(
     monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
     monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
     calls = []
-    def cargo_test(*args):
+    def cargo_test(*args, **_kwargs):
         selected_scenario = args[3][0] == scenario
         rows = ([(scenario + "_extra", "FAILED")] if scenario_status == "missing" else
                 [(scenario, scenario_status), (scenario + "_extra", "FAILED")]) if selected_scenario else [("tests::named", named_status)]
         calls.append((args[3][0], "--list" in args[3]))
         if "--list" in args[3]:
-            return 0, "".join(name + ": test\n" for name, _ in rows) + f"\n{len(rows)} tests, 0 benchmarks\n", 0.0
-        return exact_control_output(rows) + (1.0,)
+            return 0, "".join(name + ": test\n" for name, _ in rows) + f"\n{len(rows)} tests, 0 benchmarks\n", 0.0, empty_custody()
+        return exact_control_output(rows) + (1.0, empty_custody())
     monkeypatch.setattr(gate, "cargo_test", cargo_test)
     args = SimpleNamespace(target_dir=tmp_path, timeout_test=5, timeout_scenario=5, seeds=200, fast=False)
     result = gate.evaluate(args, tmp_path, mutation)
@@ -3740,12 +3781,12 @@ def test_exact_control_later_extra_scenario_failure_cannot_hide_behind_earlier_c
     mutation = gate.m("EXACT_CONTROL_FIXTURE", "parser fixture", ["tests::named"], scenarios)
     monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
     monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
-    def cargo_test(*args):
+    def cargo_test(*args, **_kwargs):
         name = args[3][0]
         rows = [(name, "ok")] if name == "tests::named" else [(name, "FAILED")] if name == gate.SCENARIOS[scenarios[0]] else [(name, "ok"), (name + "_extra", "FAILED")]
         if "--list" in args[3]:
-            return 0, "".join(n + ": test\n" for n, _ in rows) + f"\n{len(rows)} tests, 0 benchmarks\n", 0.0
-        return exact_control_output(rows) + (1.0,)
+            return 0, "".join(n + ": test\n" for n, _ in rows) + f"\n{len(rows)} tests, 0 benchmarks\n", 0.0, empty_custody()
+        return exact_control_output(rows) + (1.0, empty_custody())
     monkeypatch.setattr(gate, "cargo_test", cargo_test)
     args = SimpleNamespace(target_dir=tmp_path, timeout_test=5, timeout_scenario=5, seeds=200, fast=False)
     result = gate.evaluate(args, tmp_path, mutation)
@@ -4560,9 +4601,10 @@ def test_torii_named_kill_accounts_for_both_exact_adapters_and_selected_extras(
 def test_all_mutation_families_clear_inherited_torii_selection_without_changing_profiles(
     monkeypatch, tmp_path, owner, package, features, profile, environment, mutant
 ):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
     variables = ("SUMERAGI_MUTATION", "SUMERAGI_CORE_MUTATION", "SUMERAGI_DAEMON_MUTATION",
                  "SUMERAGI_MODEL_MUTATION", "SUMERAGI_SDK_MUTATION", "SUMERAGI_DEPLOY_MUTATION",
-                 "SUMERAGI_TORII_MUTATION", "SUMERAGI_NORITO_MUTATION")
+                 "SUMERAGI_TORII_MUTATION", "SUMERAGI_NORITO_MUTATION", "SUMERAGI_P2P_MUTATION")
     for variable in variables:
         monkeypatch.setenv(variable, "inherited-foreign-rule")
     captured = {}
@@ -4570,15 +4612,21 @@ def test_all_mutation_families_clear_inherited_torii_selection_without_changing_
         returncode = 0
         def communicate(self, *, timeout):
             assert timeout == 1200
-            return "unexecuted mock build", None
+            return ("unexecuted mock build").encode(), None
     def popen(command, **options):
         captured.update(command=command, options=options)
         return Process()
     monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    stub_compiler_host(monkeypatch)
     args = SimpleNamespace(**({owner: True} if owner else {}))
-    code, output, _ = gate.cargo_test(args, tmp_path, mutant, [], None, 1200, tmp_path / "build.log", no_run=True)
+    code, output, _, _custody = gate.cargo_test(args, tmp_path, mutant, [], None, 1200, tmp_path / "build.log", no_run=True)
     assert code == 0 and output == "unexecuted mock build"
-    assert captured["command"] == ["cargo", "test", "--locked", "-p", package, *profile, "--features", features, "--lib", "--no-run"]
+    prefix = ["cargo", "test", "--locked", "-p", package, *profile, "--features", features,
+              "--lib", "--message-format=json-render-diagnostics"]
+    assert captured["command"][:len(prefix)] == prefix
+    assert captured["command"][len(prefix):len(prefix) + 2] == ["--target", "synthetic-native-host"]
+    assert "--no-run" not in captured["command"]
+    assert "--capture-runtime" in captured["command"][-1]
     for variable in variables:
         assert captured["options"]["env"].get(variable) == (mutant if variable == environment else None)
     assert captured["options"]["start_new_session"] is True
@@ -9083,14 +9131,14 @@ def test_sns_shared_native_selection_and_witness_have_independent_causal_mutatio
 
 
 @pytest.mark.parametrize("identifier,function,statement,control,cause", [
-    ("HC377", "new_inner",
+    ("HC385", "new_inner",
      "world_acquisition::validate_world_original_pools(&world, &execution_budget)",
      "state::world_acquisition::pool_identity_tests::fresh_state_refuses_a_foreign_pool_before_resource_admission",
      "fresh State must reject the original foreign pool before admission"),
-    ("HC378", "write_sccp_execution_delta", "storage!(sccp_destination_pending_generations);",
+    ("HC386", "write_sccp_execution_delta", "storage!(sccp_destination_pending_generations);",
      "state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets",
      "every changed SCCP index must appear in its canonical delta"),
-    ("HC379", "write_sccp_execution_delta", "storage!(sccp_reconciliation_due);",
+    ("HC387", "write_sccp_execution_delta", "storage!(sccp_reconciliation_due);",
      "state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets",
      "every changed SCCP index must appear in its canonical delta"),
 ])
@@ -9110,7 +9158,7 @@ def test_original_state_pool_and_sccp_delta_mutations_keep_exact_owned_controls(
 
 
 def test_snapshot_structural_depth_mutation_keeps_public_and_scanner_controls():
-    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC380"]
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC388"]
     controls = (
         "snapshot::tests::snapshot_scanner_direct_policy_cannot_relax_fixed_structural_depth",
         "snapshot::tests::signed_snapshot_reader_refuses_depth_before_state_decode_with_direct_policy",
@@ -9122,7 +9170,7 @@ def test_snapshot_structural_depth_mutation_keeps_public_and_scanner_controls():
     ]
     source = (ROOT / "crates/iroha_core/src/snapshot.rs").read_text()
     body = named_rust_function(source, "parse_value")
-    guard = '#[cfg(not(all(test, sumeragi_core_mutation = "HC380")))]'
+    guard = '#[cfg(not(all(test, sumeragi_core_mutation = "HC388")))]'
     assert re.search(re.escape(guard) + r"\s*if depth > norito::core::MAX_VALUE_NESTING_DEPTH", body)
     assert body.index("depth > self.policy.max_decode_depth.get()") < body.index(guard)
     assert body.index(guard) < body.index("let token = self.peek()")
@@ -9133,7 +9181,7 @@ def test_snapshot_structural_depth_mutation_keeps_public_and_scanner_controls():
     assert "try_read_snapshot_with_limits(" in public
     assert "write_snapshot_bundle_from_bytes(" in public
     assert "read_budget.reserved_bytes()" in public
-    rows = re.findall(r"^\| HC380 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    rows = re.findall(r"^\| HC388 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
     assert len(rows) == 1 and all(control.rsplit("::", 1)[-1] in rows[0] for control in controls)
 
 
@@ -9174,3 +9222,690 @@ def test_compute_full_width_model_mutations_preserve_owner_and_shipping_guards()
     assert "fn delta_bps(" not in config
     assert "iroha_data_model::compute::validate_price_family_update(" in config
     assert "iroha_data_model::compute::enforce_sponsor_policy(" in config
+
+
+def artifact_envelopes(artifact, native="", *, extra=()):
+    """Synthetic Cargo protocol for Python unit tests; no executable is launched."""
+    record = {key: value for key, value in artifact.items()
+              if key not in ("identity", "mutation", "runtime", "build_options", "binding_sha256")}
+    record.update(reason="compiler-artifact", filenames=[artifact["executable"]], fresh=False)
+    return "".join(json.dumps(row) + "\n" for row in
+                   [record, *extra, {"reason": "build-finished", "success": True}]) + native
+
+
+def stub_compiler_host(monkeypatch):
+    """Only intercept the compiler identity query; every native/build call stays visible."""
+    original_popen = gate.subprocess.Popen
+    def popen(command, **options):
+        if command[-1:] == ["-vV"]:
+            class Probe:
+                returncode = 0
+                def communicate(self, *, timeout=None):
+                    return b"rustc synthetic\nhost: synthetic-native-host\n", None
+            return Probe()
+        return original_popen(command, **options)
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+
+
+def stub_artifact_cargo(monkeypatch, output):
+    """Replace Popen only; real custody, capture validation and accounting remain."""
+    calls = []
+    def popen(command, **options):
+        calls.append((command, options))
+        class Process:
+            returncode = 0
+            def communicate(self, *, timeout=None):
+                raw = output(command, options)
+                if command[0] == "cargo":
+                    records = [json.loads(line) for line in raw.splitlines() if line.startswith("{")]
+                    artifacts = [row for row in records if row.get("reason") == "compiler-artifact"
+                                 and row.get("executable") is not None]
+                    if len(artifacts) == 1:
+                        artifact = artifacts[0]
+                        capture_option = command[-1].split("=", 1)[1]
+                        runner = json.loads(capture_option).split()
+                        capture = Path(runner[runner.index("--capture-runtime") + 1])
+                        owner = Path(artifact["manifest_path"]).parent
+                        environment = {key: None for key in gate.CARGO_RUNTIME_FIELDS}
+                        environment[gate.runtime_loader_key()] = "/synthetic/runtime"
+                        environment.update(CARGO="/synthetic/cargo", CARGO_MANIFEST_DIR=str(owner),
+                            CARGO_MANIFEST_PATH=artifact["manifest_path"],
+                            CARGO_PKG_NAME=gate.package_options(SimpleNamespace(
+                                daemon=owner.name == "irohad"))[0] if owner.name == "irohad" else owner.name)
+                        capture.write_text(json.dumps({"argv": [artifact["executable"]],
+                            "cwd": str(owner), "environment": environment}))
+                return raw.encode(), None
+        return Process()
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    stub_compiler_host(monkeypatch)
+    return calls
+
+
+@pytest.mark.parametrize("owner", [None, "core", "daemon", "model", "sdk", "deploy", "torii", "norito", "p2p"])
+def test_artifact_custody_uses_actual_emitted_owning_libtest_for_every_package(monkeypatch, tmp_path, owner):
+    args = SimpleNamespace(timeout_build=30, **({owner: True} if owner else {}))
+    original = fixture_artifact(args, tmp_path, None)
+    raw = artifact_envelopes(original)
+    stub_artifact_cargo(monkeypatch, lambda *_: raw)
+    step = gate.build(args, tmp_path, None, tmp_path / "build.log")
+    assert step.status == "pass" and step.artifact == original
+    receipt = json.loads((tmp_path / "build.artifact.json").read_text())
+    assert receipt["artifact"] == original and receipt["before"] is None
+    assert receipt["errors"] == [] and receipt["launched"] is True
+    assert (tmp_path / "build.log").read_bytes() == raw.encode()
+
+
+@pytest.mark.parametrize("defect", [
+    "absent", "duplicate", "foreign-extra", "manifest", "package", "target-name",
+    "target-source", "target-kind", "profile", "features", "filenames", "outside",
+    "failed-finish", "absent-finish", "malformed-target", "malformed-profile",
+])
+def test_artifact_custody_rejects_incomplete_ambiguous_or_foreign_cargo_records(tmp_path, defect):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    records = [json.loads(line) for line in artifact_envelopes(original).splitlines()]
+    record = records[0]
+    if defect == "absent": records.pop(0)
+    elif defect == "duplicate": records.insert(0, dict(record))
+    elif defect == "foreign-extra": records.insert(0, {**record, "manifest_path": "/foreign/Cargo.toml"})
+    elif defect == "manifest": record["manifest_path"] = "/foreign/Cargo.toml"
+    elif defect == "package": record["package_id"] = "registry+https://foreign#iroha_data_model"
+    elif defect == "target-name": record["target"]["name"] = "foreign"
+    elif defect == "target-source": record["target"]["src_path"] = str(ROOT / "crates/iroha_core/src/lib.rs")
+    elif defect == "target-kind": record["target"]["kind"] = ["bin"]
+    elif defect == "profile": record["profile"]["test"] = False
+    elif defect == "features": record["features"] = []
+    elif defect == "filenames": record["filenames"] = []
+    elif defect == "outside": record["executable"] = str(tmp_path.parent / "foreign-libtest"); record["filenames"] = [record["executable"]]
+    elif defect == "failed-finish": records[-1]["success"] = False
+    elif defect == "absent-finish": records.pop()
+    elif defect == "malformed-target": record["target"] = None
+    elif defect == "malformed-profile": record["profile"] = None
+    raw = "".join(json.dumps(row) + "\n" for row in records)
+    _, receipt = gate.cargo_observation(raw, args, tmp_path, "DM41")
+    assert receipt["artifact"] is None and receipt["errors"]
+
+
+def test_artifact_custody_preserves_arbitrary_native_json_and_full_raw_stream(tmp_path):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    native = ('{"reason":"compiler-artifact","executable":"/printed/by/test"}\n'
+              '{"application":"plain JSON output"}\n')
+    raw = '{"application":"build log JSON, not a Cargo envelope"}\n' + artifact_envelopes(original, native)
+    text, receipt = gate.cargo_observation(raw, args, tmp_path, "DM41")
+    assert receipt["errors"] == [] and receipt["artifact"] == {
+        key: value for key, value in original.items()
+        if key not in ("runtime", "build_options", "binding_sha256")}
+    assert text == '{"application":"build log JSON, not a Cargo envelope"}\n' + native
+    diagnostic = {"reason": "compiler-message", "message": {
+        "level": "warning", "rendered": "test tests::foreign ... FAILED\ntest result: FAILED.\n"}}
+    text, receipt = gate.cargo_observation(artifact_envelopes(original, native, extra=[diagnostic]), args, tmp_path, "DM41")
+    assert text == native and receipt["errors"] == []
+
+
+def test_artifact_custody_retains_build_discovery_and_runtime_before_next_mutation(monkeypatch, tmp_path):
+    args = SimpleNamespace(model=True, timeout_build=30)
+    baseline = fixture_artifact(args, tmp_path, None)
+    names = "tests::named: test\n\n1 test, 0 benchmarks\n"
+    terminal = "running 1 test\ntest tests::named ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n"
+    def output(command, options):
+        return artifact_envelopes(baseline) if command[0] == "cargo" else names if "--list" in command else terminal
+    calls = stub_artifact_cargo(monkeypatch, output)
+    build = gate.build(args, tmp_path, None, tmp_path / "baseline.build.log")
+    step = gate.run_step(args, tmp_path, None, ["tests::named"], None, 30,
+                         tmp_path / "baseline.named.log", build.artifact)
+    assert step.status == "pass" and step.ran == ["tests::named"]
+    assert len(calls) == 3
+    assert calls[0][0][0:2] == ["cargo", "test"]
+    assert all(call[0][0] == baseline["executable"] for call in calls[1:])
+    assert all(call[1]["cwd"] == Path(baseline["manifest_path"]).parent for call in calls[1:])
+    paths = [tmp_path / name for name in ("baseline.build.artifact.json", "baseline.named.discovery.artifact.json", "baseline.named.artifact.json")]
+    retained = [path.read_bytes() for path in paths]
+    for phase in ("discovery", "runtime"):
+        receipt = step.custody[phase]
+        assert receipt["artifact"] == baseline
+        assert receipt["before"] == receipt["after"] == baseline["identity"]
+        assert receipt["errors"] == []
+    Path(baseline["executable"]).write_bytes(b"a different mutant image")
+    mutant = fixture_artifact(args, tmp_path, "DM41")
+    stub_artifact_cargo(monkeypatch, lambda *_: artifact_envelopes(mutant))
+    new_build = gate.build(args, tmp_path, "DM41", tmp_path / "DM41.build.log")
+    assert new_build.status == "pass" and new_build.artifact == mutant
+    assert mutant["identity"]["sha256"] != baseline["identity"]["sha256"]
+    assert [path.read_bytes() for path in paths] == retained
+    assert json.loads(paths[0].read_text())["artifact"] == baseline
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: pytest.fail("foreign mutation custody cannot launch"))
+    refused = gate.run_step(args, tmp_path, "DM41", ["tests::named"], None, 30,
+                            tmp_path / "foreign.named.log", baseline)
+    assert refused.status == "execution-error" and calls == []
+
+
+@pytest.mark.parametrize("replacement", ["bytes", "same-bytes-inode", "symlink"])
+def test_artifact_custody_refuses_changed_original_before_discovery(monkeypatch, tmp_path, replacement):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    path = Path(original["executable"])
+    if replacement == "bytes": path.write_bytes(b"different original bytes")
+    else:
+        moved = tmp_path / "replacement"
+        moved.write_bytes(path.read_bytes()); moved.chmod(0o700)
+        if replacement == "same-bytes-inode": moved.replace(path)
+        else: path.unlink(); path.symlink_to(moved)
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: pytest.fail("drift must refuse before Cargo"))
+    step = gate.run_step(args, tmp_path, "DM41", ["tests::named"], None, 30,
+                         tmp_path / "named.log", original)
+    assert step.status == "execution-error" and calls == []
+    assert step.custody["discovery"]["errors"]
+
+
+@pytest.mark.parametrize("when", ["discovery", "runtime"])
+def test_artifact_custody_refuses_executable_overwrite_during_original_invocation(monkeypatch, tmp_path, when):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    def output(command, _):
+        listing = "--list" in command
+        if listing == (when == "discovery"):
+            Path(original["executable"]).write_bytes(b"same path overwritten during invocation")
+        native = ("tests::named: test\n\n1 test, 0 benchmarks\n" if listing else
+                  "running 1 test\ntest tests::named ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n")
+        return native
+    calls = stub_artifact_cargo(monkeypatch, output)
+    step = gate.run_step(args, tmp_path, "DM41", ["tests::named"], None, 30,
+                         tmp_path / "named.log", original)
+    assert step.status == "execution-error" and len(calls) == (1 if when == "discovery" else 2)
+    receipt = step.custody[when]
+    assert receipt["before"] == original["identity"]
+    assert receipt["after"] != receipt["before"] and receipt["errors"]
+
+
+def test_artifact_custody_hashing_cannot_replenish_the_original_deadline(monkeypatch, tmp_path):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    moments = iter((100.0, 106.0, 106.0))
+    monkeypatch.setattr(gate.time, "monotonic", lambda: next(moments))
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: pytest.fail("expired admission cannot launch"))
+    code, _, elapsed, receipt = gate.cargo_test(args, tmp_path, "DM41", ["tests::named"], None, 5,
+                                               tmp_path / "expired.log", expected_artifact=original)
+    assert code is None and elapsed == 6 and calls == []
+    assert receipt["original_deadline_seconds"] == 5 and not receipt["launched"]
+    assert receipt["deadline_exceeded"] is True
+    assert receipt["artifact"] is None and receipt["errors"]
+
+
+def test_artifact_custody_rechecks_original_between_discovery_and_runtime(monkeypatch, tmp_path):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    names = "tests::named: test\n\n1 test, 0 benchmarks\n"
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: names)
+    original_cargo_test = gate.cargo_test
+    def change_before_runtime(*args, **kwargs):
+        if "--list" not in args[3]:
+            Path(original["executable"]).write_bytes(b"replacement after discovery closed")
+        return original_cargo_test(*args, **kwargs)
+    monkeypatch.setattr(gate, "cargo_test", change_before_runtime)
+    step = gate.run_step(args, tmp_path, "DM41", ["tests::named"], None, 30,
+                         tmp_path / "between.log", original)
+    assert step.status == "execution-error" and len(calls) == 1
+    assert step.custody["discovery"]["errors"] == []
+    assert not step.custody["runtime"]["launched"]
+    assert "original executable changed before native invocation" in step.custody["runtime"]["errors"]
+
+
+@pytest.mark.parametrize("changed", ["profile", "features", "executable"])
+def test_artifact_custody_requires_original_bound_metadata_before_each_native_phase(monkeypatch, tmp_path, changed):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    different = json.loads(json.dumps(original))
+    if changed == "profile":
+        different["profile"]["opt_level"] = "3"
+    elif changed == "features":
+        different["features"].append("unexpected-feature")
+    else:
+        other = tmp_path / "another-libtest"
+        other.write_bytes(Path(original["executable"]).read_bytes())
+        other.chmod(0o700)
+        different["executable"] = str(other)
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: pytest.fail("altered metadata cannot launch"))
+    step = gate.run_step(args, tmp_path, "DM41", ["tests::named"], None, 30,
+                         tmp_path / "metadata.log", different)
+    assert step.status == "execution-error"
+    receipt = step.custody["discovery"]
+    assert calls == [] and not receipt["launched"]
+    if changed != "executable":
+        assert receipt["before"] == receipt["after"] == original["identity"]
+        assert "original Cargo metadata or captured runtime changed before native invocation" in receipt["errors"]
+    else:
+        assert "original executable changed before native invocation" in receipt["errors"]
+
+
+@pytest.mark.parametrize("damage", ["missing", "empty", "non-executable"])
+def test_artifact_custody_rejects_unusable_original_without_launch(monkeypatch, tmp_path, damage):
+    args = SimpleNamespace(model=True)
+    original = fixture_artifact(args, tmp_path, "DM41")
+    path = Path(original["executable"])
+    if damage == "missing":
+        path.unlink()
+    elif damage == "empty":
+        path.write_bytes(b"")
+    else:
+        path.chmod(0o600)
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: pytest.fail("unusable original must not launch"))
+    step = gate.run_step(args, tmp_path, "DM41", ["tests::named"], None, 30,
+                         tmp_path / "unusable.log", original)
+    assert step.status == "execution-error" and calls == []
+
+
+def test_artifact_custody_retains_non_utf8_raw_bytes_and_refuses_classification(monkeypatch, tmp_path):
+    args = SimpleNamespace(model=True, timeout_build=30)
+    original = fixture_artifact(args, tmp_path, None)
+    raw = artifact_envelopes(original).encode() + b"\xff\xfe\r\n"
+    class Process:
+        returncode = 0
+        def communicate(self, *, timeout):
+            return raw, None
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda *_args, **_kwargs: Process())
+    stub_compiler_host(monkeypatch)
+    step = gate.build(args, tmp_path, None, tmp_path / "raw.log")
+    assert step.status == "build-error" and step.artifact is None
+    assert (tmp_path / "raw.log").read_bytes() == raw
+    assert step.custody["build"]["errors"]
+
+def test_p2p_constructor_mutation_owns_exact_refusal_controls_and_source_order():
+    rules = gate.index_mutations(gate.P2P_MUTATIONS)
+    assert set(rules) == {"NET1"}
+    rule = rules["NET1"]
+    prefix = "peer::receive_credit::stream::constructor_tests::"
+    names = (
+        "constructor_peer_mismatch_closes_io_before_source_reuse",
+        "constructor_writer_refusal_closes_io_before_source_reuse",
+    )
+    assert rule.tests == tuple(prefix + name for name in names)
+    assert rule.scenarios == ()
+    source_path = "crates/iroha_p2p/src/peer/receive_credit/stream.rs"
+    cause = "source cannot be rebound while either I/O half remains alive"
+    assert rule.causes == (gate.ExpectedFailure(cause, source_path),) * len(names)
+    assert gate.has_switch("NET1", p2p=True)
+    for owner in (None, "core", "daemon", "model", "sdk", "deploy", "torii", "norito"):
+        assert not gate.has_switch("NET1", **({owner: True} if owner else {}))
+    root = ROOT / "crates/iroha_p2p"
+    texts = {path.relative_to(root / "src").as_posix(): path.read_text()
+             for path in (root / "src").rglob("*.rs")}
+    assert {path for path, text in texts.items() if 'sumeragi_p2p_mutation = "NET1"' in text} == {
+        "peer/receive_credit/stream.rs"
+    }
+    source = (ROOT / source_path).read_text()
+    for name in names + ("constructor_success_transfers_original_io_and_source_until_drop",):
+        assert f"fn {name}(" in source
+    assert cause in source
+    assert 'assert_eq!(*observation.order.lock().unwrap(), ["read", "write"]);' in source
+    assert "if self.pool.bind(&self.peer).is_ok()" in source
+    assert "live stream must retain its exact source" in source
+    assert "closed transport releases its source exactly once" in source
+    marker = "    pub(in crate::peer) fn new("
+    assert source.count(marker) == 1
+    body = source.split(marker, 1)[1].split("    /// Only fully authenticated", 1)[0]
+    compact = re.sub(r"\s+", "", body)
+    early = '#[cfg(all(test,sumeragi_p2p_mutation="NET1"))]letnegotiation::OwnedTransport{read,write,source,}=transport;'
+    late = '#[cfg(not(all(test,sumeragi_p2p_mutation="NET1")))]letnegotiation::OwnedTransport{read,write,source,}=transport;'
+    assert compact.index(early) < compact.index("if!peer_matches{")
+    assert compact.index("super::writer_partitions(maximum,limits)?") < compact.index(late)
+    assert 'letpeer_matches=source.peer==*peer.id();' in compact
+    assert 'letpeer_matches=transport.source.peer==*peer.id();' in compact
+    assert "record::encrypted_len::<E>(0)?>64" in compact
+    manifest = (root / "Cargo.toml").read_text()
+    assert "mutation-testing = []" in manifest and "/mutation-testing" not in manifest
+    build = (root / "build.rs").read_text()
+    declared = re.search(r'const IDS: &\[&str\] = &\[(.*?)\];', build, re.S)
+    assert declared is not None
+    assert set(re.findall(r'"([A-Z]+[0-9]+)"', declared.group(1))) == set(rules)
+    for text in ('const CFG: &str = "sumeragi_p2p_mutation";',
+                 'const ENV: &str = "SUMERAGI_P2P_MUTATION";',
+                 '!rustflags.contains(CFG)', 'CARGO_FEATURE_MUTATION_TESTING',
+                 'IDS.contains(&id.as_str())', 'mentions(Path::new("src"), &needle)'):
+        assert text in build
+    guard = (root / "src/p2p_mutation_guard.rs").read_text()
+    assert '#[cfg(all(feature = "mutation-testing", not(test)))]' in guard
+    assert "compile_error!" in guard and "mutation-testing is test-only" in guard
+    assert "mod p2p_mutation_guard;" in (root / "src/lib.rs").read_text()
+    rows = re.findall(r"^\| (NET\d+) \| (.+)$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == len(rules) and {identifier for identifier, _ in rows} == set(rules)
+    for identifier, row in rows:
+        assert all(name in row for name in rules[identifier].tests)
+
+
+@pytest.mark.parametrize("defect", [None, "missing-failure", "missing-panic", "wrong-source",
+    "wrong-cause", "wrong-thread", "extra-panic", "unowned-panic"])
+def test_p2p_constructor_mutation_requires_both_exact_owned_causal_failures(monkeypatch, tmp_path, defect):
+    rule = gate.P2P_MUTATIONS[0]
+    panics = {name: [{"thread": name, "source": expected.source, "message": expected.cause}]
+              for name, expected in zip(rule.tests, rule.causes, strict=True)}
+    failed = list(rule.tests)
+    second = rule.tests[1]
+    if defect == "missing-failure":
+        failed.remove(second)
+    elif defect == "missing-panic":
+        del panics[second]
+    elif defect == "wrong-source":
+        panics[second][0]["source"] = "unrelated.rs"
+    elif defect == "wrong-cause":
+        panics[second][0]["message"] = "assertion failed: wrong error variant"
+    elif defect == "wrong-thread":
+        panics[second][0]["thread"] = "unrelated worker"
+    elif defect == "extra-panic":
+        panics[second].append(dict(panics[second][0]))
+    monkeypatch.setattr(gate, "has_switch", lambda identifier, **owners:
+                        identifier == rule.id and owners == {"p2p": True})
+    monkeypatch.setattr(gate, "build", lambda *_: gate.Step(status="pass"))
+    monkeypatch.setattr(gate, "run_step", lambda *_: gate.Step(
+        status="fail", failed=failed, panics=panics, panic_owners_valid=defect != "unowned-panic"))
+    result = gate.evaluate(SimpleNamespace(p2p=True, target_dir=tmp_path, timeout_test=900, fast=False),
+                           tmp_path, rule)
+    assert result["verdict"] == ("killed_by_test" if defect is None else "error")
+    assert set(result["named"]["causal_failures"]) == set(rule.tests)
+    assert all(result["named"]["causal_failures"].values()) == (defect is None)
+
+
+@pytest.mark.parametrize("owner", [None, "core", "daemon", "model", "sdk", "deploy", "torii", "norito", "p2p"])
+def test_p2p_mutation_environment_cannot_escape_into_another_owner(monkeypatch, tmp_path, owner):
+    args = SimpleNamespace(**({owner: True} if owner else {}))
+    captured = {}
+    class Process:
+        returncode = 0
+        def communicate(self, *, timeout):
+            return b"stub output", None
+    def popen(command, **options):
+        captured.update(command=command, env=options["env"])
+        return Process()
+    monkeypatch.setenv("SUMERAGI_P2P_MUTATION", "NET1")
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    code, output, _, _ = gate.cargo_test(args, tmp_path, None, ["named"], None, 900,
+        tmp_path / "stub.log", expected_artifact=fixture_artifact(args, tmp_path, None))
+    assert code == 0 and output == "stub output"
+    assert "SUMERAGI_P2P_MUTATION" not in captured["env"]
+    if owner == "p2p":
+        assert captured["command"] == [str(tmp_path / "original-libtest"), "named"]
+
+
+@pytest.mark.parametrize("owner", ["core", "daemon", "model", "sdk", "deploy", "torii", "norito"])
+def test_p2p_mutation_source_selector_refuses_another_owner(owner):
+    with pytest.raises(ValueError, match="exactly one implementation owner"):
+        gate.has_switch("NET1", p2p=True, **{owner: True})
+
+
+@pytest.mark.parametrize("arguments", [
+    ["--p2p", "--core"], ["--p2p", "--norito"], ["--p2p", "--core-profile", "test"],
+    ["--p2p", "--strict", "--skip-baseline"], ["--p2p", "--only", "HC23"],
+    ["--core", "--only", "NET1"], ["--only", "NET1"], ["--norito", "--only", "NET1"],
+    ["--p2p", "--only", "NET1,NET1"], ["--p2p", "--only", ","],
+])
+def test_p2p_mutation_cli_rejects_foreign_owners_and_skipped_baseline(monkeypatch, tmp_path, arguments):
+    target = tmp_path / "refused"
+    monkeypatch.setattr(sys, "argv", ["sumeragi_mutation_gate.py", *arguments, "--target-dir", str(target)])
+    with pytest.raises(SystemExit) as error:
+        gate.main()
+    assert error.value.code == 2 and not target.exists()
+
+
+def test_p2p_mutation_listing_uses_only_the_current_owner(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["sumeragi_mutation_gate.py", "--p2p", "--list"])
+    observed = []
+    index = gate.index_mutations
+    def inspect(table):
+        observed.append(table)
+        return index(table)
+    monkeypatch.setattr(gate, "index_mutations", inspect)
+    assert gate.main() == 0
+    listing = capsys.readouterr().out
+    assert observed == [gate.P2P_MUTATIONS]
+    assert all(rule.id in listing and all(name in listing for name in rule.tests) for rule in gate.P2P_MUTATIONS)
+    assert "HC23" not in listing and "NC1" not in listing
+
+
+def test_capture_runner_records_only_cargo_runtime_and_never_executes_the_harness(monkeypatch, tmp_path):
+    owner = tmp_path / "owner"
+    owner.mkdir()
+    monkeypatch.chdir(owner)
+    monkeypatch.delenv("RUST_MIN_STACK", raising=False)
+    monkeypatch.setenv("CARGO_MANIFEST_DIR", str(owner))
+    monkeypatch.setenv("CARGO_MANIFEST_PATH", str(owner / "Cargo.toml"))
+    monkeypatch.setenv("SECRET_CAPTURE_SENTINEL", "must-not-be-retained")
+    monkeypatch.setenv(gate.runtime_loader_key(), "/actual/with spaces:/actual/second")
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda *_a, **_k: pytest.fail("capture cannot execute"))
+    executable = owner / "never-executed"
+    output = tmp_path / "runtime.json"
+    assert gate.capture_runtime([str(output), str(owner), str(executable)]) == 0
+    raw = output.read_bytes()
+    captured = json.loads(raw)
+    assert captured["argv"] == [str(executable)] and captured["cwd"] == str(owner)
+    assert set(captured["environment"]) == set(gate.CARGO_RUNTIME_FIELDS)
+    assert captured["environment"][gate.runtime_loader_key()] == "/actual/with spaces:/actual/second"
+    assert b"SECRET_CAPTURE_SENTINEL" not in raw and b"must-not-be-retained" not in raw
+    with pytest.raises(FileExistsError):
+        gate.capture_runtime([str(output), str(owner), str(executable)])
+    assert output.read_bytes() == raw, "a duplicate capture cannot replace the original"
+
+
+@pytest.mark.parametrize("defect", ["extra-argv", "relative-executable", "wrong-cwd", "wrong-manifest", "stack"])
+def test_capture_runner_refuses_a_foreign_or_nondefault_invocation(monkeypatch, tmp_path, defect):
+    owner = tmp_path / "owner"
+    owner.mkdir()
+    monkeypatch.chdir(owner)
+    monkeypatch.delenv("RUST_MIN_STACK", raising=False)
+    monkeypatch.setenv("CARGO_MANIFEST_DIR", str(owner))
+    monkeypatch.setenv("CARGO_MANIFEST_PATH", str(owner / "Cargo.toml"))
+    output = tmp_path / "runtime.json"
+    arguments = [str(output), str(owner), str(owner / "libtest")]
+    if defect == "extra-argv": arguments.append("--list")
+    elif defect == "relative-executable": arguments[-1] = "libtest"
+    elif defect == "wrong-cwd": monkeypatch.chdir(tmp_path)
+    elif defect == "wrong-manifest": monkeypatch.setenv("CARGO_MANIFEST_PATH", "/foreign/Cargo.toml")
+    else: monkeypatch.setenv("RUST_MIN_STACK", "8388608")
+    with pytest.raises(ValueError):
+        gate.capture_runtime(arguments)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("platform,system,expected", [
+    ("darwin", "posix", "DYLD_FALLBACK_LIBRARY_PATH"), ("linux", "posix", "LD_LIBRARY_PATH"),
+    ("aix7", "posix", "LIBPATH"), ("win32", "nt", "PATH"),
+])
+def test_cargo_runtime_requires_the_native_platform_loader_field(monkeypatch, platform, system, expected):
+    monkeypatch.setattr(gate, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(gate, "os", SimpleNamespace(name=system))
+    assert gate.runtime_loader_key() == expected
+
+
+@pytest.mark.parametrize("defect", ["argv", "cwd", "unknown-field", "unknown-env", "missing-env", "bad-env", "package", "loader"])
+def test_capture_validation_refuses_foreign_or_incomplete_runtime(tmp_path, defect):
+    artifact = fixture_artifact(SimpleNamespace(model=True), tmp_path, None)
+    runtime = artifact["runtime"]
+    if defect == "argv": runtime["argv"].append("--list")
+    elif defect == "cwd": runtime["cwd"] = str(tmp_path)
+    elif defect == "unknown-field": runtime["extra"] = "not-capture"
+    elif defect == "unknown-env": runtime["environment"]["SECRET"] = "not-captured"
+    elif defect == "missing-env": del runtime["environment"]["CARGO"]
+    elif defect == "bad-env": runtime["environment"]["CARGO"] = ["not-a-string"]
+    elif defect == "package": runtime["environment"]["CARGO_PKG_NAME"] = "foreign-owner"
+    else: runtime["environment"][gate.runtime_loader_key()] = None
+    with pytest.raises(ValueError, match="captured runtime"):
+        gate.validate_runtime(artifact)
+
+
+@pytest.mark.parametrize("override", [None, "RUSTC", "CARGO_BUILD_RUSTC"])
+def test_capture_build_pins_the_queried_compiler_and_native_runner(monkeypatch, tmp_path, override):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
+    calls = []
+    class Probe:
+        returncode = 0
+        def communicate(self, *, timeout):
+            assert timeout == 1200
+            return b"rustc synthetic\nhost: verified-native-host\n", None
+    def popen(command, **options):
+        calls.append((command, options))
+        return Probe()
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    environment = {"CARGO_BUILD_TARGET": "ambient-cross-target"}
+    if override:
+        environment[override] = "/explicit/compiler"
+    command, preparation = gate.capture_build_command(SimpleNamespace(p2p=True), environment,
+                                                       tmp_path / "build.log", 100.0, 1200)
+    compiler = "/explicit/compiler" if override else "rustc"
+    assert len(calls) == 1 and calls[0][0] == [compiler, "-vV"]
+    assert command[:13] == ["cargo", "test", "--locked", "-p", "iroha_p2p", "--profile", "test",
+                            "--features", "mutation-testing", "--lib", "--message-format=json-render-diagnostics",
+                            "--target", "verified-native-host"]
+    assert command[-3:] == ["build.rustc=" + json.dumps(compiler), "--config",
+                            "target.verified-native-host.runner=" + json.dumps(" ".join(preparation["runner"]))]
+    assert "--no-run" not in command and "--capture-runtime" in preparation["runner"]
+    assert environment["RUSTC"] == compiler and preparation["explicit_native_target"] is True
+    assert Path(preparation["compiler_log"]).read_bytes() == b"rustc synthetic\nhost: verified-native-host\n"
+
+
+@pytest.mark.parametrize("raw,exit_code", [(b"no host\n", 0), (b"host: one\nhost: two\n", 0),
+                                          (b"host: valid-host\n", 1), (b"\xff\n", 0)])
+def test_capture_build_refuses_failed_or_ambiguous_compiler_identity(monkeypatch, tmp_path, raw, exit_code):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
+    calls = []
+    class Probe:
+        returncode = exit_code
+        def communicate(self, *, timeout): return raw, None
+    def popen(command, **options):
+        calls.append(command)
+        return Probe()
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    with pytest.raises(ValueError):
+        gate.capture_build_command(SimpleNamespace(), {}, tmp_path / "build.log", 100.0, 1200)
+    assert calls == [["rustc", "-vV"]]
+    assert (tmp_path / "build.compiler.log").read_bytes() == raw
+
+
+def test_capture_compiler_deadline_waits_naturally_without_replenishment(monkeypatch, tmp_path):
+    monkeypatch.setattr(gate.time, "monotonic", lambda: 100.0)
+    waits = []
+    omitted = object()
+    class Probe:
+        returncode = 0
+        def communicate(self, *, timeout=omitted):
+            waits.append(timeout)
+            if timeout is not omitted:
+                raise subprocess.TimeoutExpired("compiler identity", timeout)
+            return b"host: verified-native-host\n", None
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda *_a, **_k: Probe())
+    with pytest.raises(ValueError, match="within the build deadline"):
+        gate.capture_build_command(SimpleNamespace(), {}, tmp_path / "build.log", 100.0, 1200)
+    assert waits == [1200, omitted]
+
+
+@pytest.mark.parametrize("defect", ["absent", "foreign-cwd", "foreign-argv", "runner-error", "compiler-error", "non-utf8"])
+def test_build_requires_one_successful_capture_of_its_original_artifact(monkeypatch, tmp_path, defect):
+    args = SimpleNamespace(model=True, timeout_build=1200)
+    artifact = fixture_artifact(args, tmp_path, None)
+    raw = artifact_envelopes(artifact)
+    if defect == "compiler-error":
+        raw = artifact_envelopes(artifact, extra=[{"reason": "compiler-message", "message": {
+            "level": "error", "rendered": "error: synthetic compiler refusal"}}])
+    captured = json.loads(json.dumps(artifact["runtime"]))
+    if defect == "foreign-cwd": captured["cwd"] = str(tmp_path)
+    elif defect == "foreign-argv": captured["argv"] = ["/foreign/libtest"]
+    calls = []
+    def popen(command, **options):
+        calls.append(command)
+        class Process:
+            returncode = 101 if defect == "runner-error" else 0
+            def communicate(self, *, timeout):
+                if defect != "absent":
+                    output = tmp_path / "build.runtime.json"
+                    output.write_bytes(b"\xff" if defect == "non-utf8" else json.dumps(captured).encode())
+                return raw.encode(), None
+        return Process()
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    stub_compiler_host(monkeypatch)
+    step = gate.build(args, tmp_path, None, tmp_path / "build.log")
+    assert step.status == "build-error" and step.artifact is None
+    assert step.custody["build"]["errors"] and len(calls) == 1
+    assert calls[0][0:2] == ["cargo", "test"]
+    assert (tmp_path / "build.log").read_bytes() == raw.encode()
+
+
+@pytest.mark.parametrize("changed", ["owner", "profile", "runtime"])
+def test_direct_native_refuses_changed_build_selection_or_captured_context(monkeypatch, tmp_path, changed):
+    args = SimpleNamespace(core=True, core_profile="test")
+    artifact = fixture_artifact(args, tmp_path, None)
+    if changed == "owner": args = SimpleNamespace(model=True)
+    elif changed == "profile": args.core_profile = "release"
+    else: artifact["runtime"]["environment"][gate.runtime_loader_key()] = "/replacement/runtime"
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: pytest.fail("changed custody cannot launch"))
+    code, _, _, receipt = gate.cargo_test(args, tmp_path, None, ["named"], None, 900,
+                                         tmp_path / "run.log", expected_artifact=artifact)
+    assert code is None and calls == [] and not receipt["launched"] and receipt["errors"]
+    assert receipt["before"] == receipt["after"] == artifact["identity"]
+
+
+def test_direct_native_keeps_json_bytes_and_captured_cwd_loader_environment(monkeypatch, tmp_path):
+    args = SimpleNamespace(model=True)
+    artifact = fixture_artifact(args, tmp_path, None)
+    captured = artifact["runtime"]["environment"]
+    monkeypatch.setenv(gate.runtime_loader_key(), "/later/ambient/path")
+    monkeypatch.setenv("CARGO_PKG_README", "/later/ambient/readme")
+    raw = '{"reason":"compiler-artifact","executable":"/foreign/stdout"}\n'
+    calls = stub_artifact_cargo(monkeypatch, lambda *_: raw)
+    code, output, _, receipt = gate.cargo_test(args, tmp_path, None, ["named"], None, 900,
+                                             tmp_path / "run.log", expected_artifact=artifact)
+    assert code == 0 and output == raw and receipt["errors"] == []
+    assert len(calls) == 1 and calls[0][0] == [artifact["executable"], "named"]
+    assert calls[0][1]["cwd"] == Path(artifact["manifest_path"]).parent
+    assert calls[0][1]["env"][gate.runtime_loader_key()] == captured[gate.runtime_loader_key()]
+    assert "CARGO_PKG_README" not in calls[0][1]["env"]
+    assert receipt["artifact"] == artifact and (tmp_path / "run.log").read_bytes() == raw.encode()
+
+
+def test_direct_native_uses_owning_package_for_relative_fixture_reads(monkeypatch, tmp_path):
+    """A real local Python child reproduces package-relative native fixture ownership."""
+    args = SimpleNamespace(model=True)
+    artifact = fixture_artifact(args, tmp_path, None)
+    owner = tmp_path / "package/iroha_data_model"
+    (owner / "tests/data").mkdir(parents=True)
+    (owner / "tests/data/original.txt").write_text("original package fixture\n")
+    program = "from pathlib import Path\nprint(Path('tests/data/original.txt').read_text(), end='')\n"
+    executable = Path(artifact["executable"])
+    executable.write_text("#!" + str(Path(sys.executable).resolve()) + "\n" + program)
+    artifact["identity"] = gate.executable_identity(executable, tmp_path)
+    artifact["manifest_path"] = str(owner / "Cargo.toml")
+    artifact["runtime"]["cwd"] = str(owner)
+    artifact["runtime"]["environment"].update(CARGO_MANIFEST_DIR=str(owner),
+                                               CARGO_MANIFEST_PATH=str(owner / "Cargo.toml"))
+    artifact["binding_sha256"] = gate.artifact_digest(artifact)
+    monkeypatch.delenv("RUST_MIN_STACK", raising=False)
+    refused = subprocess.run([str(executable)], cwd=tmp_path, capture_output=True, check=False)
+    assert refused.returncode != 0 and b"FileNotFoundError" in refused.stderr
+    code, output, _, receipt = gate.cargo_test(args, tmp_path, None, [], None, 900,
+                                             tmp_path / "run.log", expected_artifact=artifact)
+    assert code == 0 and output == "original package fixture\n" and receipt["errors"] == []
+    assert receipt["cwd"] == str(owner)
+    assert receipt["before"] == receipt["after"] == artifact["identity"]
+
+
+def test_capture_preparation_and_cargo_share_the_original_build_deadline(monkeypatch, tmp_path):
+    args = SimpleNamespace(model=True, timeout_build=5)
+    artifact = fixture_artifact(args, tmp_path, None)
+    moments = iter((100.0, 100.0, 103.0, 106.0))
+    monkeypatch.setattr(gate.time, "monotonic", lambda: next(moments))
+    waits, calls = [], []
+    def popen(command, **options):
+        calls.append(command)
+        class Process:
+            returncode = 0
+            def communicate(self, *, timeout):
+                waits.append(timeout)
+                if command[-1:] == ["-vV"]:
+                    return b"host: verified-native-host\n", None
+                (tmp_path / "build.runtime.json").write_text(json.dumps(artifact["runtime"]))
+                return artifact_envelopes(artifact).encode(), None
+        return Process()
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    step = gate.build(args, tmp_path, None, tmp_path / "build.log")
+    receipt = step.custody["build"]
+    assert waits == [5, 2] and len(calls) == 2
+    assert step.status == "build-error" and receipt["exit_code"] is None
+    assert receipt["seconds"] == 6 and receipt["original_deadline_seconds"] == 5
+    assert receipt["deadline_exceeded"] is True

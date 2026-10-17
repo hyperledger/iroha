@@ -27,7 +27,11 @@ fn unary_control_mix() -> (ScalarSegment, Vec<DiagnosticStepRecord>) {
             enc::encode_ri(wide::arithmetic::ADDI, 24, 23, -1),
         ],
         10,
-        &[(6, i64::MIN as u64), (255, u64::MAX), (254, 19)],
+        &[
+            (6, i64::cast_unsigned(i64::MIN)),
+            (255, u64::MAX),
+            (254, 19),
+        ],
         u64::MAX,
     )
 }
@@ -35,7 +39,14 @@ fn unary_control_mix() -> (ScalarSegment, Vec<DiagnosticStepRecord>) {
 #[test]
 fn unary_ops_match_interpreter_wrapping_extrema_aliases_and_unused_fields() {
     for opcode in [wide::arithmetic::NEG, wide::arithmetic::NOT] {
-        for value in [0, 1, u64::MAX, i64::MIN as u64, i64::MAX as u64, 1 << 32] {
+        for value in [
+            0,
+            1,
+            u64::MAX,
+            i64::cast_unsigned(i64::MIN),
+            i64::MAX as u64,
+            1 << 32,
+        ] {
             for (rd, src, unused) in [(8, 6, 255), (6, 6, 6), (0, 6, 255), (8, 0, 6), (0, 0, 0)] {
                 let (segment, records) = recorded(
                     &[enc::encode_rr(opcode, rd, src, unused)],
@@ -202,7 +213,7 @@ fn unary_gas_and_direct_control_coherent_false_boundaries_fail_air() {
                 enc::encode_ri(wide::arithmetic::ADDI, 8, 8, 0),
             ],
             1,
-            &[(6, i64::MIN as u64), (255, 37)],
+            &[(6, i64::cast_unsigned(i64::MIN)), (255, 37)],
             1_000,
         );
         for mutation in 0..6 {
@@ -254,7 +265,7 @@ fn unary_gas_and_direct_control_reject_every_interior_profile_column_mutation() 
                 enc::encode_ri(wide::arithmetic::ADDI, 25, 25, 0),
             ],
             3,
-            &[(6, i64::MIN as u64), (255, u64::MAX)],
+            &[(6, i64::cast_unsigned(i64::MIN)), (255, u64::MAX)],
             1_000,
         );
         assert_eq!(records[1].instruction, Some(word));
@@ -281,7 +292,7 @@ fn unary_gas_and_direct_control_reject_every_interior_profile_column_mutation() 
 fn unary_direct_mix_keeps_degree_four_and_exact_native_geometry() {
     let (segment, records) = unary_control_mix();
     assert_rows(&segment, &segment.witness_rows(&records).unwrap());
-    assert_eq!(segment.after.registers[6], i64::MIN as u64);
+    assert_eq!(segment.after.registers[6], i64::cast_unsigned(i64::MIN));
     assert_eq!(segment.after.registers[7], i64::MAX as u64);
     assert_eq!(segment.after.registers[20] - segment.after.registers[21], 6);
     assert_eq!(segment.base_width_v1(), 1_356);

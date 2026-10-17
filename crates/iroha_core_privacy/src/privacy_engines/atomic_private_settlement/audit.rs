@@ -140,7 +140,7 @@ pub fn seal_private_settlement_audit_capsule_v1_with_rng<R: TryCryptoRng>(
     fill_nonzero_random(rng, dek.as_mut())?;
     let mut nonce = [0_u8; 24];
     fill_nonzero_random(rng, &mut nonce)?;
-    let ciphertext = aead_encrypt(&*dek, &nonce, padded_plaintext.as_slice(), &capsule_aad)?;
+    let ciphertext = aead_encrypt(&dek, &nonce, padded_plaintext.as_slice(), &capsule_aad)?;
     if ciphertext.len() != padding.ciphertext_bytes() {
         return Err(PrivateSettlementAuditCryptoErrorV1::CryptographicFailure);
     }
@@ -154,7 +154,7 @@ pub fn seal_private_settlement_audit_capsule_v1_with_rng<R: TryCryptoRng>(
         fill_nonzero_random(rng, &mut wrap_nonce)?;
         let wrap_aad = dek_wrap_aad_bytes(&aad, auditor.auditor_id.clone(), &recipient, &kem)?;
         let wrap_key = Zeroizing::new(derived.encryption_key());
-        let wrapped_dek = aead_encrypt(&*wrap_key, &wrap_nonce, dek.as_slice(), &wrap_aad)?;
+        let wrapped_dek = aead_encrypt(&wrap_key, &wrap_nonce, dek.as_slice(), &wrap_aad)?;
         if wrapped_dek.len() != PRIVATE_SETTLEMENT_WRAPPED_DEK_BYTES_V1 {
             return Err(PrivateSettlementAuditCryptoErrorV1::CryptographicFailure);
         }
@@ -230,7 +230,7 @@ pub fn open_private_settlement_audit_capsule_v1(
     )?;
     let wrap_key = Zeroizing::new(derived.encryption_key());
     let opened_dek = Zeroizing::new(aead_decrypt(
-        &*wrap_key,
+        &wrap_key,
         &wrapped.nonce,
         wrapped.wrapped_dek.as_slice(),
         &wrap_aad,
@@ -243,7 +243,7 @@ pub fn open_private_settlement_audit_capsule_v1(
 
     let capsule_aad = capsule_aad_bytes(&capsule.aad)?;
     let padded_plaintext = Zeroizing::new(aead_decrypt(
-        &*dek,
+        &dek,
         &capsule.nonce,
         capsule.ciphertext.as_slice(),
         &capsule_aad,

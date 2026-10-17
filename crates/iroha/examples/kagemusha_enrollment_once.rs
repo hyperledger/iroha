@@ -242,8 +242,8 @@ fn publish(directory: &PrivateDirectory, name: &str, bytes: &[u8]) -> Result<()>
         .map_err(|_| "output")?;
     directory.sync().map_err(|_| "output")
 }
-fn json(value: norito::json::Value) -> Result<Vec<u8>> {
-    norito::json::to_vec(&value).map_err(|_| "output")
+fn json(value: &norito::json::Value) -> Result<Vec<u8>> {
+    norito::json::to_vec(value).map_err(|_| "output")
 }
 async fn run(args: &[String]) -> Result<u8> {
     if args.len() != 6 {
@@ -274,7 +274,7 @@ async fn run(args: &[String]) -> Result<u8> {
     publish(
         &output,
         "dispatch.json",
-        &json(norito::json!({
+        &json(&norito::json!({
             "schema":"iroha.kagemusha.enrollment-once-dispatch.v1","action":(action_name(selected_action)),
             "requestSha256":(&args[3]),"requestBytes":(original.len()),"automaticRetry":false
         }))?,
@@ -303,7 +303,7 @@ async fn run(args: &[String]) -> Result<u8> {
     publish(
         &output,
         "complete.json",
-        &json(norito::json!({
+        &json(&norito::json!({
             "schema":"iroha.kagemusha.enrollment-once-complete.v1","action":(action_name(selected_action)),
             "requestSha256":(&args[3]),"outcome":(kind),"refusalCode":(refusal),"responseSha256":(response_sha),
             "nativeAdmissionClaimed":false,"automaticRetry":false
@@ -320,15 +320,12 @@ fn main() -> ExitCode {
         println!("{HELP}");
         return ExitCode::SUCCESS;
     }
-    let runtime = match tokio::runtime::Builder::new_current_thread()
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-    {
-        Ok(runtime) => runtime,
-        Err(_) => {
-            eprintln!("enrollment-once: runtime");
-            return ExitCode::from(2);
-        }
+    else {
+        eprintln!("enrollment-once: runtime");
+        return ExitCode::from(2);
     };
     match runtime.block_on(run(&args)) {
         Ok(code) => ExitCode::from(code),
@@ -342,6 +339,17 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_retains_the_borrowed_output_value() {
+        let value = norito::json!({"outcome": "outcome-unknown", "automaticRetry": false});
+        let original = value.clone();
+        let bytes = json(&value).expect("bounded output JSON");
+        let decoded: norito::json::Value =
+            norito::json::from_slice(&bytes).expect("canonical output JSON");
+        assert_eq!(decoded, original);
+        assert_eq!(value, original);
+    }
     use iroha_crypto::{Algorithm, ExposedPrivateKey, KeyPair};
     fn config(key: &KeyPair) -> Vec<u8> {
         format!("chain = \"component-test-only\"\nnetwork_id = \"hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0\"\ntorii_url = \"http://127.0.0.1:12345/\"\nhttp_transport_policy = \"direct_loopback\"\ntorii_request_timeout_ms = 1000\n[account]\nchain_discriminant = 753\npublic_key = \"{}\"\nprivate_key_file = \"account.key\"\n",key.public_key()).into_bytes()

@@ -1,7 +1,7 @@
 //! Private adjacent-chunk masks for the canonical X509 quotient decomposition.
 //!
-//! With stride s and independent T_i of degree below h, replace Q_i by
-//! Q_i + X^s T_i - T_{i-1}. The recomposed quotient is unchanged, while each
+//! With stride s and independent `T_i` of degree below h, replace `Q_i` by
+//! `Q_i` + X^s `T_i` - T_{i-1}. The recomposed quotient is unchanged, while each
 //! chunk stays below the original FRI cap D by choosing s = D - h. Here h is
 //! the number of FRI queries plus the one extension-field DEEP query.
 //! TODO: complete the joint mixed-native-domain transcript hiding argument,

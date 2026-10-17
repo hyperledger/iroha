@@ -191,19 +191,24 @@ fn disabled_policy_requires_no_checkpoint_store_and_rejects_stray_binding() {
             .is_none()
     );
     assert!(emitter.into_result().is_ok());
-    let mut config = SorafsEvidenceViewerConfig::default();
-    config.checkpoint_store_handle = Some("sealed.evidence-viewer.checkpoints.primary".to_owned());
+    let config = SorafsEvidenceViewerConfig {
+        checkpoint_store_handle: Some("sealed.evidence-viewer.checkpoints.primary".to_owned()),
+        ..SorafsEvidenceViewerConfig::default()
+    };
     let mut emitter = Emitter::new();
     assert!(config.parse(true, &mut emitter).is_none());
     assert!(emitter.into_result().is_err());
-    let mut config = SorafsEvidenceViewerConfig::default();
-    config.compaction_archive_handle = Some("object-lock.evidence.compaction.primary".to_owned());
+    let config = SorafsEvidenceViewerConfig {
+        compaction_archive_handle: Some("object-lock.evidence.compaction.primary".to_owned()),
+        ..SorafsEvidenceViewerConfig::default()
+    };
     let mut emitter = Emitter::new();
     assert!(config.parse(true, &mut emitter).is_none());
     assert!(emitter.into_result().is_err());
-    let mut config = SorafsEvidenceViewerConfig::default();
-    config.transparency_publisher_handle =
-        Some("transparency.evidence.publisher.primary".to_owned());
+    let config = SorafsEvidenceViewerConfig {
+        transparency_publisher_handle: Some("transparency.evidence.publisher.primary".to_owned()),
+        ..SorafsEvidenceViewerConfig::default()
+    };
     let mut emitter = Emitter::new();
     assert!(config.parse(true, &mut emitter).is_none());
     assert!(emitter.into_result().is_err());

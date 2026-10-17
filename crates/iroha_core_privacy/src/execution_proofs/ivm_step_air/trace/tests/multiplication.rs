@@ -6,9 +6,12 @@ fn expected(opcode: u8, left: u64, right: u64) -> u64 {
     match opcode {
         wide::arithmetic::MUL => left.wrapping_mul(right),
         wide::arithmetic::MULHU => ((u128::from(left) * u128::from(right)) >> 64) as u64,
-        wide::arithmetic::MULHSU => ((i128::from(left as i64) * i128::from(right)) >> 64) as u64,
+        wide::arithmetic::MULHSU => {
+            ((i128::from(u64::cast_signed(left)) * i128::from(right)) >> 64) as u64
+        }
         wide::arithmetic::MULH => {
-            ((i128::from(left as i64) * i128::from(right as i64)) >> 64) as u64
+            ((i128::from(u64::cast_signed(left)) * i128::from(u64::cast_signed(right))) >> 64)
+                as u64
         }
         _ => unreachable!("multiply fixture opcode"),
     }
@@ -51,9 +54,9 @@ fn multiply_variants_match_interpreter_full_width_boundaries_aliases_and_r0() {
         (0, u64::MAX),
         (1, u64::MAX),
         (u64::MAX, u64::MAX),
-        (i64::MIN as u64, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), i64::cast_unsigned(i64::MIN)),
         (i64::MAX as u64, i64::MAX as u64),
-        (i64::MIN as u64, u64::MAX),
+        (i64::cast_unsigned(i64::MIN), u64::MAX),
         (i64::MAX as u64, u64::MAX),
         (0x0000_ffff_0000_ffff, 0xffff_0000_ffff_0000),
         (0xffff_ffff_0000_0001, 0x8000_0000_0000_0001),
@@ -99,7 +102,7 @@ fn multiply_variants_match_interpreter_full_width_boundaries_aliases_and_r0() {
 
 #[test]
 fn signed_unsigned_product_preserves_operand_asymmetry_and_exact_carry_bounds() {
-    let left = i64::MIN as u64;
+    let left = i64::cast_unsigned(i64::MIN);
     let right = u64::MAX;
     assert_ne!(
         expected(wide::arithmetic::MULHSU, left, right),
@@ -378,7 +381,7 @@ fn multiplication_keeps_public_tag_boundary_and_complete_register_restrictions()
     let (segment, records) = recorded(
         &[enc::encode_rr(wide::arithmetic::MULH, 0, 6, 7)],
         1,
-        &[(6, u64::MAX), (7, i64::MIN as u64)],
+        &[(6, u64::MAX), (7, i64::cast_unsigned(i64::MIN))],
         1_000,
     );
     for register in [0, 6, 7, 8, 255] {

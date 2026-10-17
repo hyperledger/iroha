@@ -2619,9 +2619,6 @@ mod measured_bytes_impls {
         PrivacyPgcAccountProvenanceV1,
         PrivacyPgcAccountStateV1,
         PrivacyPgcPoolInvariantV1,
-        PrivacyRootHeadRecordV1,
-        PrivacyRootProvenanceV1,
-        PrivacyStateItemRecordV1,
         AxtAssetIncarnationV1,
         AssetDefinitionDirectHomeV1,
         AxtHandleCounterRecord,
@@ -2650,6 +2647,162 @@ mod measured_bytes_impls {
         PrivateSettlementReceiptV1,
         PrivateSettlementAbortReceiptV1,
     );
+    impl MeasuredBytes for PrivacyRootProvenanceV1 {
+        fn measured_bytes(&self) -> usize {
+            let heap = match self {
+                Self::ZkX509CaGovernance { .. } => {
+                    size_of::<iroha_data_model::privacy::PrivacyZkX509TrustAnchorRecordV1>()
+                }
+                Self::Governance { .. }
+                | Self::ZkAmsRegistryBootstrap { .. }
+                | Self::ZkAmsRegistrySuccessor { .. }
+                | Self::OrchardPoolBootstrap { .. }
+                | Self::OrchardPoolSuccessor { .. }
+                | Self::ProofManagedPoolBootstrap { .. }
+                | Self::ProofManagedPoolSuccessor { .. }
+                | Self::VerifiedBootstrap { .. }
+                | Self::VerifiedProof { .. }
+                | Self::VerifiedPgcSuccessor { .. } => 0,
+            };
+            size_of::<Self>().saturating_add(heap)
+        }
+    }
+    impl MeasuredBytes for PrivacyRootHeadRecordV1 {
+        fn measured_bytes(&self) -> usize {
+            size_of::<Self>().saturating_add(self.provenance().measured_bytes_extra())
+        }
+    }
+    fn proof_managed_bootstrap_heap_bytes(
+        bootstrap: &iroha_data_model::privacy::PrivacyProofManagedPoolBootstrapV1,
+    ) -> usize {
+        use iroha_data_model::privacy::{
+            PrivacyCommitmentV1, PrivacyFcmpOutputTupleV1, PrivacyProofManagedPoolBootstrapV1,
+        };
+        match bootstrap {
+            PrivacyProofManagedPoolBootstrapV1::MoneroFcmpPlusPlusV1(value) => value
+                .asset_definition_id
+                .measured_bytes_extra()
+                .saturating_add(
+                    value
+                        .initial_outputs
+                        .capacity()
+                        .saturating_mul(size_of::<PrivacyFcmpOutputTupleV1>()),
+                ),
+            PrivacyProofManagedPoolBootstrapV1::IrohaIvmPrivateNoteStarkV1(value) => value
+                .asset_definition_id
+                .measured_bytes_extra()
+                .saturating_add(value.reserve_account.measured_bytes_extra())
+                .saturating_add(
+                    value
+                        .initial_note_commitments
+                        .capacity()
+                        .saturating_mul(size_of::<PrivacyCommitmentV1>()),
+                ),
+            PrivacyProofManagedPoolBootstrapV1::PqMaspStarkV1(value) => value
+                .asset_definition_id
+                .measured_bytes_extra()
+                .saturating_add(
+                    value
+                        .initial_note_commitments
+                        .capacity()
+                        .saturating_mul(size_of::<PrivacyCommitmentV1>()),
+                ),
+        }
+    }
+
+    fn bootle_lantern_policy_heap_bytes(
+        policy: &iroha_data_model::privacy::BootleLanternIssuerPolicyV1,
+    ) -> usize {
+        use iroha_data_model::privacy::{
+            BootleLanternAllowedAttributeValuesV1, BootleLanternAttributeValueV1,
+            BootleLanternPolynomialV1,
+        };
+        let mut bytes = policy
+            .issuer_public_matrix
+            .entries
+            .capacity()
+            .saturating_mul(size_of::<BootleLanternPolynomialV1>());
+        for polynomial in &policy.issuer_public_matrix.entries {
+            bytes = bytes.saturating_add(
+                polynomial
+                    .coefficients
+                    .capacity()
+                    .saturating_mul(size_of::<u16>()),
+            );
+        }
+        bytes = bytes.saturating_add(
+            policy
+                .allowed_values
+                .capacity()
+                .saturating_mul(size_of::<BootleLanternAllowedAttributeValuesV1>()),
+        );
+        for attribute in &policy.allowed_values {
+            bytes = bytes.saturating_add(
+                attribute
+                    .values
+                    .capacity()
+                    .saturating_mul(size_of::<BootleLanternAttributeValueV1>()),
+            );
+        }
+        bytes
+    }
+
+    impl MeasuredBytes for PrivacyStateItemRecordV1 {
+        fn measured_bytes(&self) -> usize {
+            use crate::privacy_state::PrivacyProofManagedPoolAccumulatorStateV1;
+            use iroha_data_model::privacy::PrivacyX509ExtendedKeyUsageV1;
+            // The enum already contains its active variant's inline owners. Charge only
+            // their backing allocations here, plus the owned accumulator's complete storage.
+            let heap = match self {
+                Self::ZkAcePolicyGovernance { policy, .. } => policy
+                    .asset_definition_id
+                    .measured_bytes_extra()
+                    .saturating_add(policy.source_allowlist.measured_bytes_extra()),
+                Self::BootleLanternIssuerPolicyGovernance { policy, .. } => {
+                    bootle_lantern_policy_heap_bytes(policy)
+                }
+                Self::ZkX509CertificatePolicyGovernance { record, .. } => record
+                    .required_extended_key_usages
+                    .capacity()
+                    .saturating_mul(size_of::<PrivacyX509ExtendedKeyUsageV1>())
+                    .saturating_add(
+                        record
+                            .required_disclosed_attribute_indices
+                            .capacity()
+                            .saturating_mul(size_of::<u8>()),
+                    ),
+                Self::OrchardPoolState { state } => state
+                    .asset_definition_id()
+                    .measured_bytes_extra()
+                    .saturating_add(state.reserve_account().measured_bytes_extra())
+                    .saturating_add(state.frontier_heap_bytes()),
+                Self::PublicReserveCustody {
+                    reserve_asset_id, ..
+                } => reserve_asset_id.measured_bytes_extra(),
+                Self::ProofManagedPoolBootstrap {
+                    bootstrap,
+                    accumulator_state,
+                    ..
+                } => proof_managed_bootstrap_heap_bytes(bootstrap)
+                    .saturating_add(size_of::<PrivacyProofManagedPoolAccumulatorStateV1>())
+                    .saturating_add(accumulator_state.frontier_heap_bytes()),
+                Self::VegaIssuerGovernance { .. }
+                | Self::ZkX509TrustAnchorGovernance { .. }
+                | Self::ZkX509CrlGovernance { .. }
+                | Self::ZkX509VerifiedCertificateNullifier { .. }
+                | Self::OrchardVerifiedNullifier { .. }
+                | Self::ProofManagedPoolBootstrapCommitment { .. }
+                | Self::FcmpBootstrapOutput { .. }
+                | Self::ProofManagedPoolVerifiedNullifier { .. }
+                | Self::ProofManagedPoolVerifiedCommitment { .. }
+                | Self::FcmpVerifiedOutput { .. }
+                | Self::ZkAceVerifiedAuthorization { .. }
+                | Self::ZkAmsGovernance { .. }
+                | Self::ZkAmsVerifiedProof { .. } => 0,
+            };
+            size_of::<Self>().saturating_add(heap)
+        }
+    }
     impl<T: MeasuredBytes, const N: usize> MeasuredBytes for [T; N] {
         fn measured_bytes(&self) -> usize {
             let mut total = size_of::<[T; N]>();
@@ -4673,6 +4826,754 @@ include!("tiered_hot_byte_accounting.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn tiered_x509_root_world() -> World {
+        use crate::privacy_state::{
+            PrivacyCommitmentKeyV1, PrivacyRootHeadKeyV1, PrivacyRootHeadRecordV1,
+            PrivacyRootKeyV1, PrivacyRootProvenanceV1, PrivacyStateItemRecordV1,
+        };
+        use iroha_data_model::privacy::{
+            PrivacyIssuerIdV1, PrivacyNamespaceScopeV1, PrivacyNamespaceV1, PrivacyProtocolIdV1,
+            PrivacyRootPublicationV1, PrivacyRootRoleV1, PrivacyRootV1,
+            PrivacyTrustAnchorNamespaceV1, PrivacyX509TrustStoreDigestV1,
+            PrivacyZkX509RecordLifecycleV1, PrivacyZkX509TrustAnchorRecordV1,
+        };
+        let mut world = World::default();
+        let issuer = PrivacyIssuerIdV1::new([41; 32]);
+        let namespace = PrivacyNamespaceV1::new(
+            PrivacyProtocolIdV1::IrohaZkX509StarkP256V1,
+            PrivacyNamespaceScopeV1::TrustAnchor(PrivacyTrustAnchorNamespaceV1 {
+                trust_anchor_id: issuer,
+            }),
+        );
+        let mut previous = None;
+        for (epoch, byte) in [(1, 81), (2, 83)] {
+            let root = PrivacyRootV1::new([byte; 32]);
+            let anchor = PrivacyZkX509TrustAnchorRecordV1::new(
+                issuer,
+                epoch,
+                PrivacyX509TrustStoreDigestV1::new([byte + 1; 32]),
+                root,
+                epoch,
+                previous,
+                PrivacyZkX509RecordLifecycleV1::Active,
+            )
+            .expect("self-digested lineage");
+            previous = Some(anchor.record_digest);
+            let publication = PrivacyRootPublicationV1 {
+                namespace,
+                role: PrivacyRootRoleV1::CertificateAuthorityMembership,
+                epoch,
+                root,
+            };
+            let provenance = PrivacyRootProvenanceV1::zk_x509_ca_governance(
+                publication.digest().expect("publication digest"),
+                namespace,
+                epoch,
+                root,
+                anchor,
+                12,
+            )
+            .expect("owned provenance");
+            world.privacy_commitments.insert(
+                PrivacyCommitmentKeyV1::zk_x509_trust_anchor_revision(issuer, epoch)
+                    .expect("revision key"),
+                PrivacyStateItemRecordV1::zk_x509_trust_anchor_governance(anchor, 12)
+                    .expect("revision"),
+            );
+            world.privacy_roots.insert(
+                PrivacyRootKeyV1::new(namespace, publication.role, epoch, root).expect("root key"),
+                provenance.clone(),
+            );
+            world.privacy_root_heads.insert(
+                PrivacyRootHeadKeyV1::new(namespace, publication.role).expect("head key"),
+                PrivacyRootHeadRecordV1::new(epoch, root, provenance, None).expect("head"),
+            );
+        }
+        world
+    }
+
+    fn validate_tiered_x509_root_world(world: &World) -> Result<(), String> {
+        crate::privacy_state::validate_privacy_persisted_state_v1(
+            &iroha_data_model::privacy::PrivacyConsensusPolicyV1::taira_default(),
+            &world.privacy_activations.view(),
+            crate::privacy_state::PrivacyPgcStateReadV1 {
+                accounts: &world.privacy_pgc_accounts.view(),
+                pool_invariants: &world.privacy_pgc_pool_invariants.view(),
+            },
+            &world.privacy_nullifiers.view(),
+            &world.privacy_commitments.view(),
+            &world.privacy_roots.view(),
+            &world.privacy_root_heads.view(),
+        )
+    }
+
+    #[test]
+    fn privacy_root_and_head_charge_each_owned_anchor_once() {
+        use crate::privacy_state::{PrivacyRootHeadRecordV1, PrivacyRootProvenanceV1};
+        use iroha_data_model::privacy::{
+            PrivacyRootPublicationDigestV1, PrivacyRootV1, PrivacyZkX509TrustAnchorRecordV1,
+        };
+        let world = tiered_x509_root_world();
+        validate_tiered_x509_root_world(&world).expect("complete two-revision history");
+        let anchor_bytes = std::mem::size_of::<PrivacyZkX509TrustAnchorRecordV1>();
+        for (_, provenance) in world.privacy_roots.view().iter() {
+            let cloned = provenance.clone();
+            for owner in [provenance, &cloned] {
+                assert_eq!(
+                    MeasuredBytes::measured_bytes(owner),
+                    std::mem::size_of::<PrivacyRootProvenanceV1>()
+                        .checked_add(anchor_bytes)
+                        .expect("fixture total")
+                );
+                assert_eq!(owner.measured_bytes_extra(), anchor_bytes);
+            }
+        }
+        for (_, head) in world.privacy_root_heads.view().iter() {
+            let cloned = head.clone();
+            for owner in [head, &cloned] {
+                assert_eq!(
+                    MeasuredBytes::measured_bytes(owner),
+                    std::mem::size_of::<PrivacyRootHeadRecordV1>()
+                        .checked_add(anchor_bytes)
+                        .expect("fixture total")
+                );
+                assert_eq!(
+                    owner.measured_bytes_extra(),
+                    anchor_bytes,
+                    "the inline enum is already part of the head, and each Box is charged once"
+                );
+            }
+        }
+        let fixed =
+            PrivacyRootProvenanceV1::governance(PrivacyRootPublicationDigestV1::new([91; 32]), 12)
+                .expect("fixed provenance");
+        assert_eq!(
+            MeasuredBytes::measured_bytes(&fixed),
+            std::mem::size_of::<PrivacyRootProvenanceV1>()
+        );
+        let head = PrivacyRootHeadRecordV1::new(1, PrivacyRootV1::new([92; 32]), fixed, None)
+            .expect("fixed head");
+        assert_eq!(
+            MeasuredBytes::measured_bytes(&head),
+            std::mem::size_of::<PrivacyRootHeadRecordV1>()
+        );
+    }
+
+    fn restore_tiered_x509_row<T: norito::json::JsonDeserialize>(
+        reader: &TieredStateBackend,
+        manifest: &TieredSnapshotManifest,
+        snapshot_index: u64,
+        segment: TieredSegment,
+        key_payload: &[u8],
+    ) -> T {
+        let entry = manifest
+            .cold_entries
+            .iter()
+            .find(|entry| entry.segment == segment && entry.key_payload == key_payload)
+            .expect("owned row must be cold under the unchanged one-byte budget");
+        let payload = reader
+            .read_cold_payload(snapshot_index, entry)
+            .expect("read persisted row")
+            .expect("cold row exists");
+        norito::json::from_slice(&payload).expect("typed row restore")
+    }
+
+    #[test]
+    fn privacy_owned_root_history_cold_restore_preserves_complete_world_commitment() {
+        use crate::{
+            privacy_state::{
+                PrivacyRootHeadRecordV1, PrivacyRootProvenanceV1, PrivacyStateItemRecordV1,
+            },
+            state::world_projection::WorldStateAccumulator,
+        };
+        use norito::codec::Encode as _;
+        let world = tiered_x509_root_world();
+        validate_tiered_x509_root_world(&world).expect("complete source history");
+        let expected = WorldStateAccumulator::capture(&world.block()).expect("complete World root");
+        let temp = tempdir().expect("cold storage");
+        let root = temp.path().to_path_buf();
+        let mut backend = TieredStateBackend::new(true, 0, 1, 0, Some(root.clone()), None, 0, 0);
+        backend
+            .record_world_snapshot(&world)
+            .expect("cold snapshot");
+        let snapshot_index = backend.last_manifest().expect("manifest").snapshot_index;
+        drop(backend);
+        let manifest: TieredSnapshotManifest = json::from_slice(
+            &fs::read(
+                root.join(format!("{snapshot_index:020}"))
+                    .join("manifest.json"),
+            )
+            .expect("persisted manifest"),
+        )
+        .expect("manifest decode");
+        let reader = TieredStateBackend::new(true, 0, 1, 0, Some(root), None, 0, 0);
+        let mut restored = World::default();
+        for (key, original) in world.privacy_commitments.view().iter() {
+            let decoded: PrivacyStateItemRecordV1 = restore_tiered_x509_row(
+                &reader,
+                &manifest,
+                snapshot_index,
+                TieredSegment::PrivacyCommitments,
+                &key.encode(),
+            );
+            assert_eq!(&decoded, original);
+            assert_eq!(decoded.encode(), original.encode());
+            restored.privacy_commitments.insert(*key, decoded);
+        }
+        for (key, original) in world.privacy_roots.view().iter() {
+            let decoded: PrivacyRootProvenanceV1 = restore_tiered_x509_row(
+                &reader,
+                &manifest,
+                snapshot_index,
+                TieredSegment::PrivacyRoots,
+                &key.encode(),
+            );
+            assert_eq!(&decoded, original);
+            assert_eq!(decoded.encode(), original.encode());
+            restored.privacy_roots.insert(*key, decoded);
+        }
+        for (key, original) in world.privacy_root_heads.view().iter() {
+            let decoded: PrivacyRootHeadRecordV1 = restore_tiered_x509_row(
+                &reader,
+                &manifest,
+                snapshot_index,
+                TieredSegment::PrivacyRootHeads,
+                &key.encode(),
+            );
+            assert_eq!(&decoded, original);
+            assert_eq!(decoded.encode(), original.encode());
+            restored.privacy_root_heads.insert(*key, decoded);
+        }
+        validate_tiered_x509_root_world(&restored)
+            .expect("full restored history and governance join");
+        assert_eq!(
+            WorldStateAccumulator::capture(&restored.block()).expect("restored World root"),
+            expected
+        );
+        let (key, mut changed) = restored
+            .privacy_roots
+            .view()
+            .iter()
+            .next()
+            .map(|(key, provenance)| (*key, provenance.clone()))
+            .expect("historical root");
+        let PrivacyRootProvenanceV1::ZkX509CaGovernance {
+            admitted_at_height, ..
+        } = &mut changed
+        else {
+            panic!("CA provenance");
+        };
+        *admitted_at_height = 13;
+        changed
+            .validate()
+            .expect("valid alternate provenance height");
+        let mut block = restored.block();
+        block.privacy_roots.insert(key, changed);
+        let changed_root = WorldStateAccumulator::capture(&block).expect("changed World root");
+        assert_eq!(
+            expected
+                .apply_block(&block)
+                .expect("incremental World root"),
+            changed_root
+        );
+        assert_ne!(
+            expected.root().expect("prior root"),
+            changed_root.root().expect("changed root")
+        );
+        drop(block);
+        let missing_history = tiered_x509_root_world();
+        let first_key = *missing_history
+            .privacy_roots
+            .view()
+            .iter()
+            .next()
+            .expect("first root")
+            .0;
+        let mut block = missing_history.block();
+        block.privacy_roots.remove(first_key);
+        block.commit();
+        assert!(
+            validate_tiered_x509_root_world(&missing_history).is_err(),
+            "typed restore must not accept a missing unpruned history row"
+        );
+    }
+
+    fn tiered_fcmp_outputs() -> Vec<iroha_data_model::privacy::PrivacyFcmpOutputTupleV1> {
+        use iroha_data_model::privacy::PrivacyFcmpOutputTupleV1;
+        let (output, _, _) =
+            crate::privacy_engines::fcmp_plus_plus::fcmp_test_spendable_output_v1(1, 2, 3, 4, 5);
+        let (output_key, linking_tag_generator, amount_commitment) = output.components();
+        let mut initial_outputs = Vec::with_capacity(11);
+        initial_outputs.push(PrivacyFcmpOutputTupleV1 {
+            output_key,
+            linking_tag_generator,
+            amount_commitment,
+        });
+        initial_outputs
+    }
+
+    fn tiered_proof_managed_records() -> Vec<(
+        crate::privacy_state::PrivacyCommitmentKeyV1,
+        crate::privacy_state::PrivacyStateItemRecordV1,
+    )> {
+        use crate::privacy_state::{PrivacyCommitmentKeyV1, PrivacyStateItemRecordV1};
+        use iroha_data_model::{
+            account::AccountId,
+            asset::AssetBalanceScope,
+            privacy::{
+                PrivacyCommitmentV1, PrivacyFcmpPoolBootstrapV1,
+                PrivacyIvmPrivateNotePoolBootstrapV1, PrivacyPoolIdV1,
+                PrivacyPqMaspPoolBootstrapV1, PrivacyProgramIdV1,
+                PrivacyProofManagedPoolBootstrapV1,
+            },
+        };
+        let asset_definition_id = AssetDefinitionId::from_uuid_bytes([
+            0x31, 0x42, 0x53, 0x64, 0x75, 0x86, 0x47, 0x98, 0x80, 0x19, 0x2a, 0x3b, 0x4c, 0x5d,
+            0x6e, 0x7f,
+        ])
+        .expect("valid asset UUID");
+        let keypair = iroha_crypto::KeyPair::try_from_seed(
+            b"tiered proof-managed reserve".to_vec(),
+            iroha_crypto::Algorithm::Ed25519,
+        )
+        .expect("fixture key");
+        let reserve_account = AccountId::new(keypair.public_key().clone());
+        let mut ivm_notes = Vec::with_capacity(17);
+        ivm_notes.extend([
+            PrivacyCommitmentV1::new([21; 32]),
+            PrivacyCommitmentV1::new([22; 32]),
+        ]);
+        let mut pq_notes = Vec::with_capacity(19);
+        pq_notes.extend([
+            PrivacyCommitmentV1::new([31; 32]),
+            PrivacyCommitmentV1::new([32; 32]),
+        ]);
+        let initial_outputs = tiered_fcmp_outputs();
+        [
+            PrivacyProofManagedPoolBootstrapV1::IrohaIvmPrivateNoteStarkV1(
+                PrivacyIvmPrivateNotePoolBootstrapV1 {
+                    pool_id: PrivacyPoolIdV1::new([11; 32]),
+                    asset_definition_id: asset_definition_id.clone(),
+                    public_balance_scope: AssetBalanceScope::Global,
+                    reserve_account,
+                    program_id: PrivacyProgramIdV1::new([12; 32]),
+                    initial_note_commitments: ivm_notes,
+                },
+            ),
+            PrivacyProofManagedPoolBootstrapV1::PqMaspStarkV1(PrivacyPqMaspPoolBootstrapV1 {
+                pool_id: PrivacyPoolIdV1::new([13; 32]),
+                asset_definition_id: asset_definition_id.clone(),
+                initial_note_commitments: pq_notes,
+            }),
+            PrivacyProofManagedPoolBootstrapV1::MoneroFcmpPlusPlusV1(PrivacyFcmpPoolBootstrapV1 {
+                pool_id: PrivacyPoolIdV1::new([14; 32]),
+                asset_definition_id,
+                initial_outputs,
+            }),
+        ]
+        .into_iter()
+        .map(|bootstrap| {
+            let key = PrivacyCommitmentKeyV1::proof_managed_pool_config(bootstrap.namespace())
+                .expect("pool key");
+            let digest = bootstrap.digest().expect("bootstrap digest");
+            let initial_root =
+                crate::privacy_engines::proof_managed_pool_initial_root_v1(&bootstrap)
+                    .expect("native root");
+            let record = PrivacyStateItemRecordV1::proof_managed_pool_bootstrap(
+                bootstrap,
+                digest,
+                initial_root,
+                7,
+            )
+            .expect("valid owned state");
+            (key, record)
+        })
+        .collect()
+    }
+
+    #[test]
+    fn privacy_state_item_owned_capacity_is_not_free() {
+        use crate::privacy_state::PrivacyStateItemRecordV1;
+        use iroha_data_model::privacy::{
+            PrivacyCommitmentV1, PrivacyFcmpOutputTupleV1, PrivacyProofManagedPoolBootstrapV1,
+        };
+        for (_, record) in tiered_proof_managed_records() {
+            let (bootstrap, _, _, _, _) = record
+                .proof_managed_pool_bootstrap_ref()
+                .expect("bootstrap");
+            let (length, capacity, element_size) = match bootstrap {
+                PrivacyProofManagedPoolBootstrapV1::MoneroFcmpPlusPlusV1(value) => (
+                    value.initial_outputs.len(),
+                    value.initial_outputs.capacity(),
+                    std::mem::size_of::<PrivacyFcmpOutputTupleV1>(),
+                ),
+                PrivacyProofManagedPoolBootstrapV1::IrohaIvmPrivateNoteStarkV1(value) => (
+                    value.initial_note_commitments.len(),
+                    value.initial_note_commitments.capacity(),
+                    std::mem::size_of::<PrivacyCommitmentV1>(),
+                ),
+                PrivacyProofManagedPoolBootstrapV1::PqMaspStarkV1(value) => (
+                    value.initial_note_commitments.len(),
+                    value.initial_note_commitments.capacity(),
+                    std::mem::size_of::<PrivacyCommitmentV1>(),
+                ),
+            };
+            assert!(capacity > length, "fixture must retain spare capacity");
+            let known_heap = capacity
+                .checked_mul(element_size)
+                .expect("fixture capacity bytes");
+            let inline = std::mem::size_of::<PrivacyStateItemRecordV1>();
+            assert!(
+                MeasuredBytes::measured_bytes(&record) > inline,
+                "owned bootstrap and frontier cannot be measured as an inline-only value"
+            );
+            assert!(
+                MeasuredBytes::measured_bytes(&record)
+                    >= inline.checked_add(known_heap).expect("fixture size"),
+                "capacity rather than length must be charged"
+            );
+        }
+    }
+
+    #[test]
+    fn privacy_state_owned_accumulators_cold_roundtrip_and_world_roots() {
+        use crate::{
+            privacy_state::PrivacyStateItemRecordV1, state::world_projection::WorldStateAccumulator,
+        };
+        use norito::codec::Encode as _;
+        let temp = tempdir().expect("cold storage");
+        let root = temp.path().to_path_buf();
+        let mut backend = TieredStateBackend::new(true, 0, 1, 0, Some(root.clone()), None, 0, 0);
+        let mut world = World::default();
+        let predecessor = WorldStateAccumulator::capture(&world.block()).expect("empty capture");
+        let records = tiered_proof_managed_records();
+        let expected = {
+            let mut block = world.block();
+            for (key, record) in &records {
+                block.privacy_commitments.insert(*key, record.clone());
+            }
+            let cold = WorldStateAccumulator::capture(&block).expect("complete capture");
+            assert_eq!(
+                predecessor.apply_block(&block).expect("incremental root"),
+                cold
+            );
+            assert_ne!(
+                predecessor.root().expect("prior root"),
+                cold.root().expect("pool root")
+            );
+            block.commit();
+            cold
+        };
+        backend
+            .record_world_snapshot(&world)
+            .expect("cold snapshot");
+        let snapshot_index = backend.last_manifest().expect("manifest").snapshot_index;
+        drop(backend);
+        let manifest: TieredSnapshotManifest = json::from_slice(
+            &fs::read(
+                root.join(format!("{snapshot_index:020}"))
+                    .join("manifest.json"),
+            )
+            .expect("persisted manifest"),
+        )
+        .expect("manifest decode");
+        let reader = TieredStateBackend::new(true, 0, 1, 0, Some(root), None, 0, 0);
+        let mut restored = World::default();
+        for (key, record) in &records {
+            let entry = manifest
+                .cold_entries
+                .iter()
+                .find(|entry| {
+                    entry.segment == TieredSegment::PrivacyCommitments
+                        && entry.key_payload == key.encode()
+                })
+                .expect("owned State row must be cold under the unchanged one-byte budget");
+            let payload = reader
+                .read_cold_payload(snapshot_index, entry)
+                .expect("read persisted row")
+                .expect("cold row exists");
+            let decoded: PrivacyStateItemRecordV1 =
+                json::from_slice(&payload).expect("typed State row restore");
+            decoded.validate().expect("native frontier validation");
+            assert_eq!(decoded, *record);
+            assert_eq!(decoded.encode(), record.encode());
+            restored.privacy_commitments.insert(*key, decoded);
+        }
+        assert_eq!(
+            WorldStateAccumulator::capture(&restored.block()).expect("restored World capture"),
+            expected
+        );
+        let (key, mut changed) = records.into_iter().next().expect("owned record");
+        let PrivacyStateItemRecordV1::ProofManagedPoolBootstrap {
+            admitted_at_height, ..
+        } = &mut changed
+        else {
+            panic!("pool config");
+        };
+        *admitted_at_height = 8;
+        changed
+            .validate()
+            .expect("valid alternate admission height");
+        let mut block = restored.block();
+        block.privacy_commitments.insert(key, changed);
+        let changed_root = WorldStateAccumulator::capture(&block).expect("changed capture");
+        assert_eq!(
+            expected
+                .apply_block(&block)
+                .expect("changed incremental root"),
+            changed_root
+        );
+        assert_ne!(
+            changed_root.root().expect("changed root"),
+            expected.root().expect("original root")
+        );
+    }
+
+    #[test]
+    fn privacy_state_item_charges_owned_accumulator_once_and_each_clone_capacity() {
+        use crate::privacy_state::{
+            PrivacyProofManagedPoolAccumulatorStateV1, PrivacyStateItemRecordV1,
+        };
+        use iroha_data_model::privacy::{
+            PrivacyCommitmentV1, PrivacyFcmpOutputTupleV1, PrivacyProofManagedPoolBootstrapV1,
+        };
+        for (_, record) in tiered_proof_managed_records() {
+            let cloned = record.clone();
+            for value in [&record, &cloned] {
+                let (bootstrap, _, _, frontier, _) =
+                    value.proof_managed_pool_bootstrap_ref().expect("bootstrap");
+                let bootstrap_heap = match bootstrap {
+                    PrivacyProofManagedPoolBootstrapV1::MoneroFcmpPlusPlusV1(value) => {
+                        value.asset_definition_id.measured_bytes_extra()
+                            + value.initial_outputs.capacity()
+                                * std::mem::size_of::<PrivacyFcmpOutputTupleV1>()
+                    }
+                    PrivacyProofManagedPoolBootstrapV1::IrohaIvmPrivateNoteStarkV1(value) => {
+                        value.asset_definition_id.measured_bytes_extra()
+                            + value.reserve_account.measured_bytes_extra()
+                            + value.initial_note_commitments.capacity()
+                                * std::mem::size_of::<PrivacyCommitmentV1>()
+                    }
+                    PrivacyProofManagedPoolBootstrapV1::PqMaspStarkV1(value) => {
+                        value.asset_definition_id.measured_bytes_extra()
+                            + value.initial_note_commitments.capacity()
+                                * std::mem::size_of::<PrivacyCommitmentV1>()
+                    }
+                };
+                let expected = std::mem::size_of::<PrivacyStateItemRecordV1>()
+                    + std::mem::size_of::<PrivacyProofManagedPoolAccumulatorStateV1>()
+                    + bootstrap_heap
+                    + frontier.frontier_heap_bytes();
+                assert_eq!(
+                    MeasuredBytes::measured_bytes(value),
+                    expected,
+                    "inline enum/Box pointer is counted once, native owner and capacities once"
+                );
+            }
+            assert_eq!(record, cloned);
+        }
+        let fixed = PrivacyStateItemRecordV1::proof_managed_pool_bootstrap_commitment(
+            iroha_data_model::privacy::PrivacyProofManagedPoolBootstrapDigestV1::new([41; 32]),
+            0,
+            7,
+        )
+        .expect("fixed provenance");
+        assert_eq!(
+            MeasuredBytes::measured_bytes(&fixed),
+            std::mem::size_of::<PrivacyStateItemRecordV1>()
+        );
+    }
+
+    #[test]
+    fn privacy_state_policy_vectors_charge_reserved_storage() {
+        use crate::privacy_state::PrivacyStateItemRecordV1;
+        use iroha_data_model::privacy::{
+            PrivacyIssuerIdV1, PrivacyPolicyDigestV1, PrivacyPolicyIdV1,
+            PrivacyX509ExtendedKeyUsageV1, PrivacyX509KeyUsageV1, PrivacyZkAceIdentityCommitmentV1,
+            PrivacyZkAcePolicyLifecycleV1, PrivacyZkAcePolicyRecordV1,
+            PrivacyZkX509CertificatePolicyRecordV1, PrivacyZkX509RecordLifecycleV1,
+        };
+        let records = tiered_proof_managed_records();
+        let (bootstrap, _, _, _, _) = records[0]
+            .1
+            .proof_managed_pool_bootstrap_ref()
+            .expect("IVM config");
+        let iroha_data_model::privacy::PrivacyProofManagedPoolBootstrapV1::IrohaIvmPrivateNoteStarkV1(bootstrap) = bootstrap else { panic!("IVM bootstrap"); };
+        let mut source_allowlist = Vec::with_capacity(9);
+        source_allowlist.push(bootstrap.reserve_account.clone());
+        let policy = PrivacyZkAcePolicyRecordV1::new(
+            PrivacyPolicyIdV1::new([51; 32]),
+            PrivacyZkAceIdentityCommitmentV1::new([13; 6]).expect("canonical words"),
+            PrivacyPolicyDigestV1::new([52; 32]),
+            1,
+            bootstrap.asset_definition_id.clone(),
+            source_allowlist,
+            PrivacyZkAcePolicyLifecycleV1::Active,
+        )
+        .expect("valid policy");
+        let expected = std::mem::size_of::<PrivacyStateItemRecordV1>()
+            + policy.asset_definition_id.measured_bytes_extra()
+            + policy.source_allowlist.capacity()
+                * std::mem::size_of::<iroha_data_model::account::AccountId>()
+            + policy
+                .source_allowlist
+                .iter()
+                .map(MeasuredBytes::measured_bytes_extra)
+                .sum::<usize>();
+        let record =
+            PrivacyStateItemRecordV1::zk_ace_policy_governance(policy, 7).expect("policy row");
+        assert_eq!(MeasuredBytes::measured_bytes(&record), expected);
+        let mut usages = Vec::with_capacity(7);
+        usages.push(PrivacyX509ExtendedKeyUsageV1::ClientAuthentication);
+        let mut disclosures = Vec::with_capacity(11);
+        disclosures.extend([0, 1]);
+        let policy = PrivacyZkX509CertificatePolicyRecordV1::new(
+            PrivacyIssuerIdV1::new([53; 32]),
+            PrivacyPolicyIdV1::new([54; 32]),
+            1,
+            PrivacyPolicyDigestV1::new([55; 32]),
+            PrivacyX509KeyUsageV1 {
+                digital_signature: true.into(),
+                content_commitment: false.into(),
+                key_encipherment: false.into(),
+                key_agreement: false.into(),
+            },
+            usages,
+            disclosures,
+            None,
+            PrivacyZkX509RecordLifecycleV1::Active,
+        )
+        .expect("valid certificate policy");
+        let expected = std::mem::size_of::<PrivacyStateItemRecordV1>()
+            + policy.required_extended_key_usages.capacity()
+                * std::mem::size_of::<PrivacyX509ExtendedKeyUsageV1>()
+            + policy.required_disclosed_attribute_indices.capacity();
+        let record = PrivacyStateItemRecordV1::zk_x509_certificate_policy_governance(policy, 7)
+            .expect("certificate policy row");
+        assert_eq!(MeasuredBytes::measured_bytes(&record), expected);
+    }
+
+    #[test]
+    fn privacy_state_bootle_policy_charges_nested_vector_capacities() {
+        use crate::privacy_state::PrivacyStateItemRecordV1;
+        use iroha_data_model::privacy::{
+            BOOTLE_LANTERN_ATTRIBUTE_COUNT_V1, BOOTLE_LANTERN_RING_DEGREE_V1,
+            BootleLanternAllowedAttributeValuesV1, BootleLanternAttributeValueV1,
+            BootleLanternIssuerPolicyLifecycleV1, BootleLanternIssuerPolicyV1,
+            BootleLanternIssuerPublicMatrixV1, BootleLanternPolynomialV1,
+            PrivacyBootleLanternIssuerPolicyDigestV1, PrivacyIssuerIdV1, PrivacyParameterDigestV1,
+            PrivacyParameterIdV1, PrivacyPolicyIdV1,
+        };
+        let first_column = core::array::from_fn(|_| BootleLanternPolynomialV1 {
+            coefficients: vec![1; BOOTLE_LANTERN_RING_DEGREE_V1],
+        });
+        let mut matrix =
+            BootleLanternIssuerPublicMatrixV1::from_r512_first_column_blocks_v1(&first_column)
+                .expect("dense canonical matrix");
+        matrix.entries.reserve_exact(7);
+        for polynomial in &mut matrix.entries {
+            polynomial.coefficients.reserve_exact(3);
+        }
+        let mut allowed_values = Vec::with_capacity(BOOTLE_LANTERN_ATTRIBUTE_COUNT_V1 + 5);
+        for _ in 0..BOOTLE_LANTERN_ATTRIBUTE_COUNT_V1 {
+            let mut values = Vec::with_capacity(7);
+            values.push(BootleLanternAttributeValueV1::new([1; 8]));
+            allowed_values.push(BootleLanternAllowedAttributeValuesV1 { values });
+        }
+        let mut policy = BootleLanternIssuerPolicyV1 {
+            issuer_id: PrivacyIssuerIdV1::new([61; 32]),
+            policy_id: PrivacyPolicyIdV1::new([62; 32]),
+            epoch: 1,
+            lifecycle: BootleLanternIssuerPolicyLifecycleV1::Active,
+            issuer_parameter_id: PrivacyParameterIdV1::new([63; 32]),
+            issuer_parameter_digest: PrivacyParameterDigestV1::new([0; 32]),
+            issuer_public_matrix: matrix,
+            required_disclosure_bitmap: u8::MAX,
+            allowed_values,
+            record_digest: PrivacyBootleLanternIssuerPolicyDigestV1::new([0; 32]),
+        };
+        policy.issuer_parameter_digest = policy
+            .computed_issuer_parameter_digest()
+            .expect("matrix digest");
+        policy.record_digest = policy.computed_record_digest().expect("policy digest");
+        policy.validate().expect("valid policy with spare capacity");
+        let expected = std::mem::size_of::<PrivacyStateItemRecordV1>()
+            + policy.issuer_public_matrix.entries.capacity()
+                * std::mem::size_of::<BootleLanternPolynomialV1>()
+            + policy
+                .issuer_public_matrix
+                .entries
+                .iter()
+                .map(|polynomial| polynomial.coefficients.capacity() * std::mem::size_of::<u16>())
+                .sum::<usize>()
+            + policy.allowed_values.capacity()
+                * std::mem::size_of::<BootleLanternAllowedAttributeValuesV1>()
+            + policy
+                .allowed_values
+                .iter()
+                .map(|attribute| {
+                    attribute.values.capacity()
+                        * std::mem::size_of::<BootleLanternAttributeValueV1>()
+                })
+                .sum::<usize>();
+        let record = PrivacyStateItemRecordV1::bootle_lantern_issuer_policy_governance(policy, 7)
+            .expect("valid policy row");
+        assert_eq!(MeasuredBytes::measured_bytes(&record), expected);
+    }
+
+    #[test]
+    fn privacy_state_orchard_and_reserve_owners_count_account_storage_once() {
+        use crate::privacy_state::{
+            PrivacyOrchardPoolStateV1, PrivacyPublicReserveOwnerV1, PrivacyStateItemRecordV1,
+        };
+        use iroha_data_model::{
+            asset::AssetId,
+            privacy::{
+                PrivacyOrchardPoolBootstrapV1, PrivacyPoolIdV1, PrivacyProofManagedPoolBootstrapV1,
+            },
+        };
+        let records = tiered_proof_managed_records();
+        let (bootstrap, digest, _, _, _) = records[0]
+            .1
+            .proof_managed_pool_bootstrap_ref()
+            .expect("IVM config");
+        let namespace = bootstrap.namespace();
+        let PrivacyProofManagedPoolBootstrapV1::IrohaIvmPrivateNoteStarkV1(bootstrap) = bootstrap
+        else {
+            panic!("IVM bootstrap");
+        };
+        let reserve_asset_id = AssetId::new(
+            bootstrap.asset_definition_id.clone(),
+            bootstrap.reserve_account.clone(),
+        );
+        let expected = std::mem::size_of::<PrivacyStateItemRecordV1>()
+            + reserve_asset_id.measured_bytes_extra();
+        let custody = PrivacyStateItemRecordV1::public_reserve_custody(
+            reserve_asset_id,
+            PrivacyPublicReserveOwnerV1::PrivateIvm {
+                namespace,
+                bootstrap_digest: digest,
+            },
+        )
+        .expect("reserve custody");
+        assert_eq!(MeasuredBytes::measured_bytes(&custody), expected);
+        let orchard = PrivacyOrchardPoolBootstrapV1::new(
+            PrivacyPoolIdV1::new([71; 32]),
+            bootstrap.asset_definition_id.clone(),
+            bootstrap.public_balance_scope,
+            bootstrap.reserve_account.clone(),
+        )
+        .expect("Orchard bootstrap");
+        let state = PrivacyOrchardPoolStateV1::bootstrap(orchard).expect("native Orchard state");
+        let expected = std::mem::size_of::<PrivacyStateItemRecordV1>()
+            + state.asset_definition_id().measured_bytes_extra()
+            + state.reserve_account().measured_bytes_extra()
+            + state.frontier_heap_bytes();
+        let record =
+            PrivacyStateItemRecordV1::orchard_pool_state(state).expect("Orchard state row");
+        assert_eq!(MeasuredBytes::measured_bytes(&record), expected);
+    }
+
     #[test]
     fn contract_permission_metadata_accounts_for_every_owned_name() {
         use iroha_data_model::smart_contract::manifest::{

@@ -94,7 +94,7 @@ type WireV1 = usize;
 type WordV1 = [WireV1; 32];
 /// Deterministic SHA-256 circuit construction or validation failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum ZkX509Sha256AirErrorV1 {
+pub enum ZkX509Sha256AirErrorV1 {
     /// SHA-256 bit-length or padding arithmetic overflowed.
     #[error("zk-X509 SHA-256 AIR input is too large")]
     InputTooLarge,
@@ -138,7 +138,7 @@ struct CircuitGateV1 {
 }
 /// Complete padded SHA-256 circuit witness.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Sha256CircuitV1 {
+pub struct ZkX509Sha256CircuitV1 {
     wires: Vec<F>,
     input_wires: Vec<WireV1>,
     gates: Vec<CircuitGateV1>,
@@ -416,7 +416,7 @@ impl CircuitBuilderV1 {
     }
 }
 /// Compile and witness the complete padded SHA-256 circuit.
-pub(crate) fn build_sha256_circuit_v1(
+pub fn build_sha256_circuit_v1(
     message: &[u8],
 ) -> Result<ZkX509Sha256CircuitV1, ZkX509Sha256AirErrorV1> {
     let circuit = build_sha256_circuit_unchecked_v1(message)?;
@@ -424,7 +424,7 @@ pub(crate) fn build_sha256_circuit_v1(
     Ok(circuit)
 }
 /// Exact local Boolean-gate rows required for a message length.
-pub(crate) fn sha256_gate_rows_for_message_len_v1(
+pub fn sha256_gate_rows_for_message_len_v1(
     message_len: usize,
 ) -> Result<usize, ZkX509Sha256AirErrorV1> {
     let (_, padded_len) = sha256_padding_shape_v1(message_len)?;

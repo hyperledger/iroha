@@ -4,7 +4,7 @@
 //!
 //! - three certificate-TBS slots (the third is a canonical dummy for a
 //!   depth-two chain);
-//! - TBSCertList and exact signed-CRL commitment calls;
+//! - `TBSCertList` and exact signed-CRL commitment calls;
 //! - seven projection calls;
 //! - the governed CRL issuer-SPKI digest;
 //! - all three authoritative governance-record self-digests;
@@ -76,41 +76,40 @@ use thiserror::Error;
 #[path = "sha_native_aux_cache.rs"]
 mod native_aux_cache;
 /// Per-type closed-relation DER admission limit.
-pub(crate) const ZK_X509_SHA_CALL_MAX_DER_BYTES_V1: usize = 4_096;
+pub const ZK_X509_SHA_CALL_MAX_DER_BYTES_V1: usize = 4_096;
 /// Exact number of canonical SHA calls at maximum shape.
-pub(crate) const ZK_X509_SHA_CALL_COUNT_V1: usize = 29;
+pub const ZK_X509_SHA_CALL_COUNT_V1: usize = 29;
 /// Exact maximum SHA compression blocks across all calls.
-pub(crate) const ZK_X509_SHA_MAX_BLOCKS_V1: usize = 616;
+pub const ZK_X509_SHA_MAX_BLOCKS_V1: usize = 616;
 /// Exact maximum word-address events, including eight digest words per call.
-pub(crate) const ZK_X509_SHA_CALL_EVENT_COUNT_V1: usize = 10_088;
+pub const ZK_X509_SHA_CALL_EVENT_COUNT_V1: usize = 10_088;
 /// Local word-AIR rows per SHA block.
-pub(crate) const ZK_X509_SHA_LOCAL_ROWS_PER_BLOCK_V1: usize =
-    SHA_WORD_CAPACITY_LOCAL_ROWS_PER_BLOCK_V1;
+pub const ZK_X509_SHA_LOCAL_ROWS_PER_BLOCK_V1: usize = SHA_WORD_CAPACITY_LOCAL_ROWS_PER_BLOCK_V1;
 /// Per-call local word-AIR initialization plus digest-read rows.
-pub(crate) const ZK_X509_SHA_LOCAL_ROWS_PER_CALL_V1: usize = 16;
+pub const ZK_X509_SHA_LOCAL_ROWS_PER_CALL_V1: usize = 16;
 /// Word-memory rows per SHA block.
-pub(crate) const ZK_X509_SHA_MEMORY_ROWS_PER_BLOCK_V1: usize = 2_136;
+pub const ZK_X509_SHA_MEMORY_ROWS_PER_BLOCK_V1: usize = 2_136;
 /// Per-call fixed word-memory rows.
-pub(crate) const ZK_X509_SHA_MEMORY_ROWS_PER_CALL_V1: usize = 16;
+pub const ZK_X509_SHA_MEMORY_ROWS_PER_CALL_V1: usize = 16;
 /// Exact maximum local rows in the canonical batch.
-pub(crate) const ZK_X509_SHA_MAX_LOCAL_ROWS_V1: usize = 655_888;
+pub const ZK_X509_SHA_MAX_LOCAL_ROWS_V1: usize = 655_888;
 /// Exact maximum word-memory rows in the canonical batch.
-pub(crate) const ZK_X509_SHA_MAX_MEMORY_ROWS_V1: usize = 1_316_240;
+pub const ZK_X509_SHA_MAX_MEMORY_ROWS_V1: usize = 1_316_240;
 /// Exact maximum logical rows in the canonical batch.
-pub(crate) const ZK_X509_SHA_MAX_LOGICAL_ROWS_V1: usize = 1_972_128;
+pub const ZK_X509_SHA_MAX_LOGICAL_ROWS_V1: usize = 1_972_128;
 /// Largest one-call fixed-capacity trace (the 4,161-byte CRL commitment).
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_MAX_CALL_LOGICAL_ROWS_V1: usize = 211_232;
+pub const ZK_X509_SHA_MAX_CALL_LOGICAL_ROWS_V1: usize = 211_232;
 /// Maximum rows in one logical SHA segment.
-pub(crate) const ZK_X509_SHA_SEGMENT_ROWS_V1: usize = 1 << 19;
+pub const ZK_X509_SHA_SEGMENT_ROWS_V1: usize = 1 << 19;
 /// Number of deterministic replay segments.
-pub(crate) const ZK_X509_SHA_SEGMENT_COUNT_V1: usize = 4;
+pub const ZK_X509_SHA_SEGMENT_COUNT_V1: usize = 4;
 /// Maximum active rows in each replay segment.
 ///
 /// Calls are packed whole into these four bins. No call transition crosses a physical commitment
 /// boundary, so every segment suffix is canonical padding and the opened-row verifier never needs a
 /// witness-fed cross-segment continuation value.
-pub(crate) const ZK_X509_SHA_SEGMENT_ACTIVE_ROWS_V1: [usize; ZK_X509_SHA_SEGMENT_COUNT_V1] =
+pub const ZK_X509_SHA_SEGMENT_ACTIVE_ROWS_V1: [usize; ZK_X509_SHA_SEGMENT_COUNT_V1] =
     [480_288, 521_952, 521_696, 448_192];
 /// Sole physical packing order for the 29 whole SHA calls.
 ///
@@ -128,119 +127,114 @@ const ZK_X509_SHA_PHYSICAL_CALL_COUNTS_V1: [usize; ZK_X509_SHA_SEGMENT_COUNT_V1]
 const ZK_X509_SHA_RFC_LENGTH_BITS_V1: usize = 13;
 /// Fixed-capacity SHA base width with private length/padding selectors and a
 /// proof-bound binary decomposition of the running raw-message length.
-pub(crate) const ZK_X509_SHA_BATCH_BASE_WIDTH_V1: usize =
+pub const ZK_X509_SHA_BATCH_BASE_WIDTH_V1: usize =
     SHA_WORD_CAPACITY_BASE_WIDTH_V1 + ZK_X509_SHA_RFC_LENGTH_BITS_V1;
 /// Word-memory/control columns, separate SHA call buses, and four RFC consumer product streams per
 /// lane. One stream owns each byte of an input word, so a selected raw byte remains degree two and
 /// its product recurrence degree three.
-pub(crate) const ZK_X509_SHA_BATCH_AUX_WIDTH_V1: usize =
+pub const ZK_X509_SHA_BATCH_AUX_WIDTH_V1: usize =
     SHA_WORD_CAPACITY_AUX_WIDTH_V1 + 6 * ZK_X509_SHA_BUS_LANES_V1;
 /// Verifier-preprocessed word, call identity, segment boundary, raw-length
 /// channel schedule, and field-native RFC event descriptors.
-pub(crate) const ZK_X509_SHA_BATCH_FIXED_WIDTH_V1: usize =
+pub const ZK_X509_SHA_BATCH_FIXED_WIDTH_V1: usize =
     SHA_WORD_CAPACITY_FIXED_WIDTH_V1 + 9 + ZK_X509_SHA_CA_CALL_COUNT_V1 + 4 * 6;
 /// Capacity SHA residues plus recurrence and reset for eight private input/digest
 /// accumulators; only compact-CA call boundaries and RFC stream endpoints are public.
-pub(crate) const ZK_X509_SHA_BATCH_CONSTRAINT_COUNT_V1: usize =
-    SHA_WORD_CAPACITY_CONSTRAINT_COUNT_V1
-        + 4 * ZK_X509_SHA_BUS_LANES_V1
-        + 4 * ZK_X509_SHA_CA_CALL_COUNT_V1 * ZK_X509_SHA_BUS_LANES_V1
-        + ZK_X509_SHA_RFC_LENGTH_BITS_V1
-        + 1
-        + 2 * ZK_X509_SHA_RFC_PRODUCT_STREAMS_V1 * ZK_X509_SHA_BUS_LANES_V1
-        + ZK_X509_SHA_BATCH_BASE_WIDTH_V1
-        + ZK_X509_SHA_BATCH_AUX_WIDTH_V1;
+pub const ZK_X509_SHA_BATCH_CONSTRAINT_COUNT_V1: usize = SHA_WORD_CAPACITY_CONSTRAINT_COUNT_V1
+    + 4 * ZK_X509_SHA_BUS_LANES_V1
+    + 4 * ZK_X509_SHA_CA_CALL_COUNT_V1 * ZK_X509_SHA_BUS_LANES_V1
+    + ZK_X509_SHA_RFC_LENGTH_BITS_V1
+    + 1
+    + 2 * ZK_X509_SHA_RFC_PRODUCT_STREAMS_V1 * ZK_X509_SHA_BUS_LANES_V1
+    + ZK_X509_SHA_BATCH_BASE_WIDTH_V1
+    + ZK_X509_SHA_BATCH_AUX_WIDTH_V1;
 /// Local SHA relation with its208 public CA-boundary equations removed.
 /// The consuming joint MAIN composition must include all108 original CA joins.
-pub(crate) const ZK_X509_SHA_BATCH_LOCAL_CONSTRAINT_COUNT_V1: usize =
-    ZK_X509_SHA_BATCH_CONSTRAINT_COUNT_V1
-        - 4 * ZK_X509_SHA_CA_CALL_COUNT_V1 * ZK_X509_SHA_BUS_LANES_V1;
+pub const ZK_X509_SHA_BATCH_LOCAL_CONSTRAINT_COUNT_V1: usize = ZK_X509_SHA_BATCH_CONSTRAINT_COUNT_V1
+    - 4 * ZK_X509_SHA_CA_CALL_COUNT_V1 * ZK_X509_SHA_BUS_LANES_V1;
 /// Maximum total degree including verifier-fixed selectors.
 ///
 /// The capacity equations reach six. Call-product terminal constraints also
 /// reach six: degree-two call selectors times a degree-four active input update.
-pub(crate) const ZK_X509_SHA_BATCH_CONSTRAINT_DEGREE_V1: u8 =
-    SHA_WORD_CAPACITY_CONSTRAINT_DEGREE_V1;
+pub const ZK_X509_SHA_BATCH_CONSTRAINT_DEGREE_V1: u8 = SHA_WORD_CAPACITY_CONSTRAINT_DEGREE_V1;
 /// Physical 64-column base commitment chunks per logical SHA segment.
-pub(crate) const ZK_X509_SHA_BATCH_BASE_CHUNKS_PER_SEGMENT_V1: usize = 2;
+pub const ZK_X509_SHA_BATCH_BASE_CHUNKS_PER_SEGMENT_V1: usize = 2;
 /// Physical 64-column auxiliary commitment chunks per logical SHA segment.
-pub(crate) const ZK_X509_SHA_BATCH_AUX_CHUNKS_PER_SEGMENT_V1: usize = 2;
+pub const ZK_X509_SHA_BATCH_AUX_CHUNKS_PER_SEGMENT_V1: usize = 2;
 /// Base width after the four same-logical-size registrations are bucketed.
-pub(crate) const ZK_X509_SHA_BUCKET_BASE_WIDTH_V1: usize =
+pub const ZK_X509_SHA_BUCKET_BASE_WIDTH_V1: usize =
     ZK_X509_SHA_SEGMENT_COUNT_V1 * ZK_X509_SHA_BATCH_BASE_WIDTH_V1;
 /// Auxiliary width after the four same-logical-size registrations are bucketed.
-pub(crate) const ZK_X509_SHA_BUCKET_AUX_WIDTH_V1: usize =
+pub const ZK_X509_SHA_BUCKET_AUX_WIDTH_V1: usize =
     ZK_X509_SHA_SEGMENT_COUNT_V1 * ZK_X509_SHA_BATCH_AUX_WIDTH_V1;
 /// Physical base commitment instances in the one same-log SHA bucket.
-pub(crate) const ZK_X509_SHA_BUCKET_BASE_CHUNKS_V1: usize =
+pub const ZK_X509_SHA_BUCKET_BASE_CHUNKS_V1: usize =
     ZK_X509_SHA_SEGMENT_COUNT_V1 * ZK_X509_SHA_BATCH_BASE_CHUNKS_PER_SEGMENT_V1;
 /// Physical auxiliary commitment instances in the one same-log SHA bucket.
-pub(crate) const ZK_X509_SHA_BUCKET_AUX_CHUNKS_V1: usize =
+pub const ZK_X509_SHA_BUCKET_AUX_CHUNKS_V1: usize =
     ZK_X509_SHA_SEGMENT_COUNT_V1 * ZK_X509_SHA_BATCH_AUX_CHUNKS_PER_SEGMENT_V1;
 /// Bytes in one simultaneously resident common-domain field column.
 #[cfg(test)]
-pub(crate) const ZK_X509_COMMON_LDE_COLUMN_BYTES_V1: u64 =
-    (1_u64 << ZK_X509_MAIN_COMMON_LDE_LOG2_V1) * 8;
+pub const ZK_X509_COMMON_LDE_COLUMN_BYTES_V1: u64 = (1_u64 << ZK_X509_MAIN_COMMON_LDE_LOG2_V1) * 8;
 /// Bytes in one caller-owned native SHA replay column.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_NATIVE_REPLAY_COLUMN_BYTES_V1: u64 =
+pub const ZK_X509_SHA_NATIVE_REPLAY_COLUMN_BYTES_V1: u64 =
     ZK_X509_SHA_SEGMENT_ROWS_V1 as u64 * core::mem::size_of::<F>() as u64;
 /// Native bytes for one complete base+aux SHA segment.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_ONE_NATIVE_SEGMENT_BYTES_V1: u64 =
-    (ZK_X509_SHA_BATCH_BASE_WIDTH_V1 as u64 + ZK_X509_SHA_BATCH_AUX_WIDTH_V1 as u64)
-        * ZK_X509_SHA_SEGMENT_ROWS_V1 as u64
-        * 8;
+pub const ZK_X509_SHA_ONE_NATIVE_SEGMENT_BYTES_V1: u64 = (ZK_X509_SHA_BATCH_BASE_WIDTH_V1 as u64
+    + ZK_X509_SHA_BATCH_AUX_WIDTH_V1 as u64)
+    * ZK_X509_SHA_SEGMENT_ROWS_V1 as u64
+    * 8;
 /// Retained field payload for the largest call after on-demand row widening.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_MAX_RETAINED_CALL_FIELD_BYTES_V1: u64 =
-    ZK_X509_SHA_MAX_CALL_LOGICAL_ROWS_V1 as u64
-        * (ZK_X509_SHA_BATCH_BASE_WIDTH_V1
-            + ZK_X509_SHA_BATCH_AUX_WIDTH_V1
-            + ZK_X509_SHA_BATCH_FIXED_WIDTH_V1) as u64
-        * 8;
+pub const ZK_X509_SHA_MAX_RETAINED_CALL_FIELD_BYTES_V1: u64 = ZK_X509_SHA_MAX_CALL_LOGICAL_ROWS_V1
+    as u64
+    * (ZK_X509_SHA_BATCH_BASE_WIDTH_V1
+        + ZK_X509_SHA_BATCH_AUX_WIDTH_V1
+        + ZK_X509_SHA_BATCH_FIXED_WIDTH_V1) as u64
+    * 8;
 /// Conservative peak for one native output column and one replayed call.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_NATIVE_COLUMN_REPLAY_PEAK_BYTES_V1: u64 =
+pub const ZK_X509_SHA_NATIVE_COLUMN_REPLAY_PEAK_BYTES_V1: u64 =
     ZK_X509_SHA_NATIVE_REPLAY_COLUMN_BYTES_V1 + ZK_X509_SHA_MAX_RETAINED_CALL_FIELD_BYTES_V1;
 /// Forbidden eager retention of all four native SHA auxiliary matrices.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_EAGER_AUX_MATRIX_BYTES_V1: u64 = ZK_X509_SHA_SEGMENT_COUNT_V1 as u64
+pub const ZK_X509_SHA_EAGER_AUX_MATRIX_BYTES_V1: u64 = ZK_X509_SHA_SEGMENT_COUNT_V1 as u64
     * ZK_X509_SHA_BATCH_AUX_WIDTH_V1 as u64
     * ZK_X509_SHA_NATIVE_REPLAY_COLUMN_BYTES_V1;
 /// One exact incremental SHA-256 row-hash state per common-domain row.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_ROW_HASH_STATE_BYTES_V1: u64 =
+pub const ZK_X509_SHA_ROW_HASH_STATE_BYTES_V1: u64 =
     (1_u64 << ZK_X509_MAIN_COMMON_LDE_LOG2_V1) * core::mem::size_of::<Sha256>() as u64;
 /// Explicit scratch reserve in the release streaming plan.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_STREAMING_SCRATCH_BYTES_V1: u64 = 128 * 1024 * 1024;
+pub const ZK_X509_SHA_STREAMING_SCRATCH_BYTES_V1: u64 = 128 * 1024 * 1024;
 /// Conservative peak for one native slice, row-hash states, sequential
 /// LDE/composition columns, and scratch.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_STREAMING_PEAK_BYTES_V1: u64 = ZK_X509_SHA_ONE_NATIVE_SEGMENT_BYTES_V1
+pub const ZK_X509_SHA_STREAMING_PEAK_BYTES_V1: u64 = ZK_X509_SHA_ONE_NATIVE_SEGMENT_BYTES_V1
     + ZK_X509_SHA_ROW_HASH_STATE_BYTES_V1
     + 2 * ZK_X509_COMMON_LDE_COLUMN_BYTES_V1
     + ZK_X509_SHA_STREAMING_SCRATCH_BYTES_V1;
 /// Eager retention of all four native slices, forbidden by the release plan.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_EAGER_NATIVE_BYTES_V1: u64 =
+pub const ZK_X509_SHA_EAGER_NATIVE_BYTES_V1: u64 =
     ZK_X509_SHA_ONE_NATIVE_SEGMENT_BYTES_V1 * ZK_X509_SHA_SEGMENT_COUNT_V1 as u64;
 /// SHA-local peak must remain under the global first-release prover envelope.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_PROVER_MEMORY_LIMIT_BYTES_V1: u64 =
-    ZK_X509_PROVER_PEAK_MEMORY_BYTES_V1;
+pub const ZK_X509_SHA_PROVER_MEMORY_LIMIT_BYTES_V1: u64 = ZK_X509_PROVER_PEAK_MEMORY_BYTES_V1;
 /// SHA trace opening bytes before Merkle, FRI, and DEEP overhead.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_TRACE_OPENING_BYTES_V1: usize =
-    super::profile::ZK_X509_FRI_QUERY_COUNT_V1 as usize
-        * 2
-        * (ZK_X509_SHA_BUCKET_BASE_WIDTH_V1 + ZK_X509_SHA_BUCKET_AUX_WIDTH_V1)
-        * core::mem::size_of::<F>();
+pub const ZK_X509_SHA_TRACE_OPENING_BYTES_V1: usize = super::profile::ZK_X509_FRI_QUERY_COUNT_V1
+    as usize
+    * 2
+    * (ZK_X509_SHA_BUCKET_BASE_WIDTH_V1 + ZK_X509_SHA_BUCKET_AUX_WIDTH_V1)
+    * core::mem::size_of::<F>();
 /// Maximum SHA-only aggregate wire before DEEP openings under the canonical
 /// 136-query, log-22 domain and twelve-round FRI schedule.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_MAX_ENCODED_PROOF_BYTES_V1: usize = 2_836_064;
+pub const ZK_X509_SHA_MAX_ENCODED_PROOF_BYTES_V1: usize = 2_836_064;
 #[cfg(test)]
 const _: () = assert!(ZK_X509_SHA_NATIVE_REPLAY_COLUMN_BYTES_V1 == 4 * 1024 * 1024);
 #[cfg(test)]
@@ -251,7 +245,7 @@ const _: () = assert!(
     ZK_X509_SHA_NATIVE_COLUMN_REPLAY_PEAK_BYTES_V1 < ZK_X509_SHA_PROVER_MEMORY_LIMIT_BYTES_V1
 );
 /// Four independent lanes for word-memory and cross-adapter SHA calls.
-pub(crate) const ZK_X509_SHA_BUS_LANES_V1: usize = 4;
+pub const ZK_X509_SHA_BUS_LANES_V1: usize = 4;
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 const ZK_X509_SHA_CALL_PRODUCT_WIDTH_V1: usize = 2 * ZK_X509_SHA_BUS_LANES_V1;
 const ZK_X509_SHA_RFC_PRODUCT_STREAMS_V1: usize = 4;
@@ -265,29 +259,27 @@ const CALL_TUPLE_TERMS_V1: usize = 7;
 const SHA_WORDS_PER_BLOCK_V1: usize = 16;
 const SHA_DIGEST_WORDS_V1: usize = 8;
 const SHA_BLOCK_BYTES_V1: usize = 64;
-pub(crate) const ZK_X509_SHA_INPUT_PRODUCTS_V1: usize = SHA_WORD_CAPACITY_AUX_WIDTH_V1;
-pub(crate) const ZK_X509_SHA_DIGEST_PRODUCTS_V1: usize =
+pub const ZK_X509_SHA_INPUT_PRODUCTS_V1: usize = SHA_WORD_CAPACITY_AUX_WIDTH_V1;
+pub const ZK_X509_SHA_DIGEST_PRODUCTS_V1: usize =
     ZK_X509_SHA_INPUT_PRODUCTS_V1 + ZK_X509_SHA_BUS_LANES_V1;
-pub(crate) const ZK_X509_SHA_RFC_CONSUMER_PRODUCTS_V1: usize =
+pub const ZK_X509_SHA_RFC_CONSUMER_PRODUCTS_V1: usize =
     ZK_X509_SHA_DIGEST_PRODUCTS_V1 + ZK_X509_SHA_BUS_LANES_V1;
 const ZK_X509_SHA_LENGTH_BITS_START_V1: usize = SHA_WORD_CAPACITY_BASE_WIDTH_V1;
-pub(crate) const ZK_X509_SHA_FIXED_CALL_V1: usize = SHA_WORD_CAPACITY_FIXED_WIDTH_V1;
-pub(crate) const ZK_X509_SHA_FIXED_ROLE_V1: usize = ZK_X509_SHA_FIXED_CALL_V1 + 1;
-pub(crate) const ZK_X509_SHA_FIXED_SLOT_V1: usize = ZK_X509_SHA_FIXED_ROLE_V1 + 1;
-pub(crate) const ZK_X509_SHA_FIXED_SEGMENT_FIRST_V1: usize = ZK_X509_SHA_FIXED_SLOT_V1 + 1;
-pub(crate) const ZK_X509_SHA_FIXED_SEGMENT_LAST_V1: usize = ZK_X509_SHA_FIXED_SEGMENT_FIRST_V1 + 1;
-pub(crate) const ZK_X509_SHA_FIXED_PHYSICAL_PADDING_V1: usize =
-    ZK_X509_SHA_FIXED_SEGMENT_LAST_V1 + 1;
+pub const ZK_X509_SHA_FIXED_CALL_V1: usize = SHA_WORD_CAPACITY_FIXED_WIDTH_V1;
+pub const ZK_X509_SHA_FIXED_ROLE_V1: usize = ZK_X509_SHA_FIXED_CALL_V1 + 1;
+pub const ZK_X509_SHA_FIXED_SLOT_V1: usize = ZK_X509_SHA_FIXED_ROLE_V1 + 1;
+pub const ZK_X509_SHA_FIXED_SEGMENT_FIRST_V1: usize = ZK_X509_SHA_FIXED_SLOT_V1 + 1;
+pub const ZK_X509_SHA_FIXED_SEGMENT_LAST_V1: usize = ZK_X509_SHA_FIXED_SEGMENT_FIRST_V1 + 1;
+pub const ZK_X509_SHA_FIXED_PHYSICAL_PADDING_V1: usize = ZK_X509_SHA_FIXED_SEGMENT_LAST_V1 + 1;
 /// One verifier-preprocessed selector for each compact-CA SHA call.
 ///
 /// These selectors are committed by the fixed oracle. They cannot be reconstructed by branching on
 /// the opened call column because that column is a polynomial evaluation, rather than a discrete
 /// call number, away from the native trace domain.
-pub(crate) const ZK_X509_SHA_FIXED_CA_CALL_SELECTORS_V1: usize =
-    ZK_X509_SHA_FIXED_PHYSICAL_PADDING_V1 + 1;
-pub(crate) const ZK_X509_SHA_FIXED_RFC_LENGTH_PAIR_V1: usize =
+pub const ZK_X509_SHA_FIXED_CA_CALL_SELECTORS_V1: usize = ZK_X509_SHA_FIXED_PHYSICAL_PADDING_V1 + 1;
+pub const ZK_X509_SHA_FIXED_RFC_LENGTH_PAIR_V1: usize =
     ZK_X509_SHA_FIXED_CA_CALL_SELECTORS_V1 + ZK_X509_SHA_CA_CALL_COUNT_V1;
-pub(crate) const ZK_X509_SHA_FIXED_RFC_LENGTH_PAIR_INDEX_V1: usize =
+pub const ZK_X509_SHA_FIXED_RFC_LENGTH_PAIR_INDEX_V1: usize =
     ZK_X509_SHA_FIXED_RFC_LENGTH_PAIR_V1 + 1;
 const ZK_X509_SHA_FIXED_RFC_LENGTH_PREFIX_V1: usize =
     ZK_X509_SHA_FIXED_RFC_LENGTH_PAIR_INDEX_V1 + 1;
@@ -308,11 +300,11 @@ const TRUST_ANCHOR_RECORD_CALL_V1: usize = 13;
 const CERTIFICATE_POLICY_RECORD_CALL_V1: usize = 14;
 const CRL_RECORD_CALL_V1: usize = 15;
 /// Canonical global call index of the compact CA occupied leaf.
-pub(crate) const ZK_X509_SHA_CA_LEAF_CALL_V1: usize = 16;
+pub const ZK_X509_SHA_CA_LEAF_CALL_V1: usize = 16;
 /// Canonical global call index of compact CA node level zero.
-pub(crate) const ZK_X509_SHA_CA_NODE_CALL_START_V1: usize = 17;
+pub const ZK_X509_SHA_CA_NODE_CALL_START_V1: usize = 17;
 /// Number of compact-CA calls whose individual products are consumed by the credential composition.
-pub(crate) const ZK_X509_SHA_CA_CALL_COUNT_V1: usize =
+pub const ZK_X509_SHA_CA_CALL_COUNT_V1: usize =
     ZK_X509_SHA_CALL_COUNT_V1 - ZK_X509_SHA_CA_LEAF_CALL_V1;
 const _: () = {
     assert!(ZK_X509_MAX_CHAIN_DEPTH_V1 == 3);
@@ -371,13 +363,13 @@ const _: () = {
     assert!(ZK_X509_SHA_BATCH_CONSTRAINT_DEGREE_V1 == 6);
 };
 /// Stable identity of the release SHA batch and call bus.
-pub(crate) const ZK_X509_SHA_CALL_BUS_STARK_DESCRIPTOR_V1: &[u8] = b"zk-x509-sha-call-bus-stark-v1-incompatible:29-fixed-capacity-calls=cert-tbs[3]+crl-tbs+framed-complete-signed-crl+projection[7]+issuer-spki+trust-record+policy-record+crl-record+compact-ca-leaf+compact-ca-node[12]:max-blocks616:word-rows1972128=compression655424+local-init232+local-digest232+memory1316240:four-log19-segments-whole-call-packed-active-rows480288,521952,521696,448192-no-cross-segment-call-transition:base89=word-capacity76+proof-bound-rfc-raw-length-bits13:aux78=word-capacity54+input-products4+digest-products4+rfc-consumer-products16:fixed118=word72+call-segment-length-control9+thirteen-verifier-one-hot-compact-ca-call-selectors+four-field-native-rfc-event-descriptors-of-width6:constraints564=local-private-running-products:MAIN108-cross-proof-original-polynomial-quotients:degree6-including-fixed-selectors:polynomial-digest-address=digest*dynamic+(1-digest)*fixed:base-two-chunks-aux-two-chunks-per-segment:same-log-bucket-base356-aux312-base-chunks8-aux-chunks8:private-exact-length-unique-padding-transition-across-blocks-and-active-block-prefix:fine-grained-message-cap-and-fixed-role-length-enforcement:frozen-canonical-inactive-computation-memory-and-mask-suffix:selected-digest-from-unique-final-active-block:inactive-chain-and-projection-slots-canonical-sha-empty-dummy:address=(call,role,slot,input-or-digest,word):four-independent-domain-separated-goldilocks-lanes:separate-word-memory-and-call-challenge-families:segment-continuous-private-source-digest-and-rfc-products:no-public-segment-products:main-16-quartic-native-endpoint-links-to-private-rfc-bridges:cyclic-physical-padding-recurrence=1-segment-last-padding:padding-base-and-aux=zero:word-capacity-recurrence=local-compute+digest+memory-call-last:compact-ca-calls16through28-bind-original-source-and-digest-endpoints-through-MAIN108-private-polynomial-quotients-without-product-division:rfc-consumer-products-derived-algebraically-from-committed-message-bits-masks-and-verifier-fixed-event-descriptors:four-byte-streams-total-degree5-recurrences-including-fixed-selectors:proof-bound-u64-raw-length-consumers:certificate-tbs-crl-tbs-framed-complete-crl-and-framed-issuer-spki-channels:three-governance-self-digests-explicit-sha-field-frames:no-host-branch-on-opened-fixed-columns:main-common-lde-log22:protocol2-independent-per-lane-fri-mask-oracles:max-encoded-sha-proof2836064:stream-one-call-at-a-time:on-demand-full-row-widening-without-duplicated-aux-or-fixed-vectors";
+pub const ZK_X509_SHA_CALL_BUS_STARK_DESCRIPTOR_V1: &[u8] = b"zk-x509-sha-call-bus-stark-v1-incompatible:29-fixed-capacity-calls=cert-tbs[3]+crl-tbs+framed-complete-signed-crl+projection[7]+issuer-spki+trust-record+policy-record+crl-record+compact-ca-leaf+compact-ca-node[12]:max-blocks616:word-rows1972128=compression655424+local-init232+local-digest232+memory1316240:four-log19-segments-whole-call-packed-active-rows480288,521952,521696,448192-no-cross-segment-call-transition:base89=word-capacity76+proof-bound-rfc-raw-length-bits13:aux78=word-capacity54+input-products4+digest-products4+rfc-consumer-products16:fixed118=word72+call-segment-length-control9+thirteen-verifier-one-hot-compact-ca-call-selectors+four-field-native-rfc-event-descriptors-of-width6:constraints564=local-private-running-products:MAIN108-cross-proof-original-polynomial-quotients:degree6-including-fixed-selectors:polynomial-digest-address=digest*dynamic+(1-digest)*fixed:base-two-chunks-aux-two-chunks-per-segment:same-log-bucket-base356-aux312-base-chunks8-aux-chunks8:private-exact-length-unique-padding-transition-across-blocks-and-active-block-prefix:fine-grained-message-cap-and-fixed-role-length-enforcement:frozen-canonical-inactive-computation-memory-and-mask-suffix:selected-digest-from-unique-final-active-block:inactive-chain-and-projection-slots-canonical-sha-empty-dummy:address=(call,role,slot,input-or-digest,word):four-independent-domain-separated-goldilocks-lanes:separate-word-memory-and-call-challenge-families:segment-continuous-private-source-digest-and-rfc-products:no-public-segment-products:main-16-quartic-native-endpoint-links-to-private-rfc-bridges:cyclic-physical-padding-recurrence=1-segment-last-padding:padding-base-and-aux=zero:word-capacity-recurrence=local-compute+digest+memory-call-last:compact-ca-calls16through28-bind-original-source-and-digest-endpoints-through-MAIN108-private-polynomial-quotients-without-product-division:rfc-consumer-products-derived-algebraically-from-committed-message-bits-masks-and-verifier-fixed-event-descriptors:four-byte-streams-total-degree5-recurrences-including-fixed-selectors:proof-bound-u64-raw-length-consumers:certificate-tbs-crl-tbs-framed-complete-crl-and-framed-issuer-spki-channels:three-governance-self-digests-explicit-sha-field-frames:no-host-branch-on-opened-fixed-columns:main-common-lde-log22:protocol2-independent-per-lane-fri-mask-oracles:max-encoded-sha-proof2836064:stream-one-call-at-a-time:on-demand-full-row-widening-without-duplicated-aux-or-fixed-vectors";
 /// Semantic owner of one canonical SHA call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ZkX509ShaCallRoleV1 {
-    /// Certificate TBSCertificate digest, leaf-to-root slot.
+pub enum ZkX509ShaCallRoleV1 {
+    /// Certificate `TBSCertificate` digest, leaf-to-root slot.
     CertificateTbs(u8),
-    /// Exact TBSCertList digest consumed by P-256.
+    /// Exact `TBSCertList` digest consumed by P-256.
     CrlTbs,
     /// Canonically framed exact complete signed CRL commitment.
     CrlCommitment,
@@ -426,7 +418,7 @@ impl ZkX509ShaCallRoleV1 {
 }
 /// Input schedule or output digest address family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ZkX509ShaCallWordKindV1 {
+pub enum ZkX509ShaCallWordKindV1 {
     /// Canonically padded SHA input word.
     Input,
     /// Big-endian digest word.
@@ -442,20 +434,20 @@ impl ZkX509ShaCallWordKindV1 {
 }
 /// Public shape controlling canonical dummy calls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallPublicShapeV1 {
+pub struct ZkX509ShaCallPublicShapeV1 {
     /// Public number of disclosed attributes.
     pub(crate) disclosed_attributes: usize,
 }
 /// Whether a fixed call is required, privately optional, or publicly absent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509ShaCallActivationV1 {
+pub enum ZkX509ShaCallActivationV1 {
     Required,
     OptionalPrivate,
     Inactive,
 }
 /// One verifier-owned maximum-capacity call slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallManifestV1 {
+pub struct ZkX509ShaCallManifestV1 {
     /// Canonical call index.
     pub(crate) call: u8,
     /// Semantic role and role-local slot.
@@ -493,7 +485,7 @@ impl ZkX509ShaCallManifestV1 {
 /// Exact private call witness.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallWitnessV1 {
+pub struct ZkX509ShaCallWitnessV1 {
     /// Must equal the verifier-owned manifest role.
     pub(crate) role: ZkX509ShaCallRoleV1,
     /// Exact private SHA preimage.  Canonical dummy calls use the empty string.
@@ -536,7 +528,7 @@ impl Drop for ZkX509ShaCallWitnessV1 {
 /// One fixed maximum-capacity address/value event.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallEventV1 {
+pub struct ZkX509ShaCallEventV1 {
     /// Canonical call index.
     pub(crate) call: u8,
     /// Semantic call role.
@@ -556,7 +548,7 @@ pub(crate) struct ZkX509ShaCallEventV1 {
 /// in proof metadata would defeat the fixed-capacity privacy contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509ShaCallTerminalV1 {
+pub struct ZkX509ShaCallTerminalV1 {
     /// Canonical call identity.
     pub(crate) call: u8,
     /// Semantic role and slot.
@@ -572,7 +564,7 @@ pub(crate) struct ZkX509ShaCallTerminalV1 {
 /// to the cumulative product on its fixed last row. The multiplication-only relation remains total
 /// when a compressed factor is zero and never asks the prover or verifier to divide a bus product.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallBoundaryTerminalV1 {
+pub struct ZkX509ShaCallBoundaryTerminalV1 {
     /// Canonical call identity in `16..=28`.
     pub(crate) call: u8,
     /// Canonical compact-CA semantic role and level.
@@ -627,7 +619,7 @@ impl ZkX509ShaCallBoundaryTerminalV1 {
 /// the streams only after verifying their individual terminal constraints.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaRfcConsumerTerminalV1 {
+pub struct ZkX509ShaRfcConsumerTerminalV1 {
     /// Canonical call identity.
     pub(crate) call: u8,
     /// Semantic role and slot.
@@ -652,7 +644,7 @@ impl ZkX509ShaRfcConsumerTerminalV1 {
 /// Their unconsumed whole-segment totals are not claims.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(PartialEq, Eq)]
-pub(crate) struct ZkX509ShaSegmentPrivateEndpointV1 {
+pub struct ZkX509ShaSegmentPrivateEndpointV1 {
     pub(crate) segment: u8,
     pub(crate) rfc_stream_products:
         [[F; ZK_X509_SHA_BUS_LANES_V1]; ZK_X509_SHA_RFC_PRODUCT_STREAMS_V1],
@@ -704,7 +696,7 @@ impl Drop for ZkX509ShaSegmentPrivateEndpointV1 {
 /// call-ordered set `16..=28`; callers must reject omissions and duplicates.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaSegmentAirTerminalsV1 {
+pub struct ZkX509ShaSegmentAirTerminalsV1 {
     pub(crate) segment: ZkX509ShaSegmentPrivateEndpointV1,
     pub(crate) ca_call_boundaries: Vec<ZkX509ShaCallBoundaryTerminalV1>,
 }
@@ -857,7 +849,7 @@ impl Drop for ShaCallBindingScratchV1 {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Public-shape RFC consumer address shared by native and algebraic fixed schedules.
-pub(crate) struct ZkX509ShaRfcConsumerChannelsV1 {
+pub struct ZkX509ShaRfcConsumerChannelsV1 {
     /// Typed RFC output family.
     pub(crate) role: ZkX509Rfc5280OutputRoleV1,
     /// Canonical strict-DER message channel.
@@ -874,7 +866,7 @@ pub(crate) struct ZkX509ShaRfcConsumerChannelsV1 {
 /// Base and fixed rows may be streamed before X5B1 exists. The word-memory, call-bus, RFC products,
 /// and terminal claims are absent until this source is consumed by the segment binder.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509ShaBatchCallBaseSourceV1 {
+pub struct ZkX509ShaBatchCallBaseSourceV1 {
     pub(crate) manifest: ZkX509ShaCallManifestV1,
     word: ZkX509ShaWordCapacityBaseSourceV1,
     rfc_consumer: Option<ZkX509ShaRfcConsumerChannelsV1>,
@@ -940,7 +932,7 @@ impl ZkX509ShaBatchCallBaseSourceV1 {
 /// the four physical segment commitments are built.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone)]
-pub(crate) struct ZkX509ShaBatchCallTraceV1 {
+pub struct ZkX509ShaBatchCallTraceV1 {
     pub(crate) manifest: ZkX509ShaCallManifestV1,
     pub(crate) word: ZkX509ShaWordCapacityTraceV1,
     /// Only the call and RFC product fields are retained separately. The word
@@ -1274,14 +1266,14 @@ impl ZkX509ShaBatchCallTraceV1 {
 }
 /// One canonical physical SHA batch row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaBatchRowV1<A = F> {
+pub struct ZkX509ShaBatchRowV1<A = F> {
     pub(crate) base: [A; ZK_X509_SHA_BATCH_BASE_WIDTH_V1],
     pub(crate) aux: [A; ZK_X509_SHA_BATCH_AUX_WIDTH_V1],
     pub(crate) fixed: [A; ZK_X509_SHA_BATCH_FIXED_WIDTH_V1],
 }
 /// Compact, deterministic maximum schedule.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallScheduleV1 {
+pub struct ZkX509ShaCallScheduleV1 {
     shape: ZkX509ShaCallPublicShapeV1,
     calls: [ZkX509ShaCallManifestV1; ZK_X509_SHA_CALL_COUNT_V1],
 }
@@ -1366,7 +1358,7 @@ fn manifest_role_v1(call: usize) -> Result<ZkX509ShaCallRoleV1, ZkX509ShaCallBus
 }
 /// Return the verifier-owned identity for one reference compact-CA boundary fixture.
 #[cfg(test)]
-pub(crate) fn zk_x509_sha_ca_call_identity_v1(
+pub fn zk_x509_sha_ca_call_identity_v1(
     index: usize,
 ) -> Result<(u8, ZkX509ShaCallRoleV1), ZkX509ShaCallBusStarkErrorV1> {
     let call = ZK_X509_SHA_CA_LEAF_CALL_V1
@@ -1655,7 +1647,7 @@ impl ZkX509ShaCallScheduleV1 {
 /// Every retained value is compiled from [`ZkX509ShaCallPublicShapeV1`]. Exact messages, private
 /// lengths, selected digest states, and transcript challenges are deliberately absent.
 #[derive(Clone, Debug)]
-pub(crate) struct ZkX509ShaBatchFixedProviderV1 {
+pub struct ZkX509ShaBatchFixedProviderV1 {
     schedule: ZkX509ShaCallScheduleV1,
     calls: Vec<ZkX509ShaWordCapacityFixedScheduleV1>,
 }
@@ -1839,7 +1831,7 @@ fn validate_witness_v1(
 /// This is the production assembly boundary: it rejects omission, role reorder, inactive-call
 /// substitution, overlength input, and digest mismatch before any segment provider is registered.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn validate_zk_x509_sha_call_witnesses_v1(
+pub fn validate_zk_x509_sha_call_witnesses_v1(
     schedule: &ZkX509ShaCallScheduleV1,
     witnesses: &[ZkX509ShaCallWitnessV1; ZK_X509_SHA_CALL_COUNT_V1],
 ) -> Result<(), ZkX509ShaCallBusStarkErrorV1> {
@@ -1897,7 +1889,7 @@ fn digest_words_v1(digest: [u8; 32]) -> [u32; SHA_DIGEST_WORDS_V1] {
 }
 /// Replay one fixed maximum-capacity event without materializing the schedule.
 #[cfg(test)]
-pub(crate) fn replay_sha_call_event_v1(
+pub fn replay_sha_call_event_v1(
     schedule: &ZkX509ShaCallScheduleV1,
     witnesses: &[ZkX509ShaCallWitnessV1; ZK_X509_SHA_CALL_COUNT_V1],
     index: usize,
@@ -1948,7 +1940,7 @@ pub(crate) fn replay_sha_call_event_v1(
 /// adapter, so all three native groups are never resident together.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaSegmentReplayV1 {
+pub struct ZkX509ShaSegmentReplayV1 {
     segment: u8,
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -1987,13 +1979,13 @@ impl ZkX509ShaSegmentReplayV1 {
 }
 /// One independently sampled affine tuple-compression lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallBusLaneChallengesV1 {
+pub struct ZkX509ShaCallBusLaneChallengesV1 {
     /// `beta`, call, role, slot, kind, word, and value coefficients.
     pub(crate) terms: [F; CALL_TUPLE_TERMS_V1],
 }
 /// Four independent call-bus lanes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaCallBusChallengesV1 {
+pub struct ZkX509ShaCallBusChallengesV1 {
     /// Domain-separated lane challenges.
     pub(crate) lanes: [ZkX509ShaCallBusLaneChallengesV1; ZK_X509_SHA_BUS_LANES_V1],
 }
@@ -2020,7 +2012,7 @@ impl ZkX509ShaCallBusChallengesV1 {
 /// Derive the call-bus family after all source and SHA base commitments.
 ///
 /// Word-memory uses a different label family and must never reuse these challenges.
-pub(crate) fn derive_zk_x509_sha_call_bus_challenges_v1(
+pub fn derive_zk_x509_sha_call_bus_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<ZkX509ShaCallBusChallengesV1, TransparentStarkErrorV1> {
     let mut sampled = [F::ZERO; ZK_X509_SHA_BUS_LANES_V1 * CALL_TUPLE_TERMS_V1];
@@ -2049,7 +2041,7 @@ pub(crate) fn derive_zk_x509_sha_call_bus_challenges_v1(
 fn validate_sha_segment_binding_families_v1(
     word: ZkX509ShaWordStarkChallengesV1,
     call: ZkX509ShaCallBusChallengesV1,
-    rfc5280: ZkX509Rfc5280StarkChallengesV1,
+    rfc5280: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<(), ZkX509ShaCallBusStarkErrorV1> {
     validate_zk_x509_sha_word_stark_challenges_v1(word)?;
     call.validate()?;
@@ -2206,7 +2198,7 @@ fn validate_sha_column_batch_extent_v1(
 /// challenge. Binding is a one-shot runtime capability: a failed challenge validation leaves the
 /// source retryable, while a successful bind permanently disables a second transition.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509ShaBatchSegmentBaseSourceV1<'a> {
+pub struct ZkX509ShaBatchSegmentBaseSourceV1<'a> {
     schedule: &'a ZkX509ShaCallScheduleV1,
     witnesses: &'a [ZkX509ShaCallWitnessV1; ZK_X509_SHA_CALL_COUNT_V1],
     replay: ZkX509ShaSegmentReplayV1,
@@ -2458,7 +2450,7 @@ impl<'a> ZkX509ShaBatchSegmentBaseSourceV1<'a> {
         &mut self,
         word: ZkX509ShaWordStarkChallengesV1,
         call: ZkX509ShaCallBusChallengesV1,
-        rfc5280: ZkX509Rfc5280StarkChallengesV1,
+        rfc5280: &ZkX509Rfc5280StarkChallengesV1,
     ) -> Result<(), ZkX509ShaCallBusStarkErrorV1> {
         if self.bound {
             return Err(ZkX509ShaCallBusStarkErrorV1::Phase);
@@ -2475,7 +2467,7 @@ impl<'a> ZkX509ShaBatchSegmentBaseSourceV1<'a> {
 /// Construction is possible only through [`ZkX509ShaBatchSegmentBaseSourceV1::bind_v1`]. The
 /// complete auxiliary stream is one-shot and never exposes a raw challenge constructor.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509ShaBatchSegmentAuxSourceV1<'a> {
+pub struct ZkX509ShaBatchSegmentAuxSourceV1<'a> {
     schedule: &'a ZkX509ShaCallScheduleV1,
     witnesses: &'a [ZkX509ShaCallWitnessV1; ZK_X509_SHA_CALL_COUNT_V1],
     replay: ZkX509ShaSegmentReplayV1,
@@ -2798,7 +2790,7 @@ fn compress_event_v1(event: ZkX509ShaCallEventV1, lane: ZkX509ShaCallBusLaneChal
 /// Compress one opened address/value tuple without converting its value back
 /// to a host integer. Proof-facing source adapters use this exact expression.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn compress_sha_call_fields_v1<A: PolynomialAirFieldV1>(
+pub fn compress_sha_call_fields_v1<A: PolynomialAirFieldV1>(
     call: A,
     role: A,
     slot: A,
@@ -2852,7 +2844,7 @@ fn sha_rfc_framed_field_offset_v1(
     }
 }
 /// Derive a canonical RFC address from only the verifier-owned SHA call and public shape.
-pub(crate) fn sha_rfc_consumer_channels_v1(
+pub fn sha_rfc_consumer_channels_v1(
     call: u8,
     role: ZkX509ShaCallRoleV1,
     disclosed_attributes: usize,
@@ -2936,7 +2928,7 @@ fn sha_rfc_opened_event_delta_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; ZK_X509_SHA_BATCH_FIXED_WIDTH_V1],
     stream: usize,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<A, ZkX509ShaCallBusStarkErrorV1> {
     if stream >= ZK_X509_SHA_RFC_PRODUCT_STREAMS_V1 || lane >= ZK_X509_SHA_BUS_LANES_V1 {
         return Err(ZkX509ShaCallBusStarkErrorV1::Topology);
@@ -3072,7 +3064,7 @@ fn sha_rfc_consumer_row_factor_v1(
     fixed: &[F; ZK_X509_SHA_BATCH_FIXED_WIDTH_V1],
     stream: usize,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<Option<F>, ZkX509ShaCallBusStarkErrorV1> {
     if stream >= ZK_X509_SHA_RFC_PRODUCT_STREAMS_V1 || lane >= ZK_X509_SHA_BUS_LANES_V1 {
         return Err(ZkX509ShaCallBusStarkErrorV1::Topology);
@@ -3101,7 +3093,7 @@ fn sha_rfc_consumer_row_factor_v1(
 /// The caller streams and drops this value before building the next call, so
 /// the full 1.97-million-row batch is never resident as native field arrays.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_sha_batch_call_base_source_v1(
+pub fn build_zk_x509_sha_batch_call_base_source_v1(
     manifest: ZkX509ShaCallManifestV1,
     witness: &ZkX509ShaCallWitnessV1,
     disclosed_attributes: usize,
@@ -3161,7 +3153,7 @@ fn finish_zk_x509_sha_batch_call_binding_v1(
     word: ZkX509ShaWordCapacityTraceV1,
     rfc_consumer: Option<ZkX509ShaRfcConsumerChannelsV1>,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     initial_products: &ZkX509ShaSegmentProductStateV1,
 ) -> Result<ZkX509ShaBatchCallTraceV1, ZkX509ShaCallBusStarkErrorV1> {
     let mut product_rows = PrivateTableV1::new(Vec::new(), zeroize_field_rows_v1);
@@ -3278,7 +3270,7 @@ fn bind_zk_x509_sha_batch_call_base_raw_for_test_v1(
     source: ZkX509ShaBatchCallBaseSourceV1,
     word_challenges: ZkX509ShaWordStarkChallengesV1,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     initial_products: &ZkX509ShaSegmentProductStateV1,
 ) -> Result<ZkX509ShaBatchCallTraceV1, ZkX509ShaCallBusStarkErrorV1> {
     call_challenges.validate()?;
@@ -3306,7 +3298,7 @@ fn build_zk_x509_sha_batch_call_trace_with_initial_products_v1(
     witness: &ZkX509ShaCallWitnessV1,
     word_challenges: ZkX509ShaWordStarkChallengesV1,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     disclosed_attributes: usize,
     initial_products: &ZkX509ShaSegmentProductStateV1,
 ) -> Result<ZkX509ShaBatchCallTraceV1, ZkX509ShaCallBusStarkErrorV1> {
@@ -3322,12 +3314,12 @@ fn build_zk_x509_sha_batch_call_trace_with_initial_products_v1(
 }
 /// Test-only focused call builder with caller-supplied challenge families.
 #[cfg(test)]
-pub(crate) fn build_zk_x509_sha_batch_call_trace_v1(
+pub fn build_zk_x509_sha_batch_call_trace_v1(
     manifest: ZkX509ShaCallManifestV1,
     witness: &ZkX509ShaCallWitnessV1,
     word_challenges: ZkX509ShaWordStarkChallengesV1,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     disclosed_attributes: usize,
 ) -> Result<ZkX509ShaBatchCallTraceV1, ZkX509ShaCallBusStarkErrorV1> {
     let source =
@@ -3355,12 +3347,12 @@ fn physical_padding_row_v1(_segment_row: usize) -> ZkX509ShaBatchRowV1 {
 /// Calls never cross a physical segment boundary.  Every active segment
 /// suffix ends on a call terminal and is followed by canonical padding, so
 /// `next` is always the ordinary next opening from the same registration.
-pub(crate) fn evaluate_zk_x509_sha_batch_residues_v1(
+pub fn evaluate_zk_x509_sha_batch_residues_v1(
     current: &ZkX509ShaBatchRowV1,
     next: &ZkX509ShaBatchRowV1,
     word_challenges: ZkX509ShaWordStarkChallengesV1,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     segment: u8,
     ca_call_boundaries: &[ZkX509ShaCallBoundaryTerminalV1; ZK_X509_SHA_CA_CALL_COUNT_V1],
 ) -> Result<Vec<F>, ZkX509ShaCallBusStarkErrorV1> {
@@ -3380,12 +3372,12 @@ pub(crate) fn evaluate_zk_x509_sha_batch_residues_v1(
 /// private and fixed columns stay in the evaluation field. No row value selects
 /// a host-language branch. This does not authenticate the supplied openings.
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_sha_batch_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_sha_batch_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509ShaBatchRowV1<A>,
     next: &ZkX509ShaBatchRowV1<A>,
     word_challenges: ZkX509ShaWordStarkChallengesV1,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     segment: u8,
     ca_call_boundaries: &[ZkX509ShaCallBoundaryTerminalV1; ZK_X509_SHA_CA_CALL_COUNT_V1],
 ) -> Result<Vec<A>, ZkX509ShaCallBusStarkErrorV1> {
@@ -3403,12 +3395,12 @@ pub(crate) fn evaluate_zk_x509_sha_batch_residues_over_field_v1<A: PolynomialAir
 /// Complete local SHA relation before original-polynomial cross-proof joins.
 /// This is not a standalone proof relation: joint MAIN must authenticate its
 /// source/digest endpoints against the original compact-CA auxiliary FRI.
-pub(crate) fn evaluate_zk_x509_sha_batch_local_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_sha_batch_local_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509ShaBatchRowV1<A>,
     next: &ZkX509ShaBatchRowV1<A>,
     word_challenges: ZkX509ShaWordStarkChallengesV1,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     segment: u8,
 ) -> Result<Vec<A>, ZkX509ShaCallBusStarkErrorV1> {
     evaluate_sha_batch_relation_v1(
@@ -3427,7 +3419,7 @@ fn evaluate_sha_batch_relation_v1<A: PolynomialAirFieldV1>(
     next: &ZkX509ShaBatchRowV1<A>,
     word_challenges: ZkX509ShaWordStarkChallengesV1,
     call_challenges: ZkX509ShaCallBusChallengesV1,
-    rfc_challenges: ZkX509Rfc5280StarkChallengesV1,
+    rfc_challenges: &ZkX509Rfc5280StarkChallengesV1,
     segment: u8,
     ca_call_boundaries: Option<&[ZkX509ShaCallBoundaryTerminalV1; ZK_X509_SHA_CA_CALL_COUNT_V1]>,
 ) -> Result<Vec<A>, ZkX509ShaCallBusStarkErrorV1> {
@@ -3604,7 +3596,7 @@ fn evaluate_sha_batch_relation_v1<A: PolynomialAirFieldV1>(
 }
 /// Advance four products by one active event with degree-two transitions.
 #[cfg(test)]
-pub(crate) fn advance_sha_call_products_v1(
+pub fn advance_sha_call_products_v1(
     before: [F; ZK_X509_SHA_BUS_LANES_V1],
     event: ZkX509ShaCallEventV1,
     challenges: ZkX509ShaCallBusChallengesV1,
@@ -3623,7 +3615,7 @@ pub(crate) fn advance_sha_call_products_v1(
 }
 /// Replay the aggregate product terminal over one endpoint.
 #[cfg(test)]
-pub(crate) fn sha_call_product_terminal_v1(
+pub fn sha_call_product_terminal_v1(
     schedule: &ZkX509ShaCallScheduleV1,
     witnesses: &[ZkX509ShaCallWitnessV1; ZK_X509_SHA_CALL_COUNT_V1],
     challenges: ZkX509ShaCallBusChallengesV1,
@@ -3641,7 +3633,7 @@ pub(crate) fn sha_call_product_terminal_v1(
 /// Derive the separate per-call source and digest terminal claims expected
 /// from the producer and consumer adapters.
 #[cfg(test)]
-pub(crate) fn sha_call_terminals_v1(
+pub fn sha_call_terminals_v1(
     schedule: &ZkX509ShaCallScheduleV1,
     witnesses: &[ZkX509ShaCallWitnessV1; ZK_X509_SHA_CALL_COUNT_V1],
     challenges: ZkX509ShaCallBusChallengesV1,
@@ -3692,24 +3684,23 @@ pub(crate) fn sha_call_terminals_v1(
 }
 /// Enforce producer/SHA endpoint equality.
 #[cfg(test)]
-pub(crate) fn evaluate_sha_call_terminal_constraints_v1(
+pub fn evaluate_sha_call_terminal_constraints_v1(
     source: [F; ZK_X509_SHA_BUS_LANES_V1],
     sha: [F; ZK_X509_SHA_BUS_LANES_V1],
 ) -> [F; ZK_X509_SHA_BUS_LANES_V1] {
     core::array::from_fn(|lane| source[lane].sub(sha[lane]))
 }
 /// Exact algebraic collision-bound numerator for the maximum call bus.
-pub(crate) const ZK_X509_SHA_CALL_BUS_COLLISION_NUMERATOR_V1: u64 =
-    ZK_X509_SHA_CALL_EVENT_COUNT_V1 as u64;
+pub const ZK_X509_SHA_CALL_BUS_COLLISION_NUMERATOR_V1: u64 = ZK_X509_SHA_CALL_EVENT_COUNT_V1 as u64;
 /// Exact algebraic collision-bound numerator for each word-memory equality.
-pub(crate) const ZK_X509_SHA_WORD_MEMORY_COLLISION_NUMERATOR_V1: u64 =
+pub const ZK_X509_SHA_WORD_MEMORY_COLLISION_NUMERATOR_V1: u64 =
     ZK_X509_SHA_MAX_MEMORY_ROWS_V1 as u64;
 /// Exact algebraic collision-bound numerator for the three-lane base-fold bus.
-pub(crate) const ZK_X509_SHA_BASE_FOLD_COLLISION_NUMERATOR_V1: u64 = 440;
+pub const ZK_X509_SHA_BASE_FOLD_COLLISION_NUMERATOR_V1: u64 = 440;
 /// Independent challenge lanes used by each SHA word/call equality.
-pub(crate) const ZK_X509_SHA_COLLISION_LANES_V1: u8 = 4;
+pub const ZK_X509_SHA_COLLISION_LANES_V1: u8 = 4;
 /// Independent challenge lanes used by the SHA base-fold equality.
-pub(crate) const ZK_X509_SHA_BASE_FOLD_COLLISION_LANES_V1: u8 = 3;
+pub const ZK_X509_SHA_BASE_FOLD_COLLISION_LANES_V1: u8 = 3;
 /// Return the exact release union bound in floating-point diagnostic form.
 ///
 /// There are two distinct word-memory multiset equalities (local/execution and execution/sorted),
@@ -3759,7 +3750,7 @@ mod tests {
                         &next,
                         word_challenges(),
                         challenges(),
-                        rfc_challenges(),
+                        &rfc_challenges(),
                         segment,
                         &neutral_ca_call_boundaries(),
                     )
@@ -3769,7 +3760,7 @@ mod tests {
                         &next,
                         word_challenges(),
                         challenges(),
-                        rfc_challenges(),
+                        &rfc_challenges(),
                         segment,
                     )
                     .unwrap();
@@ -4101,7 +4092,7 @@ mod tests {
         noncanonical_word.memory.lanes[0].beta = F(u64::MAX);
         assert!(
             source
-                .validate_bind_for_test_v1(noncanonical_word, challenges(), rfc_challenges())
+                .validate_bind_for_test_v1(noncanonical_word, challenges(), &rfc_challenges())
                 .is_err()
         );
         assert!(
@@ -4459,9 +4450,12 @@ mod tests {
                 * ZK_X509_SHA_BATCH_AUX_WIDTH_V1 as u64
                 * ZK_X509_SHA_NATIVE_REPLAY_COLUMN_BYTES_V1
         );
-        assert!(
-            ZK_X509_SHA_NATIVE_COLUMN_REPLAY_PEAK_BYTES_V1 < ZK_X509_SHA_EAGER_AUX_MATRIX_BYTES_V1
-        );
+        const {
+            assert!(
+                ZK_X509_SHA_NATIVE_COLUMN_REPLAY_PEAK_BYTES_V1
+                    < ZK_X509_SHA_EAGER_AUX_MATRIX_BYTES_V1
+            )
+        };
         assert!(
             core::mem::size_of::<ZkX509ShaBatchSegmentBaseSourceV1<'_>>()
                 < core::mem::size_of::<Vec<F>>() * 4
@@ -4554,7 +4548,7 @@ mod tests {
             &witness,
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             2,
         )
         .expect("baseline");
@@ -4565,7 +4559,7 @@ mod tests {
             &witness,
             changed_word,
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             2,
         )
         .expect("word-changed");
@@ -4576,7 +4570,7 @@ mod tests {
             &witness,
             word_challenges(),
             changed_call,
-            rfc_challenges(),
+            &rfc_challenges(),
             2,
         )
         .expect("call-changed");
@@ -4587,7 +4581,7 @@ mod tests {
             &witness,
             word_challenges(),
             challenges(),
-            changed_rfc,
+            &changed_rfc,
             2,
         )
         .expect("RFC-changed");
@@ -4850,7 +4844,7 @@ mod tests {
             &witness_for(manifest),
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             shape.disclosed_attributes,
         )
         .expect("first call trace");
@@ -4912,7 +4906,7 @@ mod tests {
                     &witness,
                     word_challenges(),
                     challenges(),
-                    rfc_challenges(),
+                    &rfc_challenges(),
                     disclosed_attributes,
                 )
                 .expect("every scheduled call constructs");
@@ -4936,7 +4930,7 @@ mod tests {
                             &row.fixed,
                             stream,
                             0,
-                            rfc_challenges(),
+                            &rfc_challenges(),
                         )
                         .expect("canonical RFC factor")
                         .is_some()
@@ -4972,7 +4966,7 @@ mod tests {
                         &last_row,
                         word_challenges(),
                         challenges(),
-                        rfc_challenges(),
+                        &rfc_challenges(),
                         standalone_segment_terminal(&call),
                         &ca_call_boundaries_for_calls(&[&call]),
                     )
@@ -5157,7 +5151,7 @@ mod tests {
             &witness,
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
         )
         .expect("streamed trace");
@@ -5353,7 +5347,7 @@ mod tests {
         write_sha_byte(&mut base, 1, 0xa5);
         base[SHA_WORD_CAPACITY_MESSAGE_MASK_V1 + 1] = F::ONE;
         let challenges = rfc_challenges();
-        let factor = sha_rfc_consumer_row_factor_v1(&base, &fixed, 1, 0, challenges)
+        let factor = sha_rfc_consumer_row_factor_v1(&base, &fixed, 1, 0, &challenges)
             .expect("factor")
             .expect("raw byte event");
         let expected = zk_x509_rfc5280_opened_output_factor_fields_v1(
@@ -5365,14 +5359,14 @@ mod tests {
             F(0xa5),
             F::ZERO,
             0,
-            challenges,
+            &challenges,
         )
         .expect("expected factor");
         assert_eq!(factor, expected);
         let mut changed = base;
         changed[1 + (3 - 1) * 8] = F::ONE.sub(changed[1 + (3 - 1) * 8]);
         assert_ne!(
-            sha_rfc_consumer_row_factor_v1(&changed, &fixed, 1, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&changed, &fixed, 1, 0, &challenges)
                 .expect("changed bit")
                 .expect("event"),
             factor
@@ -5380,7 +5374,7 @@ mod tests {
         changed = base;
         changed[SHA_WORD_CAPACITY_MESSAGE_MASK_V1 + 1] = F::ZERO;
         assert_ne!(
-            sha_rfc_consumer_row_factor_v1(&changed, &fixed, 1, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&changed, &fixed, 1, 0, &challenges)
                 .expect("changed mask")
                 .expect("event"),
             factor
@@ -5389,7 +5383,7 @@ mod tests {
         let descriptor = ZK_X509_SHA_FIXED_RFC_STREAMS_V1 + ZK_X509_SHA_FIXED_RFC_STREAM_STRIDE_V1;
         changed_fixed[descriptor + ZK_X509_SHA_FIXED_RFC_MESSAGE_EVENT_V1] = F::ZERO;
         assert_eq!(
-            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, &challenges)
                 .expect("disabled event"),
             None
         );
@@ -5397,7 +5391,7 @@ mod tests {
         changed_fixed[descriptor + ZK_X509_SHA_FIXED_RFC_CHANNEL_V1] =
             changed_fixed[descriptor + ZK_X509_SHA_FIXED_RFC_CHANNEL_V1].add(F::ONE);
         assert_ne!(
-            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, &challenges)
                 .expect("changed channel")
                 .expect("event"),
             factor
@@ -5406,7 +5400,7 @@ mod tests {
         changed_fixed[descriptor + ZK_X509_SHA_FIXED_RFC_ROLE_V1] =
             F(ZkX509Rfc5280OutputRoleV1::CertificateTbsSha as u64);
         assert_ne!(
-            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, &challenges)
                 .expect("changed role")
                 .expect("event"),
             factor
@@ -5414,7 +5408,7 @@ mod tests {
         changed_fixed = fixed;
         changed_fixed[descriptor + ZK_X509_SHA_FIXED_RFC_OFFSET_V1] = F::ONE;
         assert_ne!(
-            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 1, 0, &challenges)
                 .expect("changed offset")
                 .expect("event"),
             factor
@@ -5425,12 +5419,12 @@ mod tests {
                 &fixed,
                 ZK_X509_SHA_RFC_PRODUCT_STREAMS_V1,
                 0,
-                challenges,
+                &challenges,
             ),
             Err(ZkX509ShaCallBusStarkErrorV1::Topology)
         );
         assert_eq!(
-            sha_rfc_consumer_row_factor_v1(&base, &fixed, 1, ZK_X509_SHA_BUS_LANES_V1, challenges,),
+            sha_rfc_consumer_row_factor_v1(&base, &fixed, 1, ZK_X509_SHA_BUS_LANES_V1, &challenges,),
             Err(ZkX509ShaCallBusStarkErrorV1::Topology)
         );
     }
@@ -5480,7 +5474,7 @@ mod tests {
         .expect("low length event");
         let challenges = rfc_challenges();
         for (stream, offset, value) in [(0, 6, 16), (1, 7, 0)] {
-            let factor = sha_rfc_consumer_row_factor_v1(&base, &fixed, stream, 0, challenges)
+            let factor = sha_rfc_consumer_row_factor_v1(&base, &fixed, stream, 0, &challenges)
                 .expect("length factor")
                 .expect("length event");
             let expected = zk_x509_rfc5280_opened_output_factor_fields_v1(
@@ -5492,7 +5486,7 @@ mod tests {
                 F(value),
                 F::ZERO,
                 0,
-                challenges,
+                &challenges,
             )
             .expect("expected length factor");
             assert_eq!(factor, expected);
@@ -5513,7 +5507,7 @@ mod tests {
             )
             .expect("zero length-byte event");
             let factor =
-                sha_rfc_consumer_row_factor_v1(&base, &zero_pair_fixed, stream, 0, challenges)
+                sha_rfc_consumer_row_factor_v1(&base, &zero_pair_fixed, stream, 0, &challenges)
                     .expect("zero length factor")
                     .expect("zero length event");
             let expected = zk_x509_rfc5280_opened_output_factor_fields_v1(
@@ -5525,13 +5519,13 @@ mod tests {
                 F::ZERO,
                 F::ZERO,
                 0,
-                challenges,
+                &challenges,
             )
             .expect("expected zero length factor");
             assert_eq!(factor, expected);
         }
         assert_eq!(
-            sha_rfc_consumer_row_factor_v1(&base, &fixed, 2, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&base, &fixed, 2, 0, &challenges)
                 .expect("unused length stream"),
             None
         );
@@ -5562,18 +5556,18 @@ mod tests {
         let descriptor = ZK_X509_SHA_FIXED_RFC_STREAMS_V1;
         changed_fixed = fixed;
         changed_fixed[descriptor + ZK_X509_SHA_FIXED_RFC_LENGTH_HIGH_VALUE_V1] = F::ZERO;
-        let zero_factor = sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 0, 0, challenges)
+        let zero_factor = sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 0, 0, &challenges)
             .expect("fixed zero event")
             .expect("length-pair identity retains the zero event");
         assert_ne!(
             zero_factor,
-            sha_rfc_consumer_row_factor_v1(&base, &fixed, 0, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&base, &fixed, 0, 0, &challenges)
                 .expect("high length factor")
                 .expect("high length event")
         );
         changed_fixed[ZK_X509_SHA_FIXED_RFC_LENGTH_PAIR_V1] = F::ZERO;
         assert_eq!(
-            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 0, 0, challenges)
+            sha_rfc_consumer_row_factor_v1(&base, &changed_fixed, 0, 0, &challenges)
                 .expect("removed fixed event"),
             None
         );
@@ -5592,7 +5586,7 @@ mod tests {
             &witness,
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
         )
         .expect("issuer-SPKI call");
@@ -5615,7 +5609,7 @@ mod tests {
                         F(u64::from(value)),
                         F::ZERO,
                         lane,
-                        rfc_challenges(),
+                        &rfc_challenges(),
                     )
                     .expect("expected consumer factor"),
                 );
@@ -5631,7 +5625,7 @@ mod tests {
                 &next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -5655,7 +5649,7 @@ mod tests {
                         &changed,
                         word_challenges(),
                         challenges(),
-                        rfc_challenges(),
+                        &rfc_challenges(),
                         standalone_segment_terminal(&call),
                         &ca_call_boundaries_for_calls(&[&call]),
                     )
@@ -5684,7 +5678,7 @@ mod tests {
                 &next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -5708,7 +5702,7 @@ mod tests {
             &witnesses[CERTIFICATE_POLICY_RECORD_CALL_V1],
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
         )
         .expect("capacity call");
@@ -5729,7 +5723,7 @@ mod tests {
                 &next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -5753,7 +5747,7 @@ mod tests {
                 &next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -5795,7 +5789,7 @@ mod tests {
                     &changed,
                     word_challenges(),
                     challenges(),
-                    rfc_challenges(),
+                    &rfc_challenges(),
                     standalone_segment_terminal(&call),
                     &ca_call_boundaries_for_calls(&[&call]),
                 )
@@ -5828,7 +5822,7 @@ mod tests {
                 &reordered_next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -5852,7 +5846,7 @@ mod tests {
                 &dropped_next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -5874,7 +5868,7 @@ mod tests {
             &witness_for(first_manifest),
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
             &ZkX509ShaSegmentProductStateV1::one_v1(),
         )
@@ -5884,7 +5878,7 @@ mod tests {
             &witness_for(second_manifest),
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
             &first.segment_product_state,
         )
@@ -5905,7 +5899,7 @@ mod tests {
                 &next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &ca_call_boundaries,
             )
@@ -5918,7 +5912,7 @@ mod tests {
             &witness_for(second_manifest),
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
         )
         .expect("independently restarted call");
@@ -5930,7 +5924,7 @@ mod tests {
                 &restarted_next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &ca_call_boundaries,
             )
@@ -5945,7 +5939,7 @@ mod tests {
                 &last,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &ca_call_boundaries,
             )
@@ -5964,7 +5958,7 @@ mod tests {
                 &first_next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &wrong_start,
             )
@@ -5981,7 +5975,7 @@ mod tests {
                 &next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &wrong_terminal,
             )
@@ -5998,7 +5992,7 @@ mod tests {
                 &first_next,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &wrong_identity,
             ),
@@ -6019,7 +6013,7 @@ mod tests {
                 &padding,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &neutral_ca_call_boundaries(),
             )
@@ -6035,7 +6029,7 @@ mod tests {
                 &padding,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &neutral_ca_call_boundaries(),
             )
@@ -6053,7 +6047,7 @@ mod tests {
             &witness_for(manifest),
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
         )
         .expect("RFC call");
@@ -6074,7 +6068,7 @@ mod tests {
                 &call.row(event_row + 1).expect("event successor"),
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -6090,7 +6084,7 @@ mod tests {
                 &call.row(event_row + 1).expect("event successor"),
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 standalone_segment_terminal(&call),
                 &ca_call_boundaries_for_calls(&[&call]),
             )
@@ -6152,9 +6146,12 @@ mod tests {
             ZK_X509_SHA_MAX_CALL_LOGICAL_ROWS_V1 as u64 * retained_fields_per_row as u64 * 8
         );
         assert_eq!(ZK_X509_SHA_MAX_RETAINED_CALL_FIELD_BYTES_V1, 481_608_960);
-        assert!(
-            ZK_X509_SHA_MAX_RETAINED_CALL_FIELD_BYTES_V1 < ZK_X509_SHA_ONE_NATIVE_SEGMENT_BYTES_V1
-        );
+        const {
+            assert!(
+                ZK_X509_SHA_MAX_RETAINED_CALL_FIELD_BYTES_V1
+                    < ZK_X509_SHA_ONE_NATIVE_SEGMENT_BYTES_V1
+            )
+        };
         assert_eq!(ZK_X509_SHA_EAGER_NATIVE_BYTES_V1, 2_672 * 1024 * 1024);
         assert_eq!(ZK_X509_MAIN_COMMON_LDE_LOG2_V1, 22);
         assert_eq!(ZK_X509_COMMON_LDE_COLUMN_BYTES_V1, 32 * 1024 * 1024);
@@ -6169,7 +6166,7 @@ mod tests {
                 + 2 * ZK_X509_COMMON_LDE_COLUMN_BYTES_V1
                 + ZK_X509_SHA_STREAMING_SCRATCH_BYTES_V1
         );
-        assert!(ZK_X509_SHA_STREAMING_PEAK_BYTES_V1 < ZK_X509_SHA_PROVER_MEMORY_LIMIT_BYTES_V1);
+        const { assert!(ZK_X509_SHA_STREAMING_PEAK_BYTES_V1 < ZK_X509_SHA_PROVER_MEMORY_LIMIT_BYTES_V1) };
         assert_eq!(ZK_X509_SHA_TRACE_OPENING_BYTES_V1, 1_453_568);
     }
     #[test]

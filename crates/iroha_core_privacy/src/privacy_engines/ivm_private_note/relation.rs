@@ -14,7 +14,7 @@ pub const PRIVATE_NOTE_MAX_INPUTS_V1: usize = 2;
 /// Maximum created notes in the sole compiled relation.
 pub const PRIVATE_NOTE_MAX_OUTPUTS_V1: usize = 2;
 /// Exact output count admitted by the crate-private three-output relation seam.
-pub(crate) const PRIVATE_NOTE_THREE_OUTPUT_COUNT_V1: usize = 3;
+pub const PRIVATE_NOTE_THREE_OUTPUT_COUNT_V1: usize = 3;
 /// Exact depth of the ledger's proof-managed note tree.
 pub const PRIVATE_NOTE_TREE_DEPTH_V1: usize = 32;
 /// Number of deterministic bytecode instructions.
@@ -33,9 +33,9 @@ pub(super) const ACCUMULATOR_LEAF_DOMAIN_V1: &[u8] =
 pub(super) const ACCUMULATOR_NODE_DOMAIN_V1: &[u8] =
     b"iroha.privacy.proof-managed-note-tree.node.v1";
 /// Exact relation and wire-independent engine descriptor.
-pub(crate) const IVM_PRIVATE_NOTE_ENGINE_DESCRIPTOR_V1: &[u8] = b"iroha-ivm-private-note-stark-v1:native-rust:first-release:inputs=1..2:outputs=1..2:values=u128-checked:tree=sha256-depth32-exact-ledger-domains:program=IPN1-v1-fixed16x8:registers=8xu128:r4=reserved-zero:producer=typed-redacted-witness+relation-preflight+rand0.9-trycrypto-fixed64-reservoir-zeroize-poison-error-or-unwind-policy-v1+self-verify:wallet=x25519+xchacha20poly1305:wallet-rng=prover-rng:fixed64-reservoir:fallible-refill:reject-initial-constant-half+periods-1,2,4,8,16,32:retain-tail-max63:zeroize+poison-on-error-or-unwind:v1:successor=validator-derived-only:legacy=unrepresentable";
+pub const IVM_PRIVATE_NOTE_ENGINE_DESCRIPTOR_V1: &[u8] = b"iroha-ivm-private-note-stark-v1:native-rust:first-release:inputs=1..2:outputs=1..2:values=u128-checked:tree=sha256-depth32-exact-ledger-domains:program=IPN1-v1-fixed16x8:registers=8xu128:r4=reserved-zero:producer=typed-redacted-witness+relation-preflight+rand0.9-trycrypto-fixed64-reservoir-zeroize-poison-error-or-unwind-policy-v1+self-verify:wallet=x25519+xchacha20poly1305:wallet-rng=prover-rng:fixed64-reservoir:fallible-refill:reject-initial-constant-half+periods-1,2,4,8,16,32:retain-tail-max63:zeroize+poison-on-error-or-unwind:v1:successor=validator-derived-only:legacy=unrepresentable";
 /// Exact hash framing used inside the AIR and native differential oracle.
-pub(crate) const IVM_PRIVATE_NOTE_HASH_PROFILE_DESCRIPTOR_V1: &[u8] = b"sha256:frame-domain-len-u16be-field-count-u16be-field-len-u64be:program-id+authority+commitment+stable-pool-program-nullifier:proof-managed-leaf-and-level-node-exact-v1";
+pub const IVM_PRIVATE_NOTE_HASH_PROFILE_DESCRIPTOR_V1: &[u8] = b"sha256:frame-domain-len-u16be-field-count-u16be-field-len-u64be:program-id+authority+commitment+stable-pool-program-nullifier:proof-managed-leaf-and-level-node-exact-v1";
 /// Closed relation controls shared with the atomic private-settlement adapter.
 ///
 /// The public IVM private-note API always selects [`Self::IvmPrivateNote`]. The
@@ -44,7 +44,7 @@ pub(crate) const IVM_PRIVATE_NOTE_HASH_PROFILE_DESCRIPTOR_V1: &[u8] = b"sha256:f
 /// two-input/three-output geometry, balanced-only value flow, zero-valued
 /// input/output cover notes, and verifier-selected output memo digests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PrivateNoteRelationProfileV1 {
+pub enum PrivateNoteRelationProfileV1 {
     /// Canonical public one-or-two input/output IVM private-note relation.
     IvmPrivateNote,
     /// Exact balanced two-input/three-output relation with fixed output memos.
@@ -943,7 +943,7 @@ fn audit_input_openings_invocation_v1(
 /// Hashing only public note commitments would permit enumerating candidate
 /// pairs. The opening includes the secret rho and blinding. Activity is
 /// canonical: precisely a nonzero value denotes an active input.
-pub(crate) fn derive_private_note_input_openings_commitment_v1(
+pub fn derive_private_note_input_openings_commitment_v1(
     notes: &[PrivateNotePlaintextV1],
 ) -> Result<[u8; 32], IvmPrivateNoteRelationErrorV1> {
     Ok(audit_input_openings_invocation_v1(notes)?.digest)
@@ -984,7 +984,7 @@ pub fn derive_note_commitment_v1(
     derive_note_commitment_with_memo_v1(note, note.memo_digest)
 }
 /// Derive an output commitment under one crate-private relation profile.
-pub(crate) fn derive_profiled_output_commitment_v1(
+pub fn derive_profiled_output_commitment_v1(
     note: &PrivateNotePlaintextV1,
     output_index: usize,
     profile: PrivateNoteRelationProfileV1,
@@ -996,7 +996,7 @@ pub(crate) fn derive_profiled_output_commitment_v1(
     derive_note_commitment_with_memo_v1(note, memo)
 }
 /// Derive an input commitment under one crate-private relation profile.
-pub(crate) fn derive_profiled_input_commitment_v1(
+pub fn derive_profiled_input_commitment_v1(
     note: &PrivateNotePlaintextV1,
     profile: PrivateNoteRelationProfileV1,
 ) -> Result<PrivacyCommitmentV1, IvmPrivateNoteRelationErrorV1> {
@@ -1153,7 +1153,7 @@ pub(super) fn accumulator_node_invocation_v1(
 }
 
 #[cfg(test)]
-pub(crate) fn accumulator_leaf_digest_for_testing_v1(
+pub fn accumulator_leaf_digest_for_testing_v1(
     statement: &IrohaIvmPrivateNoteStarkStatementV1,
     input: u8,
     commitment: PrivacyCommitmentV1,
@@ -1162,7 +1162,7 @@ pub(crate) fn accumulator_leaf_digest_for_testing_v1(
 }
 
 #[cfg(test)]
-pub(crate) fn accumulator_node_digest_for_testing_v1(
+pub fn accumulator_node_digest_for_testing_v1(
     input: u8,
     level: u8,
     left: &[u8; 32],
@@ -1178,7 +1178,7 @@ pub(super) fn validate_statement_v1(
     validate_statement_with_profile_v1(statement, PrivateNoteRelationProfileV1::IVM_PRIVATE_NOTE)
 }
 /// Validate a statement against one crate-private relation profile.
-pub(crate) fn validate_statement_with_profile_v1(
+pub fn validate_statement_with_profile_v1(
     statement: &IrohaIvmPrivateNoteStarkStatementV1,
     profile: PrivateNoteRelationProfileV1,
 ) -> Result<(), IvmPrivateNoteRelationErrorV1> {
@@ -1341,7 +1341,7 @@ pub(super) fn validate_private_note_relation_v1(
     )
 }
 /// Preflight a witness under one crate-private relation profile.
-pub(crate) fn preflight_private_note_relation_with_profile_v1(
+pub fn preflight_private_note_relation_with_profile_v1(
     statement: &IrohaIvmPrivateNoteStarkStatementV1,
     witness: &IvmPrivateNoteWitnessV1,
     profile: PrivateNoteRelationProfileV1,

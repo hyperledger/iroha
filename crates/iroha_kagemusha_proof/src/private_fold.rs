@@ -19,7 +19,10 @@ impl PrivateFoldBytes {
     }
     /// Consume a syntax-checked private witness and retain its guarded serialization.
     pub fn from_fold<C: iroha_pasta::PastaCurve>(fold: FoldWitness<C>) -> Self {
-        Self::from_owned(fold.to_private_bytes())
+        let retained = Self::from_owned(fold.to_private_bytes());
+        // Destroy the consumed witness before returning its guarded serialization.
+        drop(fold);
+        retained
     }
     /// Fixed zero specimen for witnessless source construction; grants no authority.
     pub fn unknown() -> Self {

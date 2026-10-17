@@ -16,7 +16,7 @@ thread_local! {
 }
 
 /// Own one thread's observations; a guard cannot move to another worker.
-pub(crate) struct Guard {
+pub struct Guard {
     state: Arc<State>,
     thread: PhantomData<Rc<()>>,
 }
@@ -55,7 +55,7 @@ impl Drop for Guard {
 }
 
 /// Mark the actual point after admitted reconstruction and witness assignment.
-pub(crate) fn reached() {
+pub fn reached() {
     ACTIVE.with(|active| {
         if let Some(state) = active.borrow().as_ref() {
             state.entries.fetch_add(1, Ordering::SeqCst);
@@ -90,7 +90,7 @@ fn guard_counts_and_cancels_only_at_real_entry_and_clears_on_unwind() {
 /// Exercise the actual owner boundary with no public randomness injection seam.
 /// Both cancelled attempts must return an error, hence issue no proof. The
 /// caller then performs a fresh successful attempt with the same metadata.
-pub(crate) fn assert_owner_cancellation<T, E: core::fmt::Debug>(
+pub fn assert_owner_cancellation<T, E: core::fmt::Debug>(
     mut attempt: impl FnMut(&CancellationToken) -> Result<T, E>,
     is_cancelled: impl Fn(&E) -> bool,
 ) {

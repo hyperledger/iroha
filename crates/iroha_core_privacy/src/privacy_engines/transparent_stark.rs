@@ -16,7 +16,7 @@ use super::privacy_outer_hash::PrivacyOuterLastFieldStreamErrorV1;
 #[cfg(test)]
 use super::privacy_outer_hash::PrivacyOuterLastFieldStreamV1;
 use super::privacy_outer_hash::PrivacyOuterProofScopeV1;
-pub(crate) use super::privacy_outer_hash::{PrivacyOuterDigestV1, PrivacyOuterProofFamilyV1};
+pub use super::privacy_outer_hash::{PrivacyOuterDigestV1, PrivacyOuterProofFamilyV1};
 use super::privacy_outer_hash::{
     PrivacyOuterDomainPrefixV1, PrivacyOuterDomainV1, PrivacyOuterFrameV1,
 };
@@ -29,13 +29,13 @@ use std::collections::BTreeSet;
 use thiserror::Error;
 use zeroize::Zeroize as _;
 /// Goldilocks prime `2^64 - 2^32 + 1`.
-pub(crate) const GOLDILOCKS_MODULUS_V1: u64 = 0xffff_ffff_0000_0001;
+pub const GOLDILOCKS_MODULUS_V1: u64 = 0xffff_ffff_0000_0001;
 /// `2^64 - p = 2^32 - 1`, used for division-free canonical reduction.
 const GOLDILOCKS_EPSILON_V1: u64 = 0xffff_ffff;
 /// Canonical generator used for every compiled domain and coset.
-pub(crate) const GOLDILOCKS_GENERATOR_V1: u64 = 7;
+pub const GOLDILOCKS_GENERATOR_V1: u64 = 7;
 /// Two-adicity of the Goldilocks multiplicative group.
-pub(crate) const GOLDILOCKS_TWO_ADICITY_V1: u32 = 32;
+pub const GOLDILOCKS_TWO_ADICITY_V1: u32 = 32;
 const TRANSCRIPT_INIT_DOMAIN_V1: &[u8] = b"iroha:privacy:transparent-stark:init:v1";
 const TRANSCRIPT_ABSORB_DOMAIN_V1: &[u8] = b"iroha:privacy:transparent-stark:absorb:v1";
 const TRANSCRIPT_CHALLENGE_DOMAIN_V1: &[u8] = b"iroha:privacy:transparent-stark:challenge:v1";
@@ -49,13 +49,13 @@ const GRINDING_PARALLEL_CHUNK_SIZE_V1: u64 = 4_096;
 #[cfg(test)]
 const FRAME_PHASE_V1: &[u8] = b"framed-message";
 /// Fixed rejection budget for canonical field and transcript sampling.
-pub(crate) const MAX_FIELD_REJECTION_ATTEMPTS_V1: u64 = 16;
+pub const MAX_FIELD_REJECTION_ATTEMPTS_V1: u64 = 16;
 /// Fixed rejection budget for each unbiased query-index range sample.
 const MAX_QUERY_INDEX_REJECTION_ATTEMPTS_V1: u64 = 256;
 /// Degree of the compiled Goldilocks extension.
-pub(crate) const GOLDILOCKS_FP4_DEGREE_V1: usize = 4;
+pub const GOLDILOCKS_FP4_DEGREE_V1: usize = 4;
 /// Canonical encoded size of one quartic-extension value.
-pub(crate) const GOLDILOCKS_FP4_WIRE_BYTES_V1: usize = GOLDILOCKS_FP4_DEGREE_V1 * 8;
+pub const GOLDILOCKS_FP4_WIRE_BYTES_V1: usize = GOLDILOCKS_FP4_DEGREE_V1 * 8;
 const GOLDILOCKS_FP4_NONRESIDUE_V1: GoldilocksFieldV1 = GoldilocksFieldV1(GOLDILOCKS_GENERATOR_V1);
 
 /// Exact catalog/protocol/profile context for every native-STARK digest.
@@ -65,7 +65,7 @@ const GOLDILOCKS_FP4_NONRESIDUE_V1: GoldilocksFieldV1 = GoldilocksFieldV1(GOLDIL
 /// profile labels. Protocol and profile identifiers are kept as distinct
 /// fields and never concatenated into an ambiguous free-form domain string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TransparentStarkDigestContextV1 {
+pub struct TransparentStarkDigestContextV1 {
     protocol: PrivacyProtocolIdV1,
     profile: &'static [u8],
     proof_scope: Option<PrivacyOuterProofScopeV1>,
@@ -142,7 +142,7 @@ impl TransparentStarkDigestContextV1 {
 /// Keeping those two quantities distinct prevents the consensus profile from
 /// acquiring an off-by-one error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TransparentStarkZkMaskGeometryV1 {
+pub struct TransparentStarkZkMaskGeometryV1 {
     /// Reduced AIR degree (`d_air - 1` in Haböck--Al Kindi).
     pub(crate) reduced_air_degree: usize,
     /// Degree of the challenge field over the trace base field.
@@ -166,7 +166,7 @@ pub(crate) struct TransparentStarkZkMaskGeometryV1 {
 /// using an exact power-of-two split of the target error budget. It deliberately does not use
 /// floating-point arithmetic and makes no qROM or post-quantum claim for the Fiat--Shamir layer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TransparentStarkWorkSecurityV1 {
+pub struct TransparentStarkWorkSecurityV1 {
     /// Claimed work-normalized security level.
     pub(crate) target_bits: u16,
     /// Proven exponent in `epsilon_RBR <= 2^-round_by_round_bits`.
@@ -178,7 +178,7 @@ pub(crate) struct TransparentStarkWorkSecurityV1 {
 }
 /// Canonical Goldilocks field element.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct GoldilocksFieldV1(pub(crate) u64);
+pub struct GoldilocksFieldV1(pub(crate) u64);
 impl zeroize::Zeroize for GoldilocksFieldV1 {
     fn zeroize(&mut self) {
         self.zeroize_v1();
@@ -320,7 +320,7 @@ impl GoldilocksFieldV1 {
 /// are impossible because `-1` is a square. Thus this quotient is a field, rather than merely a
 /// ring.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct GoldilocksFp4V1 {
+pub struct GoldilocksFp4V1 {
     coefficients: [GoldilocksFieldV1; GOLDILOCKS_FP4_DEGREE_V1],
 }
 /// Polynomial AIR operations shared by base-field and out-of-domain evaluation.
@@ -328,7 +328,7 @@ pub(crate) struct GoldilocksFp4V1 {
 /// This interface deliberately exposes no ordering, equality, or conversion
 /// back to an integer. Constraint control flow must depend on public layout,
 /// not on a witness or selector value that changes meaning outside the trace.
-pub(crate) trait PolynomialAirFieldV1: Copy {
+pub trait PolynomialAirFieldV1: Copy {
     /// Additive identity.
     const ZERO: Self;
     /// Multiplicative identity.
@@ -622,7 +622,7 @@ fn goldilocks_fp2_inv_v1(value: [GoldilocksFieldV1; 2]) -> Option<[GoldilocksFie
 }
 /// Failure in protocol-neutral transparent-proof machinery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum TransparentStarkErrorV1 {
+pub enum TransparentStarkErrorV1 {
     /// A catalog-bound protocol/profile/role/phase digest domain is invalid.
     #[error("transparent STARK digest domain is invalid")]
     InvalidDigestDomain,
@@ -675,7 +675,7 @@ pub(crate) enum TransparentStarkErrorV1 {
 /// Here `h` counts coefficients because the sampled randomizer belongs to
 /// `Fp[X]_<h`. A DEEP-free local subproof may pass zero for
 /// `deep_query_count`; FRI still requires at least one query.
-pub(crate) fn transparent_stark_zk_mask_geometry_v1(
+pub fn transparent_stark_zk_mask_geometry_v1(
     reduced_air_degree: usize,
     extension_degree: usize,
     deep_query_count: usize,
@@ -713,7 +713,7 @@ pub(crate) fn transparent_stark_zk_mask_geometry_v1(
 /// half to the random-oracle term. For `Q <= 2^q`,
 /// `3 * (Q + 1/Q) / 2^kappa < 2^(q + 3 - kappa)`, so the checked conditions
 /// are `rbr_bits >= lambda + 1` and `q <= kappa - lambda - 4`.
-pub(crate) fn checked_transparent_stark_work_security_v1(
+pub fn checked_transparent_stark_work_security_v1(
     target_bits: u16,
     round_by_round_bits: u16,
     random_oracle_bits: u16,
@@ -742,7 +742,7 @@ pub(crate) fn checked_transparent_stark_work_security_v1(
     })
 }
 /// Compute the primitive root for an exact power-of-two order.
-pub(crate) fn goldilocks_primitive_root_v1(
+pub fn goldilocks_primitive_root_v1(
     log_size: u8,
 ) -> Result<GoldilocksFieldV1, TransparentStarkErrorV1> {
     if u32::from(log_size) > GOLDILOCKS_TWO_ADICITY_V1 {
@@ -854,7 +854,7 @@ fn goldilocks_fft_stage_v1<T: Send, const PARALLEL_INNER: bool>(
 }
 
 /// In-place radix-two FFT.
-pub(crate) fn goldilocks_fft_v1(
+pub fn goldilocks_fft_v1(
     values: &mut [GoldilocksFieldV1],
     root: GoldilocksFieldV1,
 ) -> Result<(), TransparentStarkErrorV1> {
@@ -863,7 +863,7 @@ pub(crate) fn goldilocks_fft_v1(
 /// In-place FFT for a column whose bounded batch already owns parallelism.
 /// Validation and arithmetic use the same kernel as the single-column route.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn goldilocks_fft_coarse_v1(
+pub fn goldilocks_fft_coarse_v1(
     values: &mut [GoldilocksFieldV1],
     root: GoldilocksFieldV1,
 ) -> Result<(), TransparentStarkErrorV1> {
@@ -874,7 +874,7 @@ pub(crate) fn goldilocks_fft_coarse_v1(
 ///
 /// The caller admits both this owner and its complete allocated capacity before
 /// dispatch. No coefficient, mask, or private row is retained in this table.
-pub(crate) struct GoldilocksFftPowersV1 {
+pub struct GoldilocksFftPowersV1 {
     values: Vec<GoldilocksFieldV1>,
     root: GoldilocksFieldV1,
     size: usize,
@@ -937,7 +937,7 @@ impl GoldilocksFftPowersV1 {
 
 /// Coarse FFT using an admitted public power table and the original shared kernel.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn goldilocks_fft_coarse_with_powers_v1(
+pub fn goldilocks_fft_coarse_with_powers_v1(
     values: &mut [GoldilocksFieldV1],
     root: GoldilocksFieldV1,
     powers: &GoldilocksFftPowersV1,
@@ -948,7 +948,7 @@ pub(crate) fn goldilocks_fft_coarse_with_powers_v1(
 /// Coarse inverse FFT using a table constructed from the inverse public root.
 /// Original root validation, inversion, domain checks and scaling retain their order.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn goldilocks_ifft_coarse_with_powers_v1(
+pub fn goldilocks_ifft_coarse_with_powers_v1(
     values: &mut [GoldilocksFieldV1],
     root: GoldilocksFieldV1,
     powers: &GoldilocksFftPowersV1,
@@ -1029,7 +1029,7 @@ fn goldilocks_fft_with_powers_v1<const PARALLEL_INNER: bool>(
     Ok(())
 }
 /// In-place inverse radix-two FFT.
-pub(crate) fn goldilocks_ifft_v1(
+pub fn goldilocks_ifft_v1(
     values: &mut [GoldilocksFieldV1],
     root: GoldilocksFieldV1,
 ) -> Result<(), TransparentStarkErrorV1> {
@@ -1037,7 +1037,7 @@ pub(crate) fn goldilocks_ifft_v1(
 }
 /// In-place inverse FFT for a column in an already parallel bounded batch.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn goldilocks_ifft_coarse_v1(
+pub fn goldilocks_ifft_coarse_v1(
     values: &mut [GoldilocksFieldV1],
     root: GoldilocksFieldV1,
 ) -> Result<(), TransparentStarkErrorV1> {
@@ -1064,7 +1064,7 @@ fn goldilocks_ifft_with_inner_parallelism_v1<const PARALLEL_INNER: bool>(
     Ok(())
 }
 /// Evaluate coefficients over one shifted radix-two domain.
-pub(crate) fn goldilocks_evaluate_coset_v1(
+pub fn goldilocks_evaluate_coset_v1(
     coefficients: &[GoldilocksFieldV1],
     size: usize,
     root: GoldilocksFieldV1,
@@ -1106,7 +1106,7 @@ fn goldilocks_evaluate_coset_with_inner_parallelism_v1<const PARALLEL_INNER: boo
 ///
 /// The evaluation domain remains in the base field, so roots and twiddles are
 /// embedded rather than sampled from the extension.
-pub(crate) fn goldilocks_fp4_fft_v1(
+pub fn goldilocks_fp4_fft_v1(
     values: &mut [GoldilocksFp4V1],
     root: GoldilocksFieldV1,
 ) -> Result<(), TransparentStarkErrorV1> {
@@ -1148,7 +1148,7 @@ pub(crate) fn goldilocks_fp4_fft_v1(
     Ok(())
 }
 /// In-place inverse radix-two FFT over the quartic Goldilocks extension.
-pub(crate) fn goldilocks_fp4_ifft_v1(
+pub fn goldilocks_fp4_ifft_v1(
     values: &mut [GoldilocksFp4V1],
     root: GoldilocksFieldV1,
 ) -> Result<(), TransparentStarkErrorV1> {
@@ -1168,7 +1168,7 @@ pub(crate) fn goldilocks_fp4_ifft_v1(
     Ok(())
 }
 /// Evaluate quartic-extension coefficients over one shifted base-field domain.
-pub(crate) fn goldilocks_fp4_evaluate_coset_v1(
+pub fn goldilocks_fp4_evaluate_coset_v1(
     coefficients: &[GoldilocksFp4V1],
     size: usize,
     root: GoldilocksFieldV1,
@@ -1195,7 +1195,7 @@ pub(crate) fn goldilocks_fp4_evaluate_coset_v1(
     Ok(core::mem::take(&mut *evaluations))
 }
 /// Batch-invert a non-empty collection using one field inversion.
-pub(crate) fn goldilocks_batch_invert_v1(
+pub fn goldilocks_batch_invert_v1(
     values: &mut [GoldilocksFieldV1],
 ) -> Result<(), TransparentStarkErrorV1> {
     if values.is_empty() {
@@ -1227,7 +1227,7 @@ pub(crate) fn goldilocks_batch_invert_v1(
     Ok(())
 }
 /// Draw one unbiased canonical Goldilocks field element.
-pub(crate) fn random_goldilocks_v1<R: TryRngCore>(
+pub fn random_goldilocks_v1<R: TryRngCore>(
     rng: &mut R,
 ) -> Result<GoldilocksFieldV1, TransparentStarkErrorV1> {
     for _ in 0..MAX_FIELD_REJECTION_ATTEMPTS_V1 {
@@ -1241,7 +1241,7 @@ pub(crate) fn random_goldilocks_v1<R: TryRngCore>(
     Err(TransparentStarkErrorV1::RandomnessUnavailable)
 }
 /// Draw one uniform quartic-extension element, including zero.
-pub(crate) fn random_goldilocks_fp4_v1<R: TryRngCore>(
+pub fn random_goldilocks_fp4_v1<R: TryRngCore>(
     rng: &mut R,
 ) -> Result<GoldilocksFp4V1, TransparentStarkErrorV1> {
     let mut coefficients = zeroize::Zeroizing::new([GoldilocksFieldV1::ZERO; 4]);
@@ -1253,7 +1253,7 @@ pub(crate) fn random_goldilocks_fp4_v1<R: TryRngCore>(
 }
 /// Draw one uniform nonzero quartic-extension element.
 #[cfg(test)]
-pub(crate) fn random_nonzero_goldilocks_fp4_v1<R: TryRngCore>(
+pub fn random_nonzero_goldilocks_fp4_v1<R: TryRngCore>(
     rng: &mut R,
 ) -> Result<GoldilocksFp4V1, TransparentStarkErrorV1> {
     for _ in 0..MAX_FIELD_REJECTION_ATTEMPTS_V1 {
@@ -1271,7 +1271,7 @@ pub(crate) fn random_nonzero_goldilocks_fp4_v1<R: TryRngCore>(
 /// zero coefficients. Keeping this operation separate from coset evaluation lets bounded provers
 /// retain the much smaller polynomial while replaying commitments on more than one verifier-derived
 /// evaluation domain.
-pub(crate) fn masked_trace_coefficients_with_mask_v1(
+pub fn masked_trace_coefficients_with_mask_v1(
     base_column: &[GoldilocksFieldV1],
     base_log_size: u8,
     mask: &[GoldilocksFieldV1],
@@ -1313,7 +1313,7 @@ pub(crate) fn masked_trace_coefficients_with_mask_v1(
 /// The evaluation domain may be smaller than the eventual commitment domain,
 /// but it must contain every coefficient and remain disjoint from both the
 /// native trace subgroup and its own evaluation subgroup.
-pub(crate) fn masked_trace_coefficients_on_coset_v1(
+pub fn masked_trace_coefficients_on_coset_v1(
     coefficients: &[GoldilocksFieldV1],
     base_log_size: u8,
     evaluation_log_size: u8,
@@ -1328,7 +1328,7 @@ pub(crate) fn masked_trace_coefficients_on_coset_v1(
 /// Diagnostic-only alternative for a bounded batch that owns outer parallelism.
 /// Production dispatch remains on the original inner-parallel function above.
 #[cfg(test)]
-pub(crate) fn masked_trace_coefficients_on_coset_coarse_for_test_v1(
+pub fn masked_trace_coefficients_on_coset_coarse_for_test_v1(
     coefficients: &[GoldilocksFieldV1],
     base_log_size: u8,
     evaluation_log_size: u8,
@@ -1375,7 +1375,7 @@ fn masked_trace_coefficients_on_coset_with_inner_parallelism_v1<const PARALLEL_I
 ///
 /// The mask is `r(X) * (X^n - 1)`, so every base-domain trace value is unchanged while all queried
 /// coset values are randomized. `mask_degree` is inclusive.
-pub(crate) fn masked_trace_lde_column_with_mask_v1(
+pub fn masked_trace_lde_column_with_mask_v1(
     base_column: &[GoldilocksFieldV1],
     base_log_size: u8,
     lde_log_size: u8,
@@ -1417,7 +1417,7 @@ impl Drop for ZeroizingGoldilocksValuesV1 {
     }
 }
 /// Replayable zero-knowledge mask for one streamed trace column.
-pub(crate) struct ReplayableTraceMaskV1 {
+pub struct ReplayableTraceMaskV1 {
     coefficients: Vec<GoldilocksFieldV1>,
 }
 impl ReplayableTraceMaskV1 {
@@ -1442,7 +1442,7 @@ impl Drop for ReplayableTraceMaskV1 {
 /// Streaming provers keep these few coefficients until post-query openings are reconstructed,
 /// instead of retaining the entire LDE column. Callers should drop them as soon as proof
 /// construction completes; [`Drop`] overwrites the backing allocation before release.
-pub(crate) fn sample_trace_mask_v1<R: TryRngCore>(
+pub fn sample_trace_mask_v1<R: TryRngCore>(
     mask_degree: usize,
     rng: &mut R,
 ) -> Result<ReplayableTraceMaskV1, TransparentStarkErrorV1> {
@@ -1463,7 +1463,7 @@ pub(crate) fn sample_trace_mask_v1<R: TryRngCore>(
 }
 /// Interpolate, sample a fresh mask, and evaluate one trace column's LDE.
 #[cfg(test)]
-pub(crate) fn masked_trace_lde_column_v1<R: TryRngCore>(
+pub fn masked_trace_lde_column_v1<R: TryRngCore>(
     base_column: &[GoldilocksFieldV1],
     base_log_size: u8,
     lde_log_size: u8,
@@ -1485,7 +1485,7 @@ fn exact12_catalog_commitment_bytes_v1() -> [u8; 48] {
 }
 
 /// Hash one fully typed native-STARK frame with the opaque SHA3-384 digest.
-pub(crate) fn privacy_outer_digest_frame_v1(
+pub fn privacy_outer_digest_frame_v1(
     context: TransparentStarkDigestContextV1,
     role: &[u8],
     phase: &[u8],
@@ -1523,7 +1523,7 @@ pub(crate) fn privacy_outer_digest_frame_v1(
 
 /// Scalar stream-framing oracle used only by byte-parity controls.
 #[cfg(test)]
-pub(crate) fn privacy_outer_last_field_stream_v1(
+pub fn privacy_outer_last_field_stream_v1(
     context: TransparentStarkDigestContextV1,
     role: &[u8],
     phase: &[u8],
@@ -1562,7 +1562,7 @@ pub(crate) fn privacy_outer_last_field_stream_v1(
 
 /// Map a canonical digest-stream failure without exposing an alternate hash path.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const fn map_digest_stream_error_v1(
+pub const fn map_digest_stream_error_v1(
     error: PrivacyOuterLastFieldStreamErrorV1,
 ) -> TransparentStarkErrorV1 {
     match error {
@@ -1576,7 +1576,7 @@ pub(crate) const fn map_digest_stream_error_v1(
 
 /// Domain-separated binary SHA3-384 byte Merkle tree.
 #[derive(Clone, Debug)]
-pub(crate) struct PrivacyOuterMerkleTreeV1 {
+pub struct PrivacyOuterMerkleTreeV1 {
     levels: Vec<Vec<PrivacyOuterDigestV1>>,
 }
 impl PrivacyOuterMerkleTreeV1 {
@@ -1669,7 +1669,7 @@ impl PrivacyOuterMerkleTreeV1 {
     }
 }
 /// Hash one binary Merkle node with an engine-fixed role domain.
-pub(crate) fn privacy_outer_merkle_node_v1(
+pub fn privacy_outer_merkle_node_v1(
     context: TransparentStarkDigestContextV1,
     node_role: &[u8],
     level: u64,
@@ -1689,7 +1689,7 @@ pub(crate) fn privacy_outer_merkle_node_v1(
 }
 /// Verify one exact binary Merkle path.
 #[cfg(test)]
-pub(crate) fn verify_privacy_outer_merkle_path_v1(
+pub fn verify_privacy_outer_merkle_path_v1(
     context: TransparentStarkDigestContextV1,
     node_role: &[u8],
     root: PrivacyOuterDigestV1,
@@ -1739,7 +1739,7 @@ pub(crate) fn verify_privacy_outer_merkle_path_v1(
 }
 /// Hash an unambiguous role-and-field frame.
 #[cfg(test)]
-pub(crate) fn goldilocks_frame_v1(
+pub fn goldilocks_frame_v1(
     context: TransparentStarkDigestContextV1,
     role: &[u8],
     level: u64,
@@ -1750,7 +1750,7 @@ pub(crate) fn goldilocks_frame_v1(
 }
 /// Stateful framed Fiat–Shamir transcript.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TransparentTranscriptV1 {
+pub struct TransparentTranscriptV1 {
     context: TransparentStarkDigestContextV1,
     state: PrivacyOuterDigestV1,
     challenge_counter: u64,
@@ -2014,7 +2014,7 @@ impl TransparentTranscriptV1 {
     }
 }
 /// Derive unique unbiased query indices for a power-of-two domain.
-pub(crate) fn derive_unique_query_indices_v1(
+pub fn derive_unique_query_indices_v1(
     context: TransparentStarkDigestContextV1,
     seed: &PrivacyOuterDigestV1,
     domain_size: usize,
@@ -2105,7 +2105,7 @@ fn bounded_query_offset_with_oracle_v1(
 }
 /// Compute one binary FRI fold.
 #[cfg(test)]
-pub(crate) fn fri_fold_pair_v1(
+pub fn fri_fold_pair_v1(
     low: GoldilocksFieldV1,
     high: GoldilocksFieldV1,
     beta: GoldilocksFieldV1,
@@ -2120,7 +2120,7 @@ pub(crate) fn fri_fold_pair_v1(
 /// multiplication per entry. Keeping that optimization here avoids duplicating the
 /// consensus-critical fold equation in each relation-specific engine.
 #[cfg(test)]
-pub(crate) fn fri_fold_pair_with_inverse_x_v1(
+pub fn fri_fold_pair_with_inverse_x_v1(
     low: GoldilocksFieldV1,
     high: GoldilocksFieldV1,
     beta: GoldilocksFieldV1,
@@ -2134,7 +2134,7 @@ pub(crate) fn fri_fold_pair_with_inverse_x_v1(
     Ok(even.add(beta.mul(odd)))
 }
 /// Compute one binary FRI fold over the quartic Goldilocks extension.
-pub(crate) fn fri_fold_pair_fp4_v1(
+pub fn fri_fold_pair_fp4_v1(
     low: GoldilocksFp4V1,
     high: GoldilocksFp4V1,
     beta: GoldilocksFp4V1,
@@ -2147,7 +2147,7 @@ pub(crate) fn fri_fold_pair_fp4_v1(
     fri_fold_pair_with_inverse_x_fp4_v1(low, high, beta, inverse_x)
 }
 /// Compute one quartic-extension FRI fold with a tracked base-domain `x^-1`.
-pub(crate) fn fri_fold_pair_with_inverse_x_fp4_v1(
+pub fn fri_fold_pair_with_inverse_x_fp4_v1(
     low: GoldilocksFp4V1,
     high: GoldilocksFp4V1,
     beta: GoldilocksFp4V1,
@@ -2172,7 +2172,7 @@ pub(crate) fn fri_fold_pair_with_inverse_x_fp4_v1(
 }
 /// Check the entire terminal FRI polynomial against an exact degree bound.
 #[cfg(test)]
-pub(crate) fn ensure_fri_terminal_degree_v1(
+pub fn ensure_fri_terminal_degree_v1(
     values: &[GoldilocksFieldV1],
     log_size: u8,
     degree_bound: usize,
@@ -2195,7 +2195,7 @@ pub(crate) fn ensure_fri_terminal_degree_v1(
     Ok(())
 }
 /// Check an entire quartic-extension FRI terminal against an exact degree.
-pub(crate) fn ensure_fri_terminal_degree_fp4_v1(
+pub fn ensure_fri_terminal_degree_fp4_v1(
     values: &[GoldilocksFp4V1],
     log_size: u8,
     degree_bound: usize,
@@ -2221,7 +2221,7 @@ pub(crate) fn ensure_fri_terminal_degree_fp4_v1(
     Ok(())
 }
 /// Search for the smallest nonce meeting an exact leading-zero-bit target.
-pub(crate) fn grind_nonce_v1(
+pub fn grind_nonce_v1(
     context: TransparentStarkDigestContextV1,
     transcript_seed: &PrivacyOuterDigestV1,
     grinding_bits: u8,
@@ -2283,7 +2283,7 @@ where
     }
 }
 /// Verify a transcript grinding nonce.
-pub(crate) fn verify_grinding_nonce_v1(
+pub fn verify_grinding_nonce_v1(
     context: TransparentStarkDigestContextV1,
     transcript_seed: &PrivacyOuterDigestV1,
     grinding_bits: u8,
@@ -2312,7 +2312,7 @@ pub(crate) fn verify_grinding_nonce_v1(
     Ok(())
 }
 /// Strict fixed-shape proof reader.
-pub(crate) struct ExactProofReaderV1<'a> {
+pub struct ExactProofReaderV1<'a> {
     bytes: &'a [u8],
     offset: usize,
 }
@@ -2372,20 +2372,20 @@ impl<'a> ExactProofReaderV1<'a> {
     }
 }
 /// Append big-endian fixed integers to a canonical proof.
-pub(crate) fn append_u16_v1(bytes: &mut Vec<u8>, value: u16) {
+pub fn append_u16_v1(bytes: &mut Vec<u8>, value: u16) {
     bytes.extend_from_slice(&value.to_be_bytes());
 }
 /// Append big-endian fixed integers to a canonical proof.
-pub(crate) fn append_u32_v1(bytes: &mut Vec<u8>, value: u32) {
+pub fn append_u32_v1(bytes: &mut Vec<u8>, value: u32) {
     bytes.extend_from_slice(&value.to_be_bytes());
 }
 /// Append big-endian fixed integers to a canonical proof.
-pub(crate) fn append_u64_v1(bytes: &mut Vec<u8>, value: u64) {
+pub fn append_u64_v1(bytes: &mut Vec<u8>, value: u64) {
     bytes.extend_from_slice(&value.to_be_bytes());
 }
 /// Append one canonical quartic-extension value.
 #[cfg_attr(not(any(test, feature = "zk-stark")), allow(dead_code))]
-pub(crate) fn append_goldilocks_fp4_v1(bytes: &mut Vec<u8>, value: GoldilocksFp4V1) {
+pub fn append_goldilocks_fp4_v1(bytes: &mut Vec<u8>, value: GoldilocksFp4V1) {
     bytes.extend_from_slice(&value.to_be_bytes());
 }
 #[cfg(test)]

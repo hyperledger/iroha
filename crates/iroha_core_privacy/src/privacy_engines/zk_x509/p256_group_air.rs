@@ -8,9 +8,9 @@
 //! value to the exact integer arithmetic trace and its value-copy bus.
 /// Exact arithmetic-operation count for one `[u1]G + [u2]Q` execution,
 /// including the fourteen-addition variable-base table.
-pub(crate) const P256_TWO_SCALAR_ARITHMETIC_OPERATIONS_V1: usize = 14 * 43 + 64 * (4 * 34 + 2 * 43);
+pub const P256_TWO_SCALAR_ARITHMETIC_OPERATIONS_V1: usize = 14 * 43 + 64 * (4 * 34 + 2 * 43);
 /// P-256 curve coefficient `b`, in canonical big-endian form.
-pub(crate) const P256_CURVE_B_BE_V1: [u8; 32] = [
+pub const P256_CURVE_B_BE_V1: [u8; 32] = [
     0x5a, 0xc6, 0x35, 0xd8, 0xaa, 0x3a, 0x93, 0xe7, 0xb3, 0xeb, 0xbd, 0x55, 0x76, 0x98, 0x86, 0xbc,
     0x65, 0x1d, 0x06, 0xb0, 0xcc, 0x53, 0xb0, 0xf6, 0x3b, 0xce, 0x3c, 0x3e, 0x27, 0xd2, 0x60, 0x4b,
 ];
@@ -23,7 +23,7 @@ const THREE_BE_V1: [u8; 32] = [
 ];
 /// A homogeneous projective point with affine coordinates `(x/z, y/z)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ProjectiveValueV1<V> {
+pub struct P256ProjectiveValueV1<V> {
     /// Homogeneous x-coordinate.
     pub(crate) x: V,
     /// Homogeneous y-coordinate.
@@ -36,7 +36,7 @@ pub(crate) struct P256ProjectiveValueV1<V> {
 /// A production implementation must emit a newly written value for every
 /// arithmetic result and must algebraically bind `assert_equal` and
 /// `inverse_nonzero`; native comparisons are not a valid implementation.
-pub(crate) trait P256BaseFieldCircuitV1 {
+pub trait P256BaseFieldCircuitV1 {
     /// Handle of one canonical P-256 base-field value.
     type Value: Copy;
     /// Bounded circuit-construction failure.
@@ -70,7 +70,7 @@ pub(crate) trait P256BaseFieldCircuitV1 {
 ///
 /// The production implementation is a 16-candidate one-hot AIR with a challenge-separated bit-copy
 /// bus. It may not select natively from secret bits.
-pub(crate) trait P256WindowCircuitV1: P256BaseFieldCircuitV1 {
+pub trait P256WindowCircuitV1: P256BaseFieldCircuitV1 {
     /// One algebraically constrained scalar bit.
     type Bit: Copy;
     /// Select exactly one of sixteen projective points from four big-endian nibble bits.
@@ -81,7 +81,7 @@ pub(crate) trait P256WindowCircuitV1: P256BaseFieldCircuitV1 {
     ) -> Result<P256ProjectiveValueV1<Self::Value>, Self::Error>;
 }
 /// Allocate the canonical projective identity `(0 : 1 : 0)`.
-pub(crate) fn p256_projective_identity_v1<C: P256BaseFieldCircuitV1>(
+pub fn p256_projective_identity_v1<C: P256BaseFieldCircuitV1>(
     circuit: &mut C,
 ) -> Result<P256ProjectiveValueV1<C::Value>, C::Error> {
     Ok(P256ProjectiveValueV1 {
@@ -95,7 +95,7 @@ pub(crate) fn p256_projective_identity_v1<C: P256BaseFieldCircuitV1>(
 /// This is Algorithm 4 of Renes-Costello-Batina (2015), specialized to
 /// `a = -3`.  It is complete for valid input points, including identities,
 /// equal points, and additive inverses.
-pub(crate) fn p256_complete_add_v1<C: P256BaseFieldCircuitV1>(
+pub fn p256_complete_add_v1<C: P256BaseFieldCircuitV1>(
     circuit: &mut C,
     left: P256ProjectiveValueV1<C::Value>,
     right: P256ProjectiveValueV1<C::Value>,
@@ -150,7 +150,7 @@ pub(crate) fn p256_complete_add_v1<C: P256BaseFieldCircuitV1>(
 ///
 /// This is Algorithm 6 of Renes-Costello-Batina (2015), specialized to
 /// `a = -3`.
-pub(crate) fn p256_complete_double_v1<C: P256BaseFieldCircuitV1>(
+pub fn p256_complete_double_v1<C: P256BaseFieldCircuitV1>(
     circuit: &mut C,
     point: P256ProjectiveValueV1<C::Value>,
 ) -> Result<P256ProjectiveValueV1<C::Value>, C::Error> {
@@ -195,7 +195,7 @@ pub(crate) fn p256_complete_double_v1<C: P256BaseFieldCircuitV1>(
 ///
 /// The topology is fixed at fourteen complete additions. `table[0]` is the
 /// canonical identity and `table[1]` aliases the constrained input point.
-pub(crate) fn p256_variable_window_table_v1<C: P256BaseFieldCircuitV1>(
+pub fn p256_variable_window_table_v1<C: P256BaseFieldCircuitV1>(
     circuit: &mut C,
     point: P256ProjectiveValueV1<C::Value>,
 ) -> Result<[P256ProjectiveValueV1<C::Value>; 16], C::Error> {
@@ -212,7 +212,7 @@ pub(crate) fn p256_variable_window_table_v1<C: P256BaseFieldCircuitV1>(
 /// Both scalars are consumed as 256 big-endian bits. Each of 64 rounds emits exactly four
 /// exception-free doublings, two fixed 16-way lookups, and two complete additions. The generator
 /// table is verifier-fixed; the variable table is constrained by [`p256_variable_window_table_v1`].
-pub(crate) fn p256_two_scalar_linear_combination_v1<C: P256WindowCircuitV1>(
+pub fn p256_two_scalar_linear_combination_v1<C: P256WindowCircuitV1>(
     circuit: &mut C,
     generator_table: &[P256ProjectiveValueV1<C::Value>; 16],
     public_key: P256ProjectiveValueV1<C::Value>,
@@ -253,7 +253,7 @@ pub(crate) fn p256_two_scalar_linear_combination_v1<C: P256WindowCircuitV1>(
 ///
 /// For affine coordinates `(X/Z, Y/Z)`, the exact homogeneous equation is
 /// `Y²Z = X³ - 3XZ² + bZ³`.  The identity `(0 : 1 : 0)` satisfies it.
-pub(crate) fn constrain_p256_projective_on_curve_v1<C: P256BaseFieldCircuitV1>(
+pub fn constrain_p256_projective_on_curve_v1<C: P256BaseFieldCircuitV1>(
     circuit: &mut C,
     point: P256ProjectiveValueV1<C::Value>,
 ) -> Result<(), C::Error> {
@@ -273,7 +273,7 @@ pub(crate) fn constrain_p256_projective_on_curve_v1<C: P256BaseFieldCircuitV1>(
     circuit.assert_equal_v1(left, right)
 }
 /// Constrain an affine input point `(x : y : 1)` to P-256.
-pub(crate) fn constrain_p256_affine_on_curve_v1<C: P256BaseFieldCircuitV1>(
+pub fn constrain_p256_affine_on_curve_v1<C: P256BaseFieldCircuitV1>(
     circuit: &mut C,
     x: C::Value,
     y: C::Value,
@@ -287,7 +287,7 @@ pub(crate) fn constrain_p256_affine_on_curve_v1<C: P256BaseFieldCircuitV1>(
     Ok(point)
 }
 /// Constrain a projective point to be non-identity and return affine `(x,y)`.
-pub(crate) fn normalize_p256_nonidentity_v1<C: P256BaseFieldCircuitV1>(
+pub fn normalize_p256_nonidentity_v1<C: P256BaseFieldCircuitV1>(
     circuit: &mut C,
     point: P256ProjectiveValueV1<C::Value>,
 ) -> Result<(C::Value, C::Value), C::Error> {
@@ -569,7 +569,7 @@ mod tests {
             (0, 1, 1),
             (1, 1, 1),
             (17, 31, 7),
-            (u32::MAX as u64, 0xdead_beef, 19),
+            (u64::from(u32::MAX), 0xdead_beef, 19),
             (u64::MAX, u64::MAX - 1, 127),
             (0x9e37_79b9_7f4a_7c15, 0xd1b5_4a32_d192_ed03, 4093),
         ];

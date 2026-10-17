@@ -1,7 +1,7 @@
 //! Genuine interpreter producers and initializer/history adversaries.
 //!
 //! Only history witness arithmetic uses a diagnostic oracle. Original packets
-//! are produced by NativeInvocation's sealed ordinary-interpreter constructor;
+//! are produced by `NativeInvocation`'s sealed ordinary-interpreter constructor;
 //! no synthetic first-state writes or reconstructed frame captures are added.
 
 use super::super::{
@@ -147,8 +147,11 @@ fn public_scalars_literals_and_memory_compose_with_original_root_return_and_hist
         enc::encode_ri(wide::memory::LOAD64, 5, 31, -8),
         enc::encode_ri(wide::memory::LOAD64, 0, 31, -8),
     ]);
-    let contract =
-        instructions::tests::artifact_with_literals(&body, 16, &[u64::MAX, i64::MIN as u64]);
+    let contract = instructions::tests::artifact_with_literals(
+        &body,
+        16,
+        &[u64::MAX, i64::cast_unsigned(i64::MIN)],
+    );
     let (source, budget) = source(contract, "main", 10_000);
     let history = History::new(&source);
     evaluate(&source, &history.view(), |row, residues| {

@@ -119,7 +119,7 @@ fn four_complete_sha_fp4_registrations_match_independent_base_polynomial_lifting
                 &next_base,
                 word,
                 call,
-                rfc,
+                &rfc,
                 terminal,
             )
             .unwrap();
@@ -169,7 +169,7 @@ fn complete_sha_call_bus_total_degree_fits_six() {
                 &next,
                 word,
                 call,
-                rfc,
+                &rfc,
                 terminal(0),
             )
             .unwrap()
@@ -251,7 +251,7 @@ fn sha_fp4_rejects_wrong_instance_noncanonical_rows_and_binds_local_recurrences(
             &map_row(&next, |value| value.coefficients()[0]),
             word,
             call,
-            rfc,
+            &rfc,
             terminal,
         )
         .is_err()

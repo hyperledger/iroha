@@ -3,7 +3,7 @@
 //! Four multiply variants reuse the exact full-width product/correction bank.
 //! Successful DIV/DIVU/REM/REMU reuse that product, the remainder comparison and
 //! the original shift workspace; their native trap-sensitive operands are public.
-//! DIV_CEIL adds the exact signed same-sign/nonzero correction in the shared
+//! `DIV_CEIL` adds the exact signed same-sign/nonzero correction in the shared
 //! MEAN result workspace, with its own twelve-gas/twelve-cycle original ports.
 //! GETGAS reads the original post-debit control word and always writes a public tag.
 //! Successful ABS reuses the original subtraction and zero-test cells; its
@@ -143,14 +143,16 @@ fn right_immediate(instruction: u32) -> Option<u64> {
         | wide::arithmetic::CTZ
         | wide::arithmetic::ISQRT => return Some(0),
         wide::arithmetic::NOT => return Some(u64::MAX),
-        wide::arithmetic::CMOVI => return Some(i64::from(wide::imm8(instruction)) as u64),
+        wide::arithmetic::CMOVI => {
+            return Some(i64::cast_unsigned(i64::from(wide::imm8(instruction))));
+        }
         _ => {}
     }
     if matches!(
         wide::opcode(instruction),
         wide::arithmetic::ROTL_IMM | wide::arithmetic::ROTR_IMM
     ) {
-        Some(u64::from(wide::imm8(instruction) as u8))
+        Some(u64::from(i8::cast_unsigned(wide::imm8(instruction))))
     } else {
         immediate_operand(instruction)
     }

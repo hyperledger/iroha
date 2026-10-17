@@ -48,7 +48,7 @@ const SETTLEMENT_DUMMY_INPUT_MEMO_DOMAIN_V1: &[u8] =
     b"iroha.atomic-private-settlement.input.dummy.v1";
 
 /// Semantic descriptor for the settlement-only IVM relation binding.
-pub(crate) const ATOMIC_PRIVATE_SETTLEMENT_RELATION_DESCRIPTOR_V1: &[u8] = b"iroha-atomic-private-settlement-relation-v1:separate-from-transparent-amx:ivm-private-note-fixed-2-input-3-output:balanced-only:positive-input-membership-only:zero-valued-virtual-dummies-with-nonzero-authority-rho-blinding-and-path:input-openings=public-air-sha256-binding-of-exact-ordered-value-authority-rho-blinding-memo:payer=purpose-separated-fixed-input-controller-authorization:output-memos=auditor-plaintext-commitment+payer-change-role+sponsor-reimbursement-terms:reimbursement-success-fee-carriers=2:asset=salted-auditor-approved-pool-binding:public=canonical-manifest-intent-proof-binding+statement+genesis:post-proof-artifacts=manifest+committee-qc+carrier:successor=proof-statement-bound-root+epoch:successor-correctness=validator-derived-frontier";
+pub const ATOMIC_PRIVATE_SETTLEMENT_RELATION_DESCRIPTOR_V1: &[u8] = b"iroha-atomic-private-settlement-relation-v1:separate-from-transparent-amx:ivm-private-note-fixed-2-input-3-output:balanced-only:positive-input-membership-only:zero-valued-virtual-dummies-with-nonzero-authority-rho-blinding-and-path:input-openings=public-air-sha256-binding-of-exact-ordered-value-authority-rho-blinding-memo:payer=purpose-separated-fixed-input-controller-authorization:output-memos=auditor-plaintext-commitment+payer-change-role+sponsor-reimbursement-terms:reimbursement-success-fee-carriers=2:asset=salted-auditor-approved-pool-binding:public=canonical-manifest-intent-proof-binding+statement+genesis:post-proof-artifacts=manifest+committee-qc+carrier:successor=proof-statement-bound-root+epoch:successor-correctness=validator-derived-frontier";
 
 /// Public, redacted failure at the settlement proof relation boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
@@ -215,7 +215,7 @@ fn synthetic_asset_v1() -> Result<AssetDefinitionId, AtomicPrivateSettlementRela
     Ok(AssetDefinitionId::derive_from_components(domain, name))
 }
 
-pub(crate) fn validate_public_binding_v1(
+pub fn validate_public_binding_v1(
     manifest: &AtomicPrivateSettlementV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
@@ -344,7 +344,7 @@ fn context_digest_v1(
     Ok(digest)
 }
 
-pub(crate) fn internal_statement_v1(
+pub fn internal_statement_v1(
     manifest: &AtomicPrivateSettlementV1,
     statement: &PrivateSettlementProofStatementV1,
 ) -> Result<IrohaIvmPrivateNoteStarkStatementV1, AtomicPrivateSettlementRelationErrorV1> {
@@ -410,7 +410,7 @@ pub(crate) fn internal_statement_v1(
     Ok(internal)
 }
 
-pub(crate) fn relation_profile_v1(
+pub fn relation_profile_v1(
     manifest: &AtomicPrivateSettlementV1,
     statement: &PrivateSettlementProofStatementV1,
 ) -> Result<PrivateNoteRelationProfileV1, AtomicPrivateSettlementRelationErrorV1> {
@@ -719,13 +719,13 @@ pub fn validate_audit_openings_v1(
     Ok(())
 }
 
-pub(crate) struct CompiledAtomicPrivateSettlementRelationV1 {
+pub struct CompiledAtomicPrivateSettlementRelationV1 {
     pub(crate) internal_statement: IrohaIvmPrivateNoteStarkStatementV1,
     pub(crate) witness: IvmPrivateNoteWitnessV1,
     pub(crate) profile: PrivateNoteRelationProfileV1,
 }
 
-pub(crate) fn compile_witness_v1(
+pub fn compile_witness_v1(
     manifest: &AtomicPrivateSettlementV1,
     statement: &PrivateSettlementProofStatementV1,
     witness: &AtomicPrivateSettlementProverWitnessV1,

@@ -6,7 +6,7 @@ fn checked(instruction: u32, inputs: &[(usize, u64, bool)]) -> (Program, ScalarF
     let (program, fixture) = native(instruction, inputs);
     let p = &fixture.0.packets.fields;
     let source = packet::half(&p[SCALAR_LEFT], BEFORE, 0);
-    let expected = (source as i64).checked_abs().unwrap() as u64;
+    let expected = u64::cast_signed(source).checked_abs().unwrap() as u64;
     assert_eq!(ivm::gas::cost_of(instruction), Some(1));
     assert_eq!(
         packet::half(&p[SCALAR_DESTINATION], AFTER, 0),
@@ -65,7 +65,7 @@ fn native_absolute_full_words_zero_aliases_and_unused_operand_match() {
         1,
         u64::MAX,
         i64::MAX as u64,
-        (i64::MIN + 1) as u64,
+        i64::cast_unsigned(i64::MIN + 1),
         1 << 32,
         0xffff_ffff_0000_0001,
     ] {
@@ -79,7 +79,11 @@ fn native_absolute_full_words_zero_aliases_and_unused_operand_match() {
     for rs2 in 0..=u8::MAX {
         checked(
             enc::encode_rr(wide::arithmetic::ABS, 4, 2, rs2),
-            &[(2, (-17i64) as u64, false), (4, 91, true), (255, 17, true)],
+            &[
+                (2, i64::cast_unsigned(-17i64), false),
+                (4, 91, true),
+                (255, 17, true),
+            ],
         );
     }
     for rd in [0, 4] {
@@ -94,11 +98,11 @@ fn native_absolute_full_words_zero_aliases_and_unused_operand_match() {
 fn native_absolute_overflow_private_tag_and_gas_first_traps_cannot_commit() {
     for rd in [0, 4] {
         for (value, tag, funded) in [
-            (i64::MIN as u64, false, true),
-            (i64::MIN as u64, true, true),
+            (i64::cast_unsigned(i64::MIN), false, true),
+            (i64::cast_unsigned(i64::MIN), true, true),
             (17, true, true),
-            ((-17i64) as u64, true, true),
-            (i64::MIN as u64, true, false),
+            (i64::cast_unsigned(-17i64), true, true),
+            (i64::cast_unsigned(i64::MIN), true, false),
             (17, false, false),
         ] {
             let instruction = enc::encode_rr(wide::arithmetic::ABS, rd, 2, 255);
@@ -137,15 +141,15 @@ fn native_absolute_overflow_private_tag_and_gas_first_traps_cannot_commit() {
         }
         assert!(!secret.accepts(&program));
         let mut overflow = fixture.clone();
-        arithmetic(&mut overflow, i64::MIN as u64);
+        arithmetic(&mut overflow, i64::cast_unsigned(i64::MIN));
         for limb in 0..4 {
             for offset in [BEFORE, AFTER] {
                 overflow.0.packets.fields[SCALAR_LEFT][offset + limb] =
-                    constant_limb(i64::MIN as u64, limb);
+                    constant_limb(i64::cast_unsigned(i64::MIN), limb);
             }
         }
         if rd != 0 {
-            destination(&mut overflow, i64::MIN as u64);
+            destination(&mut overflow, i64::cast_unsigned(i64::MIN));
         }
         assert!(!overflow.accepts(&program));
         // Pretending overflow is nonzero cannot satisfy the canonical inverse.
@@ -157,10 +161,10 @@ fn native_absolute_overflow_private_tag_and_gas_first_traps_cannot_commit() {
 
 #[test]
 fn absolute_rejects_coherent_wrong_magnitude_original_source_and_tariff() {
-    for value in [17, (-17i64) as u64, 0xffff_ffff_0000_0001] {
+    for value in [17, i64::cast_unsigned(-17i64), 0xffff_ffff_0000_0001] {
         let instruction = enc::encode_rr(wide::arithmetic::ABS, 4, 2, 255);
         let (program, fixture) = checked(instruction, &[(2, value, false), (4, 91, true)]);
-        let correct = (value as i64).checked_abs().unwrap() as u64;
+        let correct = u64::cast_signed(value).checked_abs().unwrap() as u64;
         for wrong in [correct + 1, correct.wrapping_neg()] {
             let mut forged = fixture.clone();
             destination(&mut forged, wrong);
@@ -190,7 +194,7 @@ fn absolute_binds_every_original_workspace_and_used_port_cell() {
     // rd=rs1 binds the prior destination through the same original read.
     let (program, fixture) = checked(
         enc::encode_rr(wide::arithmetic::ABS, 2, 2, 255),
-        &[(2, (-17i64) as u64, false), (255, 17, true)],
+        &[(2, i64::cast_unsigned(-17i64), false), (255, 17, true)],
     );
     for index in 0..super::super::super::WIDTH {
         let mut forged = fixture.clone();

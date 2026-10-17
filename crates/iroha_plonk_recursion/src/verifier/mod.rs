@@ -185,6 +185,9 @@ pub struct HardVerifiedFrame<C: PastaCurve> {
 impl<C: PastaCurve> SuccinctOutput<C> {
     /// Transfers the exact frame retained by a hard verifier. Soft outputs have
     /// no such owner, including soft outputs whose witness verdict is true.
+    ///
+    /// # Errors
+    /// Returns a synthesis error when this output has no hard verification frame.
     pub fn into_hard_frame(self) -> Result<HardVerifiedFrame<C>, Error> {
         self.hard_frame.ok_or(Error::Synthesis)
     }

@@ -137,6 +137,13 @@ pub use witness::{
 // in this crate's unit-test build. Integration targets retain their own suites.
 #[cfg(test)]
 extern crate self as iroha_kagemusha_proof;
+// The genuine Bootstrap fixture owns the shared test caches once. Unit owner
+// tests borrow that exact module; integration targets keep their own registrations.
+#[cfg(test)]
+#[path = "../tests/common/proof_fixtures/a_recursive.rs"]
+mod bootstrap_owner_fixture;
+#[cfg(test)]
+use bootstrap_owner_fixture::common;
 #[cfg(test)]
 mod omega_boundary_tests;
 #[cfg(test)]

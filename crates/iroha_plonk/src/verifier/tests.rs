@@ -676,7 +676,7 @@ where
         verify_full_from_bytes_v2(
             &setup.params,
             binding.encoded(),
-            &vk.to_bytes(),
+            vk.to_bytes(),
             &false_statement,
             &forged,
             BUDGET,

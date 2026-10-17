@@ -5,6 +5,14 @@
 //! result every conforming decoder must reach.
 //!
 //! `cargo run --release -p iroha_petal --example gen_captures -- <output path>`
+#[path = "support/count.rs"]
+mod count;
+#[path = "support/floor.rs"]
+mod floor;
+
+use count::count_as_f64;
+use floor::floor_u64;
+
 use std::fmt::Write as _;
 use std::io::Write as _;
 
@@ -62,7 +70,7 @@ struct Case {
     /// Columns (as fractions of the width) that are dimmed to `factor` after capture.
     shadow: Option<(f64, f64, f64)>,
     /// Canonical corner whose blossom is painted over before capture (a thumb).
-    hide: Option<usize>,
+    hide: Option<u8>,
     /// Whether the pose is fitted into the frame; `false` lets a corner leave it.
     fit: bool,
     must: &'static str,
@@ -81,13 +89,13 @@ fn shoot(encoder: &StreamEncoder, frame: u16, case: &Case) -> Luma {
         },
     );
     if let Some(corner) = case.hide {
-        let scale = size as f64 / 1024.0;
-        let (cx, cy) = iroha_petal::layout::FINDER_CENTERS[corner];
+        let scale = count_as_f64(size) / 1024.0;
+        let (cx, cy) = iroha_petal::layout::FINDER_CENTERS[usize::from(corner)];
         let (cx, cy) = (f64::from(cx) * scale, f64::from(cy) * scale);
         let radius = 80.0 * scale;
         for y in 0..size {
             for x in 0..size {
-                let (dx, dy) = (x as f64 + 0.5 - cx, y as f64 + 0.5 - cy);
+                let (dx, dy) = (count_as_f64(x) + 0.5 - cx, count_as_f64(y) + 0.5 - cy);
                 if dx.hypot(dy) <= radius {
                     source.data[(y * size + x) * 3..(y * size + x) * 3 + 3].fill(0);
                 }
@@ -108,17 +116,33 @@ fn shoot(encoder: &StreamEncoder, frame: u16, case: &Case) -> Luma {
         luma = mirror(&luma);
     }
     if let Some((from, to, factor)) = case.shadow {
-        let (start, end) = (
-            (luma.width as f64 * from) as usize,
-            (luma.width as f64 * to) as usize,
-        );
-        for row in luma.data.chunks_mut(luma.width) {
-            for value in &mut row[start..end] {
-                *value = (f64::from(*value) * factor).round() as u8;
-            }
-        }
+        apply_shadow(&mut luma, from, to, factor);
     }
     luma
+}
+
+/// Apply the original floating-point shadow boundaries with checked integer narrowing.
+fn apply_shadow(luma: &mut Luma, from: f64, to: f64, factor: f64) {
+    assert!(
+        from.is_finite()
+            && to.is_finite()
+            && (0.0..=1.0).contains(&from)
+            && (from..=1.0).contains(&to)
+    );
+    assert!(factor.is_finite() && (0.0..=1.0).contains(&factor));
+    let start =
+        usize::try_from(floor_u64(count_as_f64(luma.width) * from).expect("shadow start fits u64"))
+            .expect("shadow start fits usize");
+    let end =
+        usize::try_from(floor_u64(count_as_f64(luma.width) * to).expect("shadow end fits u64"))
+            .expect("shadow end fits usize");
+    for row in luma.data.chunks_mut(luma.width) {
+        for value in &mut row[start..end] {
+            let rounded =
+                floor_u64((f64::from(*value) * factor).round()).expect("shadow sample is finite");
+            *value = u8::try_from(rounded).expect("dimmed sample fits u8");
+        }
+    }
 }
 
 /// Lane letters of a decoded frame, asserting every lane carries the right data.
@@ -371,12 +395,7 @@ fn main() {
         }
         let inferred = decoded.as_ref().ok().and_then(|f| f.inferred_corner);
         if case.hide.is_some() {
-            assert_eq!(
-                inferred,
-                case.hide.map(|c| c as u8),
-                "{}: inferred corner",
-                case.name
-            );
+            assert_eq!(inferred, case.hide, "{}: inferred corner", case.name);
         }
         let margin = |lane: &Option<iroha_petal::decode::LaneResult>| {
             lane.as_ref().map_or_else(
@@ -560,4 +579,57 @@ fn main() {
     );
     std::fs::write(&path, out).expect("write fixture");
     println!("wrote {path}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shadow_preserves_golden_columns_and_half_up_rounding() {
+        let mut image = Luma {
+            width: 960,
+            height: 1,
+            data: vec![255; 960],
+        };
+        apply_shadow(&mut image, 0.35, 0.6, 0.3);
+        assert!(image.data[..336].iter().all(|&value| value == 255));
+        assert!(image.data[336..576].iter().all(|&value| value == 77));
+        assert!(image.data[576..].iter().all(|&value| value == 255));
+        let mut image = Luma {
+            width: 4,
+            height: 1,
+            data: vec![0, 1, 3, 255],
+        };
+        apply_shadow(&mut image, 0.0, 1.0, 0.5);
+        assert_eq!(image.data, [0, 1, 2, 128]);
+    }
+
+    #[test]
+    fn shadow_refuses_nonfinite_reversed_and_out_of_range_bounds() {
+        for (from, to, factor) in [
+            (f64::NAN, 1.0, 0.3),
+            (-0.1, 1.0, 0.3),
+            (0.7, 0.6, 0.3),
+            (0.0, 1.1, 0.3),
+            (0.0, 1.0, f64::NAN),
+            (0.0, 1.0, 1.1),
+        ] {
+            assert!(
+                std::panic::catch_unwind(|| {
+                    apply_shadow(
+                        &mut Luma {
+                            width: 2,
+                            height: 1,
+                            data: vec![255; 2],
+                        },
+                        from,
+                        to,
+                        factor,
+                    );
+                })
+                .is_err()
+            );
+        }
+    }
 }

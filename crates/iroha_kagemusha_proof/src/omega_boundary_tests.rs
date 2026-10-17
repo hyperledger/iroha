@@ -1,9 +1,8 @@
 //! Exact private Omega owner entry, cancellation and read-only original replay.
 //! Only shared builder items are reused; integration suites stay independently registered.
 
-#[path = "../tests/common/proof_fixtures/a_recursive.rs"]
-mod bootstrap_chain;
-include!("../tests/common/proof_fixtures/bootstrap_omega_body.rs");
+use crate::bootstrap_owner_fixture as bootstrap_chain;
+include!("../tests/common/proof_fixtures/bootstrap_omega_shared.rs");
 mod compact_bootstrap {
     include!("../tests/common/proof_fixtures/compact_bootstrap_body.rs");
 }

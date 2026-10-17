@@ -29,7 +29,7 @@ fn clear_field<F: PastaField>(value: &mut F) {
     value.zeroize();
 }
 /// Single scalar scratch; clearing uses the admitted Pasta field's own trait owner.
-pub(crate) struct FieldGuard<F: PastaField>(pub(crate) F);
+pub struct FieldGuard<F: PastaField>(pub(crate) F);
 impl<F: PastaField> Drop for FieldGuard<F> {
     fn drop(&mut self) {
         self.0.zeroize();

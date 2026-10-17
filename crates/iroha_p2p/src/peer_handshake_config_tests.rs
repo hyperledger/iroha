@@ -36,15 +36,20 @@ fn minimal_puzzle_config(
     let puzzle_params = test_puzzle_parameters(1, max_future_skew, min_ticket_ttl);
     Arc::new(
         SoranetHandshakeConfig::new(
-            iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-            iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-            iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-            true,
-            1,
-            1,
-            None,
-            puzzle_params,
-            ticket_ttl,
+            SoranetHandshakeParams {
+                descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT
+                    .to_vec(),
+                client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                    .to_vec(),
+                relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                    .to_vec(),
+                trust_gossip: true,
+                kem_id: 1,
+                sig_id: 1,
+                resume_hash: None,
+                puzzle_params,
+                ticket_ttl,
+            },
             test_ticket_revocation_store(),
         )
         .expect("test SoraNet handshake config must be valid"),
@@ -59,15 +64,20 @@ fn in_memory_puzzle_replay_config() -> Arc<SoranetHandshakeConfig> {
         TicketRevocationStore::in_memory(limits).expect("in-memory revocation store should open");
     Arc::new(
         SoranetHandshakeConfig::new(
-            iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-            iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-            iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-            true,
-            1,
-            1,
-            None,
-            puzzle_params,
-            Duration::from_secs(120),
+            SoranetHandshakeParams {
+                descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT
+                    .to_vec(),
+                client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                    .to_vec(),
+                relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                    .to_vec(),
+                trust_gossip: true,
+                kem_id: 1,
+                sig_id: 1,
+                resume_hash: None,
+                puzzle_params,
+                ticket_ttl: Duration::from_secs(120),
+            },
             Arc::new(Mutex::new(store)),
         )
         .expect("test SoraNet handshake config must be valid"),
@@ -172,15 +182,19 @@ fn soranet_transport_delegation_challenge_rejects_all_zero_entropy() {
 fn rejects_invalid_kem_and_signature_ids() {
     let params = test_puzzle_parameters(1, Duration::from_secs(300), Duration::from_secs(30));
     let kem_error = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        42,
-        1,
-        None,
-        params,
-        Duration::from_secs(60),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 42,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params: params,
+            ticket_ttl: Duration::from_secs(60),
+        },
         test_ticket_revocation_store(),
     )
     .expect_err("unsupported KEM identifiers must fail closed");
@@ -190,15 +204,19 @@ fn rejects_invalid_kem_and_signature_ids() {
             if message == "unsupported SoraNet ML-KEM identifier 42"
     ));
     let signature_error = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        99,
-        None,
-        params,
-        Duration::from_secs(60),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 99,
+            resume_hash: None,
+            puzzle_params: params,
+            ticket_ttl: Duration::from_secs(60),
+        },
         test_ticket_revocation_store(),
     )
     .expect_err("unsupported signature identifiers must fail closed");
@@ -216,15 +234,18 @@ fn rejects_invalid_kem_and_signature_ids() {
         client_capabilities[4] = suite.kem_id();
         relay_capabilities[4] = suite.kem_id();
         SoranetHandshakeConfig::new(
-            iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-            client_capabilities,
-            relay_capabilities,
-            true,
-            suite.kem_id(),
-            1,
-            None,
-            params,
-            Duration::from_secs(60),
+            SoranetHandshakeParams {
+                descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT
+                    .to_vec(),
+                client_capabilities,
+                relay_capabilities,
+                trust_gossip: true,
+                kem_id: suite.kem_id(),
+                sig_id: 1,
+                resume_hash: None,
+                puzzle_params: params,
+                ticket_ttl: Duration::from_secs(60),
+            },
             test_ticket_revocation_store(),
         )
         .expect("every advertised ML-KEM suite in the first-release registry must be accepted");
@@ -234,15 +255,23 @@ fn rejects_invalid_kem_and_signature_ids() {
 #[test]
 fn rejects_selected_kem_missing_from_capability_vectors() {
     let error = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        MlKemSuite::MlKem512.kem_id(),
-        1,
-        None,
-        test_puzzle_parameters(1, Duration::from_secs(300), Duration::from_secs(30)),
-        Duration::from_secs(60),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: MlKemSuite::MlKem512.kem_id(),
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params: test_puzzle_parameters(
+                1,
+                Duration::from_secs(300),
+                Duration::from_secs(30),
+            ),
+            ticket_ttl: Duration::from_secs(60),
+        },
         test_ticket_revocation_store(),
     )
     .expect_err("an unadvertised selected KEM must fail at construction");
@@ -272,15 +301,21 @@ fn rejects_strict_constant_rate_claim_while_p2p_payload_bypasses_mux() {
         iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
     );
     let error = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        client_capabilities,
-        relay_capabilities,
-        true,
-        1,
-        1,
-        None,
-        test_puzzle_parameters(1, Duration::from_secs(300), Duration::from_secs(30)),
-        Duration::from_secs(60),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities,
+            relay_capabilities,
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params: test_puzzle_parameters(
+                1,
+                Duration::from_secs(300),
+                Duration::from_secs(30),
+            ),
+            ticket_ttl: Duration::from_secs(60),
+        },
         test_ticket_revocation_store(),
     )
     .expect_err("strict traffic-shape claims must fail before peer payload is scheduler-bound");
@@ -294,15 +329,23 @@ fn rejects_strict_constant_rate_claim_while_p2p_payload_bypasses_mux() {
 #[test]
 fn rejects_descriptor_commitment_mismatching_relay_capability() {
     let error = SoranetHandshakeConfig::new(
-        vec![0xA5; iroha_crypto::Hash::LENGTH],
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        test_puzzle_parameters(1, Duration::from_secs(300), Duration::from_secs(30)),
-        Duration::from_secs(60),
+        SoranetHandshakeParams {
+            descriptor_commit: vec![0xA5; iroha_crypto::Hash::LENGTH],
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params: test_puzzle_parameters(
+                1,
+                Duration::from_secs(300),
+                Duration::from_secs(30),
+            ),
+            ticket_ttl: Duration::from_secs(60),
+        },
         test_ticket_revocation_store(),
     )
     .expect_err("the advertised and configured descriptor commitments must agree");
@@ -316,15 +359,23 @@ fn rejects_descriptor_commitment_mismatching_relay_capability() {
 fn admission_config_retains_the_mandatory_replay_store() {
     let replay_store = test_ticket_revocation_store();
     let config = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        test_puzzle_parameters(1, Duration::from_secs(300), Duration::from_secs(30)),
-        Duration::from_secs(60),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params: test_puzzle_parameters(
+                1,
+                Duration::from_secs(300),
+                Duration::from_secs(30),
+            ),
+            ticket_ttl: Duration::from_secs(60),
+        },
         Arc::clone(&replay_store),
     )
     .expect("admission config should retain its required replay store");
@@ -337,15 +388,18 @@ fn rejects_noncanonical_transcript_fields_and_capability_vectors_at_construction
     let build =
         |descriptor_commit: Vec<u8>, client_capabilities: Vec<u8>, resume_hash: Option<Vec<u8>>| {
             SoranetHandshakeConfig::new(
-                descriptor_commit,
-                client_capabilities,
-                iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-                true,
-                1,
-                1,
-                resume_hash,
-                params,
-                Duration::from_secs(60),
+                SoranetHandshakeParams {
+                    descriptor_commit,
+                    client_capabilities,
+                    relay_capabilities:
+                        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
+                    trust_gossip: true,
+                    kem_id: 1,
+                    sig_id: 1,
+                    resume_hash,
+                    puzzle_params: params,
+                    ticket_ttl: Duration::from_secs(60),
+                },
                 test_ticket_revocation_store(),
             )
         };
@@ -453,15 +507,19 @@ fn puzzle_ticket_mints_and_verifies() {
     )
     .expect("test puzzle parameters must be valid");
     let config = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        puzzle_params,
-        Duration::from_secs(240),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params,
+            ticket_ttl: Duration::from_secs(240),
+        },
         test_ticket_revocation_store(),
     )
     .expect("test SoraNet handshake config must be valid");
@@ -523,15 +581,19 @@ fn mint_challenge_ticket_reports_rng_failure() {
     let puzzle_params =
         test_puzzle_parameters(5, Duration::from_secs(900), Duration::from_secs(120));
     let config = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        puzzle_params,
-        Duration::from_secs(240),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params,
+            ticket_ttl: Duration::from_secs(240),
+        },
         test_ticket_revocation_store(),
     )
     .expect("test SoraNet handshake config must be valid");
@@ -560,15 +622,19 @@ fn puzzle_ticket_replay_rejected_and_persisted() {
     let limits = TicketRevocationStoreLimits::new(4, Duration::from_secs(900)).expect("limits");
     let store = TicketRevocationStore::load(&path, limits, SystemTime::now()).expect("store");
     let config = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        puzzle_params,
-        Duration::from_secs(240),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params,
+            ticket_ttl: Duration::from_secs(240),
+        },
         Arc::new(Mutex::new(store)),
     )
     .expect("test SoraNet handshake config must be valid");
@@ -589,15 +655,19 @@ fn puzzle_ticket_replay_rejected_and_persisted() {
     let reloaded =
         TicketRevocationStore::load(&path, limits, SystemTime::now()).expect("reload store");
     let config_reloaded = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        puzzle_params,
-        Duration::from_secs(240),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params,
+            ticket_ttl: Duration::from_secs(240),
+        },
         Arc::new(Mutex::new(reloaded)),
     )
     .expect("test SoraNet handshake config must be valid");
@@ -678,15 +748,19 @@ fn revocation_store_capacity_fails_closed_without_forgetting_replays() {
     let limits = TicketRevocationStoreLimits::new(1, Duration::from_secs(900)).expect("limits");
     let store = TicketRevocationStore::load(&path, limits, SystemTime::now()).expect("store");
     let config = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        puzzle_params,
-        Duration::from_secs(120),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params,
+            ticket_ttl: Duration::from_secs(120),
+        },
         Arc::new(Mutex::new(store)),
     )
     .expect("test SoraNet handshake config must be valid");
@@ -734,15 +808,19 @@ fn revocation_store_ttl_overflow_surfaces_store_error() {
     let limits = TicketRevocationStoreLimits::new(8, Duration::from_secs(10)).expect("limits");
     let store = TicketRevocationStore::load(&path, limits, SystemTime::now()).expect("store");
     let config = SoranetHandshakeConfig::new(
-        iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-        iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-        true,
-        1,
-        1,
-        None,
-        puzzle_params,
-        Duration::from_secs(120),
+        SoranetHandshakeParams {
+            descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
+            client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                .to_vec(),
+            relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                .to_vec(),
+            trust_gossip: true,
+            kem_id: 1,
+            sig_id: 1,
+            resume_hash: None,
+            puzzle_params,
+            ticket_ttl: Duration::from_secs(120),
+        },
         Arc::new(Mutex::new(store)),
     )
     .expect("test SoraNet handshake config must be valid");

@@ -3287,7 +3287,7 @@ fn snapshot_state_with_orchard_pool() -> (State, AccountId, AssetDefinitionId) {
         )
         .expect("canonical Orchard reserve custody"),
     );
-    world.privacy_roots.insert(root_key, provenance);
+    world.privacy_roots.insert(root_key, provenance.clone());
     world.privacy_root_heads.insert(
         head_key,
         crate::privacy_state::PrivacyRootHeadRecordV1::new(

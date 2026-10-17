@@ -21,7 +21,7 @@ const fn read_u64_le(bytes: &[u8; 32], offset: usize) -> u64 {
 }
 /// Canonical field element in Montgomery form.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct JindoFieldElementV1([u64; 4]);
+pub struct JindoFieldElementV1([u64; 4]);
 impl Zeroize for JindoFieldElementV1 {
     fn zeroize(&mut self) {
         self.0.zeroize();
@@ -79,7 +79,7 @@ impl JindoFieldElementV1 {
         if value < 0 {
             -Self::from_u128(value.unsigned_abs())
         } else {
-            Self::from_u128(value as u128)
+            Self::from_u128(i128::cast_unsigned(value))
         }
     }
     /// Decode one canonical 32-byte little-endian residue.

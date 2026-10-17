@@ -177,7 +177,7 @@ fn complete_scan_and_original_window_compose_without_reclocking_or_row_lists() {
         let mut rows = 0;
         evaluate(
             &program,
-            fixture.schedule,
+            &fixture.schedule,
             fixture.witness(),
             &fixture.packets,
             &history.view(),
@@ -276,7 +276,7 @@ fn impossible_geometry_and_consumer_failure_cannot_report_completion() {
     .unwrap();
     let result = evaluate(
         &program,
-        fixture.schedule,
+        &fixture.schedule,
         fixture.witness(),
         &fixture.packets,
         &view,
@@ -301,7 +301,7 @@ fn impossible_geometry_and_consumer_failure_cannot_report_completion() {
     let mut calls = 0;
     let result = evaluate(
         &program,
-        fixture.schedule,
+        &fixture.schedule,
         fixture.witness(),
         &fixture.packets,
         &view,
@@ -349,7 +349,7 @@ fn two_maximum_return_windows_share_original_segmented_columns_and_clocks() {
         let mut rows = 0;
         evaluate(
             &program,
-            fixture.schedule,
+            &fixture.schedule,
             fixture.witness(),
             &fixture.packets,
             &view,

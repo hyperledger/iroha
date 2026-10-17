@@ -20,8 +20,8 @@
 //! remain Proper; Canonical requires the separate integer comparison.
 
 use super::{
-    CARRIES, CARRY_OFFSET_BITS, CarryLayout, ForeignModulus, FusedTerms, FusedWitness, LIMB_BITS,
-    LIMBS, Mode, TOP_LIMB_BITS, fused_constraints, serialized::ranged,
+    CARRIES, CARRY_OFFSET_BITS, CarryLayout, ForeignModulus, FusedPadding, FusedTerms,
+    FusedWitness, LIMB_BITS, LIMBS, Mode, TOP_LIMB_BITS, fused_constraints, serialized::ranged,
 };
 use crate::{
     GlueChip, Word,
@@ -354,7 +354,16 @@ impl RotatedFfConfig {
         layout: CarryLayout,
     ) -> Result<[Word<F>; LIMBS], Error> {
         self.constrain_short_product_padding(
-            glue, range, region, mode, operands, witness, layout, false,
+            glue,
+            range,
+            region,
+            FusedPadding {
+                mode,
+                layout,
+                norm: false,
+            },
+            operands,
+            witness,
         )
     }
 
@@ -363,12 +372,11 @@ impl RotatedFfConfig {
         glue: &mut GlueChip<F>,
         range: &mut RunningSumChip<F>,
         region: &mut Region<'_, F>,
-        mode: Mode,
+        padding: FusedPadding,
         operands: (&[Word<F>; LIMBS], &[Word<F>; LIMBS]),
         witness: Value<FusedWitness<F>>,
-        layout: CarryLayout,
-        norm: bool,
     ) -> Result<[Word<F>; LIMBS], Error> {
+        let FusedPadding { mode, layout, norm } = padding;
         let staged = self.staged.ok_or(Error::Synthesis)?;
         if glue.config().advice() != self.columns
             || layout == CarryLayout::Full
@@ -732,14 +740,15 @@ fn configure_staged<F: PastaField>(
             };
             let norm_padding = super::norm_padding(modulus).unwrap_or([0; LIMBS]);
             let packed_roots: [_; 6] = core::array::from_fn(|i| {
-                if let Some(port) = staged.packed_port {
-                    cells.query_advice(
-                        if i % 5 == 4 { port } else { ports[i % 5] },
-                        Rotation((i / 5) as i32),
-                    )
-                } else {
-                    roots[i].clone()
-                }
+                staged.packed_port.map_or_else(
+                    || roots[i].clone(),
+                    |port| {
+                        cells.query_advice(
+                            if i % 5 == 4 { port } else { ports[i % 5] },
+                            Rotation(i32::try_from(i / 5).expect("six roots occupy two rows")),
+                        )
+                    },
+                )
             });
             let packed = if staged.packed_port.is_some() {
                 cells.query_fixed(staged.phases.coefficients()[3], Rotation::cur())
@@ -855,10 +864,15 @@ fn configure_staged<F: PastaField>(
                     } else {
                         ports[index % 5]
                     },
-                    Rotation((index / 5) as i32 - 1),
+                    Rotation(
+                        i32::try_from(index / 5).expect("fifteen roots occupy three rows") - 1,
+                    ),
                 )
             } else {
-                cells.query_advice(ports[index % 4], Rotation((index / 4) as i32 - 2))
+                cells.query_advice(
+                    ports[index % 4],
+                    Rotation(i32::try_from(index / 4).expect("fifteen roots occupy four rows") - 2),
+                )
             }
         });
         let products = staged

@@ -934,7 +934,7 @@ where
                     statement.label
                 );
             }
-            if std::ptr::eq(params, &poisoned) {
+            if std::ptr::eq(params, &raw const poisoned) {
                 assert_eq!(current().since(start).reused_verifications, 0);
             }
         }

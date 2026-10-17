@@ -1,181 +1,181 @@
 /// Minimal native domain of both value-bus endpoints.
-pub(crate) const P256_VALUE_BUS_AGGREGATE_TRACE_SIZE_V1: usize = P256_VALUE_BUS_STARK_TRACE_SIZE_V1;
+pub const P256_VALUE_BUS_AGGREGATE_TRACE_SIZE_V1: usize = P256_VALUE_BUS_STARK_TRACE_SIZE_V1;
 /// Native value-bus trace logarithm.
-pub(crate) const P256_VALUE_BUS_AGGREGATE_TRACE_LOG2_V1: u8 = 19;
+pub const P256_VALUE_BUS_AGGREGATE_TRACE_LOG2_V1: u8 = 19;
 /// Minimal native arithmetic domain.
-pub(crate) const P256_ARITHMETIC_AGGREGATE_TRACE_SIZE_V1: usize = 1 << 19;
+pub const P256_ARITHMETIC_AGGREGATE_TRACE_SIZE_V1: usize = 1 << 19;
 /// Native arithmetic trace logarithm.
-pub(crate) const P256_ARITHMETIC_AGGREGATE_TRACE_LOG2_V1: u8 = 19;
+pub const P256_ARITHMETIC_AGGREGATE_TRACE_LOG2_V1: u8 = 19;
 /// Exact native vertical-window domain.
-pub(crate) const P256_WINDOW_AGGREGATE_TRACE_SIZE_V1: usize = P256_CROSS_TRACE_WINDOW_TRACE_SIZE_V1;
+pub const P256_WINDOW_AGGREGATE_TRACE_SIZE_V1: usize = P256_CROSS_TRACE_WINDOW_TRACE_SIZE_V1;
 /// Native vertical-window trace logarithm.
-pub(crate) const P256_WINDOW_AGGREGATE_TRACE_LOG2_V1: u8 = 16;
+pub const P256_WINDOW_AGGREGATE_TRACE_LOG2_V1: u8 = 16;
 /// Minimal protocol-supported native reduction domain.
-pub(crate) const P256_REDUCTION_AGGREGATE_TRACE_SIZE_V1: usize =
+pub const P256_REDUCTION_AGGREGATE_TRACE_SIZE_V1: usize =
     P256_CROSS_TRACE_REDUCTION_TRACE_SIZE_V1;
 /// Native reduction trace logarithm.
-pub(crate) const P256_REDUCTION_AGGREGATE_TRACE_LOG2_V1: u8 = 5;
+pub const P256_REDUCTION_AGGREGATE_TRACE_LOG2_V1: u8 = 5;
 /// Minimal protocol-supported native wallet low-S domain.
-pub(crate) const P256_LOW_S_AGGREGATE_TRACE_SIZE_V1: usize = P256_CROSS_TRACE_LOW_S_TRACE_SIZE_V1;
+pub const P256_LOW_S_AGGREGATE_TRACE_SIZE_V1: usize = P256_CROSS_TRACE_LOW_S_TRACE_SIZE_V1;
 /// Native wallet low-S trace logarithm.
-pub(crate) const P256_LOW_S_AGGREGATE_TRACE_LOG2_V1: u8 = 5;
+pub const P256_LOW_S_AGGREGATE_TRACE_LOG2_V1: u8 = 5;
 /// Minimal padded external-binding sink domain.
-pub(crate) const P256_BINDING_SINK_AGGREGATE_TRACE_SIZE_V1: usize =
+pub const P256_BINDING_SINK_AGGREGATE_TRACE_SIZE_V1: usize =
     P256_CROSS_TRACE_SINK_TRACE_SIZE_V1;
 /// Native external-binding sink trace logarithm.
-pub(crate) const P256_BINDING_SINK_AGGREGATE_TRACE_LOG2_V1: u8 = 16;
+pub const P256_BINDING_SINK_AGGREGATE_TRACE_LOG2_V1: u8 = 16;
 /// Exact packed scalar-bit bus domain.
-pub(crate) const P256_SCALAR_BIT_BUS_AGGREGATE_TRACE_SIZE_V1: usize =
+pub const P256_SCALAR_BIT_BUS_AGGREGATE_TRACE_SIZE_V1: usize =
     P256_SCALAR_BIT_BUS_STARK_TRACE_SIZE_V1;
 /// Native packed scalar-bit bus trace logarithm.
-pub(crate) const P256_SCALAR_BIT_BUS_AGGREGATE_TRACE_LOG2_V1: u8 = 8;
+pub const P256_SCALAR_BIT_BUS_AGGREGATE_TRACE_LOG2_V1: u8 = 8;
 /// Strict upper bound on the factor count of every P-256 permutation
 /// argument. The largest value-bus domain has `2^20` rows, with canonical
 /// identity padding, so every active multiset has strictly fewer factors.
-pub(crate) const P256_PERMUTATION_FACTOR_CARDINALITY_BOUND_V1: usize = 1 << 20;
+pub const P256_PERMUTATION_FACTOR_CARDINALITY_BOUND_V1: usize = 1 << 20;
 /// Independent multiset arguments registered by one P-256 signature: value memory, external-cell
 /// chain, arithmetic-cell copy, arithmetic scalar bits, and window scalar bits.
-pub(crate) const P256_PERMUTATION_ARGUMENTS_PER_SIGNATURE_V1: usize = 5;
+pub const P256_PERMUTATION_ARGUMENTS_PER_SIGNATURE_V1: usize = 5;
 /// Certificate-or-CRL signatures in the canonical depth-three chain plus its signed CRL.
-pub(crate) const P256_X5S1_CERTIFICATE_OR_CRL_SIGNATURES_V1: usize = 4;
+pub const P256_X5S1_CERTIFICATE_OR_CRL_SIGNATURES_V1: usize = 4;
 /// Wallet-ownership signatures in the canonical X5S1 statement.
-pub(crate) const P256_X5S1_WALLET_SIGNATURES_V1: usize = 1;
+pub const P256_X5S1_WALLET_SIGNATURES_V1: usize = 1;
 /// Total P-256 signatures in one canonical X5S1 aggregate proof.
-pub(crate) const P256_X5S1_SIGNATURES_V1: usize =
+pub const P256_X5S1_SIGNATURES_V1: usize =
     P256_X5S1_CERTIFICATE_OR_CRL_SIGNATURES_V1 + P256_X5S1_WALLET_SIGNATURES_V1;
 /// Exact number of four-lane P-256 multiset arguments in one X5S1 proof.
-pub(crate) const P256_X5S1_PERMUTATION_ARGUMENTS_V1: usize =
+pub const P256_X5S1_PERMUTATION_ARGUMENTS_V1: usize =
     P256_X5S1_SIGNATURES_V1 * P256_PERMUTATION_ARGUMENTS_PER_SIGNATURE_V1;
 /// Independent challenge lanes used by each P-256 permutation argument.
-pub(crate) const P256_PERMUTATION_CHALLENGE_LANES_V1: usize = 4;
+pub const P256_PERMUTATION_CHALLENGE_LANES_V1: usize = 4;
 /// Conservative per-argument collision exponent. For Goldilocks,
 /// `(2^20 - 1) / p < 2^-44`; four independent lanes therefore give a bound
 /// strictly below `2^-176`.
-pub(crate) const P256_PERMUTATION_LOCAL_COLLISION_BITS_V1: u16 = 176;
+pub const P256_PERMUTATION_LOCAL_COLLISION_BITS_V1: u16 = 176;
 /// Conservative X5S1-wide exponent after the exact 25-argument union bound:
 /// `25 * 2^-176 < 2^-171`.
-pub(crate) const P256_X5S1_PERMUTATION_UNION_COLLISION_BITS_V1: u16 = 171;
+pub const P256_X5S1_PERMUTATION_UNION_COLLISION_BITS_V1: u16 = 171;
 /// Integrated value-execution auxiliary width.
-pub(crate) const P256_VALUE_EXECUTION_AGGREGATE_AUX_WIDTH_V1: usize =
+pub const P256_VALUE_EXECUTION_AGGREGATE_AUX_WIDTH_V1: usize =
     P256_VALUE_BUS_STARK_AUX_WIDTH_V1
         + P256_CROSS_TRACE_WRITER_AUX_WIDTH_V1
         + P256_VALUE_ARITHMETIC_COPY_AUX_WIDTH_V1;
 /// Integrated value-execution fixed width.
-pub(crate) const P256_VALUE_EXECUTION_AGGREGATE_FIXED_WIDTH_V1: usize =
+pub const P256_VALUE_EXECUTION_AGGREGATE_FIXED_WIDTH_V1: usize =
     P256_VALUE_BUS_STARK_FIXED_WIDTH_V1
         + P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 * 7
         + 3
         + P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 * 2
         + 3;
 /// Integrated value-execution residue count.
-pub(crate) const P256_VALUE_EXECUTION_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
+pub const P256_VALUE_EXECUTION_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
     P256_VALUE_BUS_STARK_CONSTRAINT_COUNT_V1
         + P256_CROSS_TRACE_WRITER_CONSTRAINT_COUNT_V1
         + (P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1
             + P256_ARITHMETIC_COPY_LANES_V1 * (P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 + 4));
 /// Registered value-execution local constraint count; endpoint links are joined privately.
-pub(crate) const P256_VALUE_EXECUTION_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_VALUE_EXECUTION_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_VALUE_EXECUTION_AGGREGATE_CONSTRAINT_COUNT_V1;
 /// Registered sorted value-bus local constraint count; endpoint links are joined privately.
-pub(crate) const P256_VALUE_SORTED_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_VALUE_SORTED_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_VALUE_BUS_STARK_CONSTRAINT_COUNT_V1;
 /// Scalar arithmetic source-product columns.
-pub(crate) const P256_SCALAR_ARITHMETIC_SOURCE_AUX_WIDTH_V1: usize =
+pub const P256_SCALAR_ARITHMETIC_SOURCE_AUX_WIDTH_V1: usize =
     8 + P256_SCALAR_BIT_BUS_LANES_V1 * 10;
 /// Value-bus/arithmetic copy-product columns on the value-bus side.
-pub(crate) const P256_VALUE_ARITHMETIC_COPY_AUX_WIDTH_V1: usize =
+pub const P256_VALUE_ARITHMETIC_COPY_AUX_WIDTH_V1: usize =
     P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1
         + P256_ARITHMETIC_COPY_LANES_V1 * (P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 + 1)
         + P256_ARITHMETIC_COPY_LANES_V1;
 /// Value-bus/arithmetic copy-product columns on the arithmetic side.
-pub(crate) const P256_ARITHMETIC_VALUE_COPY_AUX_WIDTH_V1: usize =
+pub const P256_ARITHMETIC_VALUE_COPY_AUX_WIDTH_V1: usize =
     3 + P256_ARITHMETIC_COPY_LANES_V1 * 5;
 /// Integrated arithmetic auxiliary width.
-pub(crate) const P256_ARITHMETIC_AGGREGATE_AUX_WIDTH_V1: usize = P256_ARITHMETIC_STARK_AUX_WIDTH_V1
+pub const P256_ARITHMETIC_AGGREGATE_AUX_WIDTH_V1: usize = P256_ARITHMETIC_STARK_AUX_WIDTH_V1
     + P256_SCALAR_ARITHMETIC_SOURCE_AUX_WIDTH_V1
     + P256_ARITHMETIC_VALUE_COPY_AUX_WIDTH_V1;
 /// Integrated arithmetic fixed width.
-pub(crate) const P256_ARITHMETIC_AGGREGATE_FIXED_WIDTH_V1: usize =
+pub const P256_ARITHMETIC_AGGREGATE_FIXED_WIDTH_V1: usize =
     P256_ARITHMETIC_STARK_FIXED_WIDTH_V1 + 8 * 4 + 3 + 3 * 2 + 3;
 /// Integrated arithmetic residue count.
-pub(crate) const P256_ARITHMETIC_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
+pub const P256_ARITHMETIC_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
     P256_ARITHMETIC_STARK_CONSTRAINT_COUNT_V1
         + (8 + P256_SCALAR_BIT_BUS_LANES_V1 * 12)
         + (3 + P256_ARITHMETIC_COPY_LANES_V1 * 7);
 /// Registered arithmetic local constraint count; endpoint links are joined privately.
-pub(crate) const P256_ARITHMETIC_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_ARITHMETIC_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_ARITHMETIC_AGGREGATE_CONSTRAINT_COUNT_V1;
 /// Scalar window source-product columns.
-pub(crate) const P256_SCALAR_WINDOW_SOURCE_AUX_WIDTH_V1: usize =
+pub const P256_SCALAR_WINDOW_SOURCE_AUX_WIDTH_V1: usize =
     1 + P256_SCALAR_BIT_BUS_LANES_V1 * 3;
 /// Integrated window auxiliary width.
-pub(crate) const P256_WINDOW_AGGREGATE_AUX_WIDTH_V1: usize = P256_WINDOW_STARK_AUX_WIDTH_V1
+pub const P256_WINDOW_AGGREGATE_AUX_WIDTH_V1: usize = P256_WINDOW_STARK_AUX_WIDTH_V1
     + P256_CROSS_TRACE_WINDOW_AUX_WIDTH_V1
     + P256_SCALAR_WINDOW_SOURCE_AUX_WIDTH_V1;
 /// Integrated window fixed width.
-pub(crate) const P256_WINDOW_AGGREGATE_FIXED_WIDTH_V1: usize =
+pub const P256_WINDOW_AGGREGATE_FIXED_WIDTH_V1: usize =
     P256_WINDOW_STARK_FIXED_WIDTH_V1 + 3 * 3 + 4 + 4 + 3;
 /// Integrated window residue count.
-pub(crate) const P256_WINDOW_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
+pub const P256_WINDOW_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
     P256_WINDOW_STARK_CONSTRAINT_COUNT_V1
         + (3 + P256_CROSS_TRACE_LANES_V1 * 7)
         + (1 + P256_SCALAR_BIT_BUS_LANES_V1 * 5);
 /// Local source constraints; its four initial values are joined privately in MAIN.
-pub(crate) const P256_WINDOW_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1: usize =
+pub const P256_WINDOW_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1: usize =
     P256_WINDOW_AGGREGATE_CONSTRAINT_COUNT_V1 - P256_CROSS_TRACE_LANES_V1;
 /// Registered window local constraint count; endpoint links are joined privately.
-pub(crate) const P256_WINDOW_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_WINDOW_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_WINDOW_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1;
 /// Integrated reduction auxiliary width.
-pub(crate) const P256_REDUCTION_AGGREGATE_AUX_WIDTH_V1: usize =
+pub const P256_REDUCTION_AGGREGATE_AUX_WIDTH_V1: usize =
     P256_REDUCTION_STARK_AUX_WIDTH_V1 + P256_CROSS_TRACE_REDUCTION_AUX_WIDTH_V1;
 /// Integrated reduction fixed width.
-pub(crate) const P256_REDUCTION_AGGREGATE_FIXED_WIDTH_V1: usize =
+pub const P256_REDUCTION_AGGREGATE_FIXED_WIDTH_V1: usize =
     P256_REDUCTION_STARK_FIXED_WIDTH_V1 + 2 * 3 + 3;
 /// Integrated reduction residue count.
-pub(crate) const P256_REDUCTION_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
+pub const P256_REDUCTION_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
     P256_REDUCTION_STARK_CONSTRAINT_COUNT_V1 + (2 + P256_CROSS_TRACE_LANES_V1 * 6);
 /// Local source constraints; its four initial values are joined privately in MAIN.
-pub(crate) const P256_REDUCTION_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1: usize =
+pub const P256_REDUCTION_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1: usize =
     P256_REDUCTION_AGGREGATE_CONSTRAINT_COUNT_V1 - P256_CROSS_TRACE_LANES_V1;
 /// Registered reduction local constraint count; endpoint links are joined privately.
-pub(crate) const P256_REDUCTION_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_REDUCTION_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_REDUCTION_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1;
 /// Integrated wallet low-S auxiliary width.
-pub(crate) const P256_LOW_S_AGGREGATE_AUX_WIDTH_V1: usize =
+pub const P256_LOW_S_AGGREGATE_AUX_WIDTH_V1: usize =
     P256_LOW_S_STARK_AUX_WIDTH_V1 + P256_CROSS_TRACE_LOW_S_AUX_WIDTH_V1;
 /// Integrated wallet low-S fixed width.
-pub(crate) const P256_LOW_S_AGGREGATE_FIXED_WIDTH_V1: usize =
+pub const P256_LOW_S_AGGREGATE_FIXED_WIDTH_V1: usize =
     P256_LOW_S_STARK_FIXED_WIDTH_V1 + 3 + 3;
 /// Integrated wallet low-S residue count.
-pub(crate) const P256_LOW_S_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
+pub const P256_LOW_S_AGGREGATE_CONSTRAINT_COUNT_V1: usize =
     P256_LOW_S_STARK_CONSTRAINT_COUNT_V1 + (1 + P256_CROSS_TRACE_LANES_V1 * 5);
 /// Local source constraints; its four initial values are joined privately in MAIN.
-pub(crate) const P256_LOW_S_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1: usize =
+pub const P256_LOW_S_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1: usize =
     P256_LOW_S_AGGREGATE_CONSTRAINT_COUNT_V1 - P256_CROSS_TRACE_LANES_V1;
 /// Registered low-S local constraint count; endpoint links are joined privately.
-pub(crate) const P256_LOW_S_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_LOW_S_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_LOW_S_AGGREGATE_LOCAL_CONSTRAINT_COUNT_V1;
 /// Bytes in one complete `(Qx,Qy,r,s,digest)` P-256 input tuple.
 #[cfg(test)]
-pub(crate) use super::p256_external_binding_air::P256_INPUT_SELECTION_BYTES_V1;
+pub use super::p256_external_binding_air::P256_INPUT_SELECTION_BYTES_V1;
 /// External-binding committed base width, including both selected byte words,
 /// their range decompositions, and the private depth selector.
-pub(crate) const P256_BINDING_SINK_BASE_WIDTH_V1: usize =
+pub const P256_BINDING_SINK_BASE_WIDTH_V1: usize =
     2 * P256_EXTERNAL_BINDINGS_PER_ROW_V1 + 3 + 2 * 8;
 /// External-binding verifier preprocessing width.
-pub(crate) const P256_BINDING_SINK_FIXED_WIDTH_V1: usize =
+pub const P256_BINDING_SINK_FIXED_WIDTH_V1: usize =
     3 * P256_EXTERNAL_BINDINGS_PER_ROW_V1 + 3 * 6 + 3 + 6;
 /// External-binding residue count.
-pub(crate) const P256_BINDING_SINK_CONSTRAINT_COUNT_V1: usize =
+pub const P256_BINDING_SINK_CONSTRAINT_COUNT_V1: usize =
     P256_CROSS_TRACE_SINK_CONSTRAINT_COUNT_V1 + 41;
 /// Maximum sink degree including verifier-fixed gates and optional-input selection.
-pub(crate) const P256_BINDING_SINK_CONSTRAINT_DEGREE_V1: u8 = 3;
+pub const P256_BINDING_SINK_CONSTRAINT_DEGREE_V1: u8 = 3;
 /// Registered sink local constraint count; endpoint links are joined privately.
-pub(crate) const P256_BINDING_SINK_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_BINDING_SINK_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_BINDING_SINK_CONSTRAINT_COUNT_V1;
 /// Registered scalar-bit bus local constraint count; endpoint links are joined privately.
-pub(crate) const P256_SCALAR_BIT_BUS_REGISTERED_CONSTRAINT_COUNT_V1: usize =
+pub const P256_SCALAR_BIT_BUS_REGISTERED_CONSTRAINT_COUNT_V1: usize =
     P256_SCALAR_BIT_BUS_STARK_CONSTRAINT_COUNT_V1;
 const CROSS_EVENT_FIXED_WIDTH: usize = 3;
 const CROSS_BOUNDARY_FIXED_WIDTH: usize = 3;

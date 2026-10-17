@@ -1,8 +1,8 @@
-//! Complete private BasicConstraints bytes and nonwrapping u32 path-length slack.
+//! Complete private `BasicConstraints` bytes and nonwrapping u32 path-length slack.
 //!
 //! Each verifier-fixed certificate slot authenticates the complete contents of
 //! its original signed extension OCTET STRING at ordinal three. The shared OID
-//! identity constraints must bind that ordinal to BasicConstraints. Eight private canonical INTEGER variants
+//! identity constraints must bind that ordinal to `BasicConstraints`. Eight private canonical INTEGER variants
 //! cover all u32 values; neither DER length nor path length becomes public.
 use super::*;
 

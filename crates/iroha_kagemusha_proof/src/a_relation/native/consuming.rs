@@ -2755,14 +2755,14 @@ fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<(), Error> 
     }
     Ok(())
 }
-fn vesta_words(claim: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
+fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
     let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(claim.g());
     let mut words = Vec::with_capacity(20);
     for value in [x, y] {
         words.extend(foreign_limbs(&value).map(Fp::from_u128));
     }
     words.extend(claim.challenges());
-    Ok(words)
+    words
 }
 
 fn context_digest(first: &First) -> Result<Fp, Error> {
@@ -2775,7 +2775,7 @@ fn context_digest(first: &First) -> Result<Fp, Error> {
     words.extend(old.rest);
     words.extend(old.lineage);
     push_pallas(&mut words, &source.predecessor.pallas.as_input())?;
-    words.extend(vesta_words(&source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&source.predecessor.vesta.as_input()));
     words.extend(new.core);
     words.extend(new.rest);
     words.extend(new.lineage);
@@ -2815,11 +2815,11 @@ fn trivial_vesta_words() -> Result<Vec<Fp>, Error> {
     .map_err(|_| Error::Artifact)?;
     let claim =
         FoldInput::<Eq>::from_normalized(g, 16, [Fp::ONE; K]).map_err(|_| Error::Artifact)?;
-    vesta_words(&claim)
+    Ok(vesta_words(&claim))
 }
 fn internal_public(digest: Fp, part: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
     let mut words = vec![digest, Fp::from(u64::from(part.source_k()))];
-    words.extend(vesta_words(part)?);
+    words.extend(vesta_words(part));
     let trivial = trivial_vesta_words()?;
     words.extend(&trivial);
     words.extend(&trivial);
@@ -2855,8 +2855,8 @@ fn continuation_public(c: &Continuation) -> Result<Vec<Fp>, Error> {
         )?,
         Fp::from(16),
     ];
-    words.extend(vesta_words(&c.vesta.as_input())?);
-    words.extend(vesta_words(&c.first.source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&c.vesta.as_input()));
+    words.extend(vesta_words(&c.first.source.predecessor.vesta.as_input()));
     let trivial = trivial_vesta_words()?;
     words.extend(&trivial);
     words.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);

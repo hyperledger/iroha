@@ -48,7 +48,7 @@ where
 }
 
 /// Reuse the complete maintained replay and adversarial checks before publication.
-pub(crate) fn validate_document<C: PastaCurve>(document: &Value, curve: &str)
+pub fn validate_document<C: PastaCurve>(document: &Value, curve: &str)
 where
     C::Base: PoseidonField,
     C::ScalarExt: PoseidonField,
@@ -223,7 +223,7 @@ where
 /// Record scalar squeezes after transcript-field conversion and before role maps,
 /// using the production reader; obtain the claim through the public native API.
 /// This is not raw base-field Theta and is never proof acceptance.
-pub(crate) fn native_claim_with_challenges<C: PastaCurve>(
+pub fn native_claim_with_challenges<C: PastaCurve>(
     params: &PinnedParams<C>,
     binding: &DescriptorBinding,
     vk: &VerifyingKey<C>,

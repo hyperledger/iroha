@@ -9,17 +9,17 @@
 use crate::privacy_engines::transparent_stark::GoldilocksFieldV1 as F;
 use thiserror::Error;
 /// Stable digest input for the implemented components.
-pub(crate) const ZK_X509_AIR_COMPONENT_DESCRIPTOR_V1: &[u8] = b"byte-memory-permutation=complete|strict-der-segment=complete|projection-segment=complete|shared-current-next-deep-ali=complete|rfc5280-base-row-provider=complete|rfc5280-aggregate-and-eighteen-independent-output-role-products=complete|rfc5280-private-source-and-CA-original-polynomial-air-links=complete|sha-call-witness-assembly-and-terminal-binding=complete|p256-witness-assembly-and-private-committed-terminal-air-links=complete|compact-ca-subproof=complete|full-49-registration-prover-and-verifier=complete|combined-main-ca-envelope=complete|consensus-verifier-integration=complete|release-evidence-schema=deterministic-X5S1-KAT+public-binding-mutations+wire-corruption-and-truncation+maximum-shape-process-measurement|activation=unavailable-qualification";
+pub const ZK_X509_AIR_COMPONENT_DESCRIPTOR_V1: &[u8] = b"byte-memory-permutation=complete|strict-der-segment=complete|projection-segment=complete|shared-current-next-deep-ali=complete|rfc5280-base-row-provider=complete|rfc5280-aggregate-and-eighteen-independent-output-role-products=complete|rfc5280-private-source-and-CA-original-polynomial-air-links=complete|sha-call-witness-assembly-and-terminal-binding=complete|p256-witness-assembly-and-private-committed-terminal-air-links=complete|compact-ca-subproof=complete|full-49-registration-prover-and-verifier=complete|combined-main-ca-envelope=complete|consensus-verifier-integration=complete|release-evidence-schema=deterministic-X5S1-KAT+public-binding-mutations+wire-corruption-and-truncation+maximum-shape-process-measurement|activation=unavailable-qualification";
 /// SHA-256 of the dedicated compact-CA prover/verifier descriptor.
 ///
 /// The pin binds the exact X5C1/X5C2 proof system rather than only its component name.
-pub(crate) const ZK_X509_COMPACT_CA_SUBPROOF_DESCRIPTOR_SHA256_V1: [u8; 32] = [
+pub const ZK_X509_COMPACT_CA_SUBPROOF_DESCRIPTOR_SHA256_V1: [u8; 32] = [
     0x1d, 0xab, 0x24, 0xa7, 0xdd, 0x4c, 0x60, 0x61, 0xbb, 0x38, 0xe1, 0x58, 0x65, 0xdf, 0xdf, 0x5b,
     0xe7, 0x01, 0x67, 0x16, 0x97, 0xa7, 0xba, 0x66, 0x94, 0x55, 0xc7, 0x78, 0xdd, 0xc1, 0x46, 0x05,
 ];
 /// Failure of an implemented zk-X509 AIR primitive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum ZkX509AirErrorV1 {
+pub enum ZkX509AirErrorV1 {
     /// A purported bit is outside `{0,1}`.
     #[error("zk-X509 AIR boolean constraint failed")]
     NonBoolean,
@@ -38,7 +38,7 @@ pub(crate) enum ZkX509AirErrorV1 {
 /// One degree-two range-check row for a private byte.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ByteRangeAirRowV1 {
+pub struct ByteRangeAirRowV1 {
     /// Packed byte value.
     pub(crate) value: F,
     /// Little-endian bit decomposition.
@@ -72,7 +72,7 @@ impl ByteRangeAirRowV1 {
 }
 /// One degree-two range-check row for an address, clock, or SHA-256 word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct U32RangeAirRowV1 {
+pub struct U32RangeAirRowV1 {
     /// Packed 32-bit value.
     pub(crate) value: F,
     /// Little-endian bit decomposition.
@@ -110,7 +110,7 @@ impl U32RangeAirRowV1 {
 /// that the verifier will mix into its composition polynomial.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct BooleanGateAirRowV1 {
+pub struct BooleanGateAirRowV1 {
     /// Select `out = left AND right`.
     pub(crate) select_and: F,
     /// Select `out = left XOR right`.

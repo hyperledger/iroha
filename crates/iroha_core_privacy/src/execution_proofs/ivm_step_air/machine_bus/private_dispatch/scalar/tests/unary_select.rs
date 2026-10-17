@@ -9,8 +9,12 @@ fn expected(opcode: u8, left: u64, right: u64) -> u64 {
     match opcode {
         wide::arithmetic::NOT => !left,
         wide::arithmetic::NEG => left.wrapping_neg(),
-        wide::arithmetic::MIN => (left as i64).min(right as i64) as u64,
-        wide::arithmetic::MAX => (left as i64).max(right as i64) as u64,
+        wide::arithmetic::MIN => {
+            i64::cast_unsigned(u64::cast_signed(left).min(u64::cast_signed(right)))
+        }
+        wide::arithmetic::MAX => {
+            i64::cast_unsigned(u64::cast_signed(left).max(u64::cast_signed(right)))
+        }
         _ => panic!("total unary/selection fixture opcode"),
     }
 }
@@ -107,7 +111,7 @@ fn native_unary_full_words_tags_zero_and_read_before_write_aliases_match() {
         0,
         1,
         u64::MAX,
-        i64::MIN as u64,
+        i64::cast_unsigned(i64::MIN),
         i64::MAX as u64,
         0xffff_ffff_0000_0001,
     ];
@@ -177,9 +181,9 @@ fn native_signed_min_max_full_words_ties_tags_aliases_and_zero_match() {
         (1, 0),
         (u64::MAX, 1),
         (1, u64::MAX),
-        (i64::MIN as u64, i64::MAX as u64),
-        (i64::MAX as u64, i64::MIN as u64),
-        (i64::MIN as u64, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), i64::MAX as u64),
+        (i64::MAX as u64, i64::cast_unsigned(i64::MIN)),
+        (i64::cast_unsigned(i64::MIN), i64::cast_unsigned(i64::MIN)),
         (u64::MAX, u64::MAX),
         (0xffff_ffff_0000_0001, 0),
         (0, 0xffff_ffff_0000_0001),
@@ -334,7 +338,7 @@ fn unary_routing_and_signed_selection_reject_coherent_arithmetic_forgeries() {
 fn total_unary_selection_one_gas_boundaries_cycles_pc_and_false_halt_reject() {
     for opcode in UNARY_OPS.into_iter().chain(SELECTION_OPS) {
         let instruction = enc::encode_rr(opcode, 4, 2, 3);
-        let inputs = [(2, i64::MIN as u64, true), (3, 1, true)];
+        let inputs = [(2, i64::cast_unsigned(i64::MIN), true), (3, 1, true)];
         let root_gas = root_setup_gas();
         for gas in [0, root_result_table_gas()] {
             let (program, recorder, outcome) = shifts::capture(&[instruction], &inputs, gas, 32);

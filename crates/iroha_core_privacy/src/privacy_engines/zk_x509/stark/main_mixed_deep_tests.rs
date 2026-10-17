@@ -271,7 +271,8 @@ fn original_shape_precedence_and_cancelling_false_claims_refuse_before_either_we
     assert!(weighted.add_batch_v1(&other, &valid).is_err());
     unchanged(&weighted);
     weighted.add_batch_v1(&points, &valid).unwrap();
-    assert!(weighted.accumulate_v1(2, 0, &mut [E::ZERO; 1824]).is_err());
+    let mut scratch = vec![E::ZERO; 1824].into_boxed_slice();
+    assert!(weighted.accumulate_v1(2, 0, &mut scratch).is_err());
 }
 
 #[test]

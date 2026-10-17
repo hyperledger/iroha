@@ -30,8 +30,8 @@ const METADATA: [usize; 10] = [
     LENGTH,
 ];
 
-/// Verifier-owned transition function: mode 0 country, 1 PrintableString,
-/// 2 UTF8String; state zero alone accepts a complete sequence.
+/// Verifier-owned transition function: mode 0 country, 1 `PrintableString`,
+/// 2 `UTF8String`; state zero alone accepts a complete sequence.
 pub(super) fn transition(mode: u16, state: u16, byte: u8) -> Option<u16> {
     if mode == 0 {
         return (state == 0 && byte.is_ascii_uppercase()).then_some(0);
@@ -108,7 +108,7 @@ pub(super) fn residues<A: PolynomialAirFieldV1>(
         count += 1;
     };
     for (column, expected) in [
-        (BASE_ROLE, PURPOSE as u64),
+        (BASE_ROLE, u64::from(PURPOSE)),
         (
             BASE_PARENT,
             ZkX509Rfc5280GrammarRoleV1::NameAttributeValue as u64,

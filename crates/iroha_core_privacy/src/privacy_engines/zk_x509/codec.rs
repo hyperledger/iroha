@@ -48,7 +48,7 @@ const MAX_WITNESS_PAYLOAD_BYTES_V1: usize = 5 * NORITO_LENGTH_BYTES_V1
     + MAX_DISCLOSED_ATTRIBUTES_V1 * (NORITO_LENGTH_BYTES_V1 + OPENING_PAYLOAD_BYTES_V1);
 const MAX_WITNESS_FRAME_BYTES_V1: usize =
     WITNESS_FRAME_PREFIX_BYTES_V1 + MAX_WITNESS_PAYLOAD_BYTES_V1;
-pub(crate) const ZK_X509_WALLET_SIGNATURE_RS_BYTES_V1: usize = 64;
+pub const ZK_X509_WALLET_SIGNATURE_RS_BYTES_V1: usize = 64;
 const MAX_DISCLOSED_ATTRIBUTES_V1: usize = 4;
 const _: () = {
     assert!(
@@ -64,7 +64,7 @@ const _: () = {
 };
 /// One private opening of a publicly committed subject attribute.
 #[derive(Clone, Copy, PartialEq, Eq, norito::SerializePayload)]
-pub(crate) struct ZkX509AttributeOpeningV1 {
+pub struct ZkX509AttributeOpeningV1 {
     /// Closed attribute index (`0=C`, `1=O`, `2=OU`, `3=CN`).
     pub(crate) index: u8,
     /// Fixed-width private commitment salt.

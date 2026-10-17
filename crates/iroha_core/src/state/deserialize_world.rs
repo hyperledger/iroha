@@ -8692,8 +8692,10 @@ fn decode_world_fields(
     crate::privacy_state::validate_privacy_persisted_state_v1(
         privacy_consensus_policy.view().get(),
         &privacy_activations.view(),
-        &privacy_pgc_accounts.view(),
-        &privacy_pgc_pool_invariants.view(),
+        crate::privacy_state::PrivacyPgcStateReadV1 {
+            accounts: &privacy_pgc_accounts.view(),
+            pool_invariants: &privacy_pgc_pool_invariants.view(),
+        },
         &privacy_nullifiers.view(),
         &privacy_commitments.view(),
         &privacy_roots.view(),

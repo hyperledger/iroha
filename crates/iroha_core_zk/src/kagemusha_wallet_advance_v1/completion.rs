@@ -22,8 +22,9 @@ use super::{
     KagemushaWalletLostCustodyV1, KagemushaWalletProviderErrorV1,
     capsule::{
         KagemushaWalletCopyStateV1, KagemushaWalletFrozenFrameV1, KagemushaWalletLoadedPairV1,
-        KagemushaWalletPairReadV1, kagemusha_wallet_repair_pair_v1, kagemusha_wallet_settle_pair_v1,
-        pair_write_published, read_pair, read_pair_states, write_pair,
+        KagemushaWalletPairReadV1, kagemusha_wallet_repair_pair_v1,
+        kagemusha_wallet_settle_pair_v1, pair_write_published, read_pair, read_pair_states,
+        write_pair,
     },
     layout::{
         KagemushaWalletCompletionNameV1, KagemushaWalletCopyV1, KagemushaWalletEntryNameV1,

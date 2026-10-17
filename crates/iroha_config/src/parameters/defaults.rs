@@ -276,7 +276,9 @@ pub mod taira {
                 4 * (VALIDATOR_MEMORY_BYTES + INROU_MAX_MEMORY_BYTES) + SYSTEM_MEMORY_RESERVE_BYTES;
             assert_eq!(memory, 13 * 1024 * 1024 * 1024);
             assert!(memory < 16 * 1024 * 1024 * 1024);
-            assert!(NEXUS_MAX_WSV_MEMORY_BYTES < VALIDATOR_MEMORY_BYTES);
+            const {
+                assert!(NEXUS_MAX_WSV_MEMORY_BYTES < VALIDATOR_MEMORY_BYTES);
+            };
         }
         #[test]
         fn nexus_storage_contains_the_complete_admitted_preseed() {
@@ -530,9 +532,11 @@ pub mod transaction {
         // margin above currently observed payloads.
         nonzero!(100_000_u64)
     }
+    /// Maximum Kotodama bytecode length in bytes for local readers and admission.
+    pub const IVM_BYTECODE_MAX_BYTES: usize = 4 * 2_usize.pow(20);
     /// Maximum Kotodama bytecode length (bytes) allowed during admission.
     pub const fn ivm_bytecode_size() -> NonZeroU64 {
-        nonzero!(4 * 2_u64.pow(20))
+        nonzero!(IVM_BYTECODE_MAX_BYTES as u64)
     }
 }
 /// Compute lane defaults.

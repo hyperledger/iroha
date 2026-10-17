@@ -1483,7 +1483,7 @@ fn verify_zk_x509_release_production_envelope_with_mutations_v1<
     let limits = PrivacyConsensusLimitsV1::taira_default();
     let effects = verify_privacy_envelope_v1(
         &envelope,
-        PrivacyVerificationContextV1 {
+        &PrivacyVerificationContextV1 {
             activation: &activation,
             consensus_limits: &limits,
             network_id: authoritative_network_id,

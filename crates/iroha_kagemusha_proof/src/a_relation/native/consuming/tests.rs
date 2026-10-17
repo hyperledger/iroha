@@ -379,7 +379,7 @@ fn identity_generator_claims_preserve_public_word_and_frame_encoding() {
     push_pallas(&mut pwords, &p).unwrap();
     assert_eq!(&pwords[..3], &[Fp::from(16), Fp::ZERO, Fp::ZERO]);
     assert_eq!(pwords.len(), 35);
-    let vwords = vesta_words(&v).unwrap();
+    let vwords = vesta_words(&v);
     assert_eq!(&vwords[..4], &[Fp::ZERO; 4]);
     assert_eq!(&vwords[4..], &[Fp::ONE; K]);
     let accumulated = AccumulatorT::<Eq>::new(*v.g(), [Fp::ONE; K]).unwrap();

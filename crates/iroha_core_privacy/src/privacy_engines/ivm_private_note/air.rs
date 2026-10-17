@@ -20,8 +20,8 @@ use crate::privacy_engines::transparent_stark::{GOLDILOCKS_MODULUS_V1, Goldilock
 use iroha_data_model::privacy::IrohaIvmPrivateNoteStarkStatementV1;
 use std::collections::BTreeMap;
 use thiserror::Error;
-pub(crate) const PRIVATE_NOTE_TRACE_LOG2_V1: u8 = 14;
-pub(crate) const PRIVATE_NOTE_TRACE_SIZE_V1: usize = 1 << PRIVATE_NOTE_TRACE_LOG2_V1;
+pub const PRIVATE_NOTE_TRACE_LOG2_V1: u8 = 14;
+pub const PRIVATE_NOTE_TRACE_SIZE_V1: usize = 1 << PRIVATE_NOTE_TRACE_LOG2_V1;
 pub(super) const PRIVATE_NOTE_COPY_WIDTH_V1: usize = 8;
 pub(super) const PRIVATE_NOTE_SHA_SCHEDULE_WORDS_V1: usize = 64;
 pub(super) const PRIVATE_NOTE_SHA_STATE_WORDS_V1: usize = 8;
@@ -42,7 +42,7 @@ pub(super) const SHA_CARRY_OFFSET: usize = SHA_T2_OFFSET + 1;
 pub(super) const SHA_CARRY_WIDTH: usize = 18;
 pub(super) const SCRATCH_OFFSET: usize = SHA_CARRY_OFFSET + SHA_CARRY_WIDTH;
 pub(super) const SCRATCH_WIDTH: usize = 96;
-pub(crate) const PRIVATE_NOTE_BASE_WIDTH_V1: usize = SCRATCH_OFFSET + SCRATCH_WIDTH;
+pub const PRIVATE_NOTE_BASE_WIDTH_V1: usize = SCRATCH_OFFSET + SCRATCH_WIDTH;
 pub(super) const SCRATCH_NONZERO_BYTE_SELECT_OFFSET: usize = SCRATCH_OFFSET;
 pub(super) const SCRATCH_NONZERO_BIT_SELECT_OFFSET: usize =
     SCRATCH_NONZERO_BYTE_SELECT_OFFSET + PRIVATE_NOTE_COPY_WIDTH_V1;
@@ -142,7 +142,7 @@ pub(super) const SHA256_ROUND_CONSTANTS_V1: [u32; 64] = [
     0xc671_78f2,
 ];
 /// Stable aggregate AIR descriptor.
-pub(crate) const IVM_PRIVATE_NOTE_AGGREGATE_AIR_DESCRIPTOR_V1: &[u8] = b"ivm-private-note-aggregate-air-v1:trace=16384:copy-width=8:copy-lanes=3:sha256-wide-round64-private-io:value=u128-byte-carry:vm=fixed16-private-opcode-byte-state:tree=depth32-private-direction";
+pub const IVM_PRIVATE_NOTE_AGGREGATE_AIR_DESCRIPTOR_V1: &[u8] = b"ivm-private-note-aggregate-air-v1:trace=16384:copy-width=8:copy-lanes=3:sha256-wide-round64-private-io:value=u128-byte-carry:vm=fixed16-private-opcode-byte-state:tree=depth32-private-direction";
 /// Aggregate trace construction or algebraic failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub(super) enum IvmPrivateNoteAirErrorV1 {

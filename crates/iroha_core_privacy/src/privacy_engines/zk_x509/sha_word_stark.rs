@@ -39,102 +39,94 @@ use crate::privacy_engines::transparent_stark::{
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use thiserror::Error;
-pub(crate) const SHA_WORD_BASE_WIDTH_V1: usize = 64;
-pub(crate) const SHA_WORD_COPY_LANES_V1: usize = WORD_MEMORY_PERMUTATION_LANES_V1;
-pub(crate) const SHA_WORD_LOCAL_PRODUCT_WIDTH_V1: usize = 6 * SHA_WORD_COPY_LANES_V1;
-pub(crate) const SHA_WORD_MEMORY_PRODUCT_WIDTH_V1: usize = 4 * SHA_WORD_COPY_LANES_V1;
-pub(crate) const SHA_WORD_CONTINUATION_WIDTH_V1: usize = 7 + 4 * SHA_WORD_COPY_LANES_V1;
-pub(crate) const SHA_WORD_AUX_WIDTH_V1: usize =
+pub const SHA_WORD_BASE_WIDTH_V1: usize = 64;
+pub const SHA_WORD_COPY_LANES_V1: usize = WORD_MEMORY_PERMUTATION_LANES_V1;
+pub const SHA_WORD_LOCAL_PRODUCT_WIDTH_V1: usize = 6 * SHA_WORD_COPY_LANES_V1;
+pub const SHA_WORD_MEMORY_PRODUCT_WIDTH_V1: usize = 4 * SHA_WORD_COPY_LANES_V1;
+pub const SHA_WORD_CONTINUATION_WIDTH_V1: usize = 7 + 4 * SHA_WORD_COPY_LANES_V1;
+pub const SHA_WORD_AUX_WIDTH_V1: usize =
     SHA_WORD_LOCAL_PRODUCT_WIDTH_V1 + SHA_WORD_CONTINUATION_WIDTH_V1 + SHA_WORD_COPY_LANES_V1;
 /// Canonical common native domain used by the aggregate proof.
-pub(crate) const SHA_WORD_AGGREGATE_TRACE_LOG2_V1: u8 = 20;
+pub const SHA_WORD_AGGREGATE_TRACE_LOG2_V1: u8 = 20;
 /// Canonical common native row count used by the aggregate proof.
-pub(crate) const SHA_WORD_AGGREGATE_TRACE_SIZE_V1: usize = 1 << SHA_WORD_AGGREGATE_TRACE_LOG2_V1;
+pub const SHA_WORD_AGGREGATE_TRACE_SIZE_V1: usize = 1 << SHA_WORD_AGGREGATE_TRACE_LOG2_V1;
 /// Native row count of each of the two vertical logical SHA slots.
-pub(crate) const SHA_WORD_LOGICAL_SLOT_LOG2_V1: u8 = 19;
+pub const SHA_WORD_LOGICAL_SLOT_LOG2_V1: u8 = 19;
 /// Native row count of each of the two vertical logical SHA slots.
-pub(crate) const SHA_WORD_LOGICAL_SLOT_ROWS_V1: usize = 1 << SHA_WORD_LOGICAL_SLOT_LOG2_V1;
+pub const SHA_WORD_LOGICAL_SLOT_ROWS_V1: usize = 1 << SHA_WORD_LOGICAL_SLOT_LOG2_V1;
 /// Verifier-preprocessed numeric fixed width used by the aggregate STARK.
-pub(crate) const SHA_WORD_STARK_FIXED_WIDTH_V1: usize = 55;
+pub const SHA_WORD_STARK_FIXED_WIDTH_V1: usize = 55;
 /// Exact number of base-only errors folded after the base commitment.
-pub(crate) const SHA_WORD_STARK_BASE_ERROR_COUNT_V1: usize = 441;
+pub const SHA_WORD_STARK_BASE_ERROR_COUNT_V1: usize = 441;
 /// Exact fixed-width residue vector used by the aggregate STARK.
-pub(crate) const SHA_WORD_STARK_CONSTRAINT_COUNT_V1: usize = 155;
+pub const SHA_WORD_STARK_CONSTRAINT_COUNT_V1: usize = 155;
 /// Maximum algebraic degree over committed and verifier-fixed columns.
 #[cfg(test)]
-pub(crate) const SHA_WORD_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
+pub const SHA_WORD_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
 /// Fixed-capacity SHA call base width.  The twelve extra columns carry the
 /// private active/final-block selectors, sorted-memory adjacency selector,
 /// per-byte message/marker masks, and the selected digest-memory address.
-pub(crate) const SHA_WORD_CAPACITY_BASE_WIDTH_V1: usize = 76;
+pub const SHA_WORD_CAPACITY_BASE_WIDTH_V1: usize = 76;
 /// Fixed-capacity SHA call auxiliary width before the cross-adapter call bus. The three extra
 /// columns carry the private message-byte count, padding phase, and active-block count.
-pub(crate) const SHA_WORD_CAPACITY_AUX_WIDTH_V1: usize = 54;
+pub const SHA_WORD_CAPACITY_AUX_WIDTH_V1: usize = 54;
 /// Verifier-derived fixed width for one fixed-capacity SHA call before the
 /// call identity and physical-segment columns are appended.
-pub(crate) const SHA_WORD_CAPACITY_FIXED_WIDTH_V1: usize = 72;
+pub const SHA_WORD_CAPACITY_FIXED_WIDTH_V1: usize = 72;
 /// Capacity controls beyond the 155 raw word-AIR residues: selectors/masks (40), inactive-row folds
 /// (8), block controls (6), count/padding/digest controls (28), inactive local products (20),
 /// memory controls (47), and zeroed continuation cells (31).
 const SHA_WORD_CAPACITY_CONTROL_CONSTRAINT_COUNT_V1: usize = 180;
 /// Exact residue width of the fixed-capacity word relation.
-pub(crate) const SHA_WORD_CAPACITY_CONSTRAINT_COUNT_V1: usize =
+pub const SHA_WORD_CAPACITY_CONSTRAINT_COUNT_V1: usize =
     SHA_WORD_STARK_CONSTRAINT_COUNT_V1 + SHA_WORD_CAPACITY_CONTROL_CONSTRAINT_COUNT_V1;
 /// Maximum total degree, including private activity and verifier-fixed selectors.
 ///
 /// Both the ordinary padding equation (degree-four gate times a degree-two
 /// byte/mask product) and the Boolean operation's first event pair (degree-three
 /// gate times a degree-three pair after polynomial address selection) reach six.
-pub(crate) const SHA_WORD_CAPACITY_CONSTRAINT_DEGREE_V1: u8 = 6;
+pub const SHA_WORD_CAPACITY_CONSTRAINT_DEGREE_V1: u8 = 6;
 /// Emitted STARK-local rows reserved by one SHA-256 compression block.
 ///
 /// This is deliberately smaller than `sha256_word_air::WORD_AIR_ROWS_PER_BLOCK_V1`: the latter's
 /// conceptual circuit count includes a standalone definition for every operation output, while this
 /// STARK trace range-binds that output inside the operation row and therefore must not count the
 /// same 664 definitions twice.
-pub(crate) const SHA_WORD_CAPACITY_LOCAL_ROWS_PER_BLOCK_V1: usize = 1_064;
+pub const SHA_WORD_CAPACITY_LOCAL_ROWS_PER_BLOCK_V1: usize = 1_064;
 /// Per-call local initialization rows preceding the first compression block.
 const SHA_WORD_CAPACITY_LOCAL_INITIAL_ROWS_PER_CALL_V1: usize = 8;
 /// Per-call local digest-read rows following the last compression block.
-pub(crate) const SHA_WORD_CAPACITY_LOCAL_ROWS_PER_CALL_V1: usize = 8;
+pub const SHA_WORD_CAPACITY_LOCAL_ROWS_PER_CALL_V1: usize = 8;
 /// Word-memory rows reserved by one SHA-256 compression block.
-pub(crate) const SHA_WORD_CAPACITY_MEMORY_ROWS_PER_BLOCK_V1: usize = 2_136;
+pub const SHA_WORD_CAPACITY_MEMORY_ROWS_PER_BLOCK_V1: usize = 2_136;
 /// Per-call word-memory rows independent of block count.
-pub(crate) const SHA_WORD_CAPACITY_MEMORY_ROWS_PER_CALL_V1: usize = 16;
+pub const SHA_WORD_CAPACITY_MEMORY_ROWS_PER_CALL_V1: usize = 16;
 /// New word identifiers allocated by each SHA-256 compression block.
-pub(crate) const SHA_WORD_CAPACITY_WORD_IDS_PER_BLOCK_V1: usize = 680;
-pub(crate) const SHA_WORD_CAPACITY_ROW_ACTIVE_V1: usize = SHA_WORD_BASE_WIDTH_V1;
-pub(crate) const SHA_WORD_CAPACITY_FINAL_BLOCK_V1: usize = SHA_WORD_CAPACITY_ROW_ACTIVE_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_SORTED_SAME_NEXT_V1: usize =
-    SHA_WORD_CAPACITY_FINAL_BLOCK_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_MESSAGE_MASK_V1: usize =
-    SHA_WORD_CAPACITY_SORTED_SAME_NEXT_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_MARKER_MASK_V1: usize = SHA_WORD_CAPACITY_MESSAGE_MASK_V1 + 4;
-pub(crate) const SHA_WORD_CAPACITY_DYNAMIC_ADDRESS_V1: usize = SHA_WORD_CAPACITY_MARKER_MASK_V1 + 4;
-pub(crate) const SHA_WORD_CAPACITY_MESSAGE_COUNT_V1: usize = SHA_WORD_AUX_WIDTH_V1;
-pub(crate) const SHA_WORD_CAPACITY_PADDING_PHASE_V1: usize = SHA_WORD_CAPACITY_MESSAGE_COUNT_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_ACTIVE_BLOCKS_V1: usize = SHA_WORD_CAPACITY_PADDING_PHASE_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_BLOCK_FIRST_V1: usize = SHA_WORD_STARK_FIXED_WIDTH_V1;
-pub(crate) const SHA_WORD_CAPACITY_BLOCK_CONTINUE_V1: usize = SHA_WORD_CAPACITY_BLOCK_FIRST_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_BLOCK_LAST_V1: usize = SHA_WORD_CAPACITY_BLOCK_CONTINUE_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_MAX_BLOCK_LAST_V1: usize = SHA_WORD_CAPACITY_BLOCK_LAST_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_INPUT_WORD_V1: usize = SHA_WORD_CAPACITY_MAX_BLOCK_LAST_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_INPUT_WORD_INDEX_V1: usize = SHA_WORD_CAPACITY_INPUT_WORD_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_LENGTH_HIGH_WORD_V1: usize =
-    SHA_WORD_CAPACITY_INPUT_WORD_INDEX_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_LENGTH_LOW_WORD_V1: usize =
-    SHA_WORD_CAPACITY_LENGTH_HIGH_WORD_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_DIGEST_WORD_INDEX_V1: usize =
-    SHA_WORD_CAPACITY_LENGTH_LOW_WORD_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_CALL_FIRST_V1: usize =
-    SHA_WORD_CAPACITY_DIGEST_WORD_INDEX_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_CALL_LAST_V1: usize = SHA_WORD_CAPACITY_CALL_FIRST_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_MAXIMUM_MESSAGE_LEN_V1: usize =
-    SHA_WORD_CAPACITY_CALL_LAST_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_MESSAGE_ALLOWED_V1: usize =
+pub const SHA_WORD_CAPACITY_WORD_IDS_PER_BLOCK_V1: usize = 680;
+pub const SHA_WORD_CAPACITY_ROW_ACTIVE_V1: usize = SHA_WORD_BASE_WIDTH_V1;
+pub const SHA_WORD_CAPACITY_FINAL_BLOCK_V1: usize = SHA_WORD_CAPACITY_ROW_ACTIVE_V1 + 1;
+pub const SHA_WORD_CAPACITY_SORTED_SAME_NEXT_V1: usize = SHA_WORD_CAPACITY_FINAL_BLOCK_V1 + 1;
+pub const SHA_WORD_CAPACITY_MESSAGE_MASK_V1: usize = SHA_WORD_CAPACITY_SORTED_SAME_NEXT_V1 + 1;
+pub const SHA_WORD_CAPACITY_MARKER_MASK_V1: usize = SHA_WORD_CAPACITY_MESSAGE_MASK_V1 + 4;
+pub const SHA_WORD_CAPACITY_DYNAMIC_ADDRESS_V1: usize = SHA_WORD_CAPACITY_MARKER_MASK_V1 + 4;
+pub const SHA_WORD_CAPACITY_MESSAGE_COUNT_V1: usize = SHA_WORD_AUX_WIDTH_V1;
+pub const SHA_WORD_CAPACITY_PADDING_PHASE_V1: usize = SHA_WORD_CAPACITY_MESSAGE_COUNT_V1 + 1;
+pub const SHA_WORD_CAPACITY_ACTIVE_BLOCKS_V1: usize = SHA_WORD_CAPACITY_PADDING_PHASE_V1 + 1;
+pub const SHA_WORD_CAPACITY_BLOCK_FIRST_V1: usize = SHA_WORD_STARK_FIXED_WIDTH_V1;
+pub const SHA_WORD_CAPACITY_BLOCK_CONTINUE_V1: usize = SHA_WORD_CAPACITY_BLOCK_FIRST_V1 + 1;
+pub const SHA_WORD_CAPACITY_BLOCK_LAST_V1: usize = SHA_WORD_CAPACITY_BLOCK_CONTINUE_V1 + 1;
+pub const SHA_WORD_CAPACITY_MAX_BLOCK_LAST_V1: usize = SHA_WORD_CAPACITY_BLOCK_LAST_V1 + 1;
+pub const SHA_WORD_CAPACITY_INPUT_WORD_V1: usize = SHA_WORD_CAPACITY_MAX_BLOCK_LAST_V1 + 1;
+pub const SHA_WORD_CAPACITY_INPUT_WORD_INDEX_V1: usize = SHA_WORD_CAPACITY_INPUT_WORD_V1 + 1;
+pub const SHA_WORD_CAPACITY_LENGTH_HIGH_WORD_V1: usize = SHA_WORD_CAPACITY_INPUT_WORD_INDEX_V1 + 1;
+pub const SHA_WORD_CAPACITY_LENGTH_LOW_WORD_V1: usize = SHA_WORD_CAPACITY_LENGTH_HIGH_WORD_V1 + 1;
+pub const SHA_WORD_CAPACITY_DIGEST_WORD_INDEX_V1: usize = SHA_WORD_CAPACITY_LENGTH_LOW_WORD_V1 + 1;
+pub const SHA_WORD_CAPACITY_CALL_FIRST_V1: usize = SHA_WORD_CAPACITY_DIGEST_WORD_INDEX_V1 + 1;
+pub const SHA_WORD_CAPACITY_CALL_LAST_V1: usize = SHA_WORD_CAPACITY_CALL_FIRST_V1 + 1;
+pub const SHA_WORD_CAPACITY_MAXIMUM_MESSAGE_LEN_V1: usize = SHA_WORD_CAPACITY_CALL_LAST_V1 + 1;
+pub const SHA_WORD_CAPACITY_MESSAGE_ALLOWED_V1: usize =
     SHA_WORD_CAPACITY_MAXIMUM_MESSAGE_LEN_V1 + 1;
-pub(crate) const SHA_WORD_CAPACITY_EXACT_LENGTH_V1: usize =
-    SHA_WORD_CAPACITY_MESSAGE_ALLOWED_V1 + 4;
+pub const SHA_WORD_CAPACITY_EXACT_LENGTH_V1: usize = SHA_WORD_CAPACITY_MESSAGE_ALLOWED_V1 + 4;
 const LOCAL_PRODUCT_BEFORE: usize = 0;
 const LOCAL_PAIR_01: usize = LOCAL_PRODUCT_BEFORE + SHA_WORD_COPY_LANES_V1;
 const LOCAL_PAIR_23: usize = LOCAL_PAIR_01 + SHA_WORD_COPY_LANES_V1;
@@ -212,10 +204,10 @@ const FIX_MEMORY_SORTED_ADDRESS: usize = 46;
 const FIX_MEMORY_SORTED_WRITE: usize = 47;
 const FIX_CONTINUATION_PUBLIC: usize = 48;
 /// Raw fixed selector used by the capacity/call wrapper for digest rows.
-pub(crate) const SHA_WORD_CAPACITY_DIGEST_SELECTOR_V1: usize = FIX_DIGEST;
+pub const SHA_WORD_CAPACITY_DIGEST_SELECTOR_V1: usize = FIX_DIGEST;
 /// Final row-kind selector in the capacity wrapper's exhaustive public schedule.
 #[cfg(test)]
-pub(crate) const SHA_WORD_CAPACITY_MEMORY_SELECTOR_V1: usize = FIX_MEMORY;
+pub const SHA_WORD_CAPACITY_MEMORY_SELECTOR_V1: usize = FIX_MEMORY;
 /// Fixed columns omitted from the zk-X509 preprocessed SHA oracle.
 ///
 /// These six columns carry no independent information under the canonical 29-call schedule. Three
@@ -223,7 +215,7 @@ pub(crate) const SHA_WORD_CAPACITY_MEMORY_SELECTOR_V1: usize = FIX_MEMORY;
 /// Since LDE is linear, the same reconstruction identities hold at every verifier opening, not
 /// merely on native trace rows.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_WORD_PREPROCESSED_OMITTED_COLUMNS_V1: [usize; 6] = [
+pub const ZK_X509_SHA_WORD_PREPROCESSED_OMITTED_COLUMNS_V1: [usize; 6] = [
     FIX_PADDING,
     FIX_LOCAL_CONTINUE,
     FIX_MEMORY_CONTINUE,
@@ -233,11 +225,11 @@ pub(crate) const ZK_X509_SHA_WORD_PREPROCESSED_OMITTED_COLUMNS_V1: [usize; 6] = 
 ];
 /// Independent SHA-word fixed columns retained by the zk-X509 oracle.
 #[cfg(test)]
-pub(crate) const ZK_X509_SHA_WORD_PREPROCESSED_FIXED_WIDTH_V1: usize =
+pub const ZK_X509_SHA_WORD_PREPROCESSED_FIXED_WIDTH_V1: usize =
     SHA_WORD_CAPACITY_FIXED_WIDTH_V1 - ZK_X509_SHA_WORD_PREPROCESSED_OMITTED_COLUMNS_V1.len();
 /// Public statement needed to compile the fixed SHA schedule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaWordStarkStatementV1 {
+pub struct ZkX509ShaWordStarkStatementV1 {
     /// Exact unpadded byte length; message bytes remain private.
     pub(crate) message_len: usize,
     /// Verifier-fixed SHA-256 digest.
@@ -245,7 +237,7 @@ pub(crate) struct ZkX509ShaWordStarkStatementV1 {
 }
 /// SHA word trace construction or algebraic failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum ZkX509ShaWordStarkErrorV1 {
+pub enum ZkX509ShaWordStarkErrorV1 {
     /// Message length, schedule, or physical segmentation is invalid.
     #[error("zk-X509 SHA word STARK topology is invalid")]
     Topology,
@@ -310,7 +302,7 @@ fn reconstructed_zk_x509_sha_word_fixed_columns_v1(
 /// schedule change that violates any reconstruction identity fails closed
 /// instead of silently changing the fixed-oracle language.
 #[cfg(test)]
-pub(crate) fn reduce_zk_x509_sha_word_fixed_row_v1(
+pub fn reduce_zk_x509_sha_word_fixed_row_v1(
     full: &[F; SHA_WORD_CAPACITY_FIXED_WIDTH_V1],
 ) -> Result<[F; ZK_X509_SHA_WORD_PREPROCESSED_FIXED_WIDTH_V1], ZkX509ShaWordStarkErrorV1> {
     let mut retained = [F::ZERO; ZK_X509_SHA_WORD_PREPROCESSED_FIXED_WIDTH_V1];
@@ -337,7 +329,7 @@ pub(crate) fn reduce_zk_x509_sha_word_fixed_row_v1(
 }
 /// Reconstruct all SHA-word fixed columns from one authenticated reduced LDE opening.
 #[cfg(test)]
-pub(crate) fn expand_zk_x509_sha_word_fixed_row_v1(
+pub fn expand_zk_x509_sha_word_fixed_row_v1(
     retained: &[F; ZK_X509_SHA_WORD_PREPROCESSED_FIXED_WIDTH_V1],
 ) -> [F; SHA_WORD_CAPACITY_FIXED_WIDTH_V1] {
     let mut expanded = [F::ZERO; SHA_WORD_CAPACITY_FIXED_WIDTH_V1];
@@ -359,7 +351,7 @@ pub(crate) fn expand_zk_x509_sha_word_fixed_row_v1(
     expanded
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ShaWordFixedRowV1 {
+pub enum ShaWordFixedRowV1 {
     Word {
         address: usize,
         fixed_bits: [i8; 32],
@@ -403,7 +395,7 @@ pub(crate) enum ShaWordFixedRowV1 {
 }
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ShaWordPhysicalContinuationV1 {
+pub struct ShaWordPhysicalContinuationV1 {
     pub(crate) segment_index: u8,
     pub(crate) global_row_start: usize,
     pub(crate) global_row_end: usize,
@@ -417,7 +409,7 @@ pub(crate) struct ShaWordPhysicalContinuationV1 {
     pub(crate) sorted_product_end: [F; SHA_WORD_COPY_LANES_V1],
 }
 #[derive(Clone)]
-pub(crate) struct ZkX509ShaWordStarkBaseV1 {
+pub struct ZkX509ShaWordStarkBaseV1 {
     #[cfg(test)]
     pub(crate) statement: ZkX509ShaWordStarkStatementV1,
     pub(crate) base_rows: Vec<Vec<F>>,
@@ -491,7 +483,7 @@ impl Drop for ZkX509ShaWordStarkBaseV1 {
 /// auxiliary products later. No challenge-dependent row exists until [`Self::bind_v1`] consumes
 /// this source with the opaque credential pre-auxiliary token.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509ShaWordCapacityBaseSourceV1 {
+pub struct ZkX509ShaWordCapacityBaseSourceV1 {
     message_len: usize,
     #[cfg(test)]
     maximum_message_len: usize,
@@ -613,7 +605,7 @@ impl Drop for ZkX509ShaWordCapacityBaseSourceV1 {
 }
 #[cfg(test)]
 #[derive(Clone, Debug)]
-pub(crate) struct ZkX509ShaWordStarkTraceV1 {
+pub struct ZkX509ShaWordStarkTraceV1 {
     pub(crate) base: ZkX509ShaWordStarkBaseV1,
     pub(crate) aux_rows: Vec<Vec<F>>,
     pub(crate) continuations: Vec<ShaWordPhysicalContinuationV1>,
@@ -624,7 +616,7 @@ pub(crate) struct ZkX509ShaWordStarkTraceV1 {
 /// its four physical segments and drops each call before constructing the next one.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone)]
-pub(crate) struct ZkX509ShaWordCapacityTraceV1 {
+pub struct ZkX509ShaWordCapacityTraceV1 {
     pub(crate) message_len: usize,
     #[cfg(test)]
     pub(crate) maximum_message_len: usize,
@@ -689,7 +681,7 @@ impl Drop for ZkX509ShaWordCapacityTraceV1 {
 /// independent verifier to compile solely from the public call manifest and replay at arbitrary
 /// opened rows.
 #[derive(Clone, Debug)]
-pub(crate) struct ZkX509ShaWordCapacityFixedScheduleV1 {
+pub struct ZkX509ShaWordCapacityFixedScheduleV1 {
     maximum_message_len: usize,
     exact_length: bool,
     maximum_blocks: usize,
@@ -843,7 +835,7 @@ impl ZkX509ShaWordCapacityTraceV1 {
 }
 /// Compile the fixed portion of a maximum-capacity SHA call without any
 /// private call witness or transcript challenge.
-pub(crate) fn compile_sha_word_capacity_fixed_schedule_v1(
+pub fn compile_sha_word_capacity_fixed_schedule_v1(
     maximum_message_len: usize,
     exact_length: bool,
 ) -> Result<ZkX509ShaWordCapacityFixedScheduleV1, ZkX509ShaWordStarkErrorV1> {
@@ -930,12 +922,12 @@ pub(crate) fn compile_sha_word_capacity_fixed_schedule_v1(
 /// independent residues. It is never used to fold auxiliary constraints because the auxiliary trace
 /// is committed after these challenges are known.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaWordStarkChallengesV1 {
+pub struct ZkX509ShaWordStarkChallengesV1 {
     pub(crate) memory: ZkX509WordMemoryChallengesV1,
     pub(crate) base_folding: [F; SHA_WORD_COPY_LANES_V1],
 }
 /// Derive the four base-error-folding challenges after word-memory challenges.
-pub(crate) fn derive_zk_x509_sha_word_base_folding_challenges_v1(
+pub fn derive_zk_x509_sha_word_base_folding_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<[F; SHA_WORD_COPY_LANES_V1], TransparentStarkErrorV1> {
     let mut base_folding = [F::ZERO; SHA_WORD_COPY_LANES_V1];
@@ -951,7 +943,7 @@ pub(crate) fn derive_zk_x509_sha_word_base_folding_challenges_v1(
 /// Derive the complete SHA-word challenge family after all SHA base
 /// commitments have been transcript-bound.
 #[cfg(test)]
-pub(crate) fn derive_zk_x509_sha_word_stark_challenges_v1(
+pub fn derive_zk_x509_sha_word_stark_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<ZkX509ShaWordStarkChallengesV1, TransparentStarkErrorV1> {
     let memory = derive_sha256_word_memory_challenges_v1(transcript)?;
@@ -977,7 +969,7 @@ struct ShaWordAggregateSlotV1 {
 /// continuation labels are reconstructed on demand, so merely compiling a
 /// short statement does not allocate a million fixed rows.
 #[derive(Clone, Debug)]
-pub(crate) struct ZkX509ShaWordStarkFixedScheduleV1 {
+pub struct ZkX509ShaWordStarkFixedScheduleV1 {
     #[cfg(test)]
     statement: ZkX509ShaWordStarkStatementV1,
     fixed_rows: Vec<ShaWordFixedRowV1>,
@@ -1031,7 +1023,7 @@ fn validate_challenges(
     Ok(())
 }
 /// Reject invalid word-memory or base-error-folding challenges.
-pub(crate) fn validate_zk_x509_sha_word_stark_challenges_v1(
+pub fn validate_zk_x509_sha_word_stark_challenges_v1(
     challenges: ZkX509ShaWordStarkChallengesV1,
 ) -> Result<(), ZkX509ShaWordStarkErrorV1> {
     validate_challenges(challenges.memory)?;
@@ -1186,7 +1178,7 @@ fn write_continuation(
 }
 /// Attach challenge-dependent local-reference, memory-copy, and continuation auxiliary columns.
 #[cfg(test)]
-pub(crate) fn build_sha_word_stark_trace_v1(
+pub fn build_sha_word_stark_trace_v1(
     base: ZkX509ShaWordStarkBaseV1,
     challenges: ZkX509WordMemoryChallengesV1,
 ) -> Result<ZkX509ShaWordStarkTraceV1, ZkX509ShaWordStarkErrorV1> {
@@ -1283,7 +1275,7 @@ fn capacity_raw_base_row_v1(
 /// matrices and call products, plus bounded sorting/index scratch. This intentionally
 /// overcharges owners whose scopes do not overlap. Allocator metadata is excluded.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn source_replay_scratch_forecast_v1(
+pub fn source_replay_scratch_forecast_v1(
     maximum_blocks: usize,
 ) -> Result<usize, ZkX509ShaWordStarkErrorV1> {
     use super::air::U32RangeAirRowV1;
@@ -1327,7 +1319,7 @@ pub(crate) fn source_replay_scratch_forecast_v1(
 /// committed witness columns. Word memory products are intentionally absent until the returned
 /// source binds an opaque X5B1 token.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_sha_word_capacity_base_source_v1(
+pub fn build_sha_word_capacity_base_source_v1(
     message: &[u8],
     maximum_message_len: usize,
     exact_length: bool,
@@ -1609,7 +1601,7 @@ impl ZkX509ShaWordCapacityBaseSourceV1 {
 }
 /// Test-only focused builder retaining the pre-X5B1 word-memory API.
 #[cfg(test)]
-pub(crate) fn build_sha_word_capacity_trace_v1(
+pub fn build_sha_word_capacity_trace_v1(
     message: &[u8],
     maximum_message_len: usize,
     exact_length: bool,
@@ -1909,7 +1901,7 @@ fn digest_words(digest: [u8; 32]) -> [u32; 8] {
     })
 }
 /// Compile the challenge-independent local and word-memory base trace.
-pub(crate) fn build_sha_word_stark_base_v1(
+pub fn build_sha_word_stark_base_v1(
     statement: ZkX509ShaWordStarkStatementV1,
     message: &[u8],
 ) -> Result<ZkX509ShaWordStarkBaseV1, ZkX509ShaWordStarkErrorV1> {
@@ -2218,7 +2210,7 @@ fn aggregate_slots_v1(
 /// Compile the verifier-owned logical topology for the canonical aggregate SHA-word adapter. The
 /// returned schedule reconstructs any of the `2^20` fixed rows on demand.
 #[cfg(test)]
-pub(crate) fn compile_zk_x509_sha_word_stark_fixed_schedule_v1(
+pub fn compile_zk_x509_sha_word_stark_fixed_schedule_v1(
     statement: ZkX509ShaWordStarkStatementV1,
 ) -> Result<ZkX509ShaWordStarkFixedScheduleV1, ZkX509ShaWordStarkErrorV1> {
     let mut expected = expected_fixed_topology(statement)?;
@@ -2551,7 +2543,7 @@ fn aggregate_continuations_v1(
 }
 /// Reconstruct one aggregate base row, including canonical zero padding.
 #[cfg(test)]
-pub(crate) fn zk_x509_sha_word_stark_aggregate_base_row_v1(
+pub fn zk_x509_sha_word_stark_aggregate_base_row_v1(
     trace: &ZkX509ShaWordStarkTraceV1,
     index: usize,
 ) -> Result<[F; SHA_WORD_BASE_WIDTH_V1], ZkX509ShaWordStarkErrorV1> {
@@ -2569,7 +2561,7 @@ pub(crate) fn zk_x509_sha_word_stark_aggregate_base_row_v1(
 /// Reconstruct one aggregate auxiliary row. Padding keeps only the exact
 /// physical continuation tuple; every local/product cell is zero.
 #[cfg(test)]
-pub(crate) fn zk_x509_sha_word_stark_aggregate_aux_row_v1(
+pub fn zk_x509_sha_word_stark_aggregate_aux_row_v1(
     schedule: &ZkX509ShaWordStarkFixedScheduleV1,
     trace: &ZkX509ShaWordStarkTraceV1,
     index: usize,
@@ -2666,7 +2658,7 @@ fn memory_factor_v1<A: PolynomialAirFieldV1>(
 /// before committing the auxiliary trace.
 #[allow(clippy::too_many_lines)]
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_sha_word_stark_residues_v1(
+pub fn evaluate_zk_x509_sha_word_stark_residues_v1(
     current: &[F; SHA_WORD_BASE_WIDTH_V1],
     next: &[F; SHA_WORD_BASE_WIDTH_V1],
     current_aux: &[F; SHA_WORD_AUX_WIDTH_V1],
@@ -2685,7 +2677,7 @@ pub(crate) fn evaluate_zk_x509_sha_word_stark_residues_v1(
 }
 /// Evaluate the raw SHA-word polynomial over the base or extension field.
 #[allow(clippy::too_many_lines)]
-pub(crate) fn evaluate_zk_x509_sha_word_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_sha_word_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; SHA_WORD_BASE_WIDTH_V1],
     next: &[A; SHA_WORD_BASE_WIDTH_V1],
     current_aux: &[A; SHA_WORD_AUX_WIDTH_V1],
@@ -3084,7 +3076,7 @@ pub(crate) fn evaluate_zk_x509_sha_word_stark_residues_over_field_v1<A: Polynomi
 /// the selected final-state address, and independently gated execution and
 /// sorted-memory tables.  No actual length or block count is verifier-fixed.
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_sha_word_capacity_residues_v1(
+pub fn evaluate_zk_x509_sha_word_capacity_residues_v1(
     current: &[F; SHA_WORD_CAPACITY_BASE_WIDTH_V1],
     next: &[F; SHA_WORD_CAPACITY_BASE_WIDTH_V1],
     current_aux: &[F; SHA_WORD_CAPACITY_AUX_WIDTH_V1],
@@ -3106,7 +3098,7 @@ pub(crate) fn evaluate_zk_x509_sha_word_capacity_residues_v1(
 /// This shares the complete polynomial implementation with the scalar API. It
 /// does not implement the enclosing SHA call-bus AIR or enable a MAIN Fp4 proof.
 #[allow(clippy::too_many_lines)]
-pub(crate) fn evaluate_zk_x509_sha_word_capacity_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_sha_word_capacity_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; SHA_WORD_CAPACITY_BASE_WIDTH_V1],
     next: &[A; SHA_WORD_CAPACITY_BASE_WIDTH_V1],
     current_aux: &[A; SHA_WORD_CAPACITY_AUX_WIDTH_V1],
@@ -3867,7 +3859,7 @@ fn validate_continuation_sequence(
 /// witness material. No event list, fixed row, memory table, product, or
 /// continuation supplied by the prover is accepted without derivation.
 #[cfg(test)]
-pub(crate) fn validate_sha_word_stark_trace_v1(
+pub fn validate_sha_word_stark_trace_v1(
     trace: &ZkX509ShaWordStarkTraceV1,
     challenges: ZkX509WordMemoryChallengesV1,
 ) -> Result<(), ZkX509ShaWordStarkErrorV1> {

@@ -132,9 +132,11 @@ mod tests {
         for base in bases {
             for immediate in i8::MIN..=i8::MAX {
                 for opcode in [wide::memory::LOAD64, wide::memory::STORE64] {
-                    let op = operation(opcode, immediate as u8);
+                    let op = operation(opcode, i8::cast_unsigned(immediate));
                     // Independent machine-integer oracle, not the carry witness formula.
-                    let effective = (base as i64).wrapping_add(i64::from(immediate)) as u64;
+                    let effective = i64::cast_unsigned(
+                        u64::cast_signed(base).wrapping_add(i64::from(immediate)),
+                    );
                     let bits = word::witness(base, effective);
                     let carries = witness(base, op);
                     assert!(accepts(&bits, &carries, op), "base={base} imm={immediate}");
@@ -146,7 +148,7 @@ mod tests {
                     }
                 }
                 for opcode in [wide::memory::LOAD128, wide::memory::STORE128] {
-                    let op = operation(opcode, immediate as u8);
+                    let op = operation(opcode, i8::cast_unsigned(immediate));
                     assert!(accepts(&word::witness(base, base), &witness(base, op), op));
                     assert_eq!(witness(base, op), [F::ZERO; WIDTH]);
                 }
@@ -157,7 +159,7 @@ mod tests {
     #[test]
     fn every_address_bit_and_signed_carry_rejects_mutation() {
         for (base, immediate) in [(0, -1_i8), (u64::MAX, 1), (RADIX - 1, 127), (RADIX, -128)] {
-            let op = operation(wide::memory::LOAD64, immediate as u8);
+            let op = operation(wide::memory::LOAD64, i8::cast_unsigned(immediate));
             let effective = base.wrapping_add_signed(i64::from(immediate));
             let bits = word::witness(base, effective);
             let carries = witness(base, op);
@@ -195,7 +197,7 @@ mod tests {
         for last in 1..=u8::MAX {
             let scalar = operation(wide::memory::LOAD64, last);
             let wide = operation(wide::memory::LOAD128, last);
-            let shifted = base.wrapping_add_signed(i64::from(last as i8));
+            let shifted = base.wrapping_add_signed(i64::from(u8::cast_signed(last)));
             assert!(!accepts(
                 &word::witness(base, shifted),
                 &witness(base, wide),
@@ -260,7 +262,7 @@ mod tests {
                 } else {
                     enc::encode_load(wide::memory::LOAD64, 1, 3, immediate)
                 };
-                let base = address.wrapping_sub(immediate as i64 as u64);
+                let base = address.wrapping_sub(i64::cast_unsigned(i64::from(immediate)));
                 let op = Operation::from_word(word).unwrap();
                 assert!(accepts(
                     &word::witness(base, address),

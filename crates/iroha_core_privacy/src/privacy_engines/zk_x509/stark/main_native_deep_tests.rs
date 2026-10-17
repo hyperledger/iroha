@@ -411,10 +411,7 @@ fn native_long_mask_wrong_descending_overlap_is_detected_by_independent_polynomi
 #[ignore = "optimized all-six-native-domain eight-column exact parity and timing; run --release"]
 fn native_all_registered_domains_eight_column_original_openings_and_fri_bytes() {
     use std::time::Instant;
-    assert!(
-        !cfg!(debug_assertions),
-        "run this diagnostic with --release"
-    );
+    crate::test_support::require_no_debug_assertions("run this diagnostic with --release");
     for log in [5, 8, 15, 16, 18, 19] {
         let native = (0..BATCH)
             .map(|column| rows(log, column))
@@ -478,9 +475,8 @@ fn native_all_registered_domains_eight_column_original_openings_and_fri_bytes() 
 #[test]
 #[ignore = "release-only malformed internal extension-field owner controls; run --release"]
 fn native_noncanonical_points_claims_scales_and_accumulator_refuse_both_sides() {
-    assert!(
-        !cfg!(debug_assertions),
-        "from_base deliberately asserts canonicality in debug builds"
+    crate::test_support::require_no_debug_assertions(
+        "from_base deliberately asserts canonicality in debug builds",
     );
     let invalid = E::from_raw_coefficients_for_testing([F(u64::MAX), F::ZERO, F::ZERO, F::ZERO]);
     assert!(!invalid.is_canonical());

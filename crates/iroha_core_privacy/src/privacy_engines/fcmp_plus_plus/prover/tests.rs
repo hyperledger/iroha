@@ -441,7 +441,7 @@ fn fixture_spendable_output_source_stays_owned_through_release_transfer() {
     );
     source_lacks!(fixture; "ED25519_BASEPOINT_POINT * spend_x", "generator_t() * output_y", "ED25519_BASEPOINT_POINT * linking", "Scalar::from(amount)", "ED25519_BASEPOINT_POINT * commitment_mask", "Ok((output, spend_x.to_bytes(), output_y.to_bytes()))");
     source_has!(source_part!(source; "fn from_secret_byte_owners_v1(" => "#[cfg(test)]\n    fn duplicate_for_test"); "spend_x_bytes: ProverSecretCopyValueV1<[u8; 32]>", "output_y_bytes: ProverSecretCopyValueV1<[u8; 32]>");
-    let release_fixture = source_part!(source; "pub(crate) fn fcmp_release_fixture_v1(" => "/// Build a maximum-shape fixture whose first canonical branch");
+    let release_fixture = source_part!(source; "pub fn fcmp_release_fixture_v1(" => "/// Build a maximum-shape fixture whose first canonical branch");
     source_counts!(release_fixture; "FcmpProverInputV1::from_secret_byte_owners_v1(" => 3);
     source_lacks!(release_fixture; "spend_x.expose_copy()", "output_y.expose_copy()", "FcmpProverInputV1::new(");
     source_has!(source; "#[cfg(any(test, feature = \"test-utils\"))]\n#[doc(hidden)]\npub fn fcmp_test_spendable_output_v1(");
@@ -1184,7 +1184,7 @@ fn fixture_secret_cycle_source_has_no_raw_coordinate_hash_or_branch_boundary() {
     let source = include_str!("../prover.rs");
     let release_fixture = source_section(
         source,
-        "pub(crate) fn fcmp_release_fixture_v1(",
+        "pub fn fcmp_release_fixture_v1(",
         "/// Build a maximum-shape fixture whose first canonical branch",
     );
     assert_source_contract_group(
@@ -1549,7 +1549,7 @@ fn fixture_leaf_coordinate_source_keeps_exact_erasing_owners_through_hash() {
     );
     let release_fixture = source_section(
         source,
-        "pub(crate) fn fcmp_release_fixture_v1(",
+        "pub fn fcmp_release_fixture_v1(",
         "/// Build a maximum-shape fixture whose first canonical branch",
     );
     assert_source_contract_group(
@@ -2232,7 +2232,7 @@ fn fixture_secret_selene_hash_source_uses_borrowed_exact_builder_and_owned_resul
         assert!(!private_hash.contains(forbidden));
     }
     let release_fixture = source
-        .split_once("pub(crate) fn fcmp_release_fixture_v1(")
+        .split_once("pub fn fcmp_release_fixture_v1(")
         .expect("release fixture")
         .1
         .split_once("/// Build a maximum-shape fixture whose first canonical branch")

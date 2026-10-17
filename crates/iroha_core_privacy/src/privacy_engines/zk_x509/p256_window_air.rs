@@ -14,36 +14,36 @@ use crate::privacy_engines::transparent_stark::{GoldilocksFieldV1 as F, Polynomi
 use thiserror::Error;
 /// Stable aggregate layout for all selectors in one ECDSA equation.
 #[cfg(test)]
-pub(crate) const ZK_X509_P256_WINDOW_BATCH_DESCRIPTOR_V1: &[u8] = b"zk-x509-p256-window-batch-v1-incompatible:one-signature:u1-window0-through63-then-u2-window0-through63:128-verifier-fixed-vertical-blocks:512-rows-per-block:65536-row-single-commitment:no-horizontal-instance-expansion:base61:aux1-zero-before-cross-products:fixed27:constraints232-degree4:cross-trace-address-binding=complete-via-p256-aggregate-adapter:standalone-activation=not-applicable";
+pub const ZK_X509_P256_WINDOW_BATCH_DESCRIPTOR_V1: &[u8] = b"zk-x509-p256-window-batch-v1-incompatible:one-signature:u1-window0-through63-then-u2-window0-through63:128-verifier-fixed-vertical-blocks:512-rows-per-block:65536-row-single-commitment:no-horizontal-instance-expansion:base61:aux1-zero-before-cross-products:fixed27:constraints232-degree4:cross-trace-address-binding=complete-via-p256-aggregate-adapter:standalone-activation=not-applicable";
 /// Rows used by one 16-way point lookup.
-pub(crate) const P256_WINDOW_ROWS_V1: usize = 16 * 16 + 16;
+pub const P256_WINDOW_ROWS_V1: usize = 16 * 16 + 16;
 /// Sole padded native trace size for one window instance.
-pub(crate) const P256_WINDOW_STARK_TRACE_SIZE_V1: usize = 512;
+pub const P256_WINDOW_STARK_TRACE_SIZE_V1: usize = 512;
 /// Verifier-positioned selectors in one complete two-scalar multiplication.
-pub(crate) const P256_WINDOW_BATCH_INSTANCES_V1: usize = 2 * 64;
+pub const P256_WINDOW_BATCH_INSTANCES_V1: usize = 2 * 64;
 /// Sole vertically packed aggregate trace size for one ECDSA equation.
-pub(crate) const P256_WINDOW_BATCH_STARK_TRACE_SIZE_V1: usize =
+pub const P256_WINDOW_BATCH_STARK_TRACE_SIZE_V1: usize =
     P256_WINDOW_BATCH_INSTANCES_V1 * P256_WINDOW_STARK_TRACE_SIZE_V1;
 /// Committed base width for one selector row.
-pub(crate) const P256_WINDOW_BASE_WIDTH_V1: usize = 61;
+pub const P256_WINDOW_BASE_WIDTH_V1: usize = 61;
 /// Aggregate auxiliary width, constrained to the sole canonical zero column.
-pub(crate) const P256_WINDOW_STARK_AUX_WIDTH_V1: usize = 1;
+pub const P256_WINDOW_STARK_AUX_WIDTH_V1: usize = 1;
 /// Verifier-preprocessed fixed width for the extension-domain evaluator.
-pub(crate) const P256_WINDOW_STARK_FIXED_WIDTH_V1: usize = 27;
+pub const P256_WINDOW_STARK_FIXED_WIDTH_V1: usize = 27;
 /// Exact fixed-width constraint inventory per opened row.
-pub(crate) const P256_WINDOW_STARK_CONSTRAINT_COUNT_V1: usize = 232;
+pub const P256_WINDOW_STARK_CONSTRAINT_COUNT_V1: usize = 232;
 /// Maximum total degree in committed and verifier-preprocessed columns.
-pub(crate) const P256_WINDOW_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
+pub const P256_WINDOW_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
 /// External limbs packed into one physical row.
-pub(crate) const P256_WINDOW_EXTERNAL_LIMBS_PER_ROW_V1: usize = 3;
+pub const P256_WINDOW_EXTERNAL_LIMBS_PER_ROW_V1: usize = 3;
 /// Coordinate limbs retained by the running selector.
-pub(crate) const P256_WINDOW_COORDINATE_LIMBS_V1: usize = 16;
+pub const P256_WINDOW_COORDINATE_LIMBS_V1: usize = 16;
 /// Projective coordinates in one point.
-pub(crate) const P256_WINDOW_COORDINATES_V1: usize = 3;
+pub const P256_WINDOW_COORDINATES_V1: usize = 3;
 /// Candidate points in one four-bit table.
-pub(crate) const P256_WINDOW_CANDIDATES_V1: usize = 16;
+pub const P256_WINDOW_CANDIDATES_V1: usize = 16;
 /// Physical rows occupied by one point.
-pub(crate) const P256_WINDOW_ROWS_PER_POINT_V1: usize = 16;
+pub const P256_WINDOW_ROWS_PER_POINT_V1: usize = 16;
 const ACCUMULATOR: usize = 0;
 const EXTERNAL: usize = ACCUMULATOR + P256_WINDOW_COORDINATES_V1 * P256_WINDOW_COORDINATE_LIMBS_V1;
 const BITS: usize = EXTERNAL + P256_WINDOW_EXTERNAL_LIMBS_PER_ROW_V1;
@@ -65,7 +65,7 @@ const STARK_ACTIVE_CONTINUE: usize = STARK_ACTIVE_FINAL + 1;
 const _: () = assert!(STARK_ACTIVE_CONTINUE + 1 == P256_WINDOW_STARK_FIXED_WIDTH_V1);
 /// Which ECDSA scalar supplies this verifier-positioned nibble.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256WindowScalarV1 {
+pub enum P256WindowScalarV1 {
     /// `z * s^-1 mod n`.
     U1,
     /// `r * s^-1 mod n`.
@@ -73,7 +73,7 @@ pub(crate) enum P256WindowScalarV1 {
 }
 /// Projective coordinate selected or exposed by one row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256WindowCoordinateV1 {
+pub enum P256WindowCoordinateV1 {
     /// Homogeneous x-coordinate.
     X,
     /// Homogeneous y-coordinate.
@@ -102,7 +102,7 @@ impl P256WindowCoordinateV1 {
 /// Exact projective point bytes used to build a selector witness.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256WindowPointV1 {
+pub struct P256WindowPointV1 {
     /// Canonical x-coordinate.
     pub(crate) x_be: [u8; 32],
     /// Canonical y-coordinate.
@@ -113,7 +113,7 @@ pub(crate) struct P256WindowPointV1 {
 /// Verifier-fixed phase of one selector row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256WindowRowKindV1 {
+pub enum P256WindowRowKindV1 {
     /// Three consecutive limbs of one candidate point.
     Candidate {
         /// Candidate table index.
@@ -130,7 +130,7 @@ pub(crate) enum P256WindowRowKindV1 {
 /// Complete verifier-regenerated row identity.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256WindowFixedRowV1 {
+pub struct P256WindowFixedRowV1 {
     /// Scalar whose nibble is consumed.
     pub(crate) scalar: P256WindowScalarV1,
     /// Big-endian nibble index in that scalar, from 0 through 63.
@@ -141,7 +141,7 @@ pub(crate) struct P256WindowFixedRowV1 {
 /// Address of one pointwise value-bus read.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256WindowExternalAddressV1 {
+pub enum P256WindowExternalAddressV1 {
     /// One coordinate limb of one table candidate.
     Candidate {
         /// Candidate table index.
@@ -162,7 +162,7 @@ pub(crate) enum P256WindowExternalAddressV1 {
 /// One complete 16-way point-selection trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct P256WindowTraceV1 {
+pub struct P256WindowTraceV1 {
     /// Verifier-regenerated topology.
     pub(crate) fixed: Vec<P256WindowFixedRowV1>,
     /// Committed witness rows.
@@ -184,7 +184,7 @@ impl Drop for P256WindowTraceV1 {
 /// One aggregate commitment layout for all 128 verifier-positioned windows.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct P256WindowBatchStarkTraceV1 {
+pub struct P256WindowBatchStarkTraceV1 {
     /// Vertically concatenated and per-window padded selector rows.
     pub(crate) base: Vec<[F; P256_WINDOW_BASE_WIDTH_V1]>,
     /// Sole zero auxiliary column before cross-trace products are appended.
@@ -268,7 +268,7 @@ impl P256WindowTraceV1 {
 }
 /// Selector construction or constraint failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum P256WindowAirErrorV1 {
+pub enum P256WindowAirErrorV1 {
     /// A scalar/window position or row order is invalid.
     #[error("zk-X509 P-256 window topology is invalid")]
     Topology,
@@ -290,7 +290,7 @@ pub(crate) enum P256WindowAirErrorV1 {
 }
 /// Build one fixed-topology selector witness.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_p256_window_trace_v1(
+pub fn build_p256_window_trace_v1(
     scalar: P256WindowScalarV1,
     window: u8,
     table: [P256WindowPointV1; P256_WINDOW_CANDIDATES_V1],
@@ -365,7 +365,7 @@ pub(crate) fn build_p256_window_trace_v1(
 }
 /// Return the fixed pointwise value-bus address for one external row slot.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_window_external_address_v1(
+pub fn p256_window_external_address_v1(
     fixed: P256WindowFixedRowV1,
     slot: usize,
 ) -> Result<P256WindowExternalAddressV1, P256WindowAirErrorV1> {
@@ -393,7 +393,7 @@ pub(crate) fn p256_window_external_address_v1(
 }
 /// Return one committed external limb for pointwise value-bus equality.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_window_external_limb_v1(
+pub fn p256_window_external_limb_v1(
     trace: &P256WindowTraceV1,
     row: usize,
     slot: usize,
@@ -411,7 +411,7 @@ pub(crate) fn p256_window_external_limb_v1(
 /// Unlike the native trace accessor, this projection also applies to an LDE
 /// opening. The aggregate cross-trace product must consume these returned
 /// fields directly rather than copying them into an unbound bridge trace.
-pub(crate) const fn p256_window_opened_external_cells_v1<A: PolynomialAirFieldV1>(
+pub const fn p256_window_opened_external_cells_v1<A: PolynomialAirFieldV1>(
     base: &[A; P256_WINDOW_BASE_WIDTH_V1],
 ) -> [A; P256_WINDOW_EXTERNAL_LIMBS_PER_ROW_V1] {
     [base[EXTERNAL], base[EXTERNAL + 1], base[EXTERNAL + 2]]
@@ -420,14 +420,14 @@ pub(crate) const fn p256_window_opened_external_cells_v1<A: PolynomialAirFieldV1
 ///
 /// Scalar source products select one of these cells with verifier-fixed
 /// numeric columns; this projection itself never decodes a native row kind.
-pub(crate) const fn p256_window_opened_scalar_bits_v1<A: PolynomialAirFieldV1>(
+pub const fn p256_window_opened_scalar_bits_v1<A: PolynomialAirFieldV1>(
     base: &[A; P256_WINDOW_BASE_WIDTH_V1],
 ) -> [A; 4] {
     [base[BITS], base[BITS + 1], base[BITS + 2], base[BITS + 3]]
 }
 /// Evaluate one fixed selector row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_p256_window_row_constraints_v1(
+pub fn evaluate_p256_window_row_constraints_v1(
     fixed: P256WindowFixedRowV1,
     base: &[F; P256_WINDOW_BASE_WIDTH_V1],
     next: Option<&[F; P256_WINDOW_BASE_WIDTH_V1]>,
@@ -537,7 +537,7 @@ fn fixed_rows_v1(scalar: P256WindowScalarV1, window: u8) -> Vec<P256WindowFixedR
 /// Scalar role and window index are checked here and separately bound by the
 /// scalar-bit/external-copy manifests. They do not become proof metadata.
 #[cfg(test)]
-pub(crate) fn compile_p256_window_stark_fixed_rows_v1(
+pub fn compile_p256_window_stark_fixed_rows_v1(
     scalar: P256WindowScalarV1,
     window: u8,
 ) -> Result<Vec<[F; P256_WINDOW_STARK_FIXED_WIDTH_V1]>, P256WindowAirErrorV1> {
@@ -608,7 +608,7 @@ fn p256_window_stark_fixed_local_row_v1(
 }
 /// Constant-memory verifier preprocessing for the vertically packed window adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256WindowBatchStarkFixedProviderV1 {
+pub struct P256WindowBatchStarkFixedProviderV1 {
     trace_size: usize,
 }
 impl P256WindowBatchStarkFixedProviderV1 {
@@ -655,7 +655,7 @@ fn p256_window_batch_position_v1(
 /// This is the sole aggregate layout: creating 128 horizontal commitment
 /// instances would exceed both the instance ceiling and the proof-byte cap.
 #[cfg(test)]
-pub(crate) fn compile_p256_window_batch_stark_fixed_rows_v1()
+pub fn compile_p256_window_batch_stark_fixed_rows_v1()
 -> Result<Vec<[F; P256_WINDOW_STARK_FIXED_WIDTH_V1]>, P256WindowAirErrorV1> {
     let provider =
         P256WindowBatchStarkFixedProviderV1::new_v1(P256_WINDOW_BATCH_STARK_TRACE_SIZE_V1)?;
@@ -672,7 +672,7 @@ pub(crate) fn compile_p256_window_batch_stark_fixed_rows_v1()
 }
 /// Build the sole vertically packed aggregate witness for one ECDSA equation.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_p256_window_batch_stark_trace_v1(
+pub fn build_p256_window_batch_stark_trace_v1(
     windows: &[P256WindowTraceV1],
 ) -> Result<P256WindowBatchStarkTraceV1, P256WindowAirErrorV1> {
     if windows.len() != P256_WINDOW_BATCH_INSTANCES_V1 {
@@ -713,7 +713,7 @@ fn stark_window_matching_bit_v1<A: PolynomialAirFieldV1>(bit: A, expected: A) ->
 /// All row roles, candidate bits, chunk positions, and boundaries are numeric verifier
 /// preprocessing. The evaluator never decodes a proof-controlled enum or index.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_window_stark_residues_v1(
+pub fn evaluate_p256_window_stark_residues_v1(
     current: &[F; P256_WINDOW_BASE_WIDTH_V1],
     next: &[F; P256_WINDOW_BASE_WIDTH_V1],
     current_aux: &[F; P256_WINDOW_STARK_AUX_WIDTH_V1],
@@ -723,7 +723,7 @@ pub(crate) fn evaluate_p256_window_stark_residues_v1(
     evaluate_p256_window_stark_residues_over_field_v1(current, next, current_aux, next_aux, fixed)
 }
 /// Shared numeric window polynomial over the base or extension field.
-pub(crate) fn evaluate_p256_window_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_p256_window_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_WINDOW_BASE_WIDTH_V1],
     next: &[A; P256_WINDOW_BASE_WIDTH_V1],
     current_aux: &[A; P256_WINDOW_STARK_AUX_WIDTH_V1],
@@ -899,7 +899,7 @@ mod tests {
             "P256WindowTraceV1 { <private trace redacted> }"
         );
         let cells = trace.base.len() * P256_WINDOW_BASE_WIDTH_V1;
-        let (_, observed) = observe_v1(|| drop(trace));
+        let ((), observed) = observe_v1(|| drop(trace));
         assert_eq!(observed.iter().map(|item| item.cells).sum::<usize>(), cells);
         assert!(observed.iter().any(|item| item.nonzero_before > 0));
         assert!(observed.iter().all(|item| item.nonzero_after == 0));

@@ -16,7 +16,7 @@ use super::super::private_links::CA_EXTRA_MIX_LABEL_V1;
 
 /// The two committed CA oracles and their original coefficient owner. No point
 /// can be chosen until the paired MAIN phase supplies its own oracle checkpoint.
-pub(crate) struct CaAwaitingJointPointV1 {
+pub struct CaAwaitingJointPointV1 {
     original: CaAwaitingMainAuxiliaryV1,
     plan: CaMainPrivateLinkPlanV1,
     transcript: TransparentTranscriptV1,
@@ -27,7 +27,7 @@ pub(crate) struct CaAwaitingJointPointV1 {
 
 /// Both normal DEEP and108 original auxiliary openings have been absorbed.
 /// Independent batching coefficients require the paired opening capability.
-pub(crate) struct CaAwaitingJointOpeningsV1 {
+pub struct CaAwaitingJointOpeningsV1 {
     oracles: CaAwaitingJointPointV1,
     point: E,
     deep: aggregate::AggregateDeepProofV1,
@@ -56,18 +56,18 @@ impl CaAwaitingMainAuxiliaryV1 {
         let alphas = derive_ca_constraint_alphas_v1(&mut transcript)?;
         let compositions = self.local_composition_v1(&alphas, rng)?;
         let tree =
-            aggregate::composition_tree_v1(ca_domains_v1(proof_instance), 0, &compositions[0])
+            aggregate::composition_tree_v1(&ca_domains_v1(proof_instance), 0, &compositions[0])
                 .map_err(map_aggregate_proof_error_v1)?;
         aggregate::absorb_composition_roots_v1(
             &mut transcript,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &[tree.root()],
         )
         .map_err(map_aggregate_proof_error_v1)?;
         let fri_masks = aggregate::build_fri_mask_oracles_v1(
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &layout,
             rng,
         )
@@ -78,7 +78,7 @@ impl CaAwaitingMainAuxiliaryV1 {
         aggregate::absorb_fri_mask_roots_v1(
             &mut transcript,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &[fri_masks[0].tree.root()],
         )
         .map_err(map_aggregate_proof_error_v1)?;
@@ -347,9 +347,10 @@ impl CaAwaitingJointOpeningsV1 {
         );
         let fri_rows = fri_base.len();
         let extra_rows = extra_lde.len();
+        let expected_rows = layout.common_lde_size();
         if fri_rows != extra_rows
-            || fri_base.capacity() != layout.common_lde_size()
-            || extra_lde.capacity() != layout.common_lde_size()
+            || fri_base.capacity() != expected_rows
+            || extra_lde.capacity() != expected_rows
         {
             return Err(ZkX509CaAccumulatorProofErrorV1::Resource);
         }
@@ -361,7 +362,7 @@ impl CaAwaitingJointOpeningsV1 {
             .map_err(map_aggregate_proof_error_v1)?;
         let fri = aggregate::build_fri_lane_v1(
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &layout,
             0,
             fri_base.into_vec(),
@@ -397,7 +398,7 @@ impl CaAwaitingJointOpeningsV1 {
         let indices = aggregate::query_indices_v1(
             &self.oracles.transcript,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &layout,
         )
         .map_err(map_aggregate_proof_error_v1)?;
@@ -471,4 +472,4 @@ impl CaAwaitingJointOpeningsV1 {
 
 #[cfg(test)]
 #[path = "accumulator_joint_prover_tests.rs"]
-pub(crate) mod tests;
+pub mod tests;

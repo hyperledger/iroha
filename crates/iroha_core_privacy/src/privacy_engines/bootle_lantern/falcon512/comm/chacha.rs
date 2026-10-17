@@ -1,9 +1,10 @@
-//! Scalar ChaCha20 PRNG layout used by the pinned Falcon reference signer.
+//! Scalar `ChaCha20` PRNG layout used by the pinned Falcon reference signer.
 //!
 //! Adapted from `fn-dsa-sign` 0.3.0 at commit
 //! `daf14859b5aa3f8d75c42966ba7de83e6eb59997` (Unlicense).  The unusual
 //! word-major eight-block output layout is intentional and matches the Falcon
 //! C implementation and its AVX2 path byte for byte.
+use super::super::table_assets::read_u32_le;
 use super::PRNG;
 use zeroize::Zeroize;
 pub(in crate::privacy_engines::bootle_lantern::falcon512) struct ChaCha20Prng {
@@ -29,7 +30,7 @@ impl ChaCha20Prng {
                         .expect("fixed ChaCha state word"),
                 );
             }
-            working[14] ^= *counter as u32;
+            working[14] ^= read_u32_le(&counter.to_le_bytes(), 0);
             working[15] ^= (*counter >> 32) as u32;
             for _ in 0..10 {
                 quarter_round(&mut working, 0, 4, 8, 12);
@@ -53,7 +54,7 @@ impl ChaCha20Prng {
             }
             working[14] = working[14].wrapping_add(
                 u32::from_le_bytes(self.state[40..44].try_into().expect("fixed ChaCha IV word"))
-                    ^ *counter as u32,
+                    ^ read_u32_le(&counter.to_le_bytes(), 0),
             );
             working[15] = working[15].wrapping_add(
                 u32::from_le_bytes(self.state[44..48].try_into().expect("fixed ChaCha IV word"))

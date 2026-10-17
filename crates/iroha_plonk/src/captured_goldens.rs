@@ -21,9 +21,9 @@ use crate::{
 };
 
 #[path = "captured_goldens/circuits.rs"]
-pub(crate) mod circuits;
+pub mod circuits;
 #[path = "captured_goldens/export.rs"]
-pub(crate) mod export;
+pub mod export;
 use circuits::{SigmaCircuit, WideCircuit};
 
 fn bytes(value: &Value) -> Vec<u8> {

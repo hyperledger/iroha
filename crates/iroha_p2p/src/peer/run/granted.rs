@@ -236,11 +236,15 @@ pub(super) async fn run<T: Pload + ClassifyTopic, E: Enc, P: Entrypoint<E>>(
                 _ => return,
             }
         };
-        let negotiation::Negotiated { transport: negotiation::OwnedTransport { read, write, source }, binding, outbound_maximum } = negotiated;
-        let mut stream = match CreditStream::new(read, write, source, binding, cryptographer, peer_id,
-            connection_id, peer_message_senders.topic_frame_caps, outbound_maximum, outbound_frame_queue_limits,
-idle_timeout,
-) {
+        let negotiation::Negotiated { transport, binding, outbound_maximum } = negotiated;
+        let mut stream = match CreditStream::new(
+        transport,
+        binding,
+        cryptographer,
+        peer_id,
+        connection_id,
+        super::super::receive_credit::stream::CreditStreamConfig { caps: peer_message_senders.topic_frame_caps, maximum: outbound_maximum, limits: outbound_frame_queue_limits, idle_timeout },
+    ) {
             Ok(stream) => stream, Err(error) => { iroha_logger::error!(?error, "Admitted credit writer geometry cannot be installed"); return; }
         };
         let _ = max_frame_bytes; // Geometry was capped before any listener/dialer started.

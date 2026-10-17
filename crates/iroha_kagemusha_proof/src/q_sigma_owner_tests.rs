@@ -1,8 +1,7 @@
 //! Real sigma proofs composed in the `Q_sigma` relation, with byte, key, mode,
 //! fold, public-input and known/unknown-shape adversaries.
 
-#[path = "../tests/common/mod.rs"]
-mod common;
+use crate::common;
 #[path = "../tests/q_sigma/serialized.rs"]
 mod serialized;
 

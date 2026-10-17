@@ -603,6 +603,17 @@ same decision. Unknown fields then use the same strict iterative subtree
 grammar, so an individually valid subtree cannot exceed the global limit by
 hiding beneath a typed outer object or array.
 
+JSON decoding also enforces every active `DecodeLimits` nesting budget against
+the complete structure before allocating decoder storage. The root requires no
+additional depth: a scalar or empty container fits a zero-depth budget, while
+each nested value consumes one level. A peak check preserves the original
+scope, relative depth and refusal provenance without advancing depth or
+resetting counters. The fixed JSON depth ceiling is checked first. Conversion
+from an existing `Value` uses a bounded, allocation-free borrowed traversal
+before cloning or serializing it, and the consuming conversion retains its
+iterative cleanup path on refusal. Transparent `Box` ownership does not add a
+JSON structural level; its separate fixed recursion guard remains enforced.
+
 Checked JSON writers stream into the original `JsonWriteSink`. Every container
 they successfully enter is released when the write returns, including byte,
 depth and unsupported-leaf refusals. A refused entry never releases an inherited

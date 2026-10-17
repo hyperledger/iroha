@@ -249,6 +249,10 @@ fn validate_inputs<C: PastaCurve>(inputs: &[FoldInput<C>]) -> Result<u64, Error>
 }
 
 /// Challenge-only public context; the digest state and opening never enter it.
+///
+/// # Errors
+/// Empty inputs, no full-length source, an unrepresentable input count, or a
+/// transcript error while absorbing the public context.
 pub fn prelude<C: PastaCurve, T: Transcript<C>>(
     transcript: &mut T,
     params: &PinnedParams<C>,
@@ -408,9 +412,11 @@ where
     transcript.writer().write_scalar(&coefficients[0]);
     transcript
         .writer()
-        .append_unabsorbed_generator(&generators[0])?;
+        .append_unabsorbed_generator(&generators[0]);
     let body = transcript.finish();
     let coins = tape.to_private_bytes();
+    // The fold attempt consumes and clears its tape after the final encoding.
+    drop(tape);
     let mut bytes = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES].into_boxed_slice());
     bytes[..FOLD_BODY_BYTES].copy_from_slice(&body);
     bytes[FOLD_BODY_BYTES..].copy_from_slice(&coins);

@@ -189,7 +189,7 @@ fn retained_fri_seeded_input_matches_two_replays_roots_transcript_and_openings()
         };
         let masks = aggregate::build_fri_mask_oracles_v1(
             parameters,
-            AGGREGATE_DOMAINS_V1,
+            &AGGREGATE_DOMAINS_V1,
             &layout,
             &mut StdRng::from_seed([79; 32]),
         )
@@ -231,7 +231,7 @@ fn retained_fri_seeded_input_matches_two_replays_roots_transcript_and_openings()
         let mut new_transcript = transcript();
         let old_material = aggregate::build_streaming_fri_lane_v1(
             parameters,
-            AGGREGATE_DOMAINS_V1,
+            &AGGREGATE_DOMAINS_V1,
             &layout,
             0,
             replay(),
@@ -246,7 +246,7 @@ fn retained_fri_seeded_input_matches_two_replays_roots_transcript_and_openings()
             .unwrap();
         let new_material = aggregate::build_streaming_fri_lane_v1(
             parameters,
-            AGGREGATE_DOMAINS_V1,
+            &AGGREGATE_DOMAINS_V1,
             &layout,
             0,
             core::mem::take(&mut copy.0),
@@ -255,16 +255,24 @@ fn retained_fri_seeded_input_matches_two_replays_roots_transcript_and_openings()
         .unwrap();
         assert_eq!(new_material, old_material);
         assert_eq!(new_transcript.state(), old_transcript.state());
-        let old_indices =
-            aggregate::query_indices_v1(&old_transcript, parameters, AGGREGATE_DOMAINS_V1, &layout)
-                .unwrap();
-        let new_indices =
-            aggregate::query_indices_v1(&new_transcript, parameters, AGGREGATE_DOMAINS_V1, &layout)
-                .unwrap();
+        let old_indices = aggregate::query_indices_v1(
+            &old_transcript,
+            parameters,
+            &AGGREGATE_DOMAINS_V1,
+            &layout,
+        )
+        .unwrap();
+        let new_indices = aggregate::query_indices_v1(
+            &new_transcript,
+            parameters,
+            &AGGREGATE_DOMAINS_V1,
+            &layout,
+        )
+        .unwrap();
         assert_eq!(new_indices, old_indices);
         let old_openings = aggregate::open_streaming_fri_lane_v1(
             parameters,
-            AGGREGATE_DOMAINS_V1,
+            &AGGREGATE_DOMAINS_V1,
             &layout,
             0,
             replay(),
@@ -275,7 +283,7 @@ fn retained_fri_seeded_input_matches_two_replays_roots_transcript_and_openings()
         let mut original = retained.take_lane_v1(0).unwrap();
         let new_openings = aggregate::open_streaming_fri_lane_v1(
             parameters,
-            AGGREGATE_DOMAINS_V1,
+            &AGGREGATE_DOMAINS_V1,
             &layout,
             0,
             core::mem::take(&mut original.0),

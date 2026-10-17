@@ -41,7 +41,7 @@ fn cmov_matches_interpreter_full_word_conditions_and_all_aliases() {
         0xffff_ffff_0000_0001,
         u64::MAX,
     ] {
-        for value in [0, 91, i64::MIN as u64, u64::MAX] {
+        for value in [0, 91, i64::cast_unsigned(i64::MIN), u64::MAX] {
             for (rd, source, cond) in [
                 (8, 6, 7),
                 (6, 6, 7),
@@ -105,7 +105,7 @@ fn cmovi_matches_interpreter_signed_immediates_retention_and_condition_alias() {
                 let before = records[0].before;
                 let mut expected = before.registers;
                 if rd != 0 && before.registers[usize::from(cond)] != 0 {
-                    expected[usize::from(rd)] = i64::from(immediate) as u64;
+                    expected[usize::from(rd)] = i64::cast_unsigned(i64::from(immediate));
                 }
                 assert_eq!(records[0].after.registers, expected);
                 assert_eq!(records[0].after.tags, before.tags);
@@ -311,9 +311,9 @@ fn mixed_moves_preserve_degree_four_and_native_profile_geometry() {
     assert_rows(&segment, &segment.witness_rows(&records).unwrap());
     assert_eq!(segment.after.registers[8], u64::MAX);
     assert_eq!(segment.after.registers[9], 56);
-    assert_eq!(segment.after.registers[20], (-128_i64) as u64);
+    assert_eq!(segment.after.registers[20], i64::cast_unsigned(-128_i64));
     assert_eq!(segment.after.registers[21], 58);
-    assert_eq!(segment.after.registers[7], (-128_i64) as u64);
+    assert_eq!(segment.after.registers[7], i64::cast_unsigned(-128_i64));
     assert_eq!(segment.base_width_v1(), 1_356);
     assert_eq!(segment.profile_constraint_count_v1(), 3_369);
     assert_eq!(

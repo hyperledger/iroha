@@ -29,7 +29,7 @@ const EXPORT_TEST: &str = "captured_goldens::export::export_current_native_corpo
 const SOURCE_FAMILY: &str = "f17349f2880f818be27f6508950cfaf909354b4a14e3f55bf7375a0fa3d03129";
 
 /// Encode an actual original with canonical lower-case hexadecimal.
-pub(crate) fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8] = b"0123456789abcdef";
     let mut result = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -40,12 +40,12 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 }
 
 /// Hash the exact original bytes, without interpreting their contents.
-pub(crate) fn digest(bytes: &[u8]) -> String {
+pub fn digest(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
 /// Stream an exclusive regular original while checking its physical identity.
-pub(crate) fn file_pin(path: &Path) -> Value {
+pub fn file_pin(path: &Path) -> Value {
     let before = fs::symlink_metadata(path).expect("file metadata");
     assert!(before.is_file(), "regular original required");
     #[cfg(unix)]
@@ -60,7 +60,7 @@ pub(crate) fn file_pin(path: &Path) -> Value {
     );
     let mut hash = Sha256::new();
     let mut length = 0_u64;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
     loop {
         let count = source.read(&mut buffer).expect("read exact original");
         if count == 0 {
@@ -323,7 +323,7 @@ where
 }
 
 /// Claim a new capture directory outside the source tree, without replacement.
-pub(crate) fn create_output(path: &Path) {
+pub fn create_output(path: &Path) {
     assert!(path.is_absolute(), "absolute output directory required");
     let parent = path.parent().expect("output parent");
     assert_eq!(
@@ -368,7 +368,7 @@ pub(crate) fn create_output(path: &Path) {
 }
 
 /// Publish one new read-only original and verify its exact bytes before returning.
-pub(crate) fn write_original(directory: &Path, name: &str, value: &Value) -> Value {
+pub fn write_original(directory: &Path, name: &str, value: &Value) -> Value {
     let mut components = Path::new(name).components();
     assert!(
         matches!(components.next(), Some(std::path::Component::Normal(_)))
@@ -556,5 +556,18 @@ fn capture_outputs_refuse_replacement_aliases_and_path_escape() {
     assert!(std::panic::catch_unwind(|| file_pin(&output.join("original.json"))).is_err());
     fs::remove_file(output.join("link.json")).expect("remove test hardlink");
     assert_eq!(file_pin(&output.join("original.json")), original);
+    for length in [0, 1, 65_535, 65_536, 65_537, 131_079] {
+        let payload = (0..length)
+            .map(|index| u8::try_from(index % 251).expect("remainder fits one byte"))
+            .collect::<Vec<_>>();
+        let path = output.join(format!("stream-{length}.bin"));
+        fs::write(&path, &payload).expect("write this test's fresh stream fixture");
+        assert_eq!(
+            file_pin(&path),
+            norito::json!({
+                "sha256": (digest(&payload)), "bytes": (length)
+            })
+        );
+    }
     fs::remove_dir_all(&parent).expect("remove this test's disposable output");
 }

@@ -194,7 +194,7 @@ fn presentation_interval_violations_v1(
                 &unused,
                 &schedule.fixed_row(first + offset).unwrap(),
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 ZkX509Rfc5280StarkTerminalClaimsV1::canonical_identity_v1(),
             )
             .unwrap();

@@ -343,12 +343,13 @@ impl BuiltinSourceMemberV1 {
         )?;
         let entry = self.entry;
         let d = binding.descriptor();
+        let descriptor_digest = binding.digest();
         if !equal_bytes(binding.encoded(), descriptor, cancellation)?
-            || binding.digest() != &entry.descriptor_digest
+            || descriptor_digest != &entry.descriptor_digest
             || d.curve != entry.curve
             || d.k != entry.k
             || d.params_digest != entry.params_digest
-            || key.descriptor_digest() != binding.digest()
+            || key.descriptor_digest() != descriptor_digest
         {
             return Err(artifact::Error::Profile.into());
         }

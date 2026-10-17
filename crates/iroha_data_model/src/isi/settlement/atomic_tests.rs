@@ -621,7 +621,15 @@ fn instruction_with_escrows(count: usize) -> SettleAtomic {
     let mut value = instruction(3);
     value.escrows = sorted_escrows(
         (0..count)
-            .map(|index| escrow(&format!("escrow-{index}"), 10 + index as u32))
+            .map(|index| {
+                escrow(
+                    &format!("escrow-{index}"),
+                    u32::try_from(index)
+                        .expect("fixture index fits u32")
+                        .checked_add(10)
+                        .expect("fixture seed fits u32"),
+                )
+            })
             .collect(),
     );
     value
@@ -769,7 +777,15 @@ fn atomic_settlement_requires_one_leg_and_a_participating_owner() {
     let escrows = |count: usize| {
         sorted_escrows(
             (0..count)
-                .map(|index| escrow(&format!("leg-{index}"), 1 + index as u32))
+                .map(|index| {
+                    escrow(
+                        &format!("leg-{index}"),
+                        u32::try_from(index)
+                            .expect("fixture index fits u32")
+                            .checked_add(1)
+                            .expect("fixture seed fits u32"),
+                    )
+                })
                 .collect(),
         )
     };

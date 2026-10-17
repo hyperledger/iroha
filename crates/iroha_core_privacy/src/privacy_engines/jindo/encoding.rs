@@ -11,9 +11,7 @@ use super::{
     ring::{JINDO_INNER_MODULI_V1, JindoRnsPolynomialV1},
 };
 /// Deterministically encode at most 128 coefficient-field values.
-pub(crate) fn encode_coefficient_slots_v1(
-    values: &[JindoFieldElementV1],
-) -> Option<JindoRnsPolynomialV1> {
+pub fn encode_coefficient_slots_v1(values: &[JindoFieldElementV1]) -> Option<JindoRnsPolynomialV1> {
     if values.len() > JINDO_ENCODING_SLOTS_V1 {
         return None;
     }
@@ -35,7 +33,7 @@ pub(crate) fn encode_coefficient_slots_v1(
     ))
 }
 /// Decode all 128 slots through the Jindo ring homomorphism.
-pub(crate) fn decode_coefficient_slots_v1(
+pub fn decode_coefficient_slots_v1(
     polynomial: &JindoRnsPolynomialV1,
 ) -> [JindoFieldElementV1; JINDO_ENCODING_SLOTS_V1] {
     let mut values = [JindoFieldElementV1::ZERO; JINDO_ENCODING_SLOTS_V1];
@@ -59,7 +57,7 @@ pub(crate) fn decode_coefficient_slots_v1(
 /// Jindo's reference implementation uses an additional ambient CRT prime for the pre-challenge
 /// split evaluations. Keeping the exact coefficients in `i128` is equivalent for this fixed profile
 /// and makes the no-wrap argument explicit: the reviewed bound is below `2^93`, far inside `i128`.
-pub(crate) fn decode_exact_coefficient_slots_v1(
+pub fn decode_exact_coefficient_slots_v1(
     coefficients: &[i128; JINDO_RING_DEGREE_V1],
 ) -> [JindoFieldElementV1; JINDO_ENCODING_SLOTS_V1] {
     let mut values = [JindoFieldElementV1::ZERO; JINDO_ENCODING_SLOTS_V1];

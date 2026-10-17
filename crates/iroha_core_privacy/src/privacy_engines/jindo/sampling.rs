@@ -194,7 +194,7 @@ where
     Err(JindoSamplingErrorV1::RejectionBudgetExhausted)
 }
 /// Sample one independent small Gaussian application-ring polynomial.
-pub(crate) fn sample_gaussian_polynomial_v1<R>(
+pub fn sample_gaussian_polynomial_v1<R>(
     width: JindoGaussianWidthV1,
     moduli: [JindoPrimeModulusV1; 2],
     rng: &mut R,
@@ -212,7 +212,7 @@ where
     ))
 }
 /// Sample a polynomial with independent coefficients uniform in `[0,b)`.
-pub(crate) fn sample_uniform_encoding_polynomial_v1<R>(
+pub fn sample_uniform_encoding_polynomial_v1<R>(
     rng: &mut R,
 ) -> Result<JindoRnsPolynomialV1, JindoSamplingErrorV1>
 where
@@ -228,7 +228,7 @@ where
     ))
 }
 /// Sample a polynomial with independent coefficients uniform in `[-b,b)`.
-pub(crate) fn sample_mlwe_polynomial_v1<R>(
+pub fn sample_mlwe_polynomial_v1<R>(
     rng: &mut R,
 ) -> Result<JindoRnsPolynomialV1, JindoSamplingErrorV1>
 where
@@ -251,7 +251,7 @@ where
 ///
 /// `exponent_numerator` is `-||v||^2 - 2<y,v>` and the exponent denominator
 /// is `2 sigma^2`, with the exact half-integer `sigma=8241321404272819/2`.
-pub(crate) fn accept_aggregation_rejection_v1<R>(
+pub fn accept_aggregation_rejection_v1<R>(
     exponent_numerator: i128,
     rng: &mut R,
 ) -> Result<bool, JindoSamplingErrorV1>
@@ -304,7 +304,7 @@ where
         DecayThresholdV1::Finite(value) => draw < value,
     })
 }
-pub(crate) fn sample_bounded_u64_v1(
+pub fn sample_bounded_u64_v1(
     bound: u64,
     rng: &mut impl RngCore,
 ) -> Result<u64, JindoSamplingErrorV1> {

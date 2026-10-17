@@ -27,11 +27,11 @@ use crate::privacy_engines::transparent_stark::{
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 /// Manifest descriptor for the resource-bounded local SHA-256 chip.
-pub(crate) const ZK_X509_SHA256_WORD_AIR_DESCRIPTOR_V1: &[u8] = b"sha256-word-air-v1-incompatible:u32-range-row=packed-plus32bits:sigma-degree3:choose-degree2:majority-degree3:add-up-to5-plus-u32-constant:carry-3bits:local-rows-per-block=1728:local-initial-rows=8:word-copy=four-independent-transcript-challenged-address-value-write-grand-products:sorted-address-step-0-or1:exactly-one-write-per-address:read-value-equals-write:memory-rows-per-block=2136:memory-fixed-rows=16:fixed-canonical-topology:physical-segment-offset-and-copy-product-continuations:shared-sha-call-bus-binding-required";
+pub const ZK_X509_SHA256_WORD_AIR_DESCRIPTOR_V1: &[u8] = b"sha256-word-air-v1-incompatible:u32-range-row=packed-plus32bits:sigma-degree3:choose-degree2:majority-degree3:add-up-to5-plus-u32-constant:carry-3bits:local-rows-per-block=1728:local-initial-rows=8:word-copy=four-independent-transcript-challenged-address-value-write-grand-products:sorted-address-step-0-or1:exactly-one-write-per-address:read-value-equals-write:memory-rows-per-block=2136:memory-fixed-rows=16:fixed-canonical-topology:physical-segment-offset-and-copy-product-continuations:shared-sha-call-bus-binding-required";
 /// Native rows in each verifier-fixed SHA batch segment.
-pub(crate) const SHA256_WORD_FIXED_BATCH_SEGMENT_ROWS_V1: usize = 1 << 19;
+pub const SHA256_WORD_FIXED_BATCH_SEGMENT_ROWS_V1: usize = 1 << 19;
 /// Verifier-fixed number of SHA batch segments.
-pub(crate) const SHA256_WORD_FIXED_BATCH_SEGMENT_COUNT_V1: usize = 5;
+pub const SHA256_WORD_FIXED_BATCH_SEGMENT_COUNT_V1: usize = 5;
 const SHA256_INITIAL_STATE_V1: [u32; 8] = [
     0x6a09_e667,
     0xbb67_ae85,
@@ -116,9 +116,9 @@ const INITIAL_WORD_AIR_ROWS_V1: usize = 8;
 const WORD_MEMORY_ROWS_PER_BLOCK_V1: usize = 2_136;
 #[cfg(test)]
 const FIXED_WORD_MEMORY_ROWS_V1: usize = 16;
-pub(crate) const WORD_MEMORY_PERMUTATION_LANES_V1: usize = 4;
+pub const WORD_MEMORY_PERMUTATION_LANES_V1: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WordMemoryAccessV1 {
+pub struct WordMemoryAccessV1 {
     pub(crate) address: F,
     pub(crate) value: F,
     pub(crate) is_write: F,
@@ -156,7 +156,7 @@ impl WordMemoryAccessV1 {
 }
 /// One independent tuple-compression lane for the word-copy argument.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509WordMemoryLaneChallengesV1 {
+pub struct ZkX509WordMemoryLaneChallengesV1 {
     pub(crate) beta: F,
     pub(crate) address: F,
     pub(crate) value: F,
@@ -169,7 +169,7 @@ pub(crate) struct ZkX509WordMemoryLaneChallengesV1 {
 /// each lane's permutation-collision bound is below `2^-43`; four independent
 /// lanes put this local event below `2^-172`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509WordMemoryChallengesV1 {
+pub struct ZkX509WordMemoryChallengesV1 {
     pub(crate) lanes: [ZkX509WordMemoryLaneChallengesV1; WORD_MEMORY_PERMUTATION_LANES_V1],
 }
 #[cfg(test)]
@@ -196,7 +196,7 @@ impl ZkX509WordMemoryChallengesV1 {
     }
 }
 /// Derive the four word-copy lanes from a transcript after trace commitment.
-pub(crate) fn derive_sha256_word_memory_challenges_v1(
+pub fn derive_sha256_word_memory_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<ZkX509WordMemoryChallengesV1, TransparentStarkErrorV1> {
     let mut sampled = [F::ZERO; WORD_MEMORY_PERMUTATION_LANES_V1 * 4];
@@ -219,7 +219,7 @@ pub(crate) fn derive_sha256_word_memory_challenges_v1(
     })
 }
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct WordMemoryTraceV1 {
+pub struct WordMemoryTraceV1 {
     pub(crate) execution: Vec<WordMemoryAccessV1>,
     pub(crate) sorted: Vec<WordMemoryAccessV1>,
 }
@@ -236,7 +236,7 @@ impl Drop for WordMemoryTraceV1 {
 }
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WordMemoryPermutationRowV1 {
+pub struct WordMemoryPermutationRowV1 {
     pub(crate) execution: WordMemoryAccessV1,
     pub(crate) sorted: WordMemoryAccessV1,
     pub(crate) execution_product_before: [F; WORD_MEMORY_PERMUTATION_LANES_V1],
@@ -246,12 +246,12 @@ pub(crate) struct WordMemoryPermutationRowV1 {
 }
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WordMemoryPermutationArgumentV1 {
+pub struct WordMemoryPermutationArgumentV1 {
     pub(crate) rows: Vec<WordMemoryPermutationRowV1>,
 }
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Sha256WordSegmentContinuationV1 {
+pub struct Sha256WordSegmentContinuationV1 {
     pub(crate) segment_index: u8,
     pub(crate) global_row_start: usize,
     pub(crate) global_row_end: usize,
@@ -268,19 +268,19 @@ pub(crate) struct Sha256WordSegmentContinuationV1 {
 /// continuation value.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Sha256WordSegmentedTraceV1 {
+pub struct ZkX509Sha256WordSegmentedTraceV1 {
     pub(crate) copy_argument: WordMemoryPermutationArgumentV1,
     pub(crate) segments: Vec<Sha256WordSegmentContinuationV1>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WordIdV1(pub(crate) usize);
+pub struct WordIdV1(pub(crate) usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SigmaThirdV1 {
+pub enum SigmaThirdV1 {
     Rotate(u8),
     Shift(u8),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum WordOperationV1 {
+pub enum WordOperationV1 {
     Sigma {
         input: WordIdV1,
         rotate_first: u8,
@@ -379,7 +379,7 @@ impl WordOperationV1 {
 }
 /// Local word-chip construction or constraint failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum ZkX509Sha256WordAirErrorV1 {
+pub enum ZkX509Sha256WordAirErrorV1 {
     /// Message length or row arithmetic overflowed.
     #[error("zk-X509 word SHA-256 AIR input is too large")]
     InputTooLarge,
@@ -425,7 +425,7 @@ impl From<ZkX509AirErrorV1> for ZkX509Sha256WordAirErrorV1 {
 }
 /// Complete local word-oriented SHA-256 witness.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509Sha256WordCircuitV1 {
+pub struct ZkX509Sha256WordCircuitV1 {
     words: Vec<U32RangeAirRowV1>,
     input_words: Vec<WordIdV1>,
     operations: Vec<WordOperationV1>,
@@ -973,7 +973,7 @@ impl WordBuilderV1 {
     }
 }
 /// Build and validate the resource-bounded SHA-256 word chip.
-pub(crate) fn build_sha256_word_circuit_v1(
+pub fn build_sha256_word_circuit_v1(
     message: &[u8],
 ) -> Result<ZkX509Sha256WordCircuitV1, ZkX509Sha256WordAirErrorV1> {
     let circuit = build_sha256_word_circuit_unchecked_v1(message)?;
@@ -982,7 +982,7 @@ pub(crate) fn build_sha256_word_circuit_v1(
 }
 /// Exact conceptual local rows for one message length.
 #[cfg(test)]
-pub(crate) fn sha256_word_air_rows_for_message_len_v1(
+pub fn sha256_word_air_rows_for_message_len_v1(
     message_len: usize,
 ) -> Result<usize, ZkX509Sha256WordAirErrorV1> {
     let padded_len = sha256_padded_len_v1(message_len)?;
@@ -994,7 +994,7 @@ pub(crate) fn sha256_word_air_rows_for_message_len_v1(
 }
 /// Exact global word-copy rows for one message length.
 #[cfg(test)]
-pub(crate) fn sha256_word_memory_rows_for_message_len_v1(
+pub fn sha256_word_memory_rows_for_message_len_v1(
     message_len: usize,
 ) -> Result<usize, ZkX509Sha256WordAirErrorV1> {
     let padded_len = sha256_padded_len_v1(message_len)?;
@@ -1006,7 +1006,7 @@ pub(crate) fn sha256_word_memory_rows_for_message_len_v1(
 }
 /// Exact local plus global-copy rows for one message length.
 #[cfg(test)]
-pub(crate) fn sha256_word_total_rows_for_message_len_v1(
+pub fn sha256_word_total_rows_for_message_len_v1(
     message_len: usize,
 ) -> Result<usize, ZkX509Sha256WordAirErrorV1> {
     sha256_word_air_rows_for_message_len_v1(message_len)?
@@ -1730,7 +1730,7 @@ mod tests {
         // 2^63, and four transcript-independent lanes therefore contribute
         // less than 2^-172 collision probability, exceeding the 128-bit floor.
         assert!(memory_rows < 1 << 20);
-        assert!(crate::privacy_engines::transparent_stark::GOLDILOCKS_MODULUS_V1 > 1 << 63);
+        const { assert!(crate::privacy_engines::transparent_stark::GOLDILOCKS_MODULUS_V1 > 1 << 63) };
         assert_eq!(WORD_MEMORY_PERMUTATION_LANES_V1, 4);
         assert!(
             WORD_MEMORY_PERMUTATION_LANES_V1 * (63 - 20)

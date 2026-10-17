@@ -124,8 +124,8 @@ pub(crate) const ZK_X509_CRL_REVISION_SCHEMA_V1: &[u8] = b"implicit_version:u16-
 pub(crate) const ZK_X509_CRL_SCOPE_PROFILE_V1: &[u8] = b"leaf-only:one-issuer-per-certificate-policy:complete-base-crl:no-delta:no-indirect:no-partition:no-distribution-point";
 /// Canonical rules for the admitted complete base CRL.
 ///
-/// Every CRL is v2, direct, complete, and issuer-scoped. AKI and CRLNumber are required exactly
-/// once and non-critical. CRLNumber must fit `u64` and strictly increase in governance. Delta,
+/// Every CRL is v2, direct, complete, and issuer-scoped. AKI and `CRLNumber` are required exactly
+/// once and non-critical. `CRLNumber` must fit `u64` and strictly increase in governance. Delta,
 /// indirect, partitioned, and distribution-point CRLs are forbidden. No CRL-entry extension is
 /// allowed, including certificateIssuer and reasonCode.
 pub(crate) const ZK_X509_CRL_PROFILE_V1: &[u8] = b"rfc5280-crl-closed-v1:der-only:v2:ecdsa-sha256-absent-params:aki-required-noncritical:crl-number-required-noncritical-u64-strictly-increasing:no-delta-crl-indicator:no-issuing-distribution-point:no-freshest-crl:no-indirect:no-partition:no-entry-extensions:complete-base-crl:max64-revoked-entries";
@@ -137,10 +137,10 @@ pub(crate) const ZK_X509_CRL_PROFILE_V1: &[u8] = b"rfc5280-crl-closed-v1:der-onl
 /// `GeneralizedTime` from 2050, seconds and `Z`, no offset/fraction); no issuer or subject unique
 /// IDs; ECDSA-with-SHA256 with absent parameters in both outer and TBS identifiers; uncompressed
 /// prime256v1 SPKIs; duplicate, unparsed, unsupported, and unlisted extensions rejected regardless
-/// of criticality; AKI/SKI required and linked; BasicConstraints and KeyUsage critical; leaf-only
+/// of criticality; AKI/SKI required and linked; `BasicConstraints` and `KeyUsage` critical; leaf-only
 /// critical EKU; CA/pathLen/keyCertSign/cRLSign enforced; root self-name and self-signature
-/// enforced. NameConstraints, PolicyMappings, CertificatePolicies, PolicyConstraints,
-/// InhibitAnyPolicy, alternate names, distribution points, and every other extension are forbidden
+/// enforced. `NameConstraints`, `PolicyMappings`, `CertificatePolicies`, `PolicyConstraints`,
+/// `InhibitAnyPolicy`, alternate names, distribution points, and every other extension are forbidden
 /// rather than silently ignored.
 pub(crate) const ZK_X509_RFC5280_PROFILE_V1: &[u8] = b"rfc5280-closed-v1:der-only:v3:serial-positive-nonzero-max20:exact-name-der:name-oids-only-c-o-ou-cn:no-duplicate-name-attributes:c-printablestring-two-uppercase-ascii:o-ou-cn-utf8string-or-printablestring:max-name-value256:disclosed-attribute-hash-content-octets-only:utf8-well-formed-no-u0000-u001f-u007f-u009f:utc-time-1970-2049:generalized-time-2050-9999:seconds-z-no-fraction:certificate-validity-inclusive:no-unique-id:ecdsa-sha256-absent-params:spki-id-ec-public-key-prime256v1-uncompressed:extensions-exact-order-aki-ski-keyusage-basicconstraints-and-optional-leaf-eku:no-duplicates-no-unknown:aki-ski-linked:bc-ku-eku-critical:ca-keycertsign-and-crlsign-only:ca-pathlen-required-explicit:direct-leaf-issuer-crlsign:root-self-name-self-signature:leaf-revocation-only:no-nameconstraints:no-policy-mapping:no-certificate-policies:no-policy-constraints:no-inhibit-any-policy:no-alt-names:no-distribution-points:no-freshest-crl";
 /// ECDSA signature canonicalization rules.
@@ -893,9 +893,11 @@ mod tests {
             ZK_X509_SHARED_STARK_PADDED_CA_MAXIMUM_PROOF_BYTES_V1,
             1_498_816
         );
-        assert!(
-            ZK_X509_SHARED_STARK_PADDED_CA_MAXIMUM_PROOF_BYTES_V1 <= ZK_X509_MAX_PROOF_BYTES_V1
-        );
+        const {
+            assert!(
+                ZK_X509_SHARED_STARK_PADDED_CA_MAXIMUM_PROOF_BYTES_V1 <= ZK_X509_MAX_PROOF_BYTES_V1
+            )
+        };
         assert_eq!(
             ZK_X509_SHARED_STARK_WIDE_MAIN_MAXIMUM_PROOF_BYTES_V1,
             7_908_768
@@ -904,8 +906,16 @@ mod tests {
             ZK_X509_SHARED_STARK_WIDE_MAIN_TRACE_OPENING_BYTES_V1,
             6_322_368
         );
-        assert!(ZK_X509_SHARED_STARK_WIDE_MAIN_TRACE_OPENING_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1);
-        assert!(ZK_X509_SHARED_STARK_WIDE_MAIN_MAXIMUM_PROOF_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1);
+        const {
+            assert!(
+                ZK_X509_SHARED_STARK_WIDE_MAIN_TRACE_OPENING_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1
+            )
+        };
+        const {
+            assert!(
+                ZK_X509_SHARED_STARK_WIDE_MAIN_MAXIMUM_PROOF_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1
+            )
+        };
         assert_eq!(ZK_X509_LOGICAL_REGISTRATIONS_V1, 49);
         assert_eq!(ZK_X509_TRACE_GROUPS_V1, 6);
         assert_eq!(ZK_X509_PHYSICAL_COMMITMENT_CHUNKS_V1, 80);
@@ -923,7 +933,7 @@ mod tests {
         assert_eq!(ZK_X509_MAX_CONSTRAINT_DEGREE_V1, 7);
         assert_eq!(ZK_X509_TRACE_MASK_DEGREE_V1, 1_815);
         assert_eq!(ZK_X509_CA_TRACE_MASK_DEGREE_V1, 2_099);
-        assert!(ZK_X509_MAXIMUM_ENCODED_X5S1_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1);
+        const { assert!(ZK_X509_MAXIMUM_ENCODED_X5S1_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1) };
         assert_eq!(ZK_X509_TARGET_SOUNDNESS_BITS_V1, 128);
         assert_eq!(ZK_X509_PROVER_PEAK_MEMORY_BYTES_V1, 12 * 1024 * 1024 * 1024);
         assert_eq!(

@@ -5,11 +5,11 @@
 
 use super::*;
 
-pub(crate) const CUT_LEVEL_V1: usize = 4;
+pub const CUT_LEVEL_V1: usize = 4;
 const CUT_ROWS_V1: usize = 1 << CUT_LEVEL_V1;
 
 /// Original level-four roots, without copying or debug-printing private custody.
-pub(crate) struct RetainedMerkleCutV1 {
+pub struct RetainedMerkleCutV1 {
     rows: usize,
     roots: Vec<PrivacyOuterDigestV1>,
     root: PrivacyOuterDigestV1,
@@ -99,7 +99,7 @@ impl Drop for RetainedMerkleCutV1 {
 }
 
 /// Selected streams retain original global indices and complete-field checking.
-pub(crate) struct SelectedRowCommitmentV1<'a> {
+pub struct SelectedRowCommitmentV1<'a> {
     inner: StreamingRowCommitmentV1,
     selected_rows: Vec<usize>,
     cut: &'a RetainedMerkleCutV1,
@@ -108,7 +108,7 @@ pub(crate) struct SelectedRowCommitmentV1<'a> {
 /// Conservative payload for selected streams, rows, index plans and frontier.
 /// Both exact vector capacities and the existing tile/worker reserve are charged.
 /// B-tree entries receive a conservative 1,024-byte allocation allowance each.
-pub(crate) fn selected_payload_bound_v1(
+pub fn selected_payload_bound_v1(
     rows: usize,
     width: usize,
     queries: usize,

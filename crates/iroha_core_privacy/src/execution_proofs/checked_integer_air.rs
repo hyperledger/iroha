@@ -1,6 +1,6 @@
 //! Additive checked construction helpers for future compiled execution adapters.
 //!
-//! The retained RaceV1 profiles do not use this module and do not commit its source.
+//! The retained `RaceV1` profiles do not use this module and do not commit its source.
 //! Existing `IntegerAirV1` interval metadata is not a range proof. These helpers emit
 //! actual equations, but do not install arbitrary relations or qualify a new profile.
 

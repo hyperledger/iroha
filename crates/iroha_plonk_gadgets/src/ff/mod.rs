@@ -627,6 +627,14 @@ enum CarryLayout {
     BoundedPasta,
 }
 
+/// Operation and carry bounds for a fused residual, including optional norm padding.
+#[derive(Clone, Copy, Debug)]
+struct FusedPadding {
+    mode: Mode,
+    layout: CarryLayout,
+    norm: bool,
+}
+
 /// Selectors of one configured modulus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ModulusGates {
@@ -1841,28 +1849,34 @@ impl<F: PastaField> FfChip<F> {
             if layout != CarryLayout::Full {
                 let witness = a.limb_values().map(|v| norm_witness::<F>(a.modulus, &v));
                 let state = self.serialized.as_mut().ok_or(Error::Synthesis)?;
-                let limbs = if let Some(kernel) = state.kernel.filter(|k| k.is_staged()) {
+                let limbs = if let Some(kernel) =
+                    state.kernel.filter(rotated::RotatedFfConfig::is_staged)
+                {
                     kernel.constrain_short_product_padding(
                         &mut state.glue,
                         &mut state.range,
                         region,
-                        Mode::Mul,
+                        FusedPadding {
+                            mode: Mode::Mul,
+                            layout,
+                            norm: true,
+                        },
                         (&a.limbs, &a.limbs),
                         witness,
-                        layout,
-                        true,
                     )?
                 } else {
                     serialized::constrain_fused_padding(
                         &mut state.glue,
                         &mut state.range,
                         region,
-                        Mode::Mul,
+                        FusedPadding {
+                            mode: Mode::Mul,
+                            layout,
+                            norm: true,
+                        },
                         a.modulus,
                         (&a.limbs, &a.limbs),
                         witness,
-                        layout,
-                        true,
                     )?
                 };
                 return Ok(FfValue::from_parts(

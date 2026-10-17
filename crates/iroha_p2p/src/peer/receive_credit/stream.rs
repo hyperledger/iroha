@@ -204,29 +204,56 @@ pub(in crate::peer) struct CreditStream<E: Enc, T: Pload + ClassifyTopic> {
     remote_pings: run::InboundPingLimiter,
     _type: std::marker::PhantomData<T>,
 }
+/// Negotiated frame limits and liveness policy installed on one credit stream.
+pub(in crate::peer) struct CreditStreamConfig {
+    pub(in crate::peer) caps: crate::network::TopicFrameCaps,
+    pub(in crate::peer) maximum: [usize; CLASS_COUNT],
+    pub(in crate::peer) limits: OutboundFrameQueueLimits,
+    pub(in crate::peer) idle_timeout: Duration,
+}
+
 impl<E: Enc, T: Pload + ClassifyTopic> CreditStream<E, T> {
     /// Construct only after verifying the signed mandatory record/geometry
     /// handshake. Local/remote class maxima are independent admissions.
     pub(in crate::peer) fn new(
-        read: Box<dyn AsyncRead + Send + Unpin>,
-        write: Box<dyn AsyncWrite + Send + Unpin>,
-        source: BoundSource,
+        transport: negotiation::OwnedTransport,
         binding: Binding,
         crypto: cryptographer::Cryptographer<E>,
         peer: iroha_data_model::peer::Peer,
         connection: ConnectionId,
-        caps: crate::network::TopicFrameCaps,
-        maximum: [usize; CLASS_COUNT],
-        limits: OutboundFrameQueueLimits,
-        idle_timeout: Duration,
+        CreditStreamConfig {
+            caps,
+            maximum,
+            limits,
+            idle_timeout,
+        }: CreditStreamConfig,
     ) -> Result<Self, Error> {
-        if source.peer != *peer.id() {
+        // NET1 restores the rejected constructor's premature source release.
+        #[cfg(all(test, sumeragi_p2p_mutation = "NET1"))]
+        let negotiation::OwnedTransport {
+            read,
+            write,
+            source,
+        } = transport;
+        #[cfg(all(test, sumeragi_p2p_mutation = "NET1"))]
+        let peer_matches = source.peer == *peer.id();
+        #[cfg(not(all(test, sumeragi_p2p_mutation = "NET1")))]
+        let peer_matches = transport.source.peer == *peer.id();
+        if !peer_matches {
             return Err(Error::Format);
         }
         if record::encrypted_len::<E>(0)? > 64 {
             return Err(Error::Format);
         }
         let bytes = super::writer_partitions(maximum, limits)?;
+        // Keep read/write/source in their ordered owner until every fallible
+        // admission has passed. Rejection must close I/O before source reuse.
+        #[cfg(not(all(test, sumeragi_p2p_mutation = "NET1")))]
+        let negotiation::OwnedTransport {
+            read,
+            write,
+            source,
+        } = transport;
         Ok(Self {
             read,
             write,
@@ -530,23 +557,27 @@ async fn malformed_tag_fences_reader_without_delivery_or_unspent_grant_reuse() {
     let (mut raw, receiver) = tokio::io::duplex(7);
     let (read, write) = tokio::io::split(receiver);
     let mut stream = CreditStream::<ChaCha20Poly1305, Fixture>::new(
-        Box::new(read),
-        Box::new(write),
-        p.bind(remote.id()).unwrap(),
+        negotiation::OwnedTransport {
+            read: Box::new(read),
+            write: Box::new(write),
+            source: p.bind(remote.id()).unwrap(),
+        },
         binding,
         cipher.clone(),
         remote.clone(),
         99,
-        crate::network::TopicFrameCaps::uniform(1024),
-        [1024; CLASS_COUNT],
-        OutboundFrameQueueLimits::new_with_progress_reserve(
-            256 * 1024,
-            128 * 1024,
-            256 * 1024,
-            32,
-            32,
-        ),
-        Duration::from_secs(20),
+        CreditStreamConfig {
+            caps: crate::network::TopicFrameCaps::uniform(1024),
+            maximum: [1024; CLASS_COUNT],
+            limits: OutboundFrameQueueLimits::new_with_progress_reserve(
+                256 * 1024,
+                128 * 1024,
+                256 * 1024,
+                32,
+                32,
+            ),
+            idle_timeout: Duration::from_secs(20),
+        },
     )
     .unwrap();
     let mut plaintext = Vec::new();
@@ -628,23 +659,27 @@ async fn authenticated_health_burst_keeps_original_limit_and_cannot_refresh_idle
     let (mut raw, receiver) = tokio::io::duplex(7);
     let (read, write) = tokio::io::split(receiver);
     let mut stream = CreditStream::<ChaCha20Poly1305, Fixture>::new(
-        Box::new(read),
-        Box::new(write),
-        p.bind(remote.id()).unwrap(),
+        negotiation::OwnedTransport {
+            read: Box::new(read),
+            write: Box::new(write),
+            source: p.bind(remote.id()).unwrap(),
+        },
         binding,
         cipher.clone(),
         remote.clone(),
         100,
-        crate::network::TopicFrameCaps::uniform(1024),
-        [1024; CLASS_COUNT],
-        OutboundFrameQueueLimits::new_with_progress_reserve(
-            256 * 1024,
-            128 * 1024,
-            256 * 1024,
-            32,
-            32,
-        ),
-        Duration::from_secs(20),
+        CreditStreamConfig {
+            caps: crate::network::TopicFrameCaps::uniform(1024),
+            maximum: [1024; CLASS_COUNT],
+            limits: OutboundFrameQueueLimits::new_with_progress_reserve(
+                256 * 1024,
+                128 * 1024,
+                256 * 1024,
+                32,
+                32,
+            ),
+            idle_timeout: Duration::from_secs(20),
+        },
     )
     .unwrap();
     let sender = async {
@@ -697,3 +732,174 @@ async fn authenticated_health_burst_keeps_original_limit_and_cannot_refresh_idle
 
 #[cfg(test)]
 mod health_tests;
+
+#[cfg(test)]
+mod constructor_tests {
+    use super::super::tests::{crypto, peer, pool};
+    use super::*;
+    use crate::network::admission_class_tests::AdmissionFixture as Fixture;
+    use iroha_crypto::encryption::ChaCha20Poly1305;
+    use std::{
+        pin::Pin,
+        sync::{
+            Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+        task::{Context, Poll},
+    };
+
+    #[derive(Default)]
+    struct ClosureObservation {
+        order: Mutex<Vec<&'static str>>,
+        reclaimed_before_io_closed: AtomicBool,
+    }
+    struct ObservedIo<I> {
+        io: I,
+        pool: Arc<Pool>,
+        peer: PeerId,
+        label: &'static str,
+        observation: Arc<ClosureObservation>,
+    }
+    impl<I: AsyncRead + Unpin> AsyncRead for ObservedIo<I> {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buffer: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_read(cx, buffer)
+        }
+    }
+    impl<I: AsyncWrite + Unpin> AsyncWrite for ObservedIo<I> {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Pin::new(&mut self.io).poll_write(cx, bytes)
+        }
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_flush(cx)
+        }
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.io).poll_shutdown(cx)
+        }
+    }
+    impl<I> Drop for ObservedIo<I> {
+        fn drop(&mut self) {
+            if self.pool.bind(&self.peer).is_ok() {
+                self.observation
+                    .reclaimed_before_io_closed
+                    .store(true, Ordering::SeqCst);
+            }
+            self.observation.order.lock().unwrap().push(self.label);
+        }
+    }
+    #[derive(Clone, Copy)]
+    enum Construction {
+        Accepted,
+        WrongPeer,
+        UnfundedWriter,
+    }
+    fn assert_constructor_tenure(outcome: Construction) {
+        let p = pool(3);
+        let local = peer(81);
+        let remote = peer(82);
+        let cipher = crypto();
+        let binding = Binding::verified(
+            &test_network_id("credit constructor custody"),
+            local.id(),
+            remote.id(),
+            cipher.session_binding,
+            [83; 32],
+            p.geometry,
+            p.geometry,
+        )
+        .unwrap();
+        let observation = Arc::new(ClosureObservation::default());
+        let transport = negotiation::OwnedTransport {
+            read: Box::new(ObservedIo {
+                io: tokio::io::empty(),
+                pool: Arc::clone(&p),
+                peer: remote.id().clone(),
+                label: "read",
+                observation: Arc::clone(&observation),
+            }),
+            write: Box::new(ObservedIo {
+                io: tokio::io::sink(),
+                pool: Arc::clone(&p),
+                peer: remote.id().clone(),
+                label: "write",
+                observation: Arc::clone(&observation),
+            }),
+            source: p.bind(remote.id()).unwrap(),
+        };
+        let configured_peer = if matches!(outcome, Construction::WrongPeer) {
+            peer(84)
+        } else {
+            remote.clone()
+        };
+        let high_bytes = if matches!(outcome, Construction::UnfundedWriter) {
+            1
+        } else {
+            256 * 1024
+        };
+        let result = CreditStream::<ChaCha20Poly1305, Fixture>::new(
+            transport,
+            binding,
+            cipher,
+            configured_peer,
+            85,
+            CreditStreamConfig {
+                caps: crate::network::TopicFrameCaps::uniform(1024),
+                maximum: [1024; CLASS_COUNT],
+                limits: OutboundFrameQueueLimits::new_with_progress_reserve(
+                    high_bytes,
+                    128 * 1024,
+                    256 * 1024,
+                    32,
+                    32,
+                ),
+                idle_timeout: Duration::from_secs(20),
+            },
+        );
+        match outcome {
+            Construction::Accepted => {
+                let stream = result.unwrap();
+                assert!(observation.order.lock().unwrap().is_empty());
+                assert!(
+                    p.bind(remote.id()).is_err(),
+                    "live stream must retain its exact source"
+                );
+                drop(stream);
+            }
+            Construction::WrongPeer => assert!(matches!(result, Err(Error::Format))),
+            Construction::UnfundedWriter => assert!(matches!(result, Err(Error::FrameTooLarge))),
+        }
+        assert!(
+            !observation
+                .reclaimed_before_io_closed
+                .load(Ordering::SeqCst),
+            "source cannot be rebound while either I/O half remains alive"
+        );
+        assert_eq!(*observation.order.lock().unwrap(), ["read", "write"]);
+        assert!(
+            p.bind(remote.id()).is_ok(),
+            "closed transport releases its source exactly once"
+        );
+    }
+    #[test]
+    fn constructor_peer_mismatch_closes_io_before_source_reuse() {
+        assert_constructor_tenure(Construction::WrongPeer);
+    }
+    #[test]
+    fn constructor_writer_refusal_closes_io_before_source_reuse() {
+        assert_constructor_tenure(Construction::UnfundedWriter);
+    }
+    #[test]
+    fn constructor_success_transfers_original_io_and_source_until_drop() {
+        assert_constructor_tenure(Construction::Accepted);
+    }
+}

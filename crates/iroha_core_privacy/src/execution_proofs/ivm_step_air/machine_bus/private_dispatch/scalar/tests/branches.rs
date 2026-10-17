@@ -67,8 +67,8 @@ fn native_private_fetch_branches_cover_all_predicates_offsets_aliases_and_r0() {
         (u64::MAX, 0),
         (0, u64::MAX),
         (u64::MAX, u64::MAX),
-        (i64::MIN as u64, i64::MAX as u64),
-        (i64::MAX as u64, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), i64::MAX as u64),
+        (i64::MAX as u64, i64::cast_unsigned(i64::MIN)),
         (0xffff_ffff_0000_0001, 0),
         (0, 0xffff_ffff_0000_0001),
         (0x1234_ffff_0000_0001, 0x1234_0000_ffff_0001),
@@ -88,7 +88,7 @@ fn native_private_fetch_branches_cover_all_predicates_offsets_aliases_and_r0() {
                 &[
                     (2, u64::MAX, false),
                     (3, 1, false),
-                    (255, i64::MIN as u64, false),
+                    (255, i64::cast_unsigned(i64::MIN), false),
                     (254, i64::MAX as u64, false),
                 ],
             );

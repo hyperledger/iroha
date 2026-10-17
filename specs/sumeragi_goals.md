@@ -94,6 +94,14 @@ component selection. Passing selected custody mutations alone does not qualify t
 path; retain startup or restart aborts as failures and fix them without widening the
 stack or runtime deadlines.
 
+Mutation builds must emit exactly one owning libtest executable through Cargo
+JSON metadata. Bind its package, target, profile and required features, then retain
+its canonical path, bytes and file identity. Discovery and execution must recheck
+and use that same artifact; missing, ambiguous, replaced or rebuilt artifacts fail
+qualification. Preserve each phase's original combined output bytes and separate
+artifact receipt before the worker target directory is reused. Artifact checks
+consume the original phase deadline; they never restart or extend it.
+
 Discover test names and ignores from the actual built executable. Match libtest's
 substring filter semantics and account for every selected test. Mutation controls
 must exist under their exact qualified test path or exact final path segment;

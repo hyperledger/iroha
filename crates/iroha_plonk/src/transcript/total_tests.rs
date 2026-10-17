@@ -73,10 +73,10 @@ fn field_conversion_precedes_each_named_scalar_map() {
     assert_eq!(pipa_r::evaluation_challenge(reduced), Fp::from(5));
     assert_eq!(pipa_r::multiopening_challenge(reduced), Fp::from(25));
     assert_eq!(pipa_r::nonzero_challenge(reduced), Fp::ONE);
-    let fp_word = -Fp::ONE;
+    let negative_one = -Fp::ONE;
     assert_eq!(
-        pipa_r::challenge_from_base::<Ep>(&fp_word).to_repr(),
-        fp_word.to_repr()
+        pipa_r::challenge_from_base::<Ep>(&negative_one).to_repr(),
+        negative_one.to_repr()
     );
 }
 fn generator_codec<C: PastaCurve>()
@@ -112,7 +112,7 @@ where
         Err(TranscriptError::IdentityPoint)
     );
     let before = writer.squeeze_challenge();
-    writer.append_unabsorbed_generator(&identity).unwrap();
+    writer.append_unabsorbed_generator(&identity);
     let after = writer.squeeze_challenge();
     let bytes = writer.finish();
     assert_eq!(bytes, [0; 32]);

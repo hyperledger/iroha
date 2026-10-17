@@ -1,4 +1,4 @@
-//! Focused parser tests for the SoraFS PoP credential-service policy.
+//! Focused parser tests for the `SoraFS` `PoP` credential-service policy.
 use super::*;
 fn ed25519_public_hex(seed: u8) -> String {
     let key = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("key");
@@ -70,8 +70,10 @@ fn governed_pop_policy_parses_without_runtime_secrets() {
 }
 #[test]
 fn disabled_pop_policy_rejects_stale_authority_claims() {
-    let mut config = SorafsPopCredentialService::default();
-    config.issuer_id = Some("stale-authority".to_owned());
+    let config = SorafsPopCredentialService {
+        issuer_id: Some("stale-authority".to_owned()),
+        ..SorafsPopCredentialService::default()
+    };
     let mut emitter = Emitter::new();
     assert!(config.parse(false, &mut emitter).is_none());
     assert!(emitter.into_result().is_err());

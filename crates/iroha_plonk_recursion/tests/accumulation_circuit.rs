@@ -405,9 +405,7 @@ where
     transcript.write_scalar(&C::ScalarExt::ONE);
     equation -= params.params().w().to_curve() * gamma;
     equation -= params.params().u().to_curve() * (fold_evaluation(z, &challenges) * zeta);
-    transcript
-        .append_unabsorbed_generator(&equation.to_affine())
-        .expect("solved suffix");
+    transcript.append_unabsorbed_generator(&equation.to_affine());
     let body = Zeroizing::new(transcript.finish());
     let coins = tape.to_private_bytes();
     let mut bytes = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES]);
@@ -453,7 +451,7 @@ where
         input_bytes: inputs.iter().map(input_bytes).collect(),
         inputs,
         proof: private_fixture_bytes(&proof),
-        length: FOLD_WITNESS_BYTES as u32,
+        length: u32::try_from(FOLD_WITNESS_BYTES).expect("fixed fold witness fits its u32 length"),
         mode: VerificationMode::Soft,
         known: true,
         selection: None,
@@ -548,7 +546,8 @@ where
         assert!(!check(&bad, false, &trivial));
     }
     let mut bad = circuit.clone();
-    bad.length = FOLD_WITNESS_BYTES as u32 - 1;
+    bad.length =
+        u32::try_from(FOLD_WITNESS_BYTES).expect("fixed fold witness fits its u32 length") - 1;
     assert!(check(&bad, false, &trivial));
     let mut bad = circuit.clone();
     let rho = Option::<C::ScalarExt>::from(C::ScalarExt::from_repr(
@@ -748,7 +747,8 @@ where
             inputs: vec![source.clone(), trivial.as_input()],
             input_bytes: vec![input_bytes(&source), input_bytes(&trivial.as_input())],
             proof: private_fixture_bytes(&proof),
-            length: FOLD_WITNESS_BYTES as u32,
+            length: u32::try_from(FOLD_WITNESS_BYTES)
+                .expect("fixed fold witness fits its u32 length"),
             mode: VerificationMode::Hard,
             known: true,
             selection: Some(Selection {

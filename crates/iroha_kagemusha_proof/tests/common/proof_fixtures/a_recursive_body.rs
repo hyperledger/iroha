@@ -1230,7 +1230,7 @@ impl Circuit<Fp> for StageCircuit {
 /// Genuine authenticated Bootstrap artifacts for following operation/outer tests.
 #[derive(Clone)]
 #[allow(dead_code)] // Consumed by following-operation and outer integration tests.
-pub(crate) struct AuthenticatedBootstrap {
+pub struct AuthenticatedBootstrap {
     pub(crate) key: VerifyingKey<Eq>,
     pub(crate) binding: iroha_plonk::DescriptorBinding,
     pub(crate) proof: Vec<u8>,
@@ -1244,12 +1244,12 @@ pub(crate) struct AuthenticatedBootstrap {
 }
 
 /// Build actual sigma/Q/A1/W/A2 proofs; optional tests do not alter the relation.
-pub(crate) fn authenticated_bootstrap(adversarial: bool) -> AuthenticatedBootstrap {
+pub fn authenticated_bootstrap(adversarial: bool) -> AuthenticatedBootstrap {
     authenticated_bootstrap_with_omega(adversarial, Fp::from(91))
 }
 
 /// Rebind the witness-only carried normal Omega identity without changing A keys.
-pub(crate) fn authenticated_bootstrap_with_omega(
+pub fn authenticated_bootstrap_with_omega(
     adversarial: bool,
     omega_digest: Fp,
 ) -> AuthenticatedBootstrap {
@@ -1257,7 +1257,7 @@ pub(crate) fn authenticated_bootstrap_with_omega(
 }
 
 /// Explicit source-A artifact profile; zero retains the generic diagnostic.
-pub(crate) fn authenticated_bootstrap_with_layout(
+pub fn authenticated_bootstrap_with_layout(
     adversarial: bool,
     omega_digest: Fp,
     range_buses: usize,
@@ -1266,7 +1266,7 @@ pub(crate) fn authenticated_bootstrap_with_layout(
 }
 
 /// Explicit Q/A profile experiment; existing helpers keep their original Q key.
-pub(crate) fn authenticated_bootstrap_with_q_layout(
+pub fn authenticated_bootstrap_with_q_layout(
     adversarial: bool,
     omega_digest: Fp,
     range_buses: usize,
@@ -1281,7 +1281,7 @@ pub(crate) fn authenticated_bootstrap_with_q_layout(
 }
 
 /// Named profile experiment, used identically for A1 and terminal A2.
-pub(crate) fn authenticated_bootstrap_with_profile(
+pub fn authenticated_bootstrap_with_profile(
     adversarial: bool,
     omega_digest: Fp,
     profile: SourceProfile,
@@ -1297,10 +1297,10 @@ pub(crate) fn authenticated_bootstrap_with_profile(
 }
 
 /// Distinct genuine wallet identities; neither is an admitted release artifact.
-pub(crate) use bootstrap_objects::Identity as BootstrapIdentity;
+pub use bootstrap_objects::Identity as BootstrapIdentity;
 
 /// Same fixed Bootstrap relation for a separately enrolled receiver wallet.
-pub(crate) fn authenticated_bootstrap_with_identity(
+pub fn authenticated_bootstrap_with_identity(
     adversarial: bool,
     omega_digest: Fp,
     profile: SourceProfile,

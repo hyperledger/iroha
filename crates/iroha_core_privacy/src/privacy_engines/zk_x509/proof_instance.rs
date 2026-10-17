@@ -57,8 +57,7 @@ impl ZkX509ProofInstanceV1 {
     }
 }
 #[cfg(test)]
-pub(crate) const TEST_PROOF_INSTANCE_V1: ZkX509ProofInstanceV1 =
-    ZkX509ProofInstanceV1::new_v1([0x5a; 32]);
+pub const TEST_PROOF_INSTANCE_V1: ZkX509ProofInstanceV1 = ZkX509ProofInstanceV1::new_v1([0x5a; 32]);
 
 #[cfg(test)]
 mod tests {

@@ -262,7 +262,7 @@ fn projection_serial_coherent_output_shadow_changes_authenticated_der_lookup_end
                 after,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
             )
             .unwrap()
         };

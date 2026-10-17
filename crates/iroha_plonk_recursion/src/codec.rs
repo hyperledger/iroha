@@ -41,6 +41,9 @@ pub struct ScalarCells<C: PastaCurve> {
 
 impl<C: PastaCurve> ScalarCells<C> {
     /// Assigns a private scalar with its complete canonical field certificate.
+    ///
+    /// # Errors
+    /// A circuit layout failure while assigning or certifying the scalar.
     pub fn assign_value(
         uint: &mut UintChip<'_, C::Base>,
         region: &mut Region<'_, C::Base>,
@@ -242,10 +245,10 @@ impl<F: PastaField> GeneratorPoint<F> {
 pub struct SoftGenerator<C: PastaCurve> {
     /// Original canonical generator or the fixed finite dummy (-1, 2).
     pub value: GeneratorPoint<C::Base>,
-    /// Exact canonical GroupEncoding acceptance predicate, including zero32.
+    /// Exact canonical `GroupEncoding` acceptance predicate, including zero32.
     pub valid: Bit<C::Base>,
 }
-/// Decodes a generator claim or final suffix; ordinary messages use decode_point_soft.
+/// Decodes a generator claim or final suffix; ordinary messages use `decode_point_soft`.
 /// # Errors
 /// Layout failure only; malformed encodings select the fixed finite dummy.
 pub fn decode_generator_soft<C: PastaCurve>(

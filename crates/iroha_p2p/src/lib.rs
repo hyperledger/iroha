@@ -16,6 +16,7 @@ mod dial_policy;
 #[cfg(test)]
 mod frame_identity_tests;
 pub mod network;
+mod p2p_mutation_guard;
 #[cfg(test)]
 mod payload_codec_tests;
 pub mod peer;

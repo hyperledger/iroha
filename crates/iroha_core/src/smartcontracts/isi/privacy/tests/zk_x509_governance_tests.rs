@@ -129,7 +129,6 @@ impl X509GovernanceRecords {
                     )
                     .expect("CA root-head key"),
                 )
-                .copied()
                 .expect("atomic CA root head");
             assert_eq!(ca_head.epoch(), 1);
             assert_eq!(ca_head.root(), anchor_origin.ca_membership_root);
@@ -330,7 +329,6 @@ impl X509GovernanceRecords {
                     )
                     .expect("CA head"),
                 )
-                .copied()
                 .expect("rotated CA head");
             assert_eq!(ca_head.epoch(), 2);
             assert_eq!(ca_head.root(), anchor_rotation.ca_membership_root);

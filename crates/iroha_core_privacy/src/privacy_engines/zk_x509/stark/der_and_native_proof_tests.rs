@@ -779,10 +779,10 @@ fn der_registration_claim_order_and_every_shape_field_are_bound() {
             &layout,
         )
         .expect("layout");
-        aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &roots)
+        aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &roots)
             .expect("base roots");
         if derive_after_aux {
-            aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &roots)
+            aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &roots)
                 .expect("aux roots");
         }
         derive_der_challenges_v1(&mut transcript)
@@ -799,13 +799,13 @@ fn der_registration_claim_order_and_every_shape_field_are_bound() {
             &layout,
         )
         .expect("layout");
-        aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &roots)
+        aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &roots)
             .expect("base roots");
         derive_der_challenges_v1(&mut transcript).expect("DER challenges");
         if claims_before_aux {
             absorb_der_terminal_claims_v1(&mut transcript, claims).expect("claims");
         }
-        aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &roots)
+        aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &roots)
             .expect("aux roots");
         if !claims_before_aux {
             absorb_der_terminal_claims_v1(&mut transcript, claims).expect("claims");

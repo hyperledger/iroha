@@ -46,7 +46,7 @@ pub(crate) fn diagnostic_load_omega(
     let (fold, vesta) = terminal
         .read(
             0,
-            &[load.instances.clone()],
+            std::slice::from_ref(&load.instances),
             &load.proof,
             &FoldConfig::default(),
         )

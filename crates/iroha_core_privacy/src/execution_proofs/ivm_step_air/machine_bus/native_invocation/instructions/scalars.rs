@@ -39,7 +39,7 @@ fn instruction(opcode: u8, destination: u8, right: u8, immediate: i8) -> u32 {
 // Expected expression values are a test oracle only. Neither Source nor witness
 // construction receives this function or any expected native result.
 fn expected(instruction: u32, left: u64, right: u64) -> u64 {
-    let immediate = i64::from(wide::imm8(instruction)) as u64;
+    let immediate = i64::cast_unsigned(i64::from(wide::imm8(instruction)));
     match wide::opcode(instruction) {
         wide::arithmetic::ADD => left.wrapping_add(right),
         wide::arithmetic::SUB => left.wrapping_sub(right),
@@ -52,12 +52,16 @@ fn expected(instruction: u32, left: u64, right: u64) -> u64 {
         wide::arithmetic::XORI => left ^ immediate,
         wide::arithmetic::NEG => left.wrapping_neg(),
         wide::arithmetic::NOT => !left,
-        wide::arithmetic::SLT => u64::from((left as i64) < (right as i64)),
+        wide::arithmetic::SLT => u64::from(u64::cast_signed(left) < u64::cast_signed(right)),
         wide::arithmetic::SLTU => u64::from(left < right),
         wide::arithmetic::SEQ => u64::from(left == right),
         wide::arithmetic::SNE => u64::from(left != right),
-        wide::arithmetic::MIN => (left as i64).min(right as i64) as u64,
-        wide::arithmetic::MAX => (left as i64).max(right as i64) as u64,
+        wide::arithmetic::MIN => {
+            i64::cast_unsigned(u64::cast_signed(left).min(u64::cast_signed(right)))
+        }
+        wide::arithmetic::MAX => {
+            i64::cast_unsigned(u64::cast_signed(left).max(u64::cast_signed(right)))
+        }
         _ => unreachable!("closed test opcode list"),
     }
 }
@@ -76,7 +80,7 @@ fn every_public_expression_uses_full_words_original_sources_and_atomic_alias_wri
     let inputs = [
         (0, u64::MAX, i8::MIN),
         (u64::MAX, 1, -1),
-        (i64::MIN as u64, i64::MAX as u64, 0),
+        (i64::cast_unsigned(i64::MIN), i64::MAX as u64, 0),
         (0xffff_ffff_0000_0001, 0, i8::MAX),
     ];
     for (left, right, immediate) in inputs {
@@ -191,7 +195,7 @@ fn native_scalar_workspace_original_operands_and_exact_debit_reject_mutations() 
     let (native, budget) = native(artifact_with_literals(
         &body,
         0,
-        &[i64::MIN as u64, u64::MAX],
+        &[i64::cast_unsigned(i64::MIN), u64::MAX],
     ));
     let instructions = Instructions::new(&native, &root(&native), &budget).unwrap();
     for window in [2, 3] {
@@ -271,7 +275,7 @@ fn exact_scalar_gas_and_cycle_costs_leave_no_extra_padding_or_uncharged_comparis
             ExecutionMemoryLease::reserve(&budget, NativeInvocation::allocation_plan().unwrap())
                 .unwrap();
         let result = NativeInvocation::run_public_leaf_root(
-            artifact_with_literals(&body, 0, &[i64::MIN as u64, u64::MAX]),
+            artifact_with_literals(&body, 0, &[i64::cast_unsigned(i64::MIN), u64::MAX]),
             "main",
             gas,
             &mut parent,
@@ -323,7 +327,7 @@ fn maximum_public_scalar_profile_retains_fixed_funding_and_small_stack_evaluatio
     let (native, budget) = native(artifact_with_literals(
         &body,
         0,
-        &[i64::MIN as u64, u64::MAX],
+        &[i64::cast_unsigned(i64::MIN), u64::MAX],
     ));
     assert_eq!(native.instructions(), 64);
     std::thread::Builder::new()
