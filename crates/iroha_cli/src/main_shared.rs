@@ -906,6 +906,8 @@ mod explorer {
         Blocks(crate::collection_list::ListArgs),
         /// Read the bounded Transactions Explorer feed.
         Transactions(crate::collection_list::ListArgs),
+        /// Read node-supplied selective evidence; does not independently verify finality
+        TransactionProof(TransactionProof),
         /// Read the bounded TransactionsLatest Explorer feed.
         TransactionsLatest(crate::collection_list::ListArgs),
         /// Read the bounded Instructions Explorer feed.
@@ -913,9 +915,35 @@ mod explorer {
         /// Read the bounded InstructionsLatest Explorer feed.
         InstructionsLatest(crate::collection_list::ListArgs),
     }
+    /// Arguments of the authenticated, read-only selective evidence request.
+    #[derive(clap::Args, Debug)]
+    pub struct TransactionProof {
+        /// Canonical transaction entrypoint hash literal (hash:UPPERCASE_HEX#CHECKSUM)
+        #[arg(short('H'), long, value_parser = parse_proof_hash)]
+        pub hash: HashOf<TransactionEntrypoint>,
+    }
+    fn parse_proof_hash(
+        literal: &str,
+    ) -> std::result::Result<HashOf<TransactionEntrypoint>, String> {
+        if literal.len() > 128 {
+            return Err("transaction hash literal exceeds its size bound".to_owned());
+        }
+        // Delegate syntax, marker and checksum admission to the native hash JSON codec.
+        norito::json::from_value(norito::json::Value::String(literal.to_owned()))
+            .map_err(|error| format!("expected canonical transaction hash literal: {error}"))
+    }
+    impl Run for TransactionProof {
+        fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
+            let evidence = context
+                .client_from_config()?
+                .get_explorer_transaction_proof(self.hash)?;
+            context.print_data(&evidence)
+        }
+    }
     impl Run for Command {
         fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
             let (collection, args) = match self {
+                Self::TransactionProof(args) => return args.run(context),
                 Self::Accounts(args) => (iroha::collections::Collection::ExplorerAccounts, args),
                 Self::Domains(args) => (iroha::collections::Collection::ExplorerDomains, args),
                 Self::AssetDefinitions(args) => (

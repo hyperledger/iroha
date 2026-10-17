@@ -25,6 +25,7 @@ application.accounts_faucet_post	POST	/v1/accounts/faucet	public	protocol_handsh
 application.accounts_faucet_prepare_post	POST	/v1/accounts/faucet/prepare	public	protocol_handshake	authenticated_protocol_principal	compute	http	feature(app_api)	true	true	false	false
 application.accounts_faucet_puzzle_get	GET	/v1/accounts/faucet/puzzle	public	torii_default	public	read	http	feature(app_api)	true	true	false	false
 application.accounts_get	GET	/v1/accounts	public	optional_canonical_account_signature	dataspace_visible	read	http	feature(app_api)	true	true	false	true
+application.accounts_inspect_post	POST	/v1/accounts/inspect	public	torii_default	public	read	http	feature(app_api)	true	true	false	true
 application.accounts_onboard_plan_post	POST	/v1/accounts/onboard/plan	public	onboarding_token	operator	compute	http	feature(app_api)	true	true	false	true
 application.accounts_onboard_post	POST	/v1/accounts/onboard	public	onboarding_token	operator	mutation	http	feature(app_api)	true	true	false	true
 application.accounts_onboard_prepare_post	POST	/v1/accounts/onboard/prepare	public	onboarding_token	operator	compute	http	feature(app_api)	true	true	false	true

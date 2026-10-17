@@ -3,6 +3,49 @@
 use super::*;
 
 #[test]
+fn account_inspection_contract_is_public_bounded_and_syntax_only() {
+    use iroha_torii_shared::route_catalog::{AdmissionPolicy, AuthenticationPolicy};
+    let descriptor = route_catalog::application_api::ACCOUNTS_INSPECT_POST;
+    assert_eq!(descriptor.admission(), AdmissionPolicy::Public);
+    assert_eq!(
+        descriptor.authentication(),
+        AuthenticationPolicy::ToriiDefault
+    );
+    assert!(descriptor.requires_private_no_store());
+    let document = canonical_document();
+    let operation = &document["paths"][descriptor.path()]["post"];
+    assert_eq!(
+        operation["x-iroha-route-auth"],
+        route_auth_metadata(descriptor)
+    );
+    assert_eq!(operation["x-iroha-tool-effect"].as_str(), Some("read"));
+    assert_eq!(
+        operation["requestBody"]["content"]
+            .as_object()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].as_str(),
+        Some("#/components/schemas/AccountInspectionResponseV1")
+    );
+    for schema in ["AccountInspectionRequestV1", "AccountInspectionResponseV1"] {
+        assert_eq!(
+            document["components"]["schemas"][schema]["additionalProperties"].as_bool(),
+            Some(false)
+        );
+        for field in ["exists", "permissions", "balance", "private_key"] {
+            assert!(
+                document["components"]["schemas"][schema]["properties"]
+                    .get(field)
+                    .is_none()
+            );
+        }
+    }
+}
+
+#[test]
 fn explorer_transaction_proof_contract_is_selective_and_dataspace_visible() {
     use iroha_torii_shared::route_catalog::{AdmissionPolicy, AuthenticationPolicy};
     let descriptor = route_catalog::application_api::EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET;

@@ -17,6 +17,11 @@ mod data_availability_http_tests;
 #[cfg(test)]
 mod data_availability_query_tests;
 mod dispatch;
+mod explorer_transaction_proof;
+pub use explorer_transaction_proof::{
+    EXPLORER_TRANSACTION_PROOF_MAX_BYTES, ExplorerTransactionProof,
+    ExplorerTransactionProofCertificate,
+};
 mod gateway_compliance;
 pub mod kagemusha;
 #[cfg(test)]

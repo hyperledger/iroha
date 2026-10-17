@@ -32,6 +32,20 @@ Windows).
 See [Install Iroha 3](https://docs.iroha.tech/get-started/install-iroha.html) for
 the current installation instructions.
 
+## Selective transaction evidence
+
+`iroha -c /path/to/client.toml -o json explorer transaction-proof --hash 'hash:UPPERCASE_HEX#CHECKSUM'`
+reads one transaction through `/v1/explorer/transactions/{raw_hash}/proof`.
+Use the canonical entrypoint hash shown by the Explorer. The existing client
+configuration supplies the native network and account signer; keep that file in
+its protected runtime location. No fee selection or ledger write is needed.
+Torii still enforces private dataspace visibility and returns a denial when the
+configured account lacks access. The command makes one bounded request (16 MiB),
+checks the network and selected input/output bindings, and prints the typed JSON
+through the ordinary output formatter. The certificate remains node-supplied
+evidence: independent checkpoint-rooted certificate and inclusion verification is
+required before claiming finality or crediting value.
+
 ## Usage
 The CLI will attempt to detect your system language for messages. Use `--language <CODE>` to override this selection.
 `-o/--output-format` selects `text`, `json` (one pretty document) or `jsonl`

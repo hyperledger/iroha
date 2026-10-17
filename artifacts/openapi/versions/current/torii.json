@@ -578,6 +578,138 @@
         },
         "type": "object"
       },
+      "AccountInspectionRequestV1": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Exact canonical I105 literal for the configured network prefix; at most 2048 UTF-8 bytes. Aliases and hexadecimal input are refused.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "network_id": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "nonce": {
+            "description": "Nonzero 32-byte nonce encoded in lowercase hexadecimal.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "Nonnil lowercase UUID selected independently for this request.",
+            "maxLength": 36,
+            "minLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "network_id",
+          "request_id",
+          "nonce",
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "AccountInspectionResponseV1": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Exact canonical I105 literal for the configured network prefix; at most 2048 UTF-8 bytes. Aliases and hexadecimal input are refused.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "canonical_hex": {
+            "description": "Native canonical account bytes rendered for the ASCII X-Iroha-Account header. This carries no ledger authority.",
+            "maxLength": 4098,
+            "minLength": 4,
+            "pattern": "^0x(?:[0-9a-f]{2})+$",
+            "type": "string"
+          },
+          "controller": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "algorithm": {
+                    "description": "Canonical native algorithm name; Connect requires ed25519.",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "single",
+                    "type": "string"
+                  },
+                  "public_key_hex": {
+                    "description": "Raw native controller public key, without a multihash prefix.",
+                    "maxLength": 4096,
+                    "minLength": 2,
+                    "pattern": "^(?:[0-9a-f]{2})+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "algorithm",
+                  "public_key_hex"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "multisig",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "network_id": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "nonce": {
+            "description": "Nonzero 32-byte nonce encoded in lowercase hexadecimal.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "Nonnil lowercase UUID selected independently for this request.",
+            "maxLength": 36,
+            "minLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "network_id",
+          "request_id",
+          "nonce",
+          "account_id",
+          "canonical_hex",
+          "controller"
+        ],
+        "type": "object"
+      },
       "AccountOnboardingAliasIntentV1": {
         "additionalProperties": false,
         "description": "Exact account-alias intent embedded in a sponsored onboarding receipt.",
@@ -59180,6 +59312,164 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/accounts/inspect": {
+      "post": {
+        "description": "Native syntax-only inspection for clients without the native account codec. Accepts at most 4096 request bytes and produces at most 8192 response bytes under ordinary query admission. Checks the exact configured NetworkId, I105 prefix and roundtrip, native checksum, controller and public key. Echoes request_id and nonce for response binding. Never queries account existence, aliases, permissions, balances or private ledger data. The result grants no signing or ledger-read authority; clients authenticate Connect approval signatures separately. Authenticate the service independently through its configured TLS origin.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountInspectionRequestV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountInspectionResponseV1"
+                }
+              }
+            },
+            "description": "Exact request-bound native syntax and controller inspection.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed closed request, wrong network, noncanonical account or invalid native controller.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Listener API access requires authentication.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Listener access policy forbids the request.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Request body exceeded its absolute read deadline.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds 4096 bytes.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be application/json, optionally with UTF-8 charset.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate or query admission capacity is exhausted.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Native inspection could not complete; no identity is returned.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Inspection responses are private and never cached.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Inspect one supplied public account literal with the native codec.",
+        "tags": [
+          "Accounts"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "application.accounts_inspect_post"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/accounts/onboard": {
       "post": {
         "description": "Verify an authenticated prepared onboarding envelope, submit only its exact canonical SignedTransaction bytes, and reconcile replay by the same transaction hash. This endpoint never constructs or re-signs a transaction.",
@@ -75097,14 +75387,15 @@
     },
     "/v1/explorer/transactions/{hash}/proof": {
       "get": {
-        "description": "Return only one visible transaction, its exact joined Network output, their Merkle paths and the original compact native certificate. Anonymous callers see public dataspaces; a valid canonical account signature widens visibility only according to current permissions. Every committed route leg must be visible. Missing and hidden transactions both return 404. No full block carrier or unrelated output is disclosed. The JSON response is bounded to 16 MiB and the admitted query budget. Consumers must authenticate native finality from independently selected genesis/checkpoint authority before trusting inclusion.",
+        "description": "Return only one visible transaction, its exact joined Network output, their Merkle paths and the original compact native certificate. Anonymous callers see public data spaces; a valid canonical account signature widens visibility only according to current permissions. Every committed route leg must be visible. Missing and hidden transactions both return 404. No full block carrier or unrelated output is disclosed. The JSON response is bounded to 16 MiB and the admitted query budget. Consumers must authenticate native finality from independently selected genesis/checkpoint authority before trusting inclusion.",
         "parameters": [
           {
-            "description": "Transaction hash.",
+            "description": "Transaction entrypoint hash as exactly 64 hexadecimal characters; SDKs convert the checksummed display literal to this route representation.",
             "in": "path",
             "name": "hash",
             "required": true,
             "schema": {
+              "pattern": "^[0-9A-Fa-f]{64}$",
               "type": "string"
             }
           }
@@ -75131,7 +75422,33 @@
             }
           },
           "400": {
-            "description": "Malformed canonical transaction hash.",
+            "description": "Malformed transaction hash; expected exactly 64 raw hexadecimal characters.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid canonical signature fields, wrong signing network, or listener API authentication required.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Authenticated responses which must never be retained.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Listener access policy forbids the request. Transactions hidden by data space read permissions return 404.",
             "headers": {
               "Cache-Control": {
                 "description": "Authenticated responses which must never be retained.",

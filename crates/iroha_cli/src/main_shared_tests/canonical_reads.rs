@@ -1370,3 +1370,89 @@ fn explorer_and_account_history_commands_use_shared_query_pages() {
         assert!(context.output.is_some());
     }
 }
+
+#[test]
+fn transaction_proof_accepts_only_canonical_native_hash_literal() {
+    let hash =
+        HashOf::<TransactionEntrypoint>::from_untyped_unchecked(Hash::new(b"CLI selected proof"));
+    let literal = norito::json::to_value(&hash)
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let args = Args::try_parse_from(["iroha", "explorer", "transaction-proof", "--hash", &literal])
+        .unwrap();
+    let Command::Explorer(explorer::Command::TransactionProof(command)) = args.command else {
+        panic!("expected selective proof read");
+    };
+    assert_eq!(command.hash, hash);
+    for invalid in [
+        hash.to_string(),
+        literal.to_lowercase(),
+        format!(" {literal}"),
+        format!(
+            "{}{}",
+            &literal[..literal.len() - 1],
+            if literal.ends_with('0') { '1' } else { '0' }
+        ),
+        "x".repeat(129),
+    ] {
+        assert!(
+            Args::try_parse_from(["iroha", "explorer", "transaction-proof", "--hash", &invalid])
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn transaction_proof_is_one_authenticated_read_and_keeps_private_denial() {
+    let hash =
+        HashOf::<TransactionEntrypoint>::from_untyped_unchecked(Hash::new(b"private CLI proof"));
+    let literal = norito::json::to_value(&hash)
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let denial = iroha::http::Response::builder()
+        .status(403)
+        .header("content-type", "application/json")
+        .body(b"{\"message\":\"private evidence denied\"}".to_vec())
+        .unwrap();
+    let (mut context, transport) = canonical_read_context(vec![denial]);
+    let result =
+        Args::try_parse_from(["iroha", "explorer", "transaction-proof", "--hash", &literal])
+            .unwrap()
+            .command
+            .run(&mut context);
+    assert!(result.is_err());
+    assert!(context.output.is_none());
+    assert!(context.submitted.is_none());
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(
+        requests.len(),
+        1,
+        "no transaction submission, status probe or whole-block fallback"
+    );
+    let request = &requests[0];
+    assert_eq!(request.method, iroha::http::Method::GET);
+    assert_eq!(
+        request.url.path(),
+        format!("/v1/explorer/transactions/{hash}/proof")
+    );
+    assert!(request.body.is_empty());
+    assert_eq!(
+        request.max_response_bytes,
+        iroha::client::EXPLORER_TRANSACTION_PROOF_MAX_BYTES
+    );
+    assert!(request.headers.iter().any(|(name, value)| {
+        name.as_str().eq_ignore_ascii_case("X-Iroha-Account")
+            && value.to_str().ok()
+                == Some(context.config.account.to_canonical_hex().unwrap().as_str())
+    }));
+    assert!(
+        request
+            .headers
+            .iter()
+            .any(|(name, _)| name.as_str().eq_ignore_ascii_case("X-Iroha-Signature"))
+    );
+}

@@ -189,6 +189,7 @@ mod app_routed_read_http_admission_tests {
                 AppRoutedReadHttpDecoder::None
                     | AppRoutedReadHttpDecoder::Query("ListQuery")
                     | AppRoutedReadHttpDecoder::Json("ListQuery")
+                    | AppRoutedReadHttpDecoder::Json("AccountInspectionRequest")
             ));
             assert!(
                 APP_ROUTED_READ_HTTP_ENDPOINTS_V1
@@ -198,7 +199,13 @@ mod app_routed_read_http_admission_tests {
         }
         let collections: Vec<_> = APP_LOCAL_COLLECTION_HTTP_ROUTES_V1
             .iter()
-            .filter(|entry| entry.decoder != AppRoutedReadHttpDecoder::None)
+            .filter(|entry| {
+                matches!(
+                    entry.decoder,
+                    AppRoutedReadHttpDecoder::Query("ListQuery")
+                        | AppRoutedReadHttpDecoder::Json("ListQuery")
+                )
+            })
             .collect();
         assert_eq!(collections.len(), 32);
         for pair in collections.chunks_exact(2) {
@@ -217,6 +224,7 @@ mod app_routed_read_http_admission_tests {
         assert_eq!(details, [
             route_catalog::application_api::EXPLORER_BLOCKS_BY_IDENTIFIER_GET.stable_route_id(),
             route_catalog::application_api::EXPLORER_TRANSACTIONS_BY_HASH_GET.stable_route_id(),
+            route_catalog::application_api::EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET.stable_route_id(),
             route_catalog::application_api::EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET.stable_route_id(),
             route_catalog::application_api::EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_CONTRACT_VIEW_GET.stable_route_id(),
             route_catalog::application_api::EXPLORER_HEALTH_GET.stable_route_id(),
@@ -225,7 +233,241 @@ mod app_routed_read_http_admission_tests {
             route_catalog::application_api::EXPLORER_NFTS_BY_NFT_ID_GET.stable_route_id(),
             route_catalog::application_api::EXPLORER_RWAS_BY_RWA_ID_GET.stable_route_id(),
         ]);
-        assert_eq!(ids.len(), 41);
+        let inspection = app_routed_read_http_endpoint(
+            route_catalog::application_api::ACCOUNTS_INSPECT_POST.stable_route_id(),
+        )
+        .unwrap();
+        assert_eq!(
+            inspection.endpoint,
+            AppReadHttpIdentity::LocalCollection(AppLocalCollectionRead::AccountInspection,)
+        );
+        assert_eq!(
+            inspection.decoder,
+            AppRoutedReadHttpDecoder::Json("AccountInspectionRequest")
+        );
+        assert_eq!(ids.len(), 43);
+    }
+
+    async fn native_read_owner_probe(
+        State(app): State<SharedAppState>,
+        headers: HeaderMap,
+    ) -> Response {
+        let limit = if headers.contains_key("x-test-overflow") {
+            1
+        } else {
+            128
+        };
+        let admission = acquire_query_admission(&app, true).await.unwrap();
+        match routing::run_admitted_blocking(admission, "native read owner probe", move || {
+            let owner = crate::history_producer::HistoryProducerOwner::current()?;
+            owner.json_with_limit("native-owner", limit)
+        })
+        .await
+        {
+            Ok(response) => response,
+            Err(error) => error.into_response(),
+        }
+    }
+
+    fn native_read_owner_router(
+        app: SharedAppState,
+        descriptor: iroha_torii_shared::route_catalog::RouteDescriptor,
+    ) -> Router {
+        Router::new()
+            .route(descriptor.path(), any(native_read_owner_probe))
+            .with_state(app.clone())
+            .layer(from_fn_with_state(
+                app,
+                enforce_app_routed_read_http_admission,
+            ))
+            .layer(from_fn(move |request, next| {
+                insert_test_route_metadata(descriptor, request, next)
+            }))
+    }
+
+    #[tokio::test]
+    async fn native_read_admission_preserves_worker_owner_and_response_cap() {
+        for descriptor in [
+            route_catalog::application_api::ACCOUNTS_INSPECT_POST,
+            route_catalog::application_api::EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET,
+        ] {
+            let app = mk_app_state_for_tests();
+            let before = app.query_fanout_inflight.available_bytes();
+            for overflow in [false, true] {
+                let path = descriptor.path().replace("{hash}", &"ab".repeat(32));
+                let mut request =
+                    if descriptor == route_catalog::application_api::ACCOUNTS_INSPECT_POST {
+                        json_request(&path, Body::from("{}"))
+                    } else {
+                        Request::builder().uri(path).body(Body::empty()).unwrap()
+                    };
+                if overflow {
+                    request
+                        .headers_mut()
+                        .insert("x-test-overflow", HeaderValue::from_static("1"));
+                }
+                let response = native_read_owner_router(app.clone(), descriptor)
+                    .oneshot(request)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    if overflow {
+                        StatusCode::TOO_MANY_REQUESTS
+                    } else {
+                        StatusCode::OK
+                    },
+                    "{}",
+                    descriptor.stable_route_id()
+                );
+                assert!(app.query_fanout_inflight.available_bytes() < before);
+                let bytes = axum::body::to_bytes(response.into_body(), 4096)
+                    .await
+                    .unwrap();
+                if !overflow {
+                    assert_eq!(bytes.as_ref(), br#""native-owner""#);
+                }
+                assert!(app.query_fanout_inflight.available_bytes() < before);
+                drop(bytes);
+                assert_eq!(app.query_fanout_inflight.available_bytes(), before);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn account_inspection_real_handler_inherits_outer_http_owner() {
+        let app = mk_app_state_for_tests();
+        let before = app.query_fanout_inflight.available_bytes();
+        let descriptor = route_catalog::application_api::ACCOUNTS_INSPECT_POST;
+        let account = AccountId::new(
+            iroha_crypto::KeyPair::try_from_seed(vec![0xc6; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap()
+                .public_key()
+                .clone(),
+        );
+        let body = norito::json::to_vec(&norito::json!({
+            "version": 1,
+            "network_id": app.state.network_id_ref().to_string(),
+            "request_id": "8a70f738-e08d-4d2c-bb07-f3eec382f441",
+            "nonce": "a1".repeat(32),
+            "account_id": account.to_string(),
+        }))
+        .unwrap();
+        let router = Router::new()
+            .route(
+                descriptor.path(),
+                axum::routing::post(account_inspection::handler),
+            )
+            .with_state(app.clone())
+            .layer(axum::Extension(crate::loopback_connect_info()))
+            .layer(from_fn_with_state(
+                app.clone(),
+                enforce_app_routed_read_http_admission,
+            ))
+            .layer(from_fn(move |request, next| {
+                insert_test_route_metadata(descriptor, request, next)
+            }));
+        let response = router
+            .oneshot(json_request(descriptor.path(), Body::from(body)))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        assert!(app.query_fanout_inflight.available_bytes() < before);
+        let bytes = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        let value: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            value["account_id"].as_str(),
+            Some(account.to_string().as_str())
+        );
+        assert!(app.query_fanout_inflight.available_bytes() < before);
+        drop(bytes);
+        assert_eq!(app.query_fanout_inflight.available_bytes(), before);
+    }
+
+    #[tokio::test]
+    async fn account_inspection_outer_body_cap_rejects_before_excess_retention() {
+        let app = mk_app_state_for_tests();
+        let descriptor = route_catalog::application_api::ACCOUNTS_INSPECT_POST;
+        let before = app.query_fanout_inflight.available_bytes();
+        let polls = Arc::new(AtomicUsize::new(0));
+        let mut declared = json_request(descriptor.path(), pending_body(&polls));
+        declared
+            .headers_mut()
+            .insert(header::CONTENT_LENGTH, HeaderValue::from_static("4097"));
+        let response = native_read_owner_router(app.clone(), descriptor)
+            .oneshot(declared)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(polls.load(Ordering::SeqCst), 0);
+        assert_eq!(app.query_fanout_inflight.available_bytes(), before);
+        drop(response);
+
+        let stream_polls = Arc::clone(&polls);
+        let body = Body::from_stream(futures::stream::poll_fn(move |_| {
+            let poll = stream_polls.fetch_add(1, Ordering::SeqCst);
+            match poll {
+                0 => Poll::Ready(Some(Ok::<Bytes, Infallible>(Bytes::from(vec![b' '; 4096])))),
+                1 => Poll::Ready(Some(Ok(Bytes::from_static(b"x")))),
+                _ => Poll::Pending,
+            }
+        }));
+        let response = native_read_owner_router(app.clone(), descriptor)
+            .oneshot(json_request(descriptor.path(), body))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
+        assert!(app.query_fanout_inflight.available_bytes() < before);
+        drop(response);
+        assert_eq!(app.query_fanout_inflight.available_bytes(), before);
+
+        // The other new endpoint remains bodyless at the same outer boundary.
+        let proof = route_catalog::application_api::EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET;
+        let path = proof.path().replace("{hash}", &"ab".repeat(32));
+        let proof_polls = Arc::new(AtomicUsize::new(0));
+        let request = Request::builder()
+            .uri(path)
+            .header(header::CONTENT_LENGTH, "1")
+            .body(pending_body(&proof_polls))
+            .unwrap();
+        let response = native_read_owner_router(app.clone(), proof)
+            .oneshot(request)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(proof_polls.load(Ordering::SeqCst), 0);
+        assert_eq!(app.query_fanout_inflight.available_bytes(), before);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn account_inspection_outer_deadline_uses_stricter_native_or_configured_bound() {
+        for (configured, expected) in [(60, 5), (1, 1)] {
+            let mut app = mk_app_state_for_tests();
+            Arc::get_mut(&mut app)
+                .unwrap()
+                .app_api_routed_read_body_read_timeout = Duration::from_secs(configured);
+            let descriptor = route_catalog::application_api::ACCOUNTS_INSPECT_POST;
+            let before = app.query_fanout_inflight.available_bytes();
+            let polls = Arc::new(AtomicUsize::new(0));
+            let started = tokio::time::Instant::now();
+            let response = native_read_owner_router(app.clone(), descriptor)
+                .oneshot(json_request(descriptor.path(), pending_body(&polls)))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+            assert_eq!(started.elapsed(), Duration::from_secs(expected));
+            assert!(polls.load(Ordering::SeqCst) > 0);
+            assert!(app.query_fanout_inflight.available_bytes() < before);
+            drop(response);
+            assert_eq!(app.query_fanout_inflight.available_bytes(), before);
+        }
     }
 
     #[tokio::test]

@@ -1199,6 +1199,8 @@ pub use utils::{
     },
 };
 #[cfg(feature = "app_api")]
+mod account_inspection;
+#[cfg(feature = "app_api")]
 mod account_literal;
 #[cfg(feature = "app_api")]
 mod account_onboarding_state;
@@ -11520,7 +11522,7 @@ async fn handler_explorer_transaction_proof(
     match routing::explorer_transaction_proof::admitted(
         Arc::clone(&app.state),
         app.telemetry.clone(),
-        visibility.current_visibility(),
+        visibility.admitted_visibility.clone(),
         hash,
         acquire_query_admission(&app, true).await?,
     )
@@ -38534,6 +38536,7 @@ impl Torii {
             builder, application_api;
             ACCOUNTS_GET => optional_canonical_signature_get(handler_accounts_list);
             ACCOUNTS_CAPABILITIES_GET => limited_public_get(handler_accounts_capabilities, 0);
+            ACCOUNTS_INSPECT_POST => limited_public_post(account_inspection::handler, account_inspection::MAX_REQUEST_BYTES);
         );
         mount_accounts_query(builder, app_state.clone(), transaction_max_content_len);
         mount_transactions_query(builder, app_state.clone(), transaction_max_content_len);

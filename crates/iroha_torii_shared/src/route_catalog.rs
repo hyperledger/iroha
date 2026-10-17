@@ -3883,6 +3883,9 @@ pub mod application_api {
     const fn app_sdk_get(id: &'static str, path: &'static str) -> RouteDescriptor {
         app_get(id, path).with_projections(RouteProjections::SDK)
     }
+    const fn account_inspection_post(id: &'static str, path: &'static str) -> RouteDescriptor {
+        app_post(id, path).with_private_no_store()
+    }
     const fn dataspace_get(id: &'static str, path: &'static str) -> RouteDescriptor {
         app_get(id, path)
             .with_admission(AdmissionPolicy::DataspaceVisible)
@@ -4079,6 +4082,7 @@ pub mod application_api {
         DOMAINS_QUERY_POST => dataspace_post("application.domains_query_post", "/v1/domains/query");
         ACCOUNTS_GET => dataspace_get("application.accounts_get", "/v1/accounts");
         ACCOUNTS_CAPABILITIES_GET => app_get("application.accounts_capabilities_get", "/v1/accounts/capabilities");
+        ACCOUNTS_INSPECT_POST => account_inspection_post("application.accounts_inspect_post", "/v1/accounts/inspect");
         ACCOUNTS_QUERY_POST => dataspace_post("application.accounts_query_post", "/v1/accounts/query");
         TRANSACTIONS_QUERY_POST => dataspace_post("application.transactions_query_post", "/v1/transactions/query");
         ACCOUNTS_ONBOARD_PLAN_POST => onboarding_compute_post("application.accounts_onboard_plan_post", "/v1/accounts/onboard/plan");
