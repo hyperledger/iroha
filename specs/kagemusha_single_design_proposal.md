@@ -166,6 +166,17 @@ to the canonical domainless `AccountId`, network, scheme, asset incarnation,
 wallet key, app identity and enrollment policy. A new incarnation always begins
 at zero; reenrollment never imports an old balance or resets its replay state.
 
+Native keeps a surviving platform-only key whose slot directory and enrollment
+binding are absent visible as lost custody. It never initializes that key or
+imports its value. A separately authorized fresh enrollment, or an exact retained
+`Phase`/`Slot` retry, may use its own distinct slot. Opening an independently
+issuer-authenticated credential may exclude that orphan only after a positive
+protected-key lookup proves a different payment key; an already selected source
+is never excluded. Missing or ambiguous owned records and unknown storage/key
+answers still refuse. In particular, retained `Accepted` without `Phase`/`Slot`
+cannot infer a fresh grant from a surviving key: the pre-effect crash and erased
+post-effect custody are ambiguous, so that recovery remains fail-closed.
+
 Every token on the universal dataspace is eligible for KAGEMUSHA offline payments. There
 is no Parliament approval, named-token allowlist or regulated/non-regulated asset-class gate.
 The canonical universal balance scope is `AssetBalanceScope::Global`, routed to
