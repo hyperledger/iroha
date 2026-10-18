@@ -40,11 +40,6 @@ path = "tests/sora_parliament_lifecycle_smoke.rs"
 required-features = ["parliament-test-signers"]
 
 [[test]]
-name = "sorafs_publication_governance"
-path = "tests/sorafs_publication_governance.rs"
-required-features = ["parliament-test-signers"]
-
-[[test]]
 name = "sccp_lanes"
 path = "tests/sccp_lanes/main.rs"
 
@@ -102,7 +97,6 @@ parliament-test-signers = ["iroha_core/test-network-parliament-signers"]
 [dependencies]
 iroha_allocation = { workspace = true }
 iroha_core_privacy = { workspace = true, default-features = false }
-iroha_core_timed_ovn = { workspace = true }
 iroha_model_base = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "process", "rt-multi-thread", "time"] }
 eyre = { workspace = true }

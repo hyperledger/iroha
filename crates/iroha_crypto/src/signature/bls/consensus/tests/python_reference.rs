@@ -166,9 +166,73 @@ fn reference_has_one_location_and_names_its_generator() {
     let reference = reference();
     assert!(string(&reference, "generator").contains("writes this file alone"));
     assert!(string(&reference, "rust_only_vectors").contains("bls_consensus_rust_v1.json"));
-    for item in rows(&reference, "todo") {
-        let item = item.as_str().expect("a todo entry is text");
-        assert!(!item.contains("iroha_crypto") && !item.contains("Rust"));
+    assert_eq!(
+        string(
+            field(&reference, "ethereum_malformed_inputs"),
+            "source_kind"
+        ),
+        "deterministic_offline_reproduction"
+    );
+}
+
+#[test]
+fn reproduces_offline_ethereum_malformed_and_deserialization_rows() {
+    let reference = reference();
+    let malformed = field(&reference, "ethereum_malformed_inputs");
+    let baseline = field(malformed, "baseline");
+    let public_key = fixed::<48>(string(baseline, "pk"));
+    let signature = fixed::<96>(string(baseline, "signature"));
+    let digest = raw_digest(string(baseline, "msg"));
+    assert_eq!(public_key, bytes::<48>(PUBLIC_KEYS[0]));
+    assert_eq!(signature, bytes::<96>(SIGNATURES[0][0]));
+    assert_eq!(digest.as_bytes(), &MESSAGES[0]);
+    for (group, count) in [(1, 16), (2, 18)] {
+        let cases = rows(malformed, &format!("g{group}_deserialization"));
+        assert_eq!(cases.len(), count);
+        let mut labels = BTreeSet::new();
+        for row in cases {
+            assert!(labels.insert(label(row)));
+            let encoded = decode(string(row, "encoding"));
+            let (deserialized, validated, verified) = if group == 1 {
+                let fixed: Option<[u8; 48]> = encoded.as_slice().try_into().ok();
+                let decoded = fixed.and_then(|key| G1Affine::from_compressed(&key).into_option());
+                (
+                    decoded.is_some(),
+                    fixed.is_some_and(|key| key_validate(&key)),
+                    fixed.is_some_and(|key| {
+                        verify_fast_aggregate_committed(&[key], &digest, &signature)
+                    }),
+                )
+            } else {
+                let fixed: Option<[u8; 96]> = encoded.as_slice().try_into().ok();
+                let decoded = fixed.and_then(|sig| G2Affine::from_compressed(&sig).into_option());
+                (
+                    decoded.is_some(),
+                    fixed.is_some_and(|sig| parse_signature(&sig).is_some()),
+                    fixed.is_some_and(|sig| {
+                        verify_fast_aggregate_committed(&[public_key], &digest, &sig)
+                    }),
+                )
+            };
+            assert_eq!(
+                deserialized,
+                boolean(row, "deserialize"),
+                "G{group}/{}: deserialize",
+                label(row)
+            );
+            assert_eq!(
+                validated,
+                boolean(row, "validate"),
+                "G{group}/{}: validate",
+                label(row)
+            );
+            assert_eq!(
+                verified,
+                boolean(row, "verify"),
+                "G{group}/{}: verify",
+                label(row)
+            );
+        }
     }
 }
 

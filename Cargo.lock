@@ -1789,7 +1789,6 @@ dependencies = [
  "iroha_accel",
  "iroha_core",
  "iroha_core_privacy",
- "iroha_core_timed_ovn",
  "iroha_core_zk",
  "iroha_crypto",
  "iroha_data_model",
@@ -4527,7 +4526,6 @@ dependencies = [
  "iroha_config_base",
  "iroha_core",
  "iroha_core_privacy",
- "iroha_core_timed_ovn",
  "iroha_core_zk",
  "iroha_crypto",
  "iroha_data_model",
@@ -4697,7 +4695,6 @@ dependencies = [
  "iroha_config_base",
  "iroha_core",
  "iroha_core_privacy",
- "iroha_core_timed_ovn",
  "iroha_core_zk",
  "iroha_crypto",
  "iroha_data_model",
@@ -5095,6 +5092,7 @@ dependencies = [
  "iroha_data_model_derive",
  "iroha_macro",
  "iroha_model_base",
+ "iroha_parliament_ballot_proof",
  "iroha_pasta",
  "iroha_primitives",
  "iroha_schema",
@@ -5110,6 +5108,7 @@ dependencies = [
  "rustc-hash 2.1.2",
  "rustix 1.1.4",
  "sha2",
+ "sha3",
  "sorafs_manifest",
  "tempfile",
  "thiserror 2.0.18",
@@ -5583,6 +5582,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "iroha_parliament_ballot"
+version = "2.0.0-rc.2.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "iroha_data_model",
+ "iroha_parliament_ballot_proof",
+ "norito",
+ "sha3",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
 name = "iroha_parliament_ballot_proof"
 version = "2.0.0-rc.2.0"
 dependencies = [
@@ -6015,7 +6027,6 @@ dependencies = [
  "iroha_config",
  "iroha_core",
  "iroha_core_privacy",
- "iroha_core_timed_ovn",
  "iroha_core_zk",
  "iroha_crypto",
  "iroha_data_model",
@@ -6232,7 +6243,6 @@ dependencies = [
  "iroha_config_base",
  "iroha_core",
  "iroha_core_privacy",
- "iroha_core_timed_ovn",
  "iroha_core_zk",
  "iroha_crypto",
  "iroha_data_model",

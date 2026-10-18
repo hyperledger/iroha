@@ -48,7 +48,6 @@ NO_BARE_BLOCKING = (
     "crates/iroha_torii/src/zk_attachments.rs",
     "crates/iroha_torii/src/zk_prover.rs",
     "crates/iroha_torii/src/sns.rs",
-    "crates/iroha_torii/src/parliament_tle_release.rs",
     "crates/iroha_torii/src/webhook.rs",
     "crates/irohad/src/runtime_provider_broker/platform_provider_clients_01.rs",
     "crates/irohad/src/runtime_provider_broker/platform_provider_clients_03.rs",

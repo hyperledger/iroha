@@ -14,11 +14,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 JNI_SOURCE = REPO_ROOT / "crates/connect_norito_bridge/src/platform_jni/part_3.rs"
 SDK_PREFIX = "Java_org_hyperledger_iroha_sdk_"
 ANDROID_PREFIX = "Java_org_hyperledger_iroha_android_"
-EXPECTED_GOVERNANCE_SOURCE_DIGEST = "a13b0664abdf988946a4b48740c44f7352b815d16faf981ca06fec2d52a483fa"
-EXPECTED_GOVERNANCE_METHODS = (
-    "nativeBridgeAbiVersion", "nativeVerifyCastingProofV1", "nativeVerifyCastingProofPageV1",
-    "nativeRegistrationFromProofV1", "nativeBallotFromProofV1",
-)
 EXPECTED_ABI_DIGEST = "dda833218dcc5d421a9958e4f9b588623343553f55a792d966bf70349c0e89d1"
 EXPECTED_ATTRIBUTE_DIGEST = "2ce13aae27f2db4f0af112ffc17015ae9fc6125eb75e88cb40229da972c79acd"
 
@@ -121,8 +116,6 @@ class AuditResult:
     privacy_count: int
     abi_digest: str
     attribute_digest: str
-    governance_count: int
-    governance_digest: str
 
 
 def _skip_quoted(source: str, index: int) -> int | None:
@@ -266,16 +259,8 @@ def _sdk_inventory(source: str) -> tuple[list[str], list[str], list[str]]:
         abi_records.append(suffix + "\0" + function.replace(expected, "__JNI_EXPORT__", 1))
         attributes.append(suffix + "\0" + preamble)
         cursor = closing + 1
-    governance_source = source[cursor:].strip()
-    governance_names = re.findall(
-        r'pub unsafe extern "system" fn Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_([A-Za-z0-9_]+)\(',
-        governance_source,
-    )
-    governance_digest = hashlib.sha256(governance_source.encode()).hexdigest()
-    if (tuple(governance_names) != EXPECTED_GOVERNANCE_METHODS
-            or governance_digest != EXPECTED_GOVERNANCE_SOURCE_DIGEST):
-        raise AuditError("unexpected source after the canonical Kotlin JNI inventory: "
-                         "governance helper/signature/body contract changed")
+    if source[cursor:].strip():
+        raise AuditError("unexpected source after the canonical Kotlin JNI inventory")
     return observed, abi_records, attributes
 
 
@@ -290,8 +275,7 @@ def audit_source(source: str) -> AuditResult:
     if attribute_digest != EXPECTED_ATTRIBUTE_DIGEST:
         raise AuditError("Kotlin JNI documentation/attribute contract changed: "
                          f"expected {EXPECTED_ATTRIBUTE_DIGEST}, found {attribute_digest}")
-    return AuditResult(len(observed), len(EXPECTED_SDK_ONLY_SUFFIXES), abi_digest,
-                       attribute_digest, len(EXPECTED_GOVERNANCE_METHODS), EXPECTED_GOVERNANCE_SOURCE_DIGEST)
+    return AuditResult(len(observed), len(EXPECTED_SDK_ONLY_SUFFIXES), abi_digest, attribute_digest)
 
 
 def main() -> int:
@@ -310,7 +294,7 @@ def main() -> int:
         return 1
     print(
         "Kotlin JNI source guard passed: "
-        f"sdk={result.sdk_count} governance={result.governance_count} privacy={result.privacy_count} abi_sha256={result.abi_digest} "
+        f"sdk={result.sdk_count} privacy={result.privacy_count} abi_sha256={result.abi_digest} "
         f"attributes_sha256={result.attribute_digest}"
     )
     return 0

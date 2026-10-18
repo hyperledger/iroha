@@ -144,9 +144,7 @@ use parking_lot::deadlock;
 pub use runtime_provider_broker::{
     BootleLanternIssuanceBrokerBackendErrorV1, BootleLanternIssuanceBrokerBackendV1,
     ConsensusSignerProviderQualificationV1, GlobalBeaconPartialSignerBrokerBackendErrorV1,
-    GlobalBeaconPartialSignerBrokerBackendV1,
-    ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
-    ParliamentTlePartialReleaseSignerBrokerBackendV1, RuntimeProviderBrokerBackendRegistryV1,
+    GlobalBeaconPartialSignerBrokerBackendV1, RuntimeProviderBrokerBackendRegistryV1,
     RuntimeProviderBrokerBackendsV1, RuntimeProviderBrokerDeploymentV1,
     RuntimeProviderBrokerExecutableArgsV1, RuntimeProviderBrokerExecutableErrorV1,
     RuntimeProviderBrokerExecutableV1, RuntimeProviderBrokerLauncherErrorV1,
@@ -3458,7 +3456,6 @@ impl Iroha {
         let bootle_lantern_issuance_provider_registry = runtime_deps
             .bootle_lantern_issuance_provider_registry
             .clone();
-        let parliament_tle_release_coordinator = runtime_deps.parliament_tle_release_coordinator();
         let moderation_quarantine_key_wrapper =
             runtime_deps.moderation_quarantine_key_wrapper.clone();
         let privacy_cycle_prf_provider = runtime_deps.privacy_cycle_prf_provider.clone();
@@ -4464,7 +4461,6 @@ impl Iroha {
         #[allow(clippy::redundant_closure_call)]
         let runtime_deps = (|| {
         let runtime_deps = iroha_torii::ToriiRuntimeDeps::new(build_identity, torii_telemetry)
-            .with_parliament_tle_release_coordinator(parliament_tle_release_coordinator)
             .with_torii_proxy_bridge_signer(config.common.key_pair.clone())
             .with_vpn_relay_trust(vpn_relay_trust);
         let runtime_deps = if let Some(signer) = private_settlement_availability_signer {
@@ -8251,9 +8247,7 @@ fn run_main_with_config_guard(
             if emergency_fast {
                 runtime_deps
             } else {
-                if runtime_deps.sumeragi_global_beacon_partial_signer.is_some()
-                    || runtime_deps.parliament_tle_partial_release_signer.is_some()
-                {
+                if runtime_deps.sumeragi_global_beacon_partial_signer.is_some() {
                     return Err(Report::new(MainError::Config).attach(
                         "the test-network Parliament signers reject a second injected provider",
                     ));
@@ -8264,7 +8258,7 @@ fn run_main_with_config_guard(
                 let beacon_signer = iroha_core::beacon::parliament_test_network_signer::
                 TestNetworkParliamentBeaconPartialSignerV1::try_new(
                     test_network_id,
-                    ordered_roster.clone(),
+                    ordered_roster,
                     &config.common.peer.id,
                     &iroha_allocation::AllocationBudget::new(
                         config.runtime_provider_broker.credential_max_memory_bytes.get(),
@@ -8283,18 +8277,6 @@ fn run_main_with_config_guard(
                         Some(Arc::new(beacon_signer.with_deliberately_invalid_outbound()))
                     }
                 };
-                let tle_signer = iroha_core::tle_release::parliament_test_network_signer::
-                TestNetworkParliamentTlePartialReleaseSignerV1::try_new(
-                    test_network_id,
-                    ordered_roster,
-                    &config.common.peer.id,
-                )
-                .map_err(|_| Report::new(MainError::Config))
-                .attach(
-                    "failed to bind the feature-isolated Parliament TLE signer to the exact local validator seat",
-                )?;
-                let runtime_deps =
-                    runtime_deps.with_parliament_tle_partial_release_signer(Arc::new(tle_signer));
                 if let Some(beacon_signer) = beacon_signer {
                     runtime_deps.with_sumeragi_global_beacon_partial_signer(beacon_signer)
                 } else {

@@ -1574,7 +1574,6 @@ mod tests {
             };
             let bundle = encode_consensus_threshold_credential_bundle_v1(
                 with_beacon.then_some(beacon.credential.as_slice()),
-                None,
             )
             .unwrap();
             let (_directory, path) = key_file(&fixture_key_pair());
@@ -1630,9 +1629,8 @@ mod tests {
         ))
         .unwrap();
         let complete =
-            encode_consensus_threshold_credential_bundle_v1(Some(&beacon.credential), None)
-                .unwrap();
-        let empty = encode_consensus_threshold_credential_bundle_v1(None, None).unwrap();
+            encode_consensus_threshold_credential_bundle_v1(Some(&beacon.credential)).unwrap();
+        let empty = encode_consensus_threshold_credential_bundle_v1(None).unwrap();
         assert!(
             disposable_broker::load_with_signer(
                 &catalog,
@@ -1919,15 +1917,15 @@ mod tests {
         }
         let mut extra = config.clone();
         extra
-            .gov
-            .parliament_tle_partial_release_signer_provider_handle =
-            Some("software://unexpected-tle".to_owned());
-        extra
-            .gov
-            .parliament_tle_partial_release_signer_provider_revision = Some(1);
-        extra
-            .gov
-            .parliament_tle_partial_release_signer_provider_policy_digest = Some([0xD3; 32]);
+            .torii
+            .sorafs_storage
+            .moderation_quarantine_key_provider = Some(
+            iroha_config::parameters::actual::SorafsModerationQuarantineKeyProviderBinding {
+                handle: "software://unexpected-quarantine-key".to_owned(),
+                revision: 1,
+                policy_digest: [0xD3; 32],
+            },
+        );
         let bindings = IrohaRuntimeProviderBindingsV1::try_from_config(&extra)
             .expect("valid but unsupported public provider");
         assert!(matches!(
@@ -2240,10 +2238,9 @@ mod tests {
         );
 
         let bundle =
-            crate::external_software_signer::encode_consensus_threshold_credential_bundle_v1(
-                Some(&fixture.credential),
-                None,
-            )
+            crate::external_software_signer::encode_consensus_threshold_credential_bundle_v1(Some(
+                &fixture.credential,
+            ))
             .unwrap();
         let original = iroha_crypto::Hash::new(bundle.as_slice());
         let failed = norito::with_decode_limits_scope(limits, || {

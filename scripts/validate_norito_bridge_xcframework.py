@@ -143,10 +143,6 @@ EXPECTED_REQUIRED_SYMBOLS = [
     "connect_norito_alias_instruction_round_trip_v1",
     "connect_norito_account_read_permission_multisig_payload_hash",
     "connect_norito_account_read_permission_multisig_finalize",
-    "connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1",
-    "connect_norito_parliament_timed_ovn_verify_casting_proof_v1",
-    "connect_norito_parliament_timed_ovn_registration_from_proof_v1",
-    "connect_norito_parliament_timed_ovn_ballot_from_proof_v1",
     "iroha_privacy_compiled_profile_catalog_v1",
     "iroha_privacy_validate_compiled_profile_catalog_v1",
     "iroha_privacy_exact12_fixture_bundle_v1",
@@ -430,8 +426,8 @@ def _validate_root_identity(
         header.read_text(encoding="utf-8"),
         re.MULTILINE,
     )
-    if header_abis != ["29"]:
-        raise ValidationError("authoritative NoritoBridge header ABI is not exact 29")
+    if header_abis != ["30"]:
+        raise ValidationError("authoritative NoritoBridge header ABI is not exact 30")
 
     bridge_source = root / "crates/connect_norito_bridge/src/lib.rs"
     _regular_file(bridge_source, "authoritative NoritoBridge source")
@@ -452,8 +448,8 @@ def _validate_root_identity(
         protocol.read_text(encoding="utf-8"),
         re.MULTILINE,
     )
-    if protocol_abis != ["29"]:
-        raise ValidationError("authoritative privacy bridge ABI is not exact 29")
+    if protocol_abis != ["30"]:
+        raise ValidationError("authoritative privacy bridge ABI is not exact 30")
 
 
 def _load_manifest(manifest_path: Path, root: Path, lockfile: Path, *, local_integration: bool = False) -> dict[str, object]:
@@ -480,8 +476,8 @@ def _load_manifest(manifest_path: Path, root: Path, lockfile: Path, *, local_int
         or SEMVER.fullmatch(payload["version"]) is None
     ):
         raise ValidationError("artifact version is not canonical")
-    if payload["native_bridge_abi_version"] != 29:
-        raise ValidationError("artifact does not bind exact native bridge ABI 29")
+    if payload["native_bridge_abi_version"] != 30:
+        raise ValidationError("artifact does not bind exact native bridge ABI 30")
     if payload["privacy_production_enabled"] is not True:
         raise ValidationError("artifact must include mandatory privacy support")
     expected_features = ["privacy-production-enabled"]

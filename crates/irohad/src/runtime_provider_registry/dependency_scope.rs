@@ -12,9 +12,6 @@ pub(super) fn dependency_is_present(
     let deps = dependencies;
     match slot {
         Slot::GlobalBeaconPartialSigner => deps.sumeragi_global_beacon_partial_signer.is_some(),
-        Slot::ParliamentTlePartialReleaseSigner => {
-            deps.parliament_tle_partial_release_signer.is_some()
-        }
         Slot::BootleLanternIssuanceProviderRegistry => {
             deps.bootle_lantern_issuance_provider_registry.is_some()
         }
@@ -132,11 +129,6 @@ pub(super) fn has_unrequested_dependency(
             bindings,
             IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner,
             dependencies.sumeragi_global_beacon_partial_signer.is_some(),
-        )
-        || dependency_is_unrequested(
-            bindings,
-            IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
-            dependencies.parliament_tle_partial_release_signer.is_some(),
         )
         || dependency_is_unrequested(
             bindings,

@@ -114,6 +114,16 @@ bounces, retry accounting, burns and required value. The Rust pure verification
 and wallet suites exercise the same certificate/proof relations and exact
 contract encodings.
 
+Generated fixture tables replay every commitment-tree and history root and
+path, commitment-tree confusion negative, and applicable payload refusal. The
+burn replay compares the minter's emitted external-message body with
+`native_transfer_event_v1.json`. BLS wrapper tests consume signature and
+fast-aggregate verification rows, standard inputs and Rust verification
+negatives, with explicit TON outcomes. Key generation, signing,
+distinct-message aggregation, w3f PoP generation and Rust-only allowlist APIs
+remain outside the destination verifier. Pinned row counts and generator
+checks prevent fixture regeneration from silently reducing replay coverage.
+
 The pinned toolchain is Acton 1.2.0 with Tolk 1.4.2.
 `fixtures/sccp/ton_stateinit_v1.json` records the compiled code and native initial
 state/address golden values.

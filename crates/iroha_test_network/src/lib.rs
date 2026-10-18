@@ -1020,7 +1020,7 @@ pub enum Program {
     /// Feature-isolated daemon used only by explicit consensus fault-injection tests.
     #[doc(hidden)]
     IrohadPrivateSettlementRoutes,
-    /// Feature-isolated daemon with exact-seat Parliament beacon and TLE share providers.
+    /// Feature-isolated daemon with exact-seat Parliament beacon share providers.
     #[doc(hidden)]
     IrohadParliamentSigners,
     /// Feature-isolated stock-custody broker for disposable peer networks.
@@ -1035,8 +1035,7 @@ pub enum Program {
 /// Feature-isolated global-beacon signer behavior for one validator child.
 ///
 /// The mode changes only the test daemon's runtime beacon-share provider. The
-/// validator remains online, retains its full consensus vote, and always keeps
-/// the proof-valid Parliament TLE signer installed.
+/// validator remains online and retains its full consensus vote.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ParliamentBeaconSignerMode {
     /// Produce and broadcast the proof-valid share for the exact local seat.
@@ -6968,9 +6967,8 @@ impl NetworkBuilder {
         self
     }
     /// Use a separately built, feature-isolated daemon whose runtime dependency
-    /// returns one proof-valid global-beacon share and one proof-valid TLE share
-    /// for each validator's exact local seat. Consensus and release validation
-    /// remain unchanged.
+    /// returns one proof-valid global-beacon share for each validator's exact
+    /// local seat. Consensus validation remains unchanged.
     ///
     /// # Panics
     ///
@@ -6994,7 +6992,7 @@ impl NetworkBuilder {
     }
 
     /// Use the feature-isolated Parliament daemon with one exact beacon signer
-    /// mode for every validator, while keeping every TLE signer proof-valid.
+    /// mode for every validator.
     ///
     /// # Panics
     ///
@@ -16136,27 +16134,21 @@ mod tests {
 
         let beacon_provider =
             include_str!("../../iroha_core/src/beacon/parliament_test_network_signer.rs");
-        let tle_provider =
-            include_str!("../../iroha_core/src/tle_release/parliament_test_network_signer.rs");
         assert!(beacon_provider.contains("GlobalThresholdBeaconPartialSignerV1"));
-        assert!(tle_provider.contains("TlePartialReleaseSignerV1"));
-        for provider in [beacon_provider, tle_provider] {
+        assert!(
+            beacon_provider.contains("#[cfg(not(debug_assertions))]"),
+            "the Core provider itself must reject optimized compilation"
+        );
+        for forbidden in [
+            "FinalizedGlobalThresholdBeaconPulseV1",
+            "ParliamentLifecycleTransitionV1",
+            "StateTransaction",
+            "put_parliament_attempt",
+        ] {
             assert!(
-                provider.contains("#[cfg(not(debug_assertions))]"),
-                "the Core provider itself must reject optimized compilation"
+                !beacon_provider.contains(forbidden),
+                "test signer providers must return partial shares only, not `{forbidden}`"
             );
-            for forbidden in [
-                "FinalizedGlobalThresholdBeaconPulseV1",
-                "TleFinalReleaseSignatureV1",
-                "ParliamentLifecycleTransitionV1",
-                "StateTransaction",
-                "put_parliament_attempt",
-            ] {
-                assert!(
-                    !provider.contains(forbidden),
-                    "test signer providers must return partial shares only, not `{forbidden}`"
-                );
-            }
         }
     }
     #[test]

@@ -4,8 +4,7 @@
 //! invited citizen answers the invitation, a seated member endorses a public
 //! finding or records their own absence from the attempt. Core derives the
 //! member identity and assignment from the transaction authority, so none of
-//! the commands can act for another citizen. Hidden-ballot participation lives
-//! in `ballot`.
+//! the commands can act for another citizen.
 
 use eyre::{Result, eyre};
 use iroha::data_model::{

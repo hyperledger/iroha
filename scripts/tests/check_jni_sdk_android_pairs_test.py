@@ -29,8 +29,6 @@ class JniSdkAndroidPairGuardTests(unittest.TestCase):
         result = GUARD.audit_source(SOURCE)
         self.assertEqual(41, result.sdk_count)
         self.assertEqual(10, result.privacy_count)
-        self.assertEqual(5, result.governance_count)
-        self.assertEqual(GUARD.EXPECTED_GOVERNANCE_SOURCE_DIGEST, result.governance_digest)
         self.assertEqual(GUARD.EXPECTED_ABI_DIGEST, result.abi_digest)
         self.assertEqual(GUARD.EXPECTED_ATTRIBUTE_DIGEST, result.attribute_digest)
 
@@ -93,20 +91,6 @@ class JniSdkAndroidPairGuardTests(unittest.TestCase):
             with self.subTest(item=item):
                 with self.assertRaisesRegex(GUARD.AuditError, "unexpected source after"):
                     GUARD.audit_source(SOURCE + "\n" + item + "\n")
-
-    def test_governance_helpers_and_original_proof_bindings_are_exact(self) -> None:
-        for old, new in (
-            ("fn clear_parliament_jni_exception", "fn changed_exception_owner"),
-            ("nativeVerifyCastingProofPageV1(", "nativeVerifyCastingProofPageV2("),
-            (".map(|page| page.promoted_checkpoint)", ".map(|page| Vec::new())"),
-            ("expected_ballot_attempt_id,\n        )", "network_id,\n        )"),
-            ("if seed_bytes.len() != CONNECT_NORITO_PARLIAMENT_TIMED_OVN_SEED_BYTES_V1", "if false"),
-        ):
-            with self.subTest(owner=old):
-                mutated = SOURCE.replace(old, new, 1)
-                self.assertNotEqual(SOURCE, mutated)
-                with self.assertRaisesRegex(GUARD.AuditError, "governance helper/signature/body"):
-                    GUARD.audit_source(mutated)
 
     def test_trailing_whitespace_does_not_change_inventory(self) -> None:
         self.assertEqual(GUARD.audit_source(SOURCE), GUARD.audit_source(SOURCE + "\n" * 1000))

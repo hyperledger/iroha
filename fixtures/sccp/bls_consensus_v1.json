@@ -440,6 +440,360 @@
     "signing_root": "0x937e7d4a92ba79c29e69784d2d6b9bfaf0c08be0db55667d93b6046747d457fb",
     "source": "fixtures/sccp/rpc/eth/finality_update.json (sync_aggregate, attested_header.beacon) with the period-1868 committee from fixtures/sccp/rpc/eth/updates.json[0].next_sync_committee; Fulu fork version, mainnet genesis validators root, DOMAIN_SYNC_COMMITTEE"
   },
+  "ethereum_malformed_inputs": {
+    "baseline": {
+      "msg": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "pk": "0xa491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a",
+      "signature": "0xb6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55"
+    },
+    "conventions": "deserialize includes the subgroup check and accepts canonical infinity; validate additionally rejects infinity. verify checks the recorded key, 32-byte message and signature. EVM affine pairing ignores compressed metadata and has no representation for wrong compressed lengths (null); infinity is a valid affine point. TON opcode returns -9 for short slices and reads only the first 48/96 bytes of long slices; SCCP admission enforces exact sizes before that opcode.",
+    "g1_deserialization": [
+      {
+        "deserialize": true,
+        "encoding": "0xa491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": true,
+        "label": "valid",
+        "ton_verify": 1,
+        "validate": true,
+        "verify": true
+      },
+      {
+        "deserialize": true,
+        "encoding": "0x8491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "negated",
+        "ton_verify": 0,
+        "validate": true,
+        "verify": false
+      },
+      {
+        "deserialize": true,
+        "encoding": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "infinity",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x",
+        "evm_affine_pairing": null,
+        "evm_affine_verify": null,
+        "label": "empty",
+        "ton_verify": -9,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xa491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f7",
+        "evm_affine_pairing": null,
+        "evm_affine_verify": null,
+        "label": "short",
+        "ton_verify": -9,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xa491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a00",
+        "evm_affine_pairing": null,
+        "evm_affine_verify": null,
+        "label": "long",
+        "ton_verify": 1,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "all_zero",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "all_ones",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x2491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": true,
+        "label": "compression_clear",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xe491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "infinity_with_x",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xe00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "infinity_with_sign",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "infinity_dirty",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "x_equals_p",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "x_above_p",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "off_curve",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "non_subgroup",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      }
+    ],
+    "g2_deserialization": [
+      {
+        "deserialize": true,
+        "encoding": "0xb6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": true,
+        "label": "valid",
+        "ton_verify": 1,
+        "validate": true,
+        "verify": true
+      },
+      {
+        "deserialize": true,
+        "encoding": "0x96ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "negated",
+        "ton_verify": 0,
+        "validate": true,
+        "verify": false
+      },
+      {
+        "deserialize": true,
+        "encoding": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "infinity",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x",
+        "evm_affine_pairing": null,
+        "evm_affine_verify": null,
+        "label": "empty",
+        "ton_verify": -9,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xb6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a",
+        "evm_affine_pairing": null,
+        "evm_affine_verify": null,
+        "label": "short",
+        "ton_verify": -9,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xb6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a5500",
+        "evm_affine_pairing": null,
+        "evm_affine_verify": null,
+        "label": "long",
+        "ton_verify": 1,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "all_zero",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "all_ones",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x36ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": true,
+        "label": "compression_clear",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xf6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "infinity_with_x",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xe00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "infinity_with_sign",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "infinity_dirty",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab0352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "x_equals_p",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac0352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "x_above_p",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "evm_affine_pairing": true,
+        "evm_affine_verify": false,
+        "label": "off_curve",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0x80b383ec2171a4820ffb284d92c5c046080227eb5b60ed71db04d7d0e78fb20889f265ae5e061669811569a6a6c4918a00c85d5ad55709df9f7add6bbc1dab8537bca1f7a08dda2803047fb0ec79bc4fb114440efcc4459cb41400ed6d01d98c",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "non_subgroup",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xb6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158091a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "x_c0_equals_p",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      },
+      {
+        "deserialize": false,
+        "encoding": "0xb6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158091a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac",
+        "evm_affine_pairing": false,
+        "evm_affine_verify": false,
+        "label": "x_c0_above_p",
+        "ton_verify": 0,
+        "validate": false,
+        "verify": false
+      }
+    ],
+    "source": "ethereum/bls12-381-tests malformed-input and deserialization categories; release archive unavailable offline. These deterministic boundary encodings use its pinned standard private key 0 and message 0, not imported archive bytes or case names.",
+    "source_kind": "deterministic_offline_reproduction"
+  },
   "ethereum_standard_inputs": {
     "aggregate_verify": {
       "keys": [
@@ -1092,8 +1446,5 @@
       }
     ]
   },
-  "spec": "specs/sccp.md \u00a73.8; specs/sumeragi.md \u00a71 item 6 (revision 5)",
-  "todo": [
-    "TODO: import the remaining ethereum/bls12-381-tests release cases (its malformed-input verify and deserialization cases) once the archive is vendored; the standard inputs and the captured mainnet aggregate above are the current Ethereum cross-checks"
-  ]
+  "spec": "specs/sccp.md \u00a73.8; specs/sumeragi.md \u00a71 item 6 (revision 5)"
 }

@@ -2598,9 +2598,6 @@ fn validation_fee_plaintext_contracts_stay_retired_and_parliament_capabilities_a
                 "network_prefix",
                 "abi_version",
                 "data_model_version",
-                "approval_mode",
-                "private_ballot_protocol",
-                "mandatory_private_ballots",
                 "proposal_backed_referendum_ballots_supported",
                 "standalone_plain_ballots_supported",
                 "standalone_zk_ballots_supported",
@@ -2612,13 +2609,6 @@ fn validation_fee_plaintext_contracts_stay_retired_and_parliament_capabilities_a
                 "bond_escrow_account",
                 "min_enactment_delay",
                 "invitation_phase_blocks",
-                "registration_phase_blocks",
-                "survivor_freeze_phase_blocks",
-                "commitment_phase_blocks",
-                "release_delay_blocks",
-                "opening_phase_blocks",
-                "max_ballot_retries",
-                "max_corpus_entries",
                 "target_body_sizes",
                 "supported_proposal_kinds",
                 "supported_routes",
@@ -2644,18 +2634,6 @@ fn validation_fee_plaintext_contracts_stay_retired_and_parliament_capabilities_a
                 "retired GovernanceCapabilitiesV1 field {retired_field} remains in {label} OpenAPI"
             );
         }
-        assert_eq!(
-            capabilities["approval_mode"]["const"].as_str(),
-            Some("PARLIAMENT_ATTEMPT_TIMED_OVN_V1")
-        );
-        assert_eq!(
-            capabilities["private_ballot_protocol"]["const"].as_str(),
-            Some("TIMED_OVN_TLE_THRESHOLD_BLS_V1")
-        );
-        assert_eq!(
-            capabilities["mandatory_private_ballots"]["const"].as_bool(),
-            Some(true)
-        );
         assert_eq!(
             capabilities["proposal_backed_referendum_ballots_supported"]["const"].as_bool(),
             Some(false)

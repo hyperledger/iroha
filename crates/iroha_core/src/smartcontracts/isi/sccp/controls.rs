@@ -8,7 +8,6 @@ use super::{Error, leaves, store};
 use crate::state::{StateReadOnly, StateTransaction};
 use iroha_data_model::{
     bridge::SccpNetworkV1,
-    governance::types::{GovernanceCertificateId, GovernanceCertificateV1},
     sccp::{
         control::{SccpControlLeafRefV1, SccpControlRecordV1, SccpLeafRefV1},
         events::{SccpControlRecordedV1, SccpEvent},
@@ -42,38 +41,26 @@ impl ControlCauseV1 {
         }
     }
 
-    /// Bind the exact Parliament certificate selected by the due-effect executor.
+    /// Bind the opaque identity and effect hash authenticated by Parliament's executor.
     ///
-    /// This constructor does not establish authorization by itself. Its caller must retain
-    /// the executor's exact due-height, attempt, proposal/effect and expected-head checks.
+    /// Parliament owns certificate validation and identity derivation. This constructor
+    /// establishes no authorization; the executor retains its exact due-height, attempt,
+    /// proposal/effect and expected-head checks before calling SCCP enactment.
     ///
     /// # Errors
-    /// Refuses malformed certificates or zero native authority bindings.
-    pub(in crate::smartcontracts::isi) fn from_parliament_certificate(
-        certificate: &GovernanceCertificateV1,
+    /// Refuses zero native authority bindings.
+    pub(super) fn from_parliament(
+        certificate_id: [u8; 32],
+        effect_hash: [u8; 32],
     ) -> Result<Self, Error> {
-        certificate
-            .validate()
-            .map_err(|error| refuse(format_args!("certificate: {error}")))?;
-        let cause = Self {
-            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
-            certificate_id: *GovernanceCertificateId::derive_v1(certificate).as_bytes(),
-            effect_hash: certificate.effect_preimage_hash,
-        };
-        cause.require_supported()?;
-        Ok(cause)
-    }
-
-    fn require_supported(self) -> Result<(), Error> {
-        // This validation belongs to the Parliament constructor. Track two is
-        // issued only by the separate source-bound EnactingPause constructor.
-        if self.track != iroha_sccp::v1::control::TRACK_PARLIAMENT {
-            return Err(refuse("native fast-pause authority is unavailable"));
-        }
-        if self.certificate_id == [0; 32] || self.effect_hash == [0; 32] {
+        if certificate_id == [0; 32] || effect_hash == [0; 32] {
             return Err(refuse("native certificate/effect binding is zero"));
         }
-        Ok(())
+        Ok(Self {
+            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
+            certificate_id,
+            effect_hash,
+        })
     }
 
     /// Synthetic authority DATA for component tests; never a production certificate source.
@@ -206,6 +193,25 @@ mod tests {
     }
 
     #[test]
+    fn parliament_cause_preserves_authenticated_id_and_effect_and_rejects_zero_bindings() {
+        let certificate_id = [0x13; 32];
+        let effect_hash = [0x79; 32];
+        let cause = ControlCauseV1::from_parliament(certificate_id, effect_hash).unwrap();
+        assert_eq!(cause.track, TRACK_PARLIAMENT);
+        assert_eq!(cause.certificate_id, certificate_id);
+        assert_eq!(cause.effect_hash, effect_hash);
+        for (certificate_id, effect_hash) in [
+            ([0; 32], effect_hash),
+            (certificate_id, [0; 32]),
+            ([0; 32], [0; 32]),
+        ] {
+            let error = ControlCauseV1::from_parliament(certificate_id, effect_hash)
+                .expect_err("zero native authority binding");
+            assert!(error.to_string().contains("binding is zero"), "{error}");
+        }
+    }
+
+    #[test]
     fn controls_consume_nonces_and_leaves_and_skip_retired_revisions() {
         let state = blank_state();
         let mut block = state.block(header(7));
@@ -214,7 +220,13 @@ mod tests {
         record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 1)).expect_err("no route");
         store::routes::insert(&mut stx, network, sample_route(network)).unwrap();
         parliament_flag(&mut stx, network, true);
-        let first = record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 1)).unwrap();
+        let first = record_control(
+            &mut stx,
+            network,
+            1,
+            ControlCauseV1::from_parliament([1; 32], [11; 32]).unwrap(),
+        )
+        .unwrap();
         parliament_flag(&mut stx, network, false);
         let second = record_control(&mut stx, network, 1, cause(TRACK_PARLIAMENT, 2)).unwrap();
         assert_eq!(second, first + 1);

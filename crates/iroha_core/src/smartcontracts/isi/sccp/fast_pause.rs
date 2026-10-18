@@ -207,6 +207,23 @@ fn check_endorse(
         role_of(panel, &instruction.panel_id).ok_or_else(|| refuse("panel identity changed"))?;
     let observation = parliament_iface::pause_eligibility(world, panel, time)?;
     let eligible = observation.for_original(world, panel, time)?;
+    check_current_endorsement(world, authority, instruction, time, panel, role, eligible)?;
+    Ok((role, eligible))
+}
+
+/// Check the member and duplicate facts after obtaining the original eligibility observation.
+fn check_current_endorsement(
+    world: &(impl WorldReadOnly + ?Sized),
+    authority: &AccountId,
+    instruction: &EndorseSccpFastPauseV1,
+    time: u64,
+    panel: &PausePanelBody,
+    role: SccpPanelRoleV1,
+    eligible: u32,
+) -> Result<(), Error> {
+    let parameters = store::parameters::get(world)
+        .as_ref()
+        .ok_or_else(|| refuse("SCCP is absent"))?;
     let k = parameters.fast_pause_panel_seats as usize;
     let owners = seats(panel, k, time, eligible)?;
     if !counts(panel, &owners, role, k, eligible, authority) {
@@ -223,7 +240,7 @@ fn check_endorse(
     }) {
         return Err(refuse("duplicate endorsement"));
     }
-    Ok((role, eligible))
+    Ok(())
 }
 
 /// Recheck direct signed public panel instructions before ordinary queue fee admission.
@@ -452,23 +469,6 @@ pub(super) fn suspend(
 #[cfg(test)]
 mod tests;
 
-/// Selectively release one active part only from the approving ballot's actual opening.
-pub(super) fn lift(
-    state: &mut StateTransaction<'_, '_>,
-    network: SccpNetworkV1,
-    part: iroha_data_model::sccp::events::SccpFastPausePartV1,
-    cause: super::controls::ControlCauseV1,
-) -> Result<(), Error> {
-    let time = state.block_unix_timestamp_ms();
-    if !store::fast_pauses::get(&*state.world, &network)
-        .is_some_and(|pause| time < pause.until_ms && holds_part(pause, part))
-    {
-        return Ok(());
-    }
-    let original = parliament_iface::policy_jury_casting_open(state, cause)?;
-    let anchor = original.for_original(state, cause)?;
-    lift_at(state, network, part, anchor)
-}
 fn holds_part(
     pause: &iroha_data_model::sccp::fast_pause::SccpFastPauseV1,
     part: iroha_data_model::sccp::events::SccpFastPausePartV1,
@@ -480,12 +480,14 @@ fn holds_part(
         }
     }
 }
-/// Component transition; production reaches it only through the source-bound opening above.
-fn lift_at(
+/// Selectively release one active part using the approving ballot's casting-open anchor.
+/// Parliament authenticates `s0` before the SCCP enactment entry receives it; SCCP never
+/// derives an opening from the certificate, enactment time, or ballot metadata.
+pub(super) fn lift(
     state: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,
     part: iroha_data_model::sccp::events::SccpFastPausePartV1,
-    anchor: iroha_data_model::governance::GovernanceAnchorV1,
+    s0: iroha_data_model::governance::GovernanceAnchorV1,
 ) -> Result<(), Error> {
     use super::pause_record::{FastPauseDraft, RetainedSccpFastPause};
     use iroha_data_model::sccp::events::{
@@ -498,7 +500,7 @@ fn lift_at(
     else {
         return Ok(());
     };
-    if !pause.enacted_at.precedes_casting_open(anchor)
+    if !pause.enacted_at.precedes_casting_open(s0)
         && !cfg!(all(test, sumeragi_core_mutation = "HC298"))
     {
         state.world.emit_events(Some(SccpEvent::FastPauseRetained(

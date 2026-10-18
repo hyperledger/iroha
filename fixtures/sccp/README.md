@@ -51,13 +51,35 @@ of every source: the `SccpTransferToTaira` and `SccpVoided` logs (Ethereum,
 BSC) and the `sccp_transfer_to_taira` external-out body `BoC` with its minter
 (TON), each with the normalized event Taira derives.
 `crates/iroha_sccp/tests/ethereum_light_client.rs` regenerates it with
-`--ignored regenerate_native_transfer_event_v1` and runs the Ethereum and TON
+`--ignored regenerate_native_transfer_event_v1` and runs the Ethereum, BSC and TON
 vectors through their light clients.
 
-`governance_v1.json` and `ton_boc_v1.json` of the §11 table are added with
-the governance payload and TON message-body code that generate them (`TODO:
-WP-TON-RUST` for `ton_boc_v1.json`, written by
-`crates/iroha_sccp/src/v1/ton_cell.rs`).
+`governance_v1.json`, `fast_pause_v1.json`, `forgery_evidence_v1.json` and
+`liability_v1.json` have independent Python producers in
+`scripts/sccp_reference/vectors_<file-stem-without-v1>.py` and Rust producers
+in Core's SCCP governance, fast-pause certification, forgery and liability
+unit tests. Each Rust producer runs the owning implementation, compares
+canonical JSON byte for byte, and provides an ignored
+`regenerate_<file-stem>` test. Python's `generate.py --check` and
+`test_sccp_reference.py` rebuild and pin every row table.
+
+Governance covers proposal frames, base revisions, ids and fixed-map heads,
+including the automatic `FastHold` subject's encoding and the refusal of an
+extra `FastHold` proposal base. Fast-pause rows supply authenticated
+certificate id, effect hash and casting-open `s0` as component inputs; draw
+order and eligibility masks are explicit DATA. They do not produce Parliament
+authority. The real draw/eligibility boundary remains unavailable and both
+launch gates remain false. Forgery rows cover E0–E4, retained anchors,
+offender deduplication and the self-contained record's original G6 bindings;
+the native-record row projects attribution and custody fields rather than
+reproducing native genesis hashes. Liability rows cover the bounded clock,
+inclusive time/progress/cap legs, L5, both evidence/unbond orders, pruning and P2.
+
+`ton_boc_v1.json` is generated and drift-checked by the Rust wallet's
+`src/pure/ton/golden_tests.rs` (`ton_boc_vectors_match_wallet_encoders` and
+the ignored `regenerate_ton_boc_vectors`). The Python builder checks each
+recorded cell graph and hash before rendering `sccp-boc-vectors.gen.tolk`;
+`sccp-boc.test.tolk` replays the original message bodies and malformed snakes.
 
 ## Reference vectors (revision 5)
 
@@ -191,13 +213,19 @@ know:
 | `finality_rust_v1.json` | Schema `iroha.sccp.finality.rust.v1`: the §11.3 negative certificate whose aggregate is a w3f-transcript signature over the consensus digest, with its expected rejection (`BadSignature` at the pairing check). Generated and drift-checked by `crates/iroha_sccp/tests/v1_reference_finality.rs`; its rows have the shape of the `negative_certificates` rows of `finality_v1.json` |
 | `bls_consensus_rust_v1.json` | Schema `iroha.bls_consensus.rust.v1`: the standard sign, verify and aggregate vectors, the consensus allowlist rows with their signatures and the allowlist rejections, the pinned w3f proofs of possession, and negatives (a w3f-transcript signature over a consensus preimage and over a consensus digest, a `DST_SIG` signature presented to the generic API, a proof of possession used as a signature, malformed keys and signatures, keys that aggregate to the identity). Generated and drift-checked by `iroha_crypto` (`consensus_vectors_match_committed_fixture`, ignored `regenerate_bls_consensus_rust_v1`) |
 
-`TODO:` the remaining ethereum/bls12-381-tests cases, and TON finalize and
-void rows through the bucket round trip (§5.3.4), are not produced by either
-reference; the Acton suite covers those round trips with certificates signed
-in its test VM.
+`TODO:` import and replay the upstream malformed/deserialization archive,
+which is unavailable offline.
+`bls_consensus_v1.json` explicitly identifies 16 G1 and 18 G2 cases as
+deterministic offline reproductions of those encoding categories. Python and
+Rust replay parsing, subgroup/nonidentity validation and verification. EVM
+replays the 28 affine-representable rows; its interface has no compressed
+length input. TON replays all 34, including opcode underflow and acceptance
+of a longer slice's valid prefix; the production certificate interface still
+requires exact lengths. TON finalize and void bucket round trips (§5.3.4)
+remain covered by certificates signed in the Acton test VM.
 
 The Acton suite (`contracts/ton/sccp/tests/unit`) replays the TON rows from
-two generated Tolk files (`scripts/ton_sccp_builder.py vectors`, whose
+three generated Tolk files (`scripts/ton_sccp_builder.py vectors`, whose
 `--check` fails when a fixture here changed and they did not). It installs its
 minter at the placeholder account id `0:35…35`, so the rows that commit to
 that destination word apply unchanged. `sccp-bls.test.tolk` confirms that
@@ -207,10 +235,12 @@ with `x ≥ p` or the coordinates `(0, 0)`, outside G1 and for keys that sum to
 the identity (`error_choices.ton_signer_key_refused_by_the_opcode`). Both
 reference generators now derive `expected.ton = BadSignature` for all six
 shared signer-key rows. `committee_transitions_v1.json` records the actual
-harness coverage and atomic-model boundary under `model_scope`. `TODO:` the
-reference generators still need the TON destination-effect rows in
-`control_v1.json`; the Acton suite currently rebuilds those scenarios for its
-minter at `0:35…35`.
+harness coverage and atomic-model boundary under `model_scope`. Both reference
+generators produce `control_v1.json`'s `ton_destination_effects` and original
+`ton_certificates`; the Acton suite replays those shared rows unchanged at
+`0:35…35`. The generated vectors also carry the contract-visible fast-pause
+controls and exact forgery-certificate bytes from the new shared fixtures;
+the Python launcher checks their source evidence ids before replay.
 
 ## Contract-generated vectors
 
@@ -225,7 +255,7 @@ fails when it differs from the compiled contracts. The Rust
 code references and authenticate the native committee root, canonical BLS key
 order and pinned generation in each vector. The Rust address assertions read
 this golden, and its minter rent constants match the current contract bound
-of 122 000 bits and 260 cells.
+of 790,000 bits and 2,380 cells in `sccp-fees.tolk`.
 
 ## Captured RPC responses
 

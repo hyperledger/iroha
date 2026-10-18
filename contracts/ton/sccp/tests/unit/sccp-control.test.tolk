@@ -1858,3 +1858,95 @@ get fun `test every independent TON control scenario is replayed`() {
     expect(VEC_TON_CONTROL_SCENARIO_COUNT).toEqual(10);
     expect(VEC_TON_CONTROL_SCENARIO_STEPS).toEqual(42);
 }
+
+get fun `test every shared fast pause control leaf expiry clamp and stale nonce`() {
+    expect(VEC_ALL_FAST_PAUSE_CONTROLS).toEqual(4);
+    var row = 0;
+    repeat (VEC_ALL_FAST_PAUSE_CONTROLS) {
+        val n = vecFastPauseControl(row);
+        expect(n.nowMs % 1000).toEqual(0);
+        testing.setNow(n.nowMs / 1000);
+        val deployer = testing.treasury("fast pause fixture deployer");
+        val committee = testCommittee(4, 0);
+        val pin: InitialPin = {
+            generation: TEST_GENERATION,
+            root: committee.root(),
+            start: TEST_START_HEIGHT,
+            untilMs: n.nowMs + TEST_VALIDITY_MS,
+        };
+        val minter = deployPinned(
+            canonicalStorage(
+                n.networkId,
+                VEC_CONSENSUS_INSTANCE,
+                n.routeRevision,
+                TEST_MAX_SUPPLY,
+                pin,
+                committee.keys,
+            ),
+            deployer.address,
+            sccpMinterFloor() + grams("10"),
+        );
+        val env: Env = {
+            minter,
+            deployer: deployer.address,
+            networkId: n.networkId,
+            instance: VEC_CONSENSUS_INSTANCE,
+            generation: TEST_GENERATION,
+            committee,
+        };
+        expect(minter.address.accountId()).toEqual(n.destinationWord);
+        expect(keccak256Slices2(n.b1, n.b2)).toEqual(n.leaf);
+        expect(
+            sccpControlLeaf(
+                n.networkId,
+                n.destinationWord,
+                n.routeRevision,
+                n.controlNonce,
+                n.track,
+                n.parliamentPaused,
+                n.fastPauseUntilMs,
+                n.certificateId,
+                n.effectHash,
+            ),
+        ).toEqual(n.leaf);
+        expect(sccpAppliedFastPauseUntilMs(n.fastPauseUntilMs, n.nowMs)).toEqual(n.appliedUntilMs);
+        expect(sccpEffectivePause(n.parliamentPaused, n.appliedUntilMs, n.nowMs)).toEqual(
+            n.mintingPaused,
+        );
+        val control: TestControl = {
+            nonce: n.controlNonce,
+            track: n.track,
+            parliamentPaused: n.parliamentPaused,
+            fastPauseUntilMs: n.fastPauseUntilMs,
+            certificateId: n.certificateId,
+            effectHash: n.effectHash,
+        };
+        var x = blockX(
+            n.networkId,
+            env.generation,
+            committee.root(),
+            TEST_START_HEIGHT + 10,
+            [n.leaf],
+        );
+        x.timestampMs = n.nowMs;
+        val block: TestBlock = {
+            leaves: [n.leaf],
+            x,
+            cert: certifyFor(env, committee, x),
+        };
+        // The stale case establishes its prior nonce through a real earlier
+        // apply; no storage seed bypasses certificate or control admission.
+        if (n.previousNonce != 0) {
+            expect(n.previousNonce).toEqual(n.controlNonce);
+            expectOutcome(block.applyInline(env, control, 0), 0);
+        }
+        val res = block.applyInline(env, control, 0);
+        expectOutcome(res, n.exit);
+        expectPause(env, n.controlNonce, n.parliamentPaused, n.appliedUntilMs, n.mintingPaused);
+        if (n.exit != 0) {
+            expectEvents(res, []);
+        }
+        row += 1;
+    }
+    expect(row).toEqual(4);
+}

@@ -1220,7 +1220,7 @@ async fn stage_genesis_brokers(
         )?
         .export_canonical_v1()?;
         let credential = Zeroizing::new(fs::read(&output.credential_path)?);
-        let bundle = encode_consensus_threshold_credential_bundle_v1(Some(&credential), None)?;
+        let bundle = encode_consensus_threshold_credential_bundle_v1(Some(&credential))?;
         peer.provision_disposable_runtime_provider_broker(
             &catalog,
             bundle,
@@ -1317,7 +1317,7 @@ async fn stage_prepared_brokers(
             .find(|peer| peer.id() == output.validator)
             .ok_or_else(|| eyre!("prepared custody has no real target process"))?;
         let credential = Zeroizing::new(fs::read(&output.credential_path)?);
-        let bundle = encode_consensus_threshold_credential_bundle_v1(Some(&credential), None)?;
+        let bundle = encode_consensus_threshold_credential_bundle_v1(Some(&credential))?;
         peer.provision_disposable_runtime_provider_broker(
             &catalog,
             bundle,

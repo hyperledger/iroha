@@ -383,8 +383,7 @@ mod unix_main {
                 Self::ThresholdCredential(error) => match error {
                     irohad::external_software_signer::RuntimeConsensusThresholdSignerCredentialErrorV1::Unavailable
                     | irohad::external_software_signer::RuntimeConsensusThresholdSignerCredentialErrorV1::Session(_)
-                    | irohad::external_software_signer::RuntimeConsensusThresholdSignerCredentialErrorV1::DecodeResource(_)
-                    | irohad::external_software_signer::RuntimeConsensusThresholdSignerCredentialErrorV1::ParliamentFunding(_) => "runtime secret credential is locally unavailable",
+                    | irohad::external_software_signer::RuntimeConsensusThresholdSignerCredentialErrorV1::DecodeResource(_) => "runtime secret credential is locally unavailable",
                     _ => "runtime secret credential was rejected",
                 },
             }
@@ -693,11 +692,7 @@ mod unix_main {
         let mut signers =
             ExternalSoftwareSignerBackendsV1::new().with_base_registry(Arc::new(threshold_signers));
         for configured in catalog.iter() {
-            if matches!(
-                configured.slot(),
-                IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner
-                    | IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner
-            ) {
+            if configured.slot() == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner {
                 continue;
             }
             let role_name = fixed_catalog_signer_role_name(configured)?;
@@ -1575,35 +1570,16 @@ mod unix_main {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         fn threshold_catalog_for_test(
             policy: &iroha_config::parameters::actual::RuntimeProviderBroker,
-            slot: IrohaRuntimeProviderSlotV1,
         ) -> IrohaRuntimeProviderBindingsV1 {
             let mut config = broker_node_config_for_test(policy);
-            match slot {
-                IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner => {
-                    config.sumeragi.global_beacon_partial_signer_provider_handle =
-                        Some("software://iroha/global-beacon/primary".into());
-                    config
-                        .sumeragi
-                        .global_beacon_partial_signer_provider_revision = Some(1);
-                    config
-                        .sumeragi
-                        .global_beacon_partial_signer_provider_policy_digest = Some([0xA1; 32]);
-                }
-                IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner => {
-                    config
-                        .gov
-                        .parliament_tle_partial_release_signer_provider_handle =
-                        Some("software://iroha/parliament-tle/primary".into());
-                    config
-                        .gov
-                        .parliament_tle_partial_release_signer_provider_revision = Some(1);
-                    config
-                        .gov
-                        .parliament_tle_partial_release_signer_provider_policy_digest =
-                        Some([0xA2; 32]);
-                }
-                _ => panic!("fixture must request threshold custody"),
-            }
+            config.sumeragi.global_beacon_partial_signer_provider_handle =
+                Some("software://iroha/global-beacon/primary".into());
+            config
+                .sumeragi
+                .global_beacon_partial_signer_provider_revision = Some(1);
+            config
+                .sumeragi
+                .global_beacon_partial_signer_provider_policy_digest = Some([0xA1; 32]);
             let catalog = IrohaRuntimeProviderBindingsV1::try_from_config(&config)
                 .expect("project exact public credential assembly");
             assert_eq!(catalog.len(), 1);
@@ -1619,26 +1595,21 @@ mod unix_main {
         fn standard_broker_policy_creates_one_exact_default_or_nondefault_credential_pool() {
             for contents in ["", "credential_max_memory_bytes = 512"] {
                 let policy = broker_policy_for_test(contents);
-                for slot in [
-                    IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner,
-                    IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
-                ] {
-                    let catalog = threshold_catalog_for_test(&policy, slot);
-                    let budget = standard_broker_credential_budget_v1(&catalog, &policy)
-                        .expect("exact file policy and catalog admit the original pool");
-                    let limit = policy.credential_max_memory_bytes.get();
-                    assert_eq!(catalog.credential_max_memory_bytes(), limit);
-                    assert_eq!(budget.limit_bytes(), limit);
-                    let retained = budget.clone();
-                    assert!(budget.same_pool(&retained));
-                    let charge = budget.try_reserve_bytes(limit).expect("exact bound");
-                    drop(budget);
-                    assert_eq!(retained.reserved_bytes(), limit);
-                    assert!(retained.try_reserve_bytes(1).is_err());
-                    drop(charge);
-                    assert_eq!(retained.reserved_bytes(), 0);
-                    assert!(retained.try_reserve_bytes(limit).is_ok());
-                }
+                let catalog = threshold_catalog_for_test(&policy);
+                let budget = standard_broker_credential_budget_v1(&catalog, &policy)
+                    .expect("exact file policy and catalog admit the original pool");
+                let limit = policy.credential_max_memory_bytes.get();
+                assert_eq!(catalog.credential_max_memory_bytes(), limit);
+                assert_eq!(budget.limit_bytes(), limit);
+                let retained = budget.clone();
+                assert!(budget.same_pool(&retained));
+                let charge = budget.try_reserve_bytes(limit).expect("exact bound");
+                drop(budget);
+                assert_eq!(retained.reserved_bytes(), limit);
+                assert!(retained.try_reserve_bytes(1).is_err());
+                drop(charge);
+                assert_eq!(retained.reserved_bytes(), 0);
+                assert!(retained.try_reserve_bytes(limit).is_ok());
             }
         }
 
@@ -1648,27 +1619,22 @@ mod unix_main {
             for contents in ["", "credential_max_memory_bytes = 512"] {
                 let catalog_policy = broker_policy_for_test(contents);
                 let limit = catalog_policy.credential_max_memory_bytes.get();
-                for slot in [
-                    IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner,
-                    IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
-                ] {
-                    let catalog = threshold_catalog_for_test(&catalog_policy, slot);
-                    for supplied in [1, limit - 1, limit + 1] {
-                        let file_policy = broker_policy_for_test(&format!(
-                            "credential_max_memory_bytes = {supplied}"
-                        ));
-                        assert!(matches!(
-                            standard_broker_credential_budget_v1(&catalog, &file_policy),
-                            Err(CliError::Binding)
-                        ));
-                        // Exercise the production importer, including on macOS:
-                        // the policy rejection must precede stdin inspection and
-                        // any platform credential decoder or backend result.
-                        assert!(matches!(
-                            load_standard_threshold_signers_v1(&catalog, &file_policy),
-                            Err(LauncherError::Operation(CliError::Binding))
-                        ));
-                    }
+                let catalog = threshold_catalog_for_test(&catalog_policy);
+                for supplied in [1, limit - 1, limit + 1] {
+                    let file_policy = broker_policy_for_test(&format!(
+                        "credential_max_memory_bytes = {supplied}"
+                    ));
+                    assert!(matches!(
+                        standard_broker_credential_budget_v1(&catalog, &file_policy),
+                        Err(CliError::Binding)
+                    ));
+                    // Exercise the production importer, including on macOS:
+                    // the policy rejection must precede stdin inspection and
+                    // any platform credential decoder or backend result.
+                    assert!(matches!(
+                        load_standard_threshold_signers_v1(&catalog, &file_policy),
+                        Err(LauncherError::Operation(CliError::Binding))
+                    ));
                 }
             }
         }
@@ -2119,35 +2085,6 @@ mod unix_main {
                 ConsensusThresholdCredentialDecodeErrorV1::Rejected.into(),
             );
             assert_eq!(rejected.message(), "runtime secret credential was rejected");
-        }
-
-        #[test]
-        fn parliament_actual_pool_refusal_remains_typed_and_locally_unavailable() {
-            let pool = iroha_allocation::AllocationBudget::new(1);
-            let original = pool
-                .try_reserve(std::alloc::Layout::array::<u8>(2).unwrap())
-                .err()
-                .unwrap();
-            let error = LauncherError::ThresholdCredential(
-                irohad::external_software_signer::RuntimeConsensusThresholdSignerCredentialErrorV1::ParliamentFunding(
-                    irohad::external_software_signer::RuntimeParliamentTleCredentialFundingErrorV1::Storage(
-                        iroha_allocation::ChargedBufferError::Admission(original.clone()),
-                    ),
-                ),
-            );
-            assert_eq!(
-                error.message(),
-                "runtime secret credential is locally unavailable"
-            );
-            assert!(std::error::Error::source(&error).is_some());
-            let LauncherError::ThresholdCredential(
-                irohad::external_software_signer::RuntimeConsensusThresholdSignerCredentialErrorV1::ParliamentFunding(
-                    irohad::external_software_signer::RuntimeParliamentTleCredentialFundingErrorV1::Storage(
-                        iroha_allocation::ChargedBufferError::Admission(retained),
-                    ),
-                ),
-            ) = error else { panic!("retain original physical admission cause"); };
-            assert_eq!(retained, original);
         }
     }
 }

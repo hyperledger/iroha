@@ -31,7 +31,8 @@ use crate::{
 };
 
 /// The 16-byte construction domain `P16`: ASCII `PARL-SHAKE-V1` and three zero
-/// bytes. An identifier, not a security parameter; no `profile_id` is allocated.
+/// bytes. An identifier, not a security parameter. It is not the public profile
+/// identifier, which is the candidate descriptor digest `D`.
 pub const P16: [u8; 16] = *b"PARL-SHAKE-V1\0\0\0";
 
 /// `SUITE`: the 129-byte name of the frozen relation, constraint order, encodings,

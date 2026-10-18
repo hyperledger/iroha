@@ -1275,7 +1275,7 @@ fn admission_fixture_retains_original_same_epoch_schedule_without_finalizing_his
         TEST_POLICY_LAST_SCHEDULED_HEIGHT
     );
     let policy = validation_fee_policy(&state, asset.clone(), treasury);
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy.clone());
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     {
         let view = state.view();
         let schedule = view.world().consensus_schedule();

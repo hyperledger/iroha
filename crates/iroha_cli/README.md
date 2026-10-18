@@ -938,24 +938,6 @@ checked into the repository. Redirect it to an operator-chosen path when a
 standalone copy is needed. Kagami retains its smaller checked-in
 `CommandLineHelp.md` snapshot and validates that snapshot in its unit tests.
 
-Parliament timed-OVN `ballot register` and `ballot cast` require a complete,
-independently authenticated `SumeragiFinalityCheckpoint` before reading or
-creating seed material. Initialize custody once with
-`--trusted-checkpoint-file <checkpoint.nrt>`, using the canonical headered Norito
-checkpoint exported by `SumeragiFinalityVerifier::export_checkpoint`. The input
-must be an owner-only regular file. Its signed genesis, chain label, retained
-committee schedule and certified tip remain bound together; a height and digest
-alone cannot initialize trust. Fetching a checkpoint from the same untrusted
-proof response does not establish an independent trust anchor.
-
-The owner-only state file defaults to `<key-file>.state.nrt`; `--state-file`
-selects another path. It stores the same complete canonical checkpoint format
-and advances atomically after each authenticated proof page under an exclusive
-file lock. Existing state rejects initialization flags. Scalar JSON checkpoint
-files and the former height/context-id arguments are rejected. `ballot status`
-reads existing custody without changing it; `ballot dropout` authenticates its
-context whenever a state file is selected, including through a lost key's path.
-
 `iroha account history [--id ACCOUNT]` reads account movements. Explorer feeds
 use `iroha explorer accounts`, `domains`, `asset-definitions`, `assets`, `nfts`,
 `rwas`, `blocks`, `transactions`, `transactions-latest`, `instructions` or

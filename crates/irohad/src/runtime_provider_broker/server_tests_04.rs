@@ -1,14 +1,10 @@
 use crate::external_software_signer::{
     consensus_threshold_beacon_broker_max_committee_test_fixture_v1,
     consensus_threshold_beacon_broker_test_fixture_v1,
-    consensus_threshold_tle_broker_max_committee_test_fixture_v1,
-    consensus_threshold_tle_broker_test_fixture_v1,
 };
 use crate::runtime_provider_broker::api::{
     ConsensusSignerProviderQualificationV1, GlobalBeaconPartialSignerBrokerBackendErrorV1,
     GlobalBeaconPartialSignerBrokerBackendV1,
-    ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
-    ParliamentTlePartialReleaseSignerBrokerBackendV1,
 };
 
 fn read_consensus_signer_operation(
@@ -2373,47 +2369,6 @@ impl GlobalBeaconPartialSignerBrokerBackendV1 for InvalidGlobalBeaconBrokerBacke
     }
 }
 
-struct TestParliamentTleBrokerBackendV1 {
-    handle: &'static str,
-    qualification: ConsensusSignerProviderQualificationV1,
-}
-
-impl ParliamentTlePartialReleaseSignerBrokerBackendV1 for TestParliamentTleBrokerBackendV1 {
-    fn handle(&self) -> &str {
-        self.handle
-    }
-
-    fn qualification(
-        &self,
-    ) -> Result<
-        ConsensusSignerProviderQualificationV1,
-        ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
-    > {
-        Ok(self.qualification)
-    }
-
-    fn attest_partial_release_capability(
-        &self,
-        _session: &iroha_core_timed_ovn::tle::ValidatedTleKeySessionV1,
-        _expected_participant_index: u16,
-    ) -> Result<
-        iroha_core::tle_release::TlePartialReleaseCapabilityAttestationV1,
-        ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
-    > {
-        Err(ParliamentTlePartialReleaseSignerBrokerBackendErrorV1::Rejected)
-    }
-
-    fn sign_projected_partial_release(
-        &self,
-        _projection: &iroha_core_timed_ovn::tle::ValidatedTleReleaseProjectionV1,
-    ) -> Result<
-        iroha_core_timed_ovn::tle::TlePartialReleaseShareV1,
-        ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
-    > {
-        Err(ParliamentTlePartialReleaseSignerBrokerBackendErrorV1::Rejected)
-    }
-}
-
 #[test]
 fn consensus_signer_broker_startup_is_exact_and_fail_closed() {
     let handle = "provider://iroha/consensus-signers/primary";
@@ -2477,79 +2432,23 @@ fn consensus_signer_broker_startup_is_exact_and_fail_closed() {
         ));
     }
 
-    let tle_catalog = IrohaRuntimeProviderBindingsV1::qualified_for_test(
-        "broker-consensus-test",
-        IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
-        handle,
-        revision,
-        digest,
+    let mut checkpoint_confused = observation(&beacon_binding);
+    checkpoint_confused.moderation_checkpoint_attestation_public_key = Some(TEST_SIGNER_KEY);
+    metadata_digest(&mut checkpoint_confused);
+    assert_eq!(
+        validate_observation(&beacon_binding, &checkpoint_confused),
+        Err(BrokerError::BindingMismatch)
     );
-    let tle_binding = ProviderBindingWireV1::try_from_binding(
-        tle_catalog.iter().next().expect("TLE catalog entry"),
-    )
-    .expect("project TLE signer binding");
-    validate_wire_binding(&tle_binding).expect("accept exact TLE signer binding");
-    validate_observation(&tle_binding, &observation(&tle_binding))
-        .expect("accept metadata-free TLE signer observation");
-    for binding in [&beacon_binding, &tle_binding] {
-        let mut checkpoint_confused = observation(binding);
-        checkpoint_confused.moderation_checkpoint_attestation_public_key = Some(TEST_SIGNER_KEY);
-        metadata_digest(&mut checkpoint_confused);
-        assert_eq!(
-            validate_observation(binding, &checkpoint_confused),
-            Err(BrokerError::BindingMismatch)
-        );
 
-        let mut archive_confused = observation(binding);
-        archive_confused.moderation_panel_notification_archive_binding =
-            evidence_viewer_binding(IrohaRuntimeProviderSlotV1::ModerationPanelNotificationArchive)
-                .moderation_panel_notification_archive_binding;
-        metadata_digest(&mut archive_confused);
-        assert_eq!(
-            validate_observation(binding, &archive_confused),
-            Err(BrokerError::BindingMismatch)
-        );
-    }
-    assert!(matches!(
-        prepare_test_server_state(
-            &tle_catalog,
-            RuntimeProviderBrokerBackendsV1::new().with_global_beacon_partial_signer(Arc::new(
-                TestGlobalBeaconBrokerBackendV1 {
-                    handle,
-                    qualification,
-                },
-            )),
-        ),
-        Err(RuntimeProviderBrokerServerErrorV1::BackendSetMismatch)
-    ));
-    prepare_test_server_state(
-        &tle_catalog,
-        RuntimeProviderBrokerBackendsV1::new().with_parliament_tle_partial_release_signer(
-            Arc::new(TestParliamentTleBrokerBackendV1 {
-                handle,
-                qualification,
-            }),
-        ),
-    )
-    .expect("exact Parliament TLE signer backend qualifies");
-    for qualification in [
-        ConsensusSignerProviderQualificationV1::new(revision + 1, digest, false),
-        ConsensusSignerProviderQualificationV1::new(revision, [0xA8; 32], false),
-        ConsensusSignerProviderQualificationV1::new(revision, digest, true),
-    ] {
-        assert!(matches!(
-            prepare_test_server_state(
-                &tle_catalog,
-                RuntimeProviderBrokerBackendsV1::new().with_parliament_tle_partial_release_signer(
-                    Arc::new(TestParliamentTleBrokerBackendV1 {
-                        handle,
-                        qualification,
-                    },)
-                ),
-            ),
-            Err(RuntimeProviderBrokerServerErrorV1::BindingMismatch)
-        ));
-    }
+    let mut archive_confused = observation(&beacon_binding);
+    archive_confused.moderation_panel_notification_archive_binding =
+        evidence_viewer_binding(IrohaRuntimeProviderSlotV1::ModerationPanelNotificationArchive)
+            .moderation_panel_notification_archive_binding;
+    metadata_digest(&mut archive_confused);
+    assert_eq!(
+        validate_observation(&beacon_binding, &archive_confused),
+        Err(BrokerError::BindingMismatch)
+    );
 }
 
 #[test]
@@ -2593,22 +2492,25 @@ fn threshold_client_shallow_validation_is_exact_to_ok_typed_slot_pairs() {
         "error statuses must retain the exact payload-free result matrix"
     );
 
-    let tle_catalog = IrohaRuntimeProviderBindingsV1::qualified_for_test(
+    let other_catalog = IrohaRuntimeProviderBindingsV1::qualified_for_test(
         "threshold-client-response-test",
-        IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
+        IrohaRuntimeProviderSlotV1::ReputationThresholdSigner,
         "software://iroha/consensus-threshold/primary",
         7,
         [0xA7; 32],
     );
-    let tle_binding = ProviderBindingWireV1::try_from_binding(
-        tle_catalog.iter().next().expect("one TLE response binding"),
+    let other_binding = ProviderBindingWireV1::try_from_binding(
+        other_catalog
+            .iter()
+            .next()
+            .expect("one cross-slot response binding"),
     )
-    .expect("project TLE response binding");
+    .expect("project cross-slot response binding");
     let cross_slot = make_operation_request(
         TEST_SESSION_ID,
         2,
-        tle_binding.clone(),
-        observation(&tle_binding).metadata_digest,
+        other_binding.clone(),
+        observation(&other_binding).metadata_digest,
         OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1,
         vec![0xA5],
     )
@@ -2618,7 +2520,7 @@ fn threshold_client_shallow_validation_is_exact_to_ok_typed_slot_pairs() {
         validate_operation_response_for_client(
             &cross_slot,
             &cross_slot_ok,
-            tle_catalog.network_id(),
+            other_catalog.network_id(),
         ),
         Err(BrokerError::BindingMismatch),
         "an operation number alone must never enter the shallow typed-proxy path"
@@ -3077,614 +2979,6 @@ fn correlated_malformed_beacon_response_is_rejected_by_typed_proxy() {
     server
         .join()
         .expect("join malformed-response beacon broker");
-}
-
-#[test]
-fn parliament_tle_capability_attestation_round_trips_over_authenticated_broker() {
-    let fixture = consensus_threshold_tle_broker_test_fixture_v1();
-    let (_directory, policy, shutdown, server) =
-        start_signer(fixture.catalog.clone(), fixture.backends);
-    let requested_catalog = fixture
-        .catalog
-        .iter()
-        .map(ProviderBindingWireV1::try_from_binding)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("project exact TLE broker catalog");
-    let (client, observations) = connect_test_process(
-        &policy,
-        fixture.catalog.chain_id(),
-        *fixture.catalog.network_id(),
-        requested_catalog.clone(),
-    )
-    .expect("authenticate TLE capability broker client session");
-    let payload = encode_canonical(
-        &ParliamentTleCapabilityAttestRequestWireV1 {
-            key_session: fixture.session.public_state().clone(),
-            participant_index: 1,
-        },
-        MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-    )
-    .expect("encode exact TLE capability operation");
-    let result = client
-        .call(
-            &requested_catalog[0],
-            observations[0].metadata_digest,
-            OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1,
-            payload,
-            false,
-        )
-        .expect("round-trip Parliament TLE capability through authenticated broker");
-    let attested = client
-        .decode_operation_result::<ParliamentTleCapabilityAttestResultWireV1>(
-            &result,
-            OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1,
-        )
-        .expect("decode brokered Parliament TLE capability");
-    assert_eq!(
-        attested.key_session_id,
-        fixture.session.public_state().key_session_id
-    );
-    assert_eq!(
-        attested.transcript_hash,
-        fixture.session.public_state().transcript_hash
-    );
-    assert_eq!(attested.participant_index, 1);
-    let wrong_seat_payload = encode_canonical(
-        &ParliamentTleCapabilityAttestRequestWireV1 {
-            key_session: fixture.session.public_state().clone(),
-            participant_index: 2,
-        },
-        MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-    )
-    .expect("encode wrong-seat TLE capability operation");
-    assert!(matches!(
-        client.call(
-            &requested_catalog[0],
-            observations[0].metadata_digest,
-            OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1,
-            wrong_seat_payload,
-            false,
-        ),
-        Err(BrokerError::Rejected)
-    ));
-    drop(client);
-    shutdown.request_shutdown();
-    server
-        .join()
-        .expect("join Parliament TLE capability broker")
-        .expect("Parliament TLE capability broker exits cleanly");
-}
-
-#[test]
-fn parliament_tle_capability_typed_proxy_requalifies_before_and_after_lookup() {
-    let fixture = consensus_threshold_tle_broker_test_fixture_v1();
-    let catalog = fixture.catalog;
-    let session = fixture.session;
-    drop(fixture.backends);
-    let binding = ProviderBindingWireV1::try_from_binding(
-        catalog.iter().next().expect("one TLE signer binding"),
-    )
-    .expect("project exact-capability TLE binding");
-    let revision = binding.revision.expect("TLE signer revision");
-    let policy_digest = binding.policy_digest.expect("TLE signer policy digest");
-    let expected_public_state = session.public_state().clone();
-    let expected_key_session_id = expected_public_state.key_session_id;
-    let expected_transcript_hash = expected_public_state.transcript_hash;
-    let server_network_id = *catalog.network_id();
-    let (_directory, _path, policy, listener) = bind_fake_broker();
-    let server_binding = binding.clone();
-    let server = thread::spawn(move || {
-        let (mut stream, _) = listener
-            .accept()
-            .expect("accept exact-capability TLE client");
-        let handshake = read_handshake(&mut stream);
-        assert_eq!(handshake.requested_catalog, vec![server_binding]);
-        send_handshake(&mut stream, &handshake_response(&handshake));
-
-        expect_and_answer_consensus_signer_qualification(&mut stream, 1, revision, policy_digest);
-        let attest = read_consensus_signer_operation(&mut stream, &server_network_id);
-        assert_eq!(attest.request_id, 2);
-        assert_eq!(
-            attest.operation,
-            OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1
-        );
-        let request = decode_canonical::<ParliamentTleCapabilityAttestRequestWireV1>(
-            &attest.payload,
-            MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-        )
-        .expect("decode exact typed-proxy TLE capability request");
-        assert_eq!(request.key_session, expected_public_state);
-        assert_eq!(request.participant_index, 1);
-        let exact = encode_canonical(
-            &ParliamentTleCapabilityAttestResultWireV1 {
-                key_session_id: expected_key_session_id,
-                transcript_hash: expected_transcript_hash,
-                participant_index: 1,
-            },
-            MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-        )
-        .expect("encode exact typed-proxy TLE capability result");
-        send_operation(
-            &mut stream,
-            &operation_response(&attest, STATUS_OK_V1, exact),
-        );
-        expect_and_answer_consensus_signer_qualification(&mut stream, 3, revision, policy_digest);
-    });
-    let requested_catalog = catalog
-        .iter()
-        .map(ProviderBindingWireV1::try_from_binding)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("project exact-capability TLE catalog");
-    let (broker_session, observations) = connect_test_process(
-        &policy,
-        catalog.chain_id(),
-        *catalog.network_id(),
-        requested_catalog.clone(),
-    )
-    .expect("authenticate exact-capability TLE broker session");
-    let signer = ParliamentTleBrokerPartialReleaseSigner {
-        session: broker_session,
-        binding: requested_catalog[0].clone(),
-        metadata_digest: observations[0].metadata_digest,
-    };
-    let attestation = signer
-        .attest_projected_capability(&session, 1)
-        .expect("typed proxy accepts the exact capability result");
-    assert!(attestation.matches(&session, 1));
-    server.join().expect("join exact-capability TLE broker");
-}
-
-#[test]
-fn parliament_tle_partial_release_round_trips_over_authenticated_broker() {
-    let fixture = consensus_threshold_tle_broker_test_fixture_v1();
-    let (_directory, policy, shutdown, server) =
-        start_signer(fixture.catalog.clone(), fixture.backends);
-    let requested_catalog = fixture
-        .catalog
-        .iter()
-        .map(ProviderBindingWireV1::try_from_binding)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("project exact TLE broker catalog");
-    let (client, observations) = connect_test_process(
-        &policy,
-        fixture.catalog.chain_id(),
-        *fixture.catalog.network_id(),
-        requested_catalog.clone(),
-    )
-    .expect("authenticate TLE broker client session");
-    let payload = encode_canonical(
-        &ParliamentTlePartialReleaseSignRequestWireV1 {
-            projection: fixture.projection,
-        },
-        MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-    )
-    .expect("encode exact TLE broker operation");
-    let result = client
-        .call(
-            &requested_catalog[0],
-            observations[0].metadata_digest,
-            OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1,
-            payload,
-            false,
-        )
-        .expect("round-trip Parliament TLE partial through authenticated broker");
-    let signed = client
-        .decode_operation_result::<ParliamentTlePartialReleaseSignResultWireV1>(
-            &result,
-            OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1,
-        )
-        .expect("decode brokered Parliament TLE partial");
-    fixture
-        .session
-        .verify_partial_release(&fixture.identity, 100, &signed.partial)
-        .expect("independently verify brokered Parliament TLE partial");
-    drop(client);
-    shutdown.request_shutdown();
-    server
-        .join()
-        .expect("join Parliament TLE broker")
-        .expect("Parliament TLE broker exits cleanly");
-}
-
-#[test]
-fn maximum_committee_parliament_tle_proxy_round_trips_on_ordinary_stack() {
-    let fixture = consensus_threshold_tle_broker_max_committee_test_fixture_v1();
-    assert_eq!(fixture.session.public_state().committee_size, 31);
-    assert_eq!(fixture.session.public_state().threshold, 11);
-    let (_directory, policy, shutdown, server) =
-        start_signer(fixture.catalog.clone(), fixture.backends);
-    let requested_catalog = fixture
-        .catalog
-        .iter()
-        .map(ProviderBindingWireV1::try_from_binding)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("project maximum-committee TLE broker catalog");
-    let (session, observations) = connect_test_process(
-        &policy,
-        fixture.catalog.chain_id(),
-        *fixture.catalog.network_id(),
-        requested_catalog.clone(),
-    )
-    .expect("authenticate maximum-committee TLE broker client session");
-    let signer = ParliamentTleBrokerPartialReleaseSigner {
-        session,
-        binding: requested_catalog[0].clone(),
-        metadata_digest: observations[0].metadata_digest,
-    };
-    let first = live_exact_qualification(
-        signer.session.as_ref(),
-        &signer.binding,
-        signer.metadata_digest,
-    )
-    .expect("first maximum-committee TLE proxy qualification");
-    let second = live_exact_qualification(
-        signer.session.as_ref(),
-        &signer.binding,
-        signer.metadata_digest,
-    )
-    .expect("second maximum-committee TLE proxy qualification");
-    assert_eq!(first, second);
-    let partial = signer
-        .sign_projected_partial_release(
-            &fixture.projection,
-            &fixture.session,
-            &fixture.identity,
-            fixture.projection.finalized_height,
-        )
-        .expect("sign maximum-committee TLE partial on the ordinary client stack");
-    fixture
-        .session
-        .verify_partial_release(
-            &fixture.identity,
-            fixture.projection.finalized_height,
-            &partial,
-        )
-        .expect("independently verify maximum-committee TLE partial");
-
-    drop(signer);
-    shutdown.request_shutdown();
-    server
-        .join()
-        .expect("join maximum-committee TLE broker")
-        .expect("maximum-committee TLE broker exits cleanly");
-}
-
-#[test]
-fn correlated_malformed_tle_response_is_rejected_by_typed_proxy() {
-    let fixture = consensus_threshold_tle_broker_test_fixture_v1();
-    let catalog = fixture.catalog;
-    let projection = fixture.projection;
-    let session = fixture.session;
-    let identity = fixture.identity;
-    drop(fixture.backends);
-    let binding = ProviderBindingWireV1::try_from_binding(
-        catalog.iter().next().expect("one TLE signer binding"),
-    )
-    .expect("project malformed-response TLE binding");
-    let revision = binding.revision.expect("TLE signer revision");
-    let policy_digest = binding.policy_digest.expect("TLE signer policy digest");
-    let key_session_id = session.public_state().key_session_id;
-    let server_network_id = *catalog.network_id();
-    let (_directory, _path, policy, listener) = bind_fake_broker();
-    let server_binding = binding.clone();
-    let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept malformed TLE client");
-        let handshake = read_handshake(&mut stream);
-        assert_eq!(handshake.requested_catalog, vec![server_binding]);
-        send_handshake(&mut stream, &handshake_response(&handshake));
-        for expected_request_id in 1_u64..=3 {
-            let qualify = read_operation(&mut stream);
-            assert_eq!(qualify.request_id, expected_request_id);
-            assert_eq!(qualify.operation, OPERATION_QUALIFY_V1);
-            let qualification = encode_canonical(
-                &QualificationResultWireV1 {
-                    revision,
-                    policy_digest,
-                },
-                MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-            )
-            .expect("encode malformed-response TLE qualification");
-            send_operation(
-                &mut stream,
-                &operation_response(&qualify, STATUS_OK_V1, qualification),
-            );
-        }
-        let sign = read_consensus_signer_operation(&mut stream, &server_network_id);
-        assert_eq!(sign.request_id, 4);
-        assert_eq!(
-            sign.operation,
-            OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1
-        );
-        let malformed = encode_canonical(
-            &ParliamentTlePartialReleaseSignResultWireV1 {
-                partial: iroha_core_timed_ovn::tle::TlePartialReleaseShareV1 {
-                    key_session_id,
-                    identity_digest: [0; 32],
-                    participant_index: 1,
-                    sigma: [0; 48],
-                    proof_x: [0; 96],
-                    proof_y: [0; 48],
-                    z_s: [0; 32],
-                    z_r: [0; 32],
-                    z_u: [0; 32],
-                },
-            },
-            MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-        )
-        .expect("encode correlated malformed TLE result");
-        send_operation(
-            &mut stream,
-            &operation_response(&sign, STATUS_OK_V1, malformed),
-        );
-    });
-    let requested_catalog = catalog
-        .iter()
-        .map(ProviderBindingWireV1::try_from_binding)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("project malformed-response TLE catalog");
-    let (broker_session, observations) = connect_test_process(
-        &policy,
-        catalog.chain_id(),
-        *catalog.network_id(),
-        requested_catalog.clone(),
-    )
-    .expect("authenticate malformed-response TLE broker session");
-    let signer = ParliamentTleBrokerPartialReleaseSigner {
-        session: broker_session,
-        binding: requested_catalog[0].clone(),
-        metadata_digest: observations[0].metadata_digest,
-    };
-    let first = live_exact_qualification(
-        signer.session.as_ref(),
-        &signer.binding,
-        signer.metadata_digest,
-    )
-    .expect("first malformed-response TLE qualification");
-    let second = live_exact_qualification(
-        signer.session.as_ref(),
-        &signer.binding,
-        signer.metadata_digest,
-    )
-    .expect("second malformed-response TLE qualification");
-    assert_eq!(first, second);
-    assert_eq!(
-        signer.sign_projected_partial_release(
-            &projection,
-            &session,
-            &identity,
-            projection.finalized_height,
-        ),
-        Err(BrokerError::Rejected),
-        "an envelope-correlated OK response cannot bypass typed TLE proof verification"
-    );
-    assert_eq!(
-        signer.sign_projected_partial_release(
-            &projection,
-            &session,
-            &identity,
-            projection.finalized_height,
-        ),
-        Err(BrokerError::Protocol),
-        "semantic rejection must permanently poison the TLE session without replay"
-    );
-    server.join().expect("join malformed-response TLE broker");
-}
-
-#[derive(Clone, Copy)]
-enum ParliamentTleCapabilityResultFault {
-    WrongKeySessionId,
-    WrongTranscriptHash,
-    WrongParticipantIndex,
-    Truncated,
-}
-
-fn assert_invalid_tle_capability_result_is_rejected(fault: ParliamentTleCapabilityResultFault) {
-    let fixture = consensus_threshold_tle_broker_test_fixture_v1();
-    let catalog = fixture.catalog;
-    let session = fixture.session;
-    drop(fixture.backends);
-    let binding = ProviderBindingWireV1::try_from_binding(
-        catalog.iter().next().expect("one TLE signer binding"),
-    )
-    .expect("project mismatched-capability TLE binding");
-    let revision = binding.revision.expect("TLE signer revision");
-    let policy_digest = binding.policy_digest.expect("TLE signer policy digest");
-    let key_session_id = session.public_state().key_session_id;
-    let transcript_hash = session.public_state().transcript_hash;
-    let server_network_id = *catalog.network_id();
-    let (_directory, _path, policy, listener) = bind_fake_broker();
-    let server_binding = binding.clone();
-    let server = thread::spawn(move || {
-        let (mut stream, _) = listener
-            .accept()
-            .expect("accept mismatched-capability TLE client");
-        let handshake = read_handshake(&mut stream);
-        assert_eq!(handshake.requested_catalog, vec![server_binding]);
-        send_handshake(&mut stream, &handshake_response(&handshake));
-        expect_and_answer_consensus_signer_qualification(&mut stream, 1, revision, policy_digest);
-        let attest = read_consensus_signer_operation(&mut stream, &server_network_id);
-        assert_eq!(attest.request_id, 2);
-        assert_eq!(
-            attest.operation,
-            OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1
-        );
-        let mut result = ParliamentTleCapabilityAttestResultWireV1 {
-            key_session_id,
-            transcript_hash,
-            participant_index: 1,
-        };
-        match fault {
-            ParliamentTleCapabilityResultFault::WrongKeySessionId => {
-                let candidate =
-                    iroha_data_model::governance::types::TleKeySessionId::new([0xC7; 32]);
-                result.key_session_id = if candidate == result.key_session_id {
-                    iroha_data_model::governance::types::TleKeySessionId::new([0xC8; 32])
-                } else {
-                    candidate
-                };
-            }
-            ParliamentTleCapabilityResultFault::WrongTranscriptHash => {
-                result.transcript_hash[0] ^= 1;
-            }
-            ParliamentTleCapabilityResultFault::WrongParticipantIndex => {
-                result.participant_index = 2;
-            }
-            ParliamentTleCapabilityResultFault::Truncated => {}
-        }
-        let mut invalid = encode_canonical(&result, MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1)
-            .expect("encode correlated invalid TLE capability result");
-        if matches!(fault, ParliamentTleCapabilityResultFault::Truncated) {
-            invalid
-                .pop()
-                .expect("canonical TLE capability result is nonempty");
-        }
-        send_operation(
-            &mut stream,
-            &operation_response(&attest, STATUS_OK_V1, invalid),
-        );
-    });
-    let requested_catalog = catalog
-        .iter()
-        .map(ProviderBindingWireV1::try_from_binding)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("project mismatched-capability TLE catalog");
-    let (broker_session, observations) = connect_test_process(
-        &policy,
-        catalog.chain_id(),
-        *catalog.network_id(),
-        requested_catalog.clone(),
-    )
-    .expect("authenticate mismatched-capability TLE broker session");
-    let signer = ParliamentTleBrokerPartialReleaseSigner {
-        session: broker_session,
-        binding: requested_catalog[0].clone(),
-        metadata_digest: observations[0].metadata_digest,
-    };
-    let expected_error = if matches!(fault, ParliamentTleCapabilityResultFault::Truncated) {
-        BrokerError::Protocol
-    } else {
-        BrokerError::Rejected
-    };
-    assert_eq!(
-        signer.attest_projected_capability(&session, 1),
-        Err(expected_error),
-        "an envelope-correlated response cannot substitute or truncate a public TLE capability"
-    );
-    assert_eq!(
-        signer.attest_projected_capability(&session, 1),
-        Err(BrokerError::Protocol),
-        "an invalid capability must permanently poison the TLE session without replay"
-    );
-    server.join().expect("join invalid-capability TLE broker");
-}
-
-#[test]
-fn correlated_wrong_tle_key_session_id_is_rejected_by_typed_proxy() {
-    assert_invalid_tle_capability_result_is_rejected(
-        ParliamentTleCapabilityResultFault::WrongKeySessionId,
-    );
-}
-
-#[test]
-fn correlated_wrong_tle_transcript_hash_is_rejected_by_typed_proxy() {
-    assert_invalid_tle_capability_result_is_rejected(
-        ParliamentTleCapabilityResultFault::WrongTranscriptHash,
-    );
-}
-
-#[test]
-fn correlated_wrong_tle_participant_index_is_rejected_by_typed_proxy() {
-    assert_invalid_tle_capability_result_is_rejected(
-        ParliamentTleCapabilityResultFault::WrongParticipantIndex,
-    );
-}
-
-#[test]
-fn correlated_truncated_tle_capability_is_rejected_by_typed_proxy() {
-    assert_invalid_tle_capability_result_is_rejected(ParliamentTleCapabilityResultFault::Truncated);
-}
-
-#[test]
-fn parliament_tle_partial_release_reconnects_after_broker_restart() {
-    let fixture = consensus_threshold_tle_broker_test_fixture_v1();
-    let catalog = fixture.catalog.clone();
-    let projection = fixture.projection.clone();
-    let session = fixture.session.clone();
-    let identity = fixture.identity;
-    let (_directory, policy, shutdown, server) = start_signer(fixture.catalog, fixture.backends);
-    let requested_catalog = catalog
-        .iter()
-        .map(ProviderBindingWireV1::try_from_binding)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("project exact retained TLE broker catalog");
-    let (client, observations) = connect_test_process(
-        &policy,
-        catalog.chain_id(),
-        *catalog.network_id(),
-        requested_catalog.clone(),
-    )
-    .expect("authenticate retained TLE broker client session");
-
-    shutdown.request_shutdown();
-    server
-        .join()
-        .expect("join predecessor TLE broker")
-        .expect("predecessor TLE broker exits cleanly");
-
-    let replacement = consensus_threshold_tle_broker_test_fixture_v1();
-    let replacement_policy = policy.clone();
-    let replacement_lifecycle = Arc::new(RuntimeProviderBrokerLifecycleV1::new());
-    let server_lifecycle = Arc::clone(&replacement_lifecycle);
-    let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
-    let replacement_server = thread::spawn(move || {
-        serve_test_process_with_lifecycle(
-            &replacement.catalog,
-            replacement.backends,
-            &replacement_policy,
-            server_lifecycle,
-            move || {
-                ready_sender
-                    .send(())
-                    .expect("publish replacement TLE broker readiness");
-            },
-        )
-    });
-    ready_receiver
-        .recv_timeout(Duration::from_secs(2))
-        .expect("replacement TLE broker becomes ready");
-
-    let signed = retry_consensus_signer_once_after_unavailable(client.as_ref(), || {
-        let payload = encode_canonical(
-            &ParliamentTlePartialReleaseSignRequestWireV1 {
-                projection: projection.clone(),
-            },
-            MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-        )?;
-        let result = client.call(
-            &requested_catalog[0],
-            observations[0].metadata_digest,
-            OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1,
-            payload,
-            false,
-        )?;
-        client
-            .decode_operation_result::<ParliamentTlePartialReleaseSignResultWireV1>(
-                &result,
-                OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1,
-            )
-            .map(|result| result.partial)
-    })
-    .expect("retained TLE proxy reconnects after broker restart");
-    session
-        .verify_partial_release(&identity, 100, &signed)
-        .expect("verify post-restart brokered TLE partial");
-
-    drop(client);
-    replacement_lifecycle.request_shutdown();
-    replacement_server
-        .join()
-        .expect("join replacement TLE broker")
-        .expect("replacement TLE broker exits cleanly");
 }
 
 #[test]

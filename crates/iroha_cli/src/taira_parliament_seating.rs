@@ -16,8 +16,8 @@
 //!   refuse an unseated network ([`require_seated_localnet`]).
 //!
 //! Citizens act in Parliament attempts through `iroha gov parliament` (invitation responses,
-//! endorsements, absences and the timed-OVN ballot commands) with their generated client
-//! configurations; this module never signs for a citizen.
+//! endorsements and absences) with their generated client configurations; this module never
+//! signs for a citizen.
 
 use std::{
     collections::BTreeSet,
@@ -118,7 +118,7 @@ const PUBLIC_BODIES: [(&str, usize); 8] = {
 };
 
 /// `[gov]` keys copied verbatim from the canonical profile into every seated validator config.
-pub(crate) const GOV_SEATING_KEYS: [&str; 18] = [
+pub(crate) const GOV_SEATING_KEYS: [&str; 16] = [
     "citizenship_asset_id",
     "citizenship_bond_amount",
     "min_enactment_delay",
@@ -135,8 +135,6 @@ pub(crate) const GOV_SEATING_KEYS: [&str; 18] = [
     "oversight_committee_size",
     "policy_jury_size",
     "confirmation_jury_size",
-    "parliament_timed_ovn",
-    "parliament_tle_key_lifecycle",
 ];
 
 /// `[torii.faucet]` keys copied from the canonical profile when a validator enables a faucet.
@@ -222,9 +220,6 @@ pub(crate) struct SeatingProfile {
     coordination_explicit: bool,
     policy_jury_size: u64,
     confirmation_jury_size: u64,
-    max_corpus_entries: u64,
-    registration_phase_blocks: u64,
-    survivor_freeze_phase_blocks: u64,
     citizenship_bond: Quantity,
     citizenship_asset_id: String,
     /// Explicit `gov.citizenship_escrow_account` literal; `None` falls back to the published
@@ -284,7 +279,6 @@ impl SeatingProfile {
     pub(crate) fn from_config(config: &toml::Table) -> Result<Self> {
         use iroha_config::parameters::defaults::{governance as d, torii::faucet as f};
         let gov = sub_table(Some(config), "gov")?;
-        let timed_ovn = sub_table(gov, "parliament_timed_ovn")?;
         let torii = sub_table(Some(config), "torii")?;
         let faucet_table = sub_table(torii, "faucet")?;
         let mut public_bodies = Vec::with_capacity(PUBLIC_BODIES.len());
@@ -356,21 +350,6 @@ impl SeatingProfile {
                 gov,
                 "confirmation_jury_size",
                 d::PARLIAMENT_CONFIRMATION_JURY_SIZE as u64,
-            )?,
-            max_corpus_entries: table_u64(
-                timed_ovn,
-                "max_corpus_entries",
-                u64::from(d::parliament_timed_ovn::MAX_CORPUS_ENTRIES),
-            )?,
-            registration_phase_blocks: table_u64(
-                timed_ovn,
-                "registration_phase_blocks",
-                d::parliament_timed_ovn::REGISTRATION_PHASE_BLOCKS,
-            )?,
-            survivor_freeze_phase_blocks: table_u64(
-                timed_ovn,
-                "survivor_freeze_phase_blocks",
-                d::parliament_timed_ovn::SURVIVOR_FREEZE_PHASE_BLOCKS,
             )?,
             citizenship_bond: table_quantity(
                 gov,
@@ -473,26 +452,6 @@ impl SeatingProfile {
             detail: format!(
                 "policy_jury_size={} confirmation_jury_size={} (floor {minimum_hidden})",
                 self.policy_jury_size, self.confirmation_jury_size
-            ),
-        });
-        let largest_jury = self.policy_jury_size.max(self.confirmation_jury_size);
-        requirements.push(SeatingRequirement {
-            name: "corpus_covers_juries",
-            ok: self.max_corpus_entries >= largest_jury,
-            detail: format!(
-                "max_corpus_entries={} largest jury={largest_jury}",
-                self.max_corpus_entries
-            ),
-        });
-        requirements.push(SeatingRequirement {
-            name: "windows_cover_corpus",
-            ok: self.registration_phase_blocks > self.max_corpus_entries
-                && self.survivor_freeze_phase_blocks >= self.max_corpus_entries,
-            detail: format!(
-                "registration_phase_blocks={} survivor_freeze_phase_blocks={} max_corpus_entries={}",
-                self.registration_phase_blocks,
-                self.survivor_freeze_phase_blocks,
-                self.max_corpus_entries
             ),
         });
         requirements.push(SeatingRequirement {

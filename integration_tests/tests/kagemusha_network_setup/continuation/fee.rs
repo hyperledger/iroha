@@ -187,11 +187,9 @@ fn inputs(
         &activation.certificates,
     )?;
     ensure!(verified.fee == 3, "exact fee payout");
-    installed.verifier().verify_package_proofs(
-        &claim_value.payment.send,
-        Some(&request_value.body),
-        Default::default(),
-    )?;
+    installed
+        .verifier()
+        .verify_package_proofs(&claim_value.payment.send, Default::default())?;
     Ok(Inputs {
         scheme,
         manifest,

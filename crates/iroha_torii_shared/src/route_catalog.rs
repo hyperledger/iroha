@@ -2969,26 +2969,6 @@ pub mod runtime_governance {
         "governance.parliament.attempt.plan",
         "/v1/gov/parliament/attempts/{governance_attempt_id}/plan",
     );
-    /// Inspect one node-local replay-validated timed-OVN context (never wallet input).
-    pub const GOV_PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ: RouteDescriptor = app_signed_get(
-        "governance.parliament.timed_ovn_casting_context.read",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-    );
-    /// Fetch one consensus-authenticated timed-OVN casting archive or checkpoint page.
-    pub const GOV_PARLIAMENT_TIMED_OVN_CASTING_PROOF: RouteDescriptor = app_compute_post(
-        "governance.parliament.timed_ovn_casting_proof.read",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-    );
-    /// Read one Core-authorized public TLE release context for a Parliament ballot.
-    pub const GOV_PARLIAMENT_TLE_RELEASE_CONTEXT_READ: RouteDescriptor = app_signed_get(
-        "governance.parliament.tle_release_context.read",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-    );
-    /// Request this node's Core-authorized proof-carrying TLE partial release.
-    pub const GOV_PARLIAMENT_TLE_PARTIAL_RELEASE: RouteDescriptor = app_signed_post(
-        "governance.parliament.tle_partial_release.create",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
-    );
     /// Draft one closed Parliament lifecycle transition for local signing.
     pub const GOV_PARLIAMENT_TRANSITION_DRAFT: RouteDescriptor = app_signed_post(
         "governance.parliament.transition.draft",
@@ -3154,10 +3134,6 @@ pub mod runtime_governance {
         GOV_PARLIAMENT_ATTEMPT_DRAFT,
         GOV_PARLIAMENT_ATTEMPT_READ,
         GOV_PARLIAMENT_ATTEMPT_PLAN,
-        GOV_PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ,
-        GOV_PARLIAMENT_TIMED_OVN_CASTING_PROOF,
-        GOV_PARLIAMENT_TLE_RELEASE_CONTEXT_READ,
-        GOV_PARLIAMENT_TLE_PARTIAL_RELEASE,
         GOV_PARLIAMENT_TRANSITION_DRAFT,
         VALIDATION_FEE_CURRENT_POLICY_PROOF,
         VALIDATION_FEE_RETAIL_QUOTE,

@@ -1,13 +1,7 @@
 //! CLI coverage for the `SoraFS` reference validator.
 use assert_cmd::cargo::cargo_bin_cmd;
 use ed25519_dalek::{Signature, Signer, SigningKey};
-use iroha_crypto::{
-    Algorithm, KeyPair, sha256,
-    timed_ovn::{
-        TimedOvnOfficialReleaseAuditArtifactsV1, TimedOvnOfficialReleaseAuditManifestV1,
-        TimedOvnOfficialReleaseAuditStatementV1, TimedOvnOfficialReleaseAuditVerdictV1,
-    },
-};
+use iroha_crypto::{Algorithm, KeyPair, sha256};
 use norito::json::Value;
 use sorafs_manifest::repair::QueuedRepairStateV1;
 use sorafs_manifest::{
@@ -104,48 +98,6 @@ fn assert_release_manifest_failure(output: &std::process::Output, exit_code: i32
     );
 }
 
-fn run_timed_ovn_release_audit(
-    audit_manifest: &Path,
-    implementation_source_archive: &Path,
-    release_artifact_manifest: &Path,
-    supported_target_inventory: &Path,
-    audit_report: &Path,
-    audit_evidence_archive: &Path,
-    trusted_reviewer_public_key: &Path,
-) -> std::process::Output {
-    validator_command()
-        .args([
-            "timed-ovn-release-audit",
-            "--audit-manifest",
-            audit_manifest
-                .to_str()
-                .expect("audit manifest path is utf-8"),
-            "--implementation-source-archive",
-            implementation_source_archive
-                .to_str()
-                .expect("implementation source archive path is utf-8"),
-            "--release-artifact-manifest",
-            release_artifact_manifest
-                .to_str()
-                .expect("release artifact manifest path is utf-8"),
-            "--supported-target-inventory",
-            supported_target_inventory
-                .to_str()
-                .expect("supported target inventory path is utf-8"),
-            "--audit-report",
-            audit_report.to_str().expect("audit report path is utf-8"),
-            "--audit-evidence-archive",
-            audit_evidence_archive
-                .to_str()
-                .expect("audit evidence archive path is utf-8"),
-            "--trusted-reviewer-public-key",
-            trusted_reviewer_public_key
-                .to_str()
-                .expect("trusted reviewer public-key path is utf-8"),
-        ])
-        .output()
-        .expect("run iroha app sorafs toolkit timed-ovn-release-audit")
-}
 fn potr_receipt() -> PotrReceiptV1 {
     let receipt = PotrReceiptV1 {
         version: POTR_RECEIPT_VERSION_V1,
@@ -1721,123 +1673,6 @@ fn sorafs_validate_sign_governance_writes_valid_signed_norito() {
         validate_outcome.get("status").and_then(Value::as_str),
         Some("Ok")
     );
-}
-
-#[test]
-fn sorafs_validate_timed_ovn_release_audit_binds_every_official_artifact() {
-    let temp = tempdir().expect("tempdir");
-    let root = temp.path().canonicalize().expect("canonical tempdir root");
-    let audit_manifest_path = root.join("timed-ovn-audit.manifest");
-    let implementation_source_archive_path = root.join("implementation-source.tar.zst");
-    let release_artifact_manifest_path = root.join("release-manifest.json");
-    let supported_target_inventory_path = root.join("target-inventory.json");
-    let audit_report_path = root.join("audit-report.pdf");
-    let audit_evidence_archive_path = root.join("audit-evidence.tar.zst");
-    let trusted_reviewer_public_key_path = root.join("reviewer.ed25519.pub");
-
-    let implementation_source_archive = b"reviewed implementation source archive";
-    let release_artifact_manifest = b"canonical release artifact manifest";
-    let supported_target_inventory = b"reviewed supported target inventory";
-    let audit_report = b"independent side-channel audit report";
-    let audit_evidence_archive = b"independent audit measurement evidence";
-    let reviewer = SigningKey::from_bytes(&[0xA7; 32]);
-    let reviewer_public_key = reviewer.verifying_key().to_bytes();
-    let artifacts = TimedOvnOfficialReleaseAuditArtifactsV1::new(
-        implementation_source_archive,
-        release_artifact_manifest,
-        supported_target_inventory,
-        audit_report,
-        audit_evidence_archive,
-    )
-    .expect("complete official-release artifacts");
-    let statement = TimedOvnOfficialReleaseAuditStatementV1::from_artifacts(
-        TimedOvnOfficialReleaseAuditVerdictV1::ApprovedForOfficialRelease,
-        &artifacts,
-        reviewer_public_key,
-    )
-    .expect("canonical approving audit statement");
-    let signature = reviewer.sign(&statement.signing_bytes()).to_bytes();
-    let audit_manifest =
-        TimedOvnOfficialReleaseAuditManifestV1::from_statement_and_signature(statement, signature)
-            .expect("signed official-release audit manifest")
-            .to_bytes();
-
-    for (path, bytes) in [
-        (
-            implementation_source_archive_path.as_path(),
-            implementation_source_archive.as_slice(),
-        ),
-        (
-            release_artifact_manifest_path.as_path(),
-            release_artifact_manifest.as_slice(),
-        ),
-        (
-            supported_target_inventory_path.as_path(),
-            supported_target_inventory.as_slice(),
-        ),
-        (audit_report_path.as_path(), audit_report.as_slice()),
-        (
-            audit_evidence_archive_path.as_path(),
-            audit_evidence_archive.as_slice(),
-        ),
-        (audit_manifest_path.as_path(), audit_manifest.as_slice()),
-        (
-            trusted_reviewer_public_key_path.as_path(),
-            reviewer_public_key.as_slice(),
-        ),
-    ] {
-        fs::write(path, bytes).expect("write timed-OVN release-audit fixture");
-    }
-
-    let accepted = run_timed_ovn_release_audit(
-        &audit_manifest_path,
-        &implementation_source_archive_path,
-        &release_artifact_manifest_path,
-        &supported_target_inventory_path,
-        &audit_report_path,
-        &audit_evidence_archive_path,
-        &trusted_reviewer_public_key_path,
-    );
-    assert!(
-        accepted.status.success(),
-        "stdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&accepted.stdout),
-        String::from_utf8_lossy(&accepted.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&accepted.stdout)
-            .contains("timed-OVN official-release audit verified")
-    );
-
-    fs::write(&audit_report_path, b"substituted audit report")
-        .expect("substitute one committed audit artifact");
-    let substituted = run_timed_ovn_release_audit(
-        &audit_manifest_path,
-        &implementation_source_archive_path,
-        &release_artifact_manifest_path,
-        &supported_target_inventory_path,
-        &audit_report_path,
-        &audit_evidence_archive_path,
-        &trusted_reviewer_public_key_path,
-    );
-    assert_release_manifest_failure(
-        &substituted,
-        2,
-        "official-release audit evidence digest mismatch",
-    );
-}
-
-#[test]
-fn sorafs_validate_timed_ovn_release_audit_requires_the_complete_input_set() {
-    let output = validator_command()
-        .args([
-            "timed-ovn-release-audit",
-            "--audit-manifest",
-            "audit.manifest",
-        ])
-        .output()
-        .expect("run incomplete timed-OVN release-audit command");
-    assert_release_manifest_failure(&output, 4, "requires --implementation-source-archive");
 }
 
 #[test]

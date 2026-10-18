@@ -575,6 +575,14 @@ MUTATIONS = [
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
 CORE_MUTATIONS = [
+    m("HC396", "SCCP registration: ignore either required launch gate after native validation",
+      ["smartcontracts::isi::sccp::governance::installation_tests::registration_requires_both_launch_gates_even_after_native_preconditions"],
+      causes=(ExpectedFailure("SCCP registration must require both launch gates after native preconditions pass",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/governance/installation_tests.rs"),)),
+    m("HC397", "SCCP enactment: discard the authenticated casting-open s0 before selective lift",
+      ["smartcontracts::isi::sccp::governance::anchor_tests::enactment_preserves_casting_open_anchor_for_each_pause_part"],
+      causes=(ExpectedFailure("SCCP enactment must preserve the authenticated casting-open anchor for the requested pause part",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/governance/anchor_tests.rs"),)),
     m("HC381", "retain a discarded original proposal recovery through its decode refund",
       ["sumeragi::driver::tests::proposal_recovery::proposal_recovery_discard_retires_original_waiter_before_decode_refund"],
       causes=(ExpectedFailure("discarded proposal recovery must not reacquire its original body after decode refund",
@@ -1277,9 +1285,9 @@ CORE_MUTATIONS = [
        "sumeragi::finality::cursor::tests::native_cursor_pending_envelope_refusal_retains_original_graph_and_release",
        "sumeragi::finality::cursor::tests::native_cursor_pending_checkpoint_refusal_retains_original_graph_and_release"]),
     m("HC237", "SCCP control cause: substitute proposal ID for the exact enacting certificate ID",
-      ["smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state"]),
+      ["smartcontracts::isi::world::isi::tests::sccp_enactment_component_binds_exact_certificate_and_complete_pause_state"]),
     m("HC238", "SCCP control recorder: omit the actual active destination fast-pause expiry",
-      ["smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state"]),
+      ["smartcontracts::isi::world::isi::tests::sccp_enactment_component_binds_exact_certificate_and_complete_pause_state"]),
     m("HC239", "native epoch construction: leak the original ledger after partial payload unwind",
       ["sumeragi::epoch_election::owned::tests::partial_epoch_committee_unwind_refunds_retired_nested_backing"]),
     m("HC250", "SCCP G6 resolves liability outside the canonical global election lane",
@@ -1701,7 +1709,7 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("endorsement windows must expire at the exact close even after a halt",
           "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/certification/tests.rs"),)),
 
-    m("HC298", "SCCP pause lift: ignore the approving ballot's original casting-open position",
+    m("HC298", "SCCP pause lift: ignore the supplied s0 casting-open position of the approving ballot",
       ["smartcontracts::isi::sccp::fast_pause::tests::sccp_pause_lift_compares_original_height_position_and_removes_only_the_matching_part"],
       causes=(ExpectedFailure("a resume cannot lift a pause enacted at or after its original casting-open position",
           "crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/tests.rs"),)),

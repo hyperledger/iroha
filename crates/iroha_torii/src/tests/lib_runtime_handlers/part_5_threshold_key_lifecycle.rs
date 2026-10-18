@@ -22,8 +22,8 @@ fn lifecycle_ordinary_fixture(
     unique.torii_proxy_bridge_signer = validators[0].clone();
     let mut certificate = ThresholdKeyLifecycleCertificateV1 {
         version: iroha_core::state::THRESHOLD_KEY_LIFECYCLE_CERTIFICATE_VERSION_V1,
-        action: ThresholdKeyLifecycleActionV1::RetireParliamentTleKey,
-        expected_active_session_id: Some([0x41; 32]),
+        action: ThresholdKeyLifecycleActionV1::FinalizeGlobalBeaconKey,
+        expected_active_session_id: None,
         effective_height: app.state.committed_height() as u64 + 1,
         network_id: *app.state.network_id_ref(),
         roster_hash: iroha_core::beacon::global_threshold_beacon_roster_hash_v1(&roster),
@@ -31,7 +31,7 @@ fn lifecycle_ordinary_fixture(
         quorum: 3,
         session_id: [0x41; 32],
         transcript_hash: [0x42; 32],
-        public_state: Vec::new(),
+        public_state: vec![0x43; 16],
         signatures: Vec::new(),
     };
     lifecycle_sign_certificate(&mut certificate, &validators);

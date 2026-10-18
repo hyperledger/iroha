@@ -35,6 +35,7 @@ use iroha_sccp::{
     ethereum_source::{EthereumLogV1, EthereumMptRoleV1, mpt_root, verify_mpt_inclusion},
     light_client::{
         self, SccpLcConflictV1, SccpLcError,
+        bsc::{BscProofAnchorV1, BscSourceProofV1},
         ethereum::{
             EthereumAncestryV1, EthereumEventSelectorV1, EthereumFinalizedAncestorV1,
             EthereumHeaderSegmentV1, EthereumHistoryProofV1, EthereumLcAdvanceV1, EthereumLcError,
@@ -56,6 +57,7 @@ use iroha_sccp::{
         ton::{TonMasterchainAnchorV1, TonSourceProofV1},
     },
     test_support::{
+        bsc::SyntheticParliaChainV1,
         ethereum::{
             SyntheticBeaconChainV1, SyntheticBlockFieldsV1, SyntheticExecutionHeaderV1,
             SyntheticUpdateSpecV1, advance_bytes, bootstrap_from_beacon_json, execution_header_rlp,
@@ -1743,6 +1745,63 @@ fn ton_verifier_normalized(vector: &Value) -> Value {
     transfer_event_json(&minter, &event)
 }
 
+/// Prove the BSC fixture receipt under a genuine synthetic Parlia finality proof.
+fn bsc_verifier_normalized(vector: &Value) -> Value {
+    let network = SccpNetworkV1::BscMainnet;
+    let receipts = vec![successful_receipt(logs_of(vector))];
+    let (root, receipt_proof) = receipt_root_and_proof(&receipts, 0);
+    let chain = SyntheticParliaChainV1::new([0x42; 32], 21, 16).with_receipts_root(5_390, root);
+    let params = SccpLightClientParamsV1::defaults_for(network).expect("BSC parameters");
+    let initial = light_client::verify_bootstrap(
+        network,
+        &params,
+        &chain.bootstrap(5),
+        SyntheticParliaChainV1::time_ms(5_000) + 1_000,
+    )
+    .expect("BSC bootstrap verifies");
+    let mut memory = SccpLcMemoryStateV1::new();
+    memory.install(network, &initial);
+    let step = chain.step(5_390, 5_400, 5_000, None);
+    let proof = SccpSourceProofV1::Bsc(BscSourceProofV1 {
+        anchor: BscProofAnchorV1::Finality(step.finality),
+        headers: step.headers,
+        transaction_index: 0,
+        receipt_proof,
+        event: EthereumEventSelectorV1::TransferToTaira(EthereumLogRefV1 { log_index: 0 }),
+    })
+    .to_bytes()
+    .expect("bounded BSC proof");
+    let verified = light_client::verify_proof(
+        &memory,
+        network,
+        &proof,
+        SyntheticParliaChainV1::time_ms(5_400) + 2_000,
+    )
+    .expect("BSC fixture verifies");
+    let SccpNormalizedEventV1::TransferToTaira {
+        emitter: SccpSourceEmitterV1::Evm(emitter),
+        message_id,
+        sender,
+        nonce,
+        payload_hash,
+        locator,
+        ..
+    } = verified.event
+    else {
+        panic!("BSC transfer expected")
+    };
+    assert_eq!(locator.source_height, 5_390);
+    assert_eq!(locator.block_hash, chain.header(5_390).hash);
+    obj(vec![
+        ("kind", text("transfer_to_taira")),
+        ("emitter", hex(&emitter)),
+        ("message_id", hex(&message_id)),
+        ("sender", account(&sender)),
+        ("nonce", num(nonce)),
+        ("payload_hash", hex(&payload_hash)),
+    ])
+}
+
 fn logs_of(vector: &Value) -> Vec<EthereumLogV1> {
     let logs = vector
         .get("logs")
@@ -1794,6 +1853,10 @@ fn native_transfer_event_fixture_matches_the_verifier() {
             EthereumEventSelectorV1::TransferToTaira(EthereumLogRefV1 { log_index: 0 })
         ),
         eth.get("normalized").cloned().expect("normalized")
+    );
+    assert_eq!(
+        bsc_verifier_normalized(&transfers[1]),
+        transfers[1].get("normalized").cloned().expect("normalized")
     );
     let voids = generated
         .get("voids")

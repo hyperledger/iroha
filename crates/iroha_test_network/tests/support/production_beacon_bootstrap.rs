@@ -1025,7 +1025,7 @@ async fn stage_initial_provider_brokers(
     directory: &Path,
     binary: &Path,
 ) -> Result<Vec<ProviderBroker>> {
-    let credentials = Zeroizing::new(encode_consensus_threshold_credential_bundle_v1(None, None)?);
+    let credentials = Zeroizing::new(encode_consensus_threshold_credential_bundle_v1(None)?);
     let mut brokers = Vec::new();
     for peer in 0..4 {
         let path = directory.join(format!("peer{peer}.toml"));
@@ -1109,7 +1109,6 @@ async fn stage_provider_brokers(
         credential_file.file.read_to_end(&mut credential)?;
         let credential_bundle = Zeroizing::new(encode_consensus_threshold_credential_bundle_v1(
             Some(&credential),
-            None,
         )?);
         drop(credential_file);
         let broker = spawn_provider_broker(

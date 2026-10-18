@@ -143,20 +143,9 @@ pub use committed_transaction_query::{
     connect_norito_committed_transaction_query_finalize_v1,
     connect_norito_committed_transaction_query_payload_hash_v1,
 };
-mod parliament_timed_ovn_ffi;
+mod connect_approval_ffi;
 #[cfg(test)]
 mod privacy_capability_ffi_tests;
-pub use parliament_timed_ovn_ffi::{
-    CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_BYTES_V1,
-    CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1,
-    CONNECT_NORITO_PARLIAMENT_TIMED_OVN_SEED_BYTES_V1,
-    CONNECT_NORITO_PARLIAMENT_TIMED_OVN_TRUST_ANCHOR_BYTES_V1,
-    connect_norito_parliament_timed_ovn_ballot_from_proof_v1,
-    connect_norito_parliament_timed_ovn_registration_from_proof_v1,
-    connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1,
-    connect_norito_parliament_timed_ovn_verify_casting_proof_v1,
-};
-mod connect_approval_ffi;
 #[cfg(test)]
 use connect_approval_ffi::{
     connect_norito_connect_approval_preimage, connect_norito_connect_verify_approval,
@@ -313,7 +302,6 @@ const ERR_DETACHED_TRANSACTION_SCAFFOLD: c_int = -501;
 const ERR_DETACHED_TRANSACTION_SIGNATURE: c_int = -502;
 const ERR_CANONICAL_JSON: c_int = -503;
 const ERR_VALIDATION_FEE_POLICY_PROOF: c_int = -504;
-const ERR_PARLIAMENT_TIMED_OVN: c_int = -505;
 const ERR_RETAIL_FEE_ASSESSMENT: c_int = -506;
 const ERR_PRIVATE_SETTLEMENT_RESPONSE: c_int = -507;
 
@@ -351,7 +339,6 @@ enum BridgeError {
     DetachedTransactionSignature,
     CanonicalJson,
     ValidationFeePolicyProof,
-    ParliamentTimedOvn,
     RetailFeeAssessment,
     PrivateSettlementResponse,
 }
@@ -390,7 +377,6 @@ impl BridgeError {
             BridgeError::DetachedTransactionSignature => ERR_DETACHED_TRANSACTION_SIGNATURE,
             BridgeError::CanonicalJson => ERR_CANONICAL_JSON,
             BridgeError::ValidationFeePolicyProof => ERR_VALIDATION_FEE_POLICY_PROOF,
-            BridgeError::ParliamentTimedOvn => ERR_PARLIAMENT_TIMED_OVN,
             BridgeError::RetailFeeAssessment => ERR_RETAIL_FEE_ASSESSMENT,
             BridgeError::PrivateSettlementResponse => ERR_PRIVATE_SETTLEMENT_RESPONSE,
         }

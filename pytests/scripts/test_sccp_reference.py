@@ -437,8 +437,26 @@ def test_commitment_tree_matches_rust_fixture():
         assert levels[-1][0] == unhex(tree["root"])
         for index, path in enumerate(tree["paths"]):
             assert [x.hex() for x in tree_path(subset, index, levels)] == [p[2:] for p in path]
-            if index % 16 == 0 or index == count - 1:
-                assert merkle_root(subset[index], index, count, [unhex(p) for p in path]) == unhex(tree["root"])
+            assert merkle_root(subset[index], index, count, [unhex(p) for p in path]) == unhex(tree["root"])
+        assert len(tree["paths"]) == count
+    errors = {
+        "PathTooShort": "path too short",
+        "PathTooLong": "path too long",
+        "IndexOutOfRange": "index out of range",
+    }
+    for row in data["negatives"]:
+        args = (unhex(row["leaf"]), row["index"], row["count"], [unhex(p) for p in row["path"]])
+        result = row["result"]
+        if "error" in result:
+            with pytest.raises(SccpError) as caught:
+                merkle_root(*args)
+            assert caught.value.name == "BadProof", row["label"]
+            assert caught.value.detail == errors[result["error"]], row["label"]
+        else:
+            assert set(result) == {"computed_root"}, row["label"]
+            computed = merkle_root(*args)
+            assert computed == unhex(result["computed_root"]), row["label"]
+            assert computed != unhex(row["expected_root"]), row["label"]
     example = data["examples"]["transfer"]
     assert transfer_leaf(unhex(example["message_id"]), unhex(example["destination_word"])) == unhex(example["leaf"])
     control = data["examples"]["control"]
@@ -470,6 +488,12 @@ def test_history_matches_rust_fixture_and_bagging():
         assert history_root(subset) == unhex(size["root"])
         assert [p.hex() for p in history_peaks(subset)] == [p[2:] for p in size["peaks"]]
         assert bag_peaks(history_peaks(subset)) == history_root(subset)
+        assert len(size["paths"]) == size["size"]
+        levels = tree_levels(subset)
+        for index, path in enumerate(size["paths"]):
+            siblings = [unhex(p) for p in path]
+            assert tree_path(subset, index, levels) == siblings
+            assert merkle_root(subset[index], index, size["size"], siblings) == unhex(size["root"])
 
 
 def test_merkle_root_rejects_malformed_paths():
@@ -1592,7 +1616,7 @@ def test_bls_consensus_fixture_names_its_single_generator():
     doc = json.loads((FIXTURES / "bls_consensus_v1.json").read_text())
     assert "Python reference" in doc["generator"] and "reproduces every row" in doc["generator"]
     assert "bls_consensus_rust_v1.json" in doc["rust_only_vectors"]
-    assert doc["todo"] and all("Rust" not in item and "iroha_crypto" not in item for item in doc["todo"])
+    assert doc["ethereum_malformed_inputs"]["source_kind"] == "deterministic_offline_reproduction"
     assert (FIXTURES / "bls_consensus_rust_v1.json").exists()
 
 
@@ -2354,3 +2378,75 @@ def test_fixture_has_no_drift(name):
     """Regenerate each fixture the reference owns; any difference is drift (rerun generate.py --write after review)."""
     diff = generate.check(name)
     assert not diff, "\n".join(diff)
+
+
+@pytest.mark.parametrize("group,count", [(1, 16), (2, 18)])
+def test_offline_ethereum_malformed_deserialization_rows(group, count):
+    """Replay every offline malformed encoding, including identity and exact-length boundaries."""
+    doc = json.loads((FIXTURES / "bls_consensus_v1.json").read_text())["ethereum_malformed_inputs"]
+    assert doc["source_kind"] == "deterministic_offline_reproduction"
+    rows = doc[f"g{group}_deserialization"]
+    assert len(rows) == len({row["label"] for row in rows}) == count
+    decode = bls.g1_decompress if group == 1 else bls.g2_decompress
+    subgroup = bls.g1_in_subgroup if group == 1 else bls.g2_in_subgroup
+    validate = key_validate if group == 1 else signature_validate
+    baseline = doc["baseline"]
+    for row in rows:
+        raw = unhex(row["encoding"])
+        try:
+            deserialized = subgroup(decode(raw))
+        except bls.PointEncodingError:
+            deserialized = False
+        assert deserialized == row["deserialize"], row["label"]
+        assert (validate(raw) is not None) == row["validate"], row["label"]
+        key = raw if group == 1 else unhex(baseline["pk"])
+        signature = raw if group == 2 else unhex(baseline["signature"])
+        assert verify(key, unhex(baseline["msg"]), signature) == row["verify"], row["label"]
+        if row["label"] == "infinity":
+            assert row["deserialize"] and not row["validate"]
+        if row["label"] == "long":
+            assert not row["deserialize"] and row["ton_verify"] == 1
+    assert sum(row["evm_affine_pairing"] is None for row in rows) == 3
+
+
+def test_governance_subject_sets_frames_and_heads():
+    """Pin complete proposal and automatic-subject coverage, not only file presence."""
+    doc = json.loads((FIXTURES / "governance_v1.json").read_text())
+    assert len(doc["subject_encodings"]) == 19
+    rows = {row["label"]: row for row in doc["rows"]}
+    assert len(rows) == len(doc["rows"]) == 10
+    pause = rows["fixed_route_head"]["expected"]
+    resume = rows["different_effect_same_subject"]["expected"]
+    assert pause["head"] == resume["head"]
+    assert pause["proposal_id"] != resume["proposal_id"]
+    assert pause["effect_hash"] != pause["proposal_id"]
+    for row in rows.values():
+        frame = unhex(row["expected"]["frame"])
+        assert frame[:6] == b"NRT0\0\0" and frame[39] == 2
+        assert int.from_bytes(frame[23:31], "little") == len(frame) - 40
+    assert rows["stale_base_revision"]["expected"]["attempt_outcome"] == "Stale"
+    assert rows["fast_hold_is_not_a_parliament_action"]["expected"]["static_outcome"] == "BaseRevisionsMismatch"
+    assert rows["head_version_overflow"]["expected"]["head"] == {"outcome": "VersionOverflow"}
+    assert {row["subject"]["kind"] for row in doc["subject_encodings"]} == {
+        "route", "route_control", "light_client", "parameters", "forgery_hold", "fast_hold", "fast_pause_control"}
+
+
+@pytest.mark.parametrize("name,sections", [
+    ("fast_pause_v1.json", {"rows": 26, "controls": 8}),
+    ("forgery_evidence_v1.json", {"rows": 19, "deduplication": 3}),
+    ("liability_v1.json", {"clock": 5, "liability": 9, "destination_clearance": 5,
+                           "same_block_orders": 2, "pruning": 2, "pin_margin": 3}),
+])
+def test_core_fixture_coverage_is_explicit(name, sections):
+    """A changed generator cannot silently omit a required component row."""
+    doc = json.loads((FIXTURES / name).read_text())
+    for section, count in sections.items():
+        rows = doc[section]
+        assert len(rows) == count
+        labels = [row.get("label", row.get("id")) for row in rows]
+        assert None not in labels and len(set(labels)) == count
+        assert all("expected" in row for row in rows)
+    if name == "forgery_evidence_v1.json":
+        assert doc["record"]["expected"]["offence_height"] == doc["record"]["input"]["start_height"]
+        assert doc["record"]["expected"]["self_contained"] is True
+        assert all(row["matches_original_g6"] for row in doc["record"]["expected"]["offenders"])

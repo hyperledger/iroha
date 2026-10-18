@@ -4394,7 +4394,7 @@ impl PrivacyCapabilitySnapshotV1 {
     }
 }
 /// Exact native bridge ABI required by the first-release privacy SDK surface.
-pub const PRIVACY_BRIDGE_ABI_VERSION_V1: u32 = 29;
+pub const PRIVACY_BRIDGE_ABI_VERSION_V1: u32 = 30;
 /// Maximum accepted size of one canonical local compiled-profile catalog archive.
 pub const PRIVACY_COMPILED_PROFILE_CATALOG_ARCHIVE_MAX_BYTES_V1: usize = 256 * 1024;
 /// Maximum elements accepted in one catalog sequence.

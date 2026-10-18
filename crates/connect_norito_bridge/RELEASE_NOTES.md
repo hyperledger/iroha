@@ -7,7 +7,14 @@ publication, including slices restored from CI. Its host macOS consumer also
 checks SHA3-256/SHAKE256 known answers, ML-DSA signing/verification and tamper
 rejection, and ML-KEM encapsulation/decapsulation.
 
-Current source ABI: 29. ABI 29 is the KAGEMUSHA E1 admission cutover. It
+Current source ABI: 30. ABI 30 deletes the Parliament timed-OVN wallet exports: the
+four C functions `connect_norito_parliament_timed_ovn_*`, their
+`CONNECT_NORITO_PARLIAMENT_TIMED_OVN_*` width constants, the
+`CONNECT_NORITO_ERR_PARLIAMENT_TIMED_OVN` (`-505`) result code, and the five
+`ParliamentTimedOvnNativeEndpointV1` JNI exports. The remaining result codes keep
+their values. Artifacts built for ABI 29 or earlier are rejected.
+
+ABI 29 was the KAGEMUSHA E1 admission cutover. It
 deletes the first-device authentication-key JNI exports
 (`NativeFirstDeviceAuthKeyJniV1.reserve`/`restore`) with their native owner. Enrollment
 selector 3 takes the Android `KeyMint` chain only; the Play Integrity token input is gone.
@@ -36,8 +43,7 @@ structure and JNI constructor. Artifacts built for ABI 27 or earlier are
 rejected before any changed layout is called.
 Wallet operations use typed native preparation through `execute` and durable
 `request_status`; no generic wallet commit export is supported. The bridge exports native transaction and instruction
-encoding, account admission, SoraFS reference validation, privacy proofs and
-Parliament timed-OVN verification. Its Kotlin/JVM and Java/Android
+encoding, account admission, SoraFS reference validation and privacy proofs. Its Kotlin/JVM and Java/Android
 `NativeSignerBridge` surface requires native-signer JNI contract revision 7.
 `RegisterZkAsset` carries exactly `asset` and optional `vk_unshield`.
 Transaction signing requires the genesis-derived `NetworkId`: JNI accepts
@@ -71,14 +77,8 @@ policy, activation, lifecycle, or readiness projection. SDKs must fetch a
 fresh authoritative `PrivacyCapabilitySnapshotV1` from live Torii before
 submitting a privacy proof.
 
-ABI 23 removes the archive-only Parliament timed-OVN wallet entry points. The
-replacement C/JNI functions accept only a terminal canonical casting-proof
-response plus caller-supplied NetworkId, finalized height/context, and ballot
-attempt trust anchors. They verify finality, the fixed witness, membership,
-archive replay, and exact compact binding before borrowing a wallet seed.
-
 The archive checksums below are historical and do not establish a current
-ABI-29/revision-7 artifact. Regenerate, verify, and republish the bridge
+ABI-30/revision-7 artifact. Regenerate, verify, and republish the bridge
 artifacts before cutting an SDK release that depends on the current source
 surface.
 

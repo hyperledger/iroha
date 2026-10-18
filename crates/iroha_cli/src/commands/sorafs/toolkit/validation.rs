@@ -7,14 +7,7 @@ pub mod final_promotion_receipt;
 pub mod release_manifest_receipt;
 pub use args::*;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
-use iroha_crypto::{
-    sha256,
-    timed_ovn::{
-        TIMED_OVN_OFFICIAL_RELEASE_AUDIT_MANIFEST_BYTES_V1,
-        TimedOvnOfficialReleaseAuditArtifactsV1,
-        validate_timed_ovn_official_release_audit_manifest_bytes_v1,
-    },
-};
+use iroha_crypto::sha256;
 use norito::json;
 use sorafs_manifest::{
     AdvertSignature, FixtureBundlePayloadKindV1, FixtureBundlePayloadV1, GovernanceLogNodeV1,
@@ -581,154 +574,6 @@ fn run_governance(args: GovernanceArgs) -> Result<ExitCode, CliError> {
     }
 }
 const RELEASE_MANIFEST_MAX_BYTES: u64 = 1024 * 1024;
-const TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1: u64 = 1024 * 1024 * 1024;
-
-pub(super) fn run_timed_ovn_release_audit(
-    args: TimedOvnReleaseAuditArgs,
-) -> Result<ExitCode, CliError> {
-    let audit_manifest_path = args.audit_manifest.ok_or(CliError::Config(
-        "timed-ovn-release-audit requires --audit-manifest <path>".to_owned(),
-    ))?;
-    let implementation_source_archive_path =
-        args.implementation_source_archive.ok_or(CliError::Config(
-            "timed-ovn-release-audit requires --implementation-source-archive <path>".to_owned(),
-        ))?;
-    let release_artifact_manifest_path = args.release_artifact_manifest.ok_or(CliError::Config(
-        "timed-ovn-release-audit requires --release-artifact-manifest <path>".to_owned(),
-    ))?;
-    let supported_target_inventory_path =
-        args.supported_target_inventory.ok_or(CliError::Config(
-            "timed-ovn-release-audit requires --supported-target-inventory <path>".to_owned(),
-        ))?;
-    let audit_report_path = args.audit_report.ok_or(CliError::Config(
-        "timed-ovn-release-audit requires --audit-report <path>".to_owned(),
-    ))?;
-    let audit_evidence_archive_path = args.audit_evidence_archive.ok_or(CliError::Config(
-        "timed-ovn-release-audit requires --audit-evidence-archive <path>".to_owned(),
-    ))?;
-    let trusted_reviewer_public_key_path =
-        args.trusted_reviewer_public_key.ok_or(CliError::Config(
-            "timed-ovn-release-audit requires --trusted-reviewer-public-key <path>".to_owned(),
-        ))?;
-
-    let artifact_inputs = [
-        (
-            implementation_source_archive_path.as_path(),
-            "timed-OVN implementation source archive",
-        ),
-        (
-            release_artifact_manifest_path.as_path(),
-            "timed-OVN release artifact manifest",
-        ),
-        (
-            supported_target_inventory_path.as_path(),
-            "timed-OVN supported target inventory",
-        ),
-        (audit_report_path.as_path(), "timed-OVN audit report"),
-        (
-            audit_evidence_archive_path.as_path(),
-            "timed-OVN audit evidence archive",
-        ),
-    ];
-    preflight_release_input_total(
-        &artifact_inputs,
-        TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1,
-    )?;
-
-    let audit_manifest = read_release_input(
-        &audit_manifest_path,
-        "timed-OVN official-release audit manifest",
-        TIMED_OVN_OFFICIAL_RELEASE_AUDIT_MANIFEST_BYTES_V1 as u64,
-        Some(TIMED_OVN_OFFICIAL_RELEASE_AUDIT_MANIFEST_BYTES_V1 as u64),
-        false,
-    )?;
-    let implementation_source_archive = read_release_input(
-        &implementation_source_archive_path,
-        artifact_inputs[0].1,
-        TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1,
-        None,
-        false,
-    )?;
-    let release_artifact_manifest = read_release_input(
-        &release_artifact_manifest_path,
-        artifact_inputs[1].1,
-        TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1,
-        None,
-        false,
-    )?;
-    let supported_target_inventory = read_release_input(
-        &supported_target_inventory_path,
-        artifact_inputs[2].1,
-        TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1,
-        None,
-        false,
-    )?;
-    let audit_report = read_release_input(
-        &audit_report_path,
-        artifact_inputs[3].1,
-        TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1,
-        None,
-        false,
-    )?;
-    let audit_evidence_archive = read_release_input(
-        &audit_evidence_archive_path,
-        artifact_inputs[4].1,
-        TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1,
-        None,
-        false,
-    )?;
-    let actual_artifact_bytes = [
-        implementation_source_archive.len(),
-        release_artifact_manifest.len(),
-        supported_target_inventory.len(),
-        audit_report.len(),
-        audit_evidence_archive.len(),
-    ]
-    .into_iter()
-    .try_fold(0_u64, |total, length| {
-        let length = u64::try_from(length).map_err(|_| {
-            CliError::Validation("timed-OVN release-audit artifact size overflow".to_owned())
-        })?;
-        total.checked_add(length).ok_or_else(|| {
-            CliError::Validation("timed-OVN release-audit artifact size overflow".to_owned())
-        })
-    })?;
-    if actual_artifact_bytes > TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1 {
-        return Err(CliError::Validation(format!(
-            "timed-OVN release-audit artifacts exceed the {}-byte aggregate ceiling",
-            TIMED_OVN_RELEASE_AUDIT_TOTAL_ARTIFACT_BYTES_V1
-        )));
-    }
-    let trusted_reviewer_public_key = read_release_input(
-        &trusted_reviewer_public_key_path,
-        "timed-OVN trusted audit reviewer public key",
-        32,
-        Some(32),
-        false,
-    )?;
-    let trusted_reviewer_public_key: [u8; 32] = trusted_reviewer_public_key
-        .try_into()
-        .expect("exact reviewer public-key length checked above");
-    let artifacts = TimedOvnOfficialReleaseAuditArtifactsV1::new(
-        &implementation_source_archive,
-        &release_artifact_manifest,
-        &supported_target_inventory,
-        &audit_report,
-        &audit_evidence_archive,
-    )
-    .map_err(|error| CliError::Validation(error.to_string()))?;
-    let manifest = validate_timed_ovn_official_release_audit_manifest_bytes_v1(
-        &audit_manifest,
-        &artifacts,
-        &trusted_reviewer_public_key,
-    )
-    .map_err(|error| CliError::Validation(error.to_string()))?;
-    println!(
-        "timed-OVN official-release audit verified\nreviewer_public_key_sha256={}",
-        hex::encode(sha256(manifest.statement().reviewer_public_key()))
-    );
-    Ok(ExitCode::SUCCESS)
-}
 
 pub(super) fn run_release_manifest(args: ReleaseManifestArgs) -> Result<ExitCode, CliError> {
     let manifest_path = args.manifest.ok_or(CliError::Config(
@@ -1505,27 +1350,6 @@ fn read_release_input(
     Ok(bytes)
 }
 
-fn preflight_release_input_total(
-    inputs: &[(&Path, &str)],
-    maximum_total_bytes: u64,
-) -> Result<(), CliError> {
-    let mut total_bytes = 0_u64;
-    for &(path, label) in inputs {
-        let direct_path = release_direct_path(path, label)?;
-        let metadata = fs::symlink_metadata(&direct_path)
-            .map_err(|error| CliError::Io(format!("failed to inspect {label}: {error}")))?;
-        validate_release_metadata(label, &metadata, maximum_total_bytes, false)?;
-        total_bytes = total_bytes.checked_add(metadata.len()).ok_or_else(|| {
-            CliError::Validation("timed-OVN release-audit artifact size overflow".to_owned())
-        })?;
-        if total_bytes > maximum_total_bytes {
-            return Err(CliError::Validation(format!(
-                "timed-OVN release-audit artifacts exceed the {maximum_total_bytes}-byte aggregate ceiling"
-            )));
-        }
-    }
-    Ok(())
-}
 fn release_direct_path(path: &Path, label: &str) -> Result<PathBuf, CliError> {
     if path.as_os_str().is_empty()
         || path

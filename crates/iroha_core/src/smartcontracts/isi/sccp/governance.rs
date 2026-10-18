@@ -9,8 +9,17 @@
 //! `rev(s)` for each subject inside the same effect transaction; any failed precondition fails
 //! the whole enactment, which the pipeline records as `ExecutionFailed` with no SCCP change.
 
+#[cfg(test)]
+#[path = "governance/anchor_tests.rs"]
+mod anchor_tests;
 #[path = "governance/holds.rs"]
 mod holds;
+#[cfg(test)]
+#[path = "governance/installation_tests.rs"]
+mod installation_tests;
+#[cfg(test)]
+#[path = "governance/reference_fixtures.rs"]
+mod reference_fixtures;
 #[path = "governance/registration.rs"]
 mod registration;
 
@@ -22,6 +31,10 @@ use super::{
 use crate::state::{StateReadOnly, StateTransaction, WorldReadOnly};
 use iroha_data_model::{
     bridge::SccpNetworkV1,
+    governance::{
+        GovernanceAnchorV1,
+        types::{ProposalKind, SccpRouteGovernanceProposal},
+    },
     sccp::{
         deployment::SccpDeploymentV1,
         events::{SccpEvent, SccpGovernanceEnactedV1, SccpStrandedReleasedV1},
@@ -30,7 +43,7 @@ use iroha_data_model::{
             SccpRegisterRouteActionV1, SccpReleaseStrandedActionV1, SccpRouteRevisionActionV1,
             SccpSwitchRevisionActionV1,
         },
-        registry::SccpRouteActivationV1,
+        registry::{SccpRouteActivationV1, SccpRouteRevisionV1},
     },
 };
 use iroha_sccp::v1::constants::TON_AMOUNT_BOUND;
@@ -60,8 +73,15 @@ pub fn subject_heads(
     world: &(impl WorldReadOnly + ?Sized),
     proposal: &SccpGovernanceProposalV1,
 ) -> Result<(u64, Vec<(SccpGovernanceSubjectV1, u64)>), Error> {
-    let heads: Vec<_> = proposal
-        .subjects()
+    heads_for_subjects(world, proposal.subjects())
+}
+
+/// Read revision heads and their checked version for an already ordered subject set.
+fn heads_for_subjects(
+    world: &(impl WorldReadOnly + ?Sized),
+    subjects: impl IntoIterator<Item = SccpGovernanceSubjectV1>,
+) -> Result<(u64, Vec<(SccpGovernanceSubjectV1, u64)>), Error> {
+    let heads: Vec<_> = subjects
         .into_iter()
         .map(|subject| {
             let revision = store::governance_revision(world, &subject);
@@ -162,6 +182,8 @@ fn ensure_word_unused(
 
 /// Apply every action of the certified `proposal` in order and increment the revision of each
 /// of its subjects (§4.14.3 step 4). Runs inside the isolated effect transaction.
+/// The Parliament adapter authenticates the certificate id, effect hash and approving Policy
+/// Jury's casting-open `s0` before calling; SCCP consumes no certificate internals.
 ///
 /// # Errors
 ///
@@ -169,9 +191,10 @@ fn ensure_word_unused(
 /// transaction.
 pub fn enact(
     state_transaction: &mut StateTransaction<'_, '_>,
+    certificate_id: [u8; 32],
+    effect_hash: [u8; 32],
+    s0: GovernanceAnchorV1,
     proposal: &SccpGovernanceProposalV1,
-    proposal_id: [u8; 32],
-    cause: controls::ControlCauseV1,
 ) -> Result<(), Error> {
     if proposal.network_id != *state_transaction.network_id() {
         return Err(refuse("the proposal belongs to a different NetworkId"));
@@ -179,14 +202,27 @@ pub fn enact(
     if store::parameters::get(&*state_transaction.world).is_none() {
         return Err(refuse("SCCP does not exist on this network"));
     }
-    if cause.track != iroha_sccp::v1::control::TRACK_PARLIAMENT
-        || cause.certificate_id == [0; 32]
-        || cause.effect_hash == [0; 32]
-    {
-        return Err(refuse("the enacted Parliament cause is malformed"));
-    }
+    let proposal_id = ProposalKind::SccpRouteGovernance(SccpRouteGovernanceProposal {
+        proposal: Box::new(proposal.clone()),
+    })
+    .fingerprint();
+    #[cfg(all(test, sumeragi_core_mutation = "HC237"))]
+    let certificate_id = {
+        let _ = certificate_id;
+        proposal_id
+    };
+    let cause = controls::ControlCauseV1::from_parliament(certificate_id, effect_hash)?;
+    #[cfg(all(test, sumeragi_core_mutation = "HC397"))]
+    let s0 = {
+        let _ = s0;
+        GovernanceAnchorV1 {
+            height: 0,
+            position: 0,
+            timestamp_ms: 0,
+        }
+    };
     for (index, action) in proposal.actions.iter().enumerate() {
-        apply_action(state_transaction, action, proposal_id, cause)
+        apply_action(state_transaction, action, proposal_id, cause, s0)
             .map_err(|error| refuse(format_args!("action {index}: {error}")))?;
     }
     let subjects = proposal.subjects();
@@ -212,6 +248,7 @@ fn apply_action(
     action: &SccpGovernanceActionV1,
     proposal_id: [u8; 32],
     cause: controls::ControlCauseV1,
+    s0: GovernanceAnchorV1,
 ) -> Result<(), Error> {
     match action {
         SccpGovernanceActionV1::RegisterRoute(register) => {
@@ -254,7 +291,7 @@ fn apply_action(
                     state_transaction,
                     action.network,
                     iroha_data_model::sccp::events::SccpFastPausePartV1::Taira,
-                    cause,
+                    s0,
                 )?;
             }
             set_taira_paused(state_transaction, action.network, action.paused)
@@ -280,7 +317,7 @@ fn apply_action(
                         iroha_data_model::sccp::events::SccpFastPausePartV1::Destination {
                             revision: action.revision,
                         },
-                        cause,
+                        s0,
                     )?;
                 }
                 revision.destination_paused = action.paused;
@@ -348,11 +385,42 @@ fn register_route(
     }
     ensure_word_unused(world, &register.deployment)?;
     registration::validate_available(state_transaction, register)?;
-    // TODO: §4.14.3 P0: install only after the owned Parliament ballot and SCCP
-    // reconciliation launch gates are available. P1–P5 do not grant launch authority.
-    Err(refuse(
-        "RegisterRoute launch/reconciliation authority is unavailable",
-    ))
+    let gates = (
+        super::parliament_iface::parliament_binding_ballot_available(),
+        sccp_reconciliation_available(),
+    );
+    // Only module unit tests can exercise installation before the owners open P0.
+    #[cfg(test)]
+    let gates = tests::LAUNCH_GATES.with(|override_| override_.get().unwrap_or(gates));
+    if !(cfg!(all(test, sumeragi_core_mutation = "HC396")) || gates.0 && gates.1) {
+        return Err(refuse(
+            "RegisterRoute launch/reconciliation authority is unavailable",
+        ));
+    }
+    let revision = SccpRouteRevisionV1::staged(
+        register.revision,
+        register.deployment,
+        register.initial_committee,
+        register.max_wrapped_supply,
+        state_transaction._curr_block.height().get(),
+    );
+    let destination_word = revision.destination_word;
+    let mut route = route.clone();
+    route.revisions.insert(register.revision, revision);
+    store::routes::insert(state_transaction, network, route)?;
+    store::destination_words::insert(
+        state_transaction,
+        destination_word,
+        (network, register.revision),
+    )?;
+    registry::emit_activation_changed(
+        state_transaction,
+        network,
+        register.revision,
+        None,
+        Some(SccpRouteActivationV1::Staged),
+    );
+    Ok(())
 }
 
 fn revision_activation(
@@ -574,6 +642,28 @@ mod tests {
         registry::SccpRouteRevisionV1,
     };
 
+    const S0: GovernanceAnchorV1 = GovernanceAnchorV1 {
+        height: 1,
+        position: 0,
+        timestamp_ms: 1,
+    };
+
+    thread_local! {
+        pub(super) static LAUNCH_GATES: std::cell::Cell<Option<(bool, bool)>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// Override only the two launch predicates on this unit test's thread.
+    pub(super) fn with_launch_gates<R>(gates: (bool, bool), run: impl FnOnce() -> R) -> R {
+        struct Restore(Option<(bool, bool)>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                LAUNCH_GATES.with(|slot| slot.set(self.0));
+            }
+        }
+        let _restore = Restore(LAUNCH_GATES.with(|slot| slot.replace(Some(gates))));
+        run()
+    }
+
     const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 
     fn proposal(
@@ -678,13 +768,8 @@ mod tests {
                     },
                 )],
             );
-            let error = enact(
-                &mut stx,
-                &proposal,
-                [1; 32],
-                controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
-            )
-            .expect_err("no original authority for the supplied native pin");
+            let error = enact(&mut stx, [0x43; 32], [0x45; 32], S0, &proposal)
+                .expect_err("no original authority for the supplied native pin");
             assert!(
                 error
                     .to_string()
@@ -808,13 +893,8 @@ mod tests {
                 },
             )],
         );
-        let error = enact(
-            &mut stx,
-            &activate,
-            [2; 32],
-            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
-        )
-        .expect_err("no light client");
+        let error =
+            enact(&mut stx, [0x43; 32], [0x45; 32], S0, &activate).expect_err("no light client");
         assert!(error.to_string().contains("light client"), "{error}");
 
         // Force the revision live to exercise the pause pair.
@@ -835,13 +915,7 @@ mod tests {
                 }),
             ],
         );
-        enact(
-            &mut stx,
-            &pause,
-            [3; 32],
-            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
-        )
-        .expect("pause");
+        enact(&mut stx, [0x43; 32], [0x45; 32], S0, &pause).expect("pause");
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Paused));
         assert!(registry::destination_paused(&*stx.world, NETWORK, 1));
         assert_eq!(store::governance_revision(&*stx.world, &route), 2);
@@ -858,9 +932,10 @@ mod tests {
 
         let error = enact(
             &mut stx,
+            [0x43; 32],
+            [0x45; 32],
+            S0,
             &proposal(id, vec![(route.clone(), 2)], vec![register(5, 9)]),
-            [4; 32],
-            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
         )
         .expect_err("revision gap");
         assert!(error.to_string().contains("next revision"), "{error}");
@@ -889,6 +964,7 @@ mod tests {
             }),
             [2; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect("switch");
         assert_eq!(
@@ -906,6 +982,7 @@ mod tests {
             &SccpGovernanceActionV1::RetireRevision(revision(1)),
             [3; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect_err("pending");
         store::set_pending_counts(&mut stx, (NETWORK, 1), (0, 0));
@@ -914,6 +991,7 @@ mod tests {
             &SccpGovernanceActionV1::RetireRevision(revision(1)),
             [3; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect("retire");
         assert_eq!(activation(&stx, 1), Some(SccpRouteActivationV1::Retired));
@@ -927,6 +1005,7 @@ mod tests {
             }),
             [4; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect("no-op");
         assert_eq!(store::control_messages::len(&*stx.world), 0);
@@ -937,6 +1016,7 @@ mod tests {
             &SccpGovernanceActionV1::RemoveStaged(revision(3)),
             [6; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect("remove");
         assert_eq!(activation(&stx, 3), None);
@@ -949,6 +1029,7 @@ mod tests {
             &SccpGovernanceActionV1::RemoveStaged(revision(2)),
             [7; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect_err("live revisions cannot be removed");
     }
@@ -980,9 +1061,10 @@ mod tests {
             // the light-client head does not move.
             let error = enact(
                 &mut stx,
+                [0x43; 32],
+                [0x45; 32],
+                S0,
                 &proposal(id, vec![(subject.clone(), 0)], vec![activate(1)]),
-                [1; 32],
-                controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
             )
             .expect_err("not above version 1");
             assert!(error.to_string().contains("does not exceed"), "{error}");
@@ -997,9 +1079,10 @@ mod tests {
             setup(&mut stx);
             enact(
                 &mut stx,
+                [0x43; 32],
+                [0x45; 32],
+                S0,
                 &proposal(id, vec![(subject.clone(), 0)], vec![activate(2)]),
-                [2; 32],
-                controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
             )
             .expect_err("version 2 is not compiled");
             assert!(stx.is_execution_deferred());
@@ -1014,25 +1097,14 @@ mod tests {
         let mut stx = block.transaction();
         let id = stx.network_id;
         let proposal = sample_proposal(id);
-        enact(
-            &mut stx,
-            &proposal,
-            [1; 32],
-            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
-        )
-        .expect_err("no SCCP");
+        enact(&mut stx, [0x43; 32], [0x45; 32], S0, &proposal).expect_err("no SCCP");
         let mut foreign = proposal;
         foreign.network_id = iroha_data_model::NetworkId::from_genesis_hash(
             iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new([9; 32])),
         );
         setup(&mut stx);
-        let error = enact(
-            &mut stx,
-            &foreign,
-            [1; 32],
-            controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
-        )
-        .expect_err("foreign network");
+        let error =
+            enact(&mut stx, [0x43; 32], [0x45; 32], S0, &foreign).expect_err("foreign network");
         assert!(error.to_string().contains("NetworkId"), "{error}");
     }
 
@@ -1058,6 +1130,7 @@ mod tests {
             &action,
             [7; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect_err("short delay");
         assert!(error.to_string().contains("unbonding_delay"), "{error}");
@@ -1068,13 +1141,14 @@ mod tests {
             &action,
             [7; 32],
             controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32]),
+            S0,
         )
         .expect("valid complete parameters");
         assert_eq!(*store::parameters::get(&*stx.world), Some(next));
     }
 
     #[test]
-    fn enactment_rejects_non_parliament_or_empty_cause_before_effects() {
+    fn enactment_rejects_empty_parliament_bindings_before_effects() {
         let state = blank_state();
         let mut block = state.block(header(5));
         let mut stx = block.transaction();
@@ -1092,26 +1166,10 @@ mod tests {
             )],
         );
         let original = store::routes::get(&*stx.world, &NETWORK).unwrap().clone();
-        for cause in [
-            controls::ControlCauseV1 {
-                track: 2,
-                ..controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32])
-            },
-            controls::ControlCauseV1 {
-                track: 0,
-                ..controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32])
-            },
-            controls::ControlCauseV1 {
-                certificate_id: [0; 32],
-                ..controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32])
-            },
-            controls::ControlCauseV1 {
-                effect_hash: [0; 32],
-                ..controls::ControlCauseV1::for_test([0x43; 32], [0x45; 32])
-            },
-        ] {
-            let error = enact(&mut stx, &proposal, [8; 32], cause).expect_err("invalid cause");
-            assert!(error.to_string().contains("Parliament cause"), "{error}");
+        for (certificate_id, effect_hash) in [([0; 32], [0x45; 32]), ([0x43; 32], [0; 32])] {
+            let error = enact(&mut stx, certificate_id, effect_hash, S0, &proposal)
+                .expect_err("invalid cause");
+            assert!(error.to_string().contains("binding is zero"), "{error}");
             assert_eq!(store::routes::get(&*stx.world, &NETWORK), Some(&original));
             assert!(store::control_messages::is_empty(&*stx.world));
             assert_eq!(
@@ -1124,3 +1182,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) use registration::reference_pin_rows;

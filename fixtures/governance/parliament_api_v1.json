@@ -4,10 +4,6 @@
   "routes": {
     "attempt_draft": "/v1/gov/parliament/attempts/draft",
     "attempt_read": "/v1/gov/parliament/attempts/{governance_attempt_id}",
-    "timed_ovn_casting_context_read": "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-    "timed_ovn_casting_proof": "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-    "tle_release_context_read": "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-    "tle_partial_release": "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
     "transition_draft": "/v1/gov/parliament/transitions/draft"
   },
   "wire_ids": {
@@ -36,38 +32,7 @@
   ],
   "limits": {
     "attempt_state_bytes": 16777216,
-    "governance_attempt_sequence_max": 16,
-    "timed_ovn_registration_record_bytes": 3624,
-    "timed_ovn_ballot_record_bytes": 2858,
-    "timed_ovn_ballot_chunk_max_records": 32,
-    "timed_ovn_corpus_entries": 1000,
-    "timed_ovn_casting_proof_request_bytes": 52,
-    "timed_ovn_casting_proof_response_bytes": 8388608,
-    "timed_ovn_casting_proof_finality_entries": 64,
-    "timed_ovn_casting_proof_page_result_bytes": 41
-  },
-  "timed_ovn_native_wallet": {
-    "bridge_abi": 24,
-    "sole_input_schema": "ParliamentTimedOvnCastingProofResponseV1",
-    "request_norito_schema": "iroha.torii.v1.parliament.timed_ovn_casting_proof.request",
-    "response_norito_schema": "iroha.torii.v1.parliament.timed_ovn_casting_proof.response",
-    "casting_proof_request_schema_hash_hex": "adccf322a5fcf43040e20bea238f55f3",
-    "casting_proof_response_schema_hash_hex": "46d29299272433b1299646bee722bd11",
-    "casting_proof_request_version": 1,
-    "casting_proof_request_flags": 2,
-    "casting_proof_request_payload_alignment": 8,
-    "casting_proof_request_padding_bytes": 0,
-    "casting_proof_request_golden": {
-      "trusted_checkpoint_height": 17,
-      "payload_hex": "020100081100000000000000",
-      "frame_hex": "4e5254300000adccf322a5fcf43040e20bea238f55f3000c00000000000000dfab61022cefc29f02020100081100000000000000",
-      "frame_bytes": 52
-    },
-    "route": "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-    "required_external_trust_anchor": ["network_id", "trusted_checkpoint_height", "trusted_checkpoint_context_id", "expected_ballot_attempt_id"],
-    "verification_order": ["canonical_response", "checkpoint_finality_chain", "page_shape", "checkpoint_promotion", "terminal_fixed_ordinary_write_witness_if_present", "terminal_casting_context_membership_if_present", "terminal_canonical_core_archive_if_present", "terminal_core_archive_replay_if_present", "terminal_exact_compact_binding_if_present", "seed_access_terminal_only"],
-    "intermediate_page_secret_access": "forbidden",
-    "archive_only_wallet_input": "forbidden"
+    "governance_attempt_sequence_max": 16
   },
   "public_transitions": [
     {"norito_index": 0, "norito_prefix_hex": "00", "json_tag": "EscalateRisk", "json_payload": "required", "event_kind_index": 0},
@@ -141,36 +106,10 @@
       "public_finding_phase_blocks",
       "public_finding_deadline_height",
       "no_result_kind",
-      "no_result_height",
-      "timed_ovn_progress"
+      "no_result_height"
     ],
     "ordering": "exact required_bodies order",
-    "deadline_semantics": "inclusive",
-    "hidden_ballot_projection": "active ballot id/status and aggregate-only contiguous corpus progress; no registrations, records, participant ids, roots, shares, individual openings, or secrets"
-  },
-  "timed_ovn_progress": {
-    "json_fields": ["ballot_attempt_id", "status", "frozen_survivor_count", "accepted_ballot_prefix_count"],
-    "absent": "no active hidden ballot",
-    "before_survivor_freeze": "both counts null",
-    "survivors_frozen": "frozen_survivor_count is positive and accepted_ballot_prefix_count is zero",
-    "corpus_open": "accepted_ballot_prefix_count is the proof-verified next contiguous offset and is strictly less than frozen_survivor_count",
-    "sealed_or_released": "accepted_ballot_prefix_count equals frozen_survivor_count",
-    "forbidden_fields": ["registration_records", "dropout_participant_hashes", "survivor_participant_hashes", "ballot_records", "roots", "secret_share", "partial_releases", "individual_openings"]
-  },
-  "tle_release_context": {
-    "authorized_status": "Opening",
-    "deadline_semantics": "inclusive",
-    "identity_digest": "sha256 of the exact threshold-session-framed release message",
-    "identity_payload": "lowercase hexadecimal canonical application identity payload",
-    "transcript_public_state_fields": ["version", "key_session_id", "network_id", "roster_hash", "committee_size", "threshold", "generator_h", "generator_v", "qualified_dealers", "qualified_dealer_commitments", "dkg_event_hash", "group_public_key", "public_shares", "transcript_hash"],
-    "forbidden_fields": ["registration_records", "dropout_participant_hashes", "survivor_participant_hashes", "ballot_records", "secret_share", "partial_releases", "individual_openings"]
-  },
-  "tle_partial_release": {
-    "request_body": "forbidden",
-    "auth": "canonical app-signed account request",
-    "response_fields": ["key_session_id", "identity_digest", "participant_index", "sigma", "proof_x", "proof_y", "z_s", "z_r", "z_u"],
-    "coordinator_contract": "fetch configured peers, independently validate every public transcript and partial proof, canonicalize by participant_index, combine a threshold subset, then locally sign and submit FinalizeOpenedBallot",
-    "forbidden_fields": ["secret_share", "provider_handle", "proof_nonce", "release_identity_override", "transcript_override"]
+    "deadline_semantics": "inclusive"
   },
   "certificate_result_roots": [
     {"name": "public_finding_result_root", "bytes": 32, "zero_forbidden": true, "derivation": "exact result_root endorsed by authority-authenticated seated assignments and finalized automatically at quorum"},

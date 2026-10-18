@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define CONNECT_NORITO_BRIDGE_ABI_VERSION 29
+#define CONNECT_NORITO_BRIDGE_ABI_VERSION 30
 
 #define CONNECT_NORITO_ERR_ACCOUNT_ADDRESS -200
 #define CONNECT_NORITO_ERR_UNSUPPORTED_ALGORITHM -21
@@ -24,7 +24,6 @@ extern "C" {
 #define CONNECT_NORITO_ERR_DETACHED_TRANSACTION_SIGNATURE -502
 #define CONNECT_NORITO_ERR_CANONICAL_JSON -503
 #define CONNECT_NORITO_ERR_VALIDATION_FEE_POLICY_PROOF -504
-#define CONNECT_NORITO_ERR_PARLIAMENT_TIMED_OVN -505
 #define CONNECT_NORITO_ERR_RETAIL_FEE_ASSESSMENT -506
 #define CONNECT_NORITO_ERR_PRIVATE_SETTLEMENT_RESPONSE -507
 #define CONNECT_NORITO_ERR_COMMITTED_TRANSACTION_INCLUSION -508
@@ -34,11 +33,6 @@ extern "C" {
 
 #define CONNECT_NORITO_PRIVATE_SETTLEMENT_REQUEST_MAX_BYTES_V1 1048576
 #define CONNECT_NORITO_PRIVATE_SETTLEMENT_RESPONSE_MAX_BYTES_V1 33554432
-
-#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_SEED_BYTES_V1 32
-#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_TRUST_ANCHOR_BYTES_V1 32
-#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_BYTES_V1 8388608
-#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1 41
 
 #define CONNECT_NORITO_SORAFS_REFERENCE_ORDERBOOK_KIND_ORDER_REQUEST 1
 #define CONNECT_NORITO_SORAFS_REFERENCE_ORDERBOOK_KIND_ORDER_CANCEL 2
@@ -346,89 +340,6 @@ int32_t connect_norito_private_settlement_audit_approval_response_verify_v1(
     unsigned long requested_payload_digest_len,
     const char* auditor_signing_key,
     unsigned long auditor_signing_key_len);
-
-// ---------------- Parliament timed-OVN wallet operations ----------------
-
-// Authenticates one bounded proof page against independently configured
-// network/checkpoint/ballot anchors. The caller-owned output must contain
-// exactly 41 diagnostic bytes: big-endian u64 evaluated height, 32-byte evaluated context
-// id, and canonical 0/1 more-available. Intermediate pages promote only the
-// checkpoint; terminal pages also replay and bind the complete Core archive.
-// Every successful call returns the complete canonical promoted checkpoint in
-// separate owned output storage. Free every owned output with connect_norito_free.
-// A scalar summary is never an input authority. All output slots are distinct.
-int32_t connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1(
-    const uint8_t* proof_response_norito,
-    unsigned long proof_response_norito_len,
-    const uint8_t* network_id,
-    unsigned long network_id_len,
-    const uint8_t* trusted_checkpoint_norito,
-    unsigned long trusted_checkpoint_norito_len,
-    const uint8_t* expected_ballot_attempt_id,
-    unsigned long expected_ballot_attempt_id_len,
-    uint8_t* out_page_result,
-    unsigned long out_page_result_len,
-    uint8_t** out_checkpoint_norito,
-    unsigned long* out_checkpoint_norito_len);
-
-// Authenticates a terminal proof response against independently configured
-// network/checkpoint/ballot anchors, then canonical-decodes and replay-validates
-// its Core archive and rederives the authenticated compact binding.
-int32_t connect_norito_parliament_timed_ovn_verify_casting_proof_v1(
-    const uint8_t* proof_response_norito,
-    unsigned long proof_response_norito_len,
-    const uint8_t* network_id,
-    unsigned long network_id_len,
-    const uint8_t* trusted_checkpoint_norito,
-    unsigned long trusted_checkpoint_norito_len,
-    const uint8_t* expected_ballot_attempt_id,
-    unsigned long expected_ballot_attempt_id_len,
-    uint8_t** out_checkpoint_norito,
-    unsigned long* out_checkpoint_norito_len);
-
-// Verifies the same proof and archive before reading the exact 32-byte
-// caller-keystore seed. The public record and complete promoted checkpoint are returned.
-// The two output slots must be distinct and must not overlap input storage.
-int32_t connect_norito_parliament_timed_ovn_registration_from_proof_v1(
-    const uint8_t* proof_response_norito,
-    unsigned long proof_response_norito_len,
-    const uint8_t* network_id,
-    unsigned long network_id_len,
-    const uint8_t* trusted_checkpoint_norito,
-    unsigned long trusted_checkpoint_norito_len,
-    const uint8_t* expected_ballot_attempt_id,
-    unsigned long expected_ballot_attempt_id_len,
-    const char* authority,
-    unsigned long authority_len,
-    const uint8_t* keystore_seed,
-    unsigned long keystore_seed_len,
-    uint8_t** out_registration,
-    unsigned long* out_registration_len,
-    uint8_t** out_checkpoint_norito,
-    unsigned long* out_checkpoint_norito_len);
-
-// Verifies the same proof and archive before reading the seed, reconstructs the
-// exact committed registration, and returns a survivor- and release-bound
-// masked ballot. choice is 0 (Aye), 1 (Nay), or 2 (Abstain).
-// The two output slots must be distinct and must not overlap input storage.
-int32_t connect_norito_parliament_timed_ovn_ballot_from_proof_v1(
-    const uint8_t* proof_response_norito,
-    unsigned long proof_response_norito_len,
-    const uint8_t* network_id,
-    unsigned long network_id_len,
-    const uint8_t* trusted_checkpoint_norito,
-    unsigned long trusted_checkpoint_norito_len,
-    const uint8_t* expected_ballot_attempt_id,
-    unsigned long expected_ballot_attempt_id_len,
-    const char* authority,
-    unsigned long authority_len,
-    const uint8_t* keystore_seed,
-    unsigned long keystore_seed_len,
-    uint8_t choice,
-    uint8_t** out_ballot,
-    unsigned long* out_ballot_len,
-    uint8_t** out_checkpoint_norito,
-    unsigned long* out_checkpoint_norito_len);
 
 // ---------------- Chain discriminant helpers ----------------
 // Thread-scoped overrides must be exited on the same thread and in LIFO order.

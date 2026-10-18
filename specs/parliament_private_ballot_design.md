@@ -743,8 +743,8 @@ post-quantum primitives of `P`. These dependencies remain classical:
 - the sortition beacon (threshold BLS), so jury draws carry a classical
   unpredictability assumption;
 - consensus finality (BLS);
-- the authentication SCCP destinations rely on: secp256k1 bridge attestations
-  today, BLS CommitQC verification in the SCCP redesign;
+- SCCP destination authentication, through native BLS CommitQC
+  verification;
 - account signatures authenticating seat acceptance and credential
   registration, unless the citizen account uses a post-quantum scheme (ML-DSA).
 
@@ -1570,8 +1570,8 @@ Keep beacon machinery still required for consensus or sortition.
    ballot. It is implemented; Core mutation `HC224`
    ([sumeragi.md](sumeragi.md) section 13.4) guards the split.
 2. **Select the proof profile.** Profile selection and activation
-   qualification are distinct. Selection of `P` and steps 3–5 may proceed only
-   when all of these hold:
+   qualification are distinct. Selection of `P` requires all of these (the
+   engineering authorization below governs when steps 3–5 may be built):
    1. one exact construction and parameter row are frozen, and no relation or
       transcript choice is unresolved;
    2. every section 5 gate has a complete written argument;
@@ -1621,7 +1621,7 @@ Keep beacon machinery still required for consensus or sortition.
    labelled experimental. Do not begin integration around a placeholder
    relation.
 
-   Until `P` is selected, only standalone work on this step is permitted:
+   The standalone work of this step continues alongside steps 3 and 4:
    - completing the backend, its conformance with the official plain-FAEST
      vectors, and the exact experimental ballot prover and verifier;
    - the profile-local relation encodings and codecs needed to specify and
@@ -1630,14 +1630,25 @@ Keep beacon machinery still required for consensus or sortition.
      checks, resource accounting and measurements at `S = 3`, 500 and 1,000;
    - writing and reviewing the missing cryptographic arguments.
 
-   Not permitted before selection: production schemas, a Core verifier
-   bridge, signerless envelope integration, sealed-list or nullifier state
-   transitions, Torii or SDK paths, and retirement of any section 12.1 item.
-   That retirement stays in step 4, in the candidate that carries the
-   replacement. The launch gate being false does not remove the selection
-   precondition.
+   **Engineering authorization before qualification.** The owner's
+   instruction of 2026-10-18 authorizes steps 3 and 4 and the automatable work
+   in step 5 against the frozen candidate construction and parameter row. This
+   authorization supersedes contrary preselection sequencing restrictions in
+   this section. Unmet selection conditions, including conditions 2, 3 and 5,
+   remain mandatory qualification obligations; they are not prerequisites to
+   implementing and testing the production schemas, Core integration,
+   signerless admission, state transitions, Torii/CLI/SDK paths, or
+   coordinated retirement of section 12.1. Implement the actual candidate
+   relations without placeholder verification or protocol bypasses. Missing
+   qualification evidence alone does not stop engineering; an identified
+   unsound relation, invalid binding, determinism defect, or exceeded hard
+   resource limit stops the affected implementation pending correction.
+   Binding production use remains disabled until the owner records
+   qualification. Engineering completion, local tests and this authorization
+   must never be described as qualification.
 
-   Conditions 2, 3 and 5 remain unmet, so steps 3 and 4 have not started.
+   Conditions 2, 3 and 5 remain unmet. Under the authorization above, steps 3
+   and 4 are being built with the launch gate closed.
    The second-opinion review's arguments for items 1, 2, 3, 4, 5 and 8 are
    written, conditional and awaiting independent review, but none has its
    numerical substitution into the item 6 contract: the generator terms,

@@ -2,9 +2,8 @@
 compile_error!("the V1 runtime-provider broker requires a 64-bit address space");
 use crate::{
     GlobalBeaconPartialSignerBrokerBackendErrorV1, IrohaRuntimeDeps,
-    ParliamentTlePartialReleaseSignerBrokerBackendErrorV1, RuntimeProviderBrokerBackendsV1,
-    RuntimeProviderBrokerLifecycleV1, RuntimeProviderBrokerReadinessErrorV1,
-    RuntimeProviderBrokerServerErrorV1,
+    RuntimeProviderBrokerBackendsV1, RuntimeProviderBrokerLifecycleV1,
+    RuntimeProviderBrokerReadinessErrorV1, RuntimeProviderBrokerServerErrorV1,
     runtime_provider_registry::{
         EvidenceViewerWebAuthnBindingV1, IrohaRuntimeProviderBindingV1,
         IrohaRuntimeProviderBindingsV1, IrohaRuntimeProviderRegistryErrorV1,
@@ -1450,9 +1449,8 @@ fn validate_wire_binding(binding: &ProviderBindingWireV1) -> Result<(), BrokerEr
     let native_transaction_signer = native_transaction_signer_role_for_slot(binding.slot).is_some();
     let soracloud_runtime_signer =
         binding.slot == IrohaRuntimeProviderSlotV1::SoracloudRuntimeMutationSigner.wire_id();
-    let consensus_threshold_signer = binding.slot
-        == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id()
-        || binding.slot == IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id();
+    let consensus_threshold_signer =
+        binding.slot == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id();
     let moderation_transaction_signer =
         binding.slot == IrohaRuntimeProviderSlotV1::ModerationTransactionSigner.wire_id();
     let moderation_delivery_boundary = binding.slot

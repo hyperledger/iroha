@@ -349,7 +349,7 @@ pub(crate) fn provision(
                 &provider.handle, provider.revision, digest, iroha_config::parameters::defaults::runtime_provider_broker::CREDENTIAL_MAX_MEMORY_BYTES.get())?
                 .export_canonical_v1()?;
             let credential = read_output(&seat.credential_path, 16 << 20)?;
-            let bundle = encode_consensus_threshold_credential_bundle_v1(Some(&credential), None)?;
+            let bundle = encode_consensus_threshold_credential_bundle_v1(Some(&credential))?;
             peer.provision_disposable_runtime_provider_broker(&catalog, bundle, DisposableBeaconProviderBinding {
                 handle: provider.handle, revision: provider.revision, policy_digest: digest,
             }).await?;

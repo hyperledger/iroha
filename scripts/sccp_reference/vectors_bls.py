@@ -54,6 +54,7 @@ from .imported_vectors import (
 )
 from .taira import test_public, test_secret
 from .vectors_finality import SPEC_M, g1_json, g2_json
+from .vectors_bls_malformed import build as malformed_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 ETH_CAPTURE = ROOT / "fixtures" / "sccp" / "rpc" / "eth"
@@ -428,6 +429,7 @@ def build() -> dict:
         "aggregates": aggregate_vectors(),
         "consensus_allowlist": allowlist_vectors(),
         "ethereum_standard_inputs": ethereum_standard_inputs(),
+        "ethereum_malformed_inputs": malformed_inputs(),
         "ethereum_mainnet_sync_committee": ethereum_mainnet_vector(),
         "rust_only_vectors": "the vectors that need the w3f transcript of iroha_crypto (pinned w3f proofs of "
         "possession, a w3f-transcript signature over a consensus digest, a DST_SIG signature presented to the generic "
@@ -437,9 +439,4 @@ def build() -> dict:
         "file it can decide without the w3f transcript: the standard sign, verify and aggregate vectors, the "
         "allowlist rows and rejections, and the key and consensus-API negatives; the proofs of possession and the "
         "verdict of the generic-API negative stay Rust-only",
-        "todo": [
-            "TODO: import the remaining ethereum/bls12-381-tests release cases (its malformed-input verify and "
-            "deserialization cases) once the archive is vendored; the standard inputs and the captured mainnet "
-            "aggregate above are the current Ethereum cross-checks",
-        ],
     }
