@@ -31,7 +31,7 @@ fn invalid_source_policy_is_retained_without_lifecycle_or_publication() {
         .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
         .expect("valid fixture parameters");
     parameters.commit();
-    let mut block = state.block(header());
+    let mut block = state.merge_preexecution_block(header());
     assert!(!block.start_of_block_effects_applied);
     assert!(matches!(
         block.execution_output_plan,
@@ -39,25 +39,108 @@ fn invalid_source_policy_is_retained_without_lifecycle_or_publication() {
     ));
     assert!(matches!(block.fastpq_source_inventory, Some(Err(_))));
     let before = block.world.parameters.get().clone();
-    let mut transaction = block.transaction();
-    transaction
-        .world
-        .parameters
-        .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
-            nonzero!(1_u32),
-        )))
-        .expect("valid fixture parameters");
-    assert!(!transaction.fastpq_source_quota.allows_apply());
-    assert!(
-        transaction
-            .fastpq_source_quota
-            .intrinsic_rejected()
-            .is_err()
+    let Some(Err(original_error)) = &block.fastpq_source_quota else {
+        panic!("original source policy refuses preparation");
+    };
+    let original_error = original_error.clone();
+    let unavailable =
+        crate::fastpq::source_reservation::admission::SourceQuotaTransaction::unavailable(
+            original_error.clone(),
+        );
+    assert!(!unavailable.allows_apply());
+    assert_eq!(
+        unavailable.intrinsic_rejected(),
+        Err(original_error.clone())
     );
-    transaction.apply();
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut transaction = block.transaction();
+        transaction
+            .world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+                nonzero!(1_u32),
+            )))
+            .expect("valid fixture parameters");
+        transaction.apply();
+    }));
+    assert!(
+        refused.is_err(),
+        "poisoned original refuses child acquisition"
+    );
+    assert_eq!(
+        block.fastpq_source_inventory(),
+        Err(original_error.as_str())
+    );
     assert_eq!(block.world.parameters.get(), &before);
     assert!(block.capture_exec_witness().is_err());
+}
+
+#[test]
+fn invalid_source_policy_refuses_both_result_constructors_before_pristine_callbacks() {
+    let state = state();
+    let valid = state.world.parameters.view().get().block().fastpq_source();
+    let mut invalid = valid;
+    invalid.block.max_executed_entries = 0;
+    let expected = invalid
+        .validate(
+            state
+                .world
+                .parameters
+                .view()
+                .get()
+                .block()
+                .execution_output(),
+        )
+        .unwrap_err();
+    // Retain the malformed policy as both current and predecessor, so the
+    // replacement constructor validates its own actual reverted source too.
+    for _ in 0..2 {
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .get_mut()
+            .set_parameter(Parameter::Block(BlockParameter::FastpqSource(invalid)))
+            .unwrap();
+        parameters.commit();
+    }
+    let before = std::cell::Cell::new(false);
+    let after = std::cell::Cell::new(false);
+    let outcome = state.block_with_owned_start_stages(
+        header(),
+        |_| {
+            before.set(true);
+            Ok::<(), String>(())
+        },
+        |_, ()| {
+            after.set(true);
+            Ok::<(), String>(())
+        },
+    );
+    assert!(matches!(outcome, Err(StateBlockStartError::Policy(reason)) if reason == expected));
+    assert!(!before.get());
+    assert!(!after.get());
+    let replacement_called = std::cell::Cell::new(false);
+    let outcome = state.block_and_revert_with_pristine_stage(header(), |_| {
+        replacement_called.set(true);
+        Ok::<(), String>(())
+    });
+    assert!(matches!(outcome, Err(StateBlockStartError::Policy(reason)) if reason == expected));
+    assert!(!replacement_called.get());
+    assert_eq!(
+        state.world.parameters.view().get().block().fastpq_source(),
+        invalid
+    );
+    // Both failed owners release their writers; a corrected committed source
+    // acquires a fresh block rather than reopening either poisoned attempt.
+    let mut parameters = state.world.parameters.block();
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(valid)))
+        .unwrap();
+    parameters.commit();
+    let fresh = state.try_block(header()).unwrap();
+    assert!(fresh.execution_output_plan.is_none());
+    assert!(fresh.start_of_block_effects_applied);
 }
 
 #[test]

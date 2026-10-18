@@ -156,7 +156,7 @@ fn derive(
 ) -> Result<Derived, Error> {
     authority(before.validate_for_credential(credential))?;
     authority(before.spendable_with(lineage))?;
-    let mut state = before.clone();
+    let mut state = *before;
     state.core.sequence = before
         .core
         .sequence

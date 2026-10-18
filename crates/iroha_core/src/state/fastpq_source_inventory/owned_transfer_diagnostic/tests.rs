@@ -477,7 +477,18 @@ fn late_applied_occurrences_reject_even_when_their_archive_is_drained() {
                 assert!(transaction.prepare_apply().is_err());
             }
         }
-        block.drain_transfer_transcripts_with_pending(None);
+        if same_key {
+            // This component still applies the original retained invocation after
+            // its source seal. Draining cannot hide that actual applied occurrence.
+            block.drain_transfer_transcripts_with_pending(None);
+        } else {
+            // The foreign invocation poisoned application before any transcript
+            // was published. A later drain cannot reopen that failed owner.
+            super::super::tests::assert_completed_state_refuses_mutation(|| {
+                block.drain_transfer_transcripts_with_pending(None);
+            });
+        }
+        assert!(block.fastpq_transcripts.is_empty());
         assert!(context.verify_current(&block).is_err());
         assert!(
             block

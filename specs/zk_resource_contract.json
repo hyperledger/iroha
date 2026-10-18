@@ -14032,6 +14032,11 @@
         ],
         "matching": "^MAX_PAYLOAD_BYTES$",
         "why": "Keep the already inventoried authenticated snapshot payload default under its exact module owner, independent of unrelated same-name SCCP imports. Other configuration modules retain their complete scopes."
+      },
+      {
+        "path": "crates/iroha/src/client/native_payment/session.rs",
+        "kind": "const",
+        "comparisons": true
       }
     ],
     "excluded": [
@@ -27586,12 +27591,18 @@
           ]
         },
         {
-          "reason": "Local verified decision retention keeps at least the three decisions required by the existing restart context. It prunes only an already authenticated in-memory prefix; increasing the request does not recreate earlier pruned authority, change verification rules, or enlarge checkpoint encoding. decision_window_preserves_genesis_and_checkpoint_floor and decision_window_preserves_lagging_witness_across_pruning cover the original verifier.",
+          "reason": "Local verified decision retention keeps at least the three decisions required by the existing restart context. It prunes only an already authenticated in-memory prefix; increasing the request does not recreate earlier pruned authority, change verification rules, or enlarge checkpoint encoding. decision_window_preserves_genesis_and_checkpoint_floor and decision_window_preserves_lagging_witness_across_pruning cover the original verifier. The SDK native payment session requires an explicit finite capacity of at least three decisions; the cold operation chooses the existing 64-decision observation scale independently of its per-call proof-read allowance. Retired history returns typed local HistoryUnavailable before proof reads and never establishes absence/rejection or authorizes another carrier. sequential_payments_share_original_prefix_and_retire_only_local_history and retired_unresolved_payment_requires_cold_original_recovery_without_new_carrier cover continued forward progress and recovery of the same original journal from independent genesis.",
           "files": [
             {
               "path": "crates/iroha_data_model/src/sumeragi_finality.rs",
               "sites": {
                 "count.max(3)": 1
+              }
+            },
+            {
+              "path": "crates/iroha/src/client/native_payment/session.rs",
+              "sites": {
+                "retained_decisions.get() < 3": 1
               }
             }
           ]

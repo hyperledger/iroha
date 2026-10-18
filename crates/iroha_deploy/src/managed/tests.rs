@@ -958,3 +958,67 @@ fn optional_store_selection_refuses_lost_parent_and_restores_original_absence() 
     assert!(matches!(store.context(None), Err(Error::NoSelection)));
     assert!(!path.join("active.json").exists());
 }
+
+#[test]
+fn startup_status_exchange_keeps_original_clocks_and_never_cancels_retained_owner() {
+    let _resources = super::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, directory, prepared) = fixture(&temporary.path().join("managed"), "local");
+    let original = encode(&generation::read(&directory).unwrap()).unwrap();
+    let token = "d".repeat(64);
+    directory
+        .write_atomic(
+            WORKER,
+            &encode(&WorkerRecord {
+                token: token.clone(),
+            })
+            .unwrap(),
+            PublishMode::CreateNew,
+        )
+        .unwrap();
+    let worker_image = directory.read(WORKER, MAX_METADATA).unwrap().to_vec();
+    let listener = transport::Listener::bind(&directory).unwrap();
+    let ready = ManagedStatus {
+        context: prepared.context,
+        phase: ManagedPhase::Ready,
+        running_peers: 4,
+        failure: None,
+    };
+    let server = std::thread::spawn(move || {
+        let accepted_before = std::time::Instant::now() + Duration::from_secs(5);
+        let mut connection = loop {
+            if let Some(connection) = listener.accept().unwrap() {
+                break connection;
+            }
+            assert!(std::time::Instant::now() < accepted_before);
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        let request = connection.receive().unwrap();
+        assert_eq!(request.token, token);
+        assert_eq!(request.action, "status");
+        std::thread::sleep(Duration::from_millis(300));
+        let _ = connection.reply(&ready);
+    });
+    let timeout = Duration::from_millis(120);
+    assert!(
+        matches!(store::startup_exchange(&directory, std::time::Instant::now(), timeout, 0), Err(Error::Timeout(value)) if value == timeout)
+    );
+    let started = std::time::Instant::now();
+    let deadline = runtime::startup_deadline(started, timeout).unwrap();
+    let result = store::startup_exchange(&directory, started, timeout, deadline);
+    let elapsed = started.elapsed();
+    server.join().unwrap();
+    assert!(
+        result.is_err(),
+        "a delayed healthy-owner observation must not renew readiness"
+    );
+    assert!(elapsed < Duration::from_secs(1));
+    assert_eq!(
+        encode(&generation::read(&directory).unwrap()).unwrap(),
+        original
+    );
+    assert_eq!(
+        directory.read(WORKER, MAX_METADATA).unwrap().as_slice(),
+        worker_image
+    );
+}

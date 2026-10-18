@@ -341,7 +341,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 Some(Completion::Pending)
             }
             Lookup::DeliveryDataLoss => Some(Completion::DeliveryDataLoss),
-            Lookup::Unknown => None,
+            Lookup::Unknown => self.missing_retained_output(operation, Some(capsule))?,
         })
     }
 

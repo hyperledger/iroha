@@ -74,13 +74,6 @@ pub struct ReceiveMapsV1 {
     pub consumed: KagemushaWalletIndexedInsertV1,
 }
 
-/// Actual permanent openings retained for background Receive folding.
-/// The native circuit derives the preserve-first/burn verdict from these paths and originals.
-pub struct ReceiveFoldMapsV1 {
-    /// Exact preserve-first membership or insertion against the predecessor credit root.
-    pub credit: KagemushaWalletCreditDigestRecordV1,
-}
-
 /// A prepared real sigma witness and derived canonical G1 successor/statement.
 /// Private construction retains the exact originals and map witnesses used in preparation.
 /// This supplies proof generation input; only the custody coordinator can release Advance.
@@ -496,7 +489,7 @@ fn derive(
 }
 
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
-pub(crate) struct SendFoldFieldsV1 {
+pub struct SendFoldFieldsV1 {
     pub(crate) state: native_send::SendState,
     /// The prepared step witness whose relation A1 proves inline.
     pub(crate) step: StepWitness<Fp>,
@@ -520,7 +513,7 @@ impl SendFoldFieldsV1 {
 }
 
 /// Exact Receive originals before any burn or permanent credit-record proposal.
-pub(crate) struct ReceiveSourceFieldsV1 {
+pub struct ReceiveSourceFieldsV1 {
     pub(crate) before: StateWitness,
     pub(crate) after: StateWitness,
     pub(crate) statement: [Fp; 26],
@@ -535,7 +528,7 @@ pub(crate) struct ReceiveSourceFieldsV1 {
 }
 
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
-pub(crate) struct ReceiveFoldFieldsV1 {
+pub struct ReceiveFoldFieldsV1 {
     pub(crate) transition: native_receive::Transition,
     pub(crate) incoming_statement: [Fp; 26],
     pub(crate) step: StepWitness<Fp>,
@@ -600,12 +593,12 @@ impl PreparationV1<'_> {
         owner: &AuthenticatedCredentialV1,
         predecessor: &FoldedStateV1,
         request_original: &[u8],
-        controls: SendControlsV1<'_>,
+        controls: &SendControlsV1<'_>,
         maps: &SendMapsV1,
         successor_nonce: [u8; 32],
     ) -> Result<MonetaryStepV1, Error> {
         let (request, check) =
-            self.review_send_terms(owner, predecessor, request_original, &controls)?;
+            self.review_send_terms(owner, predecessor, request_original, controls)?;
         let scheme = self.installed.verifier().scheme();
         let source = &predecessor.source_state;
         let body = request_fields(&request.body)?;
@@ -971,26 +964,12 @@ impl PreparationV1<'_> {
         self.transition_fields(owner, step, predecessor, public, budget)
     }
 
-    /// Build the genuine current Send A/W input from the exact released source and preparation.
-    /// Every Q original is subsequently fully verified by native_send::Plan::prepare.
+    /// Reconstruct Send's source before its independent Q proof exists, from the exact
+    /// released source and preparation. Every subsequently attached Q original is
+    /// fully verified by `native_send::Plan::prepare`.
+    ///
     /// # Errors
     /// Changed source/head/originals/statement/credential or failed retained native proofs.
-    #[allow(clippy::too_many_arguments)]
-    pub fn send_native_inputs(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &ReleasedStep,
-        predecessor: &FoldedStateV1,
-        prepared: &MonetaryStepV1,
-        public: &KagemushaWalletLineagePublicV1,
-        q: [native_send::QInput; 1],
-        budget: MemoryBudget,
-    ) -> Result<native_send::Inputs, Error> {
-        self.send_fold_fields(owner, step, predecessor, prepared, public, budget)
-            .map(|fields| fields.with_q(q))
-    }
-
-    /// Reconstruct the exact native source before its independent Q proofs exist.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn send_fold_fields(
         &self,
@@ -1040,40 +1019,6 @@ impl PreparationV1<'_> {
                 vesta: predecessor.vesta,
             },
         })
-    }
-
-    /// Build all nine Receive tapes, including both original proof carriers, preserving
-    /// the quoted credential through renewal, and the step witness whose relation A1
-    /// proves inline. The canonical A relation derives every incoming
-    /// validity/correction/burn result and fully checks all permanent routes and Qs.
-    /// `incoming_witness` only proposes the total decoder and verifier witnesses; the fixed
-    /// source owners constrain every proposal against these exact original tapes.
-    /// # Errors
-    /// Changed retained original/source, noncanonical route or failed native source proof.
-    #[allow(clippy::too_many_arguments)]
-    pub fn receive_native_inputs(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &ReleasedStep,
-        predecessor: &FoldedStateV1,
-        prepared: &MonetaryStepV1,
-        public: &KagemushaWalletLineagePublicV1,
-        maps: ReceiveFoldMapsV1,
-        q: [native_receive::QInput; 2],
-        incoming_witness: native_receive::IncomingWitness,
-        budget: MemoryBudget,
-    ) -> Result<native_receive::Inputs, Error> {
-        self.receive_fold_fields(
-            owner,
-            step,
-            predecessor,
-            prepared,
-            public,
-            maps,
-            incoming_witness,
-            budget,
-        )
-        .map(|fields| fields.with_q(q))
     }
 
     /// Decode and authenticate original Receive source without selecting a credit burn branch.
@@ -1167,7 +1112,17 @@ impl PreparationV1<'_> {
         })
     }
 
-    /// Reconstruct the exact native source before its independent Q proofs exist.
+    /// Reconstruct all nine Receive tapes before the independent Q proofs exist,
+    /// including both original proof carriers, the quoted credential through renewal,
+    /// and the step witness whose relation A1 proves inline. The canonical A relation
+    /// derives every incoming validity/correction/burn result and fully checks all
+    /// permanent routes and Qs. `incoming_witness` only proposes total decoder and
+    /// verifier witnesses; fixed source owners constrain every proposal against the
+    /// exact original tapes. The borrowed `credit` is the exact preserve-first membership
+    /// or insertion against the predecessor credit root.
+    ///
+    /// # Errors
+    /// Changed retained original/source, noncanonical route or failed native source proof.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn receive_fold_fields(
         &self,
@@ -1176,7 +1131,7 @@ impl PreparationV1<'_> {
         predecessor: &FoldedStateV1,
         prepared: &MonetaryStepV1,
         public: &KagemushaWalletLineagePublicV1,
-        maps: ReceiveFoldMapsV1,
+        credit: &KagemushaWalletCreditDigestRecordV1,
         incoming_witness: native_receive::IncomingWitness,
         budget: MemoryBudget,
     ) -> Result<ReceiveFoldFieldsV1, Error> {
@@ -1208,7 +1163,7 @@ impl PreparationV1<'_> {
             burned,
         };
         let credit = receive_credit_route(
-            &maps.credit,
+            credit,
             &predecessor.lineage.public.credit_digest_root,
             &public.credit_digest_root,
             &credit_entry,

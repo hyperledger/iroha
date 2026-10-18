@@ -259,10 +259,12 @@ ancestry uses the superseded voucher trust construction, and its continuation
 source predates the current constant-size context links. This is captured
 component evidence; current source keys, ordinary-finality Load, corrected-burn
 outer closure and the full terminal catalog remain unqualified.
-Descriptor equality alone does not establish source equality. Fresh merged-wire
-size tests retain the 1,723-byte Payment overhead: structural
-3,456-byte sigma plus 4,800-byte Omega encode to 9,979 bytes, leaving 21 bytes
-under the 10,000-byte envelope cap. This checks encoding, not proof admission.
+Descriptor equality alone does not establish source equality. The historical
+wire-size capture used a 1,723-byte Payment overhead: structural
+3,456-byte sigma plus 4,800-byte Omega encoded to 9,979 bytes, leaving 21 bytes
+under the 10,000-byte envelope cap. Those sizes belong to the former layout;
+the current bounds appear in [Shapes and proof bytes](#shapes-and-proof-bytes).
+That capture checked encoding, not proof admission.
 These are three-terminal component results. The other three control masks, full
 uniform catalog and loaded-host/physical-device qualification remain open.
 
@@ -657,11 +659,13 @@ descriptor/VK equality and a matching 26-field statement, then fully verify
 each result through the installed sigma verifier. Native custody must still
 recheck the source under its lock before Advance.
 
-`PreparationV1::prepare_load` binds the qualified ordinary receipt source to
-the installed scheme and manifest, verifies its proof and both claims, and then
-derives the checked balance, sequence, ordinal and exact recovery insertion.
+Native dispatch calls the internal `PreparationV1::prepare_load` with the
+qualified source, retained native choices and custody. It binds the receipt
+source to the installed scheme and manifest, verifies ordinary Sumeragi BLS
+finality and counted-event inclusion through the selected native epoch reader,
+then derives the checked balance, sequence, ordinal and exact recovery insertion.
 It adds only the net offline amount and retains original receipt/finality bytes.
-Its public positive still depends on the complete ordinary receipt proof.
+Full installed-owner qualification still requires the matching complete catalog.
 
 `PreparationV1::prepare_consuming` derives Unload/Retiring from the opaque verified
 fold, preserving its adjusted burned value, pending root and permanent credit root.
@@ -860,19 +864,30 @@ verifying-key selector and public digest.
 
 ## Shapes and proof bytes
 
-Folded-prefix shapes, fewest lanes that fit:
+Current folded-prefix shapes on Vesta/Fp, with the fewest lanes that fit,
+derived from synthesis and complete descriptors:
 
 | Relation | Permutations | Smallest shape | One-lane budget shape |
 | --- | ---: | --- | --- |
-| Send, no controls or lease | 69 | k10 / 4 lanes, 5,120 B | k12, 3,296 B |
-| Receive | 67 | k10 / 4 lanes, 5,120 B | k12, 3,296 B |
-| Send, quotas | 309 | k12 / 4 lanes, 5,280 B | k14, 3,456 B |
+| Send, mask 0 or 2 (no controls or lease) | 64 | k10 / 3 lanes, 4,384 B | k12 / 1 lane, 3,360 B |
+| Receive, mask 0 | 62 | k10 / 3 lanes, 4,384 B | k12 / 1 lane, 3,360 B |
+| Send, mask 1 or 3 (quotas, optionally lease) | 304 | k12 / 4 lanes, 5,120 B | k14 / 1 lane, 3,520 B |
 
-The k14 one-lane quota shape occupies 12,123 rows. Its 3,456-byte proof fits
-the current 3,541-byte σ share of the joint Payment budget. These are exact
-descriptor lengths; performance and memory qualification are separate gates. `select_shape` synthesizes candidates and
-can impose a byte budget. Keys, descriptors and proof bytes are independent
-of the Rayon pool size and optional commitment tables.
+The k14 one-lane quota shapes occupy 11,934 rows for mask 1 and 11,935 rows
+for mask 3. Both exact descriptor lengths meet the independent 3,520-byte
+σ role cap. The geometry capture is retained in
+`target/qualification/sigma-current-shape-probe-20261018-1/shape-table.log`.
+
+The compact Payment has 1,394 bytes of fixed overhead. Transported Ω,
+including both accumulator claims, has its own 5,086-byte cap; σ plus
+transported Ω must also fit 8,606 bytes, keeping the complete Payment within
+10,000 bytes. Spare capacity in one role cannot enlarge the other role's cap.
+The table establishes descriptor-derived σ lengths; genuine current proofs,
+current Ω artifacts and complete encoded Payments require their own checks.
+Performance and memory qualification remain separate gates. `select_shape`
+synthesizes candidates and defaults to the 3,520-byte σ cap. Keys, descriptors
+and proof bytes are independent of the Rayon pool size and optional commitment
+tables.
 
 `SigmaProver` generates producer keys or imports an original proving key with
 `from_original_artifact`, then rejects invalid witnesses. `SigmaVerifier`

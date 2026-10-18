@@ -248,3 +248,79 @@ fn scoped_consumer_keeps_actual_native_deny_write_and_delete_ownership_until_ret
     assert!(std::fs::OpenOptions::new().write(true).open(&path).is_ok());
     assert_eq!(directory.read("first", 5).unwrap().as_slice(), b"first");
 }
+
+#[test]
+fn scoped_owned_optional_read_preserves_bytes_allocation_bounds_and_absence() {
+    let (_temporary, directory) = store();
+    let (bytes, pointer) = directory
+        .read_scope(|reader| {
+            let bytes = reader
+                .read_optional_owned("first", 5)?
+                .expect("present native leaf");
+            let pointer = bytes.as_ptr();
+            assert_eq!(bytes.as_slice(), b"first");
+            assert!(reader.read_optional_owned("missing", 5)?.is_none());
+            Ok::<_, io::Error>((bytes, pointer))
+        })
+        .unwrap();
+    assert_eq!(
+        bytes.as_ptr(),
+        pointer,
+        "the owned native buffer moves without copying"
+    );
+    assert_eq!(bytes.as_slice(), b"first");
+    for (name, maximum) in [("first", 4), ("../escape", 5)] {
+        let expected = directory.read_optional(name, maximum).unwrap_err();
+        let actual = directory
+            .read_scope(|reader| reader.read_optional_owned(name, maximum))
+            .unwrap_err();
+        assert_eq!(actual.kind(), expected.kind());
+        assert_eq!(actual.to_string(), expected.to_string());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_owned_optional_exit_refuses_replaced_owner_after_success_absence_and_error() {
+    use std::os::unix::fs::PermissionsExt as _;
+    for outcome in ["present", "absent", "native_error", "semantic_error"] {
+        let (temporary, directory) = store();
+        let original = directory.path().to_path_buf();
+        let displaced = temporary.path().join("displaced-owned");
+        let result = directory.read_scope(|reader| {
+            let result = match outcome {
+                "present" => reader.read_optional_owned("first", 5),
+                "absent" => reader.read_optional_owned("missing", 5),
+                "native_error" => reader.read_optional_owned("first", 4),
+                "semantic_error" => {
+                    assert_eq!(
+                        reader.read_optional_owned("first", 5)?.unwrap().as_slice(),
+                        b"first"
+                    );
+                    Err(io::Error::other("original owned-read semantic refusal"))
+                }
+                _ => unreachable!(),
+            };
+            std::fs::rename(&original, &displaced).unwrap();
+            std::fs::create_dir(&original).unwrap();
+            std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o700)).unwrap();
+            result
+        });
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            directory.revalidate().unwrap_err().to_string()
+        );
+        assert_ne!(error.to_string(), "original owned-read semantic refusal");
+        std::fs::remove_dir(&original).unwrap();
+        std::fs::rename(&displaced, &original).unwrap();
+        assert_eq!(
+            directory
+                .read_scope(|reader| reader.read_optional_owned("first", 5))
+                .unwrap()
+                .unwrap()
+                .as_slice(),
+            b"first"
+        );
+    }
+}

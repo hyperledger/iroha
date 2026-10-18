@@ -7,6 +7,20 @@ import XCTest
 
 /// Test-only intent/decision guards; no reconstructed Native authority or fake proof output.
 final class KagemushaMonetaryProbeManifestTests: XCTestCase {
+  func testNearbyCommandInputsAreClosedAndRecoveryHasSameOriginalIDs() throws {
+    let sender: Set<String> = ["request-id", "session-id", "request-hash", "peer-certificate"]
+    for action in ["nearby-send", "nearby-recover-send"] {
+      try KagemushaMonetaryProbeManifest.validate(action, names: sender)
+      XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate(action, names: sender.union(["payment"])))
+    }
+    for action in ["nearby-receive", "nearby-recover-receive"] {
+      try KagemushaMonetaryProbeManifest.validate(action, names: sender.union(["setup-id"]))
+      XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate(action, names: sender))
+    }
+    XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate("nearby-prepare", names: ["setup-id", "offer", "fee-schedule"]))
+    XCTAssertEqual(try KagemushaMonetaryProbeManifest.maximum("session-id"), 16)
+    XCTAssertEqual(try KagemushaMonetaryProbeManifest.maximum("peer-certificate"), 32)
+  }
   func testOnlyWholeOptionalFeeAndUnloadBundlesAreAccepted() throws {
     try KagemushaMonetaryProbeManifest.validate("request", names: ["setup-id", "offer"])
     try KagemushaMonetaryProbeManifest.validate(

@@ -472,6 +472,28 @@ pub(crate) fn assert_native_publication_refuses(
     ) + Send
     + 'static,
 ) {
+    assert_native_publication_outcome(with_transfer, inspect, false);
+}
+
+/// A refused mutable projection preserves the genuine pending execution and its finality path.
+pub(crate) fn assert_native_publication_preserved(
+    with_transfer: bool,
+    inspect: impl for<'borrow, 'state> FnOnce(
+        crate::sumeragi::executor::PendingExecutionView<'borrow, 'state>,
+    ) + Send
+    + 'static,
+) {
+    assert_native_publication_outcome(with_transfer, inspect, true);
+}
+
+fn assert_native_publication_outcome(
+    with_transfer: bool,
+    inspect: impl for<'borrow, 'state> FnOnce(
+        crate::sumeragi::executor::PendingExecutionView<'borrow, 'state>,
+    ) + Send
+    + 'static,
+    publish: bool,
+) {
     use crate::sumeragi::test_chain::{CertifiedTestChain, Signers, TestChainConfig};
     let (component, alice, _) = component_fixture();
     let nexus = component.nexus_snapshot();
@@ -506,12 +528,18 @@ pub(crate) fn assert_native_publication_refuses(
         .unwrap();
     let original_result = pending.result();
     pending.inspect(inspect).unwrap();
-    assert!(pending.prepare(Signers::Quorum).is_err());
-    assert!(pending.publish(Signers::Quorum).is_err());
+    if publish {
+        pending.prepare(Signers::Quorum).unwrap();
+        pending.publish(Signers::Quorum).unwrap();
+    } else {
+        assert!(pending.prepare(Signers::Quorum).is_err());
+        assert!(pending.publish(Signers::Quorum).is_err());
+    }
     assert_eq!(pending.result(), original_result);
-    assert_eq!(kura.blocks_count(), 1);
+    let expected_height = if publish { 2 } else { 1 };
+    assert_eq!(kura.blocks_count(), expected_height);
     drop(pending);
-    assert_eq!(state.view().height(), 1);
+    assert_eq!(state.view().height(), expected_height);
     assert_eq!(chain.committed(1).block().encode_wire().unwrap(), parent);
 }
 

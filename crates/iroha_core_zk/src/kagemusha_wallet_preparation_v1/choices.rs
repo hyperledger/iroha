@@ -21,7 +21,7 @@ struct Observation {
 
 #[derive(Debug, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_preparation_v1::NativeChoicesV1")]
-pub(crate) struct NativeChoicesV1 {
+pub struct NativeChoicesV1 {
     version: u16,
     manifest: [u8; 32],
     source: [u8; 32],

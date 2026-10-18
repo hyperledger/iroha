@@ -155,6 +155,57 @@ final class TransactionParityFixturesTests: XCTestCase {
         }
     }
 
+    func testReferenceSignatureParityRejectsInvalidSignaturesFramingAndDifferentPayloads() throws {
+        let loader = try Self.fixtures()
+        let transfer = try loader.fixture(named: "swift_transfer_asset_basic")
+        let transferSigned = try XCTUnwrap(Data(base64Encoded: transfer.manifest.signedBase64))
+        let transferWire = Data([1]) + transferSigned
+        let transferHash = try XCTUnwrap(Data(hexString: transfer.manifest.signedHash))
+        func envelope(_ wire: Data, signed: Data? = nil) -> SignedTransactionEnvelope {
+            SignedTransactionEnvelope(
+                norito: wire, signedTransaction: signed ?? Data(wire.dropFirst()),
+                payload: nil, transactionHash: transferHash
+            )
+        }
+        XCTAssertEqual(
+            try canonicalSignedTransactionUsingReferenceSignature(
+                envelope(transferWire), referenceWire: transferWire
+            ),
+            transferWire
+        )
+
+        let mint = try loader.fixture(named: "swift_mint_asset_basic")
+        let mintWire = Data([1]) + (try XCTUnwrap(Data(base64Encoded: mint.manifest.signedBase64)))
+        let verifiedMint = try ToriiCanonicalTransactionDraft.inspectVersionedSignedTransaction(
+            mintWire, context: "valid different signing-parity payload"
+        )
+        XCTAssertNotEqual(verifiedMint.transactionPayload, try canonicalSignedTransactionPayload(transferSigned))
+        // Both are independently valid, but the reference signs a different payload.
+        XCTAssertThrowsError(try canonicalSignedTransactionUsingReferenceSignature(
+            envelope(transferWire), referenceWire: mintWire
+        ))
+
+        var transferReader = CanonicalNoritoReader(data: transferSigned)
+        _ = try transferReader.readCompactField()
+        var mintReader = CanonicalNoritoReader(data: Data(mintWire.dropFirst()))
+        _ = try mintReader.readCompactField()
+        // A well-formed signature for Mint must not authenticate the Transfer payload,
+        // even if replacing it with the valid reference would conceal that failure.
+        let forgedWire = Data(mintWire.prefix(1 + mintReader.offset))
+            + Data(transferWire.dropFirst(1 + transferReader.offset))
+        for invalidWire in [forgedWire, transferWire + Data([0])] {
+            XCTAssertThrowsError(try canonicalSignedTransactionUsingReferenceSignature(
+                envelope(invalidWire), referenceWire: transferWire
+            ))
+            XCTAssertThrowsError(try canonicalSignedTransactionUsingReferenceSignature(
+                envelope(transferWire), referenceWire: invalidWire
+            ))
+        }
+        XCTAssertThrowsError(try canonicalSignedTransactionUsingReferenceSignature(
+            envelope(transferWire, signed: transferSigned + Data([0])), referenceWire: transferWire
+        ))
+    }
+
     func testSwiftMintAssetFixtureMatchesRustEncoder() throws {
         try ensureBridgeAvailable()
         try assertFixture(named: "swift_mint_asset_basic") { fixture, keypair in
@@ -509,7 +560,19 @@ final class TransactionParityFixturesTests: XCTestCase {
             let envelope = try NoritoNativeBridge.shared.withChainDiscriminant(FixtureConstants.networkPrefix) {
                 try encoder(fixture, keypair)
             }
-            let actual = envelope.signedTransaction.base64EncodedString()
+            let actual: String
+            if name == "swift_transfer_asset_basic" {
+                // CryptoKit may hedge Ed25519 signatures. Verify both signatures, then
+                // retain exact Rust framing parity with the reference signature field.
+                let reference = try XCTUnwrap(Data(base64Encoded: fixture.manifest.signedBase64))
+                let wire = try canonicalSignedTransactionUsingReferenceSignature(
+                    envelope, referenceWire: Data([1]) + reference
+                )
+                XCTAssertEqual(wire, Data([1]) + reference, "versioned Rust framing parity for \(name)")
+                actual = Data(wire.dropFirst()).base64EncodedString()
+            } else {
+                actual = envelope.signedTransaction.base64EncodedString()
+            }
             XCTAssertEqual(
                 actual,
                 fixture.manifest.signedBase64,

@@ -1840,6 +1840,7 @@ async fn gov_get_tally_applies_conviction_factor() {
     {
         let mut sblock = state.block(header);
         let mut stx = sblock.transaction();
+        let static_policy = stx.static_execution_policy();
         stx.world.governance_referenda_mut().insert(
             rid.clone(),
             GovernanceReferendumRecord {
@@ -1848,7 +1849,8 @@ async fn gov_get_tally_applies_conviction_factor() {
                 status: GovernanceReferendumStatus::Open,
                 mode: GovernanceReferendumMode::Plain,
                 plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &stx.gov, 0,
+                    &static_policy.gov,
+                    0,
                 ),
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
@@ -1902,6 +1904,7 @@ async fn gov_get_tally_retains_closed_result_after_all_locks_are_released() {
     {
         let mut block = state.block(header);
         let mut tx = block.transaction();
+        let static_policy = tx.static_execution_policy();
         tx.world.governance_referenda_mut().insert(
             rid.clone(),
             GovernanceReferendumRecord {
@@ -1910,7 +1913,8 @@ async fn gov_get_tally_retains_closed_result_after_all_locks_are_released() {
                 status: GovernanceReferendumStatus::Closed,
                 mode: GovernanceReferendumMode::Plain,
                 plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &tx.gov, 0,
+                    &static_policy.gov,
+                    0,
                 ),
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Decided(
@@ -2114,6 +2118,7 @@ async fn gov_get_tally_rejects_invalid_plain_direction() {
     {
         let mut block = state.block(header);
         let mut tx = block.transaction();
+        let static_policy = tx.static_execution_policy();
         tx.world.governance_referenda_mut().insert(
             rid.clone(),
             GovernanceReferendumRecord {
@@ -2122,7 +2127,8 @@ async fn gov_get_tally_rejects_invalid_plain_direction() {
                 status: GovernanceReferendumStatus::Open,
                 mode: GovernanceReferendumMode::Plain,
                 plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &tx.gov, 0,
+                    &static_policy.gov,
+                    0,
                 ),
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
@@ -2215,6 +2221,7 @@ async fn legacy_referendum_reads_reject_stored_typed_proposal_fingerprints() {
                 status: GovernanceProposalStatus::Proposed,
             },
         );
+        let static_policy = tx.static_execution_policy();
         tx.world.governance_referenda_mut().insert(
             rid.clone(),
             GovernanceReferendumRecord {
@@ -2223,7 +2230,8 @@ async fn legacy_referendum_reads_reject_stored_typed_proposal_fingerprints() {
                 status: GovernanceReferendumStatus::Open,
                 mode: GovernanceReferendumMode::Plain,
                 plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &tx.gov, 0,
+                    &static_policy.gov,
+                    0,
                 ),
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
@@ -2271,6 +2279,7 @@ async fn gov_get_tally_rejects_accumulator_overflow() {
     {
         let mut block = state.block(header);
         let mut tx = block.transaction();
+        let static_policy = tx.static_execution_policy();
         tx.world.governance_referenda_mut().insert(
             rid.clone(),
             GovernanceReferendumRecord {
@@ -2279,7 +2288,8 @@ async fn gov_get_tally_rejects_accumulator_overflow() {
                 status: GovernanceReferendumStatus::Open,
                 mode: GovernanceReferendumMode::Plain,
                 plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &tx.gov, 0,
+                    &static_policy.gov,
+                    0,
                 ),
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,

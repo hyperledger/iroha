@@ -1217,7 +1217,7 @@ fn assert_initial_genesis_fee_sponsor_lifecycle(authored_custody: bool) {
         .iter()
         .map(|bundle| bundle.transcripts.len())
         .sum::<usize>();
-    assert!(original.drain_transfer_transcripts().is_empty());
+    assert!(original.transfer_transcripts_are_empty_for_testing());
     assert_eq!(witness.fastpq_transcripts.len(), 1);
     let bundle = &witness.fastpq_transcripts[0];
     assert!(
@@ -1248,15 +1248,14 @@ fn assert_initial_genesis_fee_sponsor_lifecycle(authored_custody: bool) {
     assert_eq!(delta.from_balance_after, Quantity::zero());
     assert_eq!(delta.to_balance_before, Quantity::zero());
     assert_eq!(delta.to_balance_after, Quantity::from(10_u32));
-    let stx = original.transaction();
+    let world = &original.world;
     if authored_custody {
         assert!(
-            stx.world.account(&bootstrap_custody).is_err(),
+            world.account(&bootstrap_custody).is_err(),
             "genesis must not require or register the unselected bootstrap custody"
         );
     }
-    let program = stx
-        .world
+    let program = world
         .fee_sponsor_programs
         .get(&program_id)
         .expect("bootstrapped sponsor program");
@@ -1267,7 +1266,7 @@ fn assert_initial_genesis_fee_sponsor_lifecycle(authored_custody: bool) {
         asset_definition_id: asset_definition_id.clone(),
     };
     assert_eq!(
-        stx.world
+        world
             .fee_sponsor_vaults
             .get(&vault_key)
             .expect("genesis funding creates the isolated sponsor vault")
@@ -1279,12 +1278,12 @@ fn assert_initial_genesis_fee_sponsor_lifecycle(authored_custody: bool) {
         "genesis sponsor funding must retain one auditable transfer transcript",
     );
     assert!(
-        stx.world.assets.get(&sponsor_asset).is_none(),
+        world.assets.get(&sponsor_asset).is_none(),
         "fully funded sponsor source is removed at zero balance",
     );
     let custody_asset = AssetId::new(asset_definition_id, custody);
     assert_eq!(
-        stx.world
+        world
             .assets
             .get(&custody_asset)
             .expect("genesis sponsor funding reaches custody")

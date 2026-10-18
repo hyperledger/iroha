@@ -22,6 +22,22 @@ pub(super) fn record(
     name: &str,
     message: KagemushaWalletMessageV1,
 ) -> norito::json::Value {
+    let role = match &message {
+        KagemushaWalletMessageV1::Offer { .. } => "Offer",
+        KagemushaWalletMessageV1::Request { .. } => "Request",
+        KagemushaWalletMessageV1::Payment { .. } => "Payment",
+        KagemushaWalletMessageV1::Credited { .. } => "Credited",
+        KagemushaWalletMessageV1::SessionControl { .. } => "SessionControl",
+        KagemushaWalletMessageV1::PolicyData { .. } => "PolicyData",
+        KagemushaWalletMessageV1::Lineage { .. } => "Lineage",
+    };
+    let variant = match &message {
+        KagemushaWalletMessageV1::Credited { credited } => match &credited.evidence {
+            KagemushaWalletCreditedEvidenceV1::Receive { .. } => "Credited::Receive",
+            KagemushaWalletCreditedEvidenceV1::Status { .. } => "Credited::Status",
+        },
+        _ => role,
+    };
     let maximum = message.max_bytes();
     let scheme = *message.scheme_id();
     let tag = message.tag();
@@ -31,7 +47,7 @@ pub(super) fn record(
     let frame = norito::encode_canonical(&envelope).unwrap();
     let filename = format!("{name}.envelope.norito");
     let result = norito::json!({
-        "name": filename, "tag": tag, "bytes": (frame.len()),
+        "name": filename, "role": role, "variant": variant, "tag": tag, "bytes": (frame.len()),
         "sha256": (sha(&frame)), "maximum_bytes": maximum,
         "within_bound": (frame.len() <= maximum),
     });
@@ -49,6 +65,138 @@ pub(super) fn record(
         envelope
     );
     result
+}
+
+pub(super) fn record_payment_lineage(
+    output: &Path,
+    label: &str,
+    payment: &KagemushaWalletPaymentV1,
+) -> norito::json::Value {
+    let lineage = payment
+        .send
+        .lineage
+        .lineage()
+        .expect("Send predecessor Omega")
+        .clone();
+    record(
+        output,
+        &format!("{label}-lineage"),
+        KagemushaWalletMessageV1::Lineage {
+            lineage: KagemushaWalletLineageMessageV1::new(lineage),
+        },
+    )
+}
+
+fn record_credit_status_model(
+    output: &Path,
+    name: &str,
+    scheme: &KagemushaWalletSchemeV1,
+    status: &KagemushaWalletCreditStatusV1,
+    request_original: &[u8],
+    payment_original: &[u8],
+) -> (norito::json::Value, bool) {
+    let credited = KagemushaWalletCreditedV1::from_status(status.clone()).unwrap();
+    let envelope = record(
+        output,
+        name,
+        KagemushaWalletMessageV1::Credited {
+            credited: credited.clone(),
+        },
+    );
+    let request: KagemushaWalletRequestV1 = decode(request_original);
+    let payment: KagemushaWalletPaymentV1 = decode(payment_original);
+    let model_result = credited.verify_for(scheme, &request, &payment);
+    let verified = model_result.is_ok();
+    let result = norito::json!({
+        "complete_envelope": envelope,
+        "request_sha256": (sha(request_original)),
+        "payment_sha256": (sha(payment_original)),
+        "credit_status_sha256": (sha(&norito::encode_canonical(status).unwrap())),
+        "receiver_wallet_id": (hex::encode(status.lineage.public.wallet_id)),
+        "folded_head": (hex::encode(status.lineage.public.head.value)),
+        "status_opening": (if status.opening.burned { "burned" } else { "unburned" }),
+        "model_verification_result": (format!("{model_result:?}")),
+        "model_verified": verified,
+        "scope": "Canonical Credited::Status carrying frame and model linkage to exact held Request and Payment. No Omega proof or native operation verdict.",
+    });
+    publish(
+        &output.join(format!("{name}.model-check.json")),
+        &norito::json::to_vec(&result).unwrap(),
+    );
+    (result, verified)
+}
+
+pub(super) fn retain_credit_status(
+    output: &Path,
+    name: &str,
+    sources: &Sources,
+    status: &KagemushaWalletCreditStatusV1,
+    request_original: &[u8],
+    payment_original: &[u8],
+) -> norito::json::Value {
+    let verifier = sources.installed.verifier();
+    // Preserve the carrying frame and model decision before the installed Omega
+    // check, including a failed proof decision before refusing this capture.
+    let (model, model_verified) = record_credit_status_model(
+        output,
+        name,
+        verifier.scheme(),
+        status,
+        request_original,
+        payment_original,
+    );
+    let proof_result = verifier.verify_lineage(&status.lineage, MemoryBudget::DEFAULT);
+    let proof_verified = proof_result.is_ok();
+    let result = norito::json!({
+        "model": model,
+        "lineage_proof_verification_result": (format!("{proof_result:?}")),
+        "lineage_proof_verified": proof_verified,
+        "scope": "Existing folded receiver CreditStatus in its real Credited::Status envelope, exact Request/Payment model linkage and installed Omega proof verification. No new monetary operation, acknowledgement admission or carrier qualification.",
+    });
+    publish(
+        &output.join(format!("{name}.proof-check.json")),
+        &norito::json::to_vec(&result).unwrap(),
+    );
+    assert!(
+        model_verified && proof_verified,
+        "retained CreditStatus check failed"
+    );
+    result
+}
+
+// This inventory describes retained frames, not delivery or proof acceptance. Require
+// every actual role once so a partial or duplicated measurement cannot imply coverage.
+pub(super) fn complete_exchange_roles(
+    records: &[norito::json::Value],
+    label: &str,
+) -> norito::json::Value {
+    let roles = [
+        ("Offer", "offer", 1),
+        ("Request", "request", 2),
+        ("Payment", "payment", 3),
+        ("Credited", "credited", 4),
+        ("Lineage", "lineage", 7),
+    ];
+    let envelopes = roles
+        .into_iter()
+        .map(|(role, suffix, tag)| {
+            let name = format!("{label}-{suffix}.envelope.norito");
+            let matches = records
+                .iter()
+                .filter(|row| row["name"].as_str() == Some(name.as_str()))
+                .collect::<Vec<_>>();
+            assert_eq!(matches.len(), 1, "exactly one {label} {role} frame");
+            let row = matches[0];
+            assert_eq!(row["role"].as_str(), Some(role));
+            assert_eq!(row["tag"].as_u64(), Some(tag));
+            assert_eq!(row["within_bound"].as_bool(), Some(true));
+            row.clone()
+        })
+        .collect::<Vec<_>>();
+    norito::json!({
+        "variant": label, "complete_envelopes": envelopes,
+        "scope": "Exactly five retained carrying-frame roles; proof and native-operation verdicts remain separate",
+    })
 }
 
 pub(super) fn retain(
@@ -91,19 +239,7 @@ pub(super) fn retain(
             },
         ));
         let payment: KagemushaWalletPaymentV1 = decode(original);
-        let lineage = payment
-            .send
-            .lineage
-            .lineage()
-            .expect("Send predecessor Omega")
-            .clone();
-        records.push(record(
-            output,
-            &format!("{name}-lineage"),
-            KagemushaWalletMessageV1::Lineage {
-                lineage: KagemushaWalletLineageMessageV1::new(lineage),
-            },
-        ));
+        records.push(record_payment_lineage(output, name, &payment));
         let credited: KagemushaWalletCreditedV1 = decode(acknowledgement);
         records.push(record(
             output,
@@ -127,6 +263,7 @@ pub(super) fn retain(
     let mut all_proofs_verified = true;
     for (name, offer, request, payment, credited) in originals {
         let session_result = verify_session(verifier.scheme(), &offer, &request, &payment);
+        let credited_model_result = credited.verify_for(verifier.scheme(), &request, &payment);
         let payment_result = verifier.verify_package_proofs(&payment.send, MemoryBudget::DEFAULT);
         let (credited_scope, credited_result) = match &credited.evidence {
             KagemushaWalletCreditedEvidenceV1::Receive { package } => (
@@ -134,16 +271,20 @@ pub(super) fn retain(
                 verifier.verify_package_proofs(package, MemoryBudget::DEFAULT),
             ),
             KagemushaWalletCreditedEvidenceV1::Status { status } => (
-                "CreditStatus Omega lineage only; no credit-membership or request linkage verdict",
+                "CreditStatus Omega lineage proof only; model linkage is checked separately",
                 verifier.verify_lineage(&status.lineage, MemoryBudget::DEFAULT),
             ),
         };
-        all_proofs_verified &=
-            session_result.is_ok() && payment_result.is_ok() && credited_result.is_ok();
+        all_proofs_verified &= session_result.is_ok()
+            && credited_model_result.is_ok()
+            && payment_result.is_ok()
+            && credited_result.is_ok();
         proof_checks.push(norito::json!({
             "pair": name,
             "session_verification_scope": "Offer signature, payer credential and issuer; exact signed Request and its receiver credential, certificates and fee schedule; Payment model binding to those session originals",
             "session_verification_result": (format!("{session_result:?}")),
+            "credited_model_scope": "Canonical Credited::verify_for against the exact held Request and retained Payment: Receive receipt signature and credit/Payment/asset linkage, or CreditStatus receipt, membership opening and receiver/credit/Payment linkage; no native operation admission",
+            "credited_model_result": (format!("{credited_model_result:?}")),
             "payment_proof_scope": "Send Sigma and predecessor Omega proofs only",
             "payment_proof_result": (format!("{payment_result:?}")),
             "credited_proof_scope": credited_scope,
@@ -156,6 +297,9 @@ pub(super) fn retain(
         &norito::json::to_vec(&proof_checks).unwrap(),
     );
     assert!(all_proofs_verified, "retained envelope proof check failed");
+    for name in ["a-b", "b-c"] {
+        complete_exchange_roles(&records, name);
+    }
     records
 }
 
@@ -274,12 +418,13 @@ fn remeasure_retained_genuine_exchange_envelopes_without_wallet_mutation() {
         "observer_source_snapshot_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),
         "observer_source_scope": "Diagnostic source snapshot only; not a guarded compiler consumed-input attestation",
         "message_envelopes": records,
+        "complete_exchange_roles": (["a-b", "b-c"].into_iter().map(|name| complete_exchange_roles(&records, name)).collect::<Vec<_>>()),
         "new_wallet_operations": 0, "physical_device_qualified": false,
-        "scope": "Exact retained canonical Offer/Request/Payment/Credited/Lineage envelopes with authenticated session originals and Sigma/Omega proof verification against admitted catalog. CreditStatus check covers only Omega, not credit membership or request linkage. No new native message/operation admission, fresh lifecycle, all policy variants, carrier timings or current-producer qualification."
+        "scope": "Exact retained canonical Offer/Request/Payment/Credited/Lineage envelopes with authenticated session originals, canonical Credited model linkage and separate Sigma/Omega proof verification against admitted catalog. No new native message/operation admission, fresh lifecycle, all policy variants, carrier timings or current-producer qualification."
     })).unwrap());
 }
 
-fn fixture_message(kind: &str) -> KagemushaWalletMessageV1 {
+fn fixture_message(variant: &str) -> KagemushaWalletMessageV1 {
     // Structural vectors test only the evidence helper; their stand-in proofs never
     // enter the genuine census, which additionally invokes the installed verifier.
     let vectors: norito::json::Value = norito::json::from_slice(include_bytes!(concat!(
@@ -291,7 +436,7 @@ fn fixture_message(kind: &str) -> KagemushaWalletMessageV1 {
         .as_array()
         .unwrap()
         .iter()
-        .find(|row| row["kind"].as_str() == Some(kind))
+        .find(|row| row["variant"].as_str() == Some(variant))
         .unwrap();
     let frame = hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap();
     decode::<KagemushaWalletEnvelopeV1>(&frame).message
@@ -310,6 +455,288 @@ fn fixture_scheme() -> KagemushaWalletSchemeV1 {
         .find(|row| row["type"].as_str() == Some("KagemushaWalletSchemeV1"))
         .unwrap();
     decode(&hex::decode(scheme_row["canonical_hex"].as_str().unwrap()).unwrap())
+}
+
+// Re-sign a changed stand-in proof so the replacement remains model-valid. A
+// status must reject its different Payment digest even though its receipt verifies.
+fn changed_fixture_payment(
+    payment: &KagemushaWalletPaymentV1,
+    credential: &KagemushaWalletCredentialV1,
+) -> KagemushaWalletPaymentV1 {
+    use p256::ecdsa::signature::Signer as _;
+
+    assert_eq!(credential.body.payment_key, public_key(&signing_key(0x51)));
+    let mut changed = payment.clone();
+    changed.send.step_proof.bytes[0] ^= 1;
+    let proof_digest = changed.send.proof_digest().unwrap();
+    let signer = KagemushaWalletReceiptSignerV1::from_credential(credential).unwrap();
+    let receipt = &changed.send.receipt;
+    let body = KagemushaWalletReceiptBodyV1::derive(
+        &signer,
+        &changed.send.statement,
+        &proof_digest,
+        receipt.capsule_commitment,
+        receipt.payment_digest,
+    )
+    .unwrap();
+    let signature: p256::ecdsa::Signature = signing_key(0x51).sign(&body.signing_message());
+    changed.send.receipt = KagemushaWalletReceiptV1::sign(
+        credential,
+        &changed.send.statement,
+        &proof_digest,
+        receipt.capsule_commitment,
+        receipt.payment_digest,
+        KagemushaWalletSignerOutputV1::Raw(signature.to_bytes().into()),
+    )
+    .unwrap();
+    changed.validate().unwrap();
+    changed
+}
+
+#[test]
+fn message_census_final_status_retains_exact_frame_and_rejects_valid_substitutions() {
+    use p256::ecdsa::signature::Signer as _;
+
+    // Fixture signatures exercise model linkage, never genuine Omega acceptance.
+    let directory = tempfile::tempdir().unwrap();
+    let scheme = fixture_scheme();
+    let KagemushaWalletMessageV1::Offer { offer } = fixture_message("Offer") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Request { request } = fixture_message("Request") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Credited { credited } = fixture_message("Credited::Status")
+    else {
+        unreachable!()
+    };
+    let KagemushaWalletCreditedEvidenceV1::Status { status } = &credited.evidence else {
+        unreachable!()
+    };
+    let request_bytes = norito::encode_canonical(&request).unwrap();
+    let payment_bytes = norito::encode_canonical(&payment).unwrap();
+    let (measured, verified) = record_credit_status_model(
+        directory.path(),
+        "final-status",
+        &scheme,
+        status,
+        &request_bytes,
+        &payment_bytes,
+    );
+    assert!(verified);
+    assert_eq!(measured["status_opening"].as_str(), Some("unburned"));
+    assert_eq!(
+        measured["request_sha256"].as_str(),
+        Some(sha(&request_bytes).as_str())
+    );
+    assert_eq!(
+        measured["payment_sha256"].as_str(),
+        Some(sha(&payment_bytes).as_str())
+    );
+    let frame = fs::read(directory.path().join("final-status.envelope.norito")).unwrap();
+    assert_eq!(
+        measured["complete_envelope"]["bytes"].as_u64(),
+        Some(frame.len() as u64)
+    );
+    assert_eq!(
+        KagemushaWalletEnvelopeV1::decode_canonical(&frame, &scheme.scheme_id())
+            .unwrap()
+            .message,
+        KagemushaWalletMessageV1::Credited {
+            credited: credited.clone()
+        }
+    );
+
+    let mut changed_request = request.clone();
+    changed_request.body.nonce[0] ^= 1;
+    let signature: p256::ecdsa::Signature =
+        signing_key(0x52).sign(&changed_request.body.signing_message());
+    let signature = signature.normalize_s().unwrap_or(signature);
+    changed_request.signature =
+        KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
+    changed_request.verify(&scheme).unwrap();
+
+    let changed_payment = changed_fixture_payment(&payment, &offer.payer_credential);
+    assert_ne!(
+        changed_payment.payment_digest().unwrap(),
+        payment.payment_digest().unwrap()
+    );
+    for (name, request, payment) in [
+        (
+            "other-request",
+            norito::encode_canonical(&changed_request).unwrap(),
+            payment_bytes,
+        ),
+        (
+            "other-payment",
+            request_bytes,
+            norito::encode_canonical(&changed_payment).unwrap(),
+        ),
+    ] {
+        let (refused, verified) =
+            record_credit_status_model(directory.path(), name, &scheme, status, &request, &payment);
+        assert!(!verified);
+        assert_eq!(refused["model_verified"].as_bool(), Some(false));
+        assert_eq!(
+            fs::read(directory.path().join(format!("{name}.envelope.norito"))).unwrap(),
+            frame
+        );
+        let retained: norito::json::Value = norito::json::from_slice(
+            &fs::read(directory.path().join(format!("{name}.model-check.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(retained, refused);
+    }
+}
+
+#[test]
+fn message_census_status_metadata_distinguishes_burned_fixture_without_proof_claim() {
+    let directory = tempfile::tempdir().unwrap();
+    let scheme = fixture_scheme();
+    let KagemushaWalletMessageV1::Request { request } = fixture_message("Request") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Credited { credited } = fixture_message("Credited::Status")
+    else {
+        unreachable!()
+    };
+    let KagemushaWalletCreditedEvidenceV1::Status { mut status } = credited.evidence else {
+        unreachable!()
+    };
+    // A changed model opening/root has no matching genuine Omega proof. This test
+    // checks only metadata; retain_credit_status separately requires that proof.
+    status.opening.burned = true;
+    status.lineage.public.credit_digest_root = status.opening.root().unwrap();
+    let (measured, verified) = record_credit_status_model(
+        directory.path(),
+        "burned-fixture",
+        &scheme,
+        &status,
+        &norito::encode_canonical(&request).unwrap(),
+        &norito::encode_canonical(&payment).unwrap(),
+    );
+    assert!(verified);
+    assert_eq!(measured["status_opening"].as_str(), Some("burned"));
+    assert!(
+        measured
+            .as_object()
+            .unwrap()
+            .get("lineage_proof_verified")
+            .is_none()
+    );
+}
+
+#[test]
+fn message_census_credited_binds_both_forms_to_exact_request_and_payment() {
+    use p256::ecdsa::signature::Signer as _;
+
+    // These fixture signatures and membership openings test model linkage only.
+    // Their proof stand-ins cannot satisfy the separate installed proof checks.
+    let scheme = fixture_scheme();
+    let KagemushaWalletMessageV1::Request { request } = fixture_message("Request") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
+        unreachable!()
+    };
+    let mut replacement_request = request.clone();
+    replacement_request.body.nonce[0] ^= 1;
+    let signature: p256::ecdsa::Signature =
+        signing_key(0x52).sign(&replacement_request.body.signing_message());
+    let signature = signature.normalize_s().unwrap_or(signature);
+    replacement_request.signature =
+        KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
+    replacement_request.verify(&scheme).unwrap();
+    for variant in ["Credited::Receive", "Credited::Status"] {
+        let KagemushaWalletMessageV1::Credited { credited } = fixture_message(variant) else {
+            unreachable!()
+        };
+        credited.verify_for(&scheme, &request, &payment).unwrap();
+        assert!(
+            credited
+                .verify_for(&scheme, &replacement_request, &payment)
+                .is_err()
+        );
+
+        // Both delivery forms bind the exact retained Payment digest. Mutating the
+        // evidence cannot turn an unrelated receipt/opening into that acknowledgement.
+        let mut changed = credited.clone();
+        match &mut changed.evidence {
+            KagemushaWalletCreditedEvidenceV1::Receive { package } => {
+                package.receipt.payment_digest[0] ^= 1;
+            }
+            KagemushaWalletCreditedEvidenceV1::Status { status } => {
+                status.opening.payment_digest[0] ^= 1;
+            }
+        }
+        assert!(changed.verify_for(&scheme, &request, &payment).is_err());
+    }
+}
+
+#[test]
+fn message_census_requires_five_distinct_bounded_exchange_roles() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut records = Vec::new();
+    for (suffix, variant) in [
+        ("offer", "Offer"),
+        ("request", "Request"),
+        ("payment", "Payment"),
+        ("credited", "Credited::Receive"),
+    ] {
+        records.push(record(
+            directory.path(),
+            &format!("fixture-{suffix}"),
+            fixture_message(variant),
+        ));
+    }
+    let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
+        unreachable!()
+    };
+    records.push(record_payment_lineage(
+        directory.path(),
+        "fixture",
+        &payment,
+    ));
+    let lineage_frame = fs::read(directory.path().join("fixture-lineage.envelope.norito")).unwrap();
+    let KagemushaWalletMessageV1::Lineage { lineage } =
+        decode::<KagemushaWalletEnvelopeV1>(&lineage_frame).message
+    else {
+        unreachable!()
+    };
+    assert_eq!(&lineage.lineage, payment.send.lineage.lineage().unwrap());
+    let inventory = complete_exchange_roles(&records, "fixture");
+    assert_eq!(inventory["complete_envelopes"].as_array().unwrap().len(), 5);
+    assert_eq!(records[3]["variant"].as_str(), Some("Credited::Receive"));
+    for index in 0..records.len() {
+        let mut missing = records.clone();
+        missing.remove(index);
+        assert!(std::panic::catch_unwind(|| complete_exchange_roles(&missing, "fixture")).is_err());
+        let mut duplicated = records.clone();
+        duplicated.push(records[index].clone());
+        assert!(
+            std::panic::catch_unwind(|| complete_exchange_roles(&duplicated, "fixture")).is_err()
+        );
+        for (field, value) in [
+            ("role", norito::json!("foreign")),
+            ("tag", norito::json!(99)),
+            ("within_bound", norito::json!(false)),
+        ] {
+            let mut changed = records.clone();
+            changed[index]
+                .as_object_mut()
+                .unwrap()
+                .insert(field.into(), value);
+            assert!(
+                std::panic::catch_unwind(|| complete_exchange_roles(&changed, "fixture")).is_err()
+            );
+        }
+    }
 }
 
 #[test]
@@ -359,7 +786,8 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
     let offer_bytes = norito::encode_canonical(&offer).unwrap();
     let request_bytes = norito::encode_canonical(&request).unwrap();
     let payment_bytes = norito::encode_canonical(&payment).unwrap();
-    let KagemushaWalletMessageV1::Credited { credited } = fixture_message("Credited") else {
+    let KagemushaWalletMessageV1::Credited { credited } = fixture_message("Credited::Receive")
+    else {
         unreachable!()
     };
     let acknowledgement = norito::encode_canonical(&credited).unwrap();

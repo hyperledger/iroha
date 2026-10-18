@@ -25,7 +25,7 @@ pub struct NativeOperationReviewV1 {
     pub receiver_wallet_id: Option<[u8; 32]>,
     /// Bound receiver account for Send; current enrolled account for Unload.
     pub destination_account_digest: [u8; 32],
-    /// Exact canonical AccountId original bound to the authenticated Send destination.
+    /// Exact canonical `AccountId` original bound to the authenticated Send destination.
     /// Absent for Unload. Copying this display DATA grants no operation authority.
     pub destination_account_original: Option<Vec<u8>>,
     /// Genuine signed Request digest for Send; zero for Unload.

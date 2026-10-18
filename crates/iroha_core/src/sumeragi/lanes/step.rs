@@ -119,24 +119,6 @@ impl StateBlock<'_> {
             }
         }
     }
-
-    /// The outcome of the requested step.
-    ///
-    /// # Errors
-    /// The step failed or never ran.
-    pub(crate) fn take_sumeragi_lanes(&mut self) -> Result<(), LaneStepError> {
-        match std::mem::take(&mut self.sumeragi_lanes_step) {
-            LaneStep::Done => Ok(()),
-            LaneStep::Off | LaneStep::Requested(_) => Err(LaneStepError::NotAdvanced),
-            LaneStep::FailedOwnerMoved => {
-                self.sumeragi_lanes_step = LaneStep::FailedOwnerMoved;
-                Err(crate::execution_attempt::ExecutionDeferred::from(
-                    ivm::error::ExecutionDeferral::LocalInvariantViolation,
-                )
-                .into())
-            }
-        }
-    }
 }
 
 /// Run the lane step of the block `block` executes (height `h`).

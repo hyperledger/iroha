@@ -171,10 +171,10 @@ fn intact_finalized_inventory_commits_after_all_cached_outputs_are_taken() {
 }
 
 #[test]
-fn late_applied_source_cannot_commit_after_all_cached_outputs_are_taken() {
+fn late_source_mutation_is_refused_and_original_native_publication_survives_extraction() {
     for same_key in [false, true] {
         for drain_late in [false, true] {
-            super::native_capture_fixture::assert_native_publication_refuses(
+            super::native_capture_fixture::assert_native_publication_preserved(
                 true,
                 move |original| {
                     assert!(
@@ -212,14 +212,16 @@ fn late_applied_source_cannot_commit_after_all_cached_outputs_are_taken() {
                             Some(DataSpaceId::UNIVERSAL),
                             original.state.committed_fragment_count(),
                         );
-                    original.state.fastpq_source_captures.record(captured);
-                    assert_eq!(
+                    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        original.state.fastpq_source_captures.record(captured);
+                    }));
+                    assert!(refusal.is_err());
+                    assert!(
                         original
                             .state
                             .fastpq_source_captures
                             .sealed_sources()
-                            .unwrap_err(),
-                        crate::fastpq::FastpqSourceCaptureError::AppliedAfterSeal
+                            .is_ok()
                     );
                     let delta = delta();
                     let poseidon_preimage_digest =
@@ -230,35 +232,51 @@ fn late_applied_source_cannot_commit_after_all_cached_outputs_are_taken() {
                         authority_digest: crate::fastpq::authority_digest(&ALICE_ID),
                         poseidon_preimage_digest: Some(poseidon_preimage_digest),
                     };
-                    assert!(
+                    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         original
                             .state
                             .fastpq_transcripts
-                            .insert(late, vec![transcript])
-                            .is_none()
-                    );
-                    original
+                            .insert(late, vec![transcript]);
+                    }));
+                    assert!(refusal.is_err());
+                    let before = original
                         .state
                         .world
                         .smart_contract_state
-                        .insert(marker(), vec![2]);
-                    assert_eq!(
-                        original.state.world.smart_contract_state.get(&marker()),
-                        Some(&vec![2])
-                    );
-                    if drain_late {
-                        let archive = original.state.drain_transfer_transcripts_with_pending(None);
-                        assert_eq!(archive.len(), 1);
-                        assert!(archive.contains_key(&late));
-                        assert!(original.state.fastpq_transcripts.is_empty());
-                    }
-                    // No second capture/getter repairs the immutable native witness.
-                    assert!(
+                        .get(&marker())
+                        .cloned();
+                    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         original
                             .state
-                            .verified_fastpq_source_inventory_for_capture()
-                            .is_err()
+                            .world
+                            .smart_contract_state
+                            .insert(marker(), vec![2]);
+                    }));
+                    assert!(refusal.is_err());
+                    assert_eq!(
+                        original.state.world.smart_contract_state.get(&marker()),
+                        before.as_ref()
                     );
+                    if drain_late {
+                        let refusal =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                original.state.drain_transfer_transcripts_with_pending(None);
+                            }));
+                        assert!(refusal.is_err());
+                    }
+                    assert!(original.state.fastpq_transcripts.is_empty());
+                    // Refusing the caller preserves the original native witness and its QC path.
+                    original
+                        .state
+                        .verified_fastpq_source_inventory_for_capture()
+                        .unwrap();
+                    original
+                        .state
+                        .verify_sumeragi_execution_witness(
+                            original.block.as_ref(),
+                            original.witness.wire(),
+                        )
+                        .unwrap();
                 },
             );
         }
@@ -274,6 +292,7 @@ fn failed_inventory_construction_prevents_commit_without_publishing_overlay() {
         let source = Hash::new(b"failed inventory construction");
         apply_source(&mut block, source, false, None);
         apply_marker(&mut block, 2, None);
+        stage_membership(&mut block, Some(source));
         block.fastpq_transcripts.get_mut(&source).unwrap().clear();
         let error = block
             .finalize_fastpq_source_inventory(&[], &[], &[])
@@ -294,7 +313,6 @@ fn failed_inventory_construction_prevents_commit_without_publishing_overlay() {
             Err("FASTPQ witness capture refuses a poisoned carrier".into()),
         );
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
-        stage_membership(&mut block, Some(source));
         // Inventory construction poisoned the carrier, so the earlier output
         // publication guard refuses it before the inventory-specific commit gate.
         assert!(matches!(

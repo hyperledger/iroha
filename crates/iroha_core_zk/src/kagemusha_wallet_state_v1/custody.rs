@@ -49,7 +49,7 @@ pub trait Custody {
     fn status(&mut self) -> Result<SlotStatus, ProviderError>;
     /// Look up a retained operation without signing. The provider binds the current head's
     /// completion to its Released marker. Historical frames also need the coordinator's
-    /// source-selected StepEntry or frozen-capsule verification before exposing their output.
+    /// source-selected `StepEntry` or frozen-capsule verification before exposing their output.
     ///
     /// # Errors
     /// Provider errors, never converted to absence.
@@ -187,63 +187,16 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdvanceHandle<F, P> {
 fn take_exclusive<T>(shared: Arc<Mutex<T>>) -> Result<T, Arc<Mutex<T>>> {
     match Arc::try_unwrap(shared) {
         Ok(cell) if cell.is_poisoned() => Err(Arc::new(cell)),
-        Ok(cell) => Ok(cell.into_inner().unwrap_or_else(|error| error.into_inner())),
+        Ok(cell) => Ok(cell
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)),
         Err(shared) => Err(shared),
-    }
-}
-
-#[cfg(test)]
-mod exclusive_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    struct Held(Arc<AtomicUsize>);
-    impl Drop for Held {
-        fn drop(&mut self) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    #[test]
-    fn extra_owner_retains_exact_custody_until_unique() {
-        let drops = Arc::new(AtomicUsize::new(0));
-        let original = Arc::new(Mutex::new(Held(Arc::clone(&drops))));
-        let other = Arc::clone(&original);
-        let retained = take_exclusive(original).err().expect("shared");
-        assert!(Arc::ptr_eq(&retained, &other));
-        assert_eq!(drops.load(Ordering::SeqCst), 0);
-        drop(other);
-        let value = take_exclusive(retained).ok().expect("exclusive");
-        assert_eq!(drops.load(Ordering::SeqCst), 0);
-        drop(value);
-        assert_eq!(drops.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn poisoned_unique_custody_is_retained_without_unpoisoning() {
-        let drops = Arc::new(AtomicUsize::new(0));
-        let original = Arc::new(Mutex::new(Held(Arc::clone(&drops))));
-        let other = Arc::clone(&original);
-        assert!(
-            std::thread::spawn(move || {
-                let _held = other.lock().expect("unpoisoned");
-                panic!("inject owner failure");
-            })
-            .join()
-            .is_err()
-        );
-        let retained = take_exclusive(original).err().expect("poisoned");
-        assert!(retained.is_poisoned());
-        let retained = take_exclusive(retained).err().expect("still poisoned");
-        assert_eq!(drops.load(Ordering::SeqCst), 0);
-        drop(retained);
-        assert_eq!(drops.load(Ordering::SeqCst), 1);
     }
 }
 
 /// Private clock capability sharing the actual exclusive provider lifetime.
 /// It grants no payment-key, storage or Advance access.
-pub(crate) struct NativeObservationsV1<F: KagemushaWalletFsV1, P> {
+pub struct NativeObservationsV1<F: KagemushaWalletFsV1, P> {
     provider: Arc<Mutex<KagemushaWalletProviderV1<F, P>>>,
 }
 
@@ -448,7 +401,7 @@ impl
             signature: *signature,
         };
         let package = KagemushaWalletPackageV1::new(
-            capsule.body().statement.clone(),
+            capsule.body().statement,
             capsule.body().predecessor_lineage.clone(),
             capsule.body().step_proof.clone(),
             receipt,
@@ -637,5 +590,54 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
             provider.keep_archive_phase_object(&self.slot, self.object_key(identity), bytes)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod exclusive_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Held(Arc<AtomicUsize>);
+    impl Drop for Held {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn extra_owner_retains_exact_custody_until_unique() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let original = Arc::new(Mutex::new(Held(Arc::clone(&drops))));
+        let other = Arc::clone(&original);
+        let retained = take_exclusive(original).err().expect("shared");
+        assert!(Arc::ptr_eq(&retained, &other));
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(other);
+        let value = take_exclusive(retained).ok().expect("exclusive");
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(value);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn poisoned_unique_custody_is_retained_without_unpoisoning() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let original = Arc::new(Mutex::new(Held(Arc::clone(&drops))));
+        let other = Arc::clone(&original);
+        assert!(
+            std::thread::spawn(move || {
+                let _held = other.lock().expect("unpoisoned");
+                panic!("inject owner failure");
+            })
+            .join()
+            .is_err()
+        );
+        let retained = take_exclusive(original).err().expect("poisoned");
+        assert!(retained.is_poisoned());
+        let retained = take_exclusive(retained).err().expect("still poisoned");
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(retained);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
     }
 }

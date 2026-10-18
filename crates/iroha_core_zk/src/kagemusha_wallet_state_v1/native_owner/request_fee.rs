@@ -68,7 +68,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         Ok((state.core.asset_digest, state.rest.fee_schedule))
     }
 
-    /// Authenticate the exact pair of public PolicyData envelopes against selected local policy.
+    /// Authenticate the exact pair of public `PolicyData` envelopes against selected local policy.
     /// The projection is cache DATA only and does not refresh policy or accept money.
     ///
     /// # Errors
@@ -98,7 +98,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     /// usable for exact completed retries after local policy changes; `request` owns that check.
     ///
     /// # Errors
-    /// Invalid or unpaired PolicyData and all ordinary Request authentication/custody errors.
+    /// Invalid or unpaired `PolicyData` and all ordinary Request authentication/custody errors.
     pub fn request_with_fee_policy(
         &mut self,
         id: [u8; 32],

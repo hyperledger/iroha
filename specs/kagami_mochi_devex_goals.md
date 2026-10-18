@@ -108,6 +108,10 @@ explicit local status reads, followed by the complete four-validator mesh, withi
 the original deadline. A global fanout response does not prove an individual peer's
 application. Failed startup retains its specific stage even when cleanup stops all
 validators; an already Applied readiness transaction does not make that attempt Ready.
+Foreground status and attachment control exchanges share their original caller deadline,
+with at most two seconds per observation including native connection admission and fragmented
+replies. Expired startup uses a separate bounded cleanup observation; an unanswered cleanup
+request proves neither that the owner stopped nor that readiness completed within its budget.
 
 The `xtask mochi-latency` diagnostic collector records twenty fresh-state startup
 attempts and separate ready `.ko`, distinct `.to` and local Musubi package cases;

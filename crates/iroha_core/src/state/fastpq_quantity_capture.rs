@@ -465,13 +465,54 @@ impl StateBlock<'_> {
         let supplies = self.world.asset_definitions.write_observation();
         let expected = self.fastpq_quantity_candidate.applied_world_transactions;
         if balances.0 || supplies.0 || balances.1 != expected || supplies.1 != expected {
-            self.fastpq_quantity_candidate
+            self.fields
+                .as_mut()
+                .expect("original quantity observation owner")
+                .fastpq_quantity_candidate
                 .poison(QuantityCaptureIssue::UnownedMutation);
-            self.fastpq_quantity_candidate
+            self.fields
+                .as_mut()
+                .expect("original quantity observation owner")
+                .fastpq_quantity_candidate
                 .commitments
                 .unsupported(CoverageGap::RawQuantityWrite);
         }
         self.observe_quantity_source_census();
+    }
+}
+
+impl StateTransaction<'_, '_> {
+    /// Initialize the exact authorized registration, deriving its incarnation from
+    /// this original execution entry. Zero initialization introduces no monetary
+    /// effect; every later Mint still requires its ordinary supply/balance permits.
+    pub(crate) fn register_quantity_definition(
+        &mut self,
+        definition_id: AssetDefinitionId,
+        definition: iroha_data_model::asset::AssetDefinition,
+    ) -> Result<iroha_data_model::nexus::AxtAssetIncarnationV1, InstructionExecutionError> {
+        let registration_header_hash = self._curr_block.hash();
+        let (execution_identity, lifecycle_ordinal) = self
+            .next_lifecycle_transition_seed()
+            .map_err(|error| {
+                InstructionExecutionError::InvariantViolation(
+                    format!(
+                        "asset-definition registration lacks deterministic execution identity: {error}"
+                    ).into(),
+                )
+            })?;
+        let incarnation = iroha_data_model::nexus::AxtAssetIncarnationV1::derive(
+            self.network_id(),
+            &definition_id,
+            &registration_header_hash,
+            &execution_identity,
+            lifecycle_ordinal,
+        );
+        self.world
+            .register_empty_asset_definition_entry(definition_id.clone(), definition)?;
+        self.world
+            .axt_asset_incarnations
+            .insert(definition_id, incarnation);
+        Ok(incarnation)
     }
 }
 

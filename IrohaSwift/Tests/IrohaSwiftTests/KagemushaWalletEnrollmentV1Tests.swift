@@ -81,10 +81,24 @@ final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
     }
     _ = try KagemushaWalletEnrollmentInputV1(14,Data([1]))
     _ = try KagemushaWalletEnrollmentInputV1(15,Data([1]),Data([2]))
-    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(21))
-    for selector: UInt32 in [21, UInt32.max] {
+    for selector: UInt32 in [22, UInt32.max] {
       XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(selector))
     }
+  }
+  func testExpiredAbandonSelectorCarriesOnlyTheBoundedProofOriginal() throws {
+    let proof = Data(repeating: 7, count: 4096)
+    let input = try KagemushaWalletEnrollmentInputV1(21, proof)
+    XCTAssertEqual(input.originals, [proof, Data(), Data()])
+    input.withRequest { request in
+      XCTAssertEqual(request.pointee.selector, 21)
+      XCTAssertEqual(request.pointee.first_length, proof.count)
+      XCTAssertEqual(request.pointee.second_length, 0)
+      XCTAssertEqual(request.pointee.third_length, 0)
+      XCTAssertEqual(request.pointee.certificate_count, 0)
+    }
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(21, proof + Data([1])))
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(21, proof, Data([1])))
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(21, proof, Data(), Data([1])))
   }
   func testRenewedSessionUsesOnlyBoundedOriginalFramesAndNonmonetaryAcknowledgement() throws {
     let session = try KagemushaWalletEnrollmentSessionOriginalsV1(accessToken: Data([1]), dpopProof: Data([2]), attestationRootDER: Data([3]))

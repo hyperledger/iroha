@@ -360,7 +360,9 @@ members = [
     "vendor/find_cuda_helper",
     "vendor/cust_raw",
     "vendor/aes",
-    "mochi/*",
+    "mochi/mochi-core",
+    "mochi/mochi-integration",
+    "mochi/mochi-ui-egui",
     "data_model/samples/*",
     "integration_tests",
     "python/iroha_python/iroha_python_rs",
@@ -374,9 +376,6 @@ members = [
     "tools/soradns-resolver",
     "tools/telemetry-schema-diff",
     "tools/kotlin-fixture-gen"
-]
-exclude = [
-    "mochi/fixtures",
 ]
 
 [profile.dev]
@@ -696,11 +695,12 @@ inherits = "release"
 lto = "thin"
 strip = "none"
 
-# rustc's final ThinLTO pass uses the final crate's optimization level for its
-# imported modules too. Keep the data-model O1 memory ceiling in that pass;
-# crypto dependencies retain their ordinary O3 compilation before ThinLTO.
+# rustc's final ThinLTO pass uses the final crate's optimization level for every
+# imported module, the prover and crypto crates included, so run it at their O3.
+# The data-model modules stay inside the memory envelope in that pass: the
+# aarch64-apple-ios staticlib peaked at 9.9 GB (8.96 GB at O1), 2026-10-18.
 [profile.apple-release.package.connect_norito_bridge]
-opt-level = 1
+opt-level = 3
 strip = "none"
 
 # Fast, incremental optimization for local runnable builds only. This profile

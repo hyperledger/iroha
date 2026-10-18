@@ -59,7 +59,7 @@ const SLOT_SELECTION_MAX_BYTES: usize = 1_024;
     Debug, Clone, Copy, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_advance_v1::EnrollmentPhaseBindingV1")]
-pub(crate) struct KagemushaWalletEnrollmentBindingV1 {
+pub struct KagemushaWalletEnrollmentBindingV1 {
     /// Exactly [`PHASE_VERSION`].
     pub(crate) version: u16,
     /// Pre-key request identity.
@@ -148,17 +148,17 @@ impl KagemushaWalletEnrollmentBindingV1 {
 }
 
 /// Digest of the exact retained pre-key Client original a phase names.
-pub(crate) fn kagemusha_wallet_prekey_client_digest_v1(client: &[u8]) -> [u8; 32] {
+pub fn kagemusha_wallet_prekey_client_digest_v1(client: &[u8]) -> [u8; 32] {
     kagemusha_wallet_provider_digest_v1("enrollment-pre-key-client", client)
 }
 
 /// Digest of the exact accepted permit original a phase names.
-pub(crate) fn kagemusha_wallet_prekey_permit_digest_v1(accepted: &[u8]) -> [u8; 32] {
+pub fn kagemusha_wallet_prekey_permit_digest_v1(accepted: &[u8]) -> [u8; 32] {
     kagemusha_wallet_provider_digest_v1("enrollment-pre-key-permit", accepted)
 }
 
 /// Digest of the exact intent envelope a phase names.
-pub(crate) fn kagemusha_wallet_intent_digest_v1(
+pub(super) fn kagemusha_wallet_intent_digest_v1(
     intent: &KagemushaWalletIntentV1,
 ) -> Result<[u8; 32], KagemushaWalletProviderErrorV1> {
     Ok(kagemusha_wallet_provider_digest_v1(
@@ -169,7 +169,7 @@ pub(crate) fn kagemusha_wallet_intent_digest_v1(
 
 /// Current monotone phase of one attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum KagemushaWalletEnrollmentPhaseV1 {
+pub enum KagemushaWalletEnrollmentPhaseV1 {
     /// No intent was selected: no intent exists and no key was generated.
     PreIntent,
     /// The exact intent was selected before its publication.
@@ -230,7 +230,7 @@ impl KagemushaWalletEnrollmentPhaseV1 {
 
 /// Binding and current phase of one attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct KagemushaWalletEnrollmentPhaseStateV1 {
+pub struct KagemushaWalletEnrollmentPhaseStateV1 {
     pub(crate) binding: KagemushaWalletEnrollmentBindingV1,
     pub(crate) phase: KagemushaWalletEnrollmentPhaseV1,
 }
@@ -363,13 +363,13 @@ fn encode_phase(
 
 /// Encoded phase record of `state` (tests construct exact versions with it).
 #[cfg(test)]
-pub(crate) fn test_phase_record(state: &KagemushaWalletEnrollmentPhaseStateV1) -> Vec<u8> {
+pub(super) fn test_phase_record(state: &KagemushaWalletEnrollmentPhaseStateV1) -> Vec<u8> {
     encode_phase(state).expect("phase record")
 }
 
 /// Decoded phase record (tests).
 #[cfg(test)]
-pub(crate) fn test_decode_phase_record(bytes: &[u8]) -> KagemushaWalletEnrollmentPhaseStateV1 {
+pub(super) fn test_decode_phase_record(bytes: &[u8]) -> KagemushaWalletEnrollmentPhaseStateV1 {
     decode_envelope_v1::<PhaseRecordV1>(bytes, PHASE_MAX_BYTES)
         .expect("phase record")
         .state()

@@ -40,6 +40,12 @@ impl RetainedConsensusSchedule {
     ) -> Result<Self, ScheduleError> {
         crate::sumeragi::epoch_election::retain_schedule(source, budget).map_err(Into::into)
     }
+    /// Every retained graph allocation and shared shell belongs to this exact pool.
+    pub(crate) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.owner.as_ref().is_none_or(|owner| {
+            owner.belongs_to(budget) && RetainedPayload::belongs_to(owner, budget)
+        })
+    }
     /// Borrow the next configuration from this exact validated applied cut.
     ///
     /// Only `epoch_election::retain_slots` constructs a nonempty owner, after

@@ -3500,6 +3500,11 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
         source: "",
         derivation: &[
             (FEE_REWARDS, "pub(crate) fn capture_fee_evidence("),
+            (
+                "crates/iroha_core/src/state.rs",
+                "pub(crate) fn capture_pending_fee_evidence(",
+            ),
+            (FEE_REWARDS, "pub(crate) fn checked_pending_fee_evidence("),
             (FEE_REWARDS, "fn pending_fee_evidence_records("),
             (FEE_REWARDS, "fn collect_pending_fee_evidence_records("),
             (

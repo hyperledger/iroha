@@ -300,6 +300,9 @@ pub fn verify_retained(
         return Err(invalid());
     }
     let client = prepared.context.load_client_config()?;
+    // Signed child parameter JSON owns this validated profile. A parent SDK caller's
+    // ambient I105 prefix must not reinterpret its fee-policy account literals.
+    let _address_profile = ChainDiscriminantGuard::enter(client.account_chain_discriminant);
     prepared.load_operator_key_pair()?;
     verify_private_credentials(prepared, spec)?;
     let bytes =
@@ -989,6 +992,11 @@ mod tests {
         let ports = LocalnetPorts::reserve().unwrap();
         let spec = spec();
         let prepared = prepare_private_root("private", &directory, &ports, &spec).unwrap();
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369,
+            "fresh private preparation restores its caller's parent profile",
+        );
         assert_eq!(prepared.context.dataspace_id, spec.dataspace_id.as_u64());
         assert_eq!(
             prepared.build_cache_root(),
@@ -1000,7 +1008,16 @@ mod tests {
         assert!(!prepared.build_cache_root().exists());
         assert_eq!(prepared.peers.len(), 4);
         verify_retained(&directory.canonicalize().unwrap(), &prepared, &spec).unwrap();
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369,
+            "successful retained verification restores the parent profile",
+        );
         let registration = prepared.load_private_registration().unwrap();
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369
+        );
         assert_eq!(registration.scope, spec.scope());
         assert_eq!(registration.genesis_cursor.height, 1);
         assert_eq!(
@@ -1180,9 +1197,36 @@ mod tests {
             );
         }
         let manifest = RawGenesisTransaction::from_path(directory.join("genesis.json")).unwrap();
-        let projected =
-            iroha_core::state::StateParameters::try_from(manifest.effective_parameters().unwrap())
-                .unwrap();
+        assert_eq!(
+            manifest.chain_discriminant(),
+            client.account_chain_discriminant
+        );
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369
+        );
+        assert!(
+            matches!(
+                RootFeePolicy::from_parameters(&manifest.effective_parameters().unwrap()),
+                Err(iroha_data_model::block::consensus::RootFeePolicyError::MalformedParameter),
+            ),
+            "retained child fee accounts must still reject the foreign parent profile",
+        );
+        let (projected, fees) = {
+            let _child_profile = ChainDiscriminantGuard::enter(manifest.chain_discriminant());
+            (
+                iroha_core::state::StateParameters::try_from(
+                    manifest.effective_parameters().unwrap(),
+                )
+                .unwrap(),
+                RootFeePolicy::from_parameters(&manifest.effective_parameters().unwrap()).unwrap(),
+            )
+        };
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369,
+            "typed child-policy inspection restores the parent profile",
+        );
         assert_eq!(
             projected.gas().tech_account_id,
             localnet_gas_account_id(client.key_pair.public_key())
@@ -1195,7 +1239,7 @@ mod tests {
             spec.scope()
         );
         assert_eq!(
-            RootFeePolicy::from_parameters(&manifest.effective_parameters().unwrap()).unwrap(),
+            fees,
             Some(
                 private_fee_policy(
                     &spec,
@@ -1276,6 +1320,10 @@ mod tests {
             );
         }
         let repeated = prepare_private_root("private", &directory, &ports, &spec).unwrap();
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369
+        );
         assert_eq!(repeated, prepared);
         assert_eq!(repeated.build_cache_root(), prepared.build_cache_root());
         assert!(!repeated.build_cache_root().exists());
@@ -1307,7 +1355,18 @@ mod tests {
         )
         .unwrap();
         assert!(verify_private_credentials(&prepared, &spec).is_err());
+        assert!(verify_retained(&directory.canonicalize().unwrap(), &prepared, &spec).is_err());
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369,
+            "retained credential refusal restores the parent profile",
+        );
         custody::replace(peer_path, bytes.as_slice()).unwrap();
+        verify_retained(&directory.canonicalize().unwrap(), &prepared, &spec).unwrap();
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369
+        );
         table["torii"]
             .as_table_mut()
             .unwrap()
@@ -1335,6 +1394,12 @@ mod tests {
             Hash::new(b"foreign parent"),
         ));
         assert!(prepare_private_root("private", &directory, &ports, &foreign).is_err());
+        assert!(verify_retained(&directory.canonicalize().unwrap(), &prepared, &foreign).is_err());
+        assert_eq!(
+            iroha_data_model::account::address::chain_discriminant(),
+            369,
+            "retained signed-scope refusal restores the parent profile",
+        );
     }
 
     #[test]

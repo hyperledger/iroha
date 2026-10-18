@@ -432,7 +432,7 @@ mod tests {
     use iroha_pasta::{Fp, Fq};
     use iroha_plonk::{
         check::{CheckMode, check_circuit},
-        cs::ConstraintSystem,
+        cs::{Any, ConstraintSystem},
         frontend::{Circuit, Layouter, SimpleFloorPlanner},
     };
 
@@ -629,18 +629,70 @@ mod tests {
         [sum, hi + max_hi + u128::from(carry)]
     }
 
+    /// Rejects only through the selected canonicality constraint family.
+    /// The fixture's algebraic high bounds use glue/constant copy constraints.
+    fn assert_canonical_rejection(
+        report: &iroha_plonk::check::CheckReport<Fp>,
+        nonzero_copy: Option<Fp>,
+    ) {
+        use iroha_plonk::check::CheckFailure;
+
+        assert!(!report.is_satisfied(), "{report}");
+        assert!(
+            report
+                .failures()
+                .iter()
+                .all(|failure| match (nonzero_copy, failure) {
+                    (None, CheckFailure::LookupInputMissing { name, .. }) =>
+                        name == "running-sum limb",
+                    (
+                        Some(expected),
+                        CheckFailure::CopyMismatch {
+                            left,
+                            left_value,
+                            right,
+                            right_value,
+                            ..
+                        },
+                    ) => {
+                        // ForcedLimbs uses glue A0..A3 and constants F0.
+                        [left, right]
+                            .iter()
+                            .all(|column| match column.column_type() {
+                                Any::Advice => column.index() < 4,
+                                Any::Fixed => column.index() == 0,
+                                Any::Instance => false,
+                            })
+                            && ((*left_value == expected && *right_value == Fp::ZERO)
+                                || (*right_value == expected && *left_value == Fp::ZERO))
+                    }
+                    _ => false,
+                }),
+            "unexpected canonicality rejection: {report}"
+        );
+    }
+
     #[test]
     fn canonical_limbs_are_the_only_decomposition() {
-        for value in [
-            Fp::ZERO,
-            Fp::ONE,
-            -Fp::ONE,
-            Fp::from(0x1234_5678u64).invert().unwrap(),
+        let inverse = Fp::from(0x1234_5678u64).invert().unwrap();
+        let inverse_alias = plus_modulus(foreign_limbs(&inverse));
+        let [max_lo, max_hi] = foreign_limbs(&-Fp::ONE);
+        // This alias's low limb wraps below the maximum; its only failed
+        // canonicality constraint is at_max * hi_low = 0.
+        assert!(inverse_alias[0] <= max_lo);
+        assert!(inverse_alias[1] > max_hi && inverse_alias[1] < 2 * max_hi);
+        let forbidden_high = Fp::from_u128(inverse_alias[1] - max_hi);
+        for (value, nonzero_copy) in [
+            (Fp::ZERO, None),
+            (Fp::ONE, None),
+            // The alias of -1 has high limb 2^127 and zero recomposition.
+            (-Fp::ONE, Some(Fp::from_u128(1 << 127))),
+            (inverse, Some(forbidden_high)),
         ] {
             let limbs = foreign_limbs(&value);
             assert!(forced(value, limbs).is_satisfied(), "{value:?}");
-            // value + p recomposes to the same field element, but its high
-            // limb is out of range: only range lookups fail.
+            // value + p recomposes to the same field element, but the
+            // conditional low range or algebraic high bound rejects it.
             let alias = plus_modulus(limbs);
             assert_ne!(alias, limbs);
             assert_eq!(
@@ -648,11 +700,7 @@ mod tests {
                 value
             );
             let report = forced(value, alias);
-            assert!(!report.is_satisfied());
-            assert!(report.failures().iter().all(|failure| matches!(
-                failure,
-                iroha_plonk::check::CheckFailure::LookupInputMissing { .. }
-            )));
+            assert_canonical_rejection(&report, nonzero_copy);
             // Limbs of another value fail the recomposition copy.
             let wrong = [limbs[0] ^ 1, limbs[1]];
             assert!(!forced(value, wrong).is_satisfied());

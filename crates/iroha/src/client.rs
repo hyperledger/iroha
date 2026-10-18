@@ -60,7 +60,8 @@ mod validator_committee;
 mod verified_payment;
 pub use native_payment::{
     NativePaymentError, NativePaymentObservationError, NativePaymentOperation,
-    NativePaymentRecovery, NativePaymentRequest, NativePaymentRunOptions, NativePaymentSettlement,
+    NativePaymentRecovery, NativePaymentRequest, NativePaymentRunOptions, NativePaymentSession,
+    NativePaymentSettlement,
 };
 pub use payment_inbox::{PaymentCreditEntry, PaymentCreditStatus, PaymentInbox, PaymentInboxError};
 pub use payment_return::{

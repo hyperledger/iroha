@@ -1,9 +1,38 @@
 # Mochi development
 
+<img src="assets/mochi-logo.svg" alt="Mochi" width="320">
+
 Mochi is a desktop client of the same managed workspace used by Kagami. The
 native bundle contains matching `mochi`, `kagami` and `iroha3d` executables.
 `mochi --workspace <directory>` selects the workspace; no user-supplied TOML,
 source build, PATH discovery or project-local secret export is involved.
+
+## Desktop tour
+
+- **Home** offers Quickstart: one click creates and starts a four-validator
+  localnet under the first unused `local`, `local-2`, … name. With an environment
+  selected it shows each validator's Torii URL, the developer account's balances,
+  the latest blocks and quick actions.
+- The header switches, creates and attaches environments and holds Start, Stop,
+  Refresh and Reset. The status strip shows phase, running validators, block
+  height, chain, network, dataspace and the observed Torii URL; click a value to copy.
+- **Accounts** lists registered accounts with their holdings. Quick actions mint,
+  send, burn or create a funded account. A new account's key pair is generated in
+  memory, revealed only on request and dropped with the environment. Every quick
+  action becomes the same signed preview as the composer and is submitted only by
+  an explicit click.
+- **Blocks** and **Activity** follow the observed validator's canonical streams.
+  Idle chains create no blocks, so balances refresh only after committed blocks
+  or submissions.
+- **Endpoints** lists Torii, health, status, metrics, OpenAPI and MCP URLs for each
+  validator, the network identity and copyable `kagami` and `curl` commands. It
+  never shows generated keys, API tokens or private configuration paths.
+- **Contracts** accepts a `.ko`, `.to`, `Musubi.toml` or package directory dropped
+  anywhere on the window. **Transactions**, **State**, **Packages** and **Logs**
+  cover the remaining workflows.
+- The theme follows the operating system and can be toggled in the header. The
+  mascot's face follows the selected network's phase; poke it for a squish.
+  Brand assets and their provenance live in [assets](assets/README.md).
 
 ## Ownership
 

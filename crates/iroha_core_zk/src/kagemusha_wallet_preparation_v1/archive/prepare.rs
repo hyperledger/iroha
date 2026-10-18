@@ -3,7 +3,7 @@
 use super::*;
 
 /// Opaque local Archive proposal; incoming evidence remains a soft fold obligation.
-pub(crate) struct ArchiveStepV1 {
+pub struct ArchiveStepV1 {
     pub(super) manifest: [u8; 32],
     pub(super) source: [u8; 32],
     pub(super) witness: ArchiveWitness,

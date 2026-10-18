@@ -547,13 +547,54 @@ fn read_source_image(root: &PrivateDirectory, name: &str) -> Result<Option<Vec<u
     super::read_optional(root, name, attempts::MAX_RECORD_BYTES)
 }
 
+// Only the complete callback-free epoch census creates this optional borrowed reader.
+// It consolidates directory ancestry, never records, source equality, namespace observations,
+// decoder admission or authority. Each use rechecks an inherited decoder before sharing.
+struct EpochCensusRead<'root, 'borrow, 'scope> {
+    root: &'root PrivateDirectory,
+    reader: Option<&'borrow mut iroha_fs::PrivateReadScope<'scope>>,
+}
+impl EpochCensusRead<'_, '_, '_> {
+    fn image(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
+        if let Some(reader) = self.reader.as_deref_mut()
+            && !norito::core::decode_limits_active()
+        {
+            #[cfg(test)]
+            reader_tests::record_read();
+            return Ok(reader
+                .read_optional_owned(name, attempts::MAX_RECORD_BYTES)?
+                .map(|mut bytes| std::mem::take(&mut *bytes)));
+        }
+        read_source_image(self.root, name)
+    }
+    fn entries(&self) -> Result<Vec<OsString>> {
+        #[cfg(test)]
+        reader_tests::namespace_read();
+        Ok(match self.reader.as_deref() {
+            Some(reader) if !norito::core::decode_limits_active() => {
+                reader.entries(MAX_EPOCHS * 2)?
+            }
+            _ => self.root.entries(MAX_EPOCHS * 2)?,
+        })
+    }
+}
+fn share_epoch_census() -> bool {
+    #[cfg(test)]
+    if reader_tests::scope_tests::original_recipe() {
+        return false;
+    }
+    !norito::core::decode_limits_active()
+}
+
 fn read_image<T: norito::NoritoSerialize + for<'a> norito::NoritoDeserialize<'a>>(
-    root: &PrivateDirectory,
+    source: &mut EpochCensusRead<'_, '_, '_>,
     name: &str,
     retained: Option<RecordImage<T>>,
     exact: bool,
 ) -> Result<Option<RecordImage<T>>> {
-    let current = read_source_image(root, name)?;
+    let current = source.image(name)?;
+    #[cfg(test)]
+    reader_tests::scope_tests::after_image(name)?;
     // Compare before dropping or replacing the original image: absence, a newly appeared
     // claim/epoch, and changed bytes all refuse the exact lexical parser exit.
     if exact && current.as_deref() != retained.as_ref().map(|image| image.bytes.as_slice()) {
@@ -640,9 +681,46 @@ fn read_epochs_using(
     retained: Vec<RetainedEpoch>,
     exact: bool,
 ) -> Result<Vec<RetainedEpoch>> {
-    #[cfg(test)]
-    reader_tests::namespace_read();
-    let names = root.entries(MAX_EPOCHS * 2)?;
+    // The full native epoch owner brackets this fixed read-only sequence. Every original
+    // leaf and both inventories still run in order; there is no callback, wallet inspection,
+    // publication or live-permission check inside the bracket. Persistent owner exit refusal
+    // overrides ordinary codec/semantic errors. An ancestor change restored wholly inside
+    // this census may be unseen, as in the existing native read-scope contract.
+    // Inherited decoder owners retain the literal original read/allocation recipe.
+    if !share_epoch_census() {
+        return read_epochs_inner(
+            &mut EpochCensusRead { root, reader: None },
+            parent_intent,
+            fees,
+            scope,
+            retained,
+            exact,
+        );
+    }
+    root.read_scope(|reader| {
+        read_epochs_inner(
+            &mut EpochCensusRead {
+                root,
+                reader: Some(reader),
+            },
+            parent_intent,
+            fees,
+            scope,
+            retained,
+            exact,
+        )
+    })
+}
+
+fn read_epochs_inner(
+    source: &mut EpochCensusRead<'_, '_, '_>,
+    parent_intent: [u8; 32],
+    fees: &Fees,
+    scope: Scope,
+    retained: Vec<RetainedEpoch>,
+    exact: bool,
+) -> Result<Vec<RetainedEpoch>> {
+    let names = source.entries()?;
     let mut expected = Vec::<OsString>::new();
     let mut epochs: Vec<RetainedEpoch> = Vec::new();
     // Move each already owned image after its fresh observation. Unchanged records keep
@@ -654,7 +732,7 @@ fn read_epochs_using(
         let (old_epoch, old_claim) = retained
             .next()
             .map_or((None, None), |entry| (Some(entry.epoch), entry.claim));
-        let Some(epoch): Option<RecordImage<Epoch>> = read_image(root, &name, old_epoch, exact)?
+        let Some(epoch): Option<RecordImage<Epoch>> = read_image(source, &name, old_epoch, exact)?
         else {
             break;
         };
@@ -667,7 +745,7 @@ fn read_epochs_using(
         )?;
         expected.push(name.into());
         let claim_name = format!("{index:04}-replacement.nrt");
-        let claim = read_image(root, &claim_name, old_claim, exact)?;
+        let claim = read_image(source, &claim_name, old_claim, exact)?;
         if let Some(claim) = &claim {
             validate_claim(claim, &epoch, scope)?;
             expected.push(claim_name.into());
@@ -677,11 +755,7 @@ fn read_epochs_using(
     expected.sort();
     // Keep the short-circuit order: a mismatched original inventory refuses before the
     // original final namespace observation is attempted.
-    if names != expected || {
-        #[cfg(test)]
-        reader_tests::namespace_read();
-        root.entries(MAX_EPOCHS * 2)? != names
-    } {
+    if names != expected || source.entries()? != names {
         return Err(invalid(
             "generated epoch inventory changed or contains gaps or unknown material",
         ));

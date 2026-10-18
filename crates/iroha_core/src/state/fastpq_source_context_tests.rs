@@ -438,12 +438,16 @@ fn unresolved_lane_refuses_apply_and_later_valid_capture_cannot_unpoison_carrier
         block.execution_output_plan,
         Some(output_capacity::ExecutionOutputPlanState::Poisoned)
     ));
-    {
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut tx = block.transaction();
         tx.tx_call_hash = Some(good);
         tx.record_transfer_transcript(&ALICE_ID, delta()).unwrap();
         tx.apply();
-    }
+    }));
+    assert!(
+        refused.is_err(),
+        "poisoned original cannot reacquire a child"
+    );
     assert!(block.fastpq_transcripts.is_empty());
     assert!(
         block

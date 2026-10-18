@@ -115,9 +115,12 @@ impl<'account> CustodyPreparationReader<'account> {
                 let retirement = observed
                     .retirement
                     .ok_or_else(|| eyre!("terminal read lost its original retirement"))?;
+                let request_commitment = observed
+                    .request_commitment
+                    .ok_or_else(|| eyre!("terminal read lost its original request commitment"))?;
                 let inspection = VerifiedNativePreparation {
                     phase: retained.phase(),
-                    request_sha256: Some(retained.request.commitment()?),
+                    request_sha256: Some(request_commitment),
                     signed: retained.signed,
                     unprepared: None,
                 };
@@ -141,6 +144,7 @@ impl<'account> CustodyPreparationReader<'account> {
 #[cfg(test)]
 thread_local! {
     static REQUEST_VERIFICATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static REQUEST_COMMITMENTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 #[cfg(test)]
 pub(super) fn record_request_verification() {
@@ -151,6 +155,19 @@ pub(in crate::operations) fn count_request_verifications<T>(
     read: impl FnOnce() -> T,
 ) -> (T, usize) {
     REQUEST_VERIFICATIONS.with(|count| {
+        let before = count.get();
+        let result = read();
+        (result, count.get() - before)
+    })
+}
+
+#[cfg(test)]
+pub(super) fn record_request_commitment() {
+    REQUEST_COMMITMENTS.with(|count| count.set(count.get() + 1));
+}
+#[cfg(test)]
+pub(in crate::operations) fn count_request_commitments<T>(read: impl FnOnce() -> T) -> (T, usize) {
+    REQUEST_COMMITMENTS.with(|count| {
         let before = count.get();
         let result = read();
         (result, count.get() - before)

@@ -1,5 +1,5 @@
 //! The relation checks as real PIPA-v1 proofs (KAGEMUSHA step format on
-//! Vesta, at the shape within the 3.5 KB budget):
+//! Vesta, at the shape within the 3,520-byte sigma budget):
 //!
 //! - an honest witness is proved and verified, also through the
 //!   verifying-key allowlist by its `(tag, mask)` selector; a wrong public
@@ -21,22 +21,24 @@
 //! selector does not verify under another; the quota rule's violations
 //! have no accepted proof; the full mask proves and
 //! verifies at its single-lane `k = 14` shape; keys and verification of retained
-//! proof bytes do not depend on the Rayon pool size. All tests here prove for real and are ignored in
-//! debug builds.
+//! proof bytes do not depend on the Rayon pool size. Genuine-proof tests are
+//! explicitly ignored for an optimized invocation; the source-inventory pin is ordinary.
 
 mod common;
 
 use core::fmt::Write as _;
 
 use common::{
-    CHECK_SEED, RELATION_CASES, RELATION_CHECK_CASES, RELATIONS, SEND_EVERY, SEND_LEASE,
-    SEND_QUOTAS, budget_shape, case_label, folded, forged_witness, fresh_randomness, pinned_shape,
+    CHECK_SEED, RELATION_CASES, RELATION_CHECK_CASES, SEND_EVERY, SEND_LEASE, SEND_QUOTAS,
+    budget_shape, case_label, folded, forged_witness, fresh_randomness, pinned_shape,
     relation_shapes, vesta_params, vesta_prover,
 };
 use ff::Field;
+use iroha_data_model::kagemusha::kagemusha_wallet_v1::KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1;
 use iroha_kagemusha_proof::{
     ConsumerError, Mutation, SigmaAllowlist, SigmaError, SigmaProver, SigmaRelation, StepRelation,
     VerifyingKeyEntry, Violation, check_send, lineage_view_of, sample_witness,
+    wallet_monetary_shape,
 };
 use iroha_pasta::{Ep, Eq, Fp, Fq};
 use iroha_plonk::{ProverConfig, ProverError, create_proof, prove_circuit};
@@ -48,6 +50,9 @@ fn relation_checks_as_real_proofs() {
     let mut cases = 0;
     for relation in relation_shapes() {
         let shape = budget_shape(relation);
+        if relation == folded(relation.relation) {
+            assert_eq!(shape, wallet_monetary_shape(relation.relation).unwrap());
+        }
         let prover = vesta_prover(shape);
         let verifier = prover.verifier();
         let honest = sample_witness::<Fp>(CHECK_SEED, relation.relation, Mutation::None);
@@ -66,6 +71,7 @@ fn relation_checks_as_real_proofs() {
                     proof.bytes.len(),
                     shape.proof_length::<Eq>().expect("length")
                 );
+                assert!(proof.bytes.len() <= KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
                 assert_eq!(
                     verifier.verify(&proof.public, &proof.bytes),
                     Ok(()),
@@ -189,7 +195,10 @@ fn every_byte_is_bound(relation: iroha_kagemusha_proof::RelationShape) -> usize 
 #[test]
 #[ignore = "two flips per proof byte, each a full verification; run in release"]
 fn every_proof_byte_is_bound() {
-    for case in RELATIONS {
+    for case in (0..=3)
+        .map(SigmaRelation::send)
+        .chain([SigmaRelation::RECEIVE])
+    {
         let relation = folded(case);
         let bytes = every_byte_is_bound(relation);
         println!(
@@ -238,12 +247,17 @@ fn pallas_step_proofs_verify() {
 /// A witness of the other step is refused before proving, and a proof
 /// verifies only under its own selector of the allowlist.
 #[test]
-#[ignore = "key generation for three selectors; run in release"]
+#[ignore = "key generation and genuine proofs for all five selectors; run in release"]
 fn proofs_verify_only_under_their_selector() {
     let mut allowlist = SigmaAllowlist::<Eq>::new();
     let mut provers = Vec::new();
-    for case in RELATIONS {
-        let prover = vesta_prover(budget_shape(folded(case)));
+    for case in (0..=3)
+        .map(SigmaRelation::send)
+        .chain([SigmaRelation::RECEIVE])
+    {
+        let shape = wallet_monetary_shape(case).expect("monetary shape");
+        assert_eq!(shape, budget_shape(folded(case)));
+        let prover = vesta_prover(shape);
         allowlist
             .insert(prover.verifier())
             .expect("one per selector");
@@ -256,11 +270,12 @@ fn proofs_verify_only_under_their_selector() {
             .iter()
             .map(VerifyingKeyEntry::selector)
             .collect::<Vec<_>>(),
-        vec![(3, 0), (3, 2), (4, 0)]
+        vec![(3, 0), (3, 1), (3, 2), (3, 3), (4, 0)]
     );
     for (entry, (_, prover)) in entries.iter().zip(&provers) {
         let length = prover.shape().proof_length::<Eq>().expect("length");
         assert_eq!(usize::try_from(entry.proof_bytes).expect("u32"), length);
+        assert!(length <= KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
         assert_eq!(entry.transcript()[5..37], entry.verifying_key_digest);
         println!(
             "M12_ALLOWLIST selector={:?} proof_bytes={} vk_digest={}",
@@ -276,10 +291,11 @@ fn proofs_verify_only_under_their_selector() {
         );
     }
     // The verifying keys differ per selector.
-    assert_ne!(
-        entries[0].verifying_key_digest,
-        entries[1].verifying_key_digest
-    );
+    for (index, entry) in entries.iter().enumerate() {
+        for other in &entries[index + 1..] {
+            assert_ne!(entry.verifying_key_digest, other.verifying_key_digest);
+        }
+    }
     assert!(matches!(
         allowlist.insert(provers[0].1.verifier()),
         Err(SigmaError::DuplicateSelector((3, 0)))
@@ -287,10 +303,36 @@ fn proofs_verify_only_under_their_selector() {
     for (case, prover) in &provers {
         let witness = sample_witness::<Fp>(1, *case, Mutation::None);
         let proof = prover.prove(&witness, fresh_randomness()).expect("proof");
+        assert_eq!(
+            proof.bytes.len(),
+            prover.shape().proof_length::<Eq>().unwrap()
+        );
+        assert!(proof.bytes.len() <= KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
         for (other, _) in &provers {
             let verdict = allowlist.verify(*other, &proof.public, &proof.bytes);
             assert_eq!(verdict.is_ok(), other == case, "{case:?} under {other:?}");
         }
+        // Every monetary selector rejects a changed public statement and exact-length
+        // framing errors, including the k14 quota profiles.
+        let mut wrong_public = proof.public;
+        wrong_public.statement += Fp::ONE;
+        assert!(
+            allowlist
+                .verify(*case, &wrong_public, &proof.bytes)
+                .is_err()
+        );
+        assert!(
+            allowlist
+                .verify(*case, &proof.public, &proof.bytes[..proof.bytes.len() - 1])
+                .is_err(),
+            "{case:?}: truncated proof"
+        );
+        let mut extended = proof.bytes.clone();
+        extended.push(0);
+        assert!(
+            allowlist.verify(*case, &proof.public, &extended).is_err(),
+            "{case:?}: extended proof"
+        );
         // A witness of the other step is refused.
         let other_step = match case.step() {
             StepRelation::Send => SigmaRelation::RECEIVE,
@@ -307,21 +349,27 @@ fn proofs_verify_only_under_their_selector() {
             })
         );
     }
-    // A mask without an allowlisted relation has no verifier.
+    // An undefined mask has no verifier.
     assert!(matches!(
-        allowlist.select(SigmaRelation::send(1)),
-        Err(SigmaError::NoVerifier((3, 1)))
+        allowlist.select(SigmaRelation::send(4)),
+        Err(SigmaError::NoVerifier((3, 4)))
     ));
 }
 
-/// A refused witness the engine is asked to prove anyway: it errs, or its
-/// proof is rejected.
+/// A refused witness sent directly to the engine: the relation's sole running-sum
+/// lookup (index zero) fails, or an emitted proof is rejected by the full verifier.
+/// Infrastructure, cancellation, and unrelated proving errors never count as refusal.
 fn engine_refuses(
     prover: &SigmaProver<Eq>,
     witness: &iroha_kagemusha_proof::StepWitness<Fp>,
     label: &str,
 ) {
     let relation = prover.shape().params.relation().relation;
+    assert_eq!(
+        prover.proving_key().binding().descriptor().lookups.len(),
+        1,
+        "sigma has exactly its running-sum lookup at index zero"
+    );
     let circuit = prover.circuit(witness).expect("circuit");
     let claimed = witness.evaluate(relation).public();
     let engine = prove_circuit(
@@ -333,7 +381,10 @@ fn engine_refuses(
         ProverConfig::default(),
     );
     match engine {
-        Err(error) => println!("M12_REFUSED case={label} engine={error:?}"),
+        Err(ProverError::LookupInputMissing { lookup: 0 }) => {
+            println!("M12_REFUSED case={label} engine=LookupInputMissing lookup=0");
+        }
+        Err(error) => panic!("{label}: unexpected prover error, not a relation refusal: {error:?}"),
         Ok(proof) => {
             assert!(
                 prover.verifier().verify(&claimed, &proof).is_err(),
@@ -353,6 +404,7 @@ fn engine_refuses(
 fn quota_relations_prove_at_k14() {
     for case in [SEND_QUOTAS, SEND_EVERY] {
         let shape = pinned_shape(folded(case), (14, 1));
+        assert_eq!(shape, wallet_monetary_shape(case).unwrap());
         let prover = vesta_prover(shape);
         let verifier = prover.verifier();
         let honest = sample_witness::<Fp>(CHECK_SEED + 1, case, Mutation::None);
@@ -363,6 +415,96 @@ fn quota_relations_prove_at_k14() {
         assert_eq!(
             proof.bytes.len(),
             shape.proof_length::<Eq>().expect("length")
+        );
+        assert!(proof.bytes.len() <= KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
+
+        // The production k14 profile must retain the exact expiry and interval-width
+        // bounds, including the additional lease control in the full mask.
+        let iroha_kagemusha_proof::StepInputs::Send(send) = &honest.inputs else {
+            panic!("a Send witness");
+        };
+        let upper = send.accepted_upper;
+        let span = upper
+            .checked_sub(send.accepted_lower)
+            .expect("ordered interval");
+        assert!(span > 0, "nonempty boundary fixture");
+        let mut boundary = honest.clone();
+        boundary.predecessor.core.controls.quota_share_expires_at_ms =
+            upper.checked_add(1).expect("expiry boundary");
+        boundary
+            .predecessor
+            .core
+            .controls
+            .time_anchor_max_response_ms = span;
+        if case == SEND_EVERY {
+            boundary.predecessor.core.controls.lease_expires_at_ms =
+                upper.checked_add(1).expect("lease boundary");
+        }
+        let boundary_proof = prover
+            .prove(&boundary, fresh_randomness())
+            .expect("honest boundary proof");
+        assert_eq!(
+            verifier.verify(&boundary_proof.public, &boundary_proof.bytes),
+            Ok(())
+        );
+        assert_eq!(
+            boundary_proof.bytes.len(),
+            shape.proof_length::<Eq>().unwrap()
+        );
+        assert!(boundary_proof.bytes.len() <= KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
+
+        let mut expired = boundary.clone();
+        expired.predecessor.core.controls.quota_share_expires_at_ms = upper;
+        let mut too_wide = boundary.clone();
+        too_wide
+            .predecessor
+            .core
+            .controls
+            .time_anchor_max_response_ms = span - 1;
+        let mut boundaries = vec![
+            ("share expiry", expired, Violation::QuotaShareExpired),
+            ("interval width", too_wide, Violation::SendSpan),
+        ];
+        if case == SEND_EVERY {
+            let mut lease_expired = boundary.clone();
+            lease_expired.predecessor.core.controls.lease_expires_at_ms = upper;
+            boundaries.push(("lease expiry", lease_expired, Violation::LeaseExpired));
+        }
+        let invalid_boundary_count = boundaries.len();
+        for (name, witness, violation) in boundaries {
+            let label = format!("{} {name}", case.label());
+            assert_eq!(
+                witness.evaluate(case).violations,
+                vec![violation],
+                "{label}"
+            );
+            assert_eq!(
+                prover
+                    .prove(&witness, fresh_randomness())
+                    .map(|proof| proof.bytes),
+                Err(SigmaError::RelationViolated(vec![violation])),
+                "{label}"
+            );
+            engine_refuses(&prover, &witness, &label);
+            assert!(
+                verifier
+                    .verify(&witness.evaluate(case).public(), &boundary_proof.bytes)
+                    .is_err(),
+                "{label}: honest boundary proof under an invalid statement"
+            );
+        }
+        println!(
+            "M12_QUOTA_BOUNDARIES case={} k={} lanes={} bytes={} valid=1 invalid={} share_expiry=refused send_span=refused lease_expiry={}",
+            case.label(),
+            shape.k,
+            shape.params.lanes(),
+            boundary_proof.bytes.len(),
+            invalid_boundary_count,
+            if case == SEND_EVERY {
+                "refused"
+            } else {
+                "disabled"
+            },
         );
         for (mutation, violation) in [
             (Mutation::QuotaExceeded, Violation::QuotaExceeded),
@@ -876,7 +1018,7 @@ fn sealed_sigma_sources_rebuild_exact_keys_for_the_installed_verifier() {
     }
 }
 
-/// Pins compact Send's source support to an independently retained public archive.
+/// Pins compact Send's measured public-source geometry and hashes.
 /// This synthesizes public source and hashes it, but grants no source authority.
 #[test]
 fn compact_send_descriptor_support_inventory() {
@@ -916,12 +1058,12 @@ fn compact_send_descriptor_support_inventory() {
         .map(|entry| (entry.max_degree, entry.combination, entry.root))
         .collect();
     assert_eq!(descriptor.k, 12);
-    assert_eq!(descriptor.degree, 6);
+    assert_eq!(descriptor.degree, 10);
     assert_eq!(descriptor.blinding_factors, 5);
     assert_eq!(descriptor.permutation_chunk_len, 4);
-    assert_eq!(descriptor.quotient_pieces, 5);
+    assert_eq!(descriptor.quotient_pieces, 9);
     assert_eq!(descriptor.num_advice_columns, 5);
-    assert_eq!(descriptor.num_fixed_columns, 24);
+    assert_eq!(descriptor.num_fixed_columns, 22);
     assert_eq!(descriptor.instance_lengths, vec![1]);
     assert_eq!(descriptor.lookups.len(), 1);
     assert_eq!(
@@ -941,7 +1083,7 @@ fn compact_send_descriptor_support_inventory() {
         ]
     );
     let expected_fixed: Vec<_> = [
-        6, 7, 8, 9, 10, 11, 12, 13, 14, 0, 1, 2, 3, 4, 5, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+        6, 7, 8, 9, 10, 11, 12, 13, 14, 0, 1, 2, 3, 4, 5, 15, 16, 17, 18, 19, 20, 21,
     ]
     .into_iter()
     .map(|index| (index, 0))
@@ -961,7 +1103,6 @@ fn compact_send_descriptor_support_inventory() {
     );
     assert!(descriptor.selectors.compress);
     assert_eq!(descriptor.selectors.first_column, 15);
-    // TODO(blacklist-local V2): re-measure the compressed selector map.
     assert_eq!(
         selector_map,
         vec![
@@ -972,15 +1113,15 @@ fn compact_send_descriptor_support_inventory() {
             (0, 1, 1),
             (3, 2, 4),
             (6, 3, 1),
+            (6, 3, 2),
             (6, 4, 1),
+            (6, 4, 2),
             (6, 5, 1),
-            (6, 6, 1),
-            (6, 7, 1),
-            (2, 8, 1),
-            (2, 8, 2),
-            (2, 8, 3),
-            (2, 8, 4),
-            (2, 8, 5)
+            (2, 2, 5),
+            (2, 5, 2),
+            (2, 6, 1),
+            (2, 6, 2),
+            (2, 6, 3)
         ]
     );
     assert_eq!(protocol.shape().usable_rows, 4090);
@@ -989,7 +1130,7 @@ fn compact_send_descriptor_support_inventory() {
     assert_eq!(protocol.plan().sets().len(), 5);
     assert_eq!(
         format!("{:x}", Sha256::digest(binding.encoded())),
-        "e320f8c818ac562bc909db4158bce72b8f7b237ae0ef5d5396580b492bb1af75" // TODO(blacklist-local V2): re-measure
+        "3caa2db67ee50fa917ea344d967c477b5f9122b5a6225533033568fd6a6ea24d"
     );
 
     let circuit = SigmaCircuit::<Fp>::keygen(shape.params);
@@ -1024,14 +1165,13 @@ fn compact_send_descriptor_support_inventory() {
         .collect();
     assert_eq!(
         format!("{:x}", Sha256::digest(&packed)),
-        "726eec3eae129cb012871bb0abba0eae768f1f5c585d1963ba9441d46542fdff" // TODO(blacklist-local V2): re-measure
+        "298f11fbfd998fad9de3239fd15c12487710b741466bba82693e8f96e175594c"
     );
-    // TODO(blacklist-local V2): re-measure the permutation mapping digest.
     assert_eq!(
         source.tables.permutation().mapping_digest(),
         [
-            58, 11, 95, 52, 222, 174, 85, 166, 7, 214, 168, 130, 107, 100, 63, 35, 43, 18, 204,
-            244, 175, 157, 149, 120, 218, 47, 50, 24, 227, 189, 225, 63
+            22, 158, 89, 91, 44, 130, 45, 79, 84, 1, 182, 8, 32, 143, 29, 151, 131, 115, 10, 138,
+            164, 64, 122, 200, 113, 167, 77, 218, 242, 187, 145, 49
         ]
     );
     let params = PinnedParams::<Eq>::for_domain(shape.k).expect("pinned parameters");
@@ -1043,12 +1183,11 @@ fn compact_send_descriptor_support_inventory() {
     )
     .expect("source fingerprint");
     assert_eq!(fingerprint.binding(), &binding);
-    // TODO(blacklist-local V2): re-measure the source fingerprint.
     assert_eq!(
         fingerprint.digest(),
         &[
-            133, 195, 148, 39, 153, 72, 16, 127, 156, 62, 109, 158, 70, 155, 33, 25, 156, 159, 172,
-            5, 192, 29, 87, 26, 254, 188, 13, 203, 188, 74, 83, 134
+            146, 3, 147, 201, 52, 41, 213, 191, 244, 177, 68, 30, 199, 113, 227, 137, 146, 137,
+            201, 179, 26, 131, 17, 249, 194, 209, 134, 6, 255, 39, 97, 168
         ]
     );
     println!(
@@ -1058,5 +1197,102 @@ fn compact_send_descriptor_support_inventory() {
         fingerprint.digest(),
         protocol.queries(),
         protocol.plan().slots()
+    );
+}
+
+/// Print every pinned public-source input before updating the inventory's golden values.
+/// This probe neither generates a proof nor grants authority to a source or key.
+#[test]
+#[ignore = "public compact Send descriptor/source probe"]
+fn compact_send_source_probe() {
+    use iroha_kagemusha_proof::SigmaCircuit;
+    use iroha_plonk::{
+        Protocol,
+        cs::InstanceType,
+        frontend::synthesize,
+        keys::{DescriptorBinding, KeygenConfigV2, source_fingerprint_v2},
+        pcs::ipa::PinnedParams,
+    };
+    use sha2::{Digest as _, Sha256};
+
+    let shape = wallet_monetary_shape(SigmaRelation::SEND).unwrap();
+    let descriptor = shape.descriptor::<Eq>().unwrap();
+    let binding = DescriptorBinding::new_v2(descriptor.clone()).unwrap();
+    let protocol = Protocol::new(&descriptor).unwrap();
+    let circuit = SigmaCircuit::<Fp>::keygen(shape.params);
+    let source = synthesize(&circuit, shape.k, None).unwrap();
+    let packed: Vec<_> = source
+        .tables
+        .selectors()
+        .iter()
+        .flat_map(|rows| {
+            rows.chunks(8).map(|chunk| {
+                chunk
+                    .iter()
+                    .enumerate()
+                    .fold(0_u8, |byte, (bit, value)| byte | (u8::from(*value) << bit))
+            })
+        })
+        .collect();
+    let params = PinnedParams::<Eq>::for_domain(shape.k).unwrap();
+    let fingerprint = source_fingerprint_v2(
+        &params,
+        &circuit,
+        &KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]),
+        None,
+    )
+    .unwrap();
+    println!(
+        "COMPACT_SOURCE_PROBE k={} degree={} blinds={} permutation_chunk={} quotient_pieces={} advice_columns={} fixed_columns={} instances={:?} lookups={} usable_rows={} permutation_sets={} rotations={:?} sets={}",
+        descriptor.k,
+        descriptor.degree,
+        descriptor.blinding_factors,
+        descriptor.permutation_chunk_len,
+        descriptor.quotient_pieces,
+        descriptor.num_advice_columns,
+        descriptor.num_fixed_columns,
+        descriptor.instance_lengths,
+        descriptor.lookups.len(),
+        protocol.shape().usable_rows,
+        protocol.shape().permutation_sets,
+        protocol.plan().rotations(),
+        protocol.plan().sets().len()
+    );
+    println!(
+        "COMPACT_SOURCE_PROBE advice={:?} fixed={:?} equality={:?}",
+        descriptor
+            .advice_queries
+            .iter()
+            .map(|q| (q.column, q.rotation))
+            .collect::<Vec<_>>(),
+        descriptor
+            .fixed_queries
+            .iter()
+            .map(|q| (q.column, q.rotation))
+            .collect::<Vec<_>>(),
+        descriptor
+            .permutation
+            .iter()
+            .map(|c| (c.kind, c.index))
+            .collect::<Vec<_>>()
+    );
+    println!(
+        "COMPACT_SOURCE_PROBE compressed={} first_column={} selector_map={:?} selectors={}",
+        descriptor.selectors.compress,
+        descriptor.selectors.first_column,
+        descriptor
+            .selectors
+            .entries
+            .iter()
+            .map(|e| (e.max_degree, e.combination, e.root))
+            .collect::<Vec<_>>(),
+        source.tables.selectors().len()
+    );
+    println!(
+        "COMPACT_SOURCE_PROBE descriptor={:x} selector_bits={:x} permutation={:?} source={:?}",
+        Sha256::digest(binding.encoded()),
+        Sha256::digest(packed),
+        source.tables.permutation().mapping_digest(),
+        fingerprint.digest()
     );
 }

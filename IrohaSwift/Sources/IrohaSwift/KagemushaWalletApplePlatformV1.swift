@@ -251,10 +251,9 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
   /// device-transfer path may carry keys or markers); usable only while unlocked, which every
   /// Advance needs anyway because it reads the anchor; rendered useless if the passcode is
   /// removed or reset (lost custody, warned before enrollment, spec §2.3).
-  // TODO(owner Q6): the owner has not confirmed this class. Under the alternative A' both items
-  // switch together to kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly: it survives passcode
-  // removal, but Apple copies such items into same-device backups and safety then relies on
-  // undocumented Secure Enclave restore behavior.
+  // Selected for both items by specs/kagemusha_first_release_goals.md. Its backup exclusion
+  // does not establish durability of acknowledged anchor updates; physical release/restore
+  // qualification remains open under KR1.
   static let custodyAccessibility = kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
   /// Access-control flags of the payment key: Secure Enclave private-key use only, with no
   /// user-presence, biometry or passcode-entry constraint (spec §2.3).

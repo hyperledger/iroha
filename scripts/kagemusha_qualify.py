@@ -10,6 +10,9 @@ prepare builds the test executable and binds it to source/compiler provenance.
 run executes the predeclared three-block schedule, retaining every raw attempt.
 summarize can recompute verdicts without rerunning proofs. Qualification uses
 observed values only; calibration never normalizes a failure into a pass.
+Blocks of the same configuration require an intervening configuration batch
+with an actually launched measured child; skipped batches and failed launches
+do not provide separation. This does not require a valid intervening sample.
 Each proof specimen must match the scheduled process seed and sample index;
 fixture derivation never replaces the prover's fresh hedged randomness.
 Native generated identity is admitted only after the maintained Rust source
@@ -1373,6 +1376,7 @@ def summarize(path: Path) -> dict:
     if not isinstance(ledger["attempts"], dict) or set(ledger["attempts"]) - set(CONFIGS):
         raise ValueError("invalid or unknown qualification configuration")
     ledger_reasons = []
+    separation_reasons = {name: [] for name in CONFIGS}
     if ledger.get("schema") != "kagemusha.m3.runs.v1":
         ledger_reasons.append("missing complete qualification ledger schema")
     if ledger["candidate"].get("source_policy") != SOURCE_POLICY:
@@ -1386,21 +1390,35 @@ def summarize(path: Path) -> dict:
         ledger_reasons.append("invalid predeclared configuration schedule")
     if not ledger_reasons:
         sequence = []
+        previous_executed_batch = None
         for block, names in enumerate(ledger["schedule"]):
             for name in names:
                 rows = ledger["attempts"].get(name, [])
                 if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
                     raise ValueError("attempts must be an ordered list of records")
+                executed = False
                 for row in rows:
                     if row.get("block") != block:
                         continue
                     sequence.append(row.get("sequence"))
+                    measured = row.get("measured")
+                    process = measured.get("process") if isinstance(measured, dict) else None
+                    # subprocess supplies an integer return code only after a
+                    # child ran. Failed launch attempts retain code=None. A
+                    # nonzero exit or invalid environment still took place and
+                    # can separate batches, independently of sample validity.
+                    executed |= isinstance(process, dict) and type(process.get("code")) is int
                     # The driver consumes all shuffle draws before one seed per
                     # attempt, including invalid attempts. Uniqueness alone lets
                     # a replacement run masquerade as the declared schedule.
                     expected_seed = rng.randrange(1 << 64)
                     if type(row.get("seed")) is not int or row["seed"] != expected_seed:
                         ledger_reasons.append("measurement seed differs from predeclared draw")
+                if executed:
+                    if previous_executed_batch == name:
+                        separation_reasons[name].append(
+                            "measurement blocks lack an intervening executed configuration batch")
+                    previous_executed_batch = name
         if (any(type(number) is not int for number in sequence) or
                 sequence != list(range(sum(len(rows) for rows in ledger["attempts"].values())))):
             ledger_reasons.append("attempt execution differs from predeclared schedule")
@@ -1436,6 +1454,11 @@ def summarize(path: Path) -> dict:
                 reasons.append(f"retained evidence invalid: {error}")
             checked.append({**item, "reasons": list(dict.fromkeys(reasons))})
         results[name] = verdict(config, checked)
+        # Missing separation prevents qualification, but does not erase valid
+        # observations or turn an authenticated hard-limit breach inconclusive.
+        results[name]["qualification_reasons"] = list(dict.fromkeys(separation_reasons[name]))
+        if separation_reasons[name] and results[name]["status"] != "fail":
+            results[name]["status"] = "inconclusive"
         results[name]["invalid_attempts"] = [
             {"attempt": index + 1, "reasons": item["reasons"]}
             for index, item in enumerate(checked) if item["reasons"]
@@ -1446,10 +1469,19 @@ def summarize(path: Path) -> dict:
 
 
 def schedule(rng: random.Random) -> list[list[str]]:
+    """Declare three permutations with different configurations at every boundary.
+
+    Swap a conflicting prefix rather than reshuffling: the measurement-seed
+    stream consumes exactly the same RNG draws as the three original shuffles.
+    Summarize also checks actual execution because exhausted attempt budgets
+    can leave a declared intervening batch empty.
+    """
     order = []
     for _ in range(3):
         names = list(CONFIGS)
         rng.shuffle(names)
+        if order and names[0] == order[-1][-1]:
+            names[0], names[1] = names[1], names[0]
         order.append(names)
     return order
 
@@ -1508,7 +1540,10 @@ def run(candidate_path: Path, seed: int, *, stop_on_hard_failure: bool = False) 
                 if stop_on_hard_failure and verdict(config, attempts)["status"] == "fail":
                     print("observed hard limit exceeded; incomplete schedule retained", flush=True)
                     return summarize(output / "runs.json")
-            # Configurations between blocks provide their temporal separation.
+            # Summarize refuses adjacent executed batches of the same
+            # configuration if intervening batches exhaust their attempts or
+            # never launch a measured child. Retain all evidence without
+            # adding replacement batches or increasing the attempt ceiling.
     result = summarize(output / "runs.json")
     write_json(output / "summary.json", result)
     print(json.dumps(result, indent=2))

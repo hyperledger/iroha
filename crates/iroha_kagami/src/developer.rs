@@ -631,7 +631,7 @@ impl<T: Write> RunArgs<T> for PackageCommand {
                 },
             )?;
         let (registry, archive_transport) = store
-            .build_registry(&runtime, &selected.name, deadline)?
+            .build_registry(&runtime, &prepared, deadline)?
             .ok_or_else(|| eyre!("selected generation has no authenticated build registry"))?;
         ensure!(
             registry.account == *original.publisher()
@@ -721,14 +721,14 @@ impl<T: Write> RunArgs<T> for DeployArgs {
         );
         let cache_root = prepared.build_cache_root();
         let registry_root = store.root().to_path_buf();
-        let registry_context = context.name.clone();
+        let registry_prepared = prepared;
         let runtime = DeploymentRuntime::new(config, journal_root, cache_root)
             .with_build_registry_resolver(Arc::new(move || {
                 // The canonical package service calls this only when a graph needs its exact
                 // registry identity. Source, bytecode and local packages never enter it.
                 let deadline = Instant::now() + Duration::from_secs(60);
                 let store = ManagedStore::open(&registry_root)?;
-                Ok(store.build_registry(&runtime, &registry_context, deadline)?)
+                Ok(store.build_registry(&runtime, &registry_prepared, deadline)?)
             }));
         let mut progress = deployment_progress;
         let mut review = |preflight: &DeploymentPreflight| {

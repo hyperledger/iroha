@@ -30,9 +30,7 @@ mod incoming_statement;
 
 #[path = "kagemusha_wallet_preparation_v1/monetary.rs"]
 mod monetary;
-pub use monetary::{
-    MonetaryStepV1, ReceiveFoldMapsV1, ReceiveMapsV1, SendControlsV1, SendFeeMapV1, SendMapsV1,
-};
+pub use monetary::{MonetaryStepV1, ReceiveMapsV1, SendControlsV1, SendFeeMapV1, SendMapsV1};
 pub(crate) use monetary::{ReceiveFoldFieldsV1, SendFoldFieldsV1};
 
 #[path = "kagemusha_wallet_preparation_v1/native_inputs.rs"]
@@ -55,7 +53,8 @@ pub(crate) use bootstrap::BootstrapStepV1;
 
 #[path = "kagemusha_wallet_preparation_v1/load.rs"]
 mod load;
-pub use load::{LoadOriginalsV1, LoadStepV1};
+use load::LoadOriginalsV1;
+pub use load::LoadStepV1;
 
 #[path = "kagemusha_wallet_preparation_v1/consuming.rs"]
 mod consuming;
@@ -72,8 +71,8 @@ mod freeze;
 
 #[path = "kagemusha_wallet_preparation_v1/dispatch.rs"]
 mod dispatch;
-pub(crate) use dispatch::PreparedOperationV1;
 pub use dispatch::{NativeAdvanceCheckV1, NativePreparedOperationV1};
+pub(crate) use dispatch::{OperationPreparationV1, PreparedOperationV1};
 
 #[path = "kagemusha_wallet_preparation_v1/derivation_counts.rs"]
 mod derivation_counts;
@@ -271,7 +270,7 @@ pub(crate) struct LoadFieldsV1 {
     pub(crate) state: LoadWitness,
     /// Exact canonical ordinary receipt transcript committed by ledger execution.
     pub(crate) receipt: [u8; 282],
-    /// Own Advance receipt, the only signed object Λ_load consumes.
+    /// Own Advance receipt, the only signed object `Λ_load` consumes.
     pub(crate) objects: [Vec<u8>; 1],
     /// The authenticated current credential, read natively only for the payment key
     /// that the own-receipt signature leaf verifies under; Λ carries it by continuity.
@@ -593,7 +592,7 @@ impl<'a> PreparationV1<'a> {
         Ok(FoldedStateV1 {
             manifest_digest: self.installed.verifier().manifest_digest(),
             source_capsule_digest: fold.capsule_digest,
-            source_statement: capsule.body().statement.clone(),
+            source_statement: capsule.body().statement,
             source_state: capsule.body().successor_state,
             credential: owner.credential,
             lineage: fold.lineage.clone(),

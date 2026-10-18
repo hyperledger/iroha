@@ -7,6 +7,8 @@ use super::*;
 
 #[path = "online_charge/continuation.rs"]
 mod continuation;
+#[path = "online_charge/restart.rs"]
+mod restart;
 use p256::ecdsa::{Signature as P256Signature, signature::Signer as _};
 
 const CHARGE_KEY_SEED: u8 = 111;
@@ -151,6 +153,116 @@ fn retain_bounded(output: &Path, name: &str, bytes: &[u8], maximum: usize) -> no
     row
 }
 
+fn retain_charge_certificates(
+    output: &Path,
+    scheme: &KagemushaWalletSchemeV1,
+    asset_digest: [u8; 32],
+    original: &[u8],
+) -> norito::json::Value {
+    let certificates: KagemushaWalletCertificateSetV1 = decode(original);
+    let policy = KagemushaWalletPolicyDataV1 {
+        version: 1,
+        scheme_id: scheme.scheme_id(),
+        asset_digest,
+        item: KagemushaWalletPolicyDataItemV1::Certificates { certificates },
+    };
+    policy.verify(scheme, &[]).unwrap();
+    // This is the carrying form of the exact certificate set used by the charge.
+    // Root authentication and frame bounds do not establish carrier delivery.
+    message_census::record(
+        output,
+        "charge-certificates",
+        KagemushaWalletMessageV1::PolicyData { data: policy },
+    )
+}
+
+#[test]
+fn charge_certificate_envelope_preserves_exact_root_authenticated_set() {
+    let directory = tempfile::tempdir().unwrap();
+    let f = fixture();
+    let original = norito::encode_canonical(&KagemushaWalletCertificateSetV1 {
+        certificates: vec![certificate(&f.config.scheme)],
+    })
+    .unwrap();
+    let row = retain_charge_certificates(
+        directory.path(),
+        &f.config.scheme,
+        f.asset.asset_digest(),
+        &original,
+    );
+    let bytes = fs::read(directory.path().join("charge-certificates.envelope.norito")).unwrap();
+    let envelope =
+        KagemushaWalletEnvelopeV1::decode_canonical(&bytes, &f.config.scheme.scheme_id()).unwrap();
+    let KagemushaWalletMessageV1::PolicyData { data: policy } = envelope.message else {
+        unreachable!()
+    };
+    policy.verify(&f.config.scheme, &[]).unwrap();
+    assert_eq!(policy.asset_digest, f.asset.asset_digest());
+    let KagemushaWalletPolicyDataItemV1::Certificates { certificates } = policy.item else {
+        unreachable!()
+    };
+    assert_eq!(norito::encode_canonical(&certificates).unwrap(), original);
+    assert!(bytes.len() > original.len());
+    assert_eq!(
+        row["bytes"].as_u64(),
+        Some(u64::try_from(bytes.len()).unwrap())
+    );
+    assert_eq!(row["sha256"].as_str(), Some(sha(&bytes).as_str()));
+    assert_eq!(row["within_bound"].as_bool(), Some(true));
+}
+
+#[test]
+fn charge_certificate_capture_refuses_wrong_signature_empty_set_and_asset() {
+    let f = fixture();
+    let valid = certificate(&f.config.scheme);
+    let mut changed = valid;
+    changed.body.serial += 1;
+    for (certificates, asset_digest) in [
+        (vec![changed], f.asset.asset_digest()),
+        (Vec::new(), f.asset.asset_digest()),
+        (vec![valid], [0; 32]),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let original =
+            norito::encode_canonical(&KagemushaWalletCertificateSetV1 { certificates }).unwrap();
+        assert!(
+            std::panic::catch_unwind(|| {
+                retain_charge_certificates(
+                    directory.path(),
+                    &f.config.scheme,
+                    asset_digest,
+                    &original,
+                )
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn online_original_bound_failure_retains_bytes_and_failed_measurement() {
+    let directory = tempfile::tempdir().unwrap();
+    let original = [7; 9];
+    assert!(
+        std::panic::catch_unwind(|| {
+            retain_bounded(directory.path(), "oversized.norito", &original, 8)
+        })
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(directory.path().join("oversized.norito")).unwrap(),
+        original
+    );
+    let row: norito::json::Value = norito::json::from_slice(
+        &fs::read(directory.path().join("oversized.norito.measurement.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(row["bytes"].as_u64(), Some(9));
+    assert_eq!(row["maximum_bytes"].as_u64(), Some(8));
+    assert_eq!(row["within_bound"].as_bool(), Some(false));
+}
+
 #[test]
 #[ignore = "requires fresh dedicated online-charge A custody and genuine current-source Load receipt/proof; consumes A100 to quoted Unload100/charge5"]
 fn actual_online_charge_unload_with_retained_quotes_and_restart() {
@@ -274,12 +386,35 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
     ] {
         quote.verify(scheme, &certificate).unwrap();
     }
+    let mut originals = vec![retain_bounded(
+        &output,
+        "regulatory-certificate.norito",
+        &norito::encode_canonical(&certificate).unwrap(),
+        KAGEMUSHA_WALLET_CERTIFICATE_MAX_BYTES_V1,
+    )];
+    for (name, quote) in [
+        ("load-quote.norito", load_quote),
+        ("stale-load-quote.norito", stale_load_quote),
+        ("exhausting-load-quote.norito", exhausting_load_quote),
+        ("unload-quote.norito", unload_quote),
+        ("stale-unload-quote.norito", stale_unload_quote),
+    ] {
+        originals.push(retain_bounded(
+            &output,
+            name,
+            &norito::encode_canonical(&quote).unwrap(),
+            KAGEMUSHA_WALLET_CHARGE_QUOTE_MAX_BYTES_V1,
+        ));
+    }
+    let certificates = norito::encode_canonical(&KagemushaWalletCertificateSetV1 {
+        certificates: vec![certificate],
+    })
+    .unwrap();
+    let certificate_envelope =
+        retain_charge_certificates(&output, scheme, credential.body.asset_digest, &certificates);
     let charge = state::ChargeOriginalsV1 {
         quote: unload_quote.to_canonical_bytes().unwrap(),
-        certificates: norito::encode_canonical(&KagemushaWalletCertificateSetV1 {
-            certificates: vec![certificate],
-        })
-        .unwrap(),
+        certificates,
     };
     let unload = action(
         241,
@@ -288,7 +423,45 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
             charge: Some(charge),
         },
     );
-    let unloaded = complete(a.execute(unload.clone()).unwrap());
+    let mut conflicting = unload.clone();
+    let OperationActionV1::Unload { amount, .. } = &mut conflicting.action else {
+        unreachable!()
+    };
+    *amount += 1;
+    let mut conflicting_quote = unload.clone();
+    let OperationActionV1::Unload {
+        charge: Some(charge),
+        ..
+    } = &mut conflicting_quote.action
+    else {
+        unreachable!()
+    };
+    charge.quote = stale_unload_quote.to_canonical_bytes().unwrap();
+    let mut conflicting_certificates = unload.clone();
+    let OperationActionV1::Unload {
+        charge: Some(charge),
+        ..
+    } = &mut conflicting_certificates.action
+    else {
+        unreachable!()
+    };
+    // Both certificates already exist and are root-authenticated. A different exact
+    // certificate-set original under this request ID must still conflict.
+    charge.certificates = norito::encode_canonical(
+        &KagemushaWalletCertificateSetV1::new(vec![certificate, f.config.enrollment_certificate])
+            .unwrap(),
+    )
+    .unwrap();
+    let (mut a, device, unloaded, restart_record) = restart::exercise(
+        a,
+        device,
+        &sources,
+        &f,
+        &frames,
+        &unload,
+        &[conflicting, conflicting_quote, conflicting_certificates],
+    );
+    assert_eq!(restart_record["successful_signatures"].as_u64(), Some(1));
     let after_unload_signatures = device.platform.with(|state| state.sign_calls);
     assert_eq!(complete(a.execute(unload.clone()).unwrap()), unloaded);
     let beneficiary_original = norito::encode_canonical(beneficiary).unwrap();
@@ -301,6 +474,7 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
         &claim_bytes,
         KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
     );
+    originals.push(record);
     let claim =
         KagemushaWalletUnloadClaimV1::decode_canonical(&claim_bytes, &scheme.scheme_id()).unwrap();
     assert_eq!(claim.account, setup.accounts[0]);
@@ -311,6 +485,18 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
         (100, 95, 5)
     );
     assert_eq!(paid.charge_quote, unload_quote.charge_quote_digest());
+    assert_eq!(claim.charge.quote(), Some(&unload_quote));
+    assert_eq!(claim.charge.beneficiary(), Some(beneficiary));
+    assert_eq!(
+        claim
+            .certificates
+            .certificate(
+                &unload_quote.body.signer_certificate,
+                KagemushaWalletSignerRoleV1::RegulatoryPolicy,
+            )
+            .unwrap(),
+        &certificate
+    );
     assert_eq!(claim.package.statement.next_load, 1);
     assert_eq!(claim.package.statement.enabled_controls, 0);
     let lineage_measurement = message_census::record(
@@ -359,27 +545,6 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
         device.platform.with(|state| state.sign_calls),
         after_unload_signatures
     );
-    let mut originals = vec![record];
-    originals.push(retain_bounded(
-        &output,
-        "regulatory-certificate.norito",
-        &norito::encode_canonical(&certificate).unwrap(),
-        KAGEMUSHA_WALLET_CERTIFICATE_MAX_BYTES_V1,
-    ));
-    for (name, quote) in [
-        ("load-quote.norito", load_quote),
-        ("stale-load-quote.norito", stale_load_quote),
-        ("exhausting-load-quote.norito", exhausting_load_quote),
-        ("unload-quote.norito", unload_quote),
-        ("stale-unload-quote.norito", stale_unload_quote),
-    ] {
-        originals.push(retain_bounded(
-            &output,
-            name,
-            &norito::encode_canonical(&quote).unwrap(),
-            KAGEMUSHA_WALLET_CHARGE_QUOTE_MAX_BYTES_V1,
-        ));
-    }
     let result = norito::json!({
         "schema":"iroha.kagemusha.native-online-charge-result.v1", "variant":"online-charges",
         "target_sha256":(sha(&target_bytes)), "receipt_sha256":(env_pin("KAGEMUSHA_NATIVE_LOAD_RECEIPT_SHA256")),
@@ -390,7 +555,8 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
         "payer_credential_digest":(hex::encode(final_snapshot.credential_digest)), "finality_epoch":(a.epoch_progress().unwrap().epoch),
         "gross_unload":"100", "online_unload_charge":"5", "account_payout":"95", "native_remaining":"0",
         "scope":"Genuine dedicated A Load and quoted Unload with exact retained claim and restart; simulated hardware and root-authenticated engineering RegulatoryPolicy signer. Online ledger payout and charged-Load debit are separate ordinary Core tests. No peer Send fee or enabled offline control is used; no network, physical or release qualification.",
-        "originals":originals,"complete_envelopes":[lineage_measurement],
+        "originals":originals,"complete_envelopes":[certificate_envelope, lineage_measurement],
+        "selected_restart":restart_record,
     });
     publish(
         &output.join("result.json"),

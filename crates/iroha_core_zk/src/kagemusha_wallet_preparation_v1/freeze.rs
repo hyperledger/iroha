@@ -14,7 +14,7 @@ use super::*;
 type Retained = KagemushaWalletRetainedInputV1;
 
 /// Exact validated body and authenticated credential, before independent opening entropy.
-pub(crate) struct PreparedRecoveryV1 {
+pub struct PreparedRecoveryV1 {
     credential: KagemushaWalletCredentialV1,
     body: KagemushaWalletFrozenRecoveryBodyV1,
 }
@@ -111,14 +111,13 @@ fn assemble(
     if kind.consumes_lineage() != input.predecessor.is_some() {
         return Err(Error::Authority);
     }
-    if let Some(predecessor) = input.predecessor {
-        if predecessor.manifest_digest != input.manifest
+    if let Some(predecessor) = input.predecessor
+        && (predecessor.manifest_digest != input.manifest
             || predecessor.source_capsule_digest != input.source
             || predecessor.source_statement.successor != input.statement.predecessor
-            || predecessor.credential != *credential
-        {
-            return Err(Error::Authority);
-        }
+            || predecessor.credential != *credential)
+    {
+        return Err(Error::Authority);
     }
     let lineage = input
         .predecessor
@@ -373,20 +372,6 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Returns source/proof, body-bound, entropy or commitment errors before publication.
-    pub fn freeze_load(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &LoadStepV1,
-        proof: KagemushaWalletStepProofV1,
-        budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
-        self.body_load(owner, step, proof, budget)?.seal_fresh()
-    }
-
-    /// Verify the exact prepared body, then seal it once with independent OS entropy.
-    ///
-    /// # Errors
-    /// Returns source/proof, body-bound, entropy or commitment errors before publication.
     pub fn freeze_refresh(
         &self,
         owner: &AuthenticatedCredentialV1,
@@ -395,22 +380,6 @@ impl PreparationV1<'_> {
         budget: MemoryBudget,
     ) -> Result<FrozenTransition, Error> {
         self.body_refresh(owner, step, proof, budget)?.seal_fresh()
-    }
-
-    /// Verify the exact prepared body, then seal it once with independent OS entropy.
-    ///
-    /// # Errors
-    /// Returns source/proof, body-bound, entropy or commitment errors before publication.
-    pub fn freeze_consuming(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &ConsumingStepV1,
-        predecessor: &FoldedStateV1,
-        proof: KagemushaWalletStepProofV1,
-        budget: MemoryBudget,
-    ) -> Result<FrozenTransition, Error> {
-        self.body_consuming(owner, step, predecessor, proof, budget)?
-            .seal_fresh()
     }
 }
 

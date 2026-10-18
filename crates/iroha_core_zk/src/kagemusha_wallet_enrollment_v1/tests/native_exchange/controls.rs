@@ -383,6 +383,9 @@ fn send(
             payment: payment.clone(),
         },
     ));
+    records.push(message_census::record_payment_lineage(
+        output, label, &payment,
+    ));
     let scheme = sources.installed.verifier().scheme();
     let credential =
         KagemushaWalletCredentialV1::decode_canonical(&frames[0], &scheme.scheme_id()).unwrap();
@@ -1054,6 +1057,10 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         })
         .map(|(name, bytes)| original(&output, &name, bytes))
         .collect::<Vec<_>>();
+    let complete_exchange_roles = ["mask-0", "mask-1", "mask-2", "mask-3", "after-expiry"]
+        .into_iter()
+        .map(|label| message_census::complete_exchange_roles(&records, label))
+        .collect::<Vec<_>>();
     let result = norito::json!({
         "schema":"iroha.kagemusha.native-controls-result.v1",
         "continuation_originals":continuation_originals,
@@ -1073,6 +1080,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         "later_receiver_block_refuses_then_accepts_exact_payment":true,
         "fresh_refusals_preserve_head_and_payment_signatures":true,
         "same_custody_restart_exact_payment_retries":true,
+        "complete_exchange_roles":complete_exchange_roles,
         "records":records,
         "scope":"Actual installed native proofs over one ordinary finalized Load and all four Send masks, local blacklist refusals on both sides, Receive, ArchiveReceive and exact replay. Signed policy/issuer and simulated monotonic/hardware inputs are explicit engineering fixtures. No four-validator run, credential renewal, quota-boundary rollover, physical-device or release qualification."
     });

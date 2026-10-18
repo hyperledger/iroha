@@ -142,15 +142,25 @@ impl StateBlock<'_> {
         }
         impl Drop for SourceInspectionOwner<'_, '_> {
             fn drop(&mut self) {
-                self.state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+                self.state
+                    .fields
+                    .as_mut()
+                    .expect("original execution output owner")
+                    .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
             }
         }
 
         let Some(ExecutionOutputPlanState::Retained(retained)) = self
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
             .execution_output_plan
             .replace(ExecutionOutputPlanState::Inspecting)
         else {
-            self.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            self.fields
+                .as_mut()
+                .expect("original execution output owner")
+                .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
             return Err("inspection requires completed actual execution".into());
         };
         let owner = SourceInspectionOwner { state: self };
@@ -232,6 +242,9 @@ impl<'owner, 'state, 'source> ExecutionOutputProducer<'owner, 'state, 'source> {
         }
         // The publication guard remains occupied through allocation and unwind.
         let Some(ExecutionOutputPlanState::Reserved(plan)) = state
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
             .execution_output_plan
             .replace(ExecutionOutputPlanState::Running)
         else {
@@ -702,7 +715,11 @@ impl ExecutionOutputProducer<'_, '_, '_> {
                 .map_err(|error| error.clone())?
                 .verify_ordinary_entries(sources.entries().iter().map(|source| source.call()))?;
         }
-        self.state.execution_output_plan = Some(ExecutionOutputPlanState::Retained(
+        self.state
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
+            .execution_output_plan = Some(ExecutionOutputPlanState::Retained(
             RetainedExecutionOutputs {
                 rows: core::mem::take(&mut self.rows),
                 row_bytes,
@@ -724,7 +741,11 @@ impl ExecutionOutputProducer<'_, '_, '_> {
 impl Drop for ExecutionOutputProducer<'_, '_, '_> {
     fn drop(&mut self) {
         if !self.finished {
-            self.state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            self.state
+                .fields
+                .as_mut()
+                .expect("original execution output owner")
+                .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
         }
     }
 }

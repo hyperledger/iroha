@@ -14,7 +14,7 @@ use crate::amx_harness::owned_task::owned_payment_until;
 use eyre::{Result, ensure, eyre};
 use iroha::{
     blocking::Client,
-    client::{NativePaymentRequest, NativePaymentRunOptions, VerifiedPaymentReceipt},
+    client::{NativePaymentRequest, NativePaymentRunOptions, NativePaymentSession, VerifiedPaymentReceipt},
     workflow::{FileWorkflowStorage, WorkflowRunOptions},
 };
 use iroha_data_model::{
@@ -31,8 +31,7 @@ use iroha_primitives::numeric::Quantity;
 
 /// An independently pinned, durable owner for the monetary workload used by the ceremony.
 pub(super) struct CustomerWorkload {
-    pins: SignedGenesisPinsV1,
-    genesis: Vec<u8>,
+    session: NativePaymentSession,
     asset: AssetDefinitionId,
     recipient: AccountId,
     fee: FeePaymentIntent,
@@ -50,10 +49,18 @@ impl CustomerWorkload {
         directory: PathBuf,
         last_height: NonZeroU64,
     ) -> Result<Self> {
-        authenticate_signed_genesis_v1(&genesis, &pins)?;
+        let selected = authenticate_signed_genesis_v1(&genesis, &pins)?;
+        let verifier = SumeragiFinalityVerifier::new(
+            selected.block(),
+            &pins.chain_id,
+            selected.validators().to_vec(),
+        )?;
+        let session = NativePaymentSession::new(
+            verifier,
+            std::num::NonZeroUsize::new(64).expect("nonzero local history capacity"),
+        )?;
         Ok(Self {
-            pins,
-            genesis,
+            session,
             asset,
             recipient,
             fee,
@@ -68,12 +75,6 @@ impl CustomerWorkload {
         height: u64,
         deadline: Instant,
     ) -> Result<()> {
-        let selected = authenticate_signed_genesis_v1(&self.genesis, &self.pins)?;
-        let verifier = SumeragiFinalityVerifier::new(
-            selected.block(),
-            &self.pins.chain_id,
-            selected.validators().to_vec(),
-        )?;
         let receipt = customer_payment_at_height(
             client,
             self.recipient.clone(),
@@ -82,7 +83,7 @@ impl CustomerWorkload {
             self.last_height,
             self.fee.clone(),
             &self.directory,
-            verifier,
+            self.session.clone(),
             deadline,
         )
         .await?;
@@ -114,7 +115,7 @@ impl CustomerWorkload {
 
 /// Make precisely one customer payment at the ceremony's requested next height.
 ///
-/// `verifier` must be reconstructed from the test's independent signed-genesis pins.
+/// `session` retains the test's original independently signed-genesis-rooted verifier.
 /// `deadline` is the original absolute phase deadline, shared by transport and task wait.
 /// The caller must retain this original request/storage when its outcome is unknown.
 pub(super) async fn customer_payment_at_height(
@@ -125,7 +126,7 @@ pub(super) async fn customer_payment_at_height(
     last_workload_height: NonZeroU64,
     fee: FeePaymentIntent,
     directory: &Path,
-    verifier: SumeragiFinalityVerifier,
+    session: NativePaymentSession,
     deadline: Instant,
 ) -> Result<VerifiedPaymentReceipt> {
     ensure!(
@@ -159,10 +160,10 @@ pub(super) async fn customer_payment_at_height(
         last_workload_height,
         Metadata::default(),
     );
-    let operation = account.native_payment(
+    let operation = account.native_payment_with_session(
         NativePaymentRequest::new(terms, fee)?,
         Arc::new(FileWorkflowStorage::open_or_create(directory)?),
-        verifier,
+        session,
     )?;
     let completed = owned_payment_until(deadline, async move {
         let options = NativePaymentRunOptions {
@@ -171,9 +172,9 @@ pub(super) async fn customer_payment_at_height(
                 poll_interval: Duration::from_millis(150),
                 ..WorkflowRunOptions::default()
             },
-            // Every operation starts with independent signed-genesis trust. The
-            // explicit workload horizon needs a larger finite local observation
-            // budget than the SDK's short-history default, never a protocol limit.
+            // Every operation uses the same independently selected original prefix.
+            // Keep the existing finite workload observation allowance unchanged;
+            // retained history and per-call proof reads are separate local limits.
             max_finality_proof_reads: std::num::NonZeroU16::new(u16::try_from(
                 last_workload_height
                     .get()

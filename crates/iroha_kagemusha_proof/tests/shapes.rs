@@ -1,5 +1,5 @@
 //! The shape selector on every relation shape: the smallest `k` that fits,
-//! the shape within the 3.5 KB proof budget, exact proof lengths from the
+//! the shape within the 3,520-byte sigma role cap, exact proof lengths from the
 //! descriptor, row inventories, and the descriptor and key bytes a verifier
 //! reconstructs from bytes alone.
 
@@ -10,8 +10,8 @@ use common::{
     smallest_shape, vesta_prover,
 };
 use iroha_kagemusha_proof::{
-    PROOF_BYTES_GATE, ShapePolicy, SigmaParams, SigmaRelation, SigmaShape, SigmaVerifier,
-    limb_bits_for, select_shape,
+    PROOF_BYTES_GATE, ShapePolicy, SigmaError, SigmaParams, SigmaRelation, SigmaShape,
+    SigmaVerifier, limb_bits_for, select_shape, wallet_monetary_shape,
 };
 use iroha_pasta::{Ep, Eq, Fp};
 use iroha_plonk_gadgets::poseidon::ROWS_PER_PERMUTATION;
@@ -49,8 +49,8 @@ fn describe(label: &str, shape: &SigmaShape) -> usize {
     );
     assert_eq!(
         usize::from(descriptor.degree),
-        6,
-        "Pow5 lanes keep degree 6"
+        10,
+        "current circuit degree includes the norm lookup argument"
     );
     bytes
 }
@@ -87,7 +87,7 @@ fn selected_shapes_fit_and_meet_the_budget() {
 }
 
 /// The pinned shapes of one relation: the selector's smallest `k` (fewest
-/// lanes), its shape within the 3.5 KB budget, the fewest lanes at
+/// lanes), its shape within the sigma role cap, the fewest lanes at
 /// `k = 11` (none for the quota relations)
 /// and every pinned shape's exact proof length.
 struct Pinned {
@@ -102,24 +102,24 @@ fn pinned() -> [Pinned; 5] {
     use common::{SEND_EVERY, SEND_LEASE, SEND_QUOTAS};
     let k12_class = |relation, budget_bytes| Pinned {
         relation,
-        smallest: (SMALLEST_SHAPE, 5_120), // TODO(blacklist-local V2): re-measure
+        smallest: (SMALLEST_SHAPE, 4_384),
         budget: Some((BUDGET_SHAPE, budget_bytes)),
-        k11: Some((K11_SHAPE, 3_840)),
+        k11: Some((K11_SHAPE, 3_808)),
     };
     // Fixed-array quota charges need k = 12 on four lanes and k = 14
-    // on one lane; the latter meets both the 3.5 KB and joint Payment budgets.
+    // on one lane; the latter exactly meets the independent sigma role cap.
     let quota_class = |relation| Pinned {
         relation,
-        smallest: ((12, 4), 5_280),
-        budget: Some(((14, 1), 3_456)),
+        smallest: ((12, 4), 5_120),
+        budget: Some(((14, 1), 3_520)),
         k11: None,
     };
     [
-        k12_class(SigmaRelation::SEND, 3_296),
+        k12_class(SigmaRelation::SEND, 3_360),
         quota_class(SEND_QUOTAS),
-        k12_class(SEND_LEASE, 3_296),
+        k12_class(SEND_LEASE, 3_360),
         quota_class(SEND_EVERY),
-        k12_class(SigmaRelation::RECEIVE, 3_296),
+        k12_class(SigmaRelation::RECEIVE, 3_360),
     ]
 }
 
@@ -142,9 +142,14 @@ fn every_relation_selects_the_pinned_shapes() {
             "{label}"
         );
         assert_eq!(smallest, pinned_shape(relation, pin.smallest.0), "{label}");
+        let wallet_shape = wallet_monetary_shape(pin.relation).expect("wallet monetary recipe");
         let budget = select_shape::<Eq>(relation, &ShapePolicy::default()).map(|choice| {
             let shape = choice.shape;
-            ((shape.k, shape.params.lanes()), length(&shape))
+            let bytes = length(&shape);
+            assert_eq!(shape, wallet_shape, "{label}");
+            assert_eq!(choice.proof_bytes, bytes, "{label}");
+            assert!(choice.proof_bytes <= PROOF_BYTES_GATE, "{label}");
+            ((shape.k, shape.params.lanes()), bytes)
         });
         assert_eq!(budget.ok(), pin.budget, "{label}");
         let k11 = select_shape::<Eq>(
@@ -174,24 +179,38 @@ fn every_relation_selects_the_pinned_shapes() {
     }
 }
 
-/// The fixed-array quota relations on one lane meet the joint Payment
-/// budget at `k = 14`, including every control and both core time bounds.
+/// The fixed-array quota relations on one lane meet the sigma role cap
+/// at `k = 14`, including every control and both core time bounds. Complete
+/// Payment bounds additionally require the transported Omega and wire encoder.
 #[test]
 fn quota_relations_fit_one_lane_at_k14() {
     use common::{SEND_EVERY, SEND_QUOTAS};
-    for (relation, rows) in [
-        (SEND_QUOTAS, 12_123), // TODO(blacklist-local V2): re-measure
-        (SEND_EVERY, 13_542),  // TODO(blacklist-local V2): re-measure
-    ] {
+    for (relation, rows) in [(SEND_QUOTAS, 11_934), (SEND_EVERY, 11_935)] {
         let relation = folded(relation);
         let shape = pinned_shape(relation, (14, 1));
+        assert_eq!(
+            shape,
+            wallet_monetary_shape(relation.relation).expect("wallet monetary recipe")
+        );
         let inventory = shape.inventory::<Fp>().expect("fits k = 14");
         assert_eq!(inventory.rows(), rows, "{}", relation.label());
-        assert_eq!(length(&shape), 3_456, "{}", relation.label());
+        assert_eq!(length(&shape), 3_520, "{}", relation.label());
         assert!(
-            length(&shape) <= 3_541,
-            "G1rev4 sigma share of Payment budget"
+            length(&shape) <= PROOF_BYTES_GATE,
+            "sigma role cap of the compact Payment"
         );
+        assert!(matches!(
+            select_shape::<Eq>(
+                relation,
+                &ShapePolicy {
+                    min_k: 14,
+                    max_k: 14,
+                    max_lanes: 1,
+                    max_proof_bytes: Some(PROOF_BYTES_GATE - 1),
+                }
+            ),
+            Err(SigmaError::NoShape)
+        ));
         let k13 = pinned_shape(relation, (13, 1));
         assert!(k13.inventory::<Fp>().is_err(), "{}", relation.label());
         describe("k14_one_lane", &shape);

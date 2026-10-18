@@ -36,7 +36,7 @@ pub mod isi {
             AssetBalancePolicy,
         },
         isi::error::{InstructionExecutionError, InvalidParameterError, RepetitionError},
-        nexus::{AxtAssetIncarnationV1, DataSpaceCatalog},
+        nexus::DataSpaceCatalog,
     };
     use iroha_logger::prelude::*;
     use iroha_model_base::domain::DomainId;

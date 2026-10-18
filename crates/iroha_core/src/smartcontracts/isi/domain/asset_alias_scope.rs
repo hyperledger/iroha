@@ -2478,31 +2478,8 @@ fn register_asset_definition(
     }
     let mut stored_definition = asset_definition.clone();
     stored_definition.alias = None;
-    let registration_header_hash = state_transaction._curr_block.hash();
-    let (execution_identity, lifecycle_ordinal) = state_transaction
-        .next_lifecycle_transition_seed()
-        .map_err(|error| {
-            InstructionExecutionError::InvariantViolation(
-                format!(
-                    "asset-definition registration lacks deterministic execution identity: {error}"
-                )
-                .into(),
-            )
-        })?;
-    let incarnation = AxtAssetIncarnationV1::derive(
-        state_transaction.network_id(),
-        &asset_definition_id,
-        &registration_header_hash,
-        &execution_identity,
-        lifecycle_ordinal,
-    );
-    state_transaction
-        .world
-        .insert_asset_definition_entry(asset_definition_id.clone(), stored_definition);
-    state_transaction
-        .world
-        .axt_asset_incarnations
-        .insert(asset_definition_id.clone(), incarnation);
+    let incarnation = state_transaction
+        .register_quantity_definition(asset_definition_id.clone(), stored_definition)?;
     if let Some(dataspace_id) = dataspace_id {
         state_transaction
             .register_direct_asset_definition_home(&asset_definition_id, incarnation, dataspace_id)

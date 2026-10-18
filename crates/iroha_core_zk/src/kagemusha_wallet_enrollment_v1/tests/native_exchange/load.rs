@@ -4,6 +4,7 @@ use super::*;
 use crate::kagemusha_wallet_artifacts_v1::producer_inventory::{
     QualifiedReceiptSourceV1, open_pinned_engineering_finality_sources,
 };
+use crate::kagemusha_wallet_registration_v1::verify_finalized_kagemusha_wallet_registration_v1;
 use iroha_crypto::{Algorithm, Hash, HashOf, MerkleProof};
 use iroha_data_model::{
     events::EventBox,
@@ -17,9 +18,38 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "load/activation_retention.rs"]
 mod activation_retention;
+#[path = "load/campaign_tests.rs"]
+mod campaign_tests;
 
 const CAPTURE_MAX: usize = 16 << 20;
 const ORIGINAL_MAX: usize = 16 << 20;
+const HISTORY_MAX: u64 = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CampaignHeights {
+    registration: u64,
+    activation: u64,
+    load: u64,
+}
+
+// Both StateExecutor and four-peer owners retain one exact canonical receipt and
+// the entire certified prefix. The receipt selects three consecutive wallet stages;
+// native verification below authenticates their actual instructions and event.
+fn campaign_heights(load: u64) -> CampaignHeights {
+    assert!((5..=HISTORY_MAX).contains(&load));
+    CampaignHeights {
+        registration: load - 2,
+        activation: load - 1,
+        load,
+    }
+}
+
+fn capture_heights(rows: &[norito::json::Value], heights: CampaignHeights) {
+    assert_eq!(rows.len(), usize::try_from(heights.load - 1).unwrap());
+    for (row, height) in rows.iter().zip(2..=heights.load) {
+        assert_eq!(row["height"].as_u64(), Some(height));
+    }
+}
 
 fn fixed<const N: usize>(value: &norito::json::Value) -> [u8; N] {
     let original = value.as_str().unwrap();
@@ -154,7 +184,82 @@ fn require_block(row: &norito::json::Value, block: &VerifiedSumeragiBlock) {
     }
 }
 
+// Reconstruct input/output membership only from the already verified original.
+// A unique direct Register for the installed scheme must have actually succeeded;
+// a reported JSON receipt or a second producer-specific original adds no authority.
+fn require_registration(
+    verified: &VerifiedSumeragiBlock,
+    genesis: &SumeragiFinalityVerifier,
+    scheme_id: [u8; 32],
+    asset: &KagemushaWalletAssetScopeV1,
+    reserve: &AccountId,
+) {
+    use iroha_data_model::{
+        query::CommittedTransaction,
+        transaction::{Executable, TransactionEntrypoint},
+    };
+    let block = verified.block();
+    let mut selected = None;
+    for (input_index, entrypoint) in block.network_entrypoints().enumerate() {
+        let TransactionEntrypoint::External(transaction) = entrypoint else {
+            continue;
+        };
+        let Executable::Instructions(instructions) = transaction.instructions() else {
+            continue;
+        };
+        for (instruction_index, instruction) in instructions.iter().enumerate() {
+            let Some(instruction) = instruction
+                .as_any()
+                .downcast_ref::<KagemushaWalletLedgerV1>()
+            else {
+                continue;
+            };
+            let KagemushaWalletLedgerActionV1::Register { scheme, .. } = &instruction.action else {
+                continue;
+            };
+            if instruction.scheme != scheme_id {
+                continue;
+            }
+            let scheme = KagemushaWalletSchemeV1::decode_canonical(scheme, &scheme_id).unwrap();
+            assert!(
+                selected
+                    .replace((input_index, instruction_index, scheme))
+                    .is_none(),
+                "ambiguous matching registration"
+            );
+        }
+    }
+    let (input_index, instruction_index, scheme) = selected.expect("actual direct registration");
+    let entrypoint = block.network_entrypoint_at(input_index).unwrap().clone();
+    let input_index = u32::try_from(input_index).unwrap();
+    let (output_index, _) = block.network_output_at(input_index).unwrap();
+    let output = block.execution_outputs()[output_index as usize].clone();
+    let committed = CommittedTransaction {
+        block_hash: block.hash(),
+        entrypoint_hash: entrypoint.hash(),
+        entrypoint_proof: block.network_input_proof(input_index).unwrap(),
+        entrypoint,
+        output_hash: HashOf::new(&output),
+        output_proof: block.output_proof(output_index).unwrap(),
+        output,
+    };
+    let finalized = verify_finalized_kagemusha_wallet_registration_v1(
+        verified,
+        &committed,
+        genesis.initial_epoch().network_id,
+        genesis.chain_id(),
+        &scheme,
+        asset.asset_digest(),
+        instruction_index,
+    )
+    .unwrap();
+    assert_eq!(finalized.height(), verified.height());
+    assert_eq!(finalized.asset(), asset);
+    assert_eq!(finalized.reserve(), reserve);
+}
+
 struct Inputs {
+    heights: CampaignHeights,
     receipt: KagemushaWalletLoadReceiptV1,
     receipt_bytes: Vec<u8>,
     blocks: Vec<VerifiedSumeragiBlock>,
@@ -207,7 +312,14 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
         raw(&capture["signed_genesis_wire_hex"]),
         setup_originals["signed-genesis.wire"]
     );
-    let names = (1..=5)
+    let receipt_bytes = pinned(
+        &capture_path.parent().unwrap().join("receipt.norito"),
+        KAGEMUSHA_WALLET_LOAD_RECEIPT_MAX_BYTES_V1,
+        &env_pin("KAGEMUSHA_EXECUTED_LOAD_RECEIPT_SHA256"),
+    );
+    let receipt = KagemushaWalletLoadReceiptV1::decode_canonical(&receipt_bytes).unwrap();
+    let heights = campaign_heights(receipt.block_height);
+    let names = (1..=heights.load)
         .flat_map(|height| {
             [
                 (format!("block-{height}.wire"), ORIGINAL_MAX),
@@ -225,13 +337,7 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
         "originals",
         &names,
     );
-    let receipt_bytes = frames["receipt.norito"].clone();
-    assert_eq!(
-        sha(&receipt_bytes),
-        env_pin("KAGEMUSHA_EXECUTED_LOAD_RECEIPT_SHA256")
-    );
-    let receipt = KagemushaWalletLoadReceiptV1::decode_canonical(&receipt_bytes).unwrap();
-    assert_eq!(receipt.block_height, 5);
+    assert_eq!(frames["receipt.norito"], receipt_bytes);
     let (target_path, target_bytes, target) =
         selected_json("KAGEMUSHA_NATIVE_LOAD_TARGET", TARGET_MAX);
     assert_eq!(target["schema"].as_str(), Some(TARGET_SCHEMA));
@@ -352,14 +458,14 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
         assert_eq!(target[name].as_str(), Some(expected));
     }
     let rows = capture["blocks"].as_array().unwrap();
-    assert_eq!(rows.len(), 4);
+    capture_heights(rows, heights);
     let mut native = genesis.clone();
     let mut blocks = Vec::new();
     let mut activation_proofs = Vec::new();
-    for height in 1..=5 {
+    for height in 1..=heights.load {
         let original = &frames[&format!("native-proof-{height}.norito")];
         let proof: SumeragiFinalityProof = decode(original);
-        if height <= 4 {
+        if height <= heights.activation {
             activation_proofs.push(original.clone());
         }
         assert_eq!(proof.height(), height);
@@ -371,6 +477,15 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
             );
         }
         let block = native.verify(&proof).unwrap();
+        if height == heights.registration {
+            require_registration(
+                &block,
+                genesis,
+                installation.scheme_id,
+                &asset,
+                &decode::<AccountId>(&setup_originals["reserve.norito"]),
+            );
+        }
         if height == 1 {
             // H1's result attachment differs from the original signed proposal. Native
             // verification above still authenticates the entire executed wire and result;
@@ -440,6 +555,7 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     )
     .unwrap();
     Inputs {
+        heights,
         receipt,
         receipt_bytes,
         blocks,
@@ -634,7 +750,7 @@ pub(super) fn confirm_existing_activation(
     let activation = input
         .blocks
         .iter()
-        .find(|block| block.height() == 4)
+        .find(|block| block.height() == input.heights.activation)
         .unwrap();
     // The actual certified prefix establishes installation before Activate. Select
     // the retained target original without assuming a transaction count or position.
@@ -649,20 +765,27 @@ pub(super) fn confirm_existing_activation(
         wallet.retain_activation_attempt(&signed).unwrap(),
         Progress::NotStarted
     );
-    assert_eq!(input.activation_proofs.len(), 4);
+    assert_eq!(
+        input.activation_proofs.len(),
+        usize::try_from(input.heights.activation).unwrap()
+    );
     for (index, original) in input.activation_proofs.iter().enumerate() {
         let height = u64::try_from(index + 1).unwrap();
         let progress = wallet
             .ingest_activation_finality(&signed, original)
             .unwrap();
         match progress {
-            Progress::Verifying(value) if height < 4 => assert_eq!(value.height, height),
-            Progress::Confirmed(value) if height == 4 => assert_eq!(value.height, 4),
+            Progress::Verifying(value) if height < input.heights.activation => {
+                assert_eq!(value.height, height)
+            }
+            Progress::Confirmed(value) if height == input.heights.activation => {
+                assert_eq!(value.height, input.heights.activation)
+            }
             other => panic!("unexpected native activation status at {height}: {other:?}"),
         }
     }
     let confirmed = wallet.confirm_ledger_activation(&signed).unwrap();
-    assert_eq!(confirmed.height, 4);
+    assert_eq!(confirmed.height, input.heights.activation);
     assert_eq!(confirmed.block_hash, *activation.block().hash().as_ref());
     (signed, confirmed)
 }
@@ -726,7 +849,7 @@ fn run(resume: bool) {
             .unwrap();
     }
     let terminal = input.blocks.last().unwrap();
-    assert_eq!(terminal.height(), 5);
+    assert_eq!(terminal.height(), input.heights.load);
     assert_eq!(terminal.height(), input.receipt.block_height);
     let evidence = KagemushaWalletLoadFinalityV1 {
         version: 1,
@@ -750,11 +873,12 @@ fn run(resume: bool) {
     );
     let result = norito::json!({
         "schema":"iroha.kagemusha.generated-native-load-finality.v1",
-        "scope":"Actual H1..H5 native certificates and funded Load event, direct BLS receipt admission and exact evidence recovery. Explicit simulated wallet hardware; no ABC, settlement, deployment or phone qualification.",
+        "scope":"Actual complete native certified prefix through the observed funded Load, successful registration, direct BLS receipt admission and exact evidence recovery. Explicit simulated wallet hardware; no ABC, settlement, deployment or phone qualification.",
         "capture_sha256":(input.capture_sha256),"target_sha256":(input.target_sha256),"setup_sha256":(input.setup_sha256),
         "receipt_sha256":(sha(&input.receipt_bytes)),"receipt_bytes":(input.receipt_bytes.len()),
         "finality_sha256":(sha(&proof)),"finality_bytes":(proof.len()),"source_pins":(source_pins()),
-        "receipt_height":5,"native_bls_finality":true,"existing_only_recovery":true,
+        "registration_height":(input.heights.registration),"activation_height":(input.heights.activation),
+        "receipt_height":(input.heights.load),"native_bls_finality":true,"existing_only_recovery":true,
     });
     // Deterministic completion bytes also survive replay; any existing discrepancy refuses.
     put_exact(

@@ -182,9 +182,10 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Norito schema names of the node-local enrollment journal scope, immutable selection, progress record, eligibility and worker-refusal exchanges, permit and worker preparation originals. The exclusive filesystem journal provides local custody and ordering, not a State commitment or independent authorization",
+        reason: "Norito schema names of the node-local enrollment journal scope, immutable selection, progress record, eligibility and worker-refusal exchanges, permit, exact expiry proof and worker preparation originals. The exclusive filesystem journal provides local custody and ordering, not a State commitment or independent authorization",
         literals: &[
             r"iroha_core.kagemusha.enrollment.eligibility_record.v1",
+            r"iroha_core.kagemusha.enrollment.journal_expiry.v1",
             r"iroha_core.kagemusha.enrollment.journal_permit.v1",
             r"iroha_core.kagemusha.enrollment.journal_scope.v1",
             r"iroha_core.kagemusha.enrollment.phase.v1",
@@ -230,8 +231,9 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Seed,
-        reason: "Exact local enrollment retry and permit filename indices, derived from the installed journal scope/account/request or the retained attempt key/dispatch nonce. They address original local records, not State contents or authority",
+        reason: "Exact local enrollment retry, permit and expiry filename indices, derived from the installed journal scope/account/request, retained attempt key/dispatch nonce, or exact length-bound expiry dispatch bytes. They address original local records, not State contents or authority",
         literals: &[
+            r"iroha:kagemusha:issuer-expiry-dispatch:v1\0",
             r"iroha:kagemusha:issuer-journal-request:v1\0",
             r"iroha:kagemusha:issuer-permit-dispatch:v1\0",
         ],
@@ -345,6 +347,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         usage: Use::Record,
         reason: "Signing digest of the complete prospective validator-seat readiness context and its exact canonical occupant: network, frozen preparation attempt, target epoch and bounds, ordered BLS generation identity, seat index and installed target beacon session/transcript. The adaptive share-possession challenge wraps this digest under its separate beacon domain; authenticated transition state supplies preparation, credentials and activation authority, and this record digest authenticates no State opening",
         literals: &[r"iroha:validator-seat-readiness:v1"],
+    },
+    OtherDomains {
+        usage: Use::Record,
+        reason: "Digest of the original configured lane count and ordered complete lane projections within the borrowed Nexus policy payload. It identifies that one configured catalog, not a keyed State root, State opening, finality proof, or evidence that node-local policies have become committed validity",
+        literals: &[r"iroha:nexus:configured-lane-catalog:v1\0"],
     },
     OtherDomains {
         usage: Use::Precondition,

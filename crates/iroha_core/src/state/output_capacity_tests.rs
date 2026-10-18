@@ -16,7 +16,7 @@ use crate::{
     kura::Kura,
     query::store::LiveQueryStore,
     smartcontracts::Execute,
-    state::{State, World},
+    state::{State, StateBlockStartError, World},
 };
 
 fn parameter(maximum: u32) -> Parameter {
@@ -254,7 +254,16 @@ fn foreign_source_or_invalid_restored_capacity_cannot_mint_a_plan() {
             .expect("valid fixture parameters");
         parameters.commit();
     }
-    let mut block = state.block(source.header());
+    let policy = state.world.parameters.view().get().block();
+    let expected = policy
+        .fastpq_source()
+        .validate(policy.execution_output())
+        .unwrap_err();
+    assert!(
+        matches!(state.try_block(source.header()), Err(StateBlockStartError::Policy(reason)) if reason == expected)
+    );
+    let mut block = state.merge_preexecution_block(source.header());
+    assert_eq!(block.fastpq_source_inventory(), Err(expected.as_str()));
     let events = block.world.external_event_buf.len();
     assert!(block.reserve_ordinary_execution_outputs(&source).is_err());
     assert!(block.prepare_owned_time_phase(&source.header()).is_err());
@@ -263,14 +272,27 @@ fn foreign_source_or_invalid_restored_capacity_cannot_mint_a_plan() {
         block.execution_output_plan,
         Some(super::ExecutionOutputPlanState::Poisoned)
     ));
-    let mut tx = block.transaction();
-    SetParameter::new(Parameter::Block(BlockParameter::ExecutionOutput(
-        ExecutionOutputPolicyV1::bootstrap(),
-    )))
-    .execute(&ALICE_ID, &mut tx)
-    .unwrap();
-    tx.apply();
-    block.capture_execution_output_capacity();
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut tx = block.transaction();
+        SetParameter::new(Parameter::Block(BlockParameter::ExecutionOutput(
+            ExecutionOutputPolicyV1::bootstrap(),
+        )))
+        .execute(&ALICE_ID, &mut tx)
+        .unwrap();
+        tx.apply();
+    }));
+    assert!(
+        refused.is_err(),
+        "the failed original cannot acquire a repair child"
+    );
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        block.capture_execution_output_capacity();
+    }));
+    assert!(
+        refused.is_err(),
+        "the failed original cannot install another capture"
+    );
+    assert_eq!(block.fastpq_source_inventory(), Err(expected.as_str()));
     assert!(
         block.time_trigger_invocation_limit().is_err(),
         "a later repair cannot replace this carrier's frozen refusal"

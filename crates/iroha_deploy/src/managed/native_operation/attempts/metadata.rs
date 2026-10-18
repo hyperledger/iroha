@@ -297,6 +297,8 @@ impl Image {
         Ok(image)
     }
     fn decode_envelope(bytes: Vec<u8>, pending_maximum: usize) -> Result<Self> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::MetadataEnvelopeDecode);
         let maximum = MAX_IMAGE_BYTES.max(pending_maximum.saturating_add(1024));
         if bytes.is_empty() || bytes.len() > maximum {
             return Err(invalid("operation metadata image exceeds its bound"));
@@ -454,6 +456,33 @@ impl Image {
         }
     }
 }
+// A lexical fresh source observation, never a currentness or authority capability.
+// Only exact bytes may borrow an already canonical immutable terminal Image. A different
+// image is decoded normally, preserving original malformed/source comparison errors.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Changed or bounded-admission images preserve the original inline decoder value without an extra allocation"
+)]
+pub(super) enum ObservedImage<'image> {
+    Original(&'image Image),
+    Decoded(Image),
+}
+impl std::ops::Deref for ObservedImage<'_> {
+    type Target = Image;
+    fn deref(&self) -> &Image {
+        match self {
+            Self::Original(image) => image,
+            Self::Decoded(image) => image,
+        }
+    }
+}
+impl ObservedImage<'_> {
+    pub(super) fn is_original(&self, image: &Image) -> bool {
+        reuse_history_image()
+            && matches!(self, Self::Original(original) if std::ptr::eq(*original, image))
+    }
+}
+
 fn wire(
     phase: Phase,
     original: [u8; 32],
@@ -478,6 +507,29 @@ pub(super) fn load(operation: &PrivateDirectory) -> Result<Image> {
     operation.read_scope(load_in_scope)
 }
 pub(super) fn load_in_scope(reader: &mut iroha_fs::PrivateReadScope<'_>) -> Result<Image> {
+    read_image_bytes(reader, |bytes| Image::decode(bytes, 0))
+}
+pub(super) fn load_matching_in_scope<'image>(
+    reader: &mut iroha_fs::PrivateReadScope<'_>,
+    original: Option<&'image Image>,
+) -> Result<ObservedImage<'image>> {
+    read_image_bytes(reader, |bytes| {
+        // Recheck after the native read, before reusing any earlier decoder's geometry.
+        let matched = {
+            #[cfg(test)]
+            let _timing = finish_timing::phase(finish_timing::Phase::MetadataImageMatch);
+            original.filter(|image| reuse_history_image() && image.bytes == bytes)
+        };
+        if let Some(original) = matched {
+            return Ok(ObservedImage::Original(original));
+        }
+        Image::decode(bytes, 0).map(ObservedImage::Decoded)
+    })
+}
+fn read_image_bytes<T>(
+    reader: &mut iroha_fs::PrivateReadScope<'_>,
+    consume: impl FnOnce(Vec<u8>) -> Result<T>,
+) -> Result<T> {
     #[cfg(test)]
     let _timing = finish_timing::phase(finish_timing::Phase::AttemptScopedRecordRead);
     #[cfg(test)]
@@ -505,7 +557,7 @@ pub(super) fn load_in_scope(reader: &mut iroha_fs::PrivateReadScope<'_>) -> Resu
             }),
         )?
         .ok_or_else(|| invalid("operation metadata image is absent"))?;
-    Image::decode(bytes, 0)
+    consume(bytes)
 }
 fn replace(
     operation: &PrivateDirectory,
@@ -994,3 +1046,54 @@ pub(in crate::managed) fn test_pending_original(
 #[cfg(test)]
 #[path = "metadata_tests.rs"]
 mod bounds_tests;
+
+// Admit the actual fresh native image before installing a decoder owner. Its later use must
+// recover exactly the original typed decoder and its allocation refusal, never cached admission.
+#[cfg(test)]
+pub(in crate::managed) fn test_late_image_decoder(history: &History) {
+    history
+        .operation
+        .read_scope(|reader| {
+            let image = load_matching_in_scope(reader, Some(&history.image))?;
+            assert!(image.is_original(&history.image));
+            for allocation in [0, 1, usize::MAX] {
+                let limits = norito::DecodeLimits::new(
+                    MAX_IMAGE_BYTES,
+                    MAX_IMAGE_BYTES,
+                    MAX_IMAGE_BYTES,
+                    allocation,
+                    64,
+                );
+                let read = |original: bool| {
+                    norito::core::with_decode_limits_measured(limits, || {
+                        assert!(!image.is_original(&history.image));
+                        let source = if original { &history.image } else { &*image };
+                        source
+                            .read::<Dispatch>(None, 0)
+                            .map(|value| value == history.dispatch)
+                            .map_err(|error| error.to_string())
+                    })
+                };
+                let original = read(true);
+                assert_eq!(original, read(false));
+                if allocation <= 1 {
+                    assert!(original.0.is_err());
+                } else {
+                    assert_eq!(original.0, Ok(true));
+                }
+            }
+            assert!(image.is_original(&history.image));
+            Ok::<_, crate::managed::Error>(())
+        })
+        .unwrap();
+}
+
+// A fully canonical changed child (rather than malformed bytes) exercises retained comparison.
+#[cfg(test)]
+pub(in crate::managed) fn test_changed_dispatch_image(source: &[u8]) -> Result<Vec<u8>> {
+    let image = Image::decode(source.to_vec(), 0)?;
+    let mut dispatch = image.read::<Dispatch>(None, 0)?.expect("genuine dispatch");
+    dispatch.semantic[0] ^= 1;
+    let replacement = encode(&dispatch, MAX_RECORD_BYTES)?;
+    test_changed_image(source, None, "dispatch.nrt", Some(&replacement))
+}

@@ -369,7 +369,23 @@ def refresh_raw(observation):
     observation["process"]["stdout"] = qualify.PREFIX + json.dumps(observation["report"])
 
 
-def ledger_fixture():
+def bind_execution_fixture(ledger, order, rng):
+    """Bind raw measured seeds and sequence numbers to the supplied execution order."""
+    sequence = 0
+    for block, names in enumerate(order):
+        for name in names:
+            for row in ledger["attempts"][name]:
+                if row["block"] == block:
+                    row["seed"] = rng.randrange(1 << 64)
+                    reseed_report(row["report"], row["seed"])
+                    row["measured"]["seed"] = row["seed"]
+                    reseed_report(row["measured"]["report"], row["seed"])
+                    refresh_raw(row["measured"])
+                    row["sequence"] = sequence
+                    sequence += 1
+
+
+def ledger_fixture(shuffle_seed=123):
     candidate = {"binary_sha256": "ab" * 32, "source_sha256": "ef" * 32, "layouts": {},
                  "memory_activity_policy": qualify.MEMORY_ACTIVITY_POLICY, "source_policy": qualify.SOURCE_POLICY,
                  "source_scope": {"kind": "cargo_component"}}
@@ -401,22 +417,12 @@ def ledger_fixture():
             row["post"] = observation_fixture(value)
             for boundary in ("candidate_before", "candidate_after"):
                 row[boundary] = {key: candidate[key] for key in ("source_sha256", "binary_sha256")}
-    rng = random.Random(123)
+    rng = random.Random(shuffle_seed)
     order = qualify.schedule(rng)
-    sequence = 0
-    for block, names in enumerate(order):
-        for name in names:
-            for row in configs[name]:
-                if row["block"] == block:
-                    row["seed"] = rng.randrange(1 << 64)
-                    reseed_report(row["report"], row["seed"])
-                    row["measured"]["seed"] = row["seed"]
-                    reseed_report(row["measured"]["report"], row["seed"])
-                    refresh_raw(row["measured"])
-                    row["sequence"] = sequence
-                    sequence += 1
-    return {"schema": "kagemusha.m3.runs.v1", "shuffle_seed": 123,
-            "schedule": order, "candidate": candidate, "attempts": configs}
+    ledger = {"schema": "kagemusha.m3.runs.v1", "shuffle_seed": shuffle_seed,
+              "schedule": order, "candidate": candidate, "attempts": configs}
+    bind_execution_fixture(ledger, order, rng)
+    return ledger
 
 
 def test_summary_cannot_qualify_report_only_records(tmp_path):
@@ -610,6 +616,163 @@ def test_summary_enforces_declared_schedule_and_attempt_limit(tmp_path):
             ledger["attempts"]["q_chips-1"][0]["sequence"] = 1000
         qualify.write_json(path, ledger)
         assert qualify.summarize(path)["status"] == "inconclusive", defect
+
+
+@pytest.mark.parametrize("seed", [1, 5, 0, -1, 20261006, 20261007, (1 << 100) + 1])
+def test_schedule_separates_blocks_without_extra_random_draws(seed):
+    rng = random.Random(seed)
+    order = qualify.schedule(rng)
+    original_rng = random.Random(seed)
+    original = []
+    for _ in range(3):
+        names = list(qualify.CONFIGS)
+        original_rng.shuffle(names)
+        original.append(names)
+    assert len(order) == 3
+    assert all(sorted(names) == sorted(qualify.CONFIGS) for names in order)
+    assert all(before[-1] != after[0] for before, after in zip(order, order[1:]))
+    assert order == qualify.schedule(random.Random(seed))
+    assert rng.getstate() == original_rng.getstate()
+    assert [rng.randrange(1 << 64) for _ in range(72)] == [
+        original_rng.randrange(1 << 64) for _ in range(72)
+    ]
+    if seed in (1, 5):
+        # These accepted seeds originally placed identical configurations on
+        # both sides of the first block boundary.
+        assert original[0][-1] == original[1][0]
+        assert order != original
+    elif seed == 20261006:
+        assert order == original
+
+
+@pytest.mark.parametrize("seed", [1, 5])
+def test_summary_accepts_separated_seed_one_and_five_schedules(tmp_path, seed):
+    path = tmp_path / "runs.json"
+    qualify.write_json(path, ledger_fixture(seed))
+    result = qualify.summarize(path)
+    assert result["status"] == "pass"
+    assert all(value["valid_processes"] == 9 for value in result["configurations"].values())
+
+
+@pytest.mark.parametrize("seed", [1, 5])
+@pytest.mark.parametrize("forge_declaration", [False, True])
+def test_summary_rejects_adjacent_order_with_coherent_process_records(tmp_path, seed, forge_declaration):
+    ledger = ledger_fixture(seed)
+    rng = random.Random(seed)
+    adjacent = []
+    for _ in range(3):
+        names = list(qualify.CONFIGS)
+        rng.shuffle(names)
+        adjacent.append(names)
+    assert adjacent[0][-1] == adjacent[1][0]
+    bind_execution_fixture(ledger, adjacent, rng)
+    if forge_declaration:
+        ledger["schedule"] = adjacent
+    # Every raw observation is internally consistent and individually valid.
+    # Neither changing the declaration nor disguising the execution order
+    # behind a correct declaration can admit the unseparated batches.
+    for name, rows in ledger["attempts"].items():
+        assert all(not qualify.attempt_reasons(row, qualify.CONFIGS[name], ledger["candidate"])
+                   for row in rows)
+    path = tmp_path / "runs.json"
+    qualify.write_json(path, ledger)
+    retained = path.read_bytes()
+    result = qualify.summarize(path)
+    assert result["status"] == "inconclusive"
+    reason = ("invalid predeclared configuration schedule" if forge_declaration
+              else "attempt execution differs from predeclared schedule")
+    for value in result["configurations"].values():
+        assert value["valid_processes"] == 0
+        assert all(reason in row["reasons"] for row in value["invalid_attempts"])
+    assert path.read_bytes() == retained
+
+
+@pytest.mark.parametrize("intervening", [
+    "exhausted", "launch_failure", "invalid_environment", "invalid_calibration", "failed_child",
+])
+def test_summary_checks_executed_batches_when_intervening_measurements_fail(tmp_path, intervening):
+    ledger = ledger_fixture(1)
+    order = ledger["schedule"]
+    target = order[0][-1]
+    separating = order[1][:order[1].index(target)]
+    assert separating
+    for name in separating:
+        template = deepcopy(ledger["attempts"][name][0])
+        rows = []
+        # Exhaust all eighteen attempts before the next target batch. A
+        # declared later batch must not stand in for an actual process.
+        batches = ((0, 18),) if intervening == "exhausted" else ((0, 3), (1, 15))
+        for block, count in batches:
+            for _ in range(count):
+                row = deepcopy(template)
+                row["block"] = block
+                if intervening == "exhausted" or block == 1:
+                    if intervening == "launch_failure":
+                        row["measured"]["process"]["code"] = None
+                    elif intervening == "failed_child":
+                        row["measured"]["process"]["code"] = 101
+                    elif intervening == "invalid_calibration":
+                        row["post"]["report"]["samples"][0]["cpu_ns"] *= 2
+                        refresh_raw(row["post"])
+                    else:
+                        row["measured"]["after"]["raw"]["pressure"]["stdout"] = "2\n"
+                rows.append(row)
+        ledger["attempts"][name] = rows
+    rng = random.Random(ledger["shuffle_seed"])
+    assert qualify.schedule(rng) == order
+    bind_execution_fixture(ledger, order, rng)
+    for name in separating:
+        for row in ledger["attempts"][name]:
+            if intervening in ("launch_failure", "failed_child") and row["block"] == 1:
+                row["report"] = None
+                row["measured"]["report"] = None
+                row["measured"]["process"].update(stdout="", stderr="fixture child unavailable or failed")
+            row["reasons"] = qualify.attempt_reasons(row, qualify.CONFIGS[name], ledger["candidate"])
+        assert len(ledger["attempts"][name]) == 18
+        assert all(row["reasons"] for row in ledger["attempts"][name] if
+                   intervening == "exhausted" or row["block"] == 1)
+    # The target still has all nine passing observations, three per block.
+    assert qualify.verdict(qualify.CONFIGS[target], ledger["attempts"][target])["status"] == "pass"
+    path = tmp_path / "runs.json"
+    qualify.write_json(path, ledger)
+    retained = path.read_bytes()
+    result = qualify.summarize(path)
+    assert result["status"] == "inconclusive"
+    value = result["configurations"][target]
+    if intervening in ("exhausted", "launch_failure"):
+        assert value["status"] == "inconclusive"
+        assert value["qualification_reasons"] == [
+            "measurement blocks lack an intervening executed configuration batch"
+        ]
+    else:
+        # Separation requires actual execution, not a valid calibration,
+        # environment or successful proof. Failed samples still cannot pass.
+        assert value["status"] == "pass"
+        assert value["qualification_reasons"] == []
+    assert value["valid_processes"] == 9
+    assert len(value["all_process_times_seconds"]) == 9
+    assert len(value["all_process_rss_bytes"]) == 9
+    assert value["invalid_attempts"] == []
+    assert path.read_bytes() == retained
+    if intervening in ("exhausted", "launch_failure"):
+        # Both an affected configuration and an unrelated configuration must
+        # retain authenticated hard failures even when separation is absent.
+        other = next(name for name in qualify.CONFIGS if name not in separating and name != target)
+        for name in (target, other):
+            row = ledger["attempts"][name][0]
+            row["report"]["peak_rss_bytes"] = qualify.GIB
+            row["measured"]["report"] = deepcopy(row["report"])
+            refresh_raw(row["measured"])
+        qualify.write_json(path, ledger)
+        retained = path.read_bytes()
+        failed = qualify.summarize(path)
+        assert failed["status"] == "fail"
+        for name in (target, other):
+            assert failed["configurations"][name]["status"] == "fail"
+            assert failed["configurations"][name]["maximum_kernel_rss_bytes"] == qualify.GIB
+        assert failed["configurations"][target]["qualification_reasons"] == value["qualification_reasons"]
+        assert failed["configurations"][other]["qualification_reasons"] == []
+        assert path.read_bytes() == retained
 
 
 def test_run_process_retains_probe_and_spawn_failures(tmp_path, monkeypatch):

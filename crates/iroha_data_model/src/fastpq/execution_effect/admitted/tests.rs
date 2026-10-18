@@ -250,3 +250,98 @@ fn effect_count_cap_refuses_before_any_effect_or_member_backing() {
     drop(controls);
     assert_eq!(pool.reserved_bytes(), 0);
 }
+
+fn source_leaf() -> crate::fastpq::FastpqOrdinarySourceStatementLeafV1 {
+    let tape = fixture();
+    crate::fastpq::FastpqOrdinarySourceStatementLeafV1 {
+        source: tape.context.source,
+        statement_index: 0,
+        entry_index: 0,
+        effect_count: u32::try_from(tape.effects.len()).unwrap(),
+        entry_hash: tape.context.entry.entry_hash,
+        execution_kind: tape.context.entry.execution_kind,
+        route: tape.context.entry.route,
+        dataspace_id: tape.context.entry.dataspace_id,
+        effects_digest: execution_effects_digest_v1(&tape).unwrap().into(),
+        slot: 123_456,
+        perm_root: [0x23; 32],
+        tx_set_hash: [0x45; 32],
+    }
+}
+
+// Enter the same canonical element-field boundary used by the funded source
+// destination, without introducing a context around any raw array child.
+fn source_leaf_field(
+    payload: &[u8],
+) -> Result<crate::fastpq::FastpqOrdinarySourceStatementLeafV1, Error> {
+    let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+    let mut framed = Vec::new();
+    ncore::write_len_with_flags(
+        &mut framed,
+        u64::try_from(payload.len()).unwrap(),
+        ncore::default_encode_flags(),
+    )
+    .unwrap();
+    framed.extend_from_slice(payload);
+    let _context = ncore::PayloadCtxGuard::enter(&framed);
+    let mut offset = 0;
+    let field = ncore::framed_field::<crate::fastpq::FastpqOrdinarySourceStatementLeafV1>(
+        &framed,
+        &mut offset,
+    )?;
+    let result = field
+        .with_payload(|bytes| decode_fastpq_source_leaf_payload_v1(bytes).map_err(destination));
+    assert_eq!(offset, framed.len());
+    result.map_err(Error::from)
+}
+
+#[test]
+fn source_leaf_raw_arrays_preserve_following_fields_under_canonical_boundary() {
+    let original = source_leaf();
+    let frame = norito::encode_canonical(&original).unwrap();
+    assert_eq!(
+        norito::decode_canonical::<crate::fastpq::FastpqOrdinarySourceStatementLeafV1>(&frame)
+            .unwrap(),
+        original,
+    );
+    let view = ncore::from_bytes_view(&frame).unwrap();
+    let decoded = source_leaf_field(view.as_bytes()).unwrap();
+    assert_eq!(decoded, original);
+    assert_eq!(norito::encode_canonical(&decoded).unwrap(), frame);
+    assert_eq!(decoded.slot, 123_456);
+    assert_eq!(decoded.perm_root, [0x23; 32]);
+    assert_eq!(decoded.tx_set_hash, [0x45; 32]);
+}
+
+#[test]
+fn source_leaf_raw_arrays_keep_exact_width_and_complete_record_checks() {
+    let frame = norito::encode_canonical(&source_leaf()).unwrap();
+    let view = ncore::from_bytes_view(&frame).unwrap();
+    let payload = view.as_bytes();
+    let mut offset = 0;
+    for _ in 0..8 {
+        let (length, prefix) =
+            ncore::read_len_from_slice_with_flags(&payload[offset..], view.flags()).unwrap();
+        offset += prefix + length;
+    }
+    let (length, prefix) =
+        ncore::read_len_from_slice_with_flags(&payload[offset..], view.flags()).unwrap();
+    assert_eq!(length, 32, "the actual nonterminal effects_digest field");
+    for width in [31, 33] {
+        let mut malformed = payload[..offset].to_vec();
+        ncore::write_len_with_flags(&mut malformed, width, view.flags()).unwrap();
+        malformed.extend_from_slice(&payload[offset + prefix..]);
+        assert!(matches!(
+            source_leaf_field(&malformed),
+            Err(Error::Codec(norito::Error::LengthMismatch))
+        ));
+    }
+    assert!(source_leaf_field(&payload[..payload.len() - 1]).is_err());
+    let mut trailing = payload.to_vec();
+    trailing.push(0);
+    assert!(matches!(
+        source_leaf_field(&trailing),
+        Err(Error::Codec(norito::Error::LengthMismatch))
+    ));
+    assert_eq!(source_leaf_field(payload).unwrap(), source_leaf());
+}

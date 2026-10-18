@@ -15,6 +15,7 @@ pub(super) struct Manifest {
     pub indexed: Option<u128>,
     pub capsule: [u8; 32],
     pub steps: IndexRoot,
+    pub operations: IndexRoot,
     pub credits: IndexRoot,
     pub outgoing: IndexRoot,
     pub folds: IndexRoot,
@@ -63,6 +64,7 @@ impl Manifest {
             indexed: None,
             capsule: [0; 32],
             steps: IndexRoot::default(),
+            operations: IndexRoot::default(),
             credits: IndexRoot::default(),
             outgoing: IndexRoot::default(),
             folds: IndexRoot::default(),
@@ -267,6 +269,39 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::WitnessLost("step index"))?;
         archive::decode(&bytes)
     }
+
+    // Low-level absence cannot erase an indexed commit. This permanent locator is published
+    // with StepEntry and survives collection; its sequence is only a bounded lookup locator.
+    // A preparation may bind an operation before Advance, so authenticated absence still
+    // means unselected. Missing/corrupt index objects are errors, never that absence.
+    pub(super) fn missing_retained_output(
+        &mut self,
+        operation: &[u8; 32],
+        capsule: Option<&[u8; 32]>,
+    ) -> Result<Option<Completion>, Error> {
+        let (_, manifest) = self.manifest()?;
+        let Some(locator) = manifest.operations.get(&mut self.archive, operation)? else {
+            return Ok(None);
+        };
+        let locator: [u8; 32] = locator
+            .try_into()
+            .map_err(|_| Error::WitnessLost("committed operation locator"))?;
+        let sequence = u128::from_be_bytes(
+            locator[16..]
+                .try_into()
+                .map_err(|_| Error::WitnessLost("committed operation locator"))?,
+        );
+        if locator != sequence_key(sequence) || manifest.indexed.is_none_or(|head| sequence > head)
+        {
+            return Err(Error::WitnessLost("committed operation sequence"));
+        }
+        let entry = self.step_entry(&manifest, sequence)?;
+        if entry.operation != *operation || capsule.is_some_and(|digest| entry.capsule != *digest) {
+            return Err(Error::WitnessLost("committed operation binding"));
+        }
+        Ok(Some(Completion::DeliveryDataLoss))
+    }
+
     /// Recover only the unindexed tail. Each iteration retains one capsule and bounded index
     /// paths; permanent history is never collected into a vector on a payment/fold operation.
     pub(super) fn sync_manifest(&mut self) -> Result<([u8; 32], Manifest), Error> {
@@ -324,10 +359,22 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 collected: false,
             };
             self.index_source_custody(&mut manifest, digest, c.body().kind)?;
+            if manifest
+                .operations
+                .get(&mut self.archive, &entry.operation)?
+                .is_some()
+            {
+                return Err(Error::WitnessLost("duplicate committed operation"));
+            }
             manifest.steps = manifest.steps.set(
                 &mut self.archive,
                 sequence_key(current),
                 &archive::encode(&entry)?,
+            )?;
+            manifest.operations = manifest.operations.set(
+                &mut self.archive,
+                entry.operation,
+                &sequence_key(current),
             )?;
             if let KagemushaWalletEffectV1::Send { credit_id, .. } = c.body().statement.effect {
                 if manifest

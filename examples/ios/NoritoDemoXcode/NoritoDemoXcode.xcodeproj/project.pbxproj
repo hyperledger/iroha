@@ -29,6 +29,8 @@
 		BF0250000000000000000207 /* KagemushaNearbyDeviceStages.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000206 /* KagemushaNearbyDeviceStages.swift */; };
 		BF0250000000000000000209 /* KagemushaNearbyAttemptGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000208 /* KagemushaNearbyAttemptGateTests.swift */; };
 		BF0250000000000000000211 /* IrohaSwiftMobileTransports in Frameworks */ = {isa = PBXBuildFile; productRef = BF0250000000000000000210 /* IrohaSwiftMobileTransports */; };
+		BF0250000000000000000213 /* KagemushaEnrollmentProbeStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000212 /* KagemushaEnrollmentProbeStage.swift */; };
+		BF0250000000000000000215 /* KagemushaEnrollmentProbeStageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000214 /* KagemushaEnrollmentProbeStageTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +58,8 @@
 		BF0250000000000000000204 /* KagemushaNearbyDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaNearbyDiagnostic.swift; sourceTree = "<group>"; };
 		BF0250000000000000000206 /* KagemushaNearbyDeviceStages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaNearbyDeviceStages.swift; sourceTree = "<group>"; };
 		BF0250000000000000000208 /* KagemushaNearbyAttemptGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaNearbyAttemptGateTests.swift; sourceTree = "<group>"; };
+		BF0250000000000000000212 /* KagemushaEnrollmentProbeStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaEnrollmentProbeStage.swift; sourceTree = "<group>"; };
+		BF0250000000000000000214 /* KagemushaEnrollmentProbeStageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaEnrollmentProbeStageTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -95,6 +99,8 @@
 			BF0250000000000000000111 /* KagemushaMonetaryProbeManifestTests.swift */,
 			BF025000000000000000010B /* KagemushaEnrollmentProbeFilesTests.swift */,
 			BF0250000000000000000109 /* KagemushaEnrollmentPhysicalDeviceTests.swift */,
+			BF0250000000000000000212 /* KagemushaEnrollmentProbeStage.swift */,
+			BF0250000000000000000214 /* KagemushaEnrollmentProbeStageTests.swift */,
 			BF0250000000000000000107 /* KagemushaEnrollmentDeviceActor.swift */,
 			BF0250000000000000000105 /* KagemushaEnrollmentProbeFiles.swift */,
 			3F1C3AB02C7F11B500C1C001 /* Info.plist */,
@@ -150,6 +156,8 @@
 			BF0250000000000000000112 /* KagemushaMonetaryProbeManifestTests.swift in Sources */,
 			BF025000000000000000010C /* KagemushaEnrollmentProbeFilesTests.swift in Sources */,
 			BF025000000000000000010A /* KagemushaEnrollmentPhysicalDeviceTests.swift in Sources */,
+			BF0250000000000000000213 /* KagemushaEnrollmentProbeStage.swift in Sources */,
+			BF0250000000000000000215 /* KagemushaEnrollmentProbeStageTests.swift in Sources */,
 			BF0250000000000000000108 /* KagemushaEnrollmentDeviceActor.swift in Sources */,
 			BF0250000000000000000106 /* KagemushaEnrollmentProbeFiles.swift in Sources */,
 		); runOnlyForDeploymentPostprocessing = 0; };

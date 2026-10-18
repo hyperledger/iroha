@@ -6,12 +6,12 @@ use super::{KagemushaWalletPlatformV1, KagemushaWalletUnavailableV1};
 
 /// Genuine process-bound, suspend-inclusive reading. It is never serialized or restored.
 #[cfg(not(test))]
-pub(crate) type LiveEnrollmentReadingV1 = NativeContinuousReading;
+pub type LiveEnrollmentReadingV1 = NativeContinuousReading;
 
 /// Test-only reading injection; production uses the native type directly.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum LiveEnrollmentReadingV1 {
+pub enum LiveEnrollmentReadingV1 {
     Native(NativeContinuousReading),
     Simulated { domain: [u8; 32], nanos: u128 },
 }

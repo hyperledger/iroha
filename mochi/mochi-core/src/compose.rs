@@ -400,6 +400,7 @@ pub struct TransactionPreview {
     signed: SignedTransaction,
     encoded_hex: String,
     instructions: Vec<String>,
+    summaries: Vec<String>,
     hash: String,
     authority: String,
 }
@@ -423,6 +424,13 @@ impl TransactionPreview {
     #[must_use]
     pub fn instructions(&self) -> &[String] {
         &self.instructions
+    }
+    /// Summaries of the drafts this transaction was composed from, in instruction order.
+    ///
+    /// Empty when the preview was not built from drafts.
+    #[must_use]
+    pub fn summaries(&self) -> &[String] {
+        &self.summaries
     }
     /// Authority account recorded in the transaction payload.
     #[must_use]
@@ -482,9 +490,15 @@ impl TransactionPreview {
             signed,
             encoded_hex,
             instructions,
+            summaries: Vec::new(),
             hash,
             authority,
         }
+    }
+
+    fn with_summaries(mut self, drafts: &[InstructionDraft]) -> Self {
+        self.summaries = drafts.iter().map(InstructionDraft::summary).collect();
+        self
     }
 }
 /// Compose an exact-network preview while applying the supplied [`TransactionComposeOptions`].
@@ -526,7 +540,7 @@ pub fn compose_preview_with_options(
         .map_err(|err| ComposeError::Signing {
             reason: err.to_string(),
         })?;
-    Ok(TransactionPreview::new(signed))
+    Ok(TransactionPreview::new(signed).with_summaries(drafts))
 }
 /// Declarative specification for a high-level instruction created in the UI.
 #[derive(Debug, Clone)]
@@ -1278,7 +1292,7 @@ fn parse_asset_id(value: &str) -> Result<AssetId, ComposeError> {
     }
     Ok(parsed)
 }
-fn parse_account_id(value: &str) -> Result<AccountId, ComposeError> {
+pub(crate) fn parse_account_id(value: &str) -> Result<AccountId, ComposeError> {
     AccountId::parse_encoded(value).map_err(|err| ComposeError::InvalidAccountId {
         account: value.to_owned(),
         reason: err.to_string(),
@@ -1297,7 +1311,7 @@ fn parse_quantity(value: &str) -> Result<Quantity, ComposeError> {
     }
     Ok(parsed)
 }
-fn parse_asset_definition_id(value: &str) -> Result<AssetDefinitionId, ComposeError> {
+pub(crate) fn parse_asset_definition_id(value: &str) -> Result<AssetDefinitionId, ComposeError> {
     let parsed = AssetDefinitionId::from_str(value).map_err(|err| {
         ComposeError::InvalidAssetDefinitionId {
             definition: value.to_owned(),
@@ -2589,5 +2603,32 @@ mod tests {
             .signed_transaction()
             .verify_signature()
             .expect("checked composed transaction signature verifies");
+    }
+    #[test]
+    fn composed_previews_keep_one_draft_summary_per_signed_instruction() {
+        let authorities = development_signing_authorities();
+        let signer = authorities
+            .iter()
+            .find(|auth| auth.allows_permission(InstructionPermission::MintAsset))
+            .expect("signer with mint permission present");
+        let account = account_literal(signer.account_id());
+        let asset_id = format!("62Fk4FPcMuLvW5QjDGNF2a4jAmjM#{account}");
+        let drafts = [
+            InstructionDraft::mint_from_input(&asset_id, "5").expect("mint draft"),
+            InstructionDraft::burn_from_input(&asset_id, "2").expect("burn draft"),
+        ];
+        let preview = compose_preview_with_options(
+            test_network_id(),
+            &drafts,
+            signer,
+            &TransactionComposeOptions::new(),
+        )
+        .expect("compose");
+        assert_eq!(preview.instructions().len(), 2);
+        assert_eq!(
+            preview.summaries(),
+            [drafts[0].summary(), drafts[1].summary()]
+        );
+        assert!(preview.summaries()[0].starts_with("Mint 5 to "));
     }
 }
