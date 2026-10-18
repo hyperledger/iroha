@@ -327,6 +327,25 @@ private final class IrohaPeerNfcISO7816TagBoxV1: @unchecked Sendable {
     }
 }
 
+/// The Offer one reader operation built for the card's ask. A later contact of
+/// the same operation resumes this Offer instead of building another.
+private final class IrohaPeerNfcAskedOfferBoxV1: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: (ask: IrohaPeerAskV1, offer: IrohaPeerWireMessageV1)?
+
+    func load() -> (ask: IrohaPeerAskV1, offer: IrohaPeerWireMessageV1)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func store(ask: IrohaPeerAskV1, offer: IrohaPeerWireMessageV1) {
+        lock.lock()
+        value = (ask, offer)
+        lock.unlock()
+    }
+}
+
 @available(iOS 17.4, *)
 private final class IrohaPeerNfcCardSessionBoxV1: @unchecked Sendable {
     let session: CardSession
@@ -660,16 +679,19 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
         return receiver.identity
     }
 
-    /// Starts card emulation awaiting the payer's Offer. When the Offer
-    /// arrives, `prepareRequest` signs the Request the card then hosts for the
-    /// payer's Payment during the same hold. Returns the session identifier
+    /// Starts card emulation awaiting the payer's Offer. With the receiver's
+    /// `ask`, the card answers GET_ASK so the payer's reader builds its Offer for
+    /// that amount (`IrohaPeerNfcReaderServiceV1.run(offerFactory:)`). When the
+    /// Offer arrives, `prepareRequest` signs the Request the card then hosts for
+    /// the payer's Payment during the same hold. Returns the session identifier
     /// that Request must keep: if contact is interrupted, restart it with
-    /// `start(sessionID:receiveRequest:)`
-    /// and the same Request bytes so the payer's retained checkpoint still matches.
+    /// `start(sessionID:receiveRequest:)` and the same Request bytes so the
+    /// payer's retained checkpoint still matches.
     @discardableResult
     public func startIntake(
         profilePolicy: IrohaPeerNfcProfilePolicyV1,
         limits: IrohaPeerNfcLimitsV1 = .default,
+        ask: IrohaPeerAskV1? = nil,
         onEvent: @escaping EventHandler,
         prepareRequest: @escaping PrepareRequest,
         admitPayment: @escaping AdmitPayment,
@@ -683,12 +705,14 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
             configuration: configuration,
             budget: startupBudget
         )
-        let intake = try IrohaPeerNfcOfferIntakeV1(profilePolicy: profilePolicy, limits: limits)
+        let endpoint = try IrohaPeerNfcCardEndpointV1.intake(
+            applicationIdentifier: configuration.applicationIdentifier,
+            profilePolicy: profilePolicy,
+            limits: limits,
+            ask: ask
+        )
         try await startRuntime(
-            endpoint: IrohaPeerNfcCardEndpointV1(
-                applicationIdentifier: configuration.applicationIdentifier,
-                intake: intake
-            ),
+            endpoint: endpoint,
             startupBudget: startupBudget,
             onEvent: onEvent,
             authorizeRequest: {},
@@ -696,7 +720,7 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
             admitPayment: admitPayment,
             durableCommit: durableCommit
         )
-        return intake.sessionID
+        return endpoint.sessionID
     }
 
     private func startRuntime(
@@ -1671,8 +1695,39 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         )
     }
 
+    /// The receiver-led twin of `run(offer:)`. The card's ask is read inside the same contact, `offerFactory`
+    /// builds the payer's Offer for it exactly once, and that one contact carries the Request, the approval
+    /// (the application does it in `loadOrCreateDurableCheckpoint`), the Payment and the ACK. After a lost
+    /// contact the operation continues with the Offer the factory already built and never asks again; once the
+    /// Payment exists it resumes from the checkpoint exactly as `run(offer:)` does.
+    public func run(
+        offerFactory: @escaping IrohaPeerNfcOfferFactoryV1,
+        restoredCheckpoint: Data? = nil,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        retryPolicy: IrohaPeerNfcReaderRetryPolicyV1 = .default,
+        onTypedProgress: ((IrohaPeerNfcProgressEventV1) -> Void)? = nil,
+        loadOrCreateDurableCheckpoint: @escaping
+            IrohaPeerNfcReaderExchangeV1.LoadOrCreateDurableCheckpoint,
+        updateDurableCheckpoint: @escaping
+            IrohaPeerNfcReaderExchangeV1.UpdateDurableCheckpoint
+    ) async throws -> IrohaPeerNfcReaderExchangeResultV1 {
+        try await runPayment(
+            offer: nil,
+            offerFactory: offerFactory,
+            restoredCheckpoint: restoredCheckpoint,
+            profilePolicy: profilePolicy,
+            limits: limits,
+            retryPolicy: retryPolicy,
+            onTypedProgress: onTypedProgress,
+            loadOrCreateDurableCheckpoint: loadOrCreateDurableCheckpoint,
+            updateDurableCheckpoint: updateDurableCheckpoint
+        )
+    }
+
     private func runPayment(
         offer: IrohaPeerWireMessageV1?,
+        offerFactory: IrohaPeerNfcOfferFactoryV1? = nil,
         restoredCheckpoint: Data?,
         profilePolicy: IrohaPeerNfcProfilePolicyV1,
         limits: IrohaPeerNfcLimitsV1,
@@ -1684,6 +1739,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
             IrohaPeerNfcReaderExchangeV1.UpdateDurableCheckpoint
     ) async throws -> IrohaPeerNfcReaderExchangeResultV1 {
         let checkpointBox = IrohaPeerNfcCheckpointBoxV1(restoredCheckpoint)
+        let askedOffer = IrohaPeerNfcAskedOfferBoxV1()
         let applicationIdentifier = configuration.applicationIdentifier
         let preparationTimeout = configuration.requestPreparationTimeoutMilliseconds
         let outcome = try await perform(
@@ -1745,7 +1801,9 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                     try contact.validate()
                 },
                 operation: {
-                    if let offer {
+                    if let offer = offer ?? askedOffer.load()?.offer {
+                        // The payer's own Offer, or the one the factory built for the card's ask in an earlier contact
+                        // of this operation: the factory is never asked again.
                         return try await IrohaPeerNfcReaderExchangeV1.run(
                             offer: offer,
                             restoredCheckpoint: checkpointBox.load(),
@@ -1761,6 +1819,37 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                             },
                             onOfferDelivered: {
                                 contact.progressReporter.emit(.offerDelivered, bytes: offer.encoded.count)
+                            },
+                            loadOrCreateDurableCheckpoint: prepare,
+                            updateDurableCheckpoint: update
+                        )
+                    } else if let offerFactory {
+                        // First contact of a receiver-led payment: read the ask, build the Offer once inside the hold.
+                        return try await IrohaPeerNfcReaderExchangeV1.run(
+                            offerFactory: { ask in
+                                let built = try await irohaPeerNfcGuardedAwaitV1(
+                                    validate: contact.validate,
+                                    operation: { try await offerFactory(ask) }
+                                )
+                                askedOffer.store(ask: ask, offer: built)
+                                return built
+                            },
+                            restoredCheckpoint: checkpointBox.load(),
+                            applicationIdentifier: applicationIdentifier,
+                            profilePolicy: profilePolicy,
+                            limits: contact.limits,
+                            preparationTimeoutMilliseconds: preparationTimeout,
+                            transceive: contact.transceive,
+                            sleep: { nanoseconds in
+                                try contact.validate()
+                                try await Task.sleep(nanoseconds: nanoseconds)
+                                try contact.validate()
+                            },
+                            onOfferDelivered: {
+                                contact.progressReporter.emit(
+                                    .offerDelivered,
+                                    bytes: askedOffer.load()?.offer.encoded.count ?? 0
+                                )
                             },
                             loadOrCreateDurableCheckpoint: prepare,
                             updateDurableCheckpoint: update
@@ -1817,6 +1906,86 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                     contact.progressReporter.emit(.offerDelivered, bytes: offer.encoded.count)
                 }
             )
+            contact.progressReporter.emit(.requestRead, bytes: read.request.encoded.count)
+            return .request(read)
+        }
+        guard case .request(let read) = outcome else {
+            throw IrohaPeerNfcErrorV1.stateMismatch
+        }
+        return read
+    }
+
+    /// Tap 1 of a receiver-led payment: reads the receiver's ask from its card,
+    /// calls `offerFactory` once with it inside the contact, hands that Offer to
+    /// the card and returns the Request its wallet signed, with the ask
+    /// (`IrohaPeerNfcOfferExchangeV1.runFromAsk`). No value moves. After RF loss
+    /// a later contact of this operation resumes the same Offer and never calls
+    /// `offerFactory` again. Review and approve away from the card, then call
+    /// `run(restoredCheckpoint:)` for tap 2.
+    public func readRequest(
+        offerFactory: @escaping IrohaPeerNfcOfferFactoryV1,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        retryPolicy: IrohaPeerNfcReaderRetryPolicyV1 = .default,
+        onTypedProgress: ((IrohaPeerNfcProgressEventV1) -> Void)? = nil
+    ) async throws -> IrohaPeerNfcRequestReadV1 {
+        let applicationIdentifier = configuration.applicationIdentifier
+        let preparationTimeout = configuration.requestPreparationTimeoutMilliseconds
+        let askedOffer = IrohaPeerNfcAskedOfferBoxV1()
+        let outcome = try await perform(
+            limits: limits,
+            retryPolicy: retryPolicy,
+            onTypedProgress: onTypedProgress
+        ) { contact in
+            let sleep: IrohaPeerNfcOfferExchangeV1.Sleep = { nanoseconds in
+                try contact.validate()
+                try await Task.sleep(nanoseconds: nanoseconds)
+                try contact.validate()
+            }
+            let onOfferDelivered: IrohaPeerNfcOfferExchangeV1.OfferDelivered = {
+                contact.progressReporter.emit(
+                    .offerDelivered,
+                    bytes: askedOffer.load()?.offer.encoded.count ?? 0
+                )
+            }
+            let read: IrohaPeerNfcRequestReadV1
+            if let built = askedOffer.load() {
+                // An earlier contact already built the Offer for this card's ask.
+                let resumed = try await IrohaPeerNfcOfferExchangeV1.run(
+                    offer: built.offer,
+                    applicationIdentifier: applicationIdentifier,
+                    profilePolicy: profilePolicy,
+                    limits: contact.limits,
+                    preparationTimeoutMilliseconds: preparationTimeout,
+                    transceive: contact.transceive,
+                    sleep: sleep,
+                    onOfferDelivered: onOfferDelivered
+                )
+                read = IrohaPeerNfcRequestReadV1(
+                    intake: resumed.intake,
+                    info: resumed.info,
+                    request: resumed.request,
+                    ask: built.ask
+                )
+            } else {
+                read = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                    offerFactory: { ask in
+                        let offer = try await irohaPeerNfcGuardedAwaitV1(
+                            validate: contact.validate,
+                            operation: { try await offerFactory(ask) }
+                        )
+                        askedOffer.store(ask: ask, offer: offer)
+                        return offer
+                    },
+                    applicationIdentifier: applicationIdentifier,
+                    profilePolicy: profilePolicy,
+                    limits: contact.limits,
+                    preparationTimeoutMilliseconds: preparationTimeout,
+                    transceive: contact.transceive,
+                    sleep: sleep,
+                    onOfferDelivered: onOfferDelivered
+                )
+            }
             contact.progressReporter.emit(.requestRead, bytes: read.request.encoded.count)
             return .request(read)
         }

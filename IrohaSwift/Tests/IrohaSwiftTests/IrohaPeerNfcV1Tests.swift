@@ -99,6 +99,46 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         }
     }
 
+    func testGetAskMatchesTheSharedVectorAndItsCodecIsStrict() throws {
+        let nfc = try XCTUnwrap(irohaPeerAskFixtureV1()["nfc"] as? [String: Any])
+        XCTAssertEqual(nfc["instruction"] as? String, "0x34")
+        XCTAssertEqual(IrohaPeerNfcInstructionV1.getAsk.rawValue, 0x34)
+        XCTAssertEqual(IrohaPeerNfcCommandV1.getAsk.operation, .getAsk)
+        XCTAssertEqual(IrohaPeerNfcOperationV1.getAsk.rawValue, "getAsk")
+        XCTAssertEqual(IrohaPeerNfcV1.askBytes, 56)
+        let apdu = try irohaPeerAskBytesV1(nfc["get_ask_apdu_hex"])
+        XCTAssertEqual(try IrohaPeerNfcAPDUCodecV1.encode(.getAsk), apdu)
+        XCTAssertEqual(try IrohaPeerNfcAPDUCodecV1.decode(apdu), .getAsk)
+        XCTAssertEqual(IrohaPeerNfcCardEndpointV1.route(.getAsk), .intake)
+
+        let invalid = try irohaPeerAskVectorsV1("invalid_apdu_hex", in: nfc)
+        XCTAssertEqual(invalid.count, 6)
+        var card = IrohaPeerNfcCardEndpointV1(
+            applicationIdentifier: .protocolDefault,
+            intake: try IrohaPeerNfcOfferIntakeV1(
+                sessionID: sessionID,
+                profilePolicy: .sameProfile(.kagemushaWalletV1),
+                ask: IrohaPeerAskV1(amount: .init(low: 1_200, high: 0), receiverAccountDigest: Data(repeating: 7, count: 32))
+            )
+        )
+        for vector in invalid {
+            let name = try XCTUnwrap(vector["name"] as? String)
+            let bytes = try irohaPeerAskBytesV1(vector["apdu_hex"])
+            XCTAssertThrowsError(try IrohaPeerNfcAPDUCodecV1.decode(bytes), name) {
+                XCTAssertEqual($0 as? IrohaPeerNfcErrorV1, .invalidAPDU, name)
+            }
+            XCTAssertEqual(card.process(apdu: bytes).response.statusWord, .wrongData, name)
+        }
+        // The card answers the valid GET_ASK, so the invalid forms failed only on their bytes.
+        XCTAssertEqual(card.process(apdu: apdu).response.data.count, IrohaPeerNfcV1.askBytes)
+        XCTAssertEqual(
+            IrohaPeerNfcReceiverSessionV1.failureResponse(for: .invalidAsk).statusWord,
+            .wrongData
+        )
+        XCTAssertEqual(IrohaPeerNfcReceiverSessionV1.failureResponse(for: .invalidAsk).encoded, Data([0x6A, 0x80]))
+        XCTAssertNotNil(IrohaPeerNfcErrorV1.invalidAsk.errorDescription)
+    }
+
     func testInfoAndStatusRoundTripRejectUnknownFlags() throws {
         let request = try message(kind: .request, byte: 0x41, count: 80)
         let identity = try identity(for: request)

@@ -259,6 +259,98 @@ final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
         XCTAssertEqual(commits, 1)
     }
 
+    /// Receiver-led one hold: the card's ask, the Offer the factory builds for it, the Request, the approval inside
+    /// `loadOrCreateDurableCheckpoint`, the Payment and the ACK all travel over ONE contact, and the factory runs once.
+    func testOneHoldFromAskBuildsTheOfferOnceAndCarriesTheWholePaymentOverOneContact() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xB1, count: 900)
+        let request = try message(kind: .request, byte: 0xB2, count: 1_200)
+        let payment = try message(kind: .payment, byte: 0xB3, count: 1_500)
+        let credited = try message(kind: .credited, byte: 0xB4, count: 300)
+        let policy = self.policy
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 3, ask: ask)
+        let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+        let persisted = IrohaPeerNfcPersistedDataV1()
+
+        let result = try await IrohaPeerNfcReaderExchangeV1.run(
+            offerFactory: { try await factory.offer(for: $0) },
+            applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+            transceive: { command in
+                if case .beginPayment = command {
+                    XCTAssertEqual(persisted.values.count, 1, "Payment must already be durable")
+                }
+                return try await card.transceive(command)
+            },
+            sleep: { _ in },
+            loadOrCreateDurableCheckpoint: { info, received in
+                XCTAssertEqual(received, request)
+                let commands = await card.commands
+                XCTAssertTrue(commands.contains { $0.operation == .getAsk }, "the ask was read before the Offer existed")
+                XCTAssertFalse(commands.contains { $0.operation == .beginPayment })
+                let checkpoint = try IrohaPeerNfcSenderCheckpointV1(
+                    sessionID: info.identity.sessionID, receiveRequest: received.encoded,
+                    payment: payment.encoded, profilePolicy: policy, limits: limits)
+                persisted.append(checkpoint.encoded)
+                return checkpoint
+            },
+            updateDurableCheckpoint: { persisted.append($0) })
+
+        XCTAssertEqual(result.acknowledgement, credited)
+        XCTAssertEqual(result.confirmationState, .confirmed)
+        let asks = await factory.asks
+        XCTAssertEqual(asks, [ask], "the factory ran exactly once, for the card's ask")
+        let commands = await card.commands
+        XCTAssertEqual(commands.filter { $0.operation == .selectApplication }.count, 1, "one contact")
+        XCTAssertEqual(commands.filter { $0.operation == .getAsk }.count, 1)
+        XCTAssertEqual(commands.filter { $0.operation == .getInfo }.count, 1)
+        let commits = await card.durableCommits
+        XCTAssertEqual(commits, 1)
+        let preparedOffers = await card.preparedOffers
+        XCTAssertEqual(preparedOffers, [offer])
+    }
+
+    /// A restored checkpoint means the Payment exists: the ask-led entry skips Offer intake and never calls the factory.
+    func testOneHoldFromAskWithARestoredCheckpointNeverAsksOrBuildsAnOffer() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xB5, count: 700)
+        let request = try message(kind: .request, byte: 0xB6, count: 600)
+        let payment = try message(kind: .payment, byte: 0xB7, count: 800)
+        let credited = try message(kind: .credited, byte: 0xB8, count: 200)
+        let policy = self.policy
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 1, ask: ask)
+        // The first contact reached the Request, then stopped before the Payment was delivered.
+        let first = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+        let read = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+            offerFactory: { try await first.offer(for: $0) }, applicationIdentifier: bpng,
+            profilePolicy: policy, limits: limits, transceive: { try await card.transceive($0) },
+            sleep: { _ in })
+        let checkpoint = try IrohaPeerNfcSenderCheckpointV1(
+            sessionID: read.info.identity.sessionID, receiveRequest: read.request.encoded,
+            payment: payment.encoded, profilePolicy: policy, limits: limits)
+
+        let second = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+        let persisted = IrohaPeerNfcPersistedDataV1()
+        let before = await card.commands.count
+        let result = try await IrohaPeerNfcReaderExchangeV1.run(
+            offerFactory: { try await second.offer(for: $0) }, restoredCheckpoint: checkpoint.encoded,
+            applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+            transceive: { try await card.transceive($0) }, sleep: { _ in },
+            loadOrCreateDurableCheckpoint: { _, _ in throw IrohaPeerNfcErrorV1.stateMismatch },
+            updateDurableCheckpoint: { persisted.append($0) })
+        XCTAssertEqual(result.acknowledgement, credited)
+        let asks = await second.asks
+        XCTAssertEqual(asks, [], "recovery never asks and never builds another Offer")
+        let operations = await card.commands.dropFirst(before).map(\.operation)
+        XCTAssertFalse(operations.contains(.getAsk))
+        XCTAssertFalse(operations.contains(.beginOffer))
+    }
+
     func testOneHoldApprovalCancellationNeverBeginsPayment() async throws {
         let offer = try message(kind: .offer, byte: 0x81, count: 100)
         let request = try message(kind: .request, byte: 0x82, count: 100)
@@ -487,7 +579,458 @@ final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
         } catch IrohaPeerNfcErrorV1.invalidApplicationIdentifier {}
     }
 
+    // MARK: Receiver's ask (GET_ASK)
+
+    func testCardAnswersItsAskOnlyBeforeTheOfferIsBound() throws {
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xA1, count: 600)
+        var card = IrohaPeerNfcCardEndpointV1(
+            applicationIdentifier: bpng,
+            intake: try IrohaPeerNfcOfferIntakeV1(sessionID: s, profilePolicy: policy, ask: ask)
+        )
+        let awaiting = try intake(&card)
+        for _ in 0..<2 {
+            let answer = step(&card, .getAsk).response
+            XCTAssertEqual(answer.statusWord, .success)
+            XCTAssertEqual(answer.data, ask.encode())
+            XCTAssertEqual(try IrohaPeerAskV1.decode(answer.data), ask)
+        }
+        XCTAssertEqual(try intake(&card), awaiting, "GET_ASK changes nothing")
+        XCTAssertEqual(step(&card, .beginOffer(sessionID: s, offerHeader: offer.header.bytes)).response.statusWord, .success)
+        XCTAssertEqual(step(&card, .getAsk).response.data, ask.encode(), "still answered while receiving")
+        XCTAssertEqual(try intake(&card).state, .receivingOffer)
+        XCTAssertEqual(step(&card, .writeOffer(sessionID: s, offerWireHash: offer.wireHash, offset: 0,
+            bytes: offer.encoded)).response.statusWord, .success)
+        XCTAssertEqual(step(&card, .submitOffer(sessionID: s, offerWireHash: offer.wireHash)).submittedOffer, offer)
+        // Bound to that Offer: preparing, ready and declined intakes hand out no ask.
+        XCTAssertEqual(step(&card, .getAsk).response.statusWord, .conditionsNotSatisfied)
+        XCTAssertEqual(try intake(&card).state, .preparingRequest)
+        try card.installRequest(try message(kind: .request, byte: 0xA2, count: 500).encoded)
+        XCTAssertEqual(step(&card, .getAsk).response.statusWord, .conditionsNotSatisfied)
+        XCTAssertEqual(try intake(&card).state, .requestReady)
+
+        var declining = IrohaPeerNfcCardEndpointV1(
+            applicationIdentifier: bpng,
+            intake: try IrohaPeerNfcOfferIntakeV1(sessionID: s, profilePolicy: policy, ask: ask)
+        )
+        XCTAssertEqual(step(&declining, .beginOffer(sessionID: s, offerHeader: offer.header.bytes)).response.statusWord, .success)
+        XCTAssertEqual(step(&declining, .writeOffer(sessionID: s, offerWireHash: offer.wireHash, offset: 0,
+            bytes: offer.encoded)).response.statusWord, .success)
+        XCTAssertEqual(step(&declining, .submitOffer(sessionID: s, offerWireHash: offer.wireHash)).submittedOffer, offer)
+        try declining.decline(reason: 3)
+        XCTAssertEqual(step(&declining, .getAsk).response.statusWord, .conditionsNotSatisfied)
+        XCTAssertEqual(try intake(&declining).state, .declined)
+
+        // A corrupt Offer is never bound, so the card answers its ask again.
+        var resetting = IrohaPeerNfcCardEndpointV1(
+            applicationIdentifier: bpng,
+            intake: try IrohaPeerNfcOfferIntakeV1(sessionID: s, profilePolicy: policy, ask: ask)
+        )
+        var corrupt = offer.encoded
+        corrupt[corrupt.count - 1] ^= 0x01
+        XCTAssertEqual(step(&resetting, .beginOffer(sessionID: s, offerHeader: offer.header.bytes)).response.statusWord, .success)
+        XCTAssertEqual(step(&resetting, .writeOffer(sessionID: s, offerWireHash: offer.wireHash, offset: 0,
+            bytes: corrupt)).response.statusWord, .success)
+        XCTAssertEqual(step(&resetting, .submitOffer(sessionID: s, offerWireHash: offer.wireHash)).response.statusWord,
+            .securityStatusNotSatisfied)
+        XCTAssertEqual(try intake(&resetting).state, .awaitingOffer)
+        XCTAssertEqual(step(&resetting, .getAsk).response.data, ask.encode())
+    }
+
+    func testCardsWithoutAnAskOrHostingARequestRefuseGetAsk() throws {
+        var plain = IrohaPeerNfcCardEndpointV1(
+            applicationIdentifier: bpng,
+            intake: try IrohaPeerNfcOfferIntakeV1(sessionID: s, profilePolicy: policy)
+        )
+        XCTAssertNil(plain.intake?.ask)
+        XCTAssertEqual(step(&plain, .getAsk).response.statusWord, .conditionsNotSatisfied)
+        XCTAssertEqual(try intake(&plain).state, .awaitingOffer)
+
+        let request = try message(kind: .request, byte: 0xA3, count: 400)
+        var hosted = IrohaPeerNfcCardEndpointV1(receiver: try IrohaPeerNfcReceiverSessionV1(
+            sessionID: s, receiveRequest: request.encoded, applicationIdentifier: bpng))
+        XCTAssertEqual(step(&hosted, .getAsk).response.statusWord, .conditionsNotSatisfied)
+        var receiver = try IrohaPeerNfcReceiverSessionV1(sessionID: s, receiveRequest: request.encoded)
+        XCTAssertThrowsError(try receiver.handle(.getAsk)) {
+            XCTAssertEqual($0 as? IrohaPeerNfcErrorV1, .stateMismatch)
+        }
+        XCTAssertEqual(receiver.process(apdu: try IrohaPeerNfcAPDUCodecV1.encode(.getAsk)).statusWord,
+            .conditionsNotSatisfied)
+
+        // The endpoint factory arms a fresh-session intake, with or without an ask.
+        let ask = try sampleAsk()
+        var armed = try IrohaPeerNfcCardEndpointV1.intake(
+            applicationIdentifier: bpng, profilePolicy: policy, ask: ask)
+        XCTAssertEqual(armed.intake?.ask, ask)
+        XCTAssertEqual(armed.sessionID, armed.intake?.sessionID)
+        XCTAssertEqual(armed.process(apdu: try IrohaPeerNfcAPDUCodecV1.encode(.getAsk)).response.data, ask.encode())
+        var unarmed = try IrohaPeerNfcCardEndpointV1.intake(applicationIdentifier: bpng, profilePolicy: policy)
+        XCTAssertNil(unarmed.intake?.ask)
+        XCTAssertNotEqual(unarmed.sessionID, armed.sessionID)
+        XCTAssertEqual(step(&unarmed, .getAsk).response.statusWord, .conditionsNotSatisfied)
+    }
+
+    func testRunFromAskBuildsTheOfferInsideTheContactAndReadsTheRequest() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xB1, count: 900)
+        let request = try message(kind: .request, byte: 0xB2, count: 1_200)
+        let credited = try message(kind: .credited, byte: 0xB3, count: 300)
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 2, ask: ask)
+        let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+        let delivered = IrohaPeerNfcFlagV1()
+
+        let read = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+            offerFactory: { try await factory.offer(for: $0) },
+            applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+            transceive: { try await card.transceive($0) }, sleep: { _ in },
+            onOfferDelivered: { delivered.set() })
+        XCTAssertEqual(read.ask, ask)
+        XCTAssertEqual(read.request, request)
+        XCTAssertEqual(read.intake.state, .requestReady)
+        XCTAssertTrue(delivered.isSet)
+        let asks = await factory.asks
+        XCTAssertEqual(asks, [ask], "the factory runs exactly once, with the card's ask")
+        let preparedOffers = await card.preparedOffers
+        XCTAssertEqual(preparedOffers, [offer])
+        let operations = await card.commands.map(\.operation)
+        XCTAssertEqual(Array(operations.prefix(4)), [.selectApplication, .getIntake, .getAsk, .beginOffer])
+        XCTAssertEqual(operations.filter { $0 == .getAsk }.count, 1)
+        XCTAssertEqual(operations.last, .readRequest)
+
+        // Tap 2 is unchanged.
+        let checkpoint = try IrohaPeerNfcSenderCheckpointV1(
+            sessionID: read.info.identity.sessionID, receiveRequest: read.request.encoded,
+            payment: try message(kind: .payment, byte: 0xB4, count: 1_500).encoded,
+            profilePolicy: policy, limits: limits)
+        let result = try await IrohaPeerNfcReaderExchangeV1.run(
+            restoredCheckpoint: checkpoint.encoded, applicationIdentifier: bpng, profilePolicy: policy,
+            limits: limits, transceive: { try await card.transceive($0) },
+            loadOrCreateDurableCheckpoint: { _, _ in throw IrohaPeerNfcErrorV1.stateMismatch },
+            updateDurableCheckpoint: { _ in })
+        XCTAssertEqual(result.acknowledgement, credited)
+
+        // The payer-built Offer path never reads the ask and reports none.
+        let payerLed = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 1, ask: ask)
+        let plain = try await IrohaPeerNfcOfferExchangeV1.run(
+            offer: offer, applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+            transceive: { try await payerLed.transceive($0) }, sleep: { _ in })
+        XCTAssertNil(plain.ask)
+        XCTAssertEqual(plain.request, request)
+        let plainCommands = await payerLed.commands
+        XCTAssertFalse(plainCommands.contains(.getAsk))
+    }
+
+    func testRunFromAskRefusesAnUnarmedOrBoundCardBeforeTheFactoryRuns() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xC1, count: 700)
+        let request = try message(kind: .request, byte: 0xC2, count: 600)
+        let credited = try message(kind: .credited, byte: 0xC3, count: 200)
+        let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+
+        // No amount set: GET_ASK answers 6985, the existing typed peer refusal.
+        let plain = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 1)
+        do {
+            _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                profilePolicy: policy, limits: limits, transceive: { try await plain.transceive($0) },
+                sleep: { _ in })
+            XCTFail("a card without an ask")
+        } catch IrohaPeerNfcErrorV1.peerRejected(let operation) {
+            XCTAssertEqual(operation, .getAsk)
+        }
+        let plainOperations = await plain.commands.map(\.operation)
+        XCTAssertEqual(plainOperations, [.selectApplication, .getIntake, .getAsk])
+
+        // An intake already holding another payer's Offer: refused before GET_ASK. (A receiving intake is served: see
+        // testRunFromAskServesAReceivingIntakeWhoseEarlierOfferWasAbandoned.)
+        let other = try message(kind: .offer, byte: 0xC9, count: 300)
+        do {
+            let busy = try IrohaPeerNfcIntakeCardV1(
+                applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+                preparationPolls: 1_000, ask: ask)
+            let session = try IrohaPeerNfcIntakeRecordV1.decode(await busy.transceive(.getIntake).data).sessionID
+            _ = try await busy.transceive(.beginOffer(sessionID: session, offerHeader: other.header.bytes))
+            _ = try await busy.transceive(.writeOffer(
+                sessionID: session, offerWireHash: other.wireHash, offset: 0, bytes: other.encoded))
+            _ = try await busy.transceive(.submitOffer(sessionID: session, offerWireHash: other.wireHash))
+            let before = await busy.commands.count
+            do {
+                _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                    offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                    profilePolicy: policy, limits: limits, transceive: { try await busy.transceive($0) },
+                    sleep: { _ in })
+                XCTFail("a bound intake")
+            } catch IrohaPeerNfcErrorV1.stateMismatch {}
+            let operations = await busy.commands.dropFirst(before).map(\.operation)
+            XCTAssertEqual(operations, [.selectApplication, .getIntake], "no GET_ASK once an Offer is bound")
+        }
+
+        // A card hosting a Request whose Offer came over another carrier.
+        let hosted = IrohaPeerNfcLoopbackCardV1(IrohaPeerNfcCardEndpointV1(
+            receiver: try IrohaPeerNfcReceiverSessionV1(
+                sessionID: s, receiveRequest: request.encoded, applicationIdentifier: bpng)))
+        do {
+            _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                profilePolicy: policy, limits: limits, transceive: { try await hosted.transceive($0) },
+                sleep: { _ in })
+            XCTFail("a hosted Request")
+        } catch IrohaPeerNfcErrorV1.stateMismatch {}
+        let hostedOperations = await hosted.commands.map(\.operation)
+        XCTAssertEqual(hostedOperations, [.selectApplication, .getIntake])
+        let asks = await factory.asks
+        XCTAssertEqual(asks, [], "the factory never ran")
+    }
+
+    /// An abandoned contact leaves an intake that is receiving an Offer. The next payer's ask-led contact is served: the
+    /// factory runs once and its Offer replaces the unfinished one, exactly as `run` replaces it.
+    func testRunFromAskServesAReceivingIntakeWhoseEarlierOfferWasAbandoned() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let abandoned = try message(kind: .offer, byte: 0xC9, count: 300)
+        let offer = try message(kind: .offer, byte: 0xCA, count: 700)
+        let request = try message(kind: .request, byte: 0xCB, count: 600)
+        let credited = try message(kind: .credited, byte: 0xCC, count: 200)
+        let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 1, ask: ask)
+        let session = try IrohaPeerNfcIntakeRecordV1.decode(await card.transceive(.getIntake).data).sessionID
+        _ = try await card.transceive(.beginOffer(sessionID: session, offerHeader: abandoned.header.bytes))
+        let receiving = try IrohaPeerNfcIntakeRecordV1.decode(await card.transceive(.getIntake).data)
+        XCTAssertEqual(receiving.state, .receivingOffer)
+
+        let read = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+            offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+            profilePolicy: policy, limits: limits, transceive: { try await card.transceive($0) },
+            sleep: { _ in })
+        XCTAssertEqual(read.ask, ask)
+        XCTAssertEqual(read.request, request)
+        XCTAssertEqual(read.intake.state, .requestReady)
+        let asks = await factory.asks
+        XCTAssertEqual(asks, [ask], "the factory ran exactly once")
+        let operations = await card.commands.map(\.operation)
+        XCTAssertEqual(operations.filter { $0 == .getAsk }.count, 1)
+        XCTAssertEqual(operations.filter { $0 == .beginOffer }.count, 2, "the new Offer's header replaced the unfinished one")
+    }
+
+    func testRunFromAskRefusesMalformedAsksBeforeTheFactory() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let offer = try message(kind: .offer, byte: 0xD1, count: 700)
+        let request = try message(kind: .request, byte: 0xD2, count: 600)
+        let credited = try message(kind: .credited, byte: 0xD3, count: 200)
+        let valid = try sampleAsk().encode()
+        var answers: [(IrohaPeerNfcAPDUResponseV1, IrohaPeerNfcErrorV1)] = [
+            (IrohaPeerNfcAPDUResponseV1(data: valid.prefix(55), statusWord: .success), .invalidLength),
+            (IrohaPeerNfcAPDUResponseV1(data: valid + Data([0]), statusWord: .success), .invalidLength),
+            (IrohaPeerNfcAPDUResponseV1(statusWord: .success), .invalidLength),
+            (IrohaPeerNfcAPDUResponseV1(statusWord: .wrongData), .invalidAPDU),
+        ]
+        for vector in try irohaPeerAskVectorsV1("invalid_records", in: irohaPeerAskFixtureV1()) {
+            let record = try irohaPeerAskBytesV1(vector["record_hex"])
+            if record.count == IrohaPeerNfcV1.askBytes {
+                answers.append((IrohaPeerNfcAPDUResponseV1(data: record, statusWord: .success), .invalidAsk))
+            }
+        }
+        XCTAssertEqual(answers.count, 4 + 8)
+        for (answer, expected) in answers {
+            let card = try IrohaPeerNfcIntakeCardV1(
+                applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+                preparationPolls: 1, ask: try sampleAsk(), askResponse: answer)
+            let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+            do {
+                _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                    offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                    profilePolicy: policy, limits: limits, transceive: { try await card.transceive($0) },
+                    sleep: { _ in })
+                XCTFail("malformed ask \(expected)")
+            } catch let error as IrohaPeerNfcErrorV1 {
+                XCTAssertEqual(error, expected)
+            }
+            let asks = await factory.asks
+            XCTAssertEqual(asks, [])
+            let last = await card.commands.last
+            XCTAssertEqual(last, .getAsk, "nothing is sent after a malformed ask")
+        }
+    }
+
+    func testThrowingOrInvalidOfferFactorySendsNothingFurther() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xE1, count: 900)
+        let request = try message(kind: .request, byte: 0xE2, count: 600)
+        let credited = try message(kind: .credited, byte: 0xE3, count: 200)
+
+        let failing = IrohaPeerNfcOfferFactoryRecorderV1(failure: IrohaPeerNfcOfferFactoryFailureV1())
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+            preparationPolls: 1, ask: ask)
+        do {
+            _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                offerFactory: { try await failing.offer(for: $0) }, applicationIdentifier: bpng,
+                profilePolicy: policy, limits: limits, transceive: { try await card.transceive($0) },
+                sleep: { _ in })
+            XCTFail("the factory threw")
+        } catch is IrohaPeerNfcOfferFactoryFailureV1 {}
+        let asks = await failing.asks
+        XCTAssertEqual(asks, [ask])
+        let operations = await card.commands.map(\.operation)
+        XCTAssertEqual(operations, [.selectApplication, .getIntake, .getAsk])
+        let after = try IrohaPeerNfcIntakeRecordV1.decode(await card.transceive(.getIntake).data)
+        XCTAssertEqual(after.state, .awaitingOffer, "the card still awaits an Offer")
+
+        // The factory's Offer is checked exactly as `run` checks the payer's own.
+        let small = IrohaPeerNfcLimitsV1(
+            maximumMessageBytes: 400, maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let invalid: [(IrohaPeerWireMessageV1, IrohaPeerNfcLimitsV1, IrohaPeerNfcErrorV1)] = [
+            (request, limits, .invalidKind),
+            (offer, small, .messageTooLarge(actual: offer.encoded.count, maximum: 400)),
+        ]
+        for (built, localLimits, expected) in invalid {
+            let card = try IrohaPeerNfcIntakeCardV1(
+                applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+                preparationPolls: 1, ask: ask)
+            let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: built)
+            do {
+                _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                    offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                    profilePolicy: policy, limits: localLimits, transceive: { try await card.transceive($0) },
+                    sleep: { _ in })
+                XCTFail("invalid Offer \(expected)")
+            } catch let error as IrohaPeerNfcErrorV1 {
+                XCTAssertEqual(error, expected)
+            }
+            let last = await card.commands.last
+            XCTAssertEqual(last, .getAsk)
+        }
+    }
+
+    func testInterruptedAskedOfferResumesWithTheBuiltOfferThroughRun() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xF4, count: 1_000)
+        let request = try message(kind: .request, byte: 0xF5, count: 600)
+        let card = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits, request: request,
+            credited: try message(kind: .credited, byte: 0xF6, count: 200),
+            preparationPolls: 1, dropAfterOfferWrites: 2, ask: ask)
+        let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+        do {
+            _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                profilePolicy: policy, limits: limits, transceive: { try await card.transceive($0) },
+                sleep: { _ in })
+            XCTFail("the first contact is lost mid-Offer")
+        } catch is IrohaPeerNfcContactLostV1 {}
+        // The card holds part of that Offer: `run` resumes the Offer the factory already built, from the received
+        // offset, without asking again (an ask-led run would build a second Offer, so the payer never uses it here).
+        let resumed = try await IrohaPeerNfcOfferExchangeV1.run(
+            offer: offer, applicationIdentifier: bpng, profilePolicy: policy, limits: limits,
+            transceive: { try await card.transceive($0) }, sleep: { _ in })
+        XCTAssertEqual(resumed.request, request)
+        let asks = await factory.asks
+        XCTAssertEqual(asks, [ask], "the factory ran once")
+        let writes = await card.offerWriteLog
+        XCTAssertEqual(Array(writes.prefix(3)), ["1:0", "1:240", "3:480"])
+        let preparedOffers = await card.preparedOffers
+        XCTAssertEqual(preparedOffers, [offer])
+    }
+
+    func testReceiverGuardDeclinesAnOfferForAnotherAmount() async throws {
+        // The receiver's wallet compares the submitted Offer's amount with its own ask.
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let request = try message(kind: .request, byte: 0xF7, count: 600)
+        let credited = try message(kind: .credited, byte: 0xF8, count: 200)
+        let other = KagemushaWalletUInt128V1(low: ask.amount.low + 1, high: ask.amount.high)
+        for (amount, accepted) in [(other, false), (ask.amount, true)] {
+            let offer = try amountOffer(amount)
+            XCTAssertEqual(try KagemushaWalletWireV1.offerAmountData(IrohaPeerKagemushaWalletAdapterV1.decode(offer)), amount)
+            let card = try IrohaPeerNfcIntakeCardV1(
+                applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
+                preparationPolls: 1, ask: ask, guardsAskedAmount: true)
+            let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+            do {
+                let read = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                    offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                    profilePolicy: policy, limits: limits, transceive: { try await card.transceive($0) },
+                    sleep: { _ in })
+                XCTAssertTrue(accepted)
+                XCTAssertEqual(read.request, request)
+            } catch IrohaPeerNfcErrorV1.offerDeclined(let reason) {
+                XCTAssertFalse(accepted)
+                XCTAssertEqual(reason, IrohaPeerNfcIntakeCardV1.askedAmountMismatch)
+            }
+        }
+    }
+
+    func testDecliningReceiverAfterTheAskReportsItsReason() async throws {
+        let limits = IrohaPeerNfcLimitsV1(maximumReadChunkBytes: 240, maximumWriteChunkBytes: 240)
+        let ask = try sampleAsk()
+        let offer = try message(kind: .offer, byte: 0xF1, count: 800)
+        let declining = try IrohaPeerNfcIntakeCardV1(
+            applicationIdentifier: bpng, limits: limits,
+            request: try message(kind: .request, byte: 0xF2, count: 600),
+            credited: try message(kind: .credited, byte: 0xF3, count: 200),
+            preparationPolls: 1, declineReason: 9, ask: ask)
+        let factory = IrohaPeerNfcOfferFactoryRecorderV1(offer: offer)
+        do {
+            _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                offerFactory: { try await factory.offer(for: $0) }, applicationIdentifier: bpng,
+                profilePolicy: policy, limits: limits, transceive: { try await declining.transceive($0) },
+                sleep: { _ in })
+            XCTFail("declined")
+        } catch IrohaPeerNfcErrorV1.offerDeclined(let reason) {
+            XCTAssertEqual(reason, 9)
+        }
+        let preparedOffers = await declining.preparedOffers
+        XCTAssertEqual(preparedOffers, [offer])
+    }
+
     // MARK: Helpers
+
+    private func sampleAsk() throws -> IrohaPeerAskV1 {
+        try IrohaPeerAskV1(
+            amount: .init(low: 250_000, high: 0),
+            receiverAccountDigest: Data((0..<32).map { UInt8($0 * 3 + 1) }))
+    }
+
+    /// Structural Offer DATA `{body, payer_credential, certificates, signature}` whose 8-field
+    /// body proposes `amount`; it authenticates nothing.
+    private func amountOffer(_ amount: KagemushaWalletUInt128V1) throws -> IrohaPeerWireMessageV1 {
+        func record(_ fields: [Data]) -> Data {
+            fields.reduce(into: Data()) { result, field in
+                var length = field.count
+                repeat {
+                    let byte = UInt8(length & 0x7f)
+                    length >>= 7
+                    result.append(byte | (length == 0 ? 0 : 0x80))
+                } while length != 0
+                result.append(field)
+            }
+        }
+        let amountBytes = withUnsafeBytes(of: amount.low.littleEndian) { Data($0) }
+            + withUnsafeBytes(of: amount.high.littleEndian) { Data($0) }
+        let body = [Data([1, 0]), irohaPeerWalletStructuralSchemeV1, Data(repeating: 0x29, count: 32),
+                    Data(repeating: 0x2A, count: 32), Data(repeating: 0x2B, count: 32),
+                    Data([4]) + Data(count: 15), amountBytes, Data(repeating: 0x5E, count: 32)]
+        let offer = record([record(body), Data([1]), Data(), Data(repeating: 0x36, count: 64)])
+        let tag = withUnsafeBytes(of: UInt32(IrohaPeerWireKindV1.offer.rawValue).littleEndian) { Data($0) }
+        let envelope = noritoEncode(
+            typeName: KagemushaWalletWireV1.envelopeFrameName,
+            payload: record([Data([1, 0]), tag + record([offer])]),
+            flags: NoritoHeader.compactLen,
+            payloadAlignment: KagemushaWalletWireV1.envelopePayloadAlignment)
+        return try IrohaPeerKagemushaWalletAdapterV1.wrap(envelope, destinationAccountOriginal: nil)
+    }
 
     private func step(
         _ card: inout IrohaPeerNfcCardEndpointV1,
@@ -649,6 +1192,36 @@ private final class IrohaPeerNfcPersistedDataV1: @unchecked Sendable {
     var values: [Data] { lock.lock(); defer { lock.unlock() }; return stored }
 }
 
+/// The payer's offer factory: records every ask it is called with.
+private actor IrohaPeerNfcOfferFactoryRecorderV1 {
+    private let result: Result<IrohaPeerWireMessageV1, Error>
+    private(set) var asks: [IrohaPeerAskV1] = []
+
+    init(offer: IrohaPeerWireMessageV1) { result = .success(offer) }
+    init(failure: Error) { result = .failure(failure) }
+
+    func offer(for ask: IrohaPeerAskV1) throws -> IrohaPeerWireMessageV1 {
+        asks.append(ask)
+        return try result.get()
+    }
+}
+
+/// The payer's wallet could not create its Offer.
+private struct IrohaPeerNfcOfferFactoryFailureV1: Error {}
+
+/// Any card endpoint behind raw APDUs, logging every command it receives.
+private actor IrohaPeerNfcLoopbackCardV1 {
+    private var endpoint: IrohaPeerNfcCardEndpointV1
+    private(set) var commands: [IrohaPeerNfcCommandV1] = []
+
+    init(_ endpoint: IrohaPeerNfcCardEndpointV1) { self.endpoint = endpoint }
+
+    func transceive(_ command: IrohaPeerNfcCommandV1) throws -> IrohaPeerNfcAPDUResponseV1 {
+        commands.append(command)
+        return endpoint.process(apdu: try IrohaPeerNfcAPDUCodecV1.encode(command)).response
+    }
+}
+
 /// A receiver card driven through raw APDUs: intake, a wallet that signs the
 /// Request after a few polls, durable admission and commit.
 private actor IrohaPeerNfcIntakeCardV1 {
@@ -661,6 +1234,12 @@ private actor IrohaPeerNfcIntakeCardV1 {
     private var dropAfterOfferWrites: Int?
     private var dropAfterPaymentWrites: Int?
     private var pendingPolls: Int?
+    /// A hostile card's answer to GET_ASK in place of its intake's.
+    private let askResponse: IrohaPeerNfcAPDUResponseV1?
+    /// The wallet declines an Offer whose amount is not its ask's.
+    private let guardsAskedAmount: Bool
+    private var offerDeclinedByGuard = false
+    static let askedAmountMismatch: UInt16 = 0x0A5C
     private(set) var preparedOffers: [IrohaPeerWireMessageV1] = []
     private(set) var durableCommits = 0
     private(set) var offerWriteLog: [String] = []
@@ -675,12 +1254,15 @@ private actor IrohaPeerNfcIntakeCardV1 {
         preparationPolls: Int,
         declineReason: UInt16? = nil,
         dropAfterOfferWrites: Int? = nil,
-        dropAfterPaymentWrites: Int? = nil
+        dropAfterPaymentWrites: Int? = nil,
+        ask: IrohaPeerAskV1? = nil,
+        askResponse: IrohaPeerNfcAPDUResponseV1? = nil,
+        guardsAskedAmount: Bool = false
     ) throws {
         endpoint = IrohaPeerNfcCardEndpointV1(
             applicationIdentifier: applicationIdentifier,
             intake: try IrohaPeerNfcOfferIntakeV1(
-                profilePolicy: .init(profile: .kagemushaWalletV1), limits: limits)
+                profilePolicy: .init(profile: .kagemushaWalletV1), limits: limits, ask: ask)
         )
         self.request = request
         self.credited = credited
@@ -689,10 +1271,13 @@ private actor IrohaPeerNfcIntakeCardV1 {
         self.declineReason = declineReason
         self.dropAfterOfferWrites = dropAfterOfferWrites
         self.dropAfterPaymentWrites = dropAfterPaymentWrites
+        self.askResponse = askResponse
+        self.guardsAskedAmount = guardsAskedAmount
     }
 
     func transceive(_ command: IrohaPeerNfcCommandV1) throws -> IrohaPeerNfcAPDUResponseV1 {
         commands.append(command)
+        if case .getAsk = command, let askResponse { return askResponse }
         if case .write = command, let remaining = dropAfterPaymentWrites {
             if remaining == 0 {
                 dropAfterPaymentWrites = nil
@@ -714,7 +1299,9 @@ private actor IrohaPeerNfcIntakeCardV1 {
         if case .getIntake = command, let remaining = pendingPolls {
             if remaining <= 0 {
                 pendingPolls = nil
-                if let declineReason {
+                if offerDeclinedByGuard {
+                    try endpoint.decline(reason: Self.askedAmountMismatch)
+                } else if let declineReason {
                     try endpoint.decline(reason: declineReason)
                 } else {
                     try endpoint.installRequest(request.encoded)
@@ -736,6 +1323,11 @@ private actor IrohaPeerNfcIntakeCardV1 {
         if let offer = step.submittedOffer {
             preparedOffers.append(offer)
             pendingPolls = preparationPolls
+            if guardsAskedAmount, let ask = endpoint.intake?.ask {
+                let offered = try? KagemushaWalletWireV1.offerAmountData(
+                    IrohaPeerKagemushaWalletAdapterV1.decode(offer))
+                offerDeclinedByGuard = offered != ask.amount
+            }
         }
         return step.response
     }
