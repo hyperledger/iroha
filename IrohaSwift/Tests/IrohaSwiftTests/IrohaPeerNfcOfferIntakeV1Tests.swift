@@ -756,11 +756,26 @@ final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
             let busy = try IrohaPeerNfcIntakeCardV1(
                 applicationIdentifier: bpng, limits: limits, request: request, credited: credited,
                 preparationPolls: 1_000, ask: ask)
-            let session = try IrohaPeerNfcIntakeRecordV1.decode(await busy.transceive(.getIntake).data).sessionID
-            _ = try await busy.transceive(.beginOffer(sessionID: session, offerHeader: other.header.bytes))
-            _ = try await busy.transceive(.writeOffer(
-                sessionID: session, offerWireHash: other.wireHash, offset: 0, bytes: other.encoded))
-            _ = try await busy.transceive(.submitOffer(sessionID: session, offerWireHash: other.wireHash))
+            let initial = try IrohaPeerNfcIntakeRecordV1.decode(await busy.transceive(.getIntake).data)
+            let session = initial.sessionID
+            let began = try await busy.transceive(.beginOffer(sessionID: session, offerHeader: other.header.bytes))
+            XCTAssertEqual(began.statusWord, .success)
+            let bytes = other.encoded
+            let chunk = min(limits.maximumWriteChunkBytes, initial.maximumWriteChunkBytes)
+            for offset in stride(from: 0, to: bytes.count, by: chunk) {
+                let written = try await busy.transceive(.writeOffer(
+                    sessionID: session, offerWireHash: other.wireHash, offset: UInt32(offset),
+                    bytes: bytes.subdata(in: offset..<min(offset + chunk, bytes.count))))
+                XCTAssertEqual(written.statusWord, .success)
+            }
+            let submitted = try await busy.transceive(.submitOffer(sessionID: session, offerWireHash: other.wireHash))
+            XCTAssertEqual(submitted.statusWord, .success)
+            let bound = try IrohaPeerNfcIntakeRecordV1.decode(await busy.transceive(.getIntake).data)
+            XCTAssertEqual(bound.state, .preparingRequest)
+            XCTAssertEqual(bound.offerWireHash, other.wireHash)
+            XCTAssertEqual(bound.receivedOfferBytes, bytes.count)
+            let prepared = await busy.preparedOffers
+            XCTAssertEqual(prepared, [other])
             let before = await busy.commands.count
             do {
                 _ = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
@@ -939,7 +954,12 @@ final class IrohaPeerNfcOfferIntakeV1Tests: XCTestCase {
         let asks = await factory.asks
         XCTAssertEqual(asks, [ask], "the factory ran once")
         let writes = await card.offerWriteLog
-        XCTAssertEqual(Array(writes.prefix(3)), ["1:0", "1:240", "3:480"])
+        XCTAssertEqual(Array(writes.prefix(3)), ["1:0", "1:240", "2:480"],
+            "the second contact resumes the retained Offer at the receiver's received offset")
+        let operations = await card.commands.map(\.operation)
+        XCTAssertEqual(operations.filter { $0 == .selectApplication }.count, 2, "one SELECT per contact")
+        XCTAssertEqual(operations.filter { $0 == .getAsk }.count, 1, "resume never asks for a new Offer")
+        XCTAssertEqual(operations.filter { $0 == .beginOffer }.count, 1, "resume does not restart the partial Offer")
         let preparedOffers = await card.preparedOffers
         XCTAssertEqual(preparedOffers, [offer])
     }

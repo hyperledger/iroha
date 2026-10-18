@@ -1059,6 +1059,14 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         XCTAssertEqual(IrohaPeerNfcV1.maximumMessageBytes, 14_196)
         XCTAssertEqual(payment.encoded.count, 10_084)
 
+        // The exact-size fixture must not relax the independent proof-role limit.
+        XCTAssertThrowsError(try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            irohaPeerWalletExchangeEnvelopeV1(kind: .payment,
+                payload: Data(repeating: 0xa5,
+                    count: KagemushaWalletWireV1.paymentSigmaProofCapBytes + 1)))) {
+            XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("payment.sigma_proof"))
+        }
+
         let receiver = try readyReceiver(
             request: request,
             payment: payment,
