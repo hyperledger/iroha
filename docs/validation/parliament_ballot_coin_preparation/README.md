@@ -1,0 +1,156 @@
+# Retained private coin preparation for a fixed sequence
+
+This package adds an explicit H/CX preparation wrapper around the frozen finite
+`Sequence`. It prepares every original private coin together with one fresh
+retained purifier, then emits the existing sequence body. The inverse runs the
+body's true inverse before undoing preparation. It changes no production source
+or activation gate. Its proposed documentation destination is
+`docs/validation/parliament_ballot_coin_preparation`; this staged copy remains
+under `target/` while shared source validation is in progress.
+
+The wrapper authenticates twelve selected schema sources and the exact original
+generator input layout. Original `iv_pre128` and `salt256` reside in
+`public_preparation`; the similarly named `field_positions()` fields are derived
+outputs. The original coin suffix also includes the primary/auxiliary schedule
+tapes and the remaining named private inputs. An explicit separate toy contract
+supports finite tests. Structural schema checking does not attest arbitrary
+callback semantics or a complete runtime dependency closure.
+
+Every original coin and purifier must initially be zero, private and in product
+with the remaining state. That remaining state may itself be entangled. H then
+CX creates independent Bell pairs; tracing the retained private purifiers
+produces the uniform classical coin mixture. Later body operations must leave
+purifiers inaccessible and avoid future call registers until entry. These are
+unchecked state/noninterference premises, not a reset or physical entropy claim.
+Uniform coin marginals alone do not establish independence. All calls are fixed
+classically in advance; no adaptive selector, descriptor preparation, primitive
+bridge or complete joint-experiment theorem is supplied.
+
+For each generating call,
+
+```text
+R = 512*M + 896*tau + 256*T_open + tau*ell + 10*g + 5888.
+```
+
+Preparation adds exactly R Hadamards, R CNOTs and R retained purifier bits to
+the unchanged body; it requires 2R initially zero private bits. H is reported
+separately from `X+CX+5*CCX`. Lookup and rejected-size calls add no coins.
+
+The captured actual candidate VOTE/list3 body with `M=2^20`, `T=2^44`, one
+full-message lookup and one list1001 rejection has R=538737664. Preparation
+adds that many H, CX and retained bits. The body retains 6202 oracle calls and
+31790791991013480033925054 logical bits; the wrapper has
+31790791991013480572662718 logical bits. Only metadata and short gate prefixes
+were observed at full capacity. These are neither physical-memory measurements
+nor a full-capacity state simulation. R is independent of public shape for a
+fixed row/role/M, so the addition preserves body shape-maximizing witnesses
+conditionally; separate request-body envelopes do not prove a complete
+experiment bound. `complete_resource_vector` remains false.
+
+## Evidence and exact restoration
+
+The final owned capture passed **31 tests**, with 169 stable archived inputs,
+37 loaded test modules and 38 loaded observer modules, all within its selected
+inventory. Its receipt is
+`6228c39f04d63e16112925779d90cf8cadb00b205e302d2a293cada2781fd555`;
+its original manifest is
+`36501b1b25a9824baf12a725bd6c840843db03dbeb7845a23a2c34d25cb05885`.
+`final-capture/` preserves those exact records and outputs.
+
+Independent review passed **37 tests** and found no blocking defect. It checks
+arbitrary amplitudes, complete inverse recovery, a full retained-state density
+comparison with the four-assignment classical mixture for two toy calls,
+namespace ownership, immutable metadata and malformed schemas. Negative controls
+with prior coin/purifier entanglement, coin/external correlation and later
+interference demonstrate why the initial state and freshness premises matter.
+Its stable selected inventory has 175 inputs and 36 loaded repository modules.
+Review capture receipt:
+`aa326731d09f997e60c48f008184b32d1d3d07a8120909ab452790e1a281a3d8`.
+Review capture manifest:
+`477a4f3a2bffc98cf90179c36980a56c8d95f048e60731be66dec4600012d672`.
+Its original outer manifest is preserved as `review/SHA256SUMS.original`, SHA
+`b0277dd1147fcd4f0187d0fde0a2ddaa9ec6da3210b2b9f41dbabbdedb346e57`.
+`review/archive-map.json` locates all 188 original outer-manifest members without
+duplicating the frozen source tree. This engineering review is not independent
+cryptographic approval.
+
+`restore-plan.json` binds every original logical path to authenticated bytes:
+
+- 152 inputs come from the already published `parliament_ballot_request_machine`
+  package, outer manifest
+  `a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d`.
+  The dependency manifest is also preserved here for inspection. The dependency
+  package itself is required for replay; no unpublished Sequence package is needed.
+- 17 flat `source/supplement-*.template` files supply the other owned inputs.
+  Their original names and digests are explicit in the restore plan.
+- `--include-review` adds the owner's final receipt/observation and four review
+  files, giving exactly the independent review's 175-input inventory.
+
+The restore tool authenticates both complete manifests, every selected source,
+the original capture receipt/manifest and, in review mode, the entire original
+review archive map. It buffers all input bytes before creating a new destination.
+It rejects malformed paths, symlinks, collisions, existing destinations and bad
+hashes. It writes only a new execution tree. Archived paths are data: no live
+working-tree source is read or repinned.
+
+From the repository root, use Python3.11 with pytest9.1.0 and the trusted package
+manifest digest supplied with this publication. Paths below name the proposed
+published location; substitute the staged location while it remains under target.
+
+```sh
+python3.11 -B docs/validation/parliament_ballot_coin_preparation/package-tools/restore.py.template \
+  --package docs/validation/parliament_ballot_coin_preparation \
+  --request-machine docs/validation/parliament_ballot_request_machine \
+  --destination target/coin-preparation-restored \
+  --manifest-sha256 TRUSTED_PACKAGE_MANIFEST_SHA256 --include-review
+```
+
+Omit `--include-review` to restore exactly the owned 169-input inventory.
+For restoration followed by both test suites, use a new output directory:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3.11 -B \
+  docs/validation/parliament_ballot_coin_preparation/package-tools/replay.py.template \
+  --package docs/validation/parliament_ballot_coin_preparation \
+  --request-machine docs/validation/parliament_ballot_request_machine \
+  --output target/coin-preparation-replayed \
+  --manifest-sha256 TRUSTED_PACKAGE_MANIFEST_SHA256
+```
+
+The trusted replay launcher first checks the supplied outer-manifest digest and
+the restore helper's member hash, then executes that exact verified buffer. It
+requires the exact ordered 31+37 original test memberships,
+successful call reports and loaded-module hashes within the restored inventory.
+It preserves stdout, stderr and metadata, checks all 175 input hashes afterward,
+and refuses existing output. It does not repeat the expensive full-capacity
+observer; the original actual observation remains in `final-capture/`.
+Package validation records preserve the exact pre-seal manifest used for replay;
+those members remain byte-identical in the final outer package manifest.
+The restore controls are archived as `package-tools/test_restore.py.template`.
+Copy it, `restore.py.template` and `replay.py.template` to a separate directory
+as `test_restore.py`, `restore.py` and `replay.py`, then run pytest with plugins disabled and `-c /dev/null
+-o addopts= --noconftest -p no:cacheprovider` to repeat them.
+
+`packaging-attempt1/` retains the first successful 68-test replay and its earlier
+helper/README bytes. A final review then required authenticating the restore
+helper before execution and reporting all six review additions in provider
+totals. The current tools contain both repairs and a regression with an altered
+helper whose execution marker must never be written. The earlier record is
+preliminary packaging evidence; current validation is retained separately.
+
+`preliminary/` preserves the earlier loose observation, original observer/helper
+and README, plus preliminary test receipt/output. Its custody map records
+original logical names; the former `pytest.log` is retained as `pytest.stdout`.
+These preliminary records are not relabeled as the later frozen execution.
+The captured inner README's 36-module observer paragraph concerns the loose
+observation; the final capture correctly records 38 observer modules. Its final
+"unknown-resource flag" sentence means `complete_resource_vector=false`.
+
+The frozen capture records known live drift in
+`crates/iroha_parliament_ballot_proof/Cargo.toml`; restored bytes keep the original
+authenticated version. No claim applies to the current dirty production
+candidate. TODO: actual private initialization, authenticated component and
+descriptor semantics, adaptive entry/routing and external operations, complete
+experiment resources/joint proof, primitive-security bridge, independent
+cryptographic approval and native device/workspace qualification remain open.
+Production remains gated; all full-qualification flags remain false.

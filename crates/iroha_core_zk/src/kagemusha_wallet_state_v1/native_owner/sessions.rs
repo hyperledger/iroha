@@ -345,7 +345,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         &mut self,
         setup_id: [u8; 32],
         offer_bytes: &[u8],
-        fee: Option<(
+        fee: Option<&(
             KagemushaWalletFeeScheduleV1,
             KagemushaWalletSignerCertificateV1,
         )>,
@@ -359,7 +359,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         valid(offer.verify(&scheme))?;
         let action = Action::Request {
             offer: offer_bytes.to_vec(),
-            fee: fee.map(Box::new),
+            fee: fee.map(|original| Box::new(*original)),
         };
         let mut plan = self.setup(setup_id, &action)?;
         let bytes = if let Some(output) = plan.output {
@@ -384,7 +384,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                     0,
                     valid(KagemushaWalletCertificateSetV1::new(vec![issuer]))?,
                 ),
-                Some((schedule, fee_issuer))
+                Some(&(schedule, fee_issuer))
                     if schedule.fee_schedule_digest() == state.rest.fee_schedule
                         && schedule.body.asset_digest == state.core.asset_digest =>
                 {

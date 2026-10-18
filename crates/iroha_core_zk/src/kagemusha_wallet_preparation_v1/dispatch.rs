@@ -609,7 +609,7 @@ impl PreparationV1<'_> {
                             quota_share: share.as_ref(),
                             quota_usage: &usage,
                         },
-                        SendMapsV1 { pending, fee },
+                        &SendMapsV1 { pending, fee },
                         nonce,
                     ))?;
                     custody.maps().set_quota_usage(
@@ -708,7 +708,7 @@ impl PreparationV1<'_> {
                             payer_credential,
                             certificates,
                             recorded.as_ref(),
-                            ReceiveMapsV1 { consumed },
+                            &ReceiveMapsV1 { consumed },
                             nonce,
                             budget,
                         ),
@@ -720,7 +720,7 @@ impl PreparationV1<'_> {
                             payer_credential,
                             certificates,
                             recorded.as_ref(),
-                            ReceiveMapsV1 { consumed },
+                            &ReceiveMapsV1 { consumed },
                             nonce,
                             budget,
                         ),

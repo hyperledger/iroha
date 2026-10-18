@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.17, pytest-9.1.0, pluggy-1.6.0
+rootdir: /Users/mtakemiya/dev/iroha
+configfile: pytest.ini
+collected 24 items
+
+target/parliament-family-bounds-review/test_arithmetic.py .............. [ 58%]
+..........                                                               [100%]
+
+- generated xml file: /Users/mtakemiya/dev/iroha/target/parliament-family-bounds-review/junit.xml -
+============================= 24 passed in 45.17s ==============================

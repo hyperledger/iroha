@@ -40,7 +40,7 @@ pub struct Args {
     /// Restrict to one revision; requires network.
     #[arg(long, requires = "network")]
     revision: Option<NonZeroU64>,
-    /// Exclusive EVM discovery cursor BLOCK:LOG_INDEX; requires one exact revision.
+    /// Exclusive EVM discovery cursor `BLOCK:LOG_INDEX`; requires one exact revision.
     #[arg(long, requires = "revision", conflicts_with = "ton_cursor")]
     evm_cursor: Option<String>,
     /// Next older TON transaction cursor LT:HASH; requires one exact revision.
@@ -49,17 +49,17 @@ pub struct Args {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, norito::json::JsonSerialize)]
-pub(crate) struct EvmCursor {
+pub struct EvmCursor {
     pub block: u64,
     pub log_index: u64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, norito::json::JsonSerialize)]
-pub(crate) struct TonCursor {
+pub struct TonCursor {
     pub lt: u64,
     pub hash: [u8; 32],
 }
 
-pub(crate) struct Observation {
+pub struct Observation {
     pub network: [u8; 32],
     pub instance: [u8; 32],
     pub committee: CommitteeStateV1,
@@ -68,7 +68,7 @@ pub(crate) struct Observation {
     pub pause: PauseViewV1,
 }
 #[derive(Default)]
-pub(crate) struct Discovery {
+pub struct Discovery {
     pub certificates: Vec<SubmitSccpForgeryEvidenceV1>,
     pub next_evm: Option<EvmCursor>,
     pub next_ton: Option<TonCursor>,
@@ -156,19 +156,23 @@ fn recommendation(
     } else {
         None
     };
-    Some(match progress {
-        Some(at) => SccpGovernanceActionV1::AttestSccpDeploymentProgress(
-            SccpAttestDeploymentProgressActionV1 {
+    Some(progress.map_or_else(
+        || {
+            SccpGovernanceActionV1::QuarantineSccpRevision(SccpRouteRevisionActionV1 {
                 network,
                 revision: revision.revision,
-                at,
-            },
-        ),
-        None => SccpGovernanceActionV1::QuarantineSccpRevision(SccpRouteRevisionActionV1 {
-            network,
-            revision: revision.revision,
-        }),
-    })
+            })
+        },
+        |at| {
+            SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+                SccpAttestDeploymentProgressActionV1 {
+                    network,
+                    revision: revision.revision,
+                    at,
+                },
+            )
+        },
+    ))
 }
 
 fn checkpoint_matches<C: RunContext>(

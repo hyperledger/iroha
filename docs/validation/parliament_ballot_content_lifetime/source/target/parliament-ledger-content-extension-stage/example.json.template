@@ -1,0 +1,60 @@
+{
+  "experiment": {
+    "requests": 3,
+    "queries": 1,
+    "length_bits": 64,
+    "message_bytes": 6882996,
+    "oracle": "one immutable source-padded F",
+    "completion": "agreed total completion",
+    "coins": "classical-retained"
+  },
+  "events": [
+    {
+      "kind": "content",
+      "event_id": "candidate-content3",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one immutable source-padded F",
+        "completion": "agreed total completion"
+      },
+      "row": "candidate",
+      "list_count": 3
+    },
+    {
+      "kind": "query",
+      "event_id": "external",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one immutable source-padded F",
+        "completion": "agreed total completion"
+      },
+      "message_bytes": 6882996
+    },
+    {
+      "kind": "rejected_vote",
+      "event_id": "size-error",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one immutable source-padded F",
+        "completion": "agreed total completion"
+      },
+      "row": "candidate",
+      "list_count": 2
+    },
+    {
+      "kind": "content",
+      "event_id": "comparator-content1000",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one immutable source-padded F",
+        "completion": "agreed total completion"
+      },
+      "row": "comparator",
+      "list_count": 1000
+    }
+  ]
+}

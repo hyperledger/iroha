@@ -71,10 +71,10 @@ fn commit_overlay_limits(config: &mut TestChainConfig, max_instructions: usize, 
 }
 #[test]
 fn overlay_instruction_cap_rejects_and_rest_apply() {
-    let (mut config, authority_id, kp) = min_world_chain_config();
     // The committed cap: one overlay has exactly that many instructions and passes, the
     // other has one more and is rejected. Zero bytes means no byte limit.
     const INSTRUCTION_CAP: usize = 64;
+    let (mut config, authority_id, kp) = min_world_chain_config();
     commit_overlay_limits(&mut config, INSTRUCTION_CAP, 0);
     let mut chain =
         Box::new(CertifiedTestChain::start(config).expect("authenticated overlay-bounds genesis"));
@@ -100,7 +100,11 @@ fn overlay_instruction_cap_rejects_and_rest_apply() {
     // The same original inputs pass native payload execution and three-of-four
     // certification. The fixture does not author transaction results.
     let proposal = chain.proposal(None, vec![tx_a, tx_b]);
-    let committed = chain.commit_proposal(proposal, Signers::Quorum, Default::default());
+    let committed = chain.commit_proposal(
+        proposal,
+        Signers::Quorum,
+        iroha_sumeragi::types::ControlWitness::default(),
+    );
     // Expect first tx rejected with NotPermitted("overlay exceeds max instructions: ...") and second approved
     let block = committed.block();
     assert_eq!(block.external_transactions().count(), 2);
@@ -138,10 +142,10 @@ fn overlay_instruction_cap_rejects_and_rest_apply() {
 }
 #[test]
 fn overlay_bytes_cap_rejects_and_rest_apply() {
-    let (mut config, authority_id, kp) = min_world_chain_config();
     // The committed cap: one overlay has exactly that many bytes and passes; the other has
     // one byte more and is rejected.
     const BYTE_CAP: u64 = 256 * 1024;
+    let (mut config, authority_id, kp) = min_world_chain_config();
     let log_of = |message_bytes: usize| -> InstructionBox {
         Log::new(Level::INFO, "x".repeat(message_bytes)).into()
     };
@@ -181,7 +185,11 @@ fn overlay_bytes_cap_rejects_and_rest_apply() {
     .with_instructions([small_instr])
     .sign(kp.private_key());
     let proposal = chain.proposal(None, vec![tx_big, tx_small]);
-    let committed = chain.commit_proposal(proposal, Signers::Quorum, Default::default());
+    let committed = chain.commit_proposal(
+        proposal,
+        Signers::Quorum,
+        iroha_sumeragi::types::ControlWitness::default(),
+    );
     // Expect first tx rejected with NotPermitted("overlay exceeds max bytes: ...") and second approved
     let block = committed.block();
     assert_eq!(block.external_transactions().count(), 2);

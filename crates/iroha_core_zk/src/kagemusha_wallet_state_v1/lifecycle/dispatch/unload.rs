@@ -95,7 +95,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             &scheme,
             *amount,
             charge.as_ref(),
-            credential,
+            &credential,
             certificates,
             package,
             account,
@@ -114,7 +114,7 @@ fn compose(
     scheme: &KagemushaWalletSchemeV1,
     amount: u128,
     charge: Option<&ChargeOriginalsV1>,
-    credential: KagemushaWalletCredentialV1,
+    credential: &KagemushaWalletCredentialV1,
     certificates: KagemushaWalletCertificateSetV1,
     package: KagemushaWalletPackageV1,
     account: &AccountId,
@@ -155,7 +155,7 @@ fn compose(
     };
     let claim = KagemushaWalletUnloadClaimV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
-        credential,
+        credential: *credential,
         package,
         account: account.clone(),
         charge,

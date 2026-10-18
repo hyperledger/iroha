@@ -409,8 +409,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             payment_key: owner.credential().body.payment_key,
             artifact_manifest_digest: self.proofs.installed.verifier().manifest_digest(),
         };
-        // Release the single archive borrow before checking actual selection again.
-        drop(custody);
+        // Preparation reads are complete before checking actual selection again.
         let (current_selected, current) = self.sync_manifest()?;
         if current_selected != selected
             || current.capsule != released.retained.capsule_digest

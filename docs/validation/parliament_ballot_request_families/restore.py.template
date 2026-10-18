@@ -1,0 +1,77 @@
+"""Restore exact historical request-family evidence inputs into an absent root."""
+from pathlib import Path, PurePosixPath
+import argparse
+import hashlib
+import json
+import sys
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(ok,why):
+    if not ok:raise ValueError(why)
+def safe(relative):
+    require(type(relative) is str and bool(relative),'relative path string required')
+    path=PurePosixPath(relative)
+    require(not path.is_absolute() and '..' not in path.parts and path.as_posix()==relative,
+        'unsafe relative path')
+    return relative
+def members(folder,identity):
+    raw=(folder/'SHA256SUMS').read_bytes()
+    require(sha(raw)==identity,'manifest identity: '+str(folder))
+    result={}
+    for line in raw.decode().splitlines():
+        expected,relative=line.split('  ',1);safe(relative)
+        require(relative not in result,'duplicate manifest member')
+        data=(folder/relative).read_bytes()
+        require(sha(data)==expected,'member identity: '+str(folder/relative))
+        result[relative]=data
+    return result
+def restore(package,repository,destination,identity):
+    require(not destination.exists(),'destination must be absent')
+    own=members(package,identity)
+    dependencies=json.loads(own['dependencies.json'])
+    loaded={name:members(repository/'docs/validation'/safe(name),digest)
+        for name,digest in dependencies['published_manifest_sha256'].items()}
+    mapping=json.loads(own['replay-inputs.json']);buffers={}
+    for relative,item in mapping['files'].items():
+        safe(relative)
+        if item['origin']=='this-package':data=own[safe(item['member'])]
+        else:
+            require(item['origin']=='published-dependency','known replay origin')
+            data=loaded[item['package']][safe(item['member'])]
+        require(sha(data)==item['sha256'],'replay input identity: '+relative)
+        buffers[relative]=data
+    require(len(buffers)==mapping['replay_file_count'],'exact replay inventory')
+    for capture in json.loads(own['logical-captures.json']):
+        raw=own[safe(capture['manifest_member'])]
+        require(sha(raw)==capture['manifest_sha256'],'original capture manifest identity')
+        seen=set()
+        for line in raw.decode().splitlines():
+            expected,relative=line.split('  ',1);safe(relative)
+            require(relative not in seen,'duplicate original capture member');seen.add(relative)
+            item=capture['files'][relative]
+            if item['origin']=='replay-input':data=buffers[safe(item['path'])]
+            else:
+                require(item['origin']=='this-package','known capture member origin')
+                data=own[safe(item['member'])]
+            require(sha(data)==expected,'original capture member identity: '+relative)
+        require(seen==set(capture['files']),'complete original capture membership')
+    destination.mkdir(parents=True,exist_ok=False)
+    for relative,data in buffers.items():
+        path=destination/relative;path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open('xb') as handle:handle.write(data)
+    after={p:sha((destination/p).read_bytes()) for p in buffers}
+    require(after=={p:sha(b) for p,b in buffers.items()},'restored source stability')
+    return dict(restored_files=len(buffers),source_sha256=after,
+        historical_source_only=True,complete_resource_vector=False,
+        current_candidate_qualified=False,production_gate_changed=False)
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    for name in ('package','repository','destination'):parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--manifest-sha256',required=True)
+    args=parser.parse_args()
+    try:
+        print(json.dumps(restore(args.package.resolve(),args.repository.resolve(),
+            args.destination.resolve(),args.manifest_sha256),sort_keys=True));return 0
+    except (ValueError,KeyError,TypeError,OSError) as error:
+        print(str(error),file=sys.stderr);return 1
+if __name__=='__main__':sys.exit(main())

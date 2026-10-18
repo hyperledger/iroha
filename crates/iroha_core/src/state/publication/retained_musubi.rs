@@ -17,13 +17,6 @@ type PackageValue = iroha_data_model::musubi::MusubiPackageRecordV1;
 
 /// Exact local structural/admission cause; no physical lock wait is fabricated.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
-    )
-)]
 pub(crate) enum RetainedPackageReadError {
     /// Only the original completely frozen, nonterminal publisher may capture.
     NotFrozen,

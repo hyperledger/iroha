@@ -248,7 +248,7 @@ impl NativeFoldWorkerV1 {
                             entry.descriptor_digest(),
                             entry.verifying_key_digest(),
                             2,
-                            stage as u32,
+                            u32::try_from(stage).map_err(|_| Error::Proof("stage count"))?,
                             entry.payload_bytes(),
                         )
                     })

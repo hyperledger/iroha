@@ -192,7 +192,7 @@ fn emit(
     context.print_data(&request)
 }
 
-pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
+pub(super) fn run<C: RunContext>(context: &mut C, args: &FinalizeArgs) -> Result<()> {
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let message_id = parse_word(&args.message_id)?;
@@ -203,7 +203,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
         .map(|view| view.record.clone())
         .ok_or_else(|| eyre!("{} is not an outbound message", args.message_id))?;
     if args.emit {
-        return emit(context, &args, &client, &original, &record, message_id);
+        return emit(context, args, &client, &original, &record, message_id);
     }
     let key_file = args
         .key_file
@@ -221,8 +221,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
             &context.sccp_config()?,
             &client,
             &original,
-            record.network,
-            Some(record.revision),
+            (record.network, Some(record.revision)),
             &args.rpc_url,
             args.ton_wallet.as_deref(),
             key_file,
@@ -260,9 +259,11 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
             .collect();
         flows::ton(
             context,
-            &original,
-            &flow,
-            Action::Finalize,
+            flows::FlowStep {
+                original: &original,
+                flow: &flow,
+                action: Action::Finalize,
+            },
             destination.lite(),
             items,
             |_| {
@@ -286,7 +287,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
                 destination.terminal_evidence(
                     &client,
                     &original,
-                    profiles,
+                    &profiles,
                     step,
                     iroha_sccp::ton_watch::TerminalEvent::Finalized {
                         message_id,
@@ -340,9 +341,11 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
     )?;
     flows::evm(
         context,
-        &original,
-        &flow,
-        iroha_sccp_wallet::flow::SccpFlowActionV1::Finalize,
+        flows::FlowStep {
+            original: &original,
+            flow: &flow,
+            action: iroha_sccp_wallet::flow::SccpFlowActionV1::Finalize,
+        },
         record.network,
         &destination,
         key_file,
@@ -447,7 +450,7 @@ pub(super) fn evm_ready(
     use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
     let pending = flow.pending()?.map(|step| step.record().action);
     if let Some(action @ (Action::Checkpoint | Action::Control)) = pending {
-        flows::recover_evm(context, &original, flow, action, destination)?;
+        flows::recover_evm(context, original, flow, action, destination)?;
         return Ok(false);
     }
     for _ in 0..3 {
@@ -469,20 +472,25 @@ pub(super) fn evm_ready(
                     original.network,
                     original.instance,
                 )? {
-                    if !flows::confirmed(&flows::evm(
-                        context,
-                        &original,
-                        flow,
-                        Action::Checkpoint,
-                        route.0,
-                        destination,
-                        key,
-                        call,
-                        vec![
-                            flows::evidence("taira.verified_rotations", &rotations)?,
-                            target_item(target),
-                        ],
-                    )?) {
+                    if !flows::confirmed(
+                        flows::evm(
+                            context,
+                            flows::FlowStep {
+                                original,
+                                flow,
+                                action: Action::Checkpoint,
+                            },
+                            route.0,
+                            destination,
+                            key,
+                            call,
+                            vec![
+                                flows::evidence("taira.verified_rotations", &rotations)?,
+                                target_item(target),
+                            ],
+                        )?
+                        .as_ref(),
+                    ) {
                         return Ok(false);
                     }
                 }
@@ -496,20 +504,25 @@ pub(super) fn evm_ready(
                 )?;
                 let call =
                     destination.control_call(&bundle, original.network, original.instance)?;
-                if !flows::confirmed(&flows::evm(
-                    context,
-                    &original,
-                    flow,
-                    Action::Control,
-                    route.0,
-                    destination,
-                    key,
-                    call,
-                    vec![
-                        flows::evidence("taira.verified_control", &bundle)?,
-                        target_item(nonce),
-                    ],
-                )?) {
+                if !flows::confirmed(
+                    flows::evm(
+                        context,
+                        flows::FlowStep {
+                            original,
+                            flow,
+                            action: Action::Control,
+                        },
+                        route.0,
+                        destination,
+                        key,
+                        call,
+                        vec![
+                            flows::evidence("taira.verified_control", &bundle)?,
+                            target_item(nonce),
+                        ],
+                    )?
+                    .as_ref(),
+                ) {
                     return Ok(false);
                 }
             }
@@ -538,15 +551,17 @@ pub(super) fn ton_ready(
     if let Some(action) = pending {
         flows::ton(
             context,
-            &original,
-            flow,
-            action,
+            flows::FlowStep {
+                original,
+                flow,
+                action,
+            },
             destination.lite(),
             Vec::new(),
             |_| Err(eyre!("recovery must not prepare another wallet message")),
             |step| {
                 let (control, checkpoint) = prerequisite_target(step)?;
-                destination.progress_evidence(&client, &original, control, checkpoint)
+                destination.progress_evidence(client, original, control, checkpoint)
             },
         )?;
         return Ok(false);
@@ -566,9 +581,11 @@ pub(super) fn ton_ready(
                     .rotations(from, iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL)?;
                 flows::ton(
                     context,
-                    &original,
-                    flow,
-                    Action::Checkpoint,
+                    flows::FlowStep {
+                        original,
+                        flow,
+                        action: Action::Checkpoint,
+                    },
                     destination.lite(),
                     vec![
                         flows::evidence("taira.verified_rotations", &rotations)?,
@@ -585,7 +602,7 @@ pub(super) fn ton_ready(
                     },
                     |step| {
                         let (control, checkpoint) = prerequisite_target(step)?;
-                        destination.progress_evidence(&client, &original, control, checkpoint)
+                        destination.progress_evidence(client, original, control, checkpoint)
                     },
                 )?
             }
@@ -598,9 +615,11 @@ pub(super) fn ton_ready(
                 )?;
                 flows::ton(
                     context,
-                    &original,
-                    flow,
-                    Action::Control,
+                    flows::FlowStep {
+                        original,
+                        flow,
+                        action: Action::Control,
+                    },
                     destination.lite(),
                     vec![
                         flows::evidence("taira.verified_control", &bundle)?,
@@ -616,17 +635,79 @@ pub(super) fn ton_ready(
                     },
                     |step| {
                         let (control, checkpoint) = prerequisite_target(step)?;
-                        destination.progress_evidence(&client, &original, control, checkpoint)
+                        destination.progress_evidence(client, original, control, checkpoint)
                     },
                 )?
             }
         };
-        if !flows::confirmed(&outcome) {
+        if !flows::confirmed(outcome.as_ref()) {
             return Ok(false);
         }
     }
     context.println("Destination prerequisites advanced; rerun this flow to continue from its retained progress.")?;
     Ok(false)
+}
+
+/// The independent keeper follows the same journaled checkpoint/control sequence as minting.
+pub(super) fn maintain(context: &mut impl RunContext, args: &CommitteeSyncArgs) -> Result<()> {
+    let config = context.sccp_config()?;
+    let client = blocking(context)?;
+    let original = origin::authenticate_origin(context, &client, &args.origin)?;
+    let network = parse_network(&args.network)?;
+    let (_, selected) = route_deployment(&client, &original, network, args.revision)?;
+    let revision = selected.route_revision;
+    let flow = flows::open(
+        context,
+        iroha_sccp_wallet::journal::SccpFlowKindV1::CommitteeSync,
+        &args.flow,
+        flows::intent(
+            format!("destination-upkeep:{}:{revision}", network.profile_key()).as_bytes(),
+        ),
+    )?;
+    let ready = if network == SccpNetworkV1::TonMainnet {
+        let (destination, wallet) = ton_destination(
+            &config,
+            &client,
+            &original,
+            (network, Some(revision)),
+            &args.rpc_url,
+            args.ton_wallet.as_deref(),
+            &args.key_file,
+        )?;
+        ton_ready(
+            context,
+            &flow,
+            &client,
+            &original,
+            (network, revision),
+            false,
+            &destination,
+            &wallet,
+        )?
+    } else {
+        let destination = evm_destination(
+            &config,
+            &client,
+            &original,
+            network,
+            Some(revision),
+            &args.rpc_url,
+        )?;
+        evm_ready(
+            context,
+            &flow,
+            &client,
+            &original,
+            (network, revision),
+            false,
+            &destination,
+            &args.key_file,
+        )?
+    };
+    if ready {
+        context.println("Destination committee and newest control are current.")?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -824,67 +905,4 @@ mod tests {
             Cli::try_parse_from(args).unwrap();
         }
     }
-}
-
-/// The independent keeper follows the same journaled checkpoint/control sequence as minting.
-pub(super) fn maintain(context: &mut impl RunContext, args: CommitteeSyncArgs) -> Result<()> {
-    let config = context.sccp_config()?;
-    let client = blocking(context)?;
-    let original = origin::authenticate_origin(context, &client, &args.origin)?;
-    let network = parse_network(&args.network)?;
-    let (_, selected) = route_deployment(&client, &original, network, args.revision)?;
-    let revision = selected.route_revision;
-    let flow = flows::open(
-        context,
-        iroha_sccp_wallet::journal::SccpFlowKindV1::CommitteeSync,
-        &args.flow,
-        flows::intent(
-            format!("destination-upkeep:{}:{revision}", network.profile_key()).as_bytes(),
-        ),
-    )?;
-    let ready = if network == SccpNetworkV1::TonMainnet {
-        let (destination, wallet) = ton_destination(
-            &config,
-            &client,
-            &original,
-            network,
-            Some(revision),
-            &args.rpc_url,
-            args.ton_wallet.as_deref(),
-            &args.key_file,
-        )?;
-        ton_ready(
-            context,
-            &flow,
-            &client,
-            &original,
-            (network, revision),
-            false,
-            &destination,
-            &wallet,
-        )?
-    } else {
-        let destination = evm_destination(
-            &config,
-            &client,
-            &original,
-            network,
-            Some(revision),
-            &args.rpc_url,
-        )?;
-        evm_ready(
-            context,
-            &flow,
-            &client,
-            &original,
-            (network, revision),
-            false,
-            &destination,
-            &args.key_file,
-        )?
-    };
-    if ready {
-        context.println("Destination committee and newest control are current.")?;
-    }
-    Ok(())
 }

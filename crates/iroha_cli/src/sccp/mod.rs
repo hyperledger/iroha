@@ -455,21 +455,21 @@ pub struct RotationsArgs {
 }
 
 /// Parse an external network profile key.
-pub(crate) fn parse_network(text: &str) -> Result<SccpNetworkV1> {
+pub fn parse_network(text: &str) -> Result<SccpNetworkV1> {
     SccpNetworkV1::from_profile_key(text)
         .filter(|network| network.is_external())
         .ok_or_else(|| eyre!("`{text}` is not an external SCCP network profile"))
 }
 
 /// Parse a 32-byte hex identifier (optional `0x`).
-pub(crate) fn parse_word(text: &str) -> Result<[u8; 32]> {
+pub fn parse_word(text: &str) -> Result<[u8; 32]> {
     let bytes =
         hex::decode(text.strip_prefix("0x").unwrap_or(text)).wrap_err("identifier is not hex")?;
     <[u8; 32]>::try_from(bytes).map_err(|_| eyre!("identifier must be 32 bytes"))
 }
 
 /// Parse a `recent` direction.
-pub(crate) fn parse_direction(text: &str) -> Result<SccpDirection> {
+pub fn parse_direction(text: &str) -> Result<SccpDirection> {
     match text {
         "outbound" => Ok(SccpDirection::Outbound),
         "inbound" => Ok(SccpDirection::Inbound),
@@ -478,12 +478,12 @@ pub(crate) fn parse_direction(text: &str) -> Result<SccpDirection> {
 }
 
 /// Parse only the shared current proof-height selector.
-pub(crate) fn parse_proof_height(text: &str) -> Result<SccpProofHeightV1> {
+pub fn parse_proof_height(text: &str) -> Result<SccpProofHeightV1> {
     text.parse().map_err(|error| eyre!("proof height: {error}"))
 }
 
 /// Encode `text` as the target network's recipient bytes (§3.1).
-pub(crate) fn parse_recipient(network: SccpNetworkV1, text: &str) -> Result<Vec<u8>> {
+pub fn parse_recipient(network: SccpNetworkV1, text: &str) -> Result<Vec<u8>> {
     let bytes = if network == SccpNetworkV1::TonMainnet {
         let account = text
             .strip_prefix("0:")
@@ -515,7 +515,7 @@ fn wall_clock_ms() -> u64 {
 }
 
 fn blocking<C: RunContext>(context: &C) -> Result<BlockingClient> {
-    Ok(BlockingClient::from_client(context.client_from_config()?)?)
+    BlockingClient::from_client(context.client_from_config()?)
 }
 
 impl Run for Command {
@@ -533,12 +533,12 @@ impl Run for Command {
             Self::FastPause(command) => command.run(context),
             Self::Evidence(command) => command.run(context),
             Self::Monitor(args) => args.run(context),
-            Self::Send(args) => send(context, args),
-            Self::Burn(args) => transfers::burn(context, args),
-            Self::Settle(args) => transfers::settle(context, args),
-            Self::Void(args) => transfers::void(context, args),
+            Self::Send(args) => send(context, &args),
+            Self::Burn(args) => transfers::burn(context, &args),
+            Self::Settle(args) => transfers::settle(context, &args),
+            Self::Void(args) => transfers::void(context, &args),
             Self::Refund(args) => transfers::refund(context, args),
-            Self::TonRetry(args) => recovery::run(context, args),
+            Self::TonRetry(args) => recovery::run(context, &args),
             Self::Status(args) => {
                 let status = blocking(context)?
                     .sccp()
@@ -585,11 +585,11 @@ impl Run for Command {
             }
             Self::Control(command) => command.run(context),
             Self::Deployment(command) => command.run(context),
-            Self::Finalize(args) => finalize(context, args),
-            Self::CommitteeSync(args) => committee_sync(context, args),
+            Self::Finalize(args) => finalize(context, &args),
+            Self::CommitteeSync(args) => committee_sync(context, &args),
             Self::Governance(command) => command.run(context),
-            Self::Deploy(args) => deploy(context, args),
-            Self::Claim(args) => claim(context, args),
+            Self::Deploy(args) => deploy(context, &args),
+            Self::Claim(args) => claim(context, &args),
             Self::LightClient(command) => command.run(context),
             Self::LcProfile(args) => {
                 let action = lc_profile_action(parse_network(&args.network)?, args.version)?;
@@ -626,7 +626,7 @@ fn route_deployment(
     }
     .ok_or_else(|| eyre!("the {} route has no such revision", network.profile_key()))?;
     Ok((
-        record.deployment.clone(),
+        record.deployment,
         iroha_sccp::v1::proof::DestinationV1 {
             network,
             route_revision: record.revision,
@@ -665,8 +665,7 @@ fn ton_destination(
     config: &iroha_sccp_wallet::config::SccpClientConfig,
     client: &BlockingClient,
     original: &origin::AuthenticatedOrigin,
-    network: SccpNetworkV1,
-    revision: Option<u32>,
+    (network, revision): (SccpNetworkV1, Option<u32>),
     liteservers: &str,
     wallet: Option<&str>,
     key_file: &std::path::Path,
@@ -696,11 +695,11 @@ fn require_requested_message(requested: &[u8; 32], returned: &[u8; 32]) -> Resul
 }
 
 /// `iroha sccp finalize`: verify the bundle against the destination and mint.
-fn finalize<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
+fn finalize<C: RunContext>(context: &mut C, args: &FinalizeArgs) -> Result<()> {
     finalization::run(context, args)
 }
 
-fn deploy<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
+fn deploy<C: RunContext>(context: &mut C, args: &DeployArgs) -> Result<()> {
     deployment::run(context, args)
 }
 
@@ -715,14 +714,18 @@ fn ethereum_builder(
         BeaconClient, EndpointSet, FailoverPolicy, HttpEndpointKind, HttpTransport,
     };
     let execution = evm::connect_chain_config(config, rpc_url, SccpNetworkV1::EthereumMainnet)?;
-    let endpoints = match beacon_url.filter(|value| !value.trim().is_empty()) {
-        Some(urls) => EndpointSet::parse(
-            &urls.split(',').map(str::trim).collect::<Vec<_>>(),
-            &config.secret_headers,
-        ),
-        None => config.endpoint_set(HttpEndpointKind::EthereumBeacon),
-    }
-    .map_err(|error| eyre!("beacon endpoints: {error}"))?;
+    let endpoints = beacon_url
+        .filter(|value| !value.trim().is_empty())
+        .map_or_else(
+            || config.endpoint_set(HttpEndpointKind::EthereumBeacon),
+            |urls| {
+                EndpointSet::parse(
+                    &urls.split(',').map(str::trim).collect::<Vec<_>>(),
+                    &config.secret_headers,
+                )
+            },
+        )
+        .map_err(|error| eyre!("beacon endpoints: {error}"))?;
     let transport = HttpTransport::new(endpoints, config.http_config(), FailoverPolicy::default())
         .map_err(|error| eyre!("beacon transport: {error}"))?;
     Ok(iroha_sccp_rpc::builders::ethereum::EthereumBuilder::new(
@@ -736,7 +739,7 @@ fn ethereum_builder(
 /// `beacon_url`).
 fn source_builder(
     config: &iroha_sccp_wallet::config::SccpClientConfig,
-    profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+    profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
     network: SccpNetworkV1,
     rpc_url: &str,
     beacon_url: Option<&str>,
@@ -782,11 +785,11 @@ impl<'a> ToriiLightClient<'a> {
     fn read(
         client: &'a BlockingClient,
         network: SccpNetworkV1,
-        profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+        profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
     ) -> Result<Self> {
         Ok(Self {
             original: None,
-            profiles,
+            profiles: *profiles,
             client,
             network,
             light_client: client.sccp().light_client(network)?.light_client,
@@ -799,7 +802,7 @@ impl<'a> ToriiLightClient<'a> {
         client: &'a BlockingClient,
         original: &'a origin::AuthenticatedOrigin,
         network: SccpNetworkV1,
-        profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+        profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
     ) -> Result<Self> {
         let mut view = Self::read(client, network, profiles)?;
         original.verify_light_client(network, &view.light_client)?;
@@ -855,7 +858,7 @@ fn retain_source_trust(mut trust: SourceTrust) -> Result<SccpEvidenceItemV1> {
     trust.checkpoints.dedup();
     let bytes = norito::json::to_json_bounded_boxed(
         &trust,
-        iroha_sccp_wallet::journal::MAX_RECORD_BYTES as usize,
+        usize::try_from(iroha_sccp_wallet::journal::MAX_RECORD_BYTES)?,
     )
     .map_err(|error| eyre!("source trust exceeds durable evidence bound: {error:?}"))?;
     Ok(SccpEvidenceItemV1 {
@@ -907,7 +910,7 @@ impl TairaLightClientView for ToriiLightClient<'_> {
 /// chosen by the builder (§4.13.5), and verify it locally with the verifier Taira runs before
 /// anything is paid for (§7.2 step 5).
 fn prove(
-    profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+    profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
     client: &BlockingClient,
     original: &origin::AuthenticatedOrigin,
     network: SccpNetworkV1,
@@ -1001,13 +1004,12 @@ fn ton_claim(
         message_index: 0,
     };
     let evidence = recipient_claim::prove_claim(
-        profiles,
+        &profiles,
         client,
         original,
         SccpNetworkV1::TonMainnet,
         &builder,
-        &event,
-        &payload,
+        (&event, &payload),
         if args.self_claim {
             args.max_advances
         } else {
@@ -1064,19 +1066,18 @@ fn evm_claim(
     let profiles = original.light_client_profiles(client)?;
     let builder = source_builder(
         config,
-        profiles,
+        &profiles,
         network,
         &args.rpc_url,
         args.beacon_url.as_deref(),
     )?;
     let evidence = recipient_claim::prove_claim(
-        profiles,
+        &profiles,
         client,
         original,
         network,
         builder.as_ref(),
-        &event,
-        &log.payload,
+        (&event, &log.payload),
         if args.self_claim {
             args.max_advances
         } else {
@@ -1122,7 +1123,7 @@ fn claim_intent(
 
 /// `iroha sccp claim`: prove a source-chain burn and submit `SubmitSccpInboundMessageV1`,
 /// using one recipient bundle with `--self-claim`, or separate paid backfills otherwise.
-fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
+fn claim<C: RunContext>(context: &mut C, args: &ClaimArgs) -> Result<()> {
     use iroha::data_model::isi::sccp::{AdvanceSccpLightClientV1, SubmitSccpInboundMessageV1};
     use iroha_sccp_wallet::{flow::SccpFlowActionV1 as Action, journal::SccpFlowKindV1};
     let network = parse_network(&args.network)?;
@@ -1145,9 +1146,9 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
     }
     let config = context.sccp_config()?;
     let (revision, payload, evidence) = if network == SccpNetworkV1::TonMainnet {
-        ton_claim(&config, &client, &original, &args)?
+        ton_claim(&config, &client, &original, args)?
     } else {
-        evm_claim(&config, &client, &original, network, &args)?
+        evm_claim(&config, &client, &original, network, args)?
     };
     let mut raw_evidence = evidence.trust.clone();
     raw_evidence.push(iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
@@ -1195,7 +1196,7 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
             ],
             raw_evidence.clone(),
         )?;
-        if !flows::confirmed(&outcome) {
+        if !flows::confirmed(outcome.as_ref()) {
             return Ok(());
         }
     }
@@ -1218,19 +1219,19 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
 /// `iroha sccp light-client advance`: advance Taira's light client of a source chain toward its latest
 /// finality, stepped to the light client's per-advance bounds; run it again while the light
 /// client is still behind.
-fn lc_advance<C: RunContext>(context: &mut C, args: LcAdvanceArgs) -> Result<()> {
+fn lc_advance<C: RunContext>(context: &mut C, args: &LcAdvanceArgs) -> Result<()> {
+    use iroha::data_model::isi::sccp::AdvanceSccpLightClientV1;
     let configuration = context.sccp_config()?;
     let config = &configuration;
-    use iroha::data_model::isi::sccp::AdvanceSccpLightClientV1;
     let network = parse_network(&args.network)?;
     let client = blocking(context)?;
     let profiles = light_client::active_profiles(&client, *context.config().network_id.as_bytes())?;
-    let view = ToriiLightClient::read(&client, network, profiles)?;
+    let view = ToriiLightClient::read(&client, network, &profiles)?;
     let light_client = view.light_client;
     let budget = AdvanceBudgetV1::for_params(&light_client.params, usize::MAX);
     let builder = source_builder(
         config,
-        profiles,
+        &profiles,
         network,
         &args.rpc_url,
         args.beacon_url.as_deref(),
@@ -1251,19 +1252,19 @@ fn lc_advance<C: RunContext>(context: &mut C, args: LcAdvanceArgs) -> Result<()>
 
 /// `iroha sccp light-client bootstrap build`: print the `InitializeLightClient` action of the latest finalized
 /// source block with the default params, for `iroha sccp governance propose --actions`.
-fn lc_bootstrap<C: RunContext>(context: &mut C, args: LcBootstrapArgs) -> Result<()> {
-    let configuration = context.sccp_config()?;
-    let config = &configuration;
+fn lc_bootstrap<C: RunContext>(context: &mut C, args: &LcBootstrapArgs) -> Result<()> {
     use iroha::data_model::sccp::{
         governance::{SccpGovernanceActionV1, SccpInitializeLightClientActionV1},
         light_client::{SccpLcInitExpectationV1, SccpLightClientParamsV1},
     };
+    let configuration = context.sccp_config()?;
+    let config = &configuration;
     let network = parse_network(&args.network)?;
     let client = blocking(context)?;
     let profiles = light_client::active_profiles(&client, *context.config().network_id.as_bytes())?;
     let builder = source_builder(
         config,
-        profiles,
+        &profiles,
         network,
         &args.rpc_url,
         args.beacon_url.as_deref(),
@@ -1342,12 +1343,12 @@ fn sync_target(from: u64, current: u64) -> Result<u64> {
 }
 
 /// `iroha sccp committee-sync`: submit one bounded catch-up step, then re-observe on the next run.
-fn committee_sync<C: RunContext>(context: &mut C, args: CommitteeSyncArgs) -> Result<()> {
+fn committee_sync<C: RunContext>(context: &mut C, args: &CommitteeSyncArgs) -> Result<()> {
     finalization::maintain(context, args)
 }
 
 /// `iroha sccp send`: check the route (§7.1 steps 1–2) and record the transfer.
-fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()> {
+fn send<C: RunContext>(context: &mut C, args: &SendArgs) -> Result<()> {
     record::send(context, args)
 }
 
@@ -1647,7 +1648,7 @@ mod tests {
         let network = |network, rpc_url| {
             source_builder(
                 &config,
-                iroha_sccp::light_client::profile::GENESIS_PROFILES,
+                &iroha_sccp::light_client::profile::GENESIS_PROFILES,
                 network,
                 rpc_url,
                 None,
@@ -1663,7 +1664,7 @@ mod tests {
         assert!(
             source_builder(
                 &config,
-                iroha_sccp::light_client::profile::GENESIS_PROFILES,
+                &iroha_sccp::light_client::profile::GENESIS_PROFILES,
                 SccpNetworkV1::EthereumMainnet,
                 "not a URL",
                 None
@@ -1673,7 +1674,7 @@ mod tests {
         assert!(
             source_builder(
                 &config,
-                iroha_sccp::light_client::profile::GENESIS_PROFILES,
+                &iroha_sccp::light_client::profile::GENESIS_PROFILES,
                 SccpNetworkV1::SoraTaira,
                 "https://taira.invalid",
                 None

@@ -1,0 +1,124 @@
+"""Restore the authenticated owner capture and execute independent finite controls."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+OWNER = ROOT/'target/parliament-coin-preparation-stage/capture'
+OUT = HERE/'capture'
+OWNER_RECEIPT = '6228c39f04d63e16112925779d90cf8cadb00b205e302d2a293cada2781fd555'
+OWNER_MANIFEST = '36501b1b25a9824baf12a725bd6c840843db03dbeb7845a23a2c34d25cb05885'
+OWNER_OBSERVATION = '80b0e8ce18ba2254a886606b052dd367397a961c3b23057b0bbda8e5f5c3464e'
+CORE = 'af3de761b621bd98e79e31ab20b3449e4f96eb0dba9d36180e40d7b08034d56f'
+OWN = ('test_review.py', 'run_tests.py', 'capture.py', 'README.md')
+
+
+def sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def safe(name):
+    path = Path(name)
+    require(not path.is_absolute() and '..' not in path.parts, 'relative captured path')
+    return path
+
+
+def read(path, expected):
+    raw = path.read_bytes()
+    require(sha(raw) == expected, 'captured identity mismatch: '+str(path))
+    return raw
+
+
+def main():
+    require(not OUT.exists(), 'preserve existing review capture')
+    start = time.time()
+    manifest = read(OWNER/'SHA256SUMS', OWNER_MANIFEST)
+    for line in manifest.decode().splitlines():
+        expected, name = line.split('  ', 1)
+        read(OWNER/safe(name), expected)
+    raw = read(OWNER/'receipt.json', OWNER_RECEIPT)
+    prior = json.loads(raw)
+    pins = prior['source_sha256_before']
+    require(prior['status'] == 'PASS' and len(pins) == 169 and
+            pins == prior['captured_source_sha256_after'], 'owner selected-source record')
+    require(pins['target/parliament-coin-preparation-stage/purification.py'] == CORE, 'reviewed core identity')
+    inputs = {name: read(OWNER/'source'/safe(name+'.template'), expected) for name, expected in pins.items()}
+    inputs['target/parliament-coin-preparation-stage/capture/receipt.json'] = raw
+    inputs['target/parliament-coin-preparation-stage/capture/observation.stdout'] = read(
+        OWNER/'observation.stdout', OWNER_OBSERVATION)
+    for name in OWN:
+        inputs['target/parliament-coin-preparation-review/'+name] = (HERE/name).read_bytes()
+    before = {name: sha(raw) for name, raw in inputs.items()}
+    require(len(before) == 175, 'exact selected input count')
+    OUT.mkdir()
+    execution = OUT/'execution-root'
+    for name, raw in inputs.items():
+        for base, suffix in ((execution, ''), (OUT/'source', '.template')):
+            path = base/safe(name+suffix)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+    (OUT/'owner-SHA256SUMS').write_bytes(manifest)
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+               PYTEST_ADDOPTS='', PYTEST_PLUGINS='', PYTHONPATH='')
+    command = [sys.executable, '-B', 'target/parliament-coin-preparation-review/run_tests.py',
+               '--report', str(OUT/'tests-report.json'), '--temporary', str(OUT/'test-temp'),
+               '--junit', str(OUT/'junit.xml')]
+    result = subprocess.run(command, cwd=execution, env=env, capture_output=True)
+    (OUT/'tests.stdout').write_bytes(result.stdout)
+    (OUT/'tests.stderr').write_bytes(result.stderr)
+    require(result.returncode == 0, 'independent controls failed')
+    tests = json.loads((OUT/'tests-report.json').read_bytes())
+    calls = [r for r in tests['reports'] if r['when'] == 'call']
+    require(tests['exit_code'] == 0 and len(calls) == len(tests['collected']) == 37 and
+            len(set(tests['collected'])) == 37, 'exact independent test count')
+    require([r['nodeid'] for r in calls] == tests['collected'] and
+            all(r['outcome'] == 'passed' for r in tests['reports']), 'exact passed membership')
+    loaded = tests['loaded_repository_modules']
+    require(all(before.get(name) == value for name, value in loaded.items()), 'selected loaded-module membership')
+    after = {name: sha((execution/name).read_bytes()) for name in before}
+    snapshots = {name: sha((OUT/'source'/(name+'.template')).read_bytes()) for name in before}
+    require(before == after == snapshots, 'captured selected inputs changed')
+    for name in OWN:
+        require(sha((HERE/name).read_bytes()) == before['target/parliament-coin-preparation-review/'+name],
+                'live independent review source changed')
+    outputs = {p.name: sha(p.read_bytes()) for p in OUT.iterdir() if p.is_file()}
+    receipt = dict(schema='parliament-retained-purification-independent-review-v1', status='PASS',
+        owner_capture_receipt_sha256=OWNER_RECEIPT, owner_capture_manifest_sha256=OWNER_MANIFEST,
+        owner_observation_sha256=OWNER_OBSERVATION, purification_sha256=CORE,
+        tests_passed=37, exact_ordered_membership=tests['collected'],
+        all_test_reports=tests['reports'], test_runtime=tests['runtime'],
+        source_sha256_before=before, source_sha256_after=after, selected_source_count=len(before),
+        loaded_repository_modules=loaded, loaded_repository_modules_within_selected=True,
+        selected_sources_stable=True, output_sha256=outputs,
+        commands=[dict(command=command, exit_code=result.returncode)], elapsed_seconds=time.time()-start,
+        negative_initial_entanglement_controls=2, future_noninterference_negative_control=True,
+        complete_retained_density_compared_for_two_call_toy=True,
+        original_schema_source_drift_controls=12, during_schema_construction_drift_control=True,
+        owner_full_cap_metadata_checked=True, owner_full_cap_observer_rerun=False,
+        source_schema_is_not_semantic_origin_attestation=True,
+        full_runtime_dependency_closure=False, full_cap_quantum_stream_executed=False,
+        physical_initialization_or_workspace_qualified=False, full_adaptive_driver=False,
+        full_joint_quantum_theorem=False, complete_resource_vector=False,
+        independent_cryptographic_review=False, current_candidate_qualified=False,
+        profile_qualified=False, production_gate_changed=False)
+    (OUT/'receipt.json').write_text(json.dumps(receipt, indent=2, sort_keys=True)+'\n')
+    files = sorted(p for p in OUT.rglob('*') if p.is_file() and
+                   p.relative_to(OUT).parts[0] not in ('execution-root', 'test-temp'))
+    (OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n'
+                                       for p in files))
+    print(json.dumps(dict(tests=37, sources=len(before), loaded=len(loaded),
+        receipt_sha256=sha((OUT/'receipt.json').read_bytes()), manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()))))
+
+
+if __name__ == '__main__':
+    main()

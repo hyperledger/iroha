@@ -39,6 +39,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ROLES = ("normal", "heartbeat", "successor")
 KEY_CHANGE_ROLES = ("normal", "key_change", "successor")
 TEST_NAME = "live native certificates retain checkpoint and rotation custody"
+LATCH_TEST_NAME = "explicit native test quorum conflict permanently latches destination"
+LATCH_PROVENANCE = "runtime_test_quorum_not_chain_output"
 
 
 def require(condition: bool, message: str) -> None:
@@ -91,6 +93,7 @@ class Bundle:
     start: int
     until_ms: int
     certificates: tuple[Certificate, ...]
+    latch: Certificate | None = None
 
 
 def decode_bundle(source: dict[str, Any]) -> Bundle:
@@ -180,7 +183,30 @@ def decode_bundle(source: dict[str, Any]) -> Bundle:
         require(uint(successor["generation"], "successor generation") == current_generation, "successor generation mismatch")
         require(tuple(raw_bytes(key, 48, "successor key") for key in successor["keys"]) == current_keys and raw_bytes(successor["committee_root"], 32, "successor root") == root, "successor generation keys/root mismatch")
         require(uint(successor["start_height"], "successor start") == boundary.height + 1 and uint(successor["deadline_ms"], "successor deadline") == current_deadline, "successor generation start/deadline mismatch")
-    return Bundle(network, instance, keys, generation, start, until_ms, tuple(certificates))
+    latch = None
+    if roles == ROLES:
+        require("destination_latch" in source, "heartbeat export requires explicit destination latch certificate")
+    if "destination_latch" in source:
+        item = source["destination_latch"]
+        require(roles == ROLES, "native V1 latch export requires unchanged heartbeat keys")
+        require(isinstance(item, dict) and type(item.get("version")) is int and item["version"] == 1, "latch version must be 1")
+        require(item.get("provenance") == LATCH_PROVENANCE and item.get("rule") == "V1", "explicit malicious test quorum provenance and V1 rule required")
+        row = item["certificate"]
+        normal = certificates[0]
+        committee = tuple(raw_bytes(key, 48, "malicious test certificate key") for key in row["committee"])
+        require(committee == keys, "malicious test certificate must retain original ordered committee")
+        qc = raw_bytes(row["qc"], 116, "malicious test QC")
+        require(qc == normal.qc, "malicious test certificate must retain original QC and signers")
+        header = raw_bytes(row["header"], 221, "malicious test X")
+        parsed = parse_header(header)
+        require(parsed.height == uint(row["height"], "malicious test height"), "malicious test certificate height mismatch")
+        require(normal.parsed.timestamp_ms < (1 << 64) - 1, "conflicting timestamp must fit u64")
+        require(header == dataclasses.replace(normal.parsed, timestamp_ms=normal.parsed.timestamp_ms + 1).encode(), "only the deliberately conflicting timestamp may change")
+        require(parsed.timestamp_ms < certificates[1].parsed.timestamp_ms, "conflict must precede authentic handoff")
+        require(((parsed.timestamp_ms + 999) // 1000) * 1000 <= until_ms, "conflict replay must remain within original deadline")
+        require(checkpoint_id(header) != checkpoint_id(normal.header), "conflicting checkpoint id must differ")
+        latch = Certificate("malicious_test_v1", raw_bytes(row["aggregate_signature"], 96, "malicious test signature"), qc, header, parsed, committee)
+    return Bundle(network, instance, keys, generation, start, until_ms, tuple(certificates), latch)
 
 
 def slice_literal(data: bytes) -> str:
@@ -215,15 +241,16 @@ import "@acton/testing/expect"
 import "@acton/io"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-messages"
 import "@contracts/sccp-storage"
 import "@wrappers/SccpTairaXorMinter.gen"
 import "sccp-test-helpers"
 
 /// No wrapped value, outbound nonce, governance action or bucket is created.
-fun liveNoMonetaryEffect(env: Env) {{
+fun liveNoMonetaryEffect(env: Env, expectedLatched: bool) {{
     val st = env.minter.getSccpState();
     expect(st.initialized).toBeTrue();
-    expect(st.equivocated).toBeFalse();
+    expect(st.equivocated).toEqual(expectedLatched);
     expect(st.totalSupply).toEqual(0);
     expect(st.pendingSupply).toEqual(0);
     expect(st.outboundNonce).toEqual(0);
@@ -241,7 +268,7 @@ fun liveRefusal(env: Env, cert: cell, expected: int, nextKeys: cell?) {{
     expectOutcome(result, expected);
     expectEvents(result, []);
     expect(minterStorage(env).toCell().hash()).toEqual(before);
-    liveNoMonetaryEffect(env);
+    liveNoMonetaryEffect(env, false);
 }}
 
 get fun `test {TEST_NAME}`() {{
@@ -256,7 +283,7 @@ get fun `test {TEST_NAME}`() {{
     expect(deployed).toHaveSuccessfulDeploy({{ to: minter.address }});
     val env: Env = {{ minter, deployer, networkId: {int.from_bytes(bundle.network, 'big')}, instance: {int.from_bytes(bundle.instance, 'big')}, generation: {bundle.generation}, committee: {{ keys, secrets: [] }} }};
     expect(minter.address).toEqual(SccpTairaXorMinter.fromStorage(storage).address);
-    liveNoMonetaryEffect(env);
+    liveNoMonetaryEffect(env, false);
     expect(minter.getSccpState().initialRoot).toEqual({root});
     expect(minter.getSccpState().initialUntilMs).toEqual({bundle.until_ms});
     expect(minter.getSccpCheckpoints().count).toEqual(0);
@@ -319,7 +346,7 @@ get fun `test {TEST_NAME}`() {{
             ])
         duplicate = "CommitteeNotAccepted" if x.rotation else "NothingToDo"
         lines.extend([
-            "    liveNoMonetaryEffect(env);",
+            "    liveNoMonetaryEffect(env, false);",
             f"    liveRefusal(env, cert{index}, SccpErrors.{duplicate}, null);",
             f'    println("native-replay accepted {cert.role} height {x.height} checkpoint {checkpoint_id(cert.header).hex()}");',
             f'    println("native-replay refusals {cert.role} BadSignature BadHeader {duplicate}");',
@@ -331,7 +358,63 @@ get fun `test {TEST_NAME}`() {{
         '    println("native-replay complete no-monetary-effect");',
         "}", "",
     ])
+    if bundle.latch is not None:
+        lines.append(render_latch_test(bundle))
     return "\n".join(lines)
+
+
+def render_latch_test(bundle: Bundle) -> str:
+    """Replay the labeled malicious runtime quorum certificate without signing."""
+    require(bundle.latch is not None, "labeled native test conflict required")
+    normal, heartbeat = bundle.certificates[:2]
+    conflict = bundle.latch
+    keys = ", ".join(slice_literal(key) for key in bundle.keys)
+    root = ton.committee_root(bundle.keys)
+    original_id = int.from_bytes(checkpoint_id(normal.header), "big")
+    conflicting_id = int.from_bytes(checkpoint_id(conflict.header), "big")
+    return f'''
+// This certificate is an explicitly malicious runtime test-quorum signature,
+// not an original committed-chain output. Neither adapter signs anything.
+get fun `test {LATCH_TEST_NAME}`() {{
+    testing.setNow({(conflict.parsed.timestamp_ms + 999) // 1000});
+    val deployer = testing.treasury("native-latch-relayer").address;
+    val keys: array<slice> = [{keys}];
+    val pin: InitialPin = {{ generation: {bundle.generation}, root: {root}, start: {bundle.start}, untilMs: {bundle.until_ms} }};
+    val storage = canonicalStorage({int.from_bytes(bundle.network, 'big')}, {int.from_bytes(bundle.instance, 'big')}, 1, TEST_MAX_SUPPLY, pin, keys);
+    val (minter, deployed) = deployWithInit(storage, deployer, REPLAY_VALUE);
+    expect(deployed).toHaveSuccessfulDeploy({{ to: minter.address }});
+    val env: Env = {{ minter, deployer, networkId: {int.from_bytes(bundle.network, 'big')}, instance: {int.from_bytes(bundle.instance, 'big')}, generation: {bundle.generation}, committee: {{ keys, secrets: [] }} }};
+    expect(minter.address).toEqual(SccpTairaXorMinter.fromStorage(storage).address);
+    val original = {certificate_expression(normal)};
+    val accepted = sendCheckpoint(env, deployer, original, null, REPLAY_VALUE);
+    expectOutcome(accepted, 0);
+    expectEvents(accepted, [eventCertificate({normal.parsed.height}, {normal.parsed.generation}, original), eventCheckpointed({normal.parsed.height}, {original_id})]);
+    liveNoMonetaryEffect(env, false);
+    liveRefusal(env, {certificate_expression(conflict, forged=True)}, SccpErrors.BadSignature, null);
+    var expected = minterStorage(env);
+    expected.equivocated = true;
+    var expectedCommittee = expected.committee.load();
+    expectedCommittee.untilMs = 0;
+    expected.committee = expectedCommittee.toCell();
+    val malicious = {certificate_expression(conflict)};
+    val latched = sendCheckpoint(env, deployer, malicious, null, REPLAY_VALUE);
+    expectOutcome(latched, 0);
+    expectEvents(latched, [eventCertificate({normal.parsed.height}, {normal.parsed.generation}, malicious), eventLatched(1, {normal.parsed.generation}, {normal.parsed.height}, {original_id}, {conflicting_id})]);
+    expect(latched).toHaveSuccessfulTx<ReturnExcessesBack>({{ to: deployer }});
+    expect(minterStorage(env).toCell().hash()).toEqual(expected.toCell().hash());
+    expect(minter.getSccpCheckpoints().count).toEqual(1);
+    expect(minter.getSccpCheckpoints().height0).toEqual({normal.parsed.height});
+    expect(minter.getSccpCheckpoints().id0).toEqual({original_id});
+    liveNoMonetaryEffect(env, true);
+    val later = sendCheckpoint(env, deployer, {certificate_expression(heartbeat)}, null, REPLAY_VALUE);
+    expectOutcome(later, SccpErrors.Equivocated);
+    expectEvents(later, []);
+    expect(minterStorage(env).toCell().hash()).toEqual(expected.toCell().hash());
+    liveNoMonetaryEffect(env, true);
+    println("native-replay latch V1 {checkpoint_id(normal.header).hex()} {checkpoint_id(conflict.header).hex()} untilMs 0");
+    println("native-replay latch refusals BadSignature Equivocated no-monetary-effect");
+}}
+'''
 
 
 def sha256(path: Path) -> str:
@@ -357,7 +440,7 @@ def project_snapshot(project: Path) -> dict[str, str]:
 
 
 def replay(source_path: Path, output: Path, acton: Path) -> dict[str, Any]:
-    """Run exactly one generated Acton test in a fresh retained target project."""
+    """Run original replay and any labeled V1 latch test in a retained project."""
     source_path, output = source_path.resolve(), output.resolve()
     require(output.is_relative_to(ROOT / "target"), "output must stay under repository target")
     require(not output.exists(), "use a new output directory; prior receipts are immutable")
@@ -406,8 +489,14 @@ def replay(source_path: Path, output: Path, acton: Path) -> dict[str, Any]:
         ])
         if cert.next_keys:
             expected_markers.append("native-replay successor-data key_change missing BadCommittee wrong-root BadCommittee")
+    if bundle.latch is not None:
+        expected_markers.extend([
+            f"native-replay latch V1 {checkpoint_id(bundle.certificates[0].header).hex()} {checkpoint_id(bundle.latch.header).hex()} untilMs 0",
+            "native-replay latch refusals BadSignature Equivocated no-monetary-effect",
+        ])
+    expected_test_count = 2 if bundle.latch is not None else 1
     stable = before == after and copied_before == copied_after and tool_before == sha256(acton) and export_hash == sha256(source_path) and export_hash == sha256(output / "export.json") and command_record["rendered_test_sha256"] == sha256(test_path) and command_record["python"]["sha256"] == sha256(Path(sys.executable))
-    qualified = completed.returncode == 0 and counts == [("1", "1")] and all(log_text.count(marker) == 1 for marker in expected_markers) and stable
+    qualified = completed.returncode == 0 and counts == [(str(expected_test_count), "1")] and all(log_text.count(marker) == 1 for marker in expected_markers) and stable
     result = {
         **command_record, "ended_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "elapsed_seconds": round(time.monotonic() - start_time, 3), "exit_code": completed.returncode,
@@ -415,7 +504,8 @@ def replay(source_path: Path, output: Path, acton: Path) -> dict[str, Any]:
         "scope": "original native certificate checkpoint/heartbeat/key-change interoperability in pinned Acton; no route deployment or monetary authority",
         "genesis_authentication": "retained original SignedBlockWire; authentication is the native producer's prerequisite, not repeated by this adapter",
         "certificates": [{"role": cert.role, "height": cert.parsed.height, "generation": cert.parsed.generation, "committee_size": len(cert.committee), "next_committee_size": len(cert.next_keys), "checkpoint": checkpoint_id(cert.header).hex()} for cert in bundle.certificates],
-        "test_counts": counts, "expected_markers": expected_markers,
+        "test_counts": counts, "expected_test_count": expected_test_count, "expected_markers": expected_markers,
+        "destination_latch": None if bundle.latch is None else {"provenance": LATCH_PROVENANCE, "rule": "V1", "original_checkpoint": checkpoint_id(bundle.certificates[0].header).hex(), "conflicting_checkpoint": checkpoint_id(bundle.latch.header).hex(), "qualified": qualified},
         "source_drift": [path for path in sorted(before.keys() | after.keys()) if before.get(path) != after.get(path)],
         "copied_source_drift": [path for path in sorted(copied_before.keys() | copied_after.keys()) if copied_before.get(path) != copied_after.get(path)],
         "compiled_outputs": {str(path.relative_to(project)): sha256(path) for path in sorted((project / "build").rglob("*")) if path.is_file()},

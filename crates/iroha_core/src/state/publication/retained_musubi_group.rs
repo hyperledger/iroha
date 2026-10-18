@@ -267,7 +267,6 @@ macro_rules! define_original_musubi_group {
         pub(crate) struct OriginalMusubiRows<'read> {
             data:&'read MusubiGroupReadData,
             work:&'read mut usize,
-            budget:&'read iroha_allocation::AllocationBudget,
             scope: &'read OwnedAllocationScope,
             limit:usize,
         }
@@ -284,8 +283,6 @@ macro_rules! define_original_musubi_group {
                     }
                 }),+])
             }
-            /// The original execution pool only, never new credit or a capture certificate.
-            pub(in crate::state) fn allocation_budget(&self) -> &iroha_allocation::AllocationBudget { self.budget }
             /// Existing admitted scope; cloning it preserves the same original refund owner.
             pub(in crate::state) fn scope(&self) -> &OwnedAllocationScope { self.scope }
             $(
@@ -459,7 +456,7 @@ macro_rules! define_original_musubi_group {
                 let revision=data.revision.as_ref().ok_or(RetainedMusubiGroupReadError::NotFrozen)?;
                 let current=&**revision.current();
                 let predecessor=revision.get_before_block();
-                let result=callback(OriginalMusubiRows {data,work:&mut plan.work,budget:plan.scope.allocation_budget(),scope:&plan.scope,limit},OriginalMusubiRevision {current,predecessor});
+                let result=callback(OriginalMusubiRows {data,work:&mut plan.work,scope:&plan.scope,limit},OriginalMusubiRevision {current,predecessor});
                 // Detached immutable rows stay valid if the shared State advances,
                 // but a result computed across that change cannot name the original
                 // State cut. Drop that exact result on refusal; retained work/readers
@@ -525,6 +522,13 @@ define_original_musubi_group! {
 #[cfg(test)]
 pub(in crate::state) fn original_musubi_admission_control_layout_for_test() -> std::alloc::Layout {
     std::alloc::Layout::new::<semantic::OriginalMusubiAdmissionPair>()
+}
+
+/// Exact separate backing for both original-pool live-validation cursors.
+#[cfg(test)]
+pub(in crate::state) fn original_musubi_admission_live_layout_for_test() -> std::alloc::Layout {
+    std::alloc::Layout::array::<crate::state::deserialize::musubi_live::LiveValidation>(2)
+        .expect("fixed paired live-validation layout")
 }
 
 #[cfg(test)]
@@ -622,37 +626,6 @@ mod semantic;
 pub(in crate::state) use semantic::OriginalMusubiImage;
 
 #[cfg(test)]
-mod retry_tests {
-    use super::*;
-
-    #[test]
-    fn retry_demand_waits_without_granting_charging_or_forgetting_the_original_field() {
-        let original = RetainedMusubiGroupReadError::Field {
-            field: "musubi_releases",
-            original: RetainedPackageReadError::Work {
-                used: 13,
-                required: 29,
-                limit: 20,
-            },
-        };
-        let demand = RetryDemand::observed(10, Some(&original));
-        for limit in 13..32 {
-            assert!(
-                matches!(demand.check(13, limit), Err(RetainedMusubiGroupReadError::Field {
-            field: "musubi_releases", original: RetainedPackageReadError::Work { used: 13, required: 32, limit: actual }
-        }) if actual == limit),
-                "retained retry demand must wait for independently granted work"
-            );
-        }
-        demand.check(13, 32).unwrap();
-        assert_eq!(demand.minimum, 19, "demand never becomes a granted ceiling");
-        let complete = RetryDemand::observed(13, None);
-        assert_eq!(complete.minimum, 0);
-        complete.check(13, 13).unwrap();
-    }
-}
-
-#[cfg(test)]
 impl<'state> StateBlock<'state> {
     fn original_musubi_capture(
         &mut self,
@@ -737,5 +710,36 @@ impl<'state> StateBlock<'state> {
     ) -> Result<R, RetainedMusubiGroupReadError> {
         self.original_musubi_capture()?
             .with_original_musubi_rows(limit, callback)
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[test]
+    fn retry_demand_waits_without_granting_charging_or_forgetting_the_original_field() {
+        let original = RetainedMusubiGroupReadError::Field {
+            field: "musubi_releases",
+            original: RetainedPackageReadError::Work {
+                used: 13,
+                required: 29,
+                limit: 20,
+            },
+        };
+        let demand = RetryDemand::observed(10, Some(&original));
+        for limit in 13..32 {
+            assert!(
+                matches!(demand.check(13, limit), Err(RetainedMusubiGroupReadError::Field {
+            field: "musubi_releases", original: RetainedPackageReadError::Work { used: 13, required: 32, limit: actual }
+        }) if actual == limit),
+                "retained retry demand must wait for independently granted work"
+            );
+        }
+        demand.check(13, 32).unwrap();
+        assert_eq!(demand.minimum, 19, "demand never becomes a granted ceiling");
+        let complete = RetryDemand::observed(13, None);
+        assert_eq!(complete.minimum, 0);
+        complete.check(13, 13).unwrap();
     }
 }

@@ -1,7 +1,7 @@
 //! Shared original table borrowing contract for Musubi semantic predicates.
 //!
 //! The native State cut and ordinary World readers implement this same contract;
-//! standalone allocation tests include this exact owner rather than a copied shim.
+//! allocation tests exercise this owner through the production predicates and readers.
 
 use super::WorldReadOnly;
 use iroha_data_model::account::AccountId;

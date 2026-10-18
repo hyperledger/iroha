@@ -65,6 +65,36 @@ fn encoded_original_roundtrip_and_immutable_publication() {
 }
 
 #[test]
+fn encoded_stream_scratch_preserves_canonical_stored_bytes() {
+    let (_temp, destination) = root();
+    let raw_path = destination.path().parent().unwrap().join("raw");
+    PrivateDirectory::open_or_create(&raw_path).unwrap();
+    let mut raw = DirectoryOriginalsV1::open_existing(&raw_path, PROVING_KEY_MAX_BYTES_V1).unwrap();
+    let bytes: Vec<_> = (0_u8..=255).cycle().take(3 * 64 * 1024 + 17).collect();
+    let identity = BlobV1::of(&bytes);
+    raw.store_original(identity, &bytes).unwrap();
+    let row = encode_original(&raw, &destination, identity).unwrap();
+
+    // Independently pin the prior 64 KiB input geometry and fixed encoder settings.
+    let mut reference = zstd::stream::write::Encoder::new(Vec::new(), 1).unwrap();
+    reference.window_log(WINDOW_LOG).unwrap();
+    reference.include_checksum(true).unwrap();
+    reference
+        .set_pledged_src_size(Some(identity.bytes))
+        .unwrap();
+    for chunk in bytes.chunks(64 * 1024) {
+        reference.write_all(chunk).unwrap();
+    }
+    let expected = reference.finish().unwrap();
+    assert_eq!(row.original, identity);
+    assert_eq!(row.stored, BlobV1::of(&expected));
+    assert_eq!(
+        std::fs::read(destination.path().join(hex::encode(identity.sha256))).unwrap(),
+        expected
+    );
+}
+
+#[test]
 fn encoded_rejects_corruption_truncation_raw_and_multiple_frames() {
     let raw = b"bounded original bytes, still precisely the signed original";
     let encoded = encode(raw);

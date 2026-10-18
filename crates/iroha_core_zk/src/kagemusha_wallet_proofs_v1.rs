@@ -174,7 +174,7 @@ fn binding(descriptor: &[u8], curve: CurveV1, lineage: bool) -> Result<Descripto
     let d = binding.descriptor();
     let (lengths, types): (&[u32], &[InstanceType]) = if lineage {
         (
-            &[1, 2, K as u32],
+            &[1, 2, u32::try_from(K).map_err(|_| Error::Profile)?],
             &[
                 InstanceType::Bounded,
                 InstanceType::Field,

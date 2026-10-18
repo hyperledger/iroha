@@ -12,6 +12,18 @@ use iroha_plonk_recursion::obligation::ledger::Variant;
 
 use super::*;
 
+// Keep the existing original-read and zstd-write geometry when moving I/O scratch off stack.
+const ORIGINAL_STREAM_CHUNK_BYTES: usize = 64 * 1024;
+
+fn original_stream_buffer() -> std::io::Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(ORIGINAL_STREAM_CHUNK_BYTES)
+        .map_err(std::io::Error::other)?;
+    buffer.resize(ORIGINAL_STREAM_CHUNK_BYTES, 0);
+    Ok(buffer)
+}
+
 #[path = "producer_inventory/directory.rs"]
 mod directory;
 pub use directory::DirectoryOriginalsV1;
@@ -455,6 +467,10 @@ fn read_cancellable(
 
 // Both collecting and hash-only callers consume the same bounded retained reader.
 // A successful scan authenticates exact bytes only; it grants no source capability.
+#[expect(
+    clippy::large_stack_arrays,
+    reason = "the fixed 64 KiB buffer preserves read/cancellation geometry without introducing an allocation refusal into the tag-only artifact error API"
+)]
 fn scan_cancellable<T>(
     source: &mut dyn OriginalSourceV1,
     blob: BlobV1,

@@ -1103,7 +1103,7 @@ mod tests {
         assert!(parse_account("-1:00").is_err());
         assert!(parse_account("0:zz").is_err());
         let config = iroha_sccp_wallet::config::SccpClientConfig::from_user(
-            Default::default(),
+            iroha::config::sccp::SccpClientConfigUser::default(),
             std::path::Path::new("target/sccp-continuation/ton-config-test"),
         )
         .unwrap();
@@ -1119,12 +1119,14 @@ mod tests {
         bytes[1..].copy_from_slice(&value);
         TvmIntV1(bytes)
     }
-    fn fixture() -> (
+    type GetterFixture = (
         Vec<Option<TvmIntV1>>,
         Vec<TvmStackValueV1>,
         Vec<Option<TvmIntV1>>,
         Vec<[u8; 48]>,
-    ) {
+    );
+
+    fn fixture() -> GetterFixture {
         use iroha_crypto::{Algorithm, KeyPair};
         let mut keys: Vec<[u8; 48]> = (1..=4)
             .map(|seed| {
@@ -1137,7 +1139,7 @@ mod tests {
                     .unwrap()
             })
             .collect();
-        keys.sort();
+        keys.sort_unstable();
         let root = committee_root(&keys).unwrap();
         let mut state = vec![Some(uint(0)); 24];
         state[0] = Some(TvmIntV1([0xff; 33]));
@@ -1259,7 +1261,7 @@ impl TonDestination {
         &self,
         client: &iroha::blocking::Client,
         original: &origin::AuthenticatedOrigin,
-        profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+        profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
         step: &iroha_sccp_wallet::journal::SccpJournalStep,
         expected: iroha_sccp::ton_watch::TerminalEvent,
     ) -> Result<Option<Vec<iroha_sccp_wallet::journal::SccpEvidenceItemV1>>> {
@@ -1427,6 +1429,16 @@ impl TonDestination {
     }
 }
 
+/// Borrowed coordinates of the original burn that linked-history evidence must match.
+#[derive(Clone, Copy)]
+pub struct BurnObservation<'a> {
+    pub(super) wallet_code: iroha::data_model::sccp::deployment::SccpTonCodeRefV1,
+    pub(super) owner: &'a [u8; 32],
+    pub(super) query_id: u64,
+    pub(super) recipient: &'a [u8],
+    pub(super) amount: u128,
+}
+
 impl TonDestination {
     /// Prepare the standard Jetton burn with the mandatory SCCP recipient and unique flow query.
     pub(super) fn prepare_burn(
@@ -1436,8 +1448,7 @@ impl TonDestination {
         query_id: u64,
         recipient: &[u8],
         amount: u128,
-        network: [u8; 32],
-        instance: [u8; 32],
+        (network, instance): ([u8; 32], [u8; 32]),
     ) -> Result<Vec<u8>> {
         self.verify_identity(network, instance)?;
         ensure!(
@@ -1467,15 +1478,24 @@ impl TonDestination {
         &self,
         client: &iroha::blocking::Client,
         original: &origin::AuthenticatedOrigin,
-        profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+        profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
         step: &iroha_sccp_wallet::journal::SccpJournalStep,
-        wallet_code: iroha::data_model::sccp::deployment::SccpTonCodeRefV1,
-        owner: &[u8; 32],
-        query_id: u64,
-        recipient: &[u8],
-        amount: u128,
+        expected: &BurnObservation<'_>,
     ) -> Result<Option<Vec<iroha_sccp_wallet::journal::SccpEvidenceItemV1>>> {
         use iroha_sccp::ton_watch;
+        #[derive(norito::derive::JsonSerialize)]
+        struct BurnLocator {
+            message_id: String,
+            transaction: String,
+            message_index: u16,
+        }
+        let BurnObservation {
+            wallet_code,
+            owner,
+            query_id,
+            recipient,
+            amount,
+        } = *expected;
         let jetton =
             iroha_sccp::v1::ton_cell::wallet_account_id(0, owner, &self.minter, wallet_code)?;
         let account = AccountId {
@@ -1513,10 +1533,9 @@ impl TonDestination {
                         recipient.to_vec(),
                     )
                     .and_then(|payload| payload.encode())
+                        && iroha_sccp::v1::hashes::payload_hash(&payload) == burn.payload_hash
                     {
-                        if iroha_sccp::v1::hashes::payload_hash(&payload) == burn.payload_hash {
-                            found = Some(burn);
-                        }
+                        found = Some(burn);
                     }
                 }
                 true
@@ -1557,12 +1576,6 @@ impl TonDestination {
             &reference,
         )?;
         require_ton_burn(&verified.event, self.minter, &burn)?;
-        #[derive(norito::derive::JsonSerialize)]
-        struct BurnLocator {
-            message_id: String,
-            transaction: String,
-            message_index: u16,
-        }
         let locator = BurnLocator {
             message_id: hex::encode(burn.message_id),
             transaction: format!(

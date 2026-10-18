@@ -1,0 +1,337 @@
+"""Explicit bounded primary/auxiliary controller for IdealFrontierSim.
+
+This is one completed algorithm stage, not a complete simulator. The fixed
+loop implementation retains all SSA history and counts every predicate call,
+including calls whose result is disabled by a previous accepted trial.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import sys
+
+from bit_ir import Builder, Cost, bits, integer, require, unpack
+
+MAX_TRIALS = 1 << 20
+PREDICATE_PATH = "scripts/parliament_ballot_admissibility_circuit.py"
+PREDICATE_SHA256 = "313c4de935a5afdd9795cfc8be1d754dfcc022b2c9624b117167ec9f577792ad"
+
+
+def load_predicate(root):
+    """Authenticate the exact reused implementation and its five input pins."""
+    path = Path(root).resolve() / PREDICATE_PATH
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    require(before == PREDICATE_SHA256, "predicate helper changed")
+    name = "_ideal_machine_reviewed_predicate"
+    spec = importlib.util.spec_from_file_location(name, path)
+    require(spec is not None and spec.loader is not None, "predicate module loader")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    module.sources(Path(root))
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == before, "predicate import drift")
+    return module
+
+
+@dataclass(frozen=True)
+class AdmissibilityKernel:
+    """Authenticated XOR-map adapter with copied immutable accounting metadata."""
+    module: object = field(repr=False, compare=False)
+    geometry: object
+    name: str = field(init=False)
+    inputs: int = field(init=False)
+    outputs: int = field(init=False, default=1)
+    work: int = field(init=False)
+    cost: Cost = field(init=False)
+
+    def __post_init__(self):
+        facts = self.module.counts(self.geometry)
+        object.__setattr__(self, "name", "admissible:" + ":".join(str(getattr(self.geometry, n))
+                            for n in ("tau", "k", "tau1", "grinding_bits", "opening_limit")))
+        object.__setattr__(self, "inputs", facts["input_wires"])
+        object.__setattr__(self, "work", facts["clean_work_wires"])
+        object.__setattr__(self, "cost", Cost(facts["x"], facts["cx"], facts["ccx"], 0))
+
+    def evaluate(self, inputs):
+        """Classical meaning of the pinned circuit; source-order heap predicate."""
+        require(type(inputs) is tuple and len(inputs) == self.inputs
+                and all(type(b) is int and b in (0, 1) for b in inputs), "predicate bits")
+        g = self.geometry
+        if any(inputs[sum(g.depths):]):
+            return (0,)
+        marks, offset = [0] * (2 * g.leaves - 1), 0
+        for vector, depth in enumerate(g.depths):
+            index = unpack(inputs[offset:offset + depth])
+            marks[self.module.position(g, vector, index)] = 1
+            offset += depth
+        count = 0
+        for parent in reversed(range(g.leaves - 1)):
+            left, right = marks[2 * parent + 1:2 * parent + 3]
+            marks[parent] = left | right
+            count += left ^ right
+        return (int(count <= g.opening_limit),)
+
+    def emit(self, inputs, outputs, work):
+        """Rewire the frozen exact contiguous circuit onto disjoint supplied wires."""
+        require(type(inputs) is tuple and type(outputs) is tuple and type(work) is tuple,
+                "kernel wire containers")
+        require(len(inputs) == self.inputs and len(outputs) == 1 and len(work) == self.work,
+                "predicate interface widths")
+        all_wires = inputs + outputs + work
+        require(all(type(w) is int and w >= 0 for w in all_wires)
+                and len(set(all_wires)) == len(all_wires), "predicate wire aliases")
+        layout = self.module.layout(self.geometry)
+        require(layout["size"] == len(all_wires), "predicate layout mismatch")
+        for gate in self.module.predicate_gates(layout):
+            yield (gate[0], *(all_wires[i] for i in gate[1:]))
+
+
+def primary_block(kernel, count_bits):
+    """One uniform primary iteration: active prefix, selection, counts and index."""
+    integer(count_bits, 1, 21, "attempt count width")
+    w = kernel.inputs
+    state_width = 1 + w + 32 + count_bits + 32
+    b = Builder(state_width + w, (kernel,))
+    active = 0
+    selected = tuple(range(1, 1 + w))
+    counter = tuple(range(1 + w, 1 + w + 32))
+    count = tuple(range(1 + w + 32, 1 + w + 32 + count_bits))
+    index = tuple(range(state_width - 32, state_width))
+    challenge = tuple(range(state_width, state_width + w))
+    accepted = b.node("kernel", *challenge, kernel=kernel.name)[0]
+    take = b.bit("and", active, accepted)
+    selected_next = b.select(take, challenge, selected)
+    counter_next = b.select(take, index, counter)
+    count_next = b.increment(count, active)
+    index_next = b.increment(index, b.bit("one"))
+    active_next = b.bit("and", active, b.bit("not", accepted))
+    # The write flag is the old active state: even the accepting trial is written.
+    return b.finish((active_next, *selected_next, *counter_next, *count_next,
+                     *index_next, active))
+
+
+def auxiliary_block(kernel, count_bits):
+    """One auxiliary iteration, enabled only on complete primary exhaustion."""
+    integer(count_bits, 1, 21, "attempt count width")
+    w = kernel.inputs
+    state_width = 1 + w + count_bits
+    b = Builder(state_width + w, (kernel,))
+    active = 0
+    selected = tuple(range(1, 1 + w))
+    count = tuple(range(1 + w, state_width))
+    challenge = tuple(range(state_width, state_width + w))
+    accepted = b.node("kernel", *challenge, kernel=kernel.name)[0]
+    take = b.bit("and", active, accepted)
+    selected_next = b.select(take, challenge, selected)
+    count_next = b.increment(count, active)
+    active_next = b.bit("and", active, b.bit("not", accepted))
+    return b.finish((active_next, *selected_next, *count_next))
+
+
+@dataclass(frozen=True)
+class Schedule:
+    """A fixed public repeat count over two checked state-transition blocks."""
+    kernel: AdmissibilityKernel
+    cap: int
+
+    def __post_init__(self):
+        require(type(self.kernel) is AdmissibilityKernel, "unregistered schedule kernel")
+        integer(self.cap, 1, MAX_TRIALS, "trial cap")
+
+    @property
+    def count_bits(self):
+        """Include the exhausted value cap, not merely successful indices."""
+        return self.cap.bit_length()
+
+    def blocks(self):
+        """Build small immutable templates, independent of the repeated count."""
+        return primary_block(self.kernel, self.count_bits), auxiliary_block(self.kernel, self.count_bits)
+
+    @property
+    def outputs(self):
+        """Selected value, counter, both counts, exhaustion/fallback and write flags."""
+        return self.kernel.inputs + 32 + 2 * self.count_bits + 2 + self.cap
+
+    def resources(self):
+        """Exact gate/wire inventory for this explicit full fixed-scan scheduler."""
+        primary, auxiliary = self.blocks()
+        # Primary state is zero except active=1; auxiliary count starts in fresh zero bits.
+        initial = primary.inputs - self.kernel.inputs + self.count_bits
+        derived = self.cap * (primary.derived + auxiliary.derived)
+        forward = Cost(x=1) + (primary.cost + auxiliary.cost).times(self.cap)
+        clean = forward.times(2) + Cost(cx=self.outputs)
+        return dict(cap=self.cap, challenge_bits=self.kernel.inputs, count_bits=self.count_bits,
+                    predicate_calls_forward=2 * self.cap,
+                    predicate_calls_clean_embedding=4 * self.cap,
+                    random_tape_bits=2 * self.cap * self.kernel.inputs,
+                    primary_template=primary.clean_resources(),
+                    auxiliary_template=auxiliary.clean_resources(),
+                    forward_gates=forward.as_dict(), clean_gates=clean.as_dict(),
+                    initial_zero_state_bits=initial, ssa_history_bits=derived,
+                    clean_kernel_work_bits=self.kernel.work,
+                    total_clean_work_bits=initial + derived + self.kernel.work,
+                    output_bits=self.outputs, exact_for_defined_emitter=True,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    profile_qualified=False, production_gate_changed=False)
+
+    def evaluate(self, primary, auxiliary):
+        """Execute fixed loops for finite test tapes, including disabled predicates."""
+        w, c = self.kernel.inputs, self.count_bits
+        require(type(primary) in (tuple, list) and type(auxiliary) in (tuple, list)
+                and len(primary) == len(auxiliary) == self.cap, "schedule tape length")
+        primary, auxiliary = tuple(primary), tuple(auxiliary)
+        for value in primary + auxiliary:
+            integer(value, 0, (1 << w) - 1, "challenge value")
+        p, a = self.blocks()
+        state = (1,) + (0,) * (p.inputs - w - 1)
+        write_flags = []
+        for value in primary:
+            step = p.evaluate(state + bits(value, w))
+            state, flag = step[:-1], step[-1]
+            write_flags.append(flag)
+        exhausted = state[0]
+        selected_counter = unpack(state[1 + w:1 + w + 32])
+        primary_count = unpack(state[1 + w + 32:1 + w + 32 + c])
+        aux_state = (exhausted,) + state[1:1 + w] + (0,) * c
+        for value in auxiliary:
+            aux_state = a.evaluate(aux_state + bits(value, w))
+        return dict(selected=unpack(aux_state[1:1 + w]), counter=selected_counter,
+                    primary_count=primary_count, auxiliary_count=unpack(aux_state[1 + w:]),
+                    exhausted=exhausted, fallback=aux_state[0], write_flags=write_flags)
+
+    def repeat_layout(self):
+        """Closed-form wire addresses for every repeated block, without an array.
+
+        State outputs of both checked templates are fresh derived wires. Thus
+        the input state of iteration i>0 is obtained directly from iteration
+        i-1's base offset; deriving that address does not traverse old frames.
+        This is public circuit wiring, not a quantum data-dependent lookup.
+        """
+        p, a = self.blocks()
+        w, c = self.kernel.inputs, self.count_bits
+        random_bits = 2 * self.cap * w
+        primary_state_width = p.inputs - w
+        initial_primary = tuple(range(random_bits, random_bits + primary_state_width))
+        aux_count = tuple(range(random_bits + primary_state_width, random_bits + primary_state_width + c))
+        start_primary = random_bits + primary_state_width + c
+        start_auxiliary = start_primary + self.cap * p.derived
+        work_start = start_auxiliary + self.cap * a.derived
+        require(all(i >= p.inputs for i in p.outputs[:-1]) and p.outputs[-1] == 0,
+                "primary repeat requires fresh state outputs and old-active emission")
+        require(all(i >= a.inputs for i in a.outputs), "auxiliary repeat requires fresh state outputs")
+        final_primary = tuple(start_primary + (self.cap - 1) * p.derived + i - p.inputs
+                              for i in p.outputs[:-1])
+        initial_auxiliary = (final_primary[0],) + final_primary[1:1 + w] + aux_count
+        final_auxiliary = tuple(start_auxiliary + (self.cap - 1) * a.derived + i - a.inputs
+                                for i in a.outputs)
+        fixed_outputs = (final_auxiliary[1:1 + w] + final_primary[1 + w:1 + w + 32]
+                         + final_primary[1 + w + 32:1 + w + 32 + c] + final_auxiliary[1 + w:]
+                         + (final_primary[0], final_auxiliary[0]))
+        resource = self.resources()
+        require(work_start == random_bits + resource["initial_zero_state_bits"] + resource["ssa_history_bits"],
+                "unrolled history/accounting mismatch")
+        require(len(fixed_outputs) + self.cap == self.outputs, "unrolled output/accounting mismatch")
+        return dict(primary=p, auxiliary=a, initial_primary=initial_primary,
+                    initial_auxiliary=initial_auxiliary, start_primary=start_primary,
+                    start_auxiliary=start_auxiliary, fixed_outputs=fixed_outputs,
+                    active=initial_primary[0], work_start=work_start,
+                    output_start=work_start + self.kernel.work,
+                    size=work_start + self.kernel.work + self.outputs, random_bits=random_bits)
+
+    def repeat_frame(self, p, phase, index):
+        """Map one public iteration directly to disjoint global wire labels."""
+        require(phase in ("primary", "auxiliary"), "repeat phase")
+        integer(index, 0, self.cap - 1, "repeat index")
+        block = p[phase]
+        start = p["start_" + phase] + index * block.derived
+        if index == 0:
+            state = p["initial_" + phase]
+        else:
+            output = block.outputs[:-1] if phase == "primary" else block.outputs
+            state = tuple(start - block.derived + i - block.inputs for i in output)
+        data_start = (index + (self.cap if phase == "auxiliary" else 0)) * self.kernel.inputs
+        inputs = state + tuple(range(data_start, data_start + self.kernel.inputs))
+        require(len(inputs) == block.inputs and len(set(inputs)) == len(inputs),
+                "repeated input width or aliasing")
+        return block, inputs, start
+
+    def output_sources(self, p):
+        """Stream the fixed result followed by source-order primary write flags."""
+        yield from p["fixed_outputs"]
+        yield p["active"]
+        block = p["primary"]
+        for index in range(1, self.cap):
+            yield p["start_primary"] + (index - 1) * block.derived + block.outputs[0] - block.inputs
+
+    def wiring(self):
+        """Materialized finite test view; the actual emitter uses lazy addresses."""
+        require(self.cap <= 32, "materialized test layout cap exceeds 32")
+        p = self.repeat_layout()
+        p["frames"] = tuple(self.repeat_frame(p, phase, i)
+                            for phase in ("primary", "auxiliary") for i in range(self.cap))
+        p["outputs"] = tuple(self.output_sources(p))
+        return p
+
+    def emit_clean(self):
+        """Lazily emit the actual circuit for every supported cap, including 2^20.
+
+        Producing the enormous production stream is unnecessary for its closed
+        counts. No list of repeated frames or random-tape wire labels is built.
+        """
+        p = self.repeat_layout()
+
+        def frame_gates(frame, inverse):
+            block, inputs, start = frame
+            def wire(local):
+                if local < block.inputs:
+                    return inputs[local]
+                if local < block.inputs + block.derived:
+                    return start + local - block.inputs
+                return p["work_start"] + local - block.inputs - block.derived
+            for gate in block.emit(inverse=inverse):
+                yield (gate[0], *(wire(i) for i in gate[1:]))
+
+        yield ("x", p["active"])
+        for phase in ("primary", "auxiliary"):
+            for index in range(self.cap):
+                yield from frame_gates(self.repeat_frame(p, phase, index), False)
+        for i, source in enumerate(self.output_sources(p)):
+            yield ("cx", source, p["output_start"] + i)
+        for phase in ("auxiliary", "primary"):
+            for index in reversed(range(self.cap)):
+                yield from frame_gates(self.repeat_frame(p, phase, index), True)
+        yield ("x", p["active"])
+
+
+def report(root):
+    """Report only the completed phase, refusing a whole-machine inference."""
+    module = load_predicate(root)
+    rows = {}
+    for row in ("candidate", "comparator"):
+        rows[row] = Schedule(AdmissibilityKernel(module, module.row(row)), MAX_TRIALS).resources()
+    module.sources(Path(root))
+    require(hashlib.sha256((Path(root) / PREDICATE_PATH).read_bytes()).hexdigest() == PREDICATE_SHA256,
+            "predicate changed during report")
+    return dict(scope="bounded schedule only; full machine work in progress", rows=rows,
+                selected_predicate_sources=module.PINS,
+                complete_simulator_coverage=False, complete_resource_vector=False,
+                actual_input_entry_bridge=False, primitive_advantage_assumed=False,
+                profile_qualified=False, production_gate_changed=False)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--require-complete", action="store_true")
+    args = parser.parse_args()
+    try:
+        print(json.dumps(report(args.root), sort_keys=True, indent=2))
+        raise SystemExit(2 if args.require_complete else 0)
+    except (ValueError, OSError) as error:
+        print(json.dumps(dict(error=str(error), complete_resource_vector=False,
+                              profile_qualified=False, production_gate_changed=False)))
+        raise SystemExit(1)

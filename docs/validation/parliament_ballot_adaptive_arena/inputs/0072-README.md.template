@@ -1,0 +1,79 @@
+# Finite request/lookup sequence binder
+
+`sequence.py` relocates existing reversible request and lookup circuits into one
+explicit logical address space. It retains distinct original input and output
+registers for every call, shares one chronological log and counter, and reuses
+only workspace that each component returns clean. The concrete lazy stream is
+emitted, rather than replacing component execution with a metadata subtotal.
+
+The sequence is selected classically in advance. It is not an adaptive controller,
+an input preparer, a descriptor or witness validator, or a complete reduction.
+The frozen component contracts are premises. Instantiating their classes alone
+does not authenticate an arbitrary supplied generator/kernel's semantics.
+No production-size stream has been executed. Production remains gated.
+
+## Implemented boundary
+
+Supported component classes are the accepted `RequestTransition`, bounded
+`ContentRequest`, common-result `ContentFamily`, fixed out-of-range
+`RejectedVoteFamily`, and `OverlayLookup`. Component result encodings are retained
+exactly: the binder does not claim to unify accepted-only and common-result
+interfaces. It counts all original inputs, including coins and borrowed rejected
+lists. It does not duplicate fields when routing a component: wire relocation is
+a static injective renaming, under the premise that the caller supplies those
+specific disjoint registers directly. Preparing or moving real inputs into them
+remains outside this component and is not assigned zero cost.
+
+Every component's entire local address space must partition into disjoint mapped
+intervals. Shared log geometry must agree exactly. A fixed-length F instruction
+renames its explicit wire operands. The variable-length F instruction separately
+renames its three intervals while retaining the length width, message capacity
+and response width as metadata. An interval crossing a relocation boundary is
+refused. This prevents treating a capacity integer as a wire address or truncating
+the full query to the stored-key width. All calls use the same supplied immutable
+F and total completion; identity strings merely express the caller's assertion.
+Smaller response widths belong to synthetic oracle fixtures, never a free
+adapter to the real 2112-bit F interface.
+
+Request calls retain generated values until programming/return are complete,
+then clear derived work. The inverse reverses event order and uses each request's
+true append inverse. Repeating a request's forward map is not an inverse.
+The lookup uses its clean XOR map again as inverse, only on its clean-workspace
+subspace and with the same immutable F. None of this permits interleaving inside
+an atomic component or adversarial writes to log, counter, private coins or work.
+
+The initial log/counter and shared scratch must be zero. Each generating call
+reserves its full M+2 possible appends, including invalid content whose actual
+validity the binder does not inspect. Prefix reservations must fit capacity.
+Rejected-size calls reserve zero. Reservations do not compute actual occupancy.
+Here request count includes invalid requests. It is not the source theorem's
+valid-request-only T; a full driver must separately bound and charge other calls.
+
+## Validation scope
+
+Owned controls execute reduced synthetic generators and real orchestration,
+checking full-stream versus per-call equality, newest duplicate wins, base misses,
+disabled queries, invalid-content and size-rejection log identity, arbitrary XOR
+targets, retained inputs, clean workspace and exact inverse recovery. A mutation
+control demonstrates that a second forward append changes the log instead of
+undoing it. Separate interval tests use a nontrivial permutation of global
+locations and compare fixed/variable F semantics. Malformed intervals, aliases,
+types, capacities and excess reservations are refused.
+
+A source-bound zero-capacity L0 plus a rejected VOTE of size2^64-1 demonstrates
+constant-size metadata construction with the full borrowed input included in
+logical storage; only a short gate prefix is emitted. This is not a test that
+allocates an enormous native list or executes its complete stream.
+
+Any captured validation applies to its exact frozen source inventory. The live
+checkout currently differs in the ballot crate's Cargo manifest; that change is
+not silently accepted by repinning prior evidence. Python, pytest, source semantic
+contracts and the selected snapshot loader remain trusted. Neither a source hash
+inventory nor the tests establish a compiler/runtime dependency closure.
+
+TODO: bind authenticated runtime descriptors, upstream constructor/witness errors,
+adaptive family selection, routing, preparation/initialization and purifying
+environments; derive uniform resource bounds and the full joint-state theorem;
+account external application/adversary/verifier work and base-oracle state;
+discharge actual-input primitive bridges and independent review. The logical
+register count is not a native 64 MiB verifier-memory measurement or qualification.

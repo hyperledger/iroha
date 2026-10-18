@@ -1,0 +1,300 @@
+{
+  "complete_resource_vector": false,
+  "complete_simulator_coverage": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "schema": 1,
+  "scope": "Selected complete intended algorithm coverage; not automatic Rust semantic closure",
+  "source_sha256": {
+    "crates/iroha_parliament_ballot_proof/src/credential.rs": "9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34",
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+    "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/sealed_list.rs": "769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0",
+    "crates/iroha_parliament_ballot_proof/src/selector.rs": "1d96fee19e79b781434580a00e355048585994c15e9210fdc62c3665ddd37d75",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+    "crates/iroha_zkp_vole/src/crt/bits.rs": "2b4ab26994a3f6debb543c29ace1676233881cca0e59f91351f6966387b52912",
+    "crates/iroha_zkp_vole/src/crt/codec.rs": "9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+    "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+    "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "scripts/parliament_ballot_admissibility_circuit.py": "313c4de935a5afdd9795cfc8be1d754dfcc022b2c9624b117167ec9f577792ad",
+    "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+    "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617",
+    "specs/parliament_ballot_b6_hidden_assignment_deletion.md": "1a522853ba2aff3d3d7c77e11e5674ec41144ab93cad8e54f0e3b4c937ecb58b",
+    "specs/parliament_ballot_b6_ideal_public_sampler.md": "eeea377a3686fcd31c1c77b8ea576d6f72895789389ed4c2d99d9107a5f0ab74",
+    "specs/parliament_ballot_b6_ideal_sampler_accounting.md": "c022d1f76360dfe4bdd6934fe352d5d87e7b9f63df3828608230f759cb1e22c5",
+    "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+    "specs/parliament_ballot_b6_write_framing.md": "2d69a46520c1b9f8ef01859509aad2d4a26629887d3cd4446f541f76c3d2b9b0"
+  },
+  "stages": [
+    {
+      "depends_on": [],
+      "id": "P0",
+      "outputs": [
+        "validated row/role/public input",
+        "namespace",
+        "relation public data"
+      ],
+      "remaining_obligation": "Native allocation is not priced; mathematical field/string validation and every derived digest must be explicit.",
+      "source_sha256": {
+        "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+        "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+        "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+        "crates/iroha_parliament_ballot_proof/src/sealed_list.rs": "769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0",
+        "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+        "crates/iroha_zkp_vole/src/crt/codec.rs": "9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a",
+        "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba"
+      },
+      "status": "open",
+      "title": "Typed public validation and fresh profile"
+    },
+    {
+      "depends_on": [
+        "P0"
+      ],
+      "id": "P1",
+      "outputs": [
+        "mu",
+        "iv_pre",
+        "salt",
+        "actual H4-derived IV"
+      ],
+      "remaining_obligation": "Concrete SHA3 and ideal backend calls have separate implementations and resource units.",
+      "source_sha256": {
+        "crates/iroha_parliament_ballot_proof/src/credential.rs": "9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34",
+        "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+        "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+        "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+        "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2"
+      },
+      "status": "open",
+      "title": "Concrete public hash and backend preparation"
+    },
+    {
+      "depends_on": [],
+      "id": "S0",
+      "outputs": [
+        "selected challenge",
+        "success/error tag",
+        "primary count",
+        "auxiliary count",
+        "zero-based counter",
+        "primary write prefix"
+      ],
+      "remaining_obligation": "Fixed full tapes are private inputs; all 2M predicate calls and 4M under clean embedding are counted. No writes occur in this stage.",
+      "source_sha256": {
+        "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+        "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+        "scripts/parliament_ballot_admissibility_circuit.py": "313c4de935a5afdd9795cfc8be1d754dfcc022b2c9624b117167ec9f577792ad",
+        "specs/parliament_ballot_b6_ideal_public_sampler.md": "eeea377a3686fcd31c1c77b8ea576d6f72895789389ed4c2d99d9107a5f0ab74"
+      },
+      "status": "implemented_pending_review",
+      "title": "Bounded primary/auxiliary schedule"
+    },
+    {
+      "depends_on": [
+        "S0"
+      ],
+      "id": "B0",
+      "outputs": [
+        "selected hidden indices",
+        "frontier order",
+        "canonical opening"
+      ],
+      "remaining_obligation": "Conditional local review clear; ordered frontier flags and canonical bytes explicit. B0-to-B1/whole-request wire join remains.",
+      "source_sha256": {
+        "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+        "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+        "specs/parliament_ballot_b6_ideal_public_sampler.md": "eeea377a3686fcd31c1c77b8ea576d6f72895789389ed4c2d99d9107a5f0ab74"
+      },
+      "status": "implemented_pending_review",
+      "title": "Selected shape and direct canonical opening"
+    },
+    {
+      "depends_on": [
+        "P1",
+        "B0"
+      ],
+      "id": "B1",
+      "outputs": [
+        "public commitment",
+        "revealed seed cache"
+      ],
+      "remaining_obligation": "Conditional supplied-material clean reconstruction locally reviewed; B0-to-B1/whole-request wiring remains. Concrete AES/field identities separately pinned; H0/H1 use one immutable base F with explicit domain disjointness.",
+      "source_sha256": {
+        "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+        "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+        "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+        "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+        "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f"
+      },
+      "status": "implemented_pending_review",
+      "title": "Nested BAVC reconstruction"
+    },
+    {
+      "depends_on": [
+        "B1"
+      ],
+      "id": "V0",
+      "outputs": [
+        "small-VOLE columns",
+        "mask shares"
+      ],
+      "remaining_obligation": "Clean fixed original-seed scan, actual row PRG, correction offsets and mask-residue map implemented. Requires canonical geometry, decoded hidden indices and matching revealed seeds. Whole-request wiring and final local review remain.",
+      "source_sha256": {
+        "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+        "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+        "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+        "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b"
+      },
+      "status": "implemented_pending_review",
+      "title": "Hidden-index row expansion and folds"
+    },
+    {
+      "depends_on": [
+        "V0"
+      ],
+      "id": "V1",
+      "outputs": [
+        "Delta",
+        "Q",
+        "qbar"
+      ],
+      "remaining_obligation": "Actual pinned CRT matrices and streamed shared-F H5 clean circuit implemented, with V0-to-V1 clean composition. Full request must bind selector to hidden indices and supplied material; no visible cache persists after local clean inverse.",
+      "source_sha256": {
+        "crates/iroha_zkp_vole/src/crt/bits.rs": "2b4ab26994a3f6debb543c29ace1676233881cca0e59f91351f6966387b52912",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+        "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+        "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+        "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+        "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31"
+      },
+      "status": "implemented_pending_review",
+      "title": "CRT reconstruction and visible H5"
+    },
+    {
+      "depends_on": [
+        "V1"
+      ],
+      "id": "R0",
+      "outputs": [
+        "challenge1",
+        "Utilde",
+        "Vtilde",
+        "masked witness"
+      ],
+      "remaining_obligation": "Prescribed randomness separate from recovered values; include ell+6 fold and four Delta products.",
+      "source_sha256": {
+        "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+        "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+        "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f"
+      },
+      "status": "open",
+      "title": "VOLE consistency response"
+    },
+    {
+      "depends_on": [
+        "R0"
+      ],
+      "id": "R1",
+      "outputs": [
+        "challenge2",
+        "six coefficients",
+        "A0",
+        "stream validity"
+      ],
+      "remaining_obligation": "All degree tags, Booleanity, public relation work, linear operations and bad-index/stream refusal semantics need explicit coverage.",
+      "source_sha256": {
+        "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+        "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+        "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+        "crates/iroha_parliament_ballot_proof/src/selector.rs": "1d96fee19e79b781434580a00e355048585994c15e9210fdc62c3665ddd37d75",
+        "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+        "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+        "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+        "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f"
+      },
+      "status": "open",
+      "title": "QuickSilver complete verifier relation"
+    },
+    {
+      "depends_on": [
+        "R1",
+        "S0"
+      ],
+      "id": "W0",
+      "outputs": [
+        "updated persistent log",
+        "updated append counter"
+      ],
+      "remaining_obligation": "Append challenge1/2 then exactly active primary prefix, including all M on exhaustion; no auxiliary writes. Restore log versions before inverse reads.",
+      "source_sha256": {
+        "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+        "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+        "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+        "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617",
+        "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+        "specs/parliament_ballot_b6_write_framing.md": "2d69a46520c1b9f8ef01859509aad2d4a26629887d3cd4446f541f76c3d2b9b0"
+      },
+      "status": "open",
+      "title": "Chronological programming"
+    },
+    {
+      "depends_on": [
+        "W0"
+      ],
+      "id": "E0",
+      "outputs": [
+        "proof or exhaustion error",
+        "retained log",
+        "private history projection"
+      ],
+      "remaining_obligation": "No extra challenge comparison or decoder; actual encoder field layout and typed error. Joint oracle/adversary projection proof required.",
+      "source_sha256": {
+        "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+        "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+        "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+        "specs/parliament_ballot_b6_ideal_public_sampler.md": "eeea377a3686fcd31c1c77b8ea576d6f72895789389ed4c2d99d9107a5f0ab74"
+      },
+      "status": "open",
+      "title": "Return projection and cleanup"
+    },
+    {
+      "depends_on": [
+        "E0"
+      ],
+      "id": "L0",
+      "outputs": [
+        "whole interaction resource vector"
+      ],
+      "remaining_obligation": "Explicit T,Q_ext,message length,adversary/preprocessing,base oracle and initialization; no unit-cost quantum RAM.",
+      "source_sha256": {
+        "specs/parliament_ballot_b6_hidden_assignment_deletion.md": "1a522853ba2aff3d3d7c77e11e5674ec41144ab93cad8e54f0e3b4c937ecb58b",
+        "specs/parliament_ballot_b6_ideal_sampler_accounting.md": "c022d1f76360dfe4bdd6934fe352d5d87e7b9f63df3828608230f759cb1e22c5",
+        "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673"
+      },
+      "status": "open",
+      "title": "Adaptive lifetime and external oracle interface"
+    }
+  ]
+}

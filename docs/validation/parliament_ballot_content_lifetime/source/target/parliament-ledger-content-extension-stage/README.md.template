@@ -1,0 +1,87 @@
+# Conditional ContentFamily ledger extension
+
+This adds four exact bounded-content cases to the frozen lifetime metadata ledger:
+candidate/comparator VOTE with public list counts3 and1000, body0 and six empty
+contexts. It consumes observation SHA
+`c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e`.
+The original accepted-only ledger, observations and captures remain unchanged.
+
+This is metadata accounting, not an executed adaptive driver. The new cases cover
+both canonical P0 outcomes: valid content and the first source public error for
+invalid content. Both pay the same complete fixed-shape temporary computation.
+Invalid content's source circuit preserves the joint log/counter and contributes
+zero proof/length/last bits to an arbitrary XOR target. The ledger does not inspect
+request contents, compute P0, or verify that a particular event is invalid. It
+therefore reserves M+2 append slots for every bounded-content event and leaves its
+actual validity, appends and resulting log occupancy unknown. It accepts no caller
+validity flag that could reduce this reservation.
+
+## Source and resource boundary
+
+The old ledger is loaded by hashing a single source byte buffer and compiling
+that exact buffer. The new observation is also read once and hashed before parsing.
+Its152 source identities,34 selected loaded-module identities, the old72-pin
+catalog and the two entry identities form154 unique checked paths. All are checked
+before and after accounting. Python execution and the selected mathematical
+component contracts remain trusted premises; this is not a full dependency closure.
+
+The new Catalog stores immutable source metadata for the four actual observations.
+It verifies P0+P1+S0+opening+R0+R1 order and widths, both generator traversals,
+original public/coin partition, common253+proof result, validated W/E formulas,
+retained intermediates, scratch maximum and the original full allocation.
+No factory or full elementary gate stream is rerun by this checker.
+
+At the common N=T*(2^20+2) and length width b, validated W is derived from the
+frozen ordinary W formula by the exact control delta:
+
+```
+X:   -4
+CX:  +4 - 2M
+CCX: +2M
+F:    0
+```
+
+All M+2 scans remain charged. W's counter, log, staging and scratch are rebased as
+well. Captured generator and E costs stay fixed for each observed public shape.
+E uses twice the ordinary clean projection plus controlled copy/clear, requiring
+`ordinary_output_bits+2` work bits. Shared request scratch is the maximum of G,
+validated W and validated E; the complete reusable region also retains G outputs.
+All original public inputs, coins and caller returns remain allocated. Query and
+purification ownership follow the unchanged frozen ledger rules.
+
+The extension delegates old accepted/rejected-size/query events to the frozen
+ledger, then rechecks total request/query caps, the same N/b/F/completion interface,
+unique IDs, event order, conservative prefix reservation and disjoint allocations
+for the combined trace. The ledger T caps **all typed request events**, including
+invalid content and size rejection. This is an additional, stronger experiment
+restriction than a source-theorem T that bounds only valid requests. Such a valid-
+only bound cannot price unbounded invalid requests. The ledger neither evaluates
+the actual valid-request count nor imports a valid-only T as an all-event cap.
+Its `generating` count means generator circuit invocations, including potentially
+invalid content; it is not the cryptographic theorem's valid-request count. Accepted-only returns still use97+proof; ContentFamily
+returns use253+proof. Their different typed interfaces are not silently unified.
+
+## Remaining requirements and refusal
+
+List counts4..999, other public-length shapes and any new source row are refused.
+These four observations do not establish a maximum over all request families.
+The supplied immutable source-padded F, canonical whole-state support, atomic
+classical requests, fresh coins and same-request descriptor binding remain caller
+premises. Output/register correlations are permitted; register aliases are not.
+Base-oracle implementation/state, adversary costs, preparation, routing, uniform
+adaptive bounds and primitive entry/advantages remain explicit unknown terms.
+
+All complete-resource, adaptive-execution, physical-workspace and qualification
+flags remain false. `--require-qualified` emits the same conditional report and
+exits2; unsupported metadata or source drift exits1 without a report. Logical bits
+are not physical qubits, native allocation measurements, or a64MiB verifier bound.
+
+Run only in this ignored stage:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTEST_ADDOPTS='' PYTEST_PLUGINS='' /opt/homebrew/bin/pytest -q -c /dev/null --noconftest -p no:cacheprovider target/parliament-ledger-content-extension-stage/test_content_ledger.py --basetemp target/parliament-ledger-content-extension-stage/test-temp --maxfail=0
+python3 -B target/parliament-ledger-content-extension-stage/content_ledger.py --root . --events target/parliament-ledger-content-extension-stage/example.json
+```
+
+TODO: cover remaining shapes, preparation and the adaptive driver, and discharge
+primitive-entry obligations before any full-resource or qualification certificate.

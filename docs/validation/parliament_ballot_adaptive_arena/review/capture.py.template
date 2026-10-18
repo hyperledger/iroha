@@ -1,0 +1,145 @@
+"""Restore a sealed arena and audit, then capture independent conditional controls."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+OWNER = ROOT/'target/parliament-adaptive-arena-stage/capture'
+OUT = HERE/'capture'
+OWNER_RECEIPT = 'c71017e9f8b064df1531ebcc8fc740c6745ac8d528a25965f3c0f367ff61bd71'
+OWNER_MANIFEST = 'f8382651dd02ac9a1f064736390fd9a22c5d0a5e66eda179fb93a44a48b06127'
+OWNER_OBSERVATION = 'ead8126309ff1a0535dd87523f202f6d571b9ef7887e691f187d3540fbed2447'
+CORE = '4cb0f06257131e49c113f59c42006a643edd21d8fffe0153591d64c5e1c67bda'
+AUDIT_MANIFEST = 'b12b21da0723d3272335704c5c28500abe7a05e3003afb54f9b215871e8b060a'
+OWN = ('test_review.py', 'run_tests.py', 'capture.py', 'README.md', 'audit-inputs.json')
+
+
+def sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def safe(name):
+    path = Path(name)
+    require(not path.is_absolute() and '..' not in path.parts, 'relative captured path')
+    return path
+
+
+def read(path, expected):
+    raw = path.read_bytes()
+    require(sha(raw) == expected, 'captured identity mismatch: '+str(path))
+    return raw
+
+
+def main():
+    require(not OUT.exists(), 'preserve existing review capture')
+    start = time.time()
+    manifest = read(OWNER/'SHA256SUMS', OWNER_MANIFEST)
+    for line in manifest.decode().splitlines():
+        expected, name = line.split('  ', 1)
+        read(OWNER/safe(name), expected)
+    raw = read(OWNER/'receipt.json', OWNER_RECEIPT)
+    prior = json.loads(raw)
+    pins = prior['source_sha256_before']
+    require(prior['status'] == 'PASS' and len(pins) == 172 and
+            pins == prior['source_sha256_after'], 'owner selected-source record')
+    require(prior['tests'] == 58 and prior['exact_collection_execution_membership'] is True,
+            'final owner control membership')
+    require(pins['target/parliament-adaptive-arena-stage/arena.py'] == CORE, 'reviewed core identity')
+    inputs = {name: read(OWNER/'source'/safe(name), expected) for name, expected in pins.items()}
+    inputs['target/parliament-adaptive-arena-stage/capture/receipt.json'] = raw
+    inputs['target/parliament-adaptive-arena-stage/capture/observation.stdout'] = read(
+        OWNER/'observation.stdout', OWNER_OBSERVATION)
+    audit_inventory = json.loads((HERE/'audit-inputs.json').read_bytes())
+    require(len(audit_inventory) == 25, '21 inspected sources plus4 audit records')
+    audit_prefix = 'target/parliament-adaptive-entry-audit/'
+    audit = {name: read(HERE/'audit-source'/safe(name+'.template'), expected)
+             for name, expected in audit_inventory.items()}
+    require(sha(audit[audit_prefix+'SHA256SUMS']) == AUDIT_MANIFEST, 'sealed entry audit')
+    for line in audit[audit_prefix+'SHA256SUMS'].decode().splitlines():
+        expected, name = line.split('  ', 1)
+        require(sha(audit[audit_prefix+safe(name).as_posix()]) == expected, 'entry audit manifest member')
+    inspected = json.loads(audit[audit_prefix+'source-pins.json'])['sha256']
+    require(len(inspected) == 21 and all(sha(audit[name]) == expected for name, expected in inspected.items()),
+            'complete entry audit inspected source inventory')
+    for name, data in audit.items():
+        require(name not in inputs or data == inputs[name], 'conflicting historical source identity: '+name)
+        inputs[name] = data
+    for name in OWN:
+        inputs['target/parliament-adaptive-arena-review/'+name] = (HERE/name).read_bytes()
+    before = {name: sha(raw) for name, raw in inputs.items()}
+    OUT.mkdir()
+    execution = OUT/'execution-root'
+    for name, raw in inputs.items():
+        for base, suffix in ((execution, ''), (OUT/'source', '.template')):
+            path = base/safe(name+suffix)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+    (OUT/'owner-SHA256SUMS').write_bytes(manifest)
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+               PYTEST_ADDOPTS='', PYTEST_PLUGINS='', PYTHONPATH='')
+    command = [sys.executable, '-B', 'target/parliament-adaptive-arena-review/run_tests.py',
+               '--report', str(OUT/'tests-report.json'), '--temporary', str(OUT/'test-temp'),
+               '--junit', str(OUT/'junit.xml')]
+    result = subprocess.run(command, cwd=execution, env=env, capture_output=True)
+    (OUT/'tests.stdout').write_bytes(result.stdout)
+    (OUT/'tests.stderr').write_bytes(result.stderr)
+    require(result.returncode == 0, 'independent controls failed')
+    tests = json.loads((OUT/'tests-report.json').read_bytes())
+    calls = [r for r in tests['reports'] if r['when'] == 'call']
+    require(tests['exit_code'] == 0 and len(calls) == len(tests['collected']) == 50 and
+            len(set(tests['collected'])) == 50, 'exact independent test count')
+    require([r['nodeid'] for r in calls] == tests['collected'] and
+            all(r['outcome'] == 'passed' for r in tests['reports']), 'exact passed membership')
+    loaded = tests['loaded_repository_modules']
+    require(all(before.get(name) == value for name, value in loaded.items()), 'selected loaded-module membership')
+    after = {name: sha((execution/name).read_bytes()) for name in before}
+    snapshots = {name: sha((OUT/'source'/(name+'.template')).read_bytes()) for name in before}
+    require(before == after == snapshots, 'captured selected inputs changed')
+    for name in OWN:
+        require(sha((HERE/name).read_bytes()) == before['target/parliament-adaptive-arena-review/'+name],
+                'live independent review source changed')
+    outputs = {p.name: sha(p.read_bytes()) for p in OUT.iterdir() if p.is_file()}
+    receipt = dict(schema='parliament-conditional-adaptive-arena-independent-review-v1', status='PASS',
+        owner_capture_receipt_sha256=OWNER_RECEIPT, owner_capture_manifest_sha256=OWNER_MANIFEST,
+        owner_observation_sha256=OWNER_OBSERVATION, arena_sha256=CORE,
+        entry_audit_manifest_sha256=AUDIT_MANIFEST, preserved_audit_input_count=len(audit),
+        tests_passed=50, exact_ordered_membership=tests['collected'],
+        all_test_reports=tests['reports'], test_runtime=tests['runtime'],
+        source_sha256_before=before, source_sha256_after=after, selected_source_count=len(before),
+        loaded_repository_modules=loaded, loaded_repository_modules_within_selected=True,
+        selected_sources_stable=True, output_sha256=outputs,
+        commands=[dict(command=command, exit_code=result.returncode)], elapsed_seconds=time.time()-start,
+        real_full_cap_request_factories_metadata_and_prefix_only=2,
+        complete_zero_log_lookup_calls_in_joint_amplitude_control=2,
+        output_driven_rejected_traces=2, rejected_forward_calls_per_output_driven_trace=2,
+        dirty_lookup_work_negative_control=True, small_append_initial_state_negative_controls=2,
+        explicit_initial_log_counter_work_zero_inventory_checked=True,
+        chosen_component_inverse_excludes_external_controller_and_caller_writes=True,
+        coin_unpreparation_claimed=False, owner_full_cap_observer_rerun=False,
+        entry_and_witness_contract_checked=False, iterator_consumption_is_not_execution_evidence=True,
+        full_runtime_dependency_closure=False, full_cap_request_quantum_stream_executed=False,
+        physical_initialization_or_workspace_qualified=False, full_adaptive_game_implemented=False,
+        full_joint_quantum_theorem=False, complete_resource_vector=False,
+        independent_cryptographic_review=False, current_candidate_qualified=False,
+        profile_qualified=False, production_gate_changed=False)
+    (OUT/'receipt.json').write_text(json.dumps(receipt, indent=2, sort_keys=True)+'\n')
+    files = sorted(p for p in OUT.rglob('*') if p.is_file() and
+                   p.relative_to(OUT).parts[0] not in ('execution-root', 'test-temp'))
+    (OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n'
+                                       for p in files))
+    print(json.dumps(dict(tests=50, sources=len(before), loaded=len(loaded),
+        receipt_sha256=sha((OUT/'receipt.json').read_bytes()), manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()))))
+
+
+if __name__ == '__main__':
+    main()

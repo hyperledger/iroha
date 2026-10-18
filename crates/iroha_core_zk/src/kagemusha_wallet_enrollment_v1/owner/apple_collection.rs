@@ -50,6 +50,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
     /// Flush any actual vendor return before releasing or rebinding this same provider owner.
     /// Unavailable publication retains its original bytes; cleanup must retry the same owner.
+    ///
+    /// # Errors
+    /// Returns an error if retained bytes have no valid selected Apple slot or dispatch,
+    /// selected custody has changed, or archive access/publication is unavailable.
+    /// The pending returned bytes remain in this owner on refusal.
     pub fn flush_apple_returned(&mut self) -> Result<(), Error> {
         if let Some((stage, bytes)) = &self.apple_returned {
             let slot = self.apple_slot()?;
@@ -71,6 +76,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
     /// Recover exact vendor originals, flushing a returned value whose publication was unavailable.
     /// Missing originals convey no right to repeat an already-dispatched vendor effect.
+    ///
+    /// # Errors
+    /// Returns an error if pending publication fails, the selected Apple custody is
+    /// invalid or unavailable, an archive read fails, or later-stage originals exist
+    /// without their required earlier-stage originals.
     pub fn apple_collection_originals(&mut self) -> Result<[Vec<u8>; 3], Error> {
         self.flush_apple_returned()?;
         let slot = self.apple_slot()?;
@@ -92,6 +102,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         Ok(originals)
     }
     /// Final process-bound deadline check after all vendor returns are durably retained.
+    ///
+    /// # Errors
+    /// Returns an error if original recovery fails, the key identifier is not canonical
+    /// nonzero 32-byte Base64, any required return is absent, or the selected live
+    /// clock/deadline check fails.
     pub fn complete_apple_collection(&mut self) -> Result<(), Error> {
         let originals = self.apple_collection_originals()?;
         let key = STANDARD
@@ -109,6 +124,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
     /// Consume one live authorization and durably claim exactly one vendor dispatch.
     /// An uncertain previous dispatch is never turned into a fresh key or repeated assertion.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid or expired live selection, unavailable custody,
+    /// an out-of-order/already completed stage, a non-evidence phase, an existing
+    /// dispatch marker, or failed marker publication. A final clock refusal can occur
+    /// after the dispatch marker has been retained; it never authorizes a repeat.
     pub fn begin_apple_effect(&mut self, stage: u8) -> Result<(), Error> {
         self.require_apple_live()?;
         let originals = self.apple_collection_originals()?;
@@ -138,6 +159,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
     /// Retain the actual vendor return BEFORE any clock/current-owner guard or publication.
     /// Storage refusal keeps the returned bytes inside this same owner for an exact retry.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid stage or return bound, a conflicting pending
+    /// return, invalid selected custody, a missing dispatch marker, or failed
+    /// publication. Once accepted into this owner, the exact return remains retained
+    /// when a subsequent custody or publication check refuses.
     pub fn retain_apple_effect(&mut self, stage: u8, original: &[u8]) -> Result<(), Error> {
         let index = usize::from(stage.checked_sub(1).ok_or(Error::Phase)?);
         if index >= 3 || original.is_empty() || original.len() > BOUNDS[index] {

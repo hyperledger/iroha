@@ -71,7 +71,8 @@ use super::{
     provider::{KagemushaWalletProviderV1, KagemushaWalletSlotStatusV1},
     retained::{
         KagemushaWalletLookupV1, KagemushaWalletRetainedStatusV1, KagemushaWalletRetainedV1,
-        KagemushaWalletTombstoneV1, OlderCompletionV1, load_older_completion, read_tombstone,
+        KagemushaWalletTombstoneV1, OlderCompletionV1, TombstoneReadV1, load_older_completion,
+        read_tombstone,
     },
 };
 
@@ -699,9 +700,11 @@ where
                 OlderCompletionV1::Invalid => KagemushaWalletLookupV1::DeliveryDataLoss,
                 OlderCompletionV1::Absent => match read_tombstone(&self.store, slot, operation_id)?
                 {
-                    Some(Some(tombstone)) => KagemushaWalletLookupV1::Archived(Box::new(tombstone)),
-                    Some(None) => KagemushaWalletLookupV1::DeliveryDataLoss,
-                    None => KagemushaWalletLookupV1::Unknown,
+                    TombstoneReadV1::Found(tombstone) => {
+                        KagemushaWalletLookupV1::Archived(Box::new(tombstone))
+                    }
+                    TombstoneReadV1::Invalid => KagemushaWalletLookupV1::DeliveryDataLoss,
+                    TombstoneReadV1::Absent => KagemushaWalletLookupV1::Unknown,
                 },
             },
         )

@@ -203,7 +203,7 @@ async fn concurrent_ready_and_pending_drains_stay_consistent() {
     };
     let queue_for_push = Arc::clone(&queue);
     let state_for_push = Arc::clone(&state);
-    let chain_id_for_push = chain_id.clone();
+    let chain_id_for_push = chain_id;
     let authority_for_push = authority.clone();
     let key_pair_for_push = key_pair.clone();
     let push_task = async move {
@@ -229,7 +229,7 @@ async fn concurrent_ready_and_pending_drains_stay_consistent() {
         }
         injected_hashes
     };
-    let (_, _, injected_hashes) = tokio::join!(ready_task, pending_task, push_task);
+    let ((), (), injected_hashes) = tokio::join!(ready_task, pending_task, push_task);
     expected_hashes.extend(injected_hashes);
     // Snapshots retain all original signed inputs. The ready cursor may begin in
     // the middle of the FIFO after concurrent sampling; one bounded window

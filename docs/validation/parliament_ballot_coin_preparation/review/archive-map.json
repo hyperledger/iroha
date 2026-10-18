@@ -1,0 +1,754 @@
+{
+  "README.md": {
+    "provider": "self",
+    "source": "review/source/README.md.template"
+  },
+  "capture.py": {
+    "provider": "self",
+    "source": "review/source/capture.py.template"
+  },
+  "capture.stderr": {
+    "provider": "self",
+    "source": "review/capture.stderr"
+  },
+  "capture.stdout": {
+    "provider": "self",
+    "source": "review/capture.stdout"
+  },
+  "capture/SHA256SUMS": {
+    "provider": "self",
+    "source": "review/final-capture/SHA256SUMS.original"
+  },
+  "capture/junit.xml": {
+    "provider": "self",
+    "source": "review/final-capture/junit.xml"
+  },
+  "capture/owner-SHA256SUMS": {
+    "provider": "self",
+    "source": "review/final-capture/owner-SHA256SUMS"
+  },
+  "capture/receipt.json": {
+    "provider": "self",
+    "source": "review/final-capture/receipt.json"
+  },
+  "capture/source/crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/Cargo.toml.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/Cargo.toml.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/credential.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/credential.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/framing.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/framing.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/keccak_relation.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/keccak_relation.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/layout.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/layout.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/lib.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/lib.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/profile.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/profile.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/proving.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/proving.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/registration.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/registration.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/sealed_list.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/sealed_list.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/selector.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/selector.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/test_codec.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/test_codec.rs.template"
+  },
+  "capture/source/crates/iroha_parliament_ballot_proof/src/vote.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_parliament_ballot_proof/src/vote.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/Cargo.toml.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/Cargo.toml.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/bavc.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/bavc.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/codec.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/codec.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/algo.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/algo.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/bits.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/bits.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/codec.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/codec.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/cost.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/cost.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/error.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/error.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/f4.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/f4.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/generator.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/generator.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/gf2poly.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/gf2poly.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/linalg.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/linalg.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/matrix.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/matrix.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/crt/tables.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/crt/tables.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/faest.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/faest.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/faest/cipher.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/faest/cipher.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/faest/relation.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/faest/relation.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/field.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/field.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/field/poly.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/field/poly.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/hash.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/hash.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/lib.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/lib.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/params.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/params.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/prg.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/prg.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/proof.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/proof.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/quicksilver.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/quicksilver.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/quicksilver/plain.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/quicksilver/plain.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/quicksilver/prover.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/quicksilver/prover.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/quicksilver/verifier.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/quicksilver/verifier.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/randomness.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/randomness.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/transcript.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/transcript.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/universal_hash.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/universal_hash.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/variant.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/variant.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/vole.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/vole.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/vole/bits.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/vole/bits.rs.template"
+  },
+  "capture/source/crates/iroha_zkp_vole/src/vole/convert.rs.template": {
+    "provider": "request-machine",
+    "source": "capture/source/crates/iroha_zkp_vole/src/vole/convert.rs.template"
+  },
+  "capture/source/docs/validation/parliament_ballot_b6/provider-layout.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/docs/validation/parliament_ballot_b6/provider-layout.json.template"
+  },
+  "capture/source/docs/validation/parliament_ballot_ideal_public_sampler/receipt.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/docs/validation/parliament_ballot_ideal_public_sampler/receipt.json.template"
+  },
+  "capture/source/docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json.template"
+  },
+  "capture/source/docs/validation/parliament_ballot_ideal_sampler_accounting/report.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/docs/validation/parliament_ballot_ideal_sampler_accounting/report.json.template"
+  },
+  "capture/source/docs/validation/parliament_ballot_oracle_log_circuit/receipt.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/docs/validation/parliament_ballot_oracle_log_circuit/receipt.json.template"
+  },
+  "capture/source/docs/validation/parliament_ballot_oracle_log_circuit/report.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/docs/validation/parliament_ballot_oracle_log_circuit/report.json.template"
+  },
+  "capture/source/pytest.ini.template": {
+    "provider": "request-machine",
+    "source": "capture/source/pytest.ini.template"
+  },
+  "capture/source/scripts/check_parliament_ballot_resource_accounting.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/scripts/check_parliament_ballot_resource_accounting.py.template"
+  },
+  "capture/source/scripts/parliament_ballot_admissibility_circuit.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/scripts/parliament_ballot_admissibility_circuit.py.template"
+  },
+  "capture/source/scripts/parliament_ballot_gf_circuit.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/scripts/parliament_ballot_gf_circuit.py.template"
+  },
+  "capture/source/scripts/parliament_ballot_ideal_sampler_accounting.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/scripts/parliament_ballot_ideal_sampler_accounting.py.template"
+  },
+  "capture/source/scripts/parliament_ballot_oracle_log_circuit.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/scripts/parliament_ballot_oracle_log_circuit.py.template"
+  },
+  "capture/source/scripts/parliament_ballot_write_framing.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/scripts/parliament_ballot_write_framing.py.template"
+  },
+  "capture/source/specs/parliament_ballot_b6_h5_fixed_opening.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/specs/parliament_ballot_b6_h5_fixed_opening.md.template"
+  },
+  "capture/source/specs/parliament_ballot_b6_hidden_assignment_deletion.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/specs/parliament_ballot_b6_hidden_assignment_deletion.md.template"
+  },
+  "capture/source/specs/parliament_ballot_b6_hybrid_driver.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/specs/parliament_ballot_b6_hybrid_driver.md.template"
+  },
+  "capture/source/specs/parliament_ballot_b6_ideal_public_sampler.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/specs/parliament_ballot_b6_ideal_public_sampler.md.template"
+  },
+  "capture/source/specs/parliament_ballot_b6_ideal_sampler_accounting.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/specs/parliament_ballot_b6_ideal_sampler_accounting.md.template"
+  },
+  "capture/source/specs/parliament_ballot_b6_oracle_log_circuit.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/specs/parliament_ballot_b6_oracle_log_circuit.md.template"
+  },
+  "capture/source/specs/parliament_ballot_b6_write_framing.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/specs/parliament_ballot_b6_write_framing.md.template"
+  },
+  "capture/source/target/parliament-aes-machine-stage/aes256.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-aes-machine-stage/aes256.py.template"
+  },
+  "capture/source/target/parliament-coin-preparation-review/README.md.template": {
+    "provider": "self",
+    "source": "review/source/README.md.template"
+  },
+  "capture/source/target/parliament-coin-preparation-review/capture.py.template": {
+    "provider": "self",
+    "source": "review/source/capture.py.template"
+  },
+  "capture/source/target/parliament-coin-preparation-review/run_tests.py.template": {
+    "provider": "self",
+    "source": "review/source/run_tests.py.template"
+  },
+  "capture/source/target/parliament-coin-preparation-review/test_review.py.template": {
+    "provider": "self",
+    "source": "review/source/test_review.py.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/README.md.template": {
+    "provider": "self",
+    "source": "source/supplement-001.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/capture.py.template": {
+    "provider": "self",
+    "source": "source/supplement-002.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/capture/observation.stdout.template": {
+    "provider": "self",
+    "source": "final-capture/observation.stdout"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/capture/receipt.json.template": {
+    "provider": "self",
+    "source": "final-capture/receipt.json"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/capture_tests.py.template": {
+    "provider": "self",
+    "source": "source/supplement-003.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/observe.py.template": {
+    "provider": "self",
+    "source": "source/supplement-004.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/purification.py.template": {
+    "provider": "self",
+    "source": "source/supplement-005.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/run_tests.py.template": {
+    "provider": "self",
+    "source": "source/supplement-006.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/test-capture/receipt.json.template": {
+    "provider": "self",
+    "source": "source/supplement-007.template"
+  },
+  "capture/source/target/parliament-coin-preparation-stage/test_purification.py.template": {
+    "provider": "self",
+    "source": "source/supplement-008.template"
+  },
+  "capture/source/target/parliament-content-resources-stage/capture/observation.json.template": {
+    "provider": "self",
+    "source": "source/supplement-009.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/PUBLIC.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/PUBLIC.md.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/README.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/README.md.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/V0-design.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/V0-design.md.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/aes_kernel.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/aes_kernel.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/bavc_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/bavc_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/bit_ir.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/bit_ir.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/chronological_log.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/chronological_log.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/cleanup-design.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/cleanup-design.md.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/content_request.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/content_request.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/coverage.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/coverage.json.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/crt_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/crt_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/field_kernel.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/field_kernel.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/hash_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/hash_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/l0.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/l0.md.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/l0_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/l0_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/leaf_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/leaf_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/mask_fold.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/mask_fold.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/opening.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/opening.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/opening_reconstruction.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/opening_reconstruction.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/prg_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/prg_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/public_capture.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/public_capture.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/public_hash.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/public_hash.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/public_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/public_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/r0_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/r0_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/r1_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/r1_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/reconstruction.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/reconstruction.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/request-accepted-observation.json.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/request-accepted-observation.json.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/request_dispatch.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/request_dispatch.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/request_family.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/request_family.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/request_generator.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/request_generator.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/request_observation.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/request_observation.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/request_transition.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/request_transition.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/response_count_capture.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/response_count_capture.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/responses.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/responses.md.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/return_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/return_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/schedule.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/schedule.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/stage_plan.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/stage_plan.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_chronological_log.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_chronological_log.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_content_request.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_content_request.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_crt_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_crt_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_hash_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_hash_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_l0_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_l0_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_leaf_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_leaf_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_opening_reconstruction.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_opening_reconstruction.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_prg_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_prg_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_public_hash.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_public_hash.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_public_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_public_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_public_programs.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_public_programs.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_reconstruction.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_reconstruction.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_request_dispatch.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_request_dispatch.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_request_family.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_request_family.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_request_transition.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_request_transition.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_responses.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_responses.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_return_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_return_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_stage_plan.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_stage_plan.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_validated_request.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_validated_request.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_vole_columns.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_vole_columns.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_vole_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_vole_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_vole_reconstruction.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_vole_reconstruction.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/test_write_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/test_write_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/validated-design.md.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/validated-design.md.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/validated_request.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/validated_request.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/vole_columns.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/vole_columns.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/vole_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/vole_machine.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/vole_reconstruction.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/vole_reconstruction.py.template"
+  },
+  "capture/source/target/parliament-ideal-machine-stage/write_machine.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-ideal-machine-stage/write_machine.py.template"
+  },
+  "capture/source/target/parliament-keccak-machine-stage/keccak1600.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-keccak-machine-stage/keccak1600.py.template"
+  },
+  "capture/source/target/parliament-machine-final-capture/capture.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-machine-final-capture/capture.py.template"
+  },
+  "capture/source/target/parliament-machine-final-capture/capture_observer.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-machine-final-capture/capture_observer.py.template"
+  },
+  "capture/source/target/parliament-machine-final-capture/test_capture_observer.py.template": {
+    "provider": "request-machine",
+    "source": "capture/source/target/parliament-machine-final-capture/test_capture_observer.py.template"
+  },
+  "capture/source/target/parliament-sequential-composition-review/test_independent.py.template": {
+    "provider": "self",
+    "source": "source/supplement-010.template"
+  },
+  "capture/source/target/parliament-sequential-composition-stage/README.md.template": {
+    "provider": "self",
+    "source": "source/supplement-011.template"
+  },
+  "capture/source/target/parliament-sequential-composition-stage/capture.py.template": {
+    "provider": "self",
+    "source": "source/supplement-012.template"
+  },
+  "capture/source/target/parliament-sequential-composition-stage/capture/observation.stdout.template": {
+    "provider": "self",
+    "source": "source/supplement-013.template"
+  },
+  "capture/source/target/parliament-sequential-composition-stage/capture/receipt.json.template": {
+    "provider": "self",
+    "source": "source/supplement-014.template"
+  },
+  "capture/source/target/parliament-sequential-composition-stage/observe.py.template": {
+    "provider": "self",
+    "source": "source/supplement-015.template"
+  },
+  "capture/source/target/parliament-sequential-composition-stage/sequence.py.template": {
+    "provider": "self",
+    "source": "source/supplement-016.template"
+  },
+  "capture/source/target/parliament-sequential-composition-stage/test_sequence.py.template": {
+    "provider": "self",
+    "source": "source/supplement-017.template"
+  },
+  "capture/tests-report.json": {
+    "provider": "self",
+    "source": "review/final-capture/tests-report.json"
+  },
+  "capture/tests.stderr": {
+    "provider": "self",
+    "source": "review/final-capture/tests.stderr"
+  },
+  "capture/tests.stdout": {
+    "provider": "self",
+    "source": "review/final-capture/tests.stdout"
+  },
+  "run_tests.py": {
+    "provider": "self",
+    "source": "review/source/run_tests.py.template"
+  },
+  "test_review.py": {
+    "provider": "self",
+    "source": "review/source/test_review.py.template"
+  }
+}

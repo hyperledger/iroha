@@ -27,7 +27,7 @@ pub struct VerifyArgs {
     /// Exact revision selected from the proposal or authenticated registry.
     #[arg(long)]
     revision: u32,
-    /// Bounded JSON array of proposed SCCP actions, including this RegisterRoute.
+    /// Bounded JSON array of proposed SCCP actions, including this `RegisterRoute`.
     #[arg(long, conflicts_with = "proposal_id")]
     actions: Option<PathBuf>,
     /// Exact proposal content id; its body must reproduce this fingerprint.
@@ -406,11 +406,11 @@ fn verify_evm(
     Ok(())
 }
 
-pub(crate) fn verify(context: &mut impl RunContext, args: VerifyArgs) -> Result<()> {
+pub fn verify(context: &mut impl RunContext, args: &VerifyArgs) -> Result<()> {
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let network = parse_network(&args.network)?;
-    let registration = selected_registration(context, &client, &original, &args, network)?;
+    let registration = selected_registration(context, &client, &original, args, network)?;
     let generation = client
         .sccp()
         .committee(registration.initial_committee.generation)?;
@@ -423,9 +423,9 @@ pub(crate) fn verify(context: &mut impl RunContext, args: VerifyArgs) -> Result<
         "proposed pin deadline differs from its exact native generation"
     );
     match registration.deployment {
-        SccpDeploymentV1::Evm(_) => verify_evm(context, &client, &original, &args, &registration)?,
+        SccpDeploymentV1::Evm(_) => verify_evm(context, &client, &original, args, &registration)?,
         SccpDeploymentV1::Ton(_) => {
-            ton_account::verify(context, &client, &original, &args, &registration, keys)?
+            ton_account::verify(context, &client, &original, args, &registration, keys)?
         }
     }
     context.println("Deployment review passed: locked code, exact proposal identity, pristine monetary/control state, and original native committee/checkpoints. This read-only review does not register or authorize the route.")

@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "elapsed_seconds": 19.9079170410987,
+  "forward_gates": {
+    "x": 65674239058,
+    "cx": 15373152145697,
+    "ccx": 4340560614322,
+    "elementary_gates": 37141629456365,
+    "base_xor_oracle_calls": 3100
+  },
+  "original_bits": 1286312,
+  "retained_bits": 9275103,
+  "shared_work_bits": 788711653,
+  "selected_pins": 30,
+  "source_pins": 38
+}

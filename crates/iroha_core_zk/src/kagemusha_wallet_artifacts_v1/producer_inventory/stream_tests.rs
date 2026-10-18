@@ -4,6 +4,13 @@ use std::{cell::RefCell, io, rc::Rc};
 
 use super::*;
 
+#[test]
+fn original_stream_scratch_preserves_read_geometry() {
+    let scratch = original_stream_buffer().expect("bounded stream scratch");
+    assert_eq!(scratch.len(), 64 * 1024);
+    assert!(scratch.iter().all(|byte| *byte == 0));
+}
+
 #[derive(Default)]
 struct Observed {
     opens: Vec<[u8; 32]>,

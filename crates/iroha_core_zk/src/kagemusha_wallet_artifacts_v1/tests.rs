@@ -248,8 +248,8 @@ fn native_protocol_preimages_bind_actual_curve_tables_and_params() {
 
 #[test]
 fn native_profile_contains_fixed_typed_policies_and_all_decision_codes() {
-    let sigma = policy(false);
-    let omega = policy(true);
+    let sigma = policy(false).expect("fixed sigma policy");
+    let omega = policy(true).expect("fixed omega policy");
     assert_eq!(sigma.curve, CurveV1::Vesta);
     assert_eq!(sigma.instance_lengths, vec![1]);
     assert_eq!(sigma.instance_types, vec![InstanceType::Bounded]);

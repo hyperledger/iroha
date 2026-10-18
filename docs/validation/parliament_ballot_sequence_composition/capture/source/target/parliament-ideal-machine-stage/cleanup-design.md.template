@@ -1,0 +1,85 @@
+# Proposed whole-request cleanup rule
+
+This is a composition lemma and an implementation plan. It is not evidence that
+all stage wires have already been joined, that arbitrary request shapes have
+been dispatched, or that the security reduction/resource vector is complete.
+
+Let `F` be the one immutable base response-XOR oracle on finite byte strings,
+with the source-domain-padded 264-byte response. H5's native response is ten
+bits, so padding includes the upper six bits of its second byte. Unrecognized
+or empty addresses require one experiment-specified total completion; they
+are not independently resampled tails. All length-specific opcodes restrict
+that same function. Let `L,c` be a canonical persistent chronological log and its
+append counter. Its entries may only program final domain bytes 9, 10 or 11.
+The counter must not wrap, all unused slots must be zero, and at least M+2
+slots must remain for the current request. A T*(M+2)-slot log initialized empty
+and used for at most T requests establishes the capacity premise inductively.
+
+Let `G^F` be a clean, deterministic reversible computation which preserves its
+public request and original random tape registers, and XORs all derived
+transcript fields into fresh zero registers `h`. Every ordinary backend query
+in this generator ends in a fixed byte from {0,1,4,5,8}: H0, H1, H4, H5 and Hmu,
+respectively. Concrete profile SHAKE and public SHA3 circuits make no F query.
+The later complete composition must verify this inventory, rather than infer
+it from a subtotal or a helper's name.
+
+Define `W` to append the framed challenge1, challenge2 and active primary
+challenge prefix. Define `E` to copy the source proof or typed error into the
+caller return target.
+
+W and E must preserve every original request/tape and derived h control used
+by the inverse generator. Their arbitrary caller targets must be disjoint from
+those controls and shared clean work. A log append is not an XOR-output kernel;
+reversing the complete request additionally requires W's true inverse.
+
+The intended order is:
+
+```
+G^F: compute retained transcript h; clean G's internal scratch
+W:   append from h and the retained original tapes; clean W's scratch
+E:   copy the return value from h; clean E's scratch
+(G^F)^-1: clear h in reverse dependency order
+```
+
+Because all programmed keys end in {9,10,11}, every generator read has the same
+answer before and after W. No earlier log version is required for this inverse
+under this domain restriction. It would be required if a generator read could
+match a programmed key; that alternative is not covered by the lemma. There
+must also be no adversary interleaving or other mutation of F during this
+atomic local sequence.
+
+For each computational-basis base-oracle value f, original tape r, request x,
+canonical log L and caller target z, the sequence maps
+
+```
+|f,r,x,L,c,0_h,z,0_work>
+  -> |f,r,x,W_L,c',0_h,z XOR E(x,r,f),0_work>.
+```
+
+The equality is on the joint registers, not just on returned bytes. Linearity
+therefore preserves phases and arbitrary entanglement with an untouched
+adversary/reference register. The chronological writes remain observable even
+on primary exhaustion. Auxiliary success changes private material but never
+changes the primary exhaustion return tag or adds a write.
+
+Original random tape registers are not reset unitarily. For the classical
+sampler they start in the specified independent uniform mixture and may be
+traced out only as private environment registers; this gives exactly the
+mixture over the same per-tape joint maps. A purification-based accounting must
+retain and count their purifying registers. Derived workspace cleanup does not
+justify deleting original randomness for free.
+
+For a rejected fixed-shape request, one proposed extension computes a totalized
+generator, disables every W write, masks every proof return, copies only P0's
+typed error, then inverses the generator and validation work. Temporary F calls
+are fully charged. Their net joint action cancels on rejection; the claim is
+not that no internal F call occurs. The masked controller, totalized functions,
+and source-priority error join must be implemented and tested before using
+this extension. Dispatch across supplied lengths, row and role also remains
+explicitly outside the existing fixed-shape components.
+
+Completion requires an actual forward/reverse stage plan, disjoint wire maps,
+the S0-to-opening/hidden/selector identity, prescribed coin ownership, every
+output/error/log path, and a summed resource vector with retained live storage.
+No complete E0, full simulator, cryptographic qualification or production flag
+is promoted by this note.

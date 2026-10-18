@@ -92,7 +92,7 @@ fn finish(
     projection: &RefreshUpdateWitness,
     certificate: &KagemushaWalletSignerCertificateV1,
     tape: Vec<u8>,
-    blacklist: Option<IndexedInsert<Fp>>,
+    blacklist: Option<&IndexedInsert<Fp>>,
 ) -> DecodedRefresh {
     DecodedRefresh {
         core: changed.core,
@@ -103,7 +103,7 @@ fn finish(
             signed_tape(certificate.body.transcript(), &certificate.signature),
             tape,
         ],
-        blacklist,
+        blacklist: blacklist.copied(),
         quota: None,
     }
 }
@@ -207,7 +207,7 @@ fn blacklist_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error> 
         &values,
         certificate,
         signed_tape(update.body.transcript(), &update.signature),
-        Some(super::monetary::insertion(&history)?),
+        Some(&super::monetary::insertion(&history)?),
     ))
 }
 

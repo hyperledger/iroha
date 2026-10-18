@@ -1,0 +1,105 @@
+"""Whole transition routing/cleanup controls with an explicit synthetic generator.
+
+These tests cover orchestration only. Actual component source/equation proofs
+remain separate; no toy output is evidence of real cryptographic arithmetic.
+"""
+from collections import Counter
+from dataclasses import replace
+import random
+
+import pytest
+
+from bit_ir import Builder, apply_gates, bits, unpack
+from stage_plan import CleanMap, Invocation, RetainedPlan
+from request_generator import Generator
+from request_transition import RequestTransition
+from public_machine import PublicShape
+from write_machine import Frame, ProgrammedWrites
+from return_machine import ReturnProjection
+
+
+def synthetic():
+    fields = (('namespace_digest',8),('mu',8),('challenge_1',8),('challenge_2',8),
+              ('primary_challenges',512),('primary_flags',2),('exhausted',1),('counter',32),('challenge',8))
+    width = sum(n for _,n in fields)
+    b = Builder(width)
+    outputs = list(range(width)); outputs[0] = b.bit('xor', 0, 1)
+    plan = RetainedPlan((('coins',width),), (Invocation('derived',CleanMap.block(b.finish(tuple(outputs))),
+                                                    (('coins',0,width),)),))
+    mappings = []; offset = 0
+    for name,n in fields:
+        mappings.append((name,('derived',offset,n))); offset += n
+    generator = Generator(plan,tuple(mappings),PublicShape('REG'),2,width)
+    frames = (
+        Frame(b'P',(('namespace_digest',1),('mu',1)),9,1),
+        Frame(b'P',(('namespace_digest',1),('challenge_1',1)),10,1),
+        Frame(b'P',(('namespace_digest',1),('challenge_2',1),('counter_u32_le',4)),11,32),
+    )
+    writes = ProgrammedWrites(frames,2,6,4,8,32)
+    returns = ReturnProjection((('challenge',1),('counter',4)),('counter','challenge'))
+    return RequestTransition(generator,writes,returns)
+
+
+@pytest.mark.parametrize('exhausted', [0,1])
+@pytest.mark.parametrize('previous', [0,2])
+def test_joint_log_return_original_tapes_work_and_actual_inverse(exhausted,previous):
+    c = synthetic(); p = c.layout(); rng = random.Random(1521)
+    fields = {name:(off,width) for name,(_,off,width) in c.generator.fields}
+    inputs = [rng.randrange(2) for _ in range(p['original_input_bits'])]
+    start,width = fields['exhausted']; inputs[start] = exhausted
+    start,width = fields['primary_flags']; inputs[start:start+width] = [1,exhausted]
+    start,width = fields['counter']; inputs[start:start+width] = [0]*32
+    old_output = [rng.randrange(2) for _ in range(p['output_bits'])]
+    state = inputs+[0]*(p['size']-len(inputs))+[1,0,1]
+    state[p['output']:p['retained']] = old_output
+    state[p['counter']:p['output']] = bits(previous,p['counter_bits'])
+    record_width = 1+c.writes.append().record_bits
+    for slot in range(previous):
+        start = p['log']+slot*record_width
+        state[start:start+record_width] = [1]+[rng.randrange(2) for _ in range(record_width-1)]
+    before = state[:]
+    census = Counter()
+    for gate in c.emit():
+        census[gate[0]] += 1
+        state[gate[-1]] ^= int(all(state[w] for w in gate[1:-1]))
+    assert state[:p['original_input_bits']] == inputs and state[-3:] == [1,0,1]
+    assert not any(state[p['retained']:-3])
+    assert unpack(state[p['counter']:p['output']]) == previous+3+exhausted
+    assert state[p['log']:p['log']+previous*record_width] == before[p['log']:p['log']+previous*record_width]
+    derived = inputs[:]; derived[0] ^= inputs[1]
+    def data(name):
+        start,width = fields[name]
+        return derived[start:start+width]
+    def as_bytes(values):
+        return bytes(sum(values[8*i+j]<<j for j in range(8)) for i in range(len(values)//8))
+    records = []
+    for challenge,index in ((1,0),(2,0),*((3,i) for i in range(1+exhausted))):
+        frame = c.writes.frames[challenge-1]
+        key = frame.prefix+b''.join(index.to_bytes(4,'little') if name=='counter_u32_le'
+                                   else as_bytes(data(name)) for name,_ in frame.fields)+bytes([frame.domain])
+        value = (data('primary_challenges')[256*index:256*(index+1)] if challenge==3 else data('challenge_'+str(challenge)))
+        records.append([1,*bits(len(key),4),*(v for byte in key for v in bits(byte,8)),
+                        *([0]*(8*(8-len(key)))),*value,*([0]*(256-len(value)))])
+    for slot,record in enumerate(records,previous):
+        start = p['log']+slot*record_width
+        assert state[start:start+record_width] == record
+    result = [exhausted,*bits(exhausted*((1<<20)-1),32),*bits((1-exhausted)*5,64)]
+    result += [v*(1-exhausted) for v in data('challenge')+data('counter')]
+    assert state[p['output']:p['retained']] == [a^b for a,b in zip(old_output,result)]
+    assert census == {k:c.resources()['gates'][k] for k in ('x','cx','ccx')}
+    apply_gates(state,c.emit(inverse=True))
+    assert state == before
+
+
+def test_storage_totals_and_malformed_join_refusals():
+    c = synthetic(); p = c.layout(); r = c.resources()
+    assert r['total_logical_bits'] == sum(r[n] for n in
+        ('original_input_bits','persistent_log_bits','persistent_counter_bits','caller_output_bits',
+         'retained_derived_bits','shared_work_bits'))
+    assert p['work_bits'] == max(p['generator']['scratch_bits'],p['write_work_bits'],1)
+    with pytest.raises(ValueError): list(c.emit(inverse=1))
+    with pytest.raises(ValueError): c.source_pieces('missing')
+    with pytest.raises(ValueError): replace(c,writes=replace(c.writes,trials=1))
+    bad = replace(c.returns,fields=(('missing',1),),input_order=('missing',))
+    with pytest.raises(ValueError): replace(c,returns=bad)
+    assert r['complete_resource_vector'] is False and r['malformed_public_request_dispatch_implemented'] is False

@@ -59,6 +59,10 @@ def heartbeat(ordinary: dict) -> dict:
     result["certificate_roles"] = list(replay.ROLES)
     result["certificates"] = [base, {**base, "height": beat.height, "header": beat.encode().hex()},
                               {**base, "height": successor.height, "header": successor.encode().hex()}]
+    result["destination_latch"] = {
+        "version": 1, "provenance": replay.LATCH_PROVENANCE, "rule": "V1",
+        "certificate": {**base, "header": dataclasses.replace(first, timestamp_ms=first.timestamp_ms + 1).encode().hex()},
+    }
     return result
 
 
@@ -74,6 +78,7 @@ def key_change(heartbeat: dict) -> dict:
     root = replay.ton.committee_root(tuple(bytes.fromhex(key) for key in keys)).to_bytes(32, "big")
     boundary = dataclasses.replace(decoded.certificates[1].parsed, next_committee_root=root)
     successor = dataclasses.replace(decoded.certificates[2].parsed, committee_root=root)
+    del result["destination_latch"]
     result["certificate_roles"] = list(replay.KEY_CHANGE_ROLES)
     result["certificates"][1]["header"] = boundary.encode().hex()
     result["certificates"][2].update({"header": successor.encode().hex(), "committee": keys,
@@ -255,6 +260,92 @@ def test_negative_encodings_only_change_designated_unsigned_input(ordinary: dict
 
 def test_output_cannot_replace_prior_receipts(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="repository target"):
-        replay.replay(tmp_path / "missing.json", tmp_path / "output", tmp_path / "acton")
+        # ROOT stays outside target regardless of the pytest TMPDIR location.
+        replay.replay(tmp_path / "missing.json", ROOT, tmp_path / "acton")
     with pytest.raises(ValueError, match="new output"):
         replay.replay(tmp_path / "missing.json", ROOT / "target", tmp_path / "acton")
+
+
+@pytest.fixture
+def latch_bundle(heartbeat: dict) -> dict:
+    """Unsigned malicious-header structure only; never native BLS evidence."""
+    result = copy.deepcopy(heartbeat)
+    normal = replay.decode_bundle(result).certificates[0]
+    result["destination_latch"] = {
+        "version": 1, "provenance": replay.LATCH_PROVENANCE, "rule": "V1",
+        "certificate": {**result["certificates"][0], "header": dataclasses.replace(normal.parsed, timestamp_ms=normal.parsed.timestamp_ms + 1).encode().hex()},
+    }
+    return result
+
+
+def test_latch_retains_original_and_explicit_malicious_bytes(latch_bundle: dict) -> None:
+    before = copy.deepcopy(latch_bundle)
+    decoded = replay.decode_bundle(latch_bundle)
+    assert latch_bundle == before
+    assert decoded.latch.qc == decoded.certificates[0].qc
+    assert decoded.latch.signature == decoded.certificates[0].signature
+    assert decoded.latch.header.hex() == latch_bundle["destination_latch"]["certificate"]["header"]
+    assert decoded.latch.committee == decoded.keys
+    assert replay.checkpoint_id(decoded.latch.header) != replay.checkpoint_id(decoded.certificates[0].header)
+
+
+@pytest.mark.parametrize("key,value", [("version", True), ("version", 2), ("provenance", "chain_output"), ("rule", "V2")])
+def test_latch_rejects_provenance_and_rule_aliases(latch_bundle: dict, key: str, value: object) -> None:
+    latch_bundle["destination_latch"][key] = value
+    with pytest.raises(ValueError):
+        replay.decode_bundle(latch_bundle)
+
+
+@pytest.mark.parametrize("field,value", [("generation", 8), ("height", 7), ("timestamp_ms", 1)])
+def test_latch_rejects_other_header_changes(latch_bundle: dict, field: str, value: int) -> None:
+    cert = replay.decode_bundle(latch_bundle).latch
+    changed = dataclasses.replace(cert.parsed, **{field: getattr(cert.parsed, field) + value})
+    latch_bundle["destination_latch"]["certificate"].update(header=changed.encode().hex(), height=changed.height)
+    with pytest.raises(ValueError, match="only the deliberately"):
+        replay.decode_bundle(latch_bundle)
+
+
+def test_latch_rejects_qc_and_committee_changes(latch_bundle: dict) -> None:
+    bad = copy.deepcopy(latch_bundle)
+    row = bad["destination_latch"]["certificate"]
+    row["committee"] = row["committee"][::-1]
+    with pytest.raises(ValueError, match="ordered committee"):
+        replay.decode_bundle(bad)
+    cert = replay.decode_bundle(latch_bundle).latch
+    bad = copy.deepcopy(latch_bundle)
+    qc = bytearray(cert.qc); qc[80] ^= 1
+    bad["destination_latch"]["certificate"]["qc"] = qc.hex()
+    with pytest.raises(ValueError, match="original QC"):
+        replay.decode_bundle(bad)
+
+
+def test_latch_rejects_key_change_or_conflict_at_handoff(latch_bundle: dict, key_change: dict) -> None:
+    key_change["destination_latch"] = latch_bundle["destination_latch"]
+    with pytest.raises(ValueError, match="heartbeat keys"):
+        replay.decode_bundle(key_change)
+    decoded = replay.decode_bundle(latch_bundle)
+    latch_bundle["certificates"][1]["header"] = dataclasses.replace(decoded.certificates[1].parsed, timestamp_ms=decoded.latch.parsed.timestamp_ms).encode().hex()
+    with pytest.raises(ValueError, match="precede authentic handoff"):
+        replay.decode_bundle(latch_bundle)
+
+
+def test_latch_render_requires_persistent_exact_state_and_refusal(latch_bundle: dict) -> None:
+    decoded = replay.decode_bundle(latch_bundle)
+    rendered = replay.render_test(decoded, "c" * 64)
+    assert rendered.count("get fun `test ") == 2
+    assert decoded.latch.signature.hex() in rendered and decoded.latch.header[:109].hex() in rendered
+    assert rendered.count("eventLatched(1,") == 1
+    assert "expected.equivocated = true;" in rendered and "expectedCommittee.untilMs = 0;" in rendered
+    assert rendered.count("minterStorage(env).toCell().hash()).toEqual(expected.toCell().hash())") == 2
+    assert "expectOutcome(later, SccpErrors.Equivocated)" in rendered
+    assert "toHaveSuccessfulTx<ReturnExcessesBack>" in rendered
+    assert "liveNoMonetaryEffect(env, true)" in rendered
+    assert "signCertificate(" not in rendered and "setMinterStorage(" not in rendered
+    with pytest.raises(ValueError, match="labeled native test conflict"):
+        replay.render_latch_test(dataclasses.replace(decoded, latch=None))
+
+
+def test_heartbeat_requires_explicit_latch_certificate(heartbeat: dict) -> None:
+    del heartbeat["destination_latch"]
+    with pytest.raises(ValueError, match="heartbeat export requires"):
+        replay.decode_bundle(heartbeat)

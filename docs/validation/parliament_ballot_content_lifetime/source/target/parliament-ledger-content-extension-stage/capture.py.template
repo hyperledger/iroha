@@ -1,0 +1,80 @@
+"""Retain conditional extension validation; no original source/evidence changes."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import types
+import xml.etree.ElementTree as ET
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+OUT=HERE/'capture'
+OWN=('content_ledger.py','test_content_ledger.py','README.md','example.json','capture.py')
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(ok,why):
+    if not ok:raise RuntimeError(why)
+def read(path):return path.read_bytes()
+def write_json(path,value):path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+
+require(not OUT.exists(),'capture destination must be absent')
+OUT.mkdir()
+module=types.ModuleType('content_ledger');module.__file__=str(HERE/'content_ledger.py')
+loaded=read(HERE/'content_ledger.py');sys.modules[module.__name__]=module
+exec(compile(loaded,module.__file__,'exec'),module.__dict__)
+catalog=module.Catalog(ROOT)
+pins=dict(catalog.pins)
+for name in OWN:pins[(HERE/name).relative_to(ROOT).as_posix()]=sha(read(HERE/name))
+require(pins[(HERE/'content_ledger.py').relative_to(ROOT).as_posix()]==sha(loaded),'loaded helper drift')
+snapshots={}
+for path,expected in pins.items():
+    data=read(ROOT/path);require(sha(data)==expected,'input identity: '+path)
+    out=OUT/'source-snapshots'/(path+'.template');out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(data)
+    snapshots[path]=dict(sha256=expected,snapshot=out.relative_to(OUT).as_posix())
+env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTEST_ADDOPTS='',PYTEST_PLUGINS='',PYTHONPATH='')
+commands=[]
+def run(name,cmd,expected):
+    proc=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True)
+    (OUT/(name+'.stdout')).write_bytes(proc.stdout);(OUT/(name+'.stderr')).write_bytes(proc.stderr)
+    commands.append(dict(name=name,command=cmd,exit_code=proc.returncode,expected_exit=expected))
+    require(proc.returncode==expected,'unexpected exit: '+name)
+    return proc.stdout
+
+run('tests',['/opt/homebrew/bin/pytest','-q','-c','/dev/null','--noconftest','-p','no:cacheprovider',
+    '-k','','-m','','--maxfail=0','--basetemp',str(OUT/'test-temp'),'--junitxml',str(OUT/'tests.xml'),
+    str(HERE/'test_content_ledger.py')],0)
+xml=ET.parse(OUT/'tests.xml').getroot()
+require(len(xml.findall('.//testcase'))==55,'exact owned test count')
+require(not any(x.tag in ('failure','error','skipped') for x in xml.iter()),'all tests pass')
+cmd=[sys.executable,'-B',str(HERE/'content_ledger.py'),'--root',str(ROOT),'--events',str(HERE/'example.json')]
+ordinary=run('example',cmd,0);refusal=run('require-qualified',cmd+['--require-qualified'],2)
+require(ordinary==refusal,'normal/refusal stdout identity')
+report=json.loads(ordinary)
+require(report['source_sha256']==dict(catalog.pins),'report source membership')
+for flag in ('complete_resource_vector','profile_qualified','production_gate_changed',
+    'full_quantum_joint_state_theorem_proved','full_adaptive_driver_executed','family_wide_resource_maximum_proved',
+    'actual_input_primitive_bridge','independent_cryptographic_review','physical_workspace_bound',
+    'current_candidate_qualified','actual_content_validity_evaluated'):
+    require(report[flag] is False,'qualification flag: '+flag)
+require(report['all_event_cap_is_additional_premise'] is True and report['source_theorem_valid_request_bound'] is None,
+        'all-event cap versus valid-only theorem premise')
+require(all(v is None for v in report['unknown_external_terms'].values()),'unknown external terms')
+after={path:sha(read(ROOT/path)) for path in pins};require(after==pins,'capture input drift')
+for item in snapshots.values():require(sha(read(OUT/item['snapshot']))==item['sha256'],'snapshot drift')
+outputs={p.name:sha(read(p)) for p in OUT.iterdir() if p.is_file()}
+receipt=dict(scope='four ContentFamily conditional metadata cases; not an adaptive driver or family maximum',
+    source_pin_count=len(catalog.pins),execution_input_count=len(OWN),source_sha256_before=pins,source_sha256_after=after,
+    snapshots=snapshots,loaded_helper_sha256=sha(loaded),commands=commands,test_cases=55,
+    test_failures=0,test_errors=0,test_skips=0,qualification_refusal_stdout_identical=True,output_sha256=outputs,
+    python_executable=sys.executable,python_version=sys.version,
+    effective_environment={k:env[k] for k in ('PYTHONDONTWRITEBYTECODE','PYTEST_DISABLE_PLUGIN_AUTOLOAD','PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH')},
+    runtime_premises=['trusted installed Python/pytest/stdlib','selected identity checks are not an atomic filesystem or full dependency attestation'],
+    original_artifacts_changed=False,all_event_cap_is_additional_premise=True,source_theorem_valid_request_bound=None,
+    complete_resource_vector=False,independent_cryptographic_review=False,profile_qualified=False,production_gate_changed=False)
+write_json(OUT/'receipt.json',receipt)
+files=sorted(p for p in OUT.rglob('*') if p.is_file() and 'test-temp' not in p.relative_to(OUT).parts)
+(OUT/'SHA256SUMS').write_text(''.join(sha(read(p))+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+print(json.dumps(dict(tests=55,source_pins=len(catalog.pins),execution_inputs=len(OWN),manifest_entries=len(files),
+    manifest_sha256=sha(read(OUT/'SHA256SUMS')),receipt_sha256=sha(read(OUT/'receipt.json')))))

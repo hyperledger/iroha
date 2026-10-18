@@ -79,7 +79,7 @@ pub struct BackfillArgs {
 /// Review the same action file submitted to governance propose.
 #[derive(clap::Args, Debug)]
 pub struct VerifyArgs {
-    /// JSON array containing only InitializeLightClient actions.
+    /// JSON array containing only `InitializeLightClient` actions.
     #[arg(long)]
     actions: PathBuf,
 }
@@ -145,7 +145,7 @@ fn backfill_range(first: u64, checkpoint: u64, maximum: u32) -> Result<Vec<u64>>
     Ok((first..=checkpoint).collect())
 }
 
-fn backfill<C: RunContext>(context: &mut C, args: BackfillArgs) -> Result<()> {
+fn backfill<C: RunContext>(context: &mut C, args: &BackfillArgs) -> Result<()> {
     let network = super::parse_network(&args.network)?;
     eyre::ensure!(
         matches!(
@@ -156,7 +156,7 @@ fn backfill<C: RunContext>(context: &mut C, args: BackfillArgs) -> Result<()> {
     );
     let client = super::blocking(context)?;
     let profiles = active_profiles(&client, *context.config().network_id.as_bytes())?;
-    let view = super::ToriiLightClient::read(&client, network, profiles)?;
+    let view = super::ToriiLightClient::read(&client, network, &profiles)?;
     let checkpoint = view
         .checkpoint_covering(args.checkpoint_height)?
         .ok_or_else(|| eyre!("no retained checkpoint covers the selected range"))?;
@@ -267,9 +267,9 @@ impl Run for Command {
                     None => context.print_data(&client.sccp().light_clients()?),
                 }
             }
-            Self::Advance(args) => super::lc_advance(context, args),
-            Self::Backfill(args) => backfill(context, args),
-            Self::Bootstrap(BootstrapCommand::Build(args)) => super::lc_bootstrap(context, args),
+            Self::Advance(args) => super::lc_advance(context, &args),
+            Self::Backfill(args) => backfill(context, &args),
+            Self::Bootstrap(BootstrapCommand::Build(args)) => super::lc_bootstrap(context, &args),
             Self::Bootstrap(BootstrapCommand::Verify(args)) => {
                 let client = super::blocking(context)?;
                 let network: NetworkId = context.config().network_id;

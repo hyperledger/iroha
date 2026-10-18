@@ -1,0 +1,185 @@
+"""Authenticate and restore the exact frozen coin-preparation execution inputs.
+
+The caller supplies the trusted outer SHA256SUMS digest; no source tree is edited.
+The authenticated dependency package supplies 152 selected archived inputs.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path, PurePosixPath
+import re
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha(value):
+    require(type(value) is str and re.fullmatch('[0-9a-f]{64}', value), 'SHA256 value')
+    return value
+
+
+def safe(name):
+    require(type(name) is str and name not in ('', '.') and '\\' not in name and
+            not any(ord(char) < 32 for char in name),
+            'canonical relative path')
+    path = PurePosixPath(name)
+    require(not path.is_absolute() and path.as_posix() == name and
+            all(part not in ('', '.', '..') for part in path.parts), 'canonical relative path')
+    return path
+
+
+def unlinked(path):
+    path = Path(path).absolute()
+    require(not any(part.is_symlink() for part in (path, *path.parents)), 'symlink path')
+    return path
+
+
+def checked(root, name, expected):
+    path = unlinked(Path(root).joinpath(*safe(name).parts))
+    require(path.is_file(), 'regular input file: '+name)
+    data = path.read_bytes()
+    require(digest(data) == sha(expected), 'input hash: '+name)
+    return data
+
+
+def manifest(data):
+    result = {}
+    for line in data.decode('utf-8').splitlines():
+        require('  ' in line, 'manifest record')
+        h, name = line.split('  ', 1)
+        safe(name)
+        sha(h)
+        require(name not in result, 'duplicate manifest path')
+        result[name] = h
+    require(result, 'empty manifest')
+    return result
+
+
+def package(root, expected):
+    root = unlinked(root)
+    entries = manifest(checked(root, 'SHA256SUMS', expected))
+    return {name: checked(root, name, h) for name, h in entries.items()}
+
+
+def restore(package_root, dependency_root, destination, expected_manifest, include_review=False):
+    """Check both packages and all mappings before creating a new destination."""
+    destination = unlinked(destination)
+    require(not destination.exists(), 'destination already exists')
+    require(destination.parent.is_dir(), 'destination parent must exist')
+    own = package(package_root, expected_manifest)
+    plan = json.loads(own['restore-plan.json'])
+    require(plan['schema'] == 'parliament-coin-preparation-restore-v1', 'restore schema')
+    dep_spec = plan['dependency']
+    require(dep_spec['id'] == 'request-machine', 'dependency identity')
+    dep = package(dependency_root, dep_spec['manifest_sha256'])
+    require(digest(dep['capture/receipt.json']) == dep_spec['receipt_sha256'], 'dependency receipt')
+    receipt_bytes = own['final-capture/receipt.json']
+    require(digest(receipt_bytes) == plan['final_receipt_sha256'], 'final capture receipt')
+    receipt = json.loads(receipt_bytes)
+    original_manifest = own['final-capture/SHA256SUMS.original']
+    require(digest(original_manifest) == plan['final_manifest_sha256'], 'original capture manifest')
+    original_entries = manifest(original_manifest)
+    require(receipt['status'] == 'PASS' and receipt['input_count'] == 169, 'capture status/count')
+    require(receipt['captured_source_sha256_after'] == receipt['source_sha256_before'], 'capture stable')
+    require(type(plan['entries']) is list and len(plan['entries']) == 169, '169 restore entries')
+    inputs = {}
+    consumed_original = set()
+    counts = {'self': 0, 'request-machine': 0}
+    for entry in plan['entries']:
+        require(set(entry) == {'provider', 'source', 'destination', 'sha256'}, 'entry keys')
+        name = entry['destination']
+        safe(name)
+        require(name not in inputs, 'duplicate destination')
+        expected = sha(entry['sha256'])
+        require(receipt['source_sha256_before'].get(name) == expected, 'receipt source map')
+        original_name = 'source/'+name+'.template'
+        require(original_entries.get(original_name) == expected, 'original manifest source map')
+        require(entry['provider'] in counts, 'entry provider')
+        source = entry['source']
+        safe(source)
+        provider = own if entry['provider'] == 'self' else dep
+        require(source in provider and digest(provider[source]) == expected, 'snapshot identity')
+        inputs[name] = provider[source]
+        consumed_original.add(original_name)
+        counts[entry['provider']] += 1
+    require(counts == {'self': 17, 'request-machine': 152}, 'exact source provider counts')
+    require(set(inputs) == set(receipt['source_sha256_before']), 'exact restored membership')
+    for name in original_entries.keys()-consumed_original:
+        require('/' not in name, 'unexpected original capture member')
+        data = own['final-capture/'+name]
+        require(digest(data) == original_entries[name], 'original capture output')
+    require(len(original_entries) == 175, '175 original capture members')
+    if include_review:
+        review = plan['review']
+        raw = own['review/SHA256SUMS.original']
+        require(digest(raw) == review['manifest_sha256'], 'original review manifest')
+        review_manifest = manifest(raw)
+        archive = json.loads(own['review/archive-map.json'])
+        require(set(archive) == set(review_manifest), 'exact review archive membership')
+        for name, entry in archive.items():
+            require(set(entry) == {'provider', 'source'}, 'review archive map keys')
+            require(entry['provider'] in counts, 'review archive provider')
+            safe(entry['source'])
+            provider = own if entry['provider'] == 'self' else dep
+            require(entry['source'] in provider and
+                    digest(provider[entry['source']]) == review_manifest[name], 'review archive identity')
+        raw = own['review/final-capture/receipt.json']
+        require(digest(raw) == review['receipt_sha256'], 'review receipt')
+        record = json.loads(raw)
+        require(record['status'] == 'PASS' and record['selected_source_count'] == 175 and
+                record['source_sha256_after'] == record['source_sha256_before'], 'review stable count')
+        require(type(review['entries']) is list and len(review['entries']) == 6, 'six review input additions')
+        for entry in review['entries']:
+            require(set(entry) == {'source', 'destination', 'sha256'}, 'review entry keys')
+            name = entry['destination']
+            safe(name)
+            safe(entry['source'])
+            require(name not in inputs, 'duplicate review destination')
+            expected = sha(entry['sha256'])
+            require(record['source_sha256_before'].get(name) == expected and
+                    digest(own[entry['source']]) == expected, 'review input identity')
+            inputs[name] = own[entry['source']]
+        require({name: digest(data) for name, data in inputs.items()} == record['source_sha256_before'],
+                'exact review restored membership')
+    for name in inputs:
+        require(not any(p.as_posix() in inputs for p in PurePosixPath(name).parents
+                        if p != PurePosixPath('.')), 'destination file/directory collision')
+    # Every input byte is authenticated and buffered before the first write.
+    destination.mkdir()
+    for name, data in sorted(inputs.items()):
+        path = destination.joinpath(*PurePosixPath(name).parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('xb') as handle:
+            handle.write(data)
+    actual = {name: digest((destination/name).read_bytes()) for name in inputs}
+    require(actual == {name: digest(data) for name, data in inputs.items()}, 'restored bytes')
+    total_counts = dict(counts)
+    total_counts['self'] += 6 if include_review else 0
+    return dict(status='PASS', input_count=len(inputs), owner_provider_counts=counts,
+                provider_counts=total_counts,
+                independent_review_inputs_included=include_review,
+                source_sha256=actual, source_dependency_closure_authenticated=False,
+                current_candidate_qualified=False, profile_qualified=False, production_gate_changed=False)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--package', type=Path, required=True)
+    parser.add_argument('--request-machine', type=Path, required=True)
+    parser.add_argument('--destination', type=Path, required=True)
+    parser.add_argument('--manifest-sha256', required=True)
+    parser.add_argument('--include-review', action='store_true')
+    args = parser.parse_args()
+    result = restore(args.package, args.request_machine, args.destination, args.manifest_sha256,
+                     args.include_review)
+    print(json.dumps(result, indent=2, sort_keys=True))
+
+
+if __name__ == '__main__':
+    main()

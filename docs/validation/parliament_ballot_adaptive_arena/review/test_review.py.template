@@ -1,0 +1,518 @@
+"""Independent conditional arena controls; no complete adaptive experiment claim."""
+from collections import Counter
+from dataclasses import FrozenInstanceError, replace
+from functools import lru_cache
+from itertools import islice
+import json
+from math import sqrt
+from pathlib import Path
+import random
+import sys
+from unittest.mock import patch
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT/'target/parliament-adaptive-arena-stage'))
+import arena as a
+
+
+@pytest.fixture(scope='module')
+def source():
+    return a.Source(ROOT)
+
+
+def budget(**changes):
+    return replace(a.Budget('candidate', 1, 1, 1, 6882996, 64, 2048,
+                           'conservative-total-calls', 'provided same F', 'fixed completion'), **changes)
+
+
+def ready(source, **changes):
+    arena = a.OnlineArena(a.Plan(source, budget(**changes)))
+    arena.acknowledge_prepared_banks(a.PREPARED)
+    return arena
+
+
+def snapshot(arena):
+    return arena.plan, arena.trace, arena.counts, arena.phase, arena.resources()['stream_consumed_calls']
+
+
+def max_population(lower, upper):
+    """Independent 64-bit digit DP over an inclusive interval, not prefix candidates."""
+    if lower > upper:
+        return -1
+    @lru_cache(None)
+    def visit(bit, tight_lower, tight_upper):
+        if bit < 0:
+            return 0
+        lo = ((lower >> bit) & 1) if tight_lower else 0
+        hi = ((upper >> bit) & 1) if tight_upper else 1
+        return max(value+visit(bit-1, tight_lower and value == lo, tight_upper and value == hi)
+                   for value in range(lo, hi+1))
+    return visit(63, True, True)
+
+
+def periodic_populations(n):
+    """Population sum on [0,n) from independent bit-column periodicity."""
+    return sum((n // (2 << bit))*(1 << bit)+max(0, n % (2 << bit)-(1 << bit))
+               for bit in range(n.bit_length()))
+
+
+def writes(row, role, slots, length_bits):
+    """Reprice frozen W using bit-column counts and explicit source framing."""
+    m = 1 << 20
+    n = slots*(m+2)
+    d = max(2, n.bit_length())
+    q = length_bits+8*215150+2112
+    tau, g = (33, 704) if row == 'candidate' else (22, 696)
+    ell = 4480 if role == 'REG' else 6688
+    lengths = (254+(tau-1)*ell+10*(g//8), 598+ell, 410)
+    repetitions = (1, 1, m)
+    sx = sum(c*(length.bit_count()+sum(byte.bit_count() for byte in b'PARL/FAEST/v1')+domain.bit_count())
+             for c, length, domain in zip(repetitions, lengths, (9, 10, 11)))
+    cx = sum(c*8*(length-14+value) for c, length, value in zip(repetitions, lengths, (264, 104, 32)))
+    result = dict(x=(m+2)*4*(d*n-periodic_populations(n))+2*sx+4+2*periodic_populations(m),
+                  cx=(m+2)*(n+1)+2*cx+2*m,
+                  ccx=(m+2)*(n*(4*d-2+q)+(d-1)**2), base_xor_oracle_calls=0)
+    if role == 'VOTE':
+        result['x'] -= 4
+        result['cx'] += 4-2*m
+        result['ccx'] += 2*m
+    result['elementary_gates'] = result['x']+result['cx']+5*result['ccx']
+    return result, 1+q+d+32
+
+
+@pytest.mark.parametrize('limit', [0, 2, 3, 999, 1000, 1001, 1006, 1007, 1022, 1023, 1024,
+                                   (1 << 32), (1 << 63), (1 << 64)-1])
+def test_rejected_population_matches_interval_digit_dp(limit):
+    n = a.rejected_witness(limit)
+    expected = max(max_population(0, min(limit, 2)), max_population(1001, limit))
+    assert 0 <= n <= limit and not 3 <= n <= 1000
+    assert n.bit_count() == expected
+    exact = a.family.rejected_size('candidate', n)
+    assert exact['gates']['elementary_gates'] == 5881+2*expected
+
+
+def test_rejected_large_random_caps_and_all_small_hole_boundaries():
+    rng = random.Random(617234)
+    caps = [rng.getrandbits(64) for _ in range(256)]
+    caps += [min((1 << 64)-1, (1 << bit)+offset) for bit in range(11, 64) for offset in (-1, 0, 1)]
+    for upper in caps:
+        assert a.rejected_witness(upper).bit_count() == max(1, max_population(1001, upper))
+    best = 0
+    for upper in range(4097):
+        if not 3 <= upper <= 1000:
+            best = max(best, upper.bit_count())
+        assert a.rejected_witness(upper).bit_count() == best
+    assert a.rejected_witness(1024) == 1023  # Endpoint-only pricing undercounts.
+    assert a.rejected_witness(1001).bit_count() == 7  # Unfiltered range pricing overcounts.
+
+
+@pytest.mark.parametrize('row,t,i,b', [('candidate', 1, 3, 23), ('comparator', 7, 2, 4096),
+                                     ('candidate', 0, 1, 64), ('comparator', 1 << 63, 1 << 63, 64)])
+def test_total_call_recost_from_frozen_endpoint_observations(source, row, t, i, b):
+    plan = a.Plan(source, budget(row=row, valid=t, invalid=i, queries=3, length_bits=b,
+                               rejected_length=(1 << 64)-1))
+    s = t+i
+    n = s*((1 << 20)+2)
+    assert plan.geometry.capacity == n
+    accepted = json.loads((ROOT/'target/parliament-ideal-machine-stage/request-accepted-observation.json').read_bytes())
+    content = json.loads((ROOT/'target/parliament-content-resources-stage/capture/observation.json').read_bytes())
+    reg = next(c['resources'] for c in accepted['source_cases'] if (c['row'], c['role']) == (row, 'REG'))
+    vote = next(c['family_resources'] for c in content['cases'] if (c['row'], c['list_count']) == (row, 1000))
+    vectors = []
+    for role, frozen in (('REG', reg), ('VOTE', vote)):
+        old, _ = writes(row, role, 1 << 44, 64)
+        current, clean = writes(row, role, s, b)
+        assert old == frozen['components']['writes']['gates']
+        exact = {key: frozen['gates'][key]-old[key]+current[key] for key in old}
+        if role == 'REG':
+            exact['x'] += 468  # Two P1 traversals; scalar elementary maximum unchanged.
+        vectors.append(exact)
+        assert frozen['shared_work_bits'] > clean
+    valid = {k: max(v[k] for v in vectors) for k in vectors[0]}
+    rejected = dict(x=569+128, cx=872, ccx=888, base_xor_oracle_calls=0, elementary_gates=5881+128)
+    invalid = {k: max(vectors[1][k], rejected[k]) for k in vectors[1]}
+    assert dict(plan.valid_maxima) == valid
+    assert dict(plan.invalid_maxima) == invalid
+    k = b+8*215150
+    lookup = dict(x=4*k*n+4*n+2, cx=4*k*n, ccx=n*(4*k+6+2112)+2114, base_xor_oracle_calls=2)
+    lookup['elementary_gates'] = lookup['x']+lookup['cx']+5*lookup['ccx']
+    assert dict(plan.query_gates) == lookup
+    report = plan.resources()
+    for key in ('x', 'cx', 'ccx', 'base_xor_oracle_calls'):
+        assert report['coordinatewise_body_gate_upper'][key] == t*valid[key]+i*invalid[key]+3*lookup[key]
+    assert report['separately_bounded_body_elementary'] == (
+        t*valid['elementary_gates']+i*invalid['elementary_gates']+3*lookup['elementary_gates'])
+    private = max(c['original_private_coin_bits'] for c in (reg, vote))
+    out = max(c['caller_output_bits'] for c in (reg, vote))
+    work = max(*(c['retained_derived_bits']+c['shared_work_bits'] for c in (reg, vote)),
+               2*n+k+2114, 519)
+    public = 3608+1024*((1 << 64)-1)
+    expected = n*(1+k+2112)+max(2, n.bit_length())+s*(public+2*private+out)+3*(b+8*6882996+1+2112)+work
+    assert plan.size == expected and plan.work == work
+    assert report['preparation_gates'] == dict(h=s*private, cx=s*private)
+    assert report['coin_and_purifier_initial_zero_bits'] == 2*s*private
+    assert report['retained_purifier_bits'] == s*private
+
+
+def read_bits(label, start, count):
+    return sum(1 << (wire-start) for wire in label if start <= wire < start+count)
+
+
+def write_bits(label, start, width, value):
+    assert 0 <= value < 1 << width
+    return frozenset(wire for wire in label if not start <= wire < start+width) | frozenset(
+        start+i for i in range(value.bit_length()) if value & (1 << i))
+
+
+def quantum(vector, gates):
+    """Independent sparse-wire amplitudes; size is active support, not wire extent."""
+    vector = dict(vector)
+    for op, *args in gates:
+        result = {}
+        for label, amplitude in vector.items():
+            if op == 'h':
+                wire, = args
+                for bit in (0, 1):
+                    out = (label-{wire}) | ({wire} if bit else set())
+                    sign = -1 if bit and wire in label else 1
+                    result[out] = result.get(out, 0j)+sign*amplitude/sqrt(2)
+                continue
+            if op == 'F:variable':
+                start, bits, message, capacity, output, width = args
+                assert width == 2112
+                n = read_bits(label, start, bits)
+                assert n <= capacity
+                assert not any(message+8*n <= w < message+8*capacity for w in label)
+                raw = bytes(read_bits(label, message+8*i, 8) for i in range(n))
+                # One fixed full2112-bit XOR oracle, with an explicit toy completion.
+                value = (7+sum((i+1)*byte for i, byte in enumerate(raw))) & 0xffff
+                out = label ^ frozenset(output+i for i in range(16) if value & (1 << i))
+            else:
+                assert op in ('x', 'cx', 'ccx') and len(set(args)) == len(args)
+                out = label ^ {args[-1]} if all(w in label for w in args[:-1]) else label
+            result[out] = result.get(out, 0j)+amplitude
+        vector = {key: value for key, value in result.items() if abs(value) > 1e-12}
+    return vector
+
+
+def close(actual, expected):
+    assert set(actual) == set(expected)
+    assert all(abs(actual[key]-value) < 1e-10 for key, value in expected.items())
+
+
+def test_zero_request_two_query_joint_state_and_inverse_with_full_width_oracle(source):
+    with patch.object(a.family, 'envelope', side_effect=AssertionError('no request family when S=0')):
+        arena = a.OnlineArena(a.Plan(source, budget(valid=0, invalid=0, queries=2)))
+    assert tuple(arena.emit_preparation()) == ()
+    plan = arena.plan
+    assert plan.coins == plan.public == plan.output == 0 and plan.work == 2112
+    assert plan.geometry.log_bits == 0
+    assert plan.resources()['preparation_gates'] == dict(h=0, cx=0)
+    base = frozenset()
+    for i, byte in enumerate((81, 82)):
+        slot = plan.query_slot(i)
+        base = write_bits(base, slot['query'].start, 64, 1)
+        base = write_bits(base, slot['query'].start+64, 8, byte)
+        base |= {slot['output'].start+3}
+    base |= {plan.query_slot(0)['enable'].start}
+    entangled = base | {plan.query_slot(1)['enable'].start, plan.size}
+    initial = {base: 1/sqrt(2), entangled: 1j/sqrt(2)}
+    state = initial
+    for _ in range(2):
+        bound = arena.bind_lookup(query_contract=a.QUERY)
+        stream = tuple(arena.emit_next())
+        assert Counter(g[0] for g in stream) == {'F:variable': 2, 'ccx': 2112}
+        oracle = [g for g in stream if g[0] == 'F:variable']
+        assert oracle[0] == oracle[1] and oracle[0][4] == 6882996
+        assert bound.description.reservation == 0
+        state = quantum(state, stream)
+    expected = {}
+    for label, amplitude in initial.items():
+        label = write_bits(label, plan.query_slot(0)['output'].start, 2112, 8 ^ (7+81))
+        if plan.query_slot(1)['enable'].start in label:
+            label = write_bits(label, plan.query_slot(1)['output'].start, 2112, 8 ^ (7+82))
+        expected[label] = amplitude
+    close(state, expected)
+    close(quantum(state, arena.emit_chosen_inverse()), initial)
+    assert arena.phase == 'body-undone'
+    assert arena.resources()['preparation_physically_executed'] is False
+    with pytest.raises(ValueError):
+        arena.bind_lookup(query_contract=a.QUERY)
+
+
+@pytest.mark.parametrize('first_count', [1001, 1002])
+def test_actual_rejected_output_selects_next_shape_and_retains_inverse(source, first_count):
+    arena = ready(source, valid=0, invalid=2, queries=0)
+    plan = arena.plan
+    first = arena.bind_rejected(first_count, entry_contract=a.REJECTED)
+    retained_mapping = first.mapping
+    # Caller public and XOR-target contents; unmaterialized private banks remain
+    # an external factor untouched by these zero-coin rejected components.
+    initial_label = frozenset({plan.request_slot(0)['output'].start+251,
+                               plan.request_slot(1)['output'].start+252})
+    initial = {initial_label: 1+0j}
+    state = quantum(initial, arena.emit_next())
+    label, = state
+    offset = first.call.machine.resources()['common_output_regions']['actual_length'][0]
+    observed_count = read_bits(label, plan.request_slot(0)['output'].start+offset, 64)
+    assert observed_count == first_count
+    selected = 2 if observed_count & 1 else 0
+    second = arena.bind_rejected(selected, entry_contract=a.REJECTED)
+    assert second.slot == 1 and first.mapping == retained_mapping
+    assert second.call.machine.list_count == selected
+    state = quantum(state, arena.emit_next())
+    assert all(not any(plan.work_start <= wire < plan.size for wire in basis) for basis in state)
+    assert all(c.description.coin_bits == c.description.reservation == 0 for c in arena.trace)
+    assert arena.counts == (0, 2, 0)
+    close(quantum(state, arena.emit_chosen_inverse()), initial)
+    assert arena.resources()['chosen_trace_storage_priced'] is False
+
+
+@pytest.mark.parametrize('role', ['REG', 'VOTE'])
+def test_real_generator_coin_bank_does_not_follow_selected_public_length(source, role):
+    arena = ready(source, queries=0)
+    plan = arena.plan
+    first = arena.bind_rejected(0, entry_contract=a.REJECTED)
+    before = first.mapping
+    tuple(arena.emit_next())
+    if role == 'REG':
+        shape = a.PublicShape('REG', body_bytes=65, context_bytes=(1, 2, 3, 4, 5, 6))
+        bound = arena.bind_reg(shape, entry_contract=a.VALID)
+        public = 8*(65+21+192)
+    else:
+        shape = a.PublicShape('VOTE', list_count=9)
+        bound = arena.bind_vote(shape, entry_contract=a.VALID)
+        public = 3608+1024*9
+    slot = plan.request_slot(1)
+    assert first.mapping == before
+    assert bound.mapping.span(0, public) == slot['public'].start
+    assert bound.mapping.span(public, bound.description.coin_bits) == slot['coins'].start
+    with pytest.raises(ValueError, match='crosses'):
+        bound.mapping.span(public-1, 2)
+    assert public < plan.public
+    assert bound.description.reservation == (1 << 20)+2
+    prefix = tuple(islice(arena.emit_next(), 5))
+    assert len(prefix) == 5
+    images = [(s.global_start, s.global_start+s.bits) for s in bound.mapping.segments]
+    assert all(not (start < slot['purifier'].start+slot['purifier'].bits and slot['purifier'].start < end)
+               for start, end in images)
+    assert arena.resources()['stream_consumed_calls'] == 1  # Prefix is not completion.
+    with pytest.raises(ValueError):
+        arena.emit_chosen_inverse()
+
+
+def test_plan_reference_slots_and_receipts_are_immutable(source):
+    arena = ready(source, valid=0, invalid=1, queries=0)
+    original = arena.plan
+    bound = arena.bind_rejected(2, entry_contract=a.REJECTED)
+    with pytest.raises(AttributeError):
+        arena.plan = a.Plan(source, budget(valid=0, invalid=0, queries=0))
+    with pytest.raises(FrozenInstanceError):
+        original.public = 1
+    with pytest.raises(FrozenInstanceError):
+        bound.slot = 17
+    slot = original.request_slot(0)
+    changed = original.request_slot(0)
+    changed['coins'] = changed['public']
+    assert original.request_slot(0) == slot
+    assert arena.plan is original and arena.trace == (bound,)
+
+
+@pytest.mark.parametrize('operation', ['reg', 'vote', 'rejected', 'lookup'])
+def test_budget_and_admission_refuse_without_spending_slots_or_calling_factories(source, operation):
+    arena = ready(source, valid=0, invalid=0, queries=0)
+    before = snapshot(arena)
+    def invoke():
+        if operation == 'reg': return arena.bind_reg(a.PublicShape('REG'), entry_contract=a.VALID)
+        if operation == 'vote': return arena.bind_vote(a.PublicShape('VOTE', list_count=3), entry_contract=a.INVALID)
+        if operation == 'rejected': return arena.bind_rejected(0, entry_contract=a.REJECTED)
+        return arena.bind_lookup(query_contract=a.QUERY)
+    with patch.object(a, 'actual_transition', side_effect=AssertionError('factory must not run')), \
+         patch.object(a, 'actual_content_request', side_effect=AssertionError('factory must not run')), \
+         patch.object(a, 'actual_rejected_vote', side_effect=AssertionError('factory must not run')), \
+         patch.object(a, 'actual_lookup', side_effect=AssertionError('factory must not run')):
+        # Module-integrity guards can reject replaced functions even earlier.
+        with pytest.raises((ValueError, AttributeError)):
+            invoke()
+    assert snapshot(arena) == before
+
+
+def test_witness_invalid_and_raw_inputs_are_not_promoted_by_caller_labels(source):
+    arena = ready(source)
+    before = snapshot(arena)
+    for operation in (
+        lambda: arena.bind_reg(a.PublicShape('REG'), entry_contract='witness-invalid'),
+        lambda: arena.bind_vote(a.PublicShape('VOTE', list_count=3), entry_contract='witness-invalid'),
+        lambda: arena.bind_reg({'role': 'REG'}, entry_contract=a.VALID),
+        lambda: arena.bind_vote(a.PublicShape('VOTE', list_count=3), entry_contract=a.REJECTED),
+        lambda: arena.bind_rejected(1000, entry_contract=a.REJECTED),
+        lambda: arena.bind_lookup(query_contract='caller says noncanonical is fine')):
+        with pytest.raises(ValueError):
+            operation()
+        assert snapshot(arena) == before
+    report = arena.resources()
+    assert not report['entry_and_witness_contract_checked']
+    assert any('witness' in term and 'entry' in term for term in report['unknown_terms'])
+
+
+@pytest.mark.parametrize('module_name', ['public_machine', 'request_transition', 'l0_machine', 'purification'])
+def test_wrong_origin_module_without_matching_logical_suffix_refused(source, module_name):
+    arena = ready(source, valid=0, invalid=1, queries=0)
+    before = snapshot(arena)
+    module = sys.modules[module_name]
+    with patch.object(module, '__file__', '/other/'+module_name+'.py'):
+        with pytest.raises(ValueError, match='loaded module source root'):
+            arena.bind_rejected(0, entry_contract=a.REJECTED)
+    assert snapshot(arena) == before
+
+
+@pytest.mark.parametrize('operation', ['preparation', 'acknowledge', 'reg', 'vote', 'rejected', 'lookup', 'resources', 'emit', 'inverse'])
+def test_selected_byte_drift_refused_at_every_online_boundary(source, operation):
+    arena = a.OnlineArena(a.Plan(source, budget()))
+    if operation not in ('preparation', 'acknowledge'):
+        arena.acknowledge_prepared_banks(a.PREPARED)
+    if operation == 'emit':
+        arena.bind_rejected(0, entry_contract=a.REJECTED)
+    if operation == 'inverse':
+        arena.bind_rejected(0, entry_contract=a.REJECTED)
+        tuple(arena.emit_next())
+    before = (arena.trace, arena.counts, arena.phase)
+    path = ROOT/'target/parliament-adaptive-arena-stage/arena.py'
+    original = Path.read_bytes
+    def drift(file):
+        data = original(file)
+        return data+b'\n# independent drift\n' if file == path else data
+    with patch.object(Path, 'read_bytes', drift):
+        with pytest.raises(ValueError, match='source drift'):
+            if operation == 'preparation': arena.emit_preparation()
+            elif operation == 'acknowledge': arena.acknowledge_prepared_banks(a.PREPARED)
+            elif operation == 'reg': arena.bind_reg(a.PublicShape('REG'), entry_contract=a.VALID)
+            elif operation == 'vote': arena.bind_vote(a.PublicShape('VOTE', list_count=3), entry_contract=a.INVALID)
+            elif operation == 'rejected': arena.bind_rejected(0, entry_contract=a.REJECTED)
+            elif operation == 'lookup': arena.bind_lookup(query_contract=a.QUERY)
+            elif operation == 'resources': arena.resources()
+            elif operation == 'emit': arena.emit_next()
+            else: arena.emit_chosen_inverse()
+    assert (arena.trace, arena.counts, arena.phase) == before
+
+
+def test_partial_abandoned_preparation_and_body_are_not_execution_or_reusable_slots(source):
+    arena = a.OnlineArena(a.Plan(source, budget(valid=0, invalid=1, queries=0)))
+    preparation = arena.emit_preparation()
+    assert arena.phase == 'preparing'
+    prefix = tuple(islice(preparation, 4))
+    slot = arena.plan.request_slot(0)
+    assert prefix == (('h', slot['coins'].start), ('cx', slot['coins'].start, slot['purifier'].start),
+                      ('h', slot['coins'].start+1), ('cx', slot['coins'].start+1, slot['purifier'].start+1))
+    preparation.close()
+    assert arena.phase == 'preparing'
+    for operation in (arena.emit_preparation, lambda: arena.acknowledge_prepared_banks(a.PREPARED),
+                      lambda: arena.bind_rejected(0, entry_contract=a.REJECTED), arena.emit_chosen_inverse):
+        with pytest.raises(ValueError): operation()
+    body = ready(source, valid=0, invalid=2, queries=0)
+    body.bind_rejected(0, entry_contract=a.REJECTED)
+    stream = body.emit_next()
+    next(stream)
+    stream.close()
+    assert body.resources()['stream_consumed_calls'] == 0 and body.counts == (0, 1, 0)
+    for operation in (body.emit_next, body.emit_chosen_inverse,
+                      lambda: body.bind_rejected(2, entry_contract=a.REJECTED)):
+        with pytest.raises(ValueError): operation()
+    assert body.resources()['iterator_consumption_is_not_execution_evidence'] is True
+
+
+def test_source_drift_at_final_iterator_boundary_does_not_claim_completed_execution(source):
+    arena = ready(source, valid=0, invalid=1, queries=0)
+    arena.bind_rejected(0, entry_contract=a.REJECTED)
+    stream = arena.emit_next()
+    next(stream)
+    path = ROOT/'target/parliament-coin-preparation-stage/purification.py'
+    original = Path.read_bytes
+    def drift(file):
+        raw = original(file)
+        return raw+b'\n' if file == path else raw
+    with patch.object(Path, 'read_bytes', drift):
+        with pytest.raises(ValueError, match='source drift'):
+            tuple(stream)
+    assert arena.resources()['stream_consumed_calls'] == 0
+    with pytest.raises(ValueError): arena.emit_chosen_inverse()
+
+
+def test_huge_query_cap_is_explicit_geometry_not_a_theorem_or_runtime_bound(source):
+    plan = a.Plan(source, budget(valid=0, invalid=0, queries=1 << 80))
+    assert plan.query_slot((1 << 80)-1)['output'].start+2112 == plan.work_start
+    result = plan.resources()
+    assert result['coordinatewise_body_gate_upper']['base_xor_oracle_calls'] == 1 << 81
+    assert result['external_lookup_cap_is_not_theorem_query_bound'] is True
+    for field in ('initial_quantum_state_checked', 'entry_and_witness_contract_checked',
+                  'controller_execution_priced', 'preparation_physically_executed',
+                  'full_adaptive_game_implemented', 'full_joint_quantum_theorem_proved',
+                  'complete_resource_vector', 'physical_workspace_bound', 'primitive_entry_bridge_proved',
+                  'current_candidate_qualified', 'production_gate_changed'):
+        assert result[field] is False
+    assert len(result['unknown_terms']) == 8
+
+
+def test_dirty_lookup_workspace_changes_output_instead_of_initializing_it(source):
+    arena = a.OnlineArena(a.Plan(source, budget(valid=0, invalid=0, queries=1)))
+    tuple(arena.emit_preparation())
+    bound = arena.bind_lookup(query_contract=a.QUERY)
+    stream = tuple(arena.emit_next())
+    query = arena.plan.query_slot(0)
+    clean = frozenset({query['enable'].start})  # Empty canonical query, output zero.
+    scratch = arena.plan.work_start
+    dirty = clean | {scratch}
+    clean_result, = quantum({clean: 1+0j}, stream)
+    dirty_result, = quantum({dirty: 1+0j}, stream)
+    assert read_bits(clean_result, query['output'].start, 2112) == 7
+    assert read_bits(dirty_result, query['output'].start, 2112) == (7 ^ 1)
+    assert scratch in dirty_result and scratch not in clean_result
+    assert bound.description.coin_bits == 0
+    assert arena.resources()['requires_boundary_clean_work'] is True
+    assert arena.resources()['initial_quantum_state_checked'] is False
+
+
+@pytest.mark.parametrize('bad_kind', ['dirty_unused_slot', 'prepopulated_counter'])
+def test_small_actual_append_requires_zero_remaining_slots_and_capacity(bad_kind):
+    from chronological_log import EnabledAppend
+    append = EnabledAppend(1, 2, 2)
+    p = append.layout()
+    clean = frozenset({p['enable'], p['incoming']})
+    if bad_kind == 'dirty_unused_slot':
+        dirty = clean | {1}  # Active flag and counter zero, but unused payload not zero.
+        after, = quantum({dirty: 1+0j}, append.emit())
+        assert 0 in after and 1 not in after  # XOR cancels the expected incoming bit.
+        assert read_bits(after, p['counter'], append.counter_bits) == 1
+    else:
+        dirty = clean | {0, 1, p['counter']}  # One canonical record already fills N=1.
+        after, = quantum({dirty: 1+0j}, append.emit())
+        assert read_bits(after, p['counter'], append.counter_bits) == 2 > append.capacity
+        assert {w for w in after if w < p['log_bits']} == {0, 1}
+    # These are violations of an explicit semantic premise, not runtime checks.
+    assert append.resources()['conditional_on_canonical_prefix_and_capacity'] is True
+
+
+def test_initial_internal_zero_inventory_and_external_noninterference_premises(source):
+    for t, i, q in ((0, 0, 0), (0, 0, 1), (1, 1, 2)):
+        plan = a.Plan(source, budget(valid=t, invalid=i, queries=q))
+        r = plan.resources()
+        pair_zero = 2*(t+i)*plan.coins
+        shared_zero = plan.geometry.log_bits+plan.geometry.counter_bits+plan.work
+        assert r['coin_and_purifier_initial_zero_bits'] == pair_zero
+        assert r['initial_log_zero_bits'] == plan.geometry.log_bits
+        assert r['initial_counter_zero_bits'] == plan.geometry.counter_bits
+        assert r['initial_boundary_clean_work_bits'] == plan.work
+        assert r['initial_log_counter_and_work_zero_bits'] == shared_zero
+        assert r['explicit_preparation_total_internal_zero_bits'] == shared_zero+pair_zero
+        assert r['zero_input_budget_applies_to_explicit_H_CX_construction'] is True
+        assert r['supplied_Bell_state_acknowledgment_does_not_claim_zero_coins'] is True
+        assert r['requires_initial_zero_log_and_counter'] is True
+        assert r['requires_boundary_clean_work'] is True
+        assert r['requires_external_no_write_to_log_counter_work'] is True
+        assert r['requires_private_coin_purifier_and_future_bank_noninterference'] is True
+        assert r['requires_actual_source_component_contracts'] is True
+        assert r['initial_quantum_state_checked'] is False
+        assert r['preparation_physically_executed'] is False
+        assert r['controller_execution_priced'] is False

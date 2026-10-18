@@ -54,7 +54,11 @@ fn quarantine_overflow_rejects_one_tx() {
     // The same original inputs pass native payload execution and three-of-four
     // certification. The fixture does not author transaction results.
     let proposal = chain.proposal(None, vec![tx1, tx2]);
-    let committed = chain.commit_proposal(proposal, Signers::Quorum, Default::default());
+    let committed = chain.commit_proposal(
+        proposal,
+        Signers::Quorum,
+        iroha_sumeragi::types::ControlWitness::default(),
+    );
     let block = committed.block();
     assert_eq!(block.external_transactions().count(), 2);
     // Exactly one approved input and one explicit quarantine overflow remain.

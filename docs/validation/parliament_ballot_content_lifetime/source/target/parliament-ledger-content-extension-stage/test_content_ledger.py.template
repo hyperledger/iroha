@@ -1,0 +1,279 @@
+"""ContentFamily metadata extension checks, with no gate-stream execution."""
+from dataclasses import FrozenInstanceError,replace
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from unittest.mock import patch
+import pytest
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+sys.path.insert(0,str(HERE))
+import content_ledger as l
+
+@pytest.fixture(scope='module')
+def catalog():return l.Catalog(ROOT)
+
+
+def experiment(t=2,q=1,b=64,coins='classical-retained'):
+    return l.Experiment(t,q,b,l.base.MIN_MESSAGE,'immutable-F','agreed-completion',coins)
+
+
+def event(ex,row='candidate',n=3,name='content'):
+    return l.ContentRequest(name,ex.interface,row,n)
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('n',[3,1000])
+def test_original_full_cap_totals_and_allocation(catalog,row,n):
+    ex=experiment(t=1 << 44)
+    r=l.account(catalog,ex,(event(ex,row,n),))
+    raw=json.loads((ROOT/l.OBS_PATH).read_bytes())
+    c=next(x for x in raw['cases'] if (x['row'],x['list_count'])==(row,n))
+    original=c['family_resources'];item=r['events'][0]
+    assert r['body_gates']==original['gates']
+    assert r['ownership']['known_allocated_bits']==original['total_logical_bits']
+    assert item['caller_output_bits']==original['caller_output_bits']==253+8*c['base_return_resources']['proof_bytes']
+    assert item['public_input_bits']==3608+1024*n
+    assert item['original_coin_bits']==original['original_private_coin_bits']
+    assert item['public_input_bits']+item['original_coin_bits']==original['original_input_bits']
+    assert item['retained_derived_bits']==original['retained_derived_bits']
+    assert item['shared_work_bits']==original['shared_work_bits']
+    assert item['rebased_writes']['gates']==original['components']['writes']['gates']
+    assert item['content_validity'] is None and item['actual_appends'] is None
+    assert item['covers_valid_and_invalid_content'] and item['invalid_content_log_identity']
+    assert item['invalid_content_still_charged_full_gates']
+    assert r['capacity']['reserved_upper']==l.base.M+2
+
+
+@pytest.mark.parametrize('t,b',[(1,23),(2,64),(1 << 44,4096),(1 << 64,64)])
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('n',[3,1000])
+def test_rebase_validated_w_and_all_dimensions(catalog,t,b,row,n):
+    ex=experiment(t=t,b=b);ev=event(ex,row,n);case=catalog.content(ev)
+    r=l.account(catalog,ex,(ev,));one=r['events'][0]
+    ordinary,work=l.base.write_resources(ex.interface,row,'VOTE')
+    expected=l.Gates(ordinary.x-4,ordinary.cx+4-2*l.base.M,ordinary.ccx+2*l.base.M)
+    assert one['rebased_writes']==dict(gates=expected.report(),clean_work_bits=work,
+        counter_bits=max(2,ex.interface.capacity.bit_length()),log_bits=ex.interface.log_bits)
+    assert r['body_gates']==(case.generator+expected+case.returns).report()
+    assert one['shared_work_bits']==max(case.generator_work,work,case.return_work)
+    assert r['ownership']['reusable_clean_bits']==case.retained+one['shared_work_bits']
+    assert r['ownership']['counter_bits']==ex.interface.counter_bits
+    assert r['ownership']['persistent_log_bits']==ex.interface.log_bits
+
+
+def test_p0_plus_legacy_n1000_only_and_return_delta(catalog):
+    for row in ('candidate','comparator'):
+        ex=experiment()
+        c=catalog.content(event(ex,row,1000))
+        old=next(x for x in catalog.legacy.cases if x.row==row and x.role=='VOTE')
+        assert c.public==old.public and c.coins==old.coins
+        assert c.retained==old.retained+60
+        assert c.output==old.output+156
+        assert c.return_work==old.output+2
+        assert c.generator.f==old.generator.f
+        assert c.generator.x>=old.generator.x and c.generator.cx>=old.generator.cx
+        assert c.generator.ccx>=old.generator.ccx
+
+
+def test_mixed_order_caps_prefix_reservation_and_storage(catalog):
+    ex=experiment(t=4,q=2)
+    seq=(event(ex,name='content-1'),l.Query('q1',ex.interface,l.base.MIN_MESSAGE),
+         l.RejectedVote('reject',ex.interface,'candidate',2),
+         l.AcceptedRequest('reg',ex.interface,'comparator','REG',4096,(256,)*6,0),
+         event(ex,'comparator',1000,'content-2'),l.Query('q2',ex.interface,l.base.MIN_MESSAGE))
+    result=l.account(catalog,ex,seq)
+    singles=[l.account(catalog,ex,(x,)) for x in seq]
+    assert result['event_counts']==dict(requests=4,queries=2,generating=3,content_family=2)
+    assert result['body_gates']['base_xor_oracle_calls']==6200+5960+5960+4
+    for key in result['body_gates']:
+        assert result['body_gates'][key]==sum(x['body_gates'][key] for x in singles)
+    unit=l.base.M+2
+    assert [x['conservative_log_occupancy_upper'] for x in result['events']]==[unit,unit,unit,2*unit,3*unit,3*unit]
+    assert result['capacity']['reserved_upper']==3*unit<ex.interface.capacity
+    shared=max(x['ownership']['reusable_clean_bits'] for x in singles)
+    interface_sum=sum(x['ownership']['known_allocated_bits']-ex.interface.log_bits-
+        ex.interface.counter_bits-x['ownership']['reusable_clean_bits'] for x in singles)
+    assert result['ownership']['known_allocated_bits']==interface_sum+ex.interface.log_bits+ex.interface.counter_bits+shared
+
+
+def test_legacy_only_body_ownership_unchanged(catalog):
+    ex=experiment()
+    events=(l.AcceptedRequest('accepted',ex.interface,'candidate','VOTE',0,(0,)*6,1000),
+            l.Query('query',ex.interface,l.base.MIN_MESSAGE))
+    old=l.base.account(catalog.legacy,ex,events);new=l.account(catalog,ex,events)
+    for key in ('body_gates','ownership','capacity','unknown_external_terms','coin_preparation'):
+        assert old[key]==new[key]
+    assert old['events']==new['events']
+    assert new['event_counts']['content_family']==0
+
+
+def test_retained_purification_additional_inputs_and_preparation(catalog):
+    ex=experiment(coins='purified-retained')
+    events=(event(ex,name='c'),l.AcceptedRequest('a',ex.interface,'candidate','REG',4096,(256,)*6,0))
+    pure=l.account(catalog,ex,events)
+    mixed=l.account(catalog,replace(ex,coins='classical-retained'),events)
+    coins=sum(x['original_coin_bits'] for x in pure['events'])
+    assert pure['body_gates']==mixed['body_gates']
+    assert pure['coin_preparation']['cx']==pure['coin_preparation']['hadamard']==coins
+    assert pure['ownership']['known_allocated_bits']==mixed['ownership']['known_allocated_bits']+coins
+    assert pure['coin_preparation']['requires_clean_coin_and_purifier_inputs']
+    assert pure['coin_preparation']['executed'] is False
+
+
+def test_empty_trace_and_l0_only(catalog):
+    ex=experiment(t=0,q=1)
+    empty=l.account(catalog,ex,())
+    assert empty['ownership']['known_allocated_bits']==2
+    assert empty['body_gates']==l.Gates().report()
+    one=l.account(catalog,ex,(l.Query('q',ex.interface,l.base.MIN_MESSAGE),))
+    assert one['body_gates']==l.Gates(ccx=l.base.V,f=2).report()
+    assert one['capacity']['reserved_upper']==0
+
+
+@pytest.mark.parametrize('n',[4,5,999])
+def test_refuse_unobserved_intermediate_counts(catalog,n):
+    ex=experiment()
+    with pytest.raises(ValueError,match='unsupported ContentFamily shape'):
+        l.account(catalog,ex,(event(ex,n=n),))
+
+
+@pytest.mark.parametrize('change',[dict(body_bytes=1),dict(context_bytes=(1,0,0,0,0,0))])
+def test_refuse_unobserved_public_lengths(catalog,change):
+    ex=experiment()
+    with pytest.raises(ValueError,match='unsupported ContentFamily shape'):
+        l.account(catalog,ex,(replace(event(ex),**change),))
+
+
+@pytest.mark.parametrize('value',[True,False,2,1001,3.0,'3',None])
+def test_typed_content_count_refusal(value):
+    with pytest.raises(ValueError):event(experiment(),n=value)
+
+
+def test_no_claimed_validity_can_reduce_reservation():
+    ex=experiment()
+    raw=dict(experiment=asdict(ex),events=[dict(kind='content',event_id='c',interface=asdict(ex.interface),
+                                              row='candidate',list_count=3,valid=False)])
+    with pytest.raises(TypeError):l.parse_document(raw)
+
+
+def test_union_caps_duplicates_and_common_interface(catalog):
+    ex=experiment(t=1,q=1);c=event(ex)
+    bad=(c,l.RejectedVote('reject',ex.interface,'candidate',1))
+    with pytest.raises(ValueError,match='request cap'):l.account(catalog,ex,bad)
+    with pytest.raises(ValueError,match='duplicate event'):l.account(catalog,ex,(c,c))
+    for changes in (dict(capacity=0),dict(length_bits=23),dict(oracle='different'),dict(completion='different')):
+        with pytest.raises(ValueError,match='N/b/F/completion'):
+            l.account(catalog,ex,(replace(c,interface=replace(ex.interface,**changes)),))
+
+
+def test_disjoint_allocations_and_borrowed_outputs(catalog):
+    ex=experiment();events=(event(ex),)
+    normal=l.account(catalog,ex,events)
+    allocations=tuple(l.Allocation(**x) for x in normal['ownership']['allocations'])
+    wrong=(allocations[0],replace(allocations[1],start=0),*allocations[2:])
+    with pytest.raises(ValueError,match='overlapping'):l.account(catalog,ex,events,wrong)
+    wrong=(replace(allocations[0],bits=allocations[0].bits+1),*allocations[1:])
+    with pytest.raises(ValueError,match='membership and widths'):l.account(catalog,ex,events,wrong)
+    moved=tuple(replace(x,start=x.start+10) for x in allocations)
+    relocated=l.account(catalog,ex,events,moved)
+    assert relocated['ownership']['known_allocated_bits']==normal['ownership']['known_allocated_bits']
+    assert relocated['ownership']['address_span_bits']==normal['ownership']['address_span_bits']+10
+
+
+def test_catalog_sources_exact_parse_buffers_and_immutability(catalog):
+    assert len(catalog.pins)==154
+    with pytest.raises(FrozenInstanceError):catalog.cases=()
+    original=Path.read_bytes
+    def corrupted(path):
+        data=original(path)
+        if path==ROOT/l.OBS_PATH:return data+b' '
+        return data
+    with patch.object(Path,'read_bytes',corrupted):
+        with pytest.raises(ValueError,match='source drift'):l.Catalog(ROOT)
+    def bad_base(path):
+        data=original(path)
+        if path==ROOT/l.BASE_PATH:return data+b'\n'
+        return data
+    with patch.object(Path,'read_bytes',bad_base):
+        with pytest.raises(ValueError,match='source drift'):l.load_base(ROOT)
+
+
+def test_final_source_drift_refused(catalog):
+    original=l.authenticated_bytes;calls=0
+    def change(path,expected):
+        nonlocal calls
+        calls+=1
+        if calls>len(catalog.pins):raise ValueError('source drift: injected after check')
+        return original(path,expected)
+    with patch.object(l,'authenticated_bytes',change):
+        with pytest.raises(ValueError,match='source drift'):
+            l.account(catalog,experiment(t=0),())
+
+
+def test_unknown_terms_and_flags_remain_false(catalog):
+    ex=experiment();r=l.account(catalog,ex,(event(ex),))
+    assert r['unknown_external_terms'] and all(x is None for x in r['unknown_external_terms'].values())
+    for key in ('complete_resource_vector','profile_qualified','production_gate_changed',
+        'full_quantum_joint_state_theorem_proved','full_adaptive_driver_executed',
+        'family_wide_resource_maximum_proved','actual_input_primitive_bridge','independent_cryptographic_review',
+        'physical_workspace_bound','current_candidate_qualified','actual_content_validity_evaluated'):
+        assert r[key] is False
+
+
+def test_json_cli_refuses_qualification_and_unsupported_shape(tmp_path):
+    ex=experiment()
+    doc=dict(experiment=asdict(ex),events=[dict(kind='content',event_id='c',interface=asdict(ex.interface),
+                                              row='comparator',list_count=1000)])
+    path=tmp_path/'events.json';path.write_text(json.dumps(doc))
+    cmd=[sys.executable,'-B',str(HERE/'content_ledger.py'),'--root',str(ROOT),'--events',str(path)]
+    env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1')
+    normal=subprocess.run(cmd,env=env,capture_output=True)
+    refusal=subprocess.run(cmd+['--require-qualified'],env=env,capture_output=True)
+    assert normal.returncode==0 and refusal.returncode==2
+    assert normal.stdout==refusal.stdout and not normal.stderr and not refusal.stderr
+    doc['events'][0]['list_count']=4;path.write_text(json.dumps(doc))
+    bad=subprocess.run(cmd,env=env,capture_output=True)
+    assert bad.returncode==1 and not bad.stdout and b'unsupported ContentFamily' in bad.stderr
+
+
+def asdict(value):return l.asdict(value)
+
+
+@pytest.mark.parametrize('events',[{},'',None,(),False])
+def test_json_requires_event_array(events):
+    with pytest.raises(ValueError,match='typed JSON'):
+        l.parse_document(dict(experiment=asdict(experiment()),events=events))
+
+
+@pytest.mark.parametrize('ex',[None,[],False,''])
+def test_json_requires_experiment_object(ex):
+    with pytest.raises(ValueError,match='typed JSON'):
+        l.parse_document(dict(experiment=ex,events=[]))
+
+
+def test_total_event_cap_is_not_a_valid_request_bound(catalog):
+    ex=experiment(t=2,q=0)
+    r=l.account(catalog,ex,(event(ex),l.RejectedVote('size',ex.interface,'candidate',2)))
+    assert r['event_counts']['requests']==2 and r['event_counts']['generating']==1
+    assert r['all_event_cap_is_additional_premise'] is True
+    assert r['source_theorem_valid_request_bound'] is None
+    assert r['generating_count_is_not_valid_request_count'] is True
+    assert r['events'][0]['content_validity'] is None
+    bad=asdict(ex);bad['source_valid_request_cap']=2
+    with pytest.raises(TypeError):l.parse_document(dict(experiment=bad,events=[]))
+
+
+def test_new_semantic_source_drift_is_refused():
+    original=Path.read_bytes
+    selected=ROOT/'target/parliament-ideal-machine-stage/validated_request.py'
+    def changed(path):
+        data=original(path)
+        return data+b'\n' if path==selected else data
+    with patch.object(Path,'read_bytes',changed):
+        with pytest.raises(ValueError,match='source drift'):
+            l.Catalog(ROOT)

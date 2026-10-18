@@ -27,7 +27,7 @@ pub(super) fn verify_metadata(
     let expected: [u8; 32] = Sha256::digest(bytes).into();
     let mut hash = Sha256::new();
     let mut total = 0_usize;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = super::original_stream_buffer()?;
     loop {
         original.revalidate()?;
         if original.snapshot()? != snapshot {

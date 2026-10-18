@@ -176,13 +176,13 @@ impl AuthenticatedProducerInventoryV1 {
             installed.verifier().pallas_parameters().as_ref().clone(),
             installed.verifier().vesta_parameters(16)?.as_ref().clone(),
         )?;
-        let schema: Vec<_> = plan
+        let context_fields: Vec<_> = plan
             .context()
             .schema()
             .iter()
             .map(PrimeField::to_repr)
             .collect();
-        if schema != record.context {
+        if context_fields != record.context {
             return Err(BootstrapQualificationErrorV1::Source);
         }
         let first = metadata(self.read_verifier_original(record.a[0], originals)?)?;

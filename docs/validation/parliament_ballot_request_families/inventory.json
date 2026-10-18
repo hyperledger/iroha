@@ -1,0 +1,195 @@
+{
+  "complete_resource_vector": false,
+  "current_candidate_qualified": false,
+  "files": {
+    "README.md": {
+      "original_path": "target/parliament-request-family-envelope-publication-stage/README-candidate.md",
+      "sha256": "0ddd33ddd4905d9f3a79da0fc59c2c0c255463ba192a295f461db3bc93034946"
+    },
+    "assemble.py.template": {
+      "original_path": "target/parliament-request-family-envelope-publication-stage/assemble.py",
+      "sha256": "a1028d5b102e30739850477f60ec38246a838cce764fd7cc8cfdd57832fd1bee"
+    },
+    "capture/SHA256SUMS": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/SHA256SUMS",
+      "sha256": "66c834fdbccd0818b94bd2428799321d12a08aea644ecbba3ce7b5e9910343c2"
+    },
+    "capture/collection.stderr": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/collection.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/collection.stdout": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/collection.stdout",
+      "sha256": "2a6ecac0767640a47d610b2ea645d32744f6963045aabdb13958c33d70595ae0"
+    },
+    "capture/envelopes.stderr": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/envelopes.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/envelopes.stdout": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/envelopes.stdout",
+      "sha256": "6aded572ba259f9beae5cc6ca1c78acc95714aab21849662f3d7aa6c64bdffc9"
+    },
+    "capture/junit.xml": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/junit.xml",
+      "sha256": "b9cf0603306524742a6c9d1770d410cfd5c069ad7203a6ee52566cd1c79bca09"
+    },
+    "capture/live-refusal.stderr": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/live-refusal.stderr",
+      "sha256": "0195b0aaced492c2899700c0522b095c1f8c017e7d319b941189887c9d126f2e"
+    },
+    "capture/live-refusal.stdout": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/live-refusal.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/receipt.json": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/receipt.json",
+      "sha256": "45aa1b03470958707588f5e09af9ec4047e385813144297b29840add64191293"
+    },
+    "capture/require-qualified.stderr": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/require-qualified.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/require-qualified.stdout": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/require-qualified.stdout",
+      "sha256": "6aded572ba259f9beae5cc6ca1c78acc95714aab21849662f3d7aa6c64bdffc9"
+    },
+    "capture/tests.stderr": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/tests.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/tests.stdout": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/tests.stdout",
+      "sha256": "ed379db4610059ec056c88d15bf1afcbd629c0ac58168eceaf9cf747a63674fe"
+    },
+    "components/arithmetic.py.template": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-family-bounds-review/arithmetic.py",
+      "sha256": "72e2b7bd5937103a514d526655cf0e60cbc7ee868eaa5c98fda5b7c95abe0ed4"
+    },
+    "components/capture.py.template": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-family-bounds-review/capture.py",
+      "sha256": "382fb162ee4d9991df9b36e2101ab429a37b3ef192f86ef9ef553f05f0569f48"
+    },
+    "components/capture/census.json": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-family-bounds-review/capture/census.json",
+      "sha256": "5cfb1fc77da4b146bc4ae345ba831a20fd4e4ca4237d28a5791b780b64699511"
+    },
+    "components/capture/receipt.json": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-family-bounds-review/capture/receipt.json",
+      "sha256": "6dc37a45cb36debad6aff5a5dce273b3ff125a721cee84175ead677dc3aa287b"
+    },
+    "components/capture/vote-census.csv": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-family-bounds-review/capture/vote-census.csv",
+      "sha256": "3a91f20cc3e3e7e879eac9a74f0ec587e8c0bc89f83c60e6c6651e639caa2c04"
+    },
+    "components/census.py.template": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-family-bounds-review/census.py",
+      "sha256": "b281a2c1d35c8b732c232c4bf18c31870d2191c0d4776e99e9e1f99aabf6b0b1"
+    },
+    "components/test_arithmetic.py.template": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-family-bounds-review/test_arithmetic.py",
+      "sha256": "89e041aa884edbb926cab788ccf4e5d8b223d67b60570d567d7a65bfe237f4f8"
+    },
+    "dependencies.json": {
+      "original_path": null,
+      "sha256": "075dd51cebe79e2a982a368648952cda1652f18a16489d27664e13378d136687"
+    },
+    "logical-captures.json": {
+      "original_path": null,
+      "sha256": "78f7bca743a1f2a7ed8dfc2f2dd1831389db5dfc24395134390aea29ecf4b0dd"
+    },
+    "record/README.md": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-request-family-envelope-stage/README.md",
+      "sha256": "25cbb1a13a505fd4e2dfeecaef4d8edef84a32c0bcc1d8d322d90f57779e601b"
+    },
+    "record/capture.py.template": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-request-family-envelope-stage/capture.py",
+      "sha256": "c733663122cb6c11dda4f269e0615f3381f6f8c4977fadb2e255465b155afc1b"
+    },
+    "record/envelope.py.template": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-request-family-envelope-stage/envelope.py",
+      "sha256": "b48501cde4e69c5f563c1cd890788b57fa143e2a10f83297dfa8fffc83dd2eb4"
+    },
+    "record/test_envelope.py.template": {
+      "original_path": "target/parliament-request-family-envelope-stage/capture/source/target/parliament-request-family-envelope-stage/test_envelope.py",
+      "sha256": "1103575f78774c7dbc4d9e7fe2b38c4439b1203dd1cd0603fc4bddae599295fc"
+    },
+    "replay-inputs.json": {
+      "original_path": null,
+      "sha256": "9960be4bf612cb1531d1f6f7dadd7c627338d4b99a6207cbb5d3d7df40610384"
+    },
+    "restore.py.template": {
+      "original_path": "target/parliament-request-family-envelope-publication-stage/restore.py",
+      "sha256": "b67e763e972af0920187553ba8b57f0df1d8ebf1a0d69644572fb443a05c40b6"
+    },
+    "review/README.md": {
+      "original_path": "target/parliament-request-family-envelope-review/README.md",
+      "sha256": "b33dac4c5bc951957f02ad62d3edb42635cfcd353f085251f1db9e5a97ea207b"
+    },
+    "review/SHA256SUMS": {
+      "original_path": "target/parliament-request-family-envelope-review/SHA256SUMS",
+      "sha256": "f4fe917579959ae7f1d92a6fc88228f891c35394fde8d4dd246e24fb4613f043"
+    },
+    "review/capture.py.template": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/source/target/parliament-request-family-envelope-review/capture.py",
+      "sha256": "bc0e356bce503ee0b502fa1c4a931efe13000ddd1e47501960ed7ae399e2c86a"
+    },
+    "review/capture/SHA256SUMS": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/SHA256SUMS",
+      "sha256": "946d8e84c8a8bd676f79d24dc77aa8c5758b762bd06ca040b94e0e14756133a0"
+    },
+    "review/capture/collection.stderr": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/collection.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "review/capture/collection.stdout": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/collection.stdout",
+      "sha256": "be59b11a38258348a1a5cc87564871f2577064bbca45c5d5085fdfb27c076d95"
+    },
+    "review/capture/junit.xml": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/junit.xml",
+      "sha256": "feea17a5ef4a56420d2cd93e03fe6486fd23c381bfd3860292802792bc5ac9d4"
+    },
+    "review/capture/normal.stderr": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/normal.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "review/capture/normal.stdout": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/normal.stdout",
+      "sha256": "6aded572ba259f9beae5cc6ca1c78acc95714aab21849662f3d7aa6c64bdffc9"
+    },
+    "review/capture/receipt.json": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/receipt.json",
+      "sha256": "692e61e2e3234bb5ab598865cf44a3de2628f26a0b515038a52a3a045371502e"
+    },
+    "review/capture/refusal.stderr": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/refusal.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "review/capture/refusal.stdout": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/refusal.stdout",
+      "sha256": "6aded572ba259f9beae5cc6ca1c78acc95714aab21849662f3d7aa6c64bdffc9"
+    },
+    "review/capture/tests.stderr": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/tests.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "review/capture/tests.stdout": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/tests.stdout",
+      "sha256": "d101224c6e443629a7417abfb16f9e63f406738f3e57fcd72f7aba7b6219aaa8"
+    },
+    "review/review-summary.json": {
+      "original_path": "target/parliament-request-family-envelope-review/review-summary.json",
+      "sha256": "a812f658191f2094e58107efac600e7f91a0986ab9e5cac5cfbae4104e820cc2"
+    },
+    "review/test_review.py.template": {
+      "original_path": "target/parliament-request-family-envelope-review/capture/source/target/parliament-request-family-envelope-review/test_review.py",
+      "sha256": "02e07db849de4da4c53b2e4c872fae879bc857059f22e72acd266913d11d40cf"
+    }
+  },
+  "independent_tests": 42,
+  "original_capture_manifests_unchanged": true,
+  "original_capture_receipts_unchanged": true,
+  "owned_tests": 44,
+  "production_gate_changed": false
+}

@@ -1,0 +1,79 @@
+"""Capture an isolated, historical-source full typed-body family replay."""
+from pathlib import Path
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1]
+OUT=HERE/'capture';SOURCE=OUT/'source'
+FAMILY=ROOT/'target/parliament-family-bounds-review/capture'
+OWN=('envelope.py','test_envelope.py','README.md','capture.py')
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(ok,why):
+    if not ok:raise RuntimeError(why)
+def save(path,value):path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+require(not OUT.exists(),'fresh capture directory required')
+OUT.mkdir();SOURCE.mkdir()
+receipt_bytes=(FAMILY/'receipt.json').read_bytes()
+require(sha(receipt_bytes)=='6dc37a45cb36debad6aff5a5dce273b3ff125a721cee84175ead677dc3aa287b','component receipt identity')
+receipt=json.loads(receipt_bytes)
+inputs={**receipt['source_sha256_before'],**receipt['review_source_sha256']}
+for path,identity in tuple(inputs.items()):
+    data=(FAMILY/'source'/path).read_bytes();require(sha(data)==identity,'frozen input '+path)
+    destination=SOURCE/path;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data)
+base='target/parliament-lifetime-composition-stage/ledger.py'
+data=(ROOT/'docs/validation/parliament_ballot_lifetime_ledger/capture/source-snapshots'/(base+'.template')).read_bytes()
+require(sha(data)=='5af7ed9e7e133fd2a9885239616ff8dbc0d0e74c5e658c6c5457e90c312acd7e','frozen base ledger')
+destination=SOURCE/base;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data);inputs[base]=sha(data)
+for name in ('receipt.json','census.json','vote-census.csv'):
+    path='target/parliament-family-bounds-review/capture/'+name;data=(FAMILY/name).read_bytes()
+    destination=SOURCE/path;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data);inputs[path]=sha(data)
+require(len(inputs)==161,'catalog selected input count')
+own={}
+for name in OWN:
+    path=(HERE/name).relative_to(ROOT).as_posix();data=(HERE/name).read_bytes();own[path]=sha(data)
+    destination=SOURCE/path;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data)
+watched={**inputs,**own}
+live={p:sha((ROOT/p).read_bytes()) for p in inputs}
+env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTEST_ADDOPTS='',PYTEST_PLUGINS='',PYTHONPATH='')
+commands=[]
+def run(name,args,expected,cwd=SOURCE):
+    result=subprocess.run(args,cwd=cwd,env=env,capture_output=True)
+    (OUT/(name+'.stdout')).write_bytes(result.stdout);(OUT/(name+'.stderr')).write_bytes(result.stderr)
+    commands.append(dict(name=name,args=args,exit_code=result.returncode,expected_exit=expected))
+    require(result.returncode==expected,'command failed '+name)
+    return result
+selected=SOURCE/HERE.relative_to(ROOT)
+test=['/opt/homebrew/bin/pytest','-q','-c','/dev/null','--noconftest','-p','no:cacheprovider','-k','','-m','','--maxfail=0',str(selected/'test_envelope.py')]
+collected=run('collection',test+['--collect-only'],0)
+run('tests',test+['--junitxml',str(OUT/'junit.xml')],0)
+xml=ET.parse(OUT/'junit.xml').getroot();cases=xml.findall('.//testcase')
+require(len(cases)==44 and not any(x.tag in ('failure','error','skipped') for x in xml.iter()),'44 passing controls')
+names=[c.attrib['name'] for c in cases]
+collected_names=[line.rsplit('::',1)[1] for line in collected.stdout.decode().splitlines() if '::' in line]
+require(names==collected_names and len(set(names))==44,'exact collection/execution membership')
+cli=[sys.executable,'-B',str(selected/'envelope.py'),'--root',str(SOURCE)]
+normal=run('envelopes',cli,0);refusal=run('require-qualified',cli+['--require-qualified'],2)
+require(normal.stdout==refusal.stdout,'qualification refusal identical output')
+report=json.loads(normal.stdout)
+require(len(report['families'])==4 and all(r['source_sha256']==inputs for r in report['families']),'report identities')
+live_result=run('live-refusal',[sys.executable,'-B',str(HERE/'envelope.py'),'--root',str(ROOT)],1,ROOT)
+require(not live_result.stdout and b'source drift' in live_result.stderr,'live root drift refusal')
+after={p:sha((SOURCE/p).read_bytes()) for p in watched};require(after==watched,'isolated source stability')
+require({p:sha((ROOT/p).read_bytes()) for p in own}==own,'own source stability')
+record=dict(status='PASS',scope='conditional historical-source full typed-request body families; no full experiment qualification',
+    source_sha256_before=watched,source_sha256_after=after,catalog_sources=161,own_inputs=4,commands=commands,
+    exact_collection_execution_membership=True,test_membership=names,tests=44,failures=0,errors=0,skips=0,
+    live_source_differences={p:dict(expected=h,actual=live[p]) for p,h in inputs.items() if live[p]!=h},
+    qualification_refusal_stdout_identical=True,python_executable=sys.executable,python_version=sys.version,
+    full_gate_stream_executed=False,complete_resource_vector=False,physical_workspace_bound=False,
+    current_candidate_qualified=False,independent_cryptographic_review=False,production_gate_changed=False,
+    runtime_dependency_closure=False,outputs={p.name:sha(p.read_bytes()) for p in OUT.iterdir() if p.is_file()})
+save(OUT/'receipt.json',record)
+files=sorted(p for p in OUT.rglob('*') if p.is_file())
+(OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+print(json.dumps(dict(tests=44,selected_inputs=len(watched),receipt_sha256=sha((OUT/'receipt.json').read_bytes()),
+    manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()))))

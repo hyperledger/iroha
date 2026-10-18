@@ -1,0 +1,481 @@
+"""Conditional metadata ledger, not an executed adaptive quantum driver.
+
+TODO: price supported full families and initialization, implement the adaptive
+driver, and discharge primitive-entry obligations before any complete certificate.
+
+Only four authenticated accepted observations, fixed rejected-size VOTE maps,
+and the provided-F overlay lookup are supported. All ownership and physical
+execution premises remain explicit; complete-resource requests fail closed.
+"""
+from __future__ import annotations
+import argparse
+from dataclasses import dataclass, asdict
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+M = 1 << 20
+W = 215150
+V = 2112
+MIN_MESSAGE = 6882996
+OBSERVATION = 'target/parliament-ideal-machine-stage/request-accepted-observation.json'
+OBSERVATION_SHA = '81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c'
+EXTRA_PINS = {
+    'target/parliament-ideal-machine-stage/request_family.py': '26a91d48a98a538de02b5d38d7875ef224fac1bbffc78bfa7b41155897f34041',
+    'target/parliament-ideal-machine-stage/request_dispatch.py': '94729ac8325800e40dbbe2011ff7c1fbf39937dd128960ade269ccfac7e927bb',
+    'target/parliament-ideal-machine-stage/l0_machine.py': 'e10d3d6b49e778c9abdde8655188513d0dddf910da73e095ff19da6ddd0fba23',
+}
+
+
+def require(condition, why):
+    if not condition:
+        raise ValueError(why)
+
+
+def natural(value, name, minimum=0, maximum=None):
+    require(type(value) is int and value >= minimum and
+            (maximum is None or value <= maximum), 'invalid ' + name)
+    return value
+
+
+def label(value, name):
+    require(type(value) is str and bool(value) and len(value) <= 256,
+            'invalid ' + name)
+    return value
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+@dataclass(frozen=True)
+class Gates:
+    x: int = 0
+    cx: int = 0
+    ccx: int = 0
+    f: int = 0
+
+    def __post_init__(self):
+        for name, value in asdict(self).items():
+            natural(value, name)
+
+    def __add__(self, other):
+        require(type(other) is Gates, 'gate vector type')
+        return Gates(*(a+b for a,b in zip(asdict(self).values(), asdict(other).values())))
+
+    def times(self, count):
+        natural(count, 'gate multiplier')
+        return Gates(*(value*count for value in asdict(self).values()))
+
+    def report(self):
+        return dict(x=self.x, cx=self.cx, ccx=self.ccx,
+                    base_xor_oracle_calls=self.f,
+                    elementary_gates=self.x+self.cx+5*self.ccx)
+
+    @classmethod
+    def from_report(cls, value):
+        require(type(value) is dict and set(value) == {
+            'x','cx','ccx','base_xor_oracle_calls','elementary_gates'}, 'gate schema')
+        result = cls(value['x'],value['cx'],value['ccx'],value['base_xor_oracle_calls'])
+        require(result.report() == value, 'elementary gate convention')
+        return result
+
+
+@dataclass(frozen=True)
+class Interface:
+    """Names are caller assertions of one experiment, not an oracle attestation."""
+    capacity: int
+    length_bits: int
+    oracle: str
+    completion: str
+
+    def __post_init__(self):
+        natural(self.capacity, 'log capacity')
+        natural(self.length_bits, 'length bits', 23, 4096)
+        label(self.oracle, 'immutable F identity')
+        label(self.completion, 'total completion identity')
+
+    @property
+    def key_bits(self):
+        return self.length_bits+8*W
+
+    @property
+    def counter_bits(self):
+        return max(2, self.capacity.bit_length())
+
+    @property
+    def log_bits(self):
+        return self.capacity*(1+self.key_bits+V)
+
+
+@dataclass(frozen=True)
+class Experiment:
+    requests: int
+    queries: int
+    length_bits: int
+    message_bytes: int
+    oracle: str
+    completion: str
+    coins: str = 'classical-retained'
+
+    def __post_init__(self):
+        natural(self.requests, 'request cap', 0, 1 << 64)
+        natural(self.queries, 'query cap')
+        Interface(self.requests*(M+2), self.length_bits, self.oracle, self.completion)
+        natural(self.message_bytes, 'full-message capacity', MIN_MESSAGE,
+                (1 << self.length_bits)-1)
+        require(self.coins in ('classical-retained','purified-retained'), 'coin model')
+
+    @property
+    def interface(self):
+        return Interface(self.requests*(M+2),self.length_bits,self.oracle,self.completion)
+
+
+@dataclass(frozen=True)
+class AcceptedRequest:
+    event_id: str
+    interface: Interface
+    row: str
+    role: str
+    body_bytes: int
+    context_bytes: tuple[int, ...]
+    list_count: int
+
+    def __post_init__(self):
+        event_common(self.event_id,self.interface)
+        row_role(self.row,self.role)
+        natural(self.body_bytes,'body length')
+        natural(self.list_count,'list count',0,(1 << 64)-1)
+        require(type(self.context_bytes) is tuple and len(self.context_bytes)==6,'six context lengths')
+        for length in self.context_bytes:
+            natural(length,'context length')
+
+
+@dataclass(frozen=True)
+class RejectedVote:
+    event_id: str
+    interface: Interface
+    row: str
+    list_count: int
+
+    def __post_init__(self):
+        event_common(self.event_id,self.interface)
+        row_role(self.row,'VOTE')
+        natural(self.list_count,'actual usize64 length',0,(1 << 64)-1)
+        require(not 3 <= self.list_count <= 1000,'out-of-range VOTE length required')
+
+
+@dataclass(frozen=True)
+class Query:
+    event_id: str
+    interface: Interface
+    message_bytes: int
+
+    def __post_init__(self):
+        event_common(self.event_id,self.interface)
+        natural(self.message_bytes,'query capacity',MIN_MESSAGE,
+                (1 << self.interface.length_bits)-1)
+
+
+def event_common(event_id, interface):
+    label(event_id,'event ID')
+    require(type(interface) is Interface,'explicit interface required')
+
+
+def row_role(row, role):
+    require(type(row) is str and row in ('candidate','comparator'),'source row')
+    require(type(role) is str and role in ('REG','VOTE'),'source role')
+
+
+def popsum(n):
+    """Sum popcount(i) for 0<=i<n; logarithmic, no per-slot materialization."""
+    natural(n,'population range')
+    total=0
+    while n > 1:
+        bit=n.bit_length()-1
+        high=1 << bit
+        total += bit*(high >> 1)+(n-high)
+        n -= high
+    return total
+
+
+def write_resources(interface, row, role):
+    """Analytical unrolling of authenticated W emitter, including disabled slots."""
+    require(type(interface) is Interface,'write interface')
+    row_role(row,role)
+    n=interface.capacity; d=interface.counter_bits; q=interface.key_bits+V
+    tau,g=(33,704) if row=='candidate' else (22,696)
+    ell_bytes=4480 if role=='REG' else 6688
+    keys=(254+(tau-1)*ell_bytes+10*(g//8),598+ell_bytes,410)
+    values=(264,104,32)
+    prefixpop=sum(x.bit_count() for x in b'PARL/FAEST/v1')
+    sx=tuple(key.bit_count()+prefixpop+domain.bit_count()
+             for key,domain in zip(keys,(9,10,11)))
+    cx=tuple(8*(key-14+value) for key,value in zip(keys,values))
+    append=Gates(4*(d*n-popsum(n)),n+1,n*(4*d-2+q)+(d-1)**2)
+    cost=append.times(M+2)+Gates(2*(sx[0]+sx[1]+M*sx[2])+4+2*popsum(M),
+                               2*(cx[0]+cx[1]+M*cx[2])+2*M)
+    return cost,1+q+d+32
+
+
+def query_resources(interface):
+    require(type(interface) is Interface,'query interface')
+    n=interface.capacity;k=interface.key_bits
+    if n == 0:
+        return Gates(ccx=V,f=2),V
+    return Gates(4*k*n+4*n+2,4*k*n,n*(4*k+6+V)+V+2,2),2*n+k+V+2
+
+
+@dataclass(frozen=True)
+class ObservedCase:
+    row: str
+    role: str
+    shape: tuple
+    public: int
+    coins: int
+    output: int
+    retained: int
+    generator_work: int
+    generator: Gates
+    returns: Gates
+
+
+@dataclass(frozen=True)
+class Catalog:
+    """Load fixed observation metadata; never import or execute the machine.
+
+Python host/interpreter and this checker are trusted. Pins establish identity,
+not correctness of the mathematical component premises or original capture.
+"""
+    root: Path
+    pins: tuple
+    cases: tuple
+
+    def __init__(self, root):
+        object.__setattr__(self, 'root', Path(root).resolve())
+        observation_bytes=(self.root/OBSERVATION).read_bytes()
+        require(hashlib.sha256(observation_bytes).hexdigest()==OBSERVATION_SHA,
+                'observation source drift')
+        value=json.loads(observation_bytes)
+        pins={OBSERVATION:OBSERVATION_SHA,**EXTRA_PINS}
+        for name,count in (('source',38),('selected_implementation',30)):
+            before=value[name+'_sha256_before']
+            require(len(before)==count and before==value[name+'_sha256_after'],'observation input stability')
+            for path, expected in before.items():
+                require(path not in pins or pins[path]==expected,'conflicting source pin')
+                pins[path]=expected
+        object.__setattr__(self, 'pins', tuple(sorted(pins.items())))
+        self.verify()
+        cases=[]
+        for case in value['source_cases']:
+            r=case['resources'];g=r['components']['generator'];shape=case['public_shape']
+            observed=ObservedCase(case['row'],case['role'],
+                (shape['body_bytes'],tuple(shape['context_bytes']),shape['list_count']),
+                r['original_input_bits']-r['original_private_coin_bits'],
+                r['original_private_coin_bits'],r['caller_output_bits'],
+                r['retained_derived_bits'],g['shared_clean_work_bits'],
+                Gates.from_report(g['forward_and_inverse_gates']),
+                Gates.from_report(r['components']['returns']['gates']))
+            require(observed.public==g['public_request_bits'],'original public/coin partition')
+            interface=Interface((1 << 44)*(M+2),64,'reference','reference')
+            w,ww=write_resources(interface,observed.row,observed.role)
+            require(w.report()==r['components']['writes']['gates'],'original W formula')
+            require(ww==r['components']['writes']['clean_work_bits'],'original W workspace')
+            require((observed.generator+w+observed.returns).report()==r['gates'],'original component sum')
+            require(r['persistent_log_bits']==interface.log_bits and
+                    r['persistent_counter_bits']==interface.counter_bits,'original persistent geometry')
+            require(r['shared_work_bits']==max(observed.generator_work,ww,1),'original shared maximum')
+            require(r['total_logical_bits']==r['original_input_bits']+observed.output+
+                    observed.retained+r['shared_work_bits']+interface.log_bits+interface.counter_bits,
+                    'original full allocation')
+            for flag in ('complete_resource_vector','profile_qualified','production_gate_changed'):
+                require(r[flag] is False and value[flag] is False,'original qualification scope')
+            cases.append(observed)
+        require(len(cases)==4 and {(x.row,x.role) for x in cases}==
+                {(r,s) for r in ('candidate','comparator') for s in ('REG','VOTE')},'four observed cases')
+        object.__setattr__(self, 'cases', tuple(cases))
+        self.verify()
+
+    def verify(self):
+        for path,expected in self.pins:
+            require(digest(self.root/path)==expected,'source drift: '+path)
+
+    def accepted(self,event):
+        for case in self.cases:
+            if (case.row,case.role,case.shape)==(event.row,event.role,
+                (event.body_bytes,event.context_bytes,event.list_count)):
+                return case
+        raise ValueError('unsupported accepted shape; no ContentFamily or family-wide inference')
+
+
+@dataclass(frozen=True)
+class Allocation:
+    name: str
+    start: int
+    bits: int
+
+    def __post_init__(self):
+        label(self.name,'allocation name')
+        natural(self.start,'wire offset')
+        natural(self.bits,'wire width',1)
+
+
+def allocate(requirements, placements=None):
+    """Retain all interfaces, reuse only the clean boundary workspace."""
+    requirements=tuple((name,bits) for name,bits in requirements if bits)
+    require(len({name for name,_ in requirements})==len(requirements),'duplicate allocation requirement')
+    if placements is None:
+        cursor=0;out=[]
+        for name,bits in requirements:
+            out.append(Allocation(name,cursor,bits));cursor+=bits
+        return tuple(out),cursor
+    require(type(placements) is tuple and all(type(x) is Allocation for x in placements),'typed placements')
+    require(len(placements)==len(requirements) and
+            {x.name:x.bits for x in placements}==dict(requirements),'exact allocation membership and widths')
+    ordered=sorted(placements,key=lambda x:x.start)
+    for left,right in zip(ordered,ordered[1:]):
+        require(left.start+left.bits<=right.start,'overlapping register allocations')
+    return placements,max((x.start+x.bits for x in placements),default=0)
+
+
+CALLER_PREMISES=(
+    'same named immutable source-domain-padded F and agreed total completion in all events',
+    'entire quantum support has canonical query encodings and canonical active log records',
+    'zero initial log/counter and clean scratch; typed requests are atomic, with no interleaving',
+    'descriptor identifies the same classical request; accepted observations require valid public content',
+    'fresh original coins independent of entering history; no conditioning on a completed adaptive trace',
+    'caller supplies disjoint interface slots directly; arbitrary correlations are allowed, aliases are not',
+    'adversary never writes log, counter, private coins or workspace; output XOR targets may be arbitrary',
+    'all relevant external verifier/diagnostic oracle calls appear as query events or extra unknown terms',
+)
+UNKNOWN_TERMS=(
+    'adversary_gates_and_private_storage','input_preparation_and_descriptor_authentication',
+    'adaptive_controller_and_family_selection','data_routing_and_interface_preparation',
+    'base_oracle_implementation_and_state','initialization_and_classical_entropy_environment',
+    'uniform_adaptive_family_envelope','actual_input_primitive_bridge_and_advantages',
+)
+
+
+def account(catalog,experiment,events,placements=None):
+    require(type(catalog) is Catalog and type(experiment) is Experiment,'typed accounting inputs')
+    require(type(events) is tuple,'immutable event sequence required')
+    catalog.verify()
+    interface=experiment.interface
+    reqs=[('persistent.log',interface.log_bits),('persistent.counter',interface.counter_bits)]
+    total=Gates();rows=[];ids=set();requests=queries=generating=coins_total=workspace=0
+    for event in events:
+        require(type(event) in (AcceptedRequest,RejectedVote,Query),'unsupported event type')
+        require(event.event_id not in ids,'duplicate event ID');ids.add(event.event_id)
+        require(event.interface==interface,'event N/b/F/completion mismatch')
+        prefix='event.'+event.event_id+'.'
+        if type(event) is Query:
+            queries+=1;require(queries<=experiment.queries,'query capacity exceeded')
+            require(event.message_bytes<=experiment.message_bytes,'query length envelope exceeded')
+            gates,work=query_resources(interface)
+            reqs.extend(((prefix+'query',interface.length_bits+8*event.message_bytes),
+                         (prefix+'enable',1),(prefix+'response',V)))
+            row=dict(type='query',message_capacity_bytes=event.message_bytes,
+                     actual_message_length='caller state, not inspected',clean_work_bits=work)
+        else:
+            requests+=1;require(requests<=experiment.requests,'typed request cap exceeded')
+            if type(event) is AcceptedRequest:
+                case=catalog.accepted(event);generating+=1
+                w,ww=write_resources(interface,event.row,event.role)
+                gates=case.generator+w+case.returns
+                public,coins,output,retained=case.public,case.coins,case.output,case.retained
+                shared=max(case.generator_work,ww,1);work=retained+shared
+                row=dict(type='observed_accepted_request',row=event.row,role=event.role,
+                    shape=dict(body_bytes=event.body_bytes,context_bytes=event.context_bytes,list_count=event.list_count),
+                    return_encoding='accepted-only 97+proof bits, not ContentFamily',
+                    rebased_writes=dict(gates=w.report(),clean_work_bits=ww,
+                        counter_bits=interface.counter_bits,log_bits=interface.log_bits),
+                    retained_derived_bits=retained,shared_work_bits=shared,
+                    reserved_append_slots=M+2,actual_appends=None)
+            else:
+                proof=233012 if event.row=='candidate' else 158074
+                public=3608+1024*event.list_count;coins=retained=0
+                output=253+8*proof;work=519
+                gates=Gates(569+2*event.list_count.bit_count(),872,888)
+                row=dict(type='rejected_size_vote',row=event.row,list_count=event.list_count,
+                         borrowed_list_bits=1024*event.list_count,list_bits_read=0,
+                         return_encoding='common 253+proof bits',retained_derived_bits=0,
+                         shared_work_bits=519,reserved_append_slots=0,actual_appends=0)
+            reqs.extend(((prefix+'public',public),(prefix+'coins',coins),(prefix+'output',output)))
+            if experiment.coins=='purified-retained':
+                reqs.append((prefix+'coin_purifier',coins))
+            coins_total+=coins
+            row.update(public_input_bits=public,original_coin_bits=coins,caller_output_bits=output)
+        workspace=max(workspace,work);total+=gates
+        row.update(event_id=event.event_id,gates=gates.report(),reusable_work_bits=work,
+                   conservative_log_occupancy_upper=generating*(M+2))
+        rows.append(row)
+    reserve=generating*(M+2)
+    require(reserve<=interface.capacity,'conservative append capacity exceeded')
+    reqs.append(('reusable.clean',workspace))
+    allocated,span=allocate(reqs,placements)
+    catalog.verify()
+    return dict(scope='conditional metadata trace sum; no adaptive driver executed',
+        experiment=asdict(experiment),interface=asdict(interface),events=rows,
+        source_sha256=dict(catalog.pins),source_pins_verified_before_and_after=True,
+        source_binding='authenticated observation and selected formula sources; not a semantic proof or dependency closure',
+        caller_assertions_not_verified=list(CALLER_PREMISES),
+        event_counts=dict(requests=requests,queries=queries,generating=generating),
+        body_gates=total.report(),
+        coin_preparation=(dict(model='canonical retained purification',hadamard=coins_total,cx=coins_total,
+                               additional_to_body=True,executed=False,
+                               requires_clean_coin_and_purifier_inputs=True)
+                          if experiment.coins=='purified-retained' else
+                          dict(model='caller supplies fresh uniformly mixed retained coins',cost=None,executed=False)),
+        capacity=dict(slots=interface.capacity,reserved_upper=reserve,actual_occupancy=None,
+                      reservation_is_not_actual_log_effect=True),
+        ownership=dict(allocations=[asdict(x) for x in allocated],known_allocated_bits=sum(x.bits for x in allocated),
+            address_span_bits=span,persistent_log_bits=interface.log_bits,counter_bits=interface.counter_bits,
+            reusable_clean_bits=workspace,all_original_interfaces_retained=True,
+            zero_initial_regions=['persistent.log','persistent.counter','reusable.clean'],
+            missing_external_storage=list(UNKNOWN_TERMS[:6])),
+        unknown_external_terms={name:None for name in UNKNOWN_TERMS},
+        full_quantum_joint_state_theorem_proved=False,full_adaptive_driver_executed=False,
+        family_wide_resource_maximum_proved=False,complete_resource_vector=False,
+        actual_input_primitive_bridge=False,independent_cryptographic_review=False,
+        physical_workspace_bound=False,current_candidate_qualified=False,
+        profile_qualified=False,production_gate_changed=False)
+
+
+def parse_document(value):
+    require(type(value) is dict and set(value)=={'experiment','events'},'document schema')
+    require(type(value['experiment']) is dict,'experiment object')
+    require(type(value['events']) is list,'JSON event array')
+    experiment=Experiment(**value['experiment'])
+    events=[]
+    kinds={'accepted':AcceptedRequest,'rejected_vote':RejectedVote,'query':Query}
+    for raw in value['events']:
+        require(type(raw) is dict,'event object')
+        item=dict(raw);kind=item.pop('kind')
+        require(kind in kinds,'event kind')
+        item['interface']=Interface(**item['interface'])
+        if kind=='accepted':
+            require(type(item.get('context_bytes')) is list,'JSON context array')
+            item['context_bytes']=tuple(item['context_bytes'])
+        events.append(kinds[kind](**item))
+    return experiment,tuple(events)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root',type=Path,required=True)
+    parser.add_argument('--events',type=Path,required=True)
+    parser.add_argument('--require-qualified',action='store_true')
+    args=parser.parse_args()
+    try:
+        experiment,events=parse_document(json.loads(args.events.read_text()))
+        result=account(Catalog(args.root),experiment,events)
+        print(json.dumps(result,indent=2,sort_keys=True))
+        return 2 if args.require_qualified else 0
+    except (ValueError,TypeError,KeyError,OSError) as error:
+        print(str(error),file=sys.stderr)
+        return 1
+
+
+if __name__=='__main__':
+    sys.exit(main())

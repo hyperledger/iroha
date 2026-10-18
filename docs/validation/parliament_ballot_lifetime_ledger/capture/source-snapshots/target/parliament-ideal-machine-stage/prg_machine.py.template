@@ -1,0 +1,197 @@
+"""Fixed-scan source PRG framing and BAVC expansion around a clean AES kernel.
+
+Only a concrete public AES circuit may instantiate this construction. Repeating
+and uncomputing calls is not an interface offered by a classical PRP challenge.
+The generic class validates shape, not the semantics of a caller's kernel.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from bit_ir import Builder, Cost, bits, integer, require, unpack
+
+
+def add_words(builder, left, right):
+    """Little-endian addition modulo the supplied width, with no adjacent carry."""
+    require(len(left) == len(right) and len(left) > 0, "word addition width")
+    for wire in (*left, *right):
+        integer(wire, 0, builder.cursor - 1, "addition operand")
+    carry, out = builder.bit("zero"), []
+    for i, (a, b) in enumerate(zip(left, right)):
+        pair = builder.bit("xor", a, b)
+        out.append(builder.bit("xor", pair, carry))
+        if i + 1 < len(left):
+            # The two terms cannot both be one, so XOR is their Boolean OR.
+            carry = builder.bit("xor", builder.bit("and", a, b),
+                                builder.bit("and", pair, carry))
+    return tuple(out)
+
+
+def expansion_block(aes):
+    """One ascending parent, including tweak/counter framing and all four AESes.
+
+    Input: parent key256, IV128, public node counter32, marked bit1,
+    initial child keys512. Output: next counter32 and final child keys512.
+    A marked parent retains its supplied children. The unused AES computations
+    remain part of the charged circuit and are reversed, never exposed.
+    """
+    require((aes.inputs, aes.outputs) == (384, 128), "AES-256 kernel shape")
+    require(aes.cost.base_calls == 0, "concrete AES must not call a challenge oracle")
+    b = Builder(929, (aes,))
+    key = tuple(range(256))
+    iv = tuple(range(256, 384))
+    tweak = tuple(range(384, 416))
+    marked = 416
+    initial = tuple(range(417, 929))
+    high = add_words(b, iv[96:128], tweak)
+    one = b.bit("one")
+    low, expanded = iv[:32], []
+    for counter in range(4):
+        plaintext = low + iv[32:96] + high
+        expanded.extend(b.node("kernel", *(key + plaintext), kernel=aes.name, width=128))
+        if counter != 3:
+            low = b.increment(low, one)
+    children = b.select(marked, initial, tuple(expanded))
+    next_counter = b.increment(tweak, one)
+    return b.finish((*next_counter, *children))
+
+
+@dataclass(frozen=True)
+class TreeExpansion:
+    """Expand every public heap parent in fixed ascending order.
+
+    Initial keys are the source-mark-driven FrontierRouting output. Every parent
+    key thereafter is read from its earlier parent's fresh output at a statically
+    known wire range. No key-byte sentinel and no data-dependent RAM is used.
+    """
+    leaves: int
+    aes: object
+
+    def __post_init__(self):
+        integer(self.leaves, 4, 61440, "leaves")
+        require((self.aes.inputs, self.aes.outputs) == (384, 128), "AES-256 kernel shape")
+        require(self.aes.cost.base_calls == 0, "concrete AES only")
+
+    @property
+    def input_bits(self):
+        """All marks, all initial heap keys, and the IV are disjoint inputs."""
+        return (2 * self.leaves - 1) * 257 + 128
+
+    @property
+    def output_bits(self):
+        """The final full heap in heap order, then the final public counter."""
+        return (2 * self.leaves - 1) * 256 + 32
+
+    def block(self):
+        """One template; AES key expansion is explicitly paid in each call."""
+        return expansion_block(self.aes)
+
+    def layout(self):
+        """Closed-form wire regions, without allocating one frame per parent."""
+        b = self.block()
+        require(all(w >= b.inputs for w in b.outputs), "fresh expansion outputs")
+        initial_counter = tuple(range(self.input_bits, self.input_bits + 32))
+        start = self.input_bits + 32
+        work_start = start + (self.leaves - 1) * b.derived
+        output_start = work_start + b.work
+        return dict(block=b, initial_counter=initial_counter, start=start,
+                    work_start=work_start, output_start=output_start,
+                    size=output_start + self.output_bits)
+
+    def final_key(self, p, node):
+        """Public heap addressing into retained input or prior SSA output."""
+        integer(node, 0, 2 * self.leaves - 2, "heap node")
+        count = 2 * self.leaves - 1
+        if node == 0:
+            return tuple(range(count, count + 256))
+        parent, side = (node - 1) // 2, (node - 1) % 2
+        b = p["block"]
+        start = p["start"] + parent * b.derived
+        return tuple(start + w - b.inputs for w in b.outputs[32 + side * 256:32 + (side + 1) * 256])
+
+    def frame(self, p, parent):
+        """Actual source tweak equals the public ascending parent index."""
+        integer(parent, 0, self.leaves - 2, "expansion parent")
+        b = p["block"]
+        start = p["start"] + parent * b.derived
+        count = 2 * self.leaves - 1
+        key = self.final_key(p, parent)
+        iv = tuple(range(count * 257, self.input_bits))
+        if parent == 0:
+            counter = p["initial_counter"]
+        else:
+            counter = tuple(start - b.derived + w - b.inputs for w in b.outputs[:32])
+        children = tuple(range(count + (2 * parent + 1) * 256,
+                               count + (2 * parent + 3) * 256))
+        inputs = key + iv + counter + (parent,) + children
+        require(len(inputs) == b.inputs and len(set(inputs)) == len(inputs), "expansion input aliases")
+        require(max(inputs) < start, "expansion forward reference")
+        return inputs, start
+
+    def output_sources(self, p):
+        """Copy each final node exactly once; the root retains its input value."""
+        for node in range(2 * self.leaves - 1):
+            yield from self.final_key(p, node)
+        b = p["block"]
+        last = p["start"] + (self.leaves - 2) * b.derived
+        yield from (last + w - b.inputs for w in b.outputs[:32])
+
+    def emit_clean(self):
+        """Compute, copy, reverse with one shared clean AES workspace."""
+        p, b = self.layout(), self.block()
+        def emit_frame(parent, inverse):
+            inputs, start = self.frame(p, parent)
+            def wire(local):
+                if local < b.inputs:
+                    return inputs[local]
+                if local < b.inputs + b.derived:
+                    return start + local - b.inputs
+                return p["work_start"] + local - b.inputs - b.derived
+            for gate in b.emit(inverse=inverse):
+                yield (gate[0], *(wire(w) for w in gate[1:]))
+        for parent in range(self.leaves - 1):
+            yield from emit_frame(parent, False)
+        for i, source in enumerate(self.output_sources(p)):
+            yield ("cx", source, p["output_start"] + i)
+        for parent in reversed(range(self.leaves - 1)):
+            yield from emit_frame(parent, True)
+
+    def resources(self):
+        """Conservative all-parent computation, not source real-call counts."""
+        b = self.block()
+        forward = b.cost.times(self.leaves - 1)
+        history = (self.leaves - 1) * b.derived
+        return dict(forward_gates=forward.as_dict(),
+                    clean_gates=(forward.times(2) + Cost(cx=self.output_bits)).as_dict(),
+                    input_bits=self.input_bits, output_bits=self.output_bits,
+                    initial_zero_counter_bits=32, ssa_history_bits=history,
+                    clean_kernel_work_bits=b.work, total_clean_work_bits=32 + history + b.work,
+                    forward_concrete_aes_calls=4 * (self.leaves - 1),
+                    clean_concrete_aes_calls=8 * (self.leaves - 1),
+                    includes_marked_parent_dummy_evaluations=True,
+                    exact_for_defined_lazy_emitter=True,
+                    conditional_on_concrete_public_aes_kernel=True,
+                    classical_prp_challenge_substitution_valid=False,
+                    complete_B1_coverage=False, complete_simulator_coverage=False,
+                    complete_resource_vector=False, profile_qualified=False,
+                    production_gate_changed=False)
+
+    def evaluate(self, marks, keys, iv):
+        """Finite model; source identity additionally requires canonical marks/keys."""
+        count = 2 * self.leaves - 1
+        require(type(marks) in (tuple, list) and len(marks) == count
+                and all(type(v) is int and v in (0, 1) for v in marks), "hidden marks")
+        require(type(keys) in (tuple, list) and len(keys) == count, "initial heap keys")
+        for key in keys:
+            integer(key, 0, (1 << 256) - 1, "heap key")
+        integer(iv, 0, (1 << 128) - 1, "IV")
+        final, b, counter = list(keys), self.block(), 0
+        for parent in range(self.leaves - 1):
+            args = (bits(final[parent], 256) + bits(iv, 128) + bits(counter, 32)
+                    + (marks[parent],) + bits(final[2 * parent + 1], 256)
+                    + bits(final[2 * parent + 2], 256))
+            out = b.evaluate(args)
+            counter = unpack(out[:32])
+            final[2 * parent + 1] = unpack(out[32:288])
+            final[2 * parent + 2] = unpack(out[288:])
+        return final, counter

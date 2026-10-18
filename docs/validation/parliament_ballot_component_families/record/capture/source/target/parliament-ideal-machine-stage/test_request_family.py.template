@@ -1,0 +1,133 @@
+"""Full-width union relocation and sparse rejected-size family controls."""
+from collections import Counter,defaultdict
+from dataclasses import replace
+from pathlib import Path
+import random
+
+import pytest
+
+from bit_ir import bits,unpack
+from request_family import (ContentFamily,RejectedVoteFamily,common_output_regions,
+                            content_output_wire,actual_rejected_vote)
+from test_content_request import fixture
+
+ROOT=Path(__file__).resolve().parents[2]
+
+
+def execute(state,gates,limit):
+    census=Counter();touched=set()
+    for name,*wires in gates:
+        assert name in ('x','cx','ccx') and len(set(wires))==len(wires)
+        assert all(type(w) is int and 0<=w<limit for w in wires)
+        touched.update(wires);census[name]+=1
+        state[wires[-1]]^=int(all(state[w] for w in wires[:-1]))
+    return census,touched
+
+
+@pytest.mark.parametrize('code,order,actual,declared,vote,exhausted',[
+    (0,0,0,0,0,0),(0,0,0,0,0,1),(1,0,0,0,255,0),
+    (3,999,0,0,0,0),(4,0,1000,65535,0,1),(5,0,0,0,0,0)])
+def test_content_union_zero_extends_both_usize_fields_without_changing_map(code,order,actual,declared,vote,exhausted):
+    original=fixture();adapter=ContentFamily(original)
+    old,new=original.layout(),adapter.layout()
+    rng=random.Random(718+code+exhausted)
+    before=[rng.randrange(2) for _ in range(new['original_input_bits'])]+[0]*(new['size']-new['original_input_bits'])
+    # Canonical P0 payload in the explicitly synthetic orchestration fixture.
+    start=original.generator.plan.layout()['registers']['public_error'][0]
+    valid=int(code==0)
+    before[start:start+60]=[valid,*bits(code,3),*bits(order,16),*bits(actual,16),*bits(declared,16),*bits(vote,8)]
+    mappings={name:(offset,width) for name,(_,offset,width) in original.generator.fields
+              if name not in ('public_validation','public_valid')}
+    before[mappings['exhausted'][0]]=exhausted
+    start,width=mappings['primary_flags'];before[start:start+width]=[1,exhausted]
+    before[new['output']:new['retained']]=[rng.randrange(2) for _ in range(new['output_bits'])]
+    state=before[:]
+    census,_=execute(state,adapter.emit(),new['size'])
+    assert state[:new['log']]==before[:new['log']] and not any(state[new['retained']:])
+    contribution=[a^b for a,b in zip(before[new['output']:new['retained']],state[new['output']:new['retained']])]
+    regions=common_output_regions(adapter.proof_bytes)
+    def out(name):
+        off,width=regions[name];return unpack(contribution[off:off+width])
+    assert out('tag')==(exhausted if valid else 2)
+    for name,value in [('error_code',code),('order_index',order),('actual_length',actual),
+                       ('declared_count',declared),('vote_value',vote)]:assert out(name)==value
+    assert not any(contribution[21:69]) and not any(contribution[85:133])
+    if not valid:
+        assert state[new['log']:new['output']]==before[new['log']:new['output']]
+        assert not any(contribution[157:])
+    # All original circuit output bits embed injectively, including arbitrary targets.
+    old_before=before[:old['output']]
+    old_before += [before[new['output']+content_output_wire(i,adapter.proof_bytes)] for i in range(old['output_bits'])]
+    old_before += [0]*(old['size']-old['retained'])
+    old_after=old_before[:];old_census,_=execute(old_after,original.emit(),old['size'])
+    assert census==old_census=={k:adapter.resources()['gates'][k] for k in ('x','cx','ccx')}
+    assert state[:old['output']]==old_after[:old['output']]
+    for i in range(old['output_bits']):assert state[new['output']+content_output_wire(i,adapter.proof_bytes)]==old_after[old['output']+i]
+    execute(state,adapter.emit(inverse=True),new['size']);assert state==before
+
+
+@pytest.mark.parametrize('n',[0,1,2,1001,1024,65536,(1<<64)-1])
+@pytest.mark.parametrize('vote',[0,2,3,255])
+def test_rejected_family_sparse_full_length_same_n_priority_borrowed_storage_cleanup(n,vote):
+    c=RejectedVoteFamily(n,2);p=c.layout();r=c.resources();regions=common_output_regions(2)
+    state=defaultdict(int)
+    for bit in range(8):state[p['vote']+bit]=(vote>>bit)&1
+    # Retained input witnesses, including list storage when nonempty; never copied/read.
+    for wire in (0,513,1540,c.input_bits-1):state[wire]=1
+    if n:
+        first,width=c.input_regions()['list'];state[first]=1;state[first+width-1]=1
+    for bit in range(c.output_bits):state[p['output']+bit]=(bit+n+vote)%2
+    before={k:v for k,v in state.items() if v}
+    census,touched=execute(state,c.emit(),p['size'])
+    chosen=(1,0,vote) if vote>2 else (2,n,0)
+    wanted=defaultdict(int,before)
+    for name,value in [('tag',2),('error_code',chosen[0]),('actual_length',chosen[1]),('vote_value',chosen[2])]:
+        start,width=regions[name]
+        for bit in range(width):wanted[p['output']+start+bit]^=(value>>bit)&1
+    assert {k:v for k,v in state.items() if v}=={k:v for k,v in wanted.items() if v}
+    assert {w for w in touched if w<c.input_bits}==set(range(p['vote'],p['vote']+8))
+    assert census=={k:r['gates'][k] for k in ('x','cx','ccx')}
+    assert r['gates']['elementary_gates']==5881+2*n.bit_count()
+    assert r['borrowed_list_storage_bits']==1024*n and r['borrowed_nonlist_storage_bits']==3608
+    assert r['prepared_header_length']==n and r['clean_work_bits']==519
+    execute(state,c.emit(inverse=True),p['size'])
+    assert {k:v for k,v in state.items() if v}==before
+
+
+@pytest.mark.parametrize('row,proof',[('candidate',233012),('comparator',158074)])
+def test_actual_fixed_family_proof_envelope_is_source_bound_without_allocation(row,proof):
+    c=actual_rejected_vote(ROOT,row,(1<<64)-1)
+    assert c.proof_bytes==proof and c.output_bits==253+8*proof
+    assert c.resources()['source_backend_reads']==0
+    assert c.resources()['complete_family_dispatch_composed'] is False
+    assert next(c.emit())==('x',c.layout()['prepared_length'])
+
+
+def test_layout_inventory_and_strict_refusals():
+    base=ContentFamily(fixture());r=base.resources();p=base.layout()
+    assert r['caller_output_bits']==253+8*base.proof_bytes
+    assert r['total_logical_bits']==p['size']==base.request.layout()['size']+96
+    assert base.resources()['gates']==base.request.resources()['gates']
+    assert len({content_output_wire(i,2) for i in range(173)})==173
+    for n in (-1,3,1000,1<<64,True,0.0):
+        with pytest.raises(ValueError):RejectedVoteFamily(n,2)
+    for proof in (0,233013,True,1.0):
+        with pytest.raises(ValueError):RejectedVoteFamily(0,proof)
+    with pytest.raises(ValueError):ContentFamily(None)
+    with pytest.raises(ValueError):list(base.emit(inverse=1))
+    with pytest.raises(ValueError):list(RejectedVoteFamily(0,2).emit(inverse=1))
+    with pytest.raises(ValueError):content_output_wire(173,2)
+    with pytest.raises(ValueError):actual_rejected_vote('/not/read','candidate',3)
+
+
+def test_missing_final_header_call_keeps_correct_error_but_dirty_work():
+    c=RejectedVoteFamily(1001,1);p=c.layout();state=defaultdict(int)
+    gates=list(c.emit());tail=1001 .bit_count()
+    # Remove the second complete clean header call, retaining constant cleanup.
+    from request_dispatch import VoteHeaderDispatch
+    hlen=sum(1 for _ in VoteHeaderDispatch().emit_clean())
+    mutated=gates[:-tail-hlen]+gates[-tail:]
+    execute(state,mutated,p['size'])
+    off,_=common_output_regions(1)['actual_length']
+    assert sum(state[p['output']+off+i]<<i for i in range(64))==1001
+    assert any(state[w] for w in range(p['header_result'],p['header_result']+76))

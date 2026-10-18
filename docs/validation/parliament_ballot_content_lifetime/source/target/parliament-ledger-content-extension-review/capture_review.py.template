@@ -1,0 +1,136 @@
+"""Replay conditional content-ledger controls against authenticated frozen inputs.
+
+This isolated selected-source replay does not attest the current native candidate,
+run any elementary gate stream, or establish a runtime dependency closure.
+"""
+from pathlib import Path
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+OUT=HERE/'capture'
+REPLAY=OUT/'replay'
+PACKAGES={
+    'parliament_ballot_request_machine':'a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d',
+    'parliament_ballot_lifetime_ledger':'b740ad7f8eae0dd1a236acba38b9ac818fc2c88c53c2cc9ff0c0e1317eadd506',
+    'parliament_ballot_content_resources':'c2349eb9808ecaf6d43abb6a60dc09184b391d0385a7726476c84bb4c6f7c54f',
+}
+BASE='target/parliament-lifetime-composition-stage/ledger.py'
+BASE_SHA='5af7ed9e7e133fd2a9885239616ff8dbc0d0e74c5e658c6c5457e90c312acd7e'
+OBS='target/parliament-content-resources-stage/capture/observation.json'
+OBS_SHA='c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'
+STAGE='target/parliament-ledger-content-extension-stage'
+REVIEW='target/parliament-ledger-content-extension-review'
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(ok,reason):
+    if not ok:raise RuntimeError(reason)
+def save(path,value):
+    path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+
+require(not OUT.exists(),'fresh capture directory required')
+OUT.mkdir();REPLAY.mkdir()
+published={}
+for package,expected in PACKAGES.items():
+    folder=ROOT/'docs/validation'/package
+    manifest=(folder/'SHA256SUMS').read_bytes()
+    require(sha(manifest)==expected,'published manifest drift '+package)
+    for line in manifest.decode().splitlines():
+        digest,relative=line.split('  ',1)
+        data=(folder/relative).read_bytes()
+        require(sha(data)==digest,'published member drift '+str(folder/relative))
+        published[(package,relative)]=(data,digest)
+
+obs=published[('parliament_ballot_content_resources','record/capture/observation.json')][0]
+require(sha(obs)==OBS_SHA,'observation identity')
+pins=dict(json.loads(obs)['source_sha256_before']);pins[BASE]=BASE_SHA;pins[OBS]=OBS_SHA
+require(len(pins)==154,'exact catalog input count')
+restored={}
+for path,digest in pins.items():
+    if path==BASE:key=('parliament_ballot_lifetime_ledger','capture/source-snapshots/'+path+'.template')
+    elif path==OBS:key=('parliament_ballot_content_resources','record/capture/observation.json')
+    else:key=('parliament_ballot_request_machine','capture/source/'+path+'.template')
+    data=published[key][0];require(sha(data)==digest,'catalog identity '+path)
+    destination=REPLAY/path;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data)
+    restored[path]=dict(sha256=digest,published_package=key[0],published_path=key[1])
+
+extras=[STAGE+'/'+name for name in ('content_ledger.py','test_content_ledger.py','README.md','example.json','capture.py')]
+extras += [REVIEW+'/test_independent_content_ledger.py',REVIEW+'/capture_review.py']
+extra_before={}
+for path in extras:
+    data=(ROOT/path).read_bytes();extra_before[path]=sha(data)
+    destination=REPLAY/path;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data)
+all_inputs={**pins,**extra_before}
+domain_paths=['target/parliament-family-domain-stage/README.md',
+    'target/parliament-family-domain-stage/source-pins.json',
+    'specs/parliament_ballot_b6_hidden_assignment_deletion.md',
+    'specs/parliament_ballot_b6_hybrid_driver.md']
+domain_before={p:sha((ROOT/p).read_bytes()) for p in domain_paths}
+live_before={p:sha((ROOT/p).read_bytes()) for p in pins}
+drift={p:dict(expected=pins[p],actual=h) for p,h in live_before.items() if h!=pins[p]}
+env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+    PYTEST_ADDOPTS='',PYTEST_PLUGINS='',PYTHONPATH='')
+commands=[]
+def run(name,argv,cwd,expected):
+    result=subprocess.run(argv,cwd=cwd,env=env,capture_output=True)
+    (OUT/(name+'.stdout')).write_bytes(result.stdout)
+    (OUT/(name+'.stderr')).write_bytes(result.stderr)
+    commands.append(dict(name=name,command=argv,cwd=str(cwd),exit_code=result.returncode,expected_exit=expected))
+    require(result.returncode==expected,'unexpected exit '+name)
+    return result
+
+counts={}
+for name,test in [('owned',STAGE+'/test_content_ledger.py'),('independent',REVIEW+'/test_independent_content_ledger.py')]:
+    run(name,['/opt/homebrew/bin/pytest','-q','-c','/dev/null','--noconftest','-p','no:cacheprovider',
+        '-k','','-m','','--maxfail=0','--basetemp',str(OUT/(name+'-temp')),
+        '--junitxml',str(OUT/(name+'.xml')),str(REPLAY/test)],REPLAY,0)
+    xml=ET.parse(OUT/(name+'.xml')).getroot();cases=xml.findall('.//testcase')
+    require(cases and not any(x.tag in ('failure','error','skipped') for x in xml.iter()),'all controls pass '+name)
+    identities=[x.attrib['classname']+'::'+x.attrib['name'] for x in cases]
+    require(len(set(identities))==len(identities),'unique cases '+name)
+    counts[name]=len(cases);save(OUT/(name+'-identities.json'),identities)
+require(counts==dict(owned=55,independent=72),'exact selected test counts')
+cli=[sys.executable,'-B',str(REPLAY/STAGE/'content_ledger.py'),'--root',str(REPLAY),
+    '--events',str(REPLAY/STAGE/'example.json')]
+normal=run('example',cli,REPLAY,0)
+qualified=run('require-qualified',cli+['--require-qualified'],REPLAY,2)
+require(normal.stdout==qualified.stdout and not normal.stderr and not qualified.stderr,'qualification refuses identical report')
+report=json.loads(normal.stdout)
+require(report['source_sha256']==pins and report['source_theorem_valid_request_bound'] is None and
+    report['all_event_cap_is_additional_premise'] is True,'conditional source and count scope')
+require(all(v is None for v in report['unknown_external_terms'].values()),'unknown external terms')
+for name in ('full_quantum_joint_state_theorem_proved','full_adaptive_driver_executed',
+    'family_wide_resource_maximum_proved','complete_resource_vector','actual_input_primitive_bridge',
+    'independent_cryptographic_review','physical_workspace_bound','current_candidate_qualified',
+    'profile_qualified','production_gate_changed','actual_content_validity_evaluated'):
+    require(report[name] is False,'qualification scope '+name)
+live=run('live-source-refusal',[sys.executable,'-B',str(ROOT/STAGE/'content_ledger.py'),'--root',str(ROOT),
+    '--events',str(ROOT/STAGE/'example.json')],ROOT,1)
+require(not live.stdout and b'source drift:' in live.stderr and drift,'live drift refusal without report')
+after={p:sha((REPLAY/p).read_bytes()) for p in all_inputs};require(after==all_inputs,'replay input stability')
+require({p:sha((ROOT/p).read_bytes()) for p in extras}==extra_before,'current extension/review input stability')
+require({p:sha((ROOT/p).read_bytes()) for p in domain_paths}==domain_before,'review premise source stability')
+live_after={p:sha((ROOT/p).read_bytes()) for p in pins}
+receipt=dict(status='PASS',scope='historical frozen selected-source conditional ledger replay; no current-candidate qualification',
+    published_manifest_sha256=PACKAGES,restored=restored,source_sha256_before=all_inputs,source_sha256_after=after,
+    review_premise_sha256=domain_before,live_catalog_drift_before=drift,
+    live_catalog_sha256_before=live_before,live_catalog_sha256_after=live_after,
+    live_catalog_stable_during_review=live_before==live_after,commands=commands,test_cases=counts,
+    test_failures=0,test_errors=0,test_skips=0,qualification_refusal_stdout_identical=True,
+    python_executable=sys.executable,python_version=sys.version,
+    effective_environment={k:env[k] for k in ('PYTHONDONTWRITEBYTECODE','PYTEST_DISABLE_PLUGIN_AUTOLOAD','PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH')},
+    original_artifacts_changed=False,all_event_cap_is_additional_premise=True,source_theorem_valid_request_bound=None,
+    complete_resource_vector=False,independent_cryptographic_review=False,profile_qualified=False,production_gate_changed=False,
+    runtime_premises=['trusted installed Python/pytest/stdlib','selected identity checks are not an atomic filesystem or full runtime dependency attestation'],
+    output_sha256={p.name:sha(p.read_bytes()) for p in OUT.iterdir() if p.is_file()})
+save(OUT/'receipt.json',receipt)
+files=sorted(p for p in OUT.rglob('*') if p.is_file() and not any(x.endswith('-temp') for x in p.relative_to(OUT).parts))
+(OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+print(json.dumps(dict(test_cases=counts,catalog_sources=len(pins),execution_inputs=len(extras),
+    live_drift=list(drift),receipt_sha256=sha((OUT/'receipt.json').read_bytes()),
+    manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()))))

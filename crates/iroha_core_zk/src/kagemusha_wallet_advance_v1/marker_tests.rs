@@ -118,7 +118,7 @@ fn wallet_advance_v1_marker_record_rejects_inconsistent_phase() {
     let f = wallet_fixture(0x11);
     let c = chain(&f);
     assert_eq!(
-        KagemushaWalletMarkerRecordV1::new(f.slot, f.enrollment, ANDROID, Some([1; 32]), BOOT_A),
+        KagemushaWalletMarkerRecordV1::new(f.slot, &f.enrollment, ANDROID, Some([1; 32]), BOOT_A),
         Err(KagemushaWalletProviderErrorV1::Invalid {
             field: "marker.completion_digest"
         })
@@ -126,7 +126,7 @@ fn wallet_advance_v1_marker_record_rejects_inconsistent_phase() {
     assert_eq!(
         KagemushaWalletMarkerRecordV1::new(
             f.slot,
-            *c.selected.marker(),
+            c.selected.marker(),
             ANDROID,
             Some([0; 32]),
             BOOT_A
@@ -142,7 +142,7 @@ fn wallet_advance_v1_marker_record_rejects_inconsistent_phase() {
     assert!(
         KagemushaWalletMarkerRecordV1::new(
             f.slot,
-            *terminal.marker(),
+            terminal.marker(),
             ANDROID,
             Some([1; 32]),
             BOOT_A
@@ -152,7 +152,7 @@ fn wallet_advance_v1_marker_record_rejects_inconsistent_phase() {
     let mut invalid = f.enrollment;
     invalid.generation = 1;
     assert_eq!(
-        KagemushaWalletMarkerRecordV1::new(f.slot, invalid, ANDROID, None, BOOT_A),
+        KagemushaWalletMarkerRecordV1::new(f.slot, &invalid, ANDROID, None, BOOT_A),
         Err(KagemushaWalletProviderErrorV1::Invalid {
             field: "marker.frame"
         })
@@ -275,7 +275,7 @@ fn wallet_advance_v1_marker_successor_rules() {
     // A Released marker must keep the selected head exactly.
     let other_head = KagemushaWalletMarkerRecordV1::new(
         f.slot,
-        KagemushaWalletMarkerV1 {
+        &KagemushaWalletMarkerV1 {
             generation: 2,
             ..*c.next.marker()
         },
@@ -288,7 +288,7 @@ fn wallet_advance_v1_marker_successor_rules() {
     // Another slot breaks the chain.
     let foreign = KagemushaWalletMarkerRecordV1::new(
         KagemushaWalletSlotIdV1([0xee; 32]),
-        *c.selected.marker(),
+        c.selected.marker(),
         ANDROID,
         None,
         BOOT_A,
@@ -484,7 +484,7 @@ fn wallet_advance_v1_marker_fresh_inode_rule() {
     }
     let unstamped = KagemushaWalletMarkerRecordV1::new(
         f.slot,
-        *c.released.marker(),
+        c.released.marker(),
         ANDROID,
         Some([0xc1; 32]),
         [0; 32],
@@ -835,7 +835,7 @@ fn wallet_advance_v1_marker_adopt_refuses_a_record_that_is_not_on_disk() {
         ),
     ] {
         let forged =
-            KagemushaWalletMarkerRecordV1::new(f.slot, forged_marker, ANDROID, None, stamp)
+            KagemushaWalletMarkerRecordV1::new(f.slot, &forged_marker, ANDROID, None, stamp)
                 .expect("forged record");
         assert_eq!(forged.phase(), KagemushaWalletMarkerPhaseV1::Selected);
         let current = KagemushaWalletCurrentMarkerV1 {
@@ -898,7 +898,7 @@ fn wallet_advance_v1_marker_anchor_kind_is_bound_to_the_slot() {
     }
     // A successor of another kind is refused.
     let unanchored =
-        KagemushaWalletMarkerRecordV1::new(f.slot, *selected.marker(), ANDROID, None, BOOT_A)
+        KagemushaWalletMarkerRecordV1::new(f.slot, selected.marker(), ANDROID, None, BOOT_A)
             .expect("record");
     assert_eq!(
         unanchored.validate_successor_of(&keychain),

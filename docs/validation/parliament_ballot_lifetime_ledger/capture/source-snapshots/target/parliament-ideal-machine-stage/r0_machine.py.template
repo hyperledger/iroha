@@ -1,0 +1,206 @@
+"""Explicit field-register circuits for the public VOLE consistency equation.
+
+Challenges/responses/d are prescribed input coins, never recovered witnesses.
+Every multiplication expands a registered clean elementary-gate kernel; operand
+copies, retained history and inverse traversal are included in the accounting.
+"""
+from collections import Counter
+from dataclasses import dataclass
+
+from bit_ir import Cost, bits, integer, require, unpack
+
+FIELD_BITS = 256
+
+
+@dataclass(frozen=True)
+class FieldCircuit:
+    """Immutable SSA with exact forward operations and a clean XOR embedding."""
+    inputs: int
+    history: int
+    operations: tuple | None
+    outputs: tuple
+    kernels: tuple
+    forward_cost: Cost
+    operation_counts: tuple
+
+    @property
+    def work(self):
+        return max((k.inputs+k.work for k in self.kernels), default=0)
+
+    @property
+    def output_start(self):
+        return self.inputs+self.history+self.work
+
+    def resources(self):
+        return dict(input_bits=self.inputs, output_bits=len(self.outputs),
+                    history_bits=self.history, shared_kernel_work_bits=self.work,
+                    total_clean_work_bits=self.history+self.work,
+                    gates=(self.forward_cost.times(2)+Cost(cx=len(self.outputs))).as_dict(),
+                    operations=dict(self.operation_counts),
+                    conditional_on_registered_clean_kernels=True,
+                    complete_resource_vector=False, profile_qualified=False,
+                    production_gate_changed=False)
+
+    def emit(self, inverse=False):
+        require(type(inverse) is bool and self.operations is not None, "recorded field program required")
+        scratch = self.inputs+self.history
+        kernel_map = {k.name:k for k in self.kernels}
+        operations = reversed(self.operations) if inverse else self.operations
+        for kind, start, args in operations:
+            if kind == "const":
+                value = args[0]
+                for bit in range(256):
+                    if (value >> bit) & 1:
+                        yield ("x", start+bit)
+            elif kind == "embed":
+                yield ("cx", args[0], start)
+            elif kind == "xor":
+                for bit in range(256):
+                    yield ("cx", args[0]+bit, start+bit)
+                    yield ("cx", args[1]+bit, start+bit)
+            elif kind == "select":
+                for bit in range(256):
+                    source = args[0]+bit
+                    if source == args[1]:
+                        yield ("cx", source, start+bit)
+                    else:
+                        yield ("ccx", source, args[1], start+bit)
+            else:
+                require(kind in kernel_map, "unknown field kernel")
+                kernel = kernel_map[kind]
+                widths = (256, kernel.inputs-256)
+                locations = tuple(w for a,width in zip(args,widths) for w in range(a,a+width))
+                # Copy even aliased operands to independent registers; no free
+                # alias adaptation or implicit field arithmetic is permitted.
+                for i, source in enumerate(locations):
+                    yield ("cx", source, scratch+i)
+                yield from kernel.emit(tuple(range(scratch,scratch+kernel.inputs)),
+                                       tuple(range(start,start+256)),
+                                       tuple(range(scratch+kernel.inputs,scratch+kernel.inputs+kernel.work)))
+                for i, source in enumerate(locations):
+                    yield ("cx", source, scratch+i)
+
+    def emit_clean(self):
+        yield from self.emit()
+        for i, source in enumerate(self.outputs):
+            yield ("cx", source, self.output_start+i)
+        yield from self.emit(True)
+
+    def evaluate(self, values):
+        require(self.operations is not None, "recorded field program required")
+        require(type(values) in (tuple,list) and len(values)==self.inputs
+                and all(type(v) is int and v in (0,1) for v in values), "field program input")
+        memory = list(values)
+        kernels = {k.name:k for k in self.kernels}
+        for kind,start,args in self.operations:
+            require(start==len(memory), "field SSA order")
+            if kind=="const": result=bits(args[0],256)
+            elif kind=="embed": result=(memory[args[0]],)+(0,)*255
+            elif kind=="xor": result=tuple(memory[args[0]+i]^memory[args[1]+i] for i in range(256))
+            elif kind=="select": result=tuple(memory[args[0]+i]&memory[args[1]] for i in range(256))
+            else:
+                kernel=kernels[kind]
+                result=kernel.evaluate(tuple(memory[args[0]:args[0]+256]+memory[args[1]:args[1]+kernel.inputs-256]))
+            memory.extend(result)
+        return tuple(memory[w] for w in self.outputs)
+
+
+class FieldBuilder:
+    """Count or record exactly the same finite register schedule."""
+    def __init__(self, inputs, mul, mul_u64, *, record=True):
+        integer(inputs,1,1<<40,"field input bits")
+        require(type(record) is bool,"record flag")
+        require((mul.inputs,mul.outputs,mul_u64.inputs,mul_u64.outputs)==(512,256,320,256),"field kernel shapes")
+        costs=(mul.cost,mul_u64.cost)
+        require(mul.name!=mul_u64.name and costs[0].base_calls==costs[1].base_calls==0,"concrete field kernels")
+        self.inputs=self.cursor=inputs
+        self.kernels=(mul,mul_u64)
+        self.kernel_specs=tuple((k.name,k.inputs,cost+Cost(cx=2*k.inputs)) for k,cost in zip(self.kernels,costs))
+        self.ops=[] if record else None
+        self.counts=Counter()
+        self.cost=Cost()
+
+    def region(self, start, width):
+        integer(start,0,self.cursor-1,"source register")
+        require(start+width<=self.cursor,"source register span")
+
+    def node(self, kind, args, cost):
+        start=self.cursor
+        self.cursor+=256
+        if self.ops is not None: self.ops.append((kind,start,args))
+        self.counts[kind]+=1
+        self.cost+=cost
+        return start
+
+    def constant(self,value):
+        integer(value,0,(1<<256)-1,"field constant")
+        return self.node("const",(value,),Cost(x=value.bit_count()))
+
+    def embed(self,bit):
+        self.region(bit,1)
+        return self.node("embed",(bit,),Cost(cx=1))
+
+    def xor(self,left,right):
+        self.region(left,256);self.region(right,256)
+        return self.node("xor",(left,right),Cost(cx=512))
+
+    def select(self,value,bit):
+        self.region(value,256);self.region(bit,1)
+        overlap=int(value<=bit<value+256)
+        return self.node("select",(value,bit),Cost(cx=overlap,ccx=256-overlap))
+
+    def multiply(self,left,right,*,short=False):
+        require(type(short) is bool,"short multiplier flag")
+        name,width,cost=self.kernel_specs[int(short)]
+        self.region(left,256);self.region(right,width-256)
+        return self.node(name,(left,right),cost)
+
+    def finish(self,outputs):
+        outputs=tuple(outputs)
+        for wire in outputs:self.region(wire,1)
+        return FieldCircuit(self.inputs,self.cursor-self.inputs,None if self.ops is None else tuple(self.ops),
+                            outputs,self.kernels,self.cost,tuple(sorted(self.counts.items())))
+
+
+def words(start,count):
+    return tuple(start+256*i for i in range(count))
+
+
+def vole_response(ell,mul,mul_u64,*,record=True):
+    """Delta || Q[ell] || qbar[10] || chall1[264] || Utilde[4] -> Vtilde[4].
+
+Source proof::vole_hash folds Q then qbar[0..6], finalizes qbar[6..10],
+then adds Delta*Utilde. It performs no hash-oracle read: chall1 is prescribed.
+The returned fields are not a consistency acceptance test.
+"""
+    integer(ell,1,1<<20,"VOLE witness bits")
+    delta=0;q=256;mask=q+256*ell;challenge=mask+2560;utilde=challenge+2112
+    b=FieldBuilder(utilde+1024,mul,mul_u64,record=record)
+    r=words(challenge,4);s=words(challenge+1024,4);point=challenge+2048
+    y=[b.constant(0) for _ in range(5)]
+    for value in (*words(q,ell),*words(mask,6)):
+        y=[b.xor(b.multiply(y[j],s[j]),value) for j in range(4)]+[b.xor(b.multiply(y[4],point,short=True),value)]
+    output=[]
+    for j in range(4):
+        value=b.xor(b.xor(b.multiply(r[j],y[0]),y[j+1]),mask+256*(6+j))
+        value=b.xor(value,b.multiply(delta,utilde+256*j))
+        output.extend(range(value,value+256))
+    return b.finish(output)
+
+
+@dataclass(frozen=True)
+class VoleResponse:
+    """Finite R0 equation; supplied challenge/Utilde/d coin ownership is external."""
+    ell:int
+    mul:object
+    mul_u64:object
+
+    def build(self,*,record=True):return vole_response(self.ell,self.mul,self.mul_u64,record=record)
+    def emit_clean(self):yield from self.build().emit_clean()
+    def resources(self):
+        out=self.build(record=False).resources()
+        out.update(stage="R0",ell=self.ell,folded_fields=self.ell+6,
+                   prescribed_challenge_bits=2112,prescribed_consistency_bits=1024,
+                   ordinary_backend_reads=0,masked_witness_passthrough_external=True,
+                   qbar_order="first6 folded; last4 final additive",complete_simulator_coverage=False)
+        return out

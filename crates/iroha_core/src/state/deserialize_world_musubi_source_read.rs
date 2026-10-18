@@ -12,7 +12,10 @@ use std::convert::Infallible;
 mod source_traits;
 pub(crate) use source_traits::{
     MusubiSourceReadOnly,
-    access::{KeyWorkCursor, LookupCursor, MusubiRead, ReadFailure, next_if_row, try_next_if_row},
+    access::{
+        KeyWorkCursor, LookupCursor, LookupResolution, MusubiRead, ReadFailure, next_if_row,
+        try_next_if_row,
+    },
 };
 
 /// An original source acquisition refusal, separate from semantic validity.

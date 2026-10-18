@@ -1,7 +1,6 @@
 //! Adversarial block validation regressions for forged/invalid transactions.
 
-#[path = "common/native_validation.rs"]
-mod native_validation;
+use crate::native_validation;
 use iroha_core::{
     block::BlockValidationError,
     governance::manifest::LaneManifestRegistry,

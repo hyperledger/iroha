@@ -348,6 +348,11 @@ impl VerifierRequestV1 {
     /// Recheck an exact evidence original retained by the issuer after an authenticated reply.
     /// This proves the same request/configuration/time bindings as `response`; it does not
     /// authenticate arbitrary caller-supplied evidence or grant credential-signing authority.
+    ///
+    /// # Errors
+    /// Returns an error for an empty, oversized or malformed evidence frame; changed
+    /// configuration, request, key or time bindings; invalid platform originals,
+    /// counters or facts; or a digest that differs from those exact originals.
     pub fn retained_evidence(&self, original: &[u8]) -> Result<EvidenceProjectionV1, Error> {
         if original.is_empty() || original.len() > MAX_RESULT {
             return Err(Error("frame bound"));

@@ -264,8 +264,18 @@ where
     })
 }
 
-/// Read the tombstone of `operation_id`: `None` when definitively absent, `Some(None)` when
-/// present but invalid.
+/// Definitive result of reading one operation's tombstone.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum TombstoneReadV1 {
+    /// No original exists at the operation's exact tombstone name.
+    Absent,
+    /// An oversized, malformed or differently bound original exists.
+    Invalid,
+    /// A canonical tombstone bound to the requested operation.
+    Found(KagemushaWalletTombstoneV1),
+}
+
+/// Read the tombstone of `operation_id`, distinguishing absence from invalid custody.
 ///
 /// # Errors
 ///
@@ -274,19 +284,18 @@ pub(super) fn read_tombstone<F: KagemushaWalletFsV1>(
     store: &KagemushaWalletDurableStoreV1<F>,
     slot: &KagemushaWalletSlotIdV1,
     operation_id: &[u8; 32],
-) -> Result<Option<Option<KagemushaWalletTombstoneV1>>, KagemushaWalletProviderErrorV1> {
+) -> Result<TombstoneReadV1, KagemushaWalletProviderErrorV1> {
     match store.read(
         &kagemusha_wallet_ops_dir_v1(slot),
         &kagemusha_wallet_tombstone_name_v1(operation_id),
         KAGEMUSHA_WALLET_TOMBSTONE_MAX_BYTES_V1,
     ) {
-        KagemushaWalletReadV1::Present(bytes) => Ok(Some(
-            KagemushaWalletTombstoneV1::decode(&bytes)
-                .ok()
-                .filter(|tombstone| tombstone.operation_id == *operation_id),
-        )),
-        KagemushaWalletReadV1::Oversized => Ok(Some(None)),
-        KagemushaWalletReadV1::Absent => Ok(None),
+        KagemushaWalletReadV1::Present(bytes) => Ok(KagemushaWalletTombstoneV1::decode(&bytes)
+            .ok()
+            .filter(|tombstone| tombstone.operation_id == *operation_id)
+            .map_or(TombstoneReadV1::Invalid, TombstoneReadV1::Found)),
+        KagemushaWalletReadV1::Oversized => Ok(TombstoneReadV1::Invalid),
+        KagemushaWalletReadV1::Absent => Ok(TombstoneReadV1::Absent),
         KagemushaWalletReadV1::Unavailable(reason) => {
             Err(KagemushaWalletProviderErrorV1::Unavailable(reason))
         }
@@ -353,7 +362,7 @@ where
         }
     }
     for operation_id in kagemusha_wallet_list_tombstones_v1(store, slot)? {
-        if let Some(Some(tombstone)) = read_tombstone(store, slot, &operation_id)? {
+        if let TombstoneReadV1::Found(tombstone) = read_tombstone(store, slot, &operation_id)? {
             highest = highest.max(Some(tombstone.selected_generation));
         }
     }
@@ -410,7 +419,7 @@ where
             }
             OlderCompletionV1::Absent => {
                 return match read_tombstone(&self.store, slot, operation_id)? {
-                    Some(Some(tombstone)) => Ok(tombstone),
+                    TombstoneReadV1::Found(tombstone) => Ok(tombstone),
                     _ => Err(KagemushaWalletProviderErrorV1::Invalid {
                         field: "prune.unknown_operation",
                     }),
@@ -449,7 +458,7 @@ where
             KagemushaWalletPublishOutcomeV1::NotPublished(
                 KagemushaWalletNotPublishedV1::DestinationExists,
             ) => match read_tombstone(&self.store, slot, &tombstone.operation_id)? {
-                Some(Some(existing)) if existing == *tombstone => {
+                TombstoneReadV1::Found(existing) if existing == *tombstone => {
                     // Adopt a tombstone left by an interrupted prune: make it durable.
                     super::layout::kagemusha_wallet_require_published_v1(
                         self.store.rewrite_same(&dir, &name, &bytes),

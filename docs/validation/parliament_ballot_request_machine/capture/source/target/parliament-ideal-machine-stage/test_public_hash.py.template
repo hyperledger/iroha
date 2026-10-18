@@ -1,0 +1,128 @@
+"""Independent hashlib, emitted-wire and padding controls for concrete profile SHAKE."""
+from collections import Counter
+from pathlib import Path
+import hashlib
+import unittest
+
+from bit_ir import bits, unpack
+from public_hash import load_public_keccak, Shake256_64, Sha3_512_64
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class PublicHashTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_public_keccak(ROOT)
+        cls.permutation = cls.module.Keccak1600Kernel()
+
+    def test_fixed_byte_shake256_boundary_reference(self):
+        for size in (0, 1, 135, 136, 137):
+            with self.subTest(size=size):
+                raw = bytes((i*73+9) % 256 for i in range(size))
+                values = tuple(v for byte in raw for v in bits(byte, 8)) if size else (1,)
+                kernel = Shake256_64(size, self.permutation)
+                digest = unpack(kernel.evaluate(values)).to_bytes(64, 'little')
+                self.assertEqual(digest, hashlib.shake_256(raw).digest(64))
+                self.assertNotEqual(digest, hashlib.sha3_512(raw).digest())
+
+    def test_actual_two_block_clean_xor_map_and_exact_census(self):
+        n = 136
+        kernel = Shake256_64(n, self.permutation)
+        samples = [bytes(n), bytes([255])*n, bytes(range(n))]
+        expected = [int.from_bytes(hashlib.shake_256(v).digest(64), 'little') for v in samples]
+        mask = 7
+        size = kernel.inputs+kernel.work+kernel.outputs
+        labels = tuple(2*i+1 for i in range(size-1, -1, -1))
+        inputs = labels[:kernel.inputs]
+        work = labels[kernel.inputs:kernel.inputs+kernel.work]
+        outputs = labels[-kernel.outputs:]
+        memory = [mask]*(2*size+5)
+        for i, wire in enumerate(inputs):
+            memory[wire] = sum(((sample[i//8] >> (i % 8)) & 1) << j for j,sample in enumerate(samples))
+        original = tuple(memory[w] for w in inputs)
+        for wire in work: memory[wire] = 0
+        target = [(i*3+1) & mask for i in range(512)]
+        for wire,value in zip(outputs,target): memory[wire] = value
+        census = Counter()
+        for gate in kernel.emit(inputs,outputs,work):
+            kind,*wires=gate
+            self.assertEqual(len(set(wires)),len(wires))
+            self.assertEqual(len(wires), {'x':1,'cx':2,'ccx':3}[kind])
+            v=mask
+            for control in wires[:-1]: v &= memory[control]
+            memory[wires[-1]] ^= v
+            census[kind] += 1
+        self.assertEqual(tuple(memory[w] for w in inputs),original)
+        self.assertTrue(all(memory[w]==0 for w in work))
+        self.assertEqual([memory[w] for w in outputs],
+                         [target[i] ^ sum(((v >> i)&1) << j for j,v in enumerate(expected)) for i in range(512)])
+        used=set(labels)
+        self.assertTrue(all(value==mask for wire,value in enumerate(memory) if wire not in used))
+        self.assertEqual(dict(census),dict(x=kernel.cost.x,cx=kernel.cost.cx,ccx=kernel.cost.ccx))
+
+    def test_lazy_sha3_matches_frozen_circuit_and_hashlib(self):
+        for size in (0,1,71,72,73):
+            with self.subTest(size=size):
+                raw=bytes((i*19+33)%256 for i in range(size))
+                values=tuple(v for byte in raw for v in bits(byte,8)) if size else (1,)
+                lazy=Sha3_512_64(size,self.permutation)
+                frozen=self.module.SHA3_512Kernel(size)
+                self.assertEqual(lazy.cost,frozen.cost)
+                self.assertEqual(lazy.work,frozen.work)
+                self.assertEqual(lazy.evaluate(values),frozen.evaluate(values))
+                self.assertEqual(unpack(lazy.evaluate(values)).to_bytes(64,'little'),hashlib.sha3_512(raw).digest())
+        # Maximum public list-frame SHA3 metadata stays bounded without building
+        # millions of nodes; the exact count follows the same emitted loop.
+        lazy=Sha3_512_64(128000+113,self.permutation)
+        self.assertEqual(lazy.blocks,1780)
+        self.assertEqual(lazy.cost.base_calls,0)
+
+    def test_lazy_sha3_actual_emitted_padding_and_clean_work(self):
+        for size in (0,72):
+            with self.subTest(size=size):
+                raw=bytes((i*13+7)%256 for i in range(size))
+                kernel=Sha3_512_64(size,self.permutation)
+                values=[v for byte in raw for v in bits(byte,8)] if size else [1]
+                target=[i%2 for i in range(512)]
+                state=values+[0]*kernel.work+target[:]
+                inputs=tuple(range(kernel.inputs))
+                work=tuple(range(kernel.inputs,kernel.inputs+kernel.work))
+                outputs=tuple(range(kernel.inputs+kernel.work,len(state)))
+                census=Counter()
+                for kind,*wires in kernel.emit(inputs,outputs,work):
+                    value=1
+                    for w in wires[:-1]:value &= state[w]
+                    state[wires[-1]] ^= value;census[kind]+=1
+                expected=int.from_bytes(hashlib.sha3_512(raw).digest(),'little')
+                self.assertEqual(state[:kernel.inputs],values)
+                self.assertEqual(state[kernel.inputs:-512],[0]*kernel.work)
+                self.assertEqual(state[-512:],[v^((expected>>i)&1) for i,v in enumerate(target)])
+                self.assertEqual(dict(census),dict(x=kernel.cost.x,cx=kernel.cost.cx,ccx=kernel.cost.ccx))
+
+    def test_profile_lengths_have_priced_concrete_hash_work(self):
+        for size,blocks in ((84304,620),(83704,616)):
+            with self.subTest(size=size):
+                kernel=Shake256_64(size,self.permutation)
+                self.assertEqual(kernel.blocks,blocks)
+                self.assertEqual(kernel.work,192086+1600+8*size+6+1600*blocks)
+                self.assertEqual(kernel.cost.base_calls,0)
+                self.assertEqual(kernel.cost.ccx,153600*blocks)
+                self.assertEqual(kernel.cost.cx,1078744*blocks+32*size+524)
+                self.assertEqual(kernel.cost.x,153944*blocks+12)
+
+    def test_invalid_shape_bits_and_wires_refused(self):
+        for invalid in (True,False,0.0,-1,2**20+1):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):
+                Shake256_64(invalid,self.permutation)
+        kernel=Shake256_64(0,self.permutation)
+        for values in ((2,),(),(True,)):
+            with self.subTest(values=values),self.assertRaises(ValueError):kernel.evaluate(values)
+        self.assertEqual(kernel.evaluate((0,)),kernel.evaluate((1,)))
+        inputs=(0,);work=tuple(range(1,kernel.work+1));out=tuple(range(kernel.work+1,kernel.work+513))
+        for i,o,w in (([0],out,work),(inputs,out[:-1],work),(inputs,(0,)+out[1:],work),
+                      (inputs,out,(False,)+work[1:])):
+            with self.assertRaises(ValueError): next(kernel.emit(i,o,w))
+
+
+if __name__=='__main__':unittest.main()

@@ -380,6 +380,7 @@ fn retained_lookup_keeps_paid_geometry_and_comparison_across_native_refusal() {
         ));
         assert_eq!(work, limit);
         assert_eq!(query.phase, 4);
+        assert_eq!(query.resolved, LookupResolution::Pending);
         assert_eq!(query.key.units, key_units);
         assert_eq!(query.candidate.units, key_units);
         let baseline = budget.reserved_bytes();
@@ -408,10 +409,18 @@ fn retained_lookup_keeps_paid_geometry_and_comparison_across_native_refusal() {
             .unwrap();
         assert_eq!(original.0, &key);
         assert_eq!(work, comparison_paid + resolve);
-        assert_eq!(query.resolved, Some(Some(2)));
+        assert_eq!(query.resolved, LookupResolution::Present(2));
         assert_eq!(budget.reserved_bytes(), baseline);
         // A completed query only reborrows its original row, without a second search.
         let pointer = std::ptr::from_ref(original.1);
+        let completed_work = work;
+        assert!(matches!(
+            lookup(&mut query, &mut work, completed_work),
+            Err(RetainedPackageReadError::Work { used, required, limit })
+            if used == completed_work && required == completed_work + resolve && limit == completed_work
+        ));
+        assert_eq!(query.resolved, LookupResolution::Present(2));
+        assert_eq!(work, completed_work);
         let again = lookup(&mut query, &mut work, comparison_paid + resolve * 2)
             .unwrap()
             .unwrap();
@@ -468,4 +477,73 @@ fn retained_variable_key_geometry_resumes_each_prefix_without_recharging_it() {
             .unwrap(),
         expected
     );
+}
+
+#[test]
+fn retained_lookup_distinguishes_pending_absent_and_reset_without_new_work() {
+    for empty in [false, true] {
+        for predecessor in [false, true] {
+            let target = if empty { Storage::default() } else { target() };
+            let detached = target.block().try_detach(|_| Ok::<(), ()>(())).unwrap();
+            let count = detached.original_images().current_entries().len();
+            let frozen = detached.freeze_pair();
+            let mut read = OriginalTableRead::new(frozen.readers(), count, 0);
+            let budget = AllocationBudget::new(65_536);
+            let mut work = 0;
+            read.advance(&budget, &mut work, WORK).unwrap();
+            read.advance_predecessor(&budget, &mut work, WORK).unwrap();
+            let progress = read.predecessor_progress();
+            let charged = budget.reserved_bytes();
+            let missing = key(9);
+            let lookup = |query: &mut LookupCursor, work: &mut usize, limit| {
+                if predecessor {
+                    read.predecessor_lookup_retained(&missing, query, work, limit)
+                } else {
+                    read.current_lookup_retained(&missing, query, work, limit)
+                }
+            };
+            let mut query = LookupCursor::default();
+            assert_eq!(query.resolved, LookupResolution::Pending);
+            let before = work;
+            assert!(matches!(
+                lookup(&mut query, &mut work, before),
+                Err(RetainedPackageReadError::Work { used, required, limit })
+                if used == before && required == before + 1 && limit == before
+            ));
+            assert_eq!(query.resolved, LookupResolution::Pending);
+            assert_eq!(work, before);
+            assert!(lookup(&mut query, &mut work, WORK).unwrap().is_none());
+            assert_eq!(query.resolved, LookupResolution::Absent);
+            let completed_work = work;
+            assert_eq!(
+                allocations_during(|| {
+                    assert!(
+                        lookup(&mut query, &mut work, completed_work)
+                            .unwrap()
+                            .is_none()
+                    );
+                }),
+                0
+            );
+            assert_eq!(work, completed_work);
+            query.reset();
+            assert_eq!(query.resolved, LookupResolution::Pending);
+            assert_eq!(query.phase, 0);
+            assert_eq!(query.key.units, 0);
+            assert!(matches!(
+                lookup(&mut query, &mut work, completed_work),
+                Err(RetainedPackageReadError::Work { used, required, limit })
+                if used == completed_work && required == completed_work + 1 && limit == completed_work
+            ));
+            assert_eq!(work, completed_work);
+            assert!(lookup(&mut query, &mut work, WORK).unwrap().is_none());
+            assert_eq!(query.resolved, LookupResolution::Absent);
+            assert!(work > completed_work);
+            assert_eq!(read.predecessor_progress(), progress);
+            assert_eq!(budget.reserved_bytes(), charged);
+            drop(read);
+            assert_eq!(budget.reserved_bytes(), 0);
+            drop(frozen);
+        }
+    }
 }

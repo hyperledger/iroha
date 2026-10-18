@@ -1,0 +1,137 @@
+"""Independent finite full B1 composition controls, not a production benchmark."""
+from pathlib import Path
+import hashlib
+import unittest
+
+from bit_ir import Cost, bits, unpack
+from reconstruction import Reconstruction
+from schedule import load_predicate
+from aes_kernel import load_aes
+from field_kernel import FieldKernel, load_field
+from test_prg_machine import ToyCipher, reference_cipher, reference_expand
+from test_hash_machine import apply
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class ToyField:
+    """Cheap full-width clean XOR map isolating component routing and lifetimes."""
+    def __init__(self, q):
+        self.name, self.inputs, self.outputs, self.work = "test-field-"+str(q), 256+q, q, 0
+        self.cost = Cost(cx=2*q)
+
+    def evaluate(self, values):
+        return tuple(values[i % 256] ^ values[256+i] for i in range(self.outputs))
+
+    def emit(self, inputs, outputs, work):
+        if work or len(set(inputs+outputs)) != self.inputs+self.outputs:
+            raise ValueError("toy field layout")
+        for i, target in enumerate(outputs):
+            yield ("cx", inputs[i % 256], target)
+            yield ("cx", inputs[256+i], target)
+
+
+def reference(g, hidden, keys, commitments, namespace, iv):
+    """Mutable heap + byte strings, independent from composed circuit wire maps."""
+    half = 1 << (g.k-1)
+    def position(vector, index):
+        return g.leaves-1 + (g.tau*index+vector if index < half else
+                             g.tau*half+g.tau1*(index-half)+vector)
+    marks = [0] * (2*g.leaves-1)
+    for vector, index in enumerate(hidden):
+        node = position(vector, index)
+        while True:
+            marks[node] = 1
+            if node == 0: break
+            node = (node-1)//2
+    frontier = [node for node in range(1, len(marks)) if not marks[node] and marks[(node-1)//2]]
+    frontier.sort(key=lambda node: (node-1)//2, reverse=True)
+    heap = [0] * len(marks)
+    for node, key in zip(frontier, keys): heap[node] = key
+    heap, _ = reference_expand(heap, marks, iv)
+    hash_key = hashlib.shake_256(namespace+iv.to_bytes(16, "little")+b"\0").digest(128)
+    h0, h1 = int.from_bytes(hash_key[:96], "little"), int.from_bytes(hash_key[96:], "little")
+    seeds, vector_hashes = [], []
+    iv_bytes = iv.to_bytes(16, "little")
+    for vector, depth in enumerate(g.depths):
+        coms = []
+        for index in range(1 << depth):
+            node = position(vector, index)
+            if index == hidden[vector]:
+                seeds.append(0)
+                coms.append(commitments[vector].to_bytes(112, "little"))
+                continue
+            raw = b""
+            for counter in range(9):
+                low = (int.from_bytes(iv_bytes[:4], "little")+counter)&0xffffffff
+                high = (int.from_bytes(iv_bytes[12:], "little")+g.leaves-1+vector)&0xffffffff
+                message = low.to_bytes(4, "little")+iv_bytes[4:12]+high.to_bytes(4, "little")
+                raw += reference_cipher(heap[node], int.from_bytes(message, "little")).to_bytes(16, "little")
+            seed = int.from_bytes(raw[:32], "little")
+            seeds.append(seed)
+            repeated = seed | (seed << 256) | (seed << 512)
+            c0 = repeated ^ h0 ^ int.from_bytes(raw[32:128], "little")
+            c1 = ((seed ^ h1)&((1 << 128)-1)) ^ int.from_bytes(raw[128:], "little")
+            coms.append(c0.to_bytes(96, "little")+c1.to_bytes(16, "little"))
+        vector_hashes.append(hashlib.shake_256(namespace+b"".join(coms)+b"\1").digest(64))
+    commitment = hashlib.shake_256(namespace+b"".join(vector_hashes)+b"\1").digest(64)
+    return marks, commitment, seeds
+
+
+class ReconstructionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_predicate(ROOT)
+
+    def test_full_clean_composition_and_exact_count(self):
+        g = self.module.Geometry(2, 3, 0, 1, 7)
+        c = Reconstruction(g, ToyCipher(), ToyField(768), ToyField(256))
+        p = c.layout()
+        namespace, iv = bytes(range(77)), (1 << 128)-2
+        keys, commitments = [0, 11, 11, 0, 57, 0, 9], [17, 31]
+        marks, commitment, seeds = reference(g, (0, 3), keys, commitments, namespace, iv)
+        values = (bits(int.from_bytes(namespace, "little"), 616)+bits(iv, 128)+tuple(marks)
+                  +tuple(bit for k in keys for bit in bits(k, 256))
+                  +tuple(bit for v in commitments for bit in bits(v, 896)))
+        wanted = bits(int.from_bytes(commitment, "little"), 512)+tuple(bit for seed in seeds for bit in bits(seed, 256))
+        z = tuple((i+i//5)%2 for i in range(c.output_bits))
+        state = list(values+(0,)*(p["output_start"]-len(values))+z)
+        census, queries = apply(state, c.emit_clean())
+        self.assertEqual(state[:len(values)], list(values))
+        self.assertEqual(state[len(values):p["output_start"]], [0]*(p["output_start"]-len(values)))
+        self.assertEqual(tuple(state[p["output_start"]:]), tuple(a^b for a,b in zip(wanted,z)))
+        resource = c.resources()
+        expected = resource["gates"]
+        for name in ("x", "cx", "ccx"):
+            self.assertEqual(census[name], expected[name])
+        self.assertEqual(census["F"], 4*g.tau+6)
+        self.assertTrue(all(message[-1] in (0, 1) for message in queries))
+        self.assertFalse(resource["complete_resource_vector"])
+
+    def test_static_component_intervals_disjoint_and_kernel_pins(self):
+        aes = load_aes(ROOT)
+        fields = load_field(ROOT)
+        for row in ("candidate", "comparator"):
+            g = self.module.row(row)
+            c = Reconstruction(g, aes, FieldKernel(fields, "gf256_mul_tripled"), FieldKernel(fields, "gf256_mul"))
+            p = c.layout()
+            for name, component in p["components"].items():
+                pieces = c.sources(p, name)
+                self.assertEqual(sum(n for _, n in pieces), component.input_bits)
+                # Boundary checks cover each affine interval without enumerating a huge layout.
+                local = 0
+                for start, width in pieces:
+                    self.assertEqual(c.mapped_wire(p, name, local), start)
+                    self.assertEqual(c.mapped_wire(p, name, local+width-1), start+width-1)
+                    local += width
+                self.assertEqual(c.mapped_wire(p, name, component.input_bits), p["scratch_start"])
+                with self.assertRaises(ValueError):
+                    c.mapped_wire(p, name, p["plans"][name]["size"])
+            resources = c.resources()
+            self.assertEqual(resources["gates"]["base_xor_oracle_calls"], 4*g.tau+6)
+            self.assertFalse(resources["actual_input_entry_bridge"])
+            self.assertFalse(resources["complete_simulator_coverage"])
+
+
+if __name__ == "__main__":
+    unittest.main()

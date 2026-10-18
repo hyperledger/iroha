@@ -1,0 +1,295 @@
+"""Conditional ContentFamily extension; no adaptive or quantum driver execution.
+
+TODO: price remaining request shapes and driver/preparation costs and discharge
+primitive entry obligations before any full-resource or qualification claim.
+The frozen accepted-only ledger and all historical captures remain unchanged.
+"""
+from dataclasses import dataclass,asdict
+import argparse
+import copy
+import hashlib
+import json
+from pathlib import Path
+import sys
+import types
+
+ROOT=Path(__file__).resolve().parents[2]
+BASE_PATH='target/parliament-lifetime-composition-stage/ledger.py'
+BASE_SHA='5af7ed9e7e133fd2a9885239616ff8dbc0d0e74c5e658c6c5457e90c312acd7e'
+OBS_PATH='target/parliament-content-resources-stage/capture/observation.json'
+OBS_SHA='c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'
+
+
+def authenticated_bytes(path,expected):
+    data=Path(path).read_bytes()
+    if hashlib.sha256(data).hexdigest()!=expected:
+        raise ValueError('source drift: '+str(path))
+    return data
+
+
+def load_base(root):
+    """Execute exactly the authenticated source buffer, not a .pyc cache."""
+    path=Path(root)/BASE_PATH
+    data=authenticated_bytes(path,BASE_SHA)
+    module=types.ModuleType('_content_extension_frozen_ledger')
+    module.__file__=str(path)
+    sys.modules[module.__name__]=module
+    exec(compile(data,str(path),'exec'),module.__dict__)
+    return module
+
+
+base=load_base(ROOT)
+Gates=base.Gates
+Interface=base.Interface
+Experiment=base.Experiment
+AcceptedRequest=base.AcceptedRequest
+RejectedVote=base.RejectedVote
+Query=base.Query
+Allocation=base.Allocation
+require=base.require
+
+
+@dataclass(frozen=True)
+class ContentRequest:
+    """Fixed typed VOTE shape; validity is determined by the source P0 map.
+
+    No claimed validity flag is accepted. The metadata covers both P0 outcomes
+    and reserves the worst possible append count regardless of actual content.
+    """
+    event_id:str
+    interface:Interface
+    row:str
+    list_count:int
+    body_bytes:int=0
+    context_bytes:tuple=(0,0,0,0,0,0)
+
+    def __post_init__(self):
+        base.event_common(self.event_id,self.interface)
+        base.row_role(self.row,'VOTE')
+        base.natural(self.list_count,'content list count',3,1000)
+        base.natural(self.body_bytes,'content body length')
+        require(type(self.context_bytes) is tuple and len(self.context_bytes)==6,'six content context lengths')
+        for length in self.context_bytes:base.natural(length,'content context length')
+
+
+@dataclass(frozen=True)
+class ContentCase:
+    row:str
+    shape:tuple
+    public:int
+    coins:int
+    output:int
+    retained:int
+    generator_work:int
+    return_work:int
+    generator:Gates
+    returns:Gates
+
+
+def validated_writes(interface,row):
+    ordinary,work=base.write_resources(interface,row,'VOTE')
+    return Gates(ordinary.x-4,ordinary.cx+4-2*base.M,ordinary.ccx+2*base.M),work
+
+
+@dataclass(frozen=True)
+class Catalog:
+    root:Path
+    legacy:base.Catalog
+    pins:tuple
+    cases:tuple
+
+    def __init__(self,root):
+        root=Path(root).resolve()
+        require(authenticated_bytes(root/BASE_PATH,BASE_SHA)==authenticated_bytes(ROOT/BASE_PATH,BASE_SHA),
+                'frozen imported ledger source identity')
+        legacy=base.Catalog(root)
+        data=authenticated_bytes(root/OBS_PATH,OBS_SHA)
+        observation=json.loads(data)
+        require(observation['status']=='PASS' and observation['source_sha256_before']==
+                observation['source_sha256_after'] and len(observation['source_sha256_before'])==152,
+                'content observation source scope')
+        require(observation['accepted_only_observation_sha256']==base.OBSERVATION_SHA,
+                'same accepted reference')
+        require(observation['parameters']==dict(trials=base.M,lifetime_requests=1 << 44,
+            length_bits=64,log_slots=(1 << 44)*(base.M+2),maximum_message_bytes=base.W),
+            'full-cap observation geometry')
+        pins=dict(legacy.pins)
+        for path,h in {**observation['source_sha256_before'],BASE_PATH:BASE_SHA,OBS_PATH:OBS_SHA}.items():
+            require(path not in pins or pins[path]==h,'conflicting observation source identity')
+            pins[path]=h
+        require(len(observation['loaded_repository_module_sha256'])==34 and
+                all(pins.get(p)==h for p,h in observation['loaded_repository_module_sha256'].items()),
+                'selected loaded module identities')
+        object.__setattr__(self,'root',root);object.__setattr__(self,'legacy',legacy)
+        object.__setattr__(self,'pins',tuple(sorted(pins.items())))
+        self.verify()
+        reference=Interface((1 << 44)*(base.M+2),64,'reference','reference')
+        cases=[]
+        for row in observation['cases']:
+            r=row['family_resources'];content=row['content_resources'];g=r['components']['generator']
+            e=r['components']['returns'];w=r['components']['writes'];shape=row['shape']
+            require(row['role']==shape['role']=='VOTE' and row['row']==shape['row'] and
+                    row['list_count']==shape['list_count'],'typed content shape')
+            require(shape['body_bytes']==0 and shape['context_bytes']==[0]*6,'observed content public lengths')
+            count=row['list_count'];name=row['row'];base.row_role(name,'VOTE')
+            require(count in (3,1000),'observed content list counts')
+            tau,gates,opening=(33,704,229) if name=='candidate' else (22,696,225)
+            proof=tau*6688+10*(gates//8)+112*tau+32*opening+404
+            coins=512*base.M+256*opening+896*tau+tau*53504+10*gates+736*8
+            case=ContentCase(name,(0,(0,)*6,count),3608+1024*count,coins,253+8*proof,
+                r['retained_derived_bits'],g['shared_clean_work_bits'],e['clean_work_bits'],
+                Gates.from_report(g['forward_and_inverse_gates']),Gates.from_report(e['gates']))
+            require(r['original_input_bits']==case.public+case.coins and
+                r['original_private_coin_bits']==case.coins and g['public_request_bits']==case.public,
+                'content public/private partition')
+            require(r['caller_output_bits']==case.output and content['caller_output_bits']+96==case.output,
+                    'common253-bit output envelope')
+            stages=row['stages']
+            require([s['name'] for s in stages]==['P0','P1','S0','opening','R0','R1'],'P0 stage order')
+            expected=(60,7976+1024*count,base.M+332,
+                896*tau+256*opening+16*tau+3328+256*53504,1024,322)
+            require(tuple(s['outputs'] for s in stages)==expected and
+                    sum(expected)==case.retained==g['retained_derived_bits'],'retained stage inventory')
+            forward=Gates()
+            for s in stages:forward+=Gates.from_report(s['gates'])
+            require(forward.report()==g['forward_gates'] and forward.times(2)==case.generator,
+                    'generator compute and uncompute')
+            require(case.generator_work==max(s['work'] for s in stages),'generator shared work')
+            require(case.generator.f==(6200 if name=='candidate' else 5960),'content F count')
+            ordinary_e=Gates(2,23+proof.bit_count(),8*proof)
+            expected_e=ordinary_e.times(2)+Gates(2,3,97+8*proof+59)
+            require(case.returns==expected_e and case.return_work==99+8*proof,
+                    'validated E compute/copy/clear and work')
+            vw,ww=validated_writes(reference,name)
+            require(vw.report()==w['gates'] and ww==w['clean_work_bits'],'validated W rebase agreement')
+            require((case.generator+vw+case.returns).report()==r['gates']==content['gates'],
+                    'original ContentFamily gate sum')
+            shared=max(case.generator_work,ww,case.return_work)
+            require(r['shared_work_bits']==shared and r['persistent_log_bits']==reference.log_bits and
+                    r['persistent_counter_bits']==reference.counter_bits,'content persistent/shared geometry')
+            require(r['total_logical_bits']==case.public+case.coins+case.output+case.retained+shared+
+                    reference.log_bits+reference.counter_bits,'original ContentFamily allocation')
+            for flag in ('invalid_content_has_joint_log_identity','invalid_content_pays_full_computation',
+                         'bounded_content_invalid_controller_implemented','original_coins_retained'):
+                require(r[flag] is True,'content semantic contract: '+flag)
+            for flag in ('complete_resource_vector','profile_qualified','production_gate_changed',
+                         'independent_cryptographic_review','raw_descriptor_authentication_implemented'):
+                require(r[flag] is False and observation[flag] is False,'content scope: '+flag)
+            cases.append(case)
+        require(len(cases)==4 and {(c.row,c.shape[2]) for c in cases}==
+                {(r,n) for r in ('candidate','comparator') for n in (3,1000)},'exact four ContentFamily cases')
+        object.__setattr__(self,'cases',tuple(cases));self.verify()
+
+    def verify(self):
+        for path,h in self.pins:authenticated_bytes(self.root/path,h)
+
+    def content(self,event):
+        for case in self.cases:
+            if (case.row,case.shape)==(event.row,(event.body_bytes,event.context_bytes,event.list_count)):
+                return case
+        raise ValueError('unsupported ContentFamily shape; no interpolation or family maximum')
+
+
+def account(catalog,experiment,events,placements=None):
+    require(type(catalog) is Catalog and type(experiment) is Experiment,'typed extension inputs')
+    require(type(events) is tuple,'immutable event sequence')
+    catalog.verify()
+    ids=set();requests=queries=0;legacy=[]
+    for event in events:
+        require(type(event) in (ContentRequest,AcceptedRequest,RejectedVote,Query),'unsupported event type')
+        require(event.event_id not in ids,'duplicate event ID');ids.add(event.event_id)
+        require(event.interface==experiment.interface,'event N/b/F/completion mismatch')
+        if type(event) is Query:queries+=1
+        else:requests+=1
+        if type(event) is not ContentRequest:legacy.append(event)
+    require(requests<=experiment.requests,'typed request cap exceeded')
+    require(queries<=experiment.queries,'query capacity exceeded')
+    result=base.account(catalog.legacy,experiment,tuple(legacy))
+    old={row['event_id']:row for row in result['events']}
+    interface=experiment.interface;cost=Gates();rows=[];requirements=[
+        ('persistent.log',interface.log_bits),('persistent.counter',interface.counter_bits)]
+    workspace=coins=generating=content_count=0
+    for event in events:
+        if type(event) is ContentRequest:
+            c=catalog.content(event);content_count+=1
+            vw,ww=validated_writes(interface,event.row)
+            shared=max(c.generator_work,ww,c.return_work)
+            row=dict(event_id=event.event_id,type='observed_content_family',row=event.row,role='VOTE',
+                shape=dict(body_bytes=event.body_bytes,context_bytes=event.context_bytes,list_count=event.list_count),
+                return_encoding='ContentFamily common253+proof bits',content_validity=None,
+                covers_valid_and_invalid_content=True,invalid_content_log_identity=True,
+                invalid_content_still_charged_full_gates=True,
+                public_input_bits=c.public,original_coin_bits=c.coins,caller_output_bits=c.output,
+                retained_derived_bits=c.retained,shared_work_bits=shared,reusable_work_bits=c.retained+shared,
+                rebased_writes=dict(gates=vw.report(),clean_work_bits=ww,counter_bits=interface.counter_bits,
+                                    log_bits=interface.log_bits),
+                reserved_append_slots=base.M+2,actual_appends=None,
+                gates=(c.generator+vw+c.returns).report())
+        else:row=copy.deepcopy(old[event.event_id])
+        prefix='event.'+event.event_id+'.'
+        if type(event) is Query:
+            requirements.extend(((prefix+'query',interface.length_bits+8*event.message_bytes),
+                                 (prefix+'enable',1),(prefix+'response',base.V)))
+        else:
+            requirements.extend(((prefix+'public',row['public_input_bits']),
+                (prefix+'coins',row['original_coin_bits']),(prefix+'output',row['caller_output_bits'])))
+            if experiment.coins=='purified-retained':
+                requirements.append((prefix+'coin_purifier',row['original_coin_bits']))
+            coins+=row['original_coin_bits']
+            if type(event) in (ContentRequest,AcceptedRequest):generating+=1
+        row['conservative_log_occupancy_upper']=generating*(base.M+2)
+        workspace=max(workspace,row['reusable_work_bits']);cost+=Gates.from_report(row['gates']);rows.append(row)
+    requirements.append(('reusable.clean',workspace))
+    allocated,span=base.allocate(requirements,placements)
+    reserve=generating*(base.M+2);require(reserve<=interface.capacity,'conservative append capacity')
+    result.update(scope='conditional metadata trace sum including four ContentFamily observations; no adaptive driver executed',
+        source_sha256=dict(catalog.pins),events=rows,body_gates=cost.report(),
+        source_binding='authenticated frozen ledger and selected ContentFamily observation/formula identities; not a new semantic proof or dependency closure',
+        event_counts=dict(requests=requests,queries=queries,generating=generating,content_family=content_count),
+        capacity=dict(slots=interface.capacity,reserved_upper=reserve,actual_occupancy=None,
+                      reservation_is_not_actual_log_effect=True),
+        content_observation_sha256=OBS_SHA,frozen_ledger_sha256=BASE_SHA,
+        unsupported_shapes_refused=True,actual_content_validity_evaluated=False,
+        request_cap_scope='all typed request events, including bounded-content and size rejection',
+        all_event_cap_is_additional_premise=True,source_theorem_valid_request_bound=None,
+        generating_count_is_not_valid_request_count=True)
+    owner=result['ownership']
+    owner.update(allocations=[asdict(x) for x in allocated],known_allocated_bits=sum(x.bits for x in allocated),
+        address_span_bits=span,reusable_clean_bits=workspace)
+    if experiment.coins=='purified-retained':
+        result['coin_preparation'].update(hadamard=coins,cx=coins)
+    result['caller_assertions_not_verified'].append(
+        'ContentFamily metadata covers either canonical P0 outcome for the same bounded typed request; validity is not supplied or evaluated by this ledger')
+    catalog.verify()
+    return result
+
+
+def parse_document(value):
+    require(type(value) is dict and set(value)=={'experiment','events'},'document schema')
+    require(type(value['experiment']) is dict and type(value['events']) is list,'typed JSON experiment/events')
+    experiment=Experiment(**value['experiment']);events=[]
+    for item in value['events']:
+        require(type(item) is dict,'event object')
+        if item.get('kind')!='content':
+            _,old=base.parse_document(dict(experiment=value['experiment'],events=[item]));events.extend(old)
+        else:
+            fields=dict(item);fields.pop('kind');fields['interface']=Interface(**fields['interface'])
+            if 'context_bytes' in fields:
+                require(type(fields['context_bytes']) is list,'JSON context array')
+                fields['context_bytes']=tuple(fields['context_bytes'])
+            events.append(ContentRequest(**fields))
+    return experiment,tuple(events)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root',type=Path,required=True);parser.add_argument('--events',type=Path,required=True)
+    parser.add_argument('--require-qualified',action='store_true');args=parser.parse_args()
+    try:
+        ex,events=parse_document(json.loads(args.events.read_bytes()))
+        result=account(Catalog(args.root),ex,events)
+        print(json.dumps(result,indent=2,sort_keys=True));return 2 if args.require_qualified else 0
+    except (ValueError,TypeError,KeyError,OSError) as error:
+        print(str(error),file=sys.stderr);return 1
+
+if __name__=='__main__':sys.exit(main())

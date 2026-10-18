@@ -224,7 +224,11 @@ impl VerifierExchangeV1 {
         )?;
         let digest = Sha256::digest(&bytes).into();
         let mut frame = Vec::with_capacity(bytes.len() + 4);
-        frame.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        frame.extend_from_slice(
+            &u32::try_from(bytes.len())
+                .map_err(|_| Error("frame bound"))?
+                .to_le_bytes(),
+        );
         frame.extend_from_slice(&bytes);
         Ok(Self {
             frame,

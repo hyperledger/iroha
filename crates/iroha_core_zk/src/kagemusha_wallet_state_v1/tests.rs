@@ -1447,7 +1447,7 @@ fn send_requires_recorded_predecessor_and_owner_assembles_canonical_payment() {
     let send = frozen(Some(&boot), template.send.statement.effect);
     assert!(matches!(w.commit(send.clone()), Err(Error::FoldRequired)));
     assert_eq!(w.custody.signatures, 1);
-    let owner = TransitionOwner::new(send.credential.clone());
+    let owner = TransitionOwner::new(&send.credential);
     let c = &send.capsule;
     let digest = c.custody_digest();
     let body = owner.receipt_body(c, &digest).expect("preflight");

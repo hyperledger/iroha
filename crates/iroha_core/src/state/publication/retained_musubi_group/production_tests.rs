@@ -389,11 +389,23 @@ fn real_publication_capture_never_rebases_changed_generation_or_equal_revision()
 
 #[test]
 fn real_publication_capture_retains_original_scope_after_physical_control_refusal() {
+    assert_original_scope_after_physical_control_refusal(
+        std::alloc::Layout::array::<OriginalMusubiAdmissionPair>(1).unwrap(),
+    );
+}
+
+#[test]
+fn real_publication_capture_refunds_control_after_physical_live_refusal() {
+    assert_original_scope_after_physical_control_refusal(
+        original_musubi_admission_live_layout_for_test(),
+    );
+}
+
+fn assert_original_scope_after_physical_control_refusal(layout: std::alloc::Layout) {
     use crate::test_allocations::refuse_one_layout_during;
     use iroha_allocation::ChargedBufferError;
     let (state, proposal) = fixture();
     let mut original = Box::new(staged_block(&state, proposal.header(), false, false));
-    let layout = std::alloc::Layout::array::<OriginalMusubiAdmissionPair>(1).unwrap();
     let (outcome, denied) = refuse_one_layout_during(layout, || original.try_publish());
     assert!(denied);
     let StatePublicationOutcome::Deferred(TransactionsBlockError::CaptureDeferred(reason)) =
@@ -414,6 +426,7 @@ fn real_publication_capture_retains_original_scope_after_physical_control_refusa
     );
     assert!(plan(&original).admission.is_none());
     assert_free(&state);
+    let retained_credit = state.ivm_execution_budget().reserved_bytes();
     let (repeat, denied_again) = refuse_one_layout_during(layout, || original.try_publish());
     assert!(denied_again);
     assert!(matches!(
@@ -430,6 +443,11 @@ fn real_publication_capture_retains_original_scope_after_physical_control_refusa
             .belongs_to(&state.ivm_execution_budget())
     );
     assert_free(&state);
+    assert!(plan(&original).admission.is_none());
+    assert_eq!(
+        state.ivm_execution_budget().reserved_bytes(),
+        retained_credit
+    );
     // Empty-table setup completes under the unchanged default encoding quantum.
     assert!(matches!(
         original.try_publish(),

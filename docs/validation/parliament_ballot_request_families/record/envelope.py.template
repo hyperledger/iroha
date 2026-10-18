@@ -1,0 +1,272 @@
+"""Conditional full typed-request family resource envelopes on frozen sources.
+
+TODO: price entry/selection/preparation and the adaptive experiment, complete the
+primitive bridge and native qualification. These local body bounds do not do so.
+"""
+from dataclasses import dataclass
+import argparse
+import csv
+import hashlib
+import io
+import json
+from pathlib import Path
+import sys
+import types
+
+ROOT=Path(__file__).resolve().parents[2]
+BASE_PATH='target/parliament-lifetime-composition-stage/ledger.py'
+BASE_SHA='5af7ed9e7e133fd2a9885239616ff8dbc0d0e74c5e658c6c5457e90c312acd7e'
+CONTENT_PATH='target/parliament-content-resources-stage/capture/observation.json'
+CONTENT_SHA='c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'
+COMPONENT='target/parliament-family-bounds-review/capture/'
+COMPONENT_PINS={
+    COMPONENT+'receipt.json':'6dc37a45cb36debad6aff5a5dce273b3ff125a721cee84175ead677dc3aa287b',
+    COMPONENT+'census.json':'5cfb1fc77da4b146bc4ae345ba831a20fd4e4ca4237d28a5791b780b64699511',
+    COMPONENT+'vote-census.csv':'3a91f20cc3e3e7e879eac9a74f0ec587e8c0bc89f83c60e6c6651e639caa2c04',
+}
+def require(ok,why):
+    if not ok:raise ValueError(why)
+def authenticated(path,expected):
+    data=Path(path).read_bytes()
+    require(hashlib.sha256(data).hexdigest()==expected,'source drift: '+str(path))
+    return data
+def load_base(root):
+    path=Path(root)/BASE_PATH;raw=authenticated(path,BASE_SHA)
+    module=types.ModuleType('_request_family_frozen_ledger');module.__file__=str(path)
+    sys.modules[module.__name__]=module;exec(compile(raw,str(path),'exec'),module.__dict__)
+    return module
+base=load_base(ROOT)
+Gates=base.Gates
+
+def subtract(left,right):
+    return Gates(left.x-right.x,left.cx-right.cx,left.ccx-right.ccx,left.f-right.f)
+def total(items):
+    result=Gates()
+    for item in items:result+=item
+    return result
+
+@dataclass(frozen=True)
+class Stage:
+    name:str
+    gates:Gates
+    work:int
+    outputs:int
+    inputs:int=0
+
+@dataclass(frozen=True)
+class Vote:
+    row:str
+    count:int
+    stages:tuple
+
+@dataclass(frozen=True)
+class Catalog:
+    root:Path
+    pins:tuple
+    accepted:tuple
+    reg_p1:tuple
+    votes:tuple
+    fixed_votes:tuple
+
+    def __init__(self,root):
+        root=Path(root).resolve();authenticated(root/BASE_PATH,BASE_SHA)
+        legacy=base.Catalog(root)
+        content=json.loads(authenticated(root/CONTENT_PATH,CONTENT_SHA))
+        receipt=json.loads(authenticated(root/(COMPONENT+'receipt.json'),COMPONENT_PINS[COMPONENT+'receipt.json']))
+        census=json.loads(authenticated(root/(COMPONENT+'census.json'),COMPONENT_PINS[COMPONENT+'census.json']))
+        csv_bytes=authenticated(root/(COMPONENT+'vote-census.csv'),COMPONENT_PINS[COMPONENT+'vote-census.csv'])
+        require(content['source_sha256_before']==content['source_sha256_after'],'content source stability')
+        require(receipt['source_sha256_before']==receipt['source_sha256_after'] and
+            receipt['tests_passed']==37 and receipt['exact_collection_execution_membership'] is True,
+            'component capture scope')
+        require(census['census_rows']==1996 and census['census_sha256']==COMPONENT_PINS[COMPONENT+'vote-census.csv'],
+            'component census inventory')
+        pins=dict(legacy.pins)
+        for group in (content['source_sha256_before'],receipt['source_sha256_before'],receipt['review_source_sha256'],
+                      COMPONENT_PINS,{BASE_PATH:BASE_SHA,CONTENT_PATH:CONTENT_SHA}):
+            for path,identity in group.items():
+                require(path not in pins or pins[path]==identity,'conflicting source identity')
+                pins[path]=identity
+        object.__setattr__(self,'root',root);object.__setattr__(self,'pins',tuple(sorted(pins.items())))
+        self.verify();object.__setattr__(self,'accepted',legacy.cases)
+        reg=[]
+        for row in ('candidate','comparator'):
+            item=census['reg_p1'][row];p=item['endpoint']
+            require(item['endpoint_shape']==dict(body=4096,contexts=[256]*6) and
+                item['maximum_x_shape']==dict(body=4095,contexts=[255]*6) and
+                item['maximum_x_extra_over_endpoint']==234,'REG component witnesses')
+            reg.append((row,Stage('P1',Gates.from_report(p['gates']),p['total_clean_work_bits'],p['output_bits'])))
+            old=next(c for c in legacy.cases if c.row==row and c.role=='REG')
+            require(old.generator_work>p['total_clean_work_bits'],'fixed REG stage dominates variable workspace')
+            require(p['output_bits']==6376 and old.public==46592,'REG interface widths')
+        object.__setattr__(self,'reg_p1',tuple(reg))
+        votes=[];previous={}
+        keys=('x','cx','ccx','base_xor_oracle_calls','elementary_gates')
+        for item in csv.DictReader(io.StringIO(csv_bytes.decode())):
+            row=item['row'];base.row_role(row,'VOTE');n=int(item['list_count'])
+            base.natural(n,'bounded VOTE count',3,1000)
+            stages=[]
+            for name in ('P0','P1','R1'):
+                stages.append(Stage(name,Gates.from_report({k:int(item[name+'_'+k]) for k in keys}),
+                    int(item[name+'_clean_work_bits']),int(item[name+'_output_bits']),int(item[name+'_input_bits'])))
+            v=Vote(row,n,tuple(stages));votes.append(v)
+            coordinates=tuple(int(item[k]) for k in item if k not in ('row','list_count'))
+            if row in previous:
+                pn,pc=previous[row];require(n==pn+1 and all(a<=b for a,b in zip(pc,coordinates)),
+                    'complete monotone VOTE census')
+            else:require(n==3,'VOTE census first size')
+            previous[row]=(n,coordinates)
+        require(len(votes)==1996 and len({(v.row,v.count) for v in votes})==1996 and
+            set(previous)=={'candidate','comparator'} and all(p[0]==1000 for p in previous.values()),
+            'exact VOTE family coverage')
+        object.__setattr__(self,'votes',tuple(votes))
+        fixed={}
+        for item in content['cases']:
+            row=item['row'];n=item['list_count'];r=item['family_resources']
+            observed=tuple(Stage(s['name'],Gates.from_report(s['gates']),s['work'],s['outputs'],s['inputs'])
+                           for s in item['stages'])
+            variable=self.vote(row,n).stages
+            require(tuple(s for s in observed if s.name in ('P0','P1','R1'))==variable,
+                    'component census matches independently captured endpoints')
+            constant=tuple(s for s in observed if s.name not in ('P0','P1','R1'))
+            require(tuple(s.name for s in constant)==('S0','opening','R0'),'fixed VOTE stage inventory')
+            require(row not in fixed or fixed[row]==constant,'fixed VOTE endpoints identical')
+            fixed[row]=constant
+            require(total(s.gates for s in observed).times(2).report()==r['components']['generator']['forward_and_inverse_gates'],
+                'two complete generator traversals')
+            require(sum(s.outputs for s in observed)==r['retained_derived_bits'],'retained stage inventory')
+            old=next(c for c in legacy.cases if c.row==row and c.role=='VOTE')
+            require(r['original_private_coin_bits']==old.coins and r['original_input_bits']==3608+1024*n+old.coins,
+                    'shape-independent original coins')
+            require(r['caller_output_bits']==old.output+156,'common VOTE return extension')
+        for row,stages in fixed.items():
+            peak=max(s.work for s in stages)
+            require(all(s.work<peak for s in self.vote(row,1000).stages),'fixed VOTE stage dominates variable workspace')
+        object.__setattr__(self,'fixed_votes',tuple(sorted(fixed.items())));self.verify()
+
+    def verify(self):
+        for path,identity in self.pins:authenticated(self.root/path,identity)
+    def vote(self,row,n):
+        return next(v for v in self.votes if (v.row,v.count)==(row,n))
+    def accepted_case(self,row,role):
+        return next(c for c in self.accepted if (c.row,c.role)==(row,role))
+
+def interface(requests,length_bits):
+    base.natural(requests,'log-sizing parameter T',1,1 << 64)
+    return base.Interface(requests*(base.M+2),length_bits,'provided immutable F','agreed total completion')
+
+def reg_variable(body,contexts):
+    """Frozen P1 variable terms; own clean traversal is already included."""
+    h=(40+body)//72+1+(343+body+sum(contexts))//72+1
+    p=3*body.bit_count()+2*sum(n.bit_count() for n in contexts)
+    return Gates(4*76972*h+2*p,4*539372*h+64*(2*body+sum(contexts)),4*76800*h)
+
+def compute(catalog,row,role,shared,body=0,contexts=(0,)*6,count=0):
+    """Internal exact local body arithmetic after caller/source validation."""
+    old=catalog.accepted_case(row,role)
+    ordinary,write_work=base.write_resources(shared,row,role)
+    if role=='REG':
+        endpoint=dict(catalog.reg_p1)[row]
+        constant=subtract(old.generator,endpoint.gates.times(2))
+        p1=subtract(endpoint.gates,reg_variable(4096,(256,)*6))+reg_variable(body,contexts)
+        generator=constant+p1.times(2);writes=ordinary;returned=old.returns
+        public=8*(body+sum(contexts)+192);retained=old.retained
+        output=old.output;generator_work=old.generator_work;return_work=1
+        shape=dict(body_bytes=body,context_bytes=contexts,list_count=0)
+    else:
+        variable=catalog.vote(row,count).stages;constant=dict(catalog.fixed_votes)[row]
+        generator=total(s.gates for s in (*variable,*constant)).times(2)
+        retained=sum(s.outputs for s in (*variable,*constant));generator_work=max(s.work for s in (*variable,*constant))
+        writes=Gates(ordinary.x-4,ordinary.cx+4-2*base.M,ordinary.ccx+2*base.M)
+        returned=old.returns.times(2)+Gates(2,3,old.output+59)
+        public=3608+1024*count;output=old.output+156;return_work=old.output+2
+        shape=dict(body_bytes=0,context_bytes=(0,)*6,list_count=count)
+    work=max(generator_work,write_work,return_work)
+    gates=generator+writes+returned
+    return dict(row=row,role=role,shape=shape,gates=gates.report(),
+        public_input_bits=public,original_coin_bits=old.coins,caller_output_bits=output,
+        retained_derived_bits=retained,generator_clean_work_bits=generator_work,
+        write_clean_work_bits=write_work,return_clean_work_bits=return_work,shared_work_bits=work,
+        persistent_log_bits=shared.log_bits,persistent_counter_bits=shared.counter_bits,
+        total_logical_bits=public+old.coins+output+retained+work+shared.log_bits+shared.counter_bits,
+        generator_forward_and_inverse_gates=generator.report(),writes_gates=writes.report(),returns_gates=returned.report(),
+        bounded_invalid_content_charged=role=='VOTE',actual_content_validity_evaluated=False)
+
+def scope(catalog):
+    return dict(scope='conditional local full typed-request body resources on historical frozen sources',
+        source_sha256=dict(catalog.pins),source_pins_verified_before_and_after=True,
+        trials=base.M,log_capacity_parameter_is_not_an_invalid_request_budget=True,
+        source_theorem_valid_request_bound=None,full_adaptive_driver_executed=False,
+        complete_experiment_resource_vector=False,complete_resource_vector=False,
+        input_or_coin_preparation_priced=False,primitive_bridge_proved=False,
+        physical_workspace_bound=False,current_candidate_qualified=False,
+        independent_cryptographic_review=False,profile_qualified=False,production_gate_changed=False,
+        unknown_external_terms={k:None for k in base.UNKNOWN_TERMS})
+
+def request(catalog,row,role,requests,length_bits,*,body=0,contexts=(0,)*6,count=0):
+    require(type(catalog) is Catalog,'typed catalog');base.row_role(row,role)
+    shared=interface(requests,length_bits)
+    base.natural(body,'REG body length',0,4096)
+    require(type(contexts) is tuple and len(contexts)==6,'six immutable context lengths')
+    for n in contexts:base.natural(n,'REG context length',0,256)
+    if role=='REG':base.natural(count,'REG list count',0,0)
+    else:
+        require(body==0 and contexts==(0,)*6,'VOTE has no opaque REG fields')
+        base.natural(count,'bounded VOTE count',3,1000)
+    catalog.verify();result=compute(catalog,row,role,shared,body,contexts,count)
+    result.update(scope(catalog),log_sizing_parameter_T=requests,length_bits=length_bits)
+    catalog.verify();return result
+
+def envelope(catalog,row,role,requests,length_bits):
+    """Exact coordinate maxima; REG X and elementary maxima differ in shape."""
+    require(type(catalog) is Catalog,'typed catalog');base.row_role(row,role)
+    shared=interface(requests,length_bits);catalog.verify()
+    endpoint=compute(catalog,row,role,shared,4096,(256,)*6,0) if role=='REG' else compute(catalog,row,role,shared,count=1000)
+    x_witness=compute(catalog,row,role,shared,4095,(255,)*6,0) if role=='REG' else endpoint
+    maxima=dict(endpoint['gates']);maxima['x']=x_witness['gates']['x']
+    upper=Gates(maxima['x'],maxima['cx'],maxima['ccx'],maxima['base_xor_oracle_calls']).report()
+    result=scope(catalog)
+    result.update(row=row,role=role,log_sizing_parameter_T=requests,length_bits=length_bits,
+        conditional_full_typed_request_body_family_bound=True,
+        allowed_public_length_shapes=4097*257**6 if role=='REG' else 998,
+        exact_coordinate_maxima=maxima,coordinatewise_gate_upper_vector=upper,
+        coordinate_maxima_need_not_be_simultaneously_attained=role=='REG',
+        maximum_elementary_witness=endpoint,maximum_x_witness=x_witness,
+        maximum_total_logical_bits=endpoint['total_logical_bits'],maximum_storage_witness=endpoint,
+        proof_boundary='REG: only P1 and public input width vary; VOTE: only P0/P1/R1, P1 retained output and public input width vary; fixed stages and W/E are row/role/M dependent',
+        family_selection_and_descriptor_authentication_external=True,
+        typed_REG_constructor_and_application_witness_checks_external=True,
+        bounded_VOTE_content_errors_included=role=='VOTE')
+    catalog.verify();return result
+
+def rejected_size(row,count):
+    """Standalone mathematical u64 descriptor family, with no log access."""
+    base.row_role(row,'VOTE');base.natural(count,'u64 actual length',0,(1 << 64)-1)
+    require(not 3<=count<=1000,'out-of-range VOTE size required')
+    proof=233012 if row=='candidate' else 158074
+    public=3608+1024*count;output=253+8*proof
+    return dict(row=row,list_count=count,gates=Gates(569+2*count.bit_count(),872,888).report(),
+        public_input_bits=public,borrowed_list_bits=1024*count,caller_output_bits=output,
+        clean_work_bits=519,local_logical_bits=public+output+519,original_coin_bits=0,
+        actual_appends=0,persistent_log_and_counter_external_untouched=True,
+        invalid_invocation_budget=None,physical_Vec_reachability_attested=False,
+        same_native_usize64_descriptor_authentication_external=True,
+        complete_resource_vector=False,current_candidate_qualified=False,production_gate_changed=False)
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root',type=Path,required=True)
+    parser.add_argument('--requests',type=int,default=1 << 44)
+    parser.add_argument('--length-bits',type=int,default=64)
+    parser.add_argument('--require-qualified',action='store_true')
+    args=parser.parse_args()
+    try:
+        catalog=Catalog(args.root)
+        result=dict(families=[envelope(catalog,row,role,args.requests,args.length_bits)
+            for row in ('candidate','comparator') for role in ('REG','VOTE')],
+            rejected_size_u64_descriptor_maxima=[rejected_size(row,(1 << 64)-1) for row in ('candidate','comparator')],
+            invalid_invocation_budget=None,complete_resource_vector=False,current_candidate_qualified=False,production_gate_changed=False)
+        print(json.dumps(result,indent=2,sort_keys=True));return 2 if args.require_qualified else 0
+    except (ValueError,TypeError,KeyError,OSError) as error:
+        print(str(error),file=sys.stderr);return 1
+if __name__=='__main__':sys.exit(main())

@@ -1,0 +1,7 @@
+{
+  "status": "FAILED_TEST_INSTRUMENTATION",
+  "tests_passed": 52,
+  "tests_failed": 3,
+  "cause": "Sentinel factory mocks intercepted by new source factory globals check before exhausted budget guard. Subsequent revision moves cheap cap refusal ahead of authentication; admitted calls still authenticated.",
+  "frozen": true
+}

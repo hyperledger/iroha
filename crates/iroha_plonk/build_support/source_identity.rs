@@ -69,7 +69,9 @@ fn selected(name: &str, packages: &BTreeSet<String>) -> bool {
     }
     // Only Markdown prose in documentation owners is omitted. Unknown formats,
     // scripts, configuration, fixtures, tests and assets remain inputs by default.
-    !(name.ends_with(".md")
+    // Suffix rules are byte-exact, including dotfiles; case folding or extension
+    // parsing would change source membership.
+    !(name.as_bytes().ends_with(b".md")
         && (!name.contains('/') || name.starts_with("docs/") || name.starts_with("specs/")))
 }
 
@@ -192,9 +194,11 @@ fn restore_references(
     packages: &BTreeSet<String>,
     entries: &mut BTreeMap<String, Entry>,
 ) -> Result<(), String> {
+    // Keep the same byte-exact Rust suffix for initial and restored sources,
+    // including a file named `.rs`.
     let mut pending: Vec<_> = entries
         .keys()
-        .filter(|name| name.ends_with(".rs"))
+        .filter(|name| name.as_bytes().ends_with(b".rs"))
         .cloned()
         .collect();
     let mut visited = BTreeSet::new();
@@ -269,7 +273,7 @@ fn restore_references(
                         continue;
                     }
                 };
-                if candidate.ends_with(".rs") {
+                if candidate.as_bytes().ends_with(b".rs") {
                     pending.push(candidate.clone());
                 }
                 entries.insert(candidate, entry);

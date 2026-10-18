@@ -564,6 +564,9 @@ pub(crate) mod ivm_test_support;
 #[cfg(any(test, feature = "iroha-core-tests"))]
 pub(crate) mod manifest_signing_test_support;
 #[cfg(test)]
+#[path = "../tests/common/native_validation.rs"]
+mod native_validation;
+#[cfg(test)]
 pub(crate) mod unit_test_support;
 // Governance height/custody fixtures use explicit synthetic publication,
 // so they share this nonshipping harness rather than exporting that authority.

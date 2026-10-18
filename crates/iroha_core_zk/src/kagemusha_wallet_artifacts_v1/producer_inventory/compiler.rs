@@ -589,7 +589,10 @@ impl<'a> OfflineCompilerV1<'a> {
         if operation.scope != self.scope
             || operation.own != q.own
             || operation.incoming != q.incoming
-            || operation.q.len() != q.keys.len()
+        {
+            return Err(CompilationErrorV1::Closure);
+        }
+        if operation.q.len() != q.keys.len()
             || operation
                 .q
                 .iter()

@@ -307,9 +307,9 @@ fn payout_binding(
         reference_feed_config_version: 1,
         reference_provider_accounts: (10..15).map(|seed| account(seed).0).collect(),
         max_sbd_per_attempt_minor: 1000,
-        max_sbd_per_day_minor: 100000,
+        max_sbd_per_day_minor: 100_000,
         min_interval_ms: 60000,
-        max_source_age_ms: 300000,
+        max_source_age_ms: 300_000,
         max_slippage_bps: 100,
         validator_lane_id: iroha_model_base::topology::LaneId::new(0),
         min_reward_claim_xor_minor: 1,
@@ -323,6 +323,11 @@ fn test_state() -> (
     AccountId,
     AssetDefinitionId,
 ) {
+    use iroha_core::sumeragi::{
+        startup,
+        test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+
     let (user, user_key_pair) = account(1);
     let (recipient, _) = account(8);
     let domain_id = DomainId::try_new("fees", "paynet").expect("domain id");
@@ -357,10 +362,6 @@ fn test_state() -> (
             .filter(|seed| *seed != 8)
             .map(|seed| Account::new(account(seed).0).build(&user)),
     );
-    use iroha_core::sumeragi::{
-        startup,
-        test_chain::{CertifiedTestChain, TestChainConfig},
-    };
     let mut config = TestChainConfig::new(
         World::with_assets(
             [domain],
@@ -499,8 +500,8 @@ fn validation_fee_policy(
     assert_eq!(treasury, payout_binding.treasury_account_id);
     ValidationFeePolicyV1 {
         retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-        effective_from_ms: 1793451600000,
-        notice_published_at_ms: 1790859600000,
+        effective_from_ms: 1_793_451_600_000,
+        notice_published_at_ms: 1_790_859_600_000,
         schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
         network_id: *state.network_id_ref(),
         policy_version: 1,
@@ -744,7 +745,7 @@ fn complete_parliament_body_for_authorization(
     }
     attempt
         .body(&body_instance_id)
-        .and_then(|body| body.result_height())
+        .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::result_height)
         .expect("completed authorization body result height")
 }
 fn test_parliament_authorization(
@@ -964,10 +965,10 @@ fn install_canonical_post_enactment_validation_fee_state(
     state: &State,
     authority: &AccountId,
     authority_key_pair: &KeyPair,
-    policy: ValidationFeePolicyV1,
+    policy: &ValidationFeePolicyV1,
 ) {
     let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
-    let (registry, enacted_attempts) = canonical_policy_registry_state(state, &policy);
+    let (registry, enacted_attempts) = canonical_policy_registry_state(state, policy);
     assert_eq!(
         registry.registered_policies[0]
             .parliament_authorization
@@ -975,7 +976,7 @@ fn install_canonical_post_enactment_validation_fee_state(
         TEST_POLICY_ENACTMENT_HEIGHT
     );
     let mut block = state.block(block_header(
-        &state,
+        state,
         TEST_POLICY_ENACTMENT_HEIGHT,
         1_700_000_006_000,
     ));
@@ -1276,12 +1277,7 @@ fn validation_fee_registry_cannot_be_installed_through_generic_parameter_path() 
 fn active_registry_rejects_missing_enacted_parliament_attempt() {
     let (state, user, user_key_pair, recipient, treasury, fee_asset) = test_state();
     let policy = validation_fee_policy(&state, fee_asset.clone(), treasury);
-    install_canonical_post_enactment_validation_fee_state(
-        &state,
-        &user,
-        &user_key_pair,
-        policy.clone(),
-    );
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &user_key_pair, &policy);
     let proposal_id = policy_proposal(&policy).fingerprint();
     {
         let mut block = state.block(block_header(
@@ -1324,7 +1320,7 @@ fn active_registry_rejects_missing_enacted_parliament_attempt() {
 fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
     let (state, user, user_key_pair, recipient, treasury, fee_asset) = test_state();
     let policy = validation_fee_policy(&state, fee_asset, treasury.clone());
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &user_key_pair, policy);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &user_key_pair, &policy);
     let wrapper_permission: iroha_data_model::permission::Permission =
         iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: payout_contract_address(state.network_id_ref()),
@@ -1404,7 +1400,7 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
 fn direct_submission_requires_signed_assessment_and_native_charging_is_atomic() {
     let (state, user, key, recipient, treasury, asset) = test_state();
     let policy = validation_fee_policy(&state, asset.clone(), treasury.clone());
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy.clone());
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     let missing = signed_transfer(&state, &user, &key, &recipient, &asset, &policy, false);
     assert!(
         validate_in_block(&state, TEST_POLICY_EFFECTIVE_HEIGHT, missing)
@@ -1477,7 +1473,7 @@ fn direct_submission_requires_signed_assessment_and_native_charging_is_atomic() 
 fn signed_assessment_cannot_be_repurposed_for_another_amount_or_charge() {
     let (state, user, key, recipient, treasury, asset) = test_state();
     let policy = validation_fee_policy(&state, asset.clone(), treasury);
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     let metadata = assessment_metadata(&state, &user, &recipient, &asset, 100);
     let wrong_amount = signed_payment(
         &state,
@@ -1520,7 +1516,7 @@ fn signed_assessment_cannot_be_repurposed_for_another_amount_or_charge() {
 fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion() {
     let (state, user, key, recipient, treasury, asset) = test_state();
     let policy = validation_fee_policy(&state, asset.clone(), treasury.clone());
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     {
         let mut record = iroha_data_model::validation_fee::RetailFeeAccountStateV1::enroll(
             user.clone(),
@@ -1574,14 +1570,14 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
         None,
     );
     assert!(first.is_ok(), "{first:?}");
-    let stale = iroha_core::tx::execute_component_transaction_for_testing(
+    let concurrent_payment = iroha_core::tx::execute_component_transaction_for_testing(
         &mut block,
         accept_transaction(&state, transactions[1].clone()),
         &mut cache,
         None,
     );
     assert!(
-        stale.is_err(),
+        concurrent_payment.is_err(),
         "concurrent free assessment cannot acquire an overage charge"
     );
     let replay = iroha_core::tx::execute_component_transaction_for_testing(

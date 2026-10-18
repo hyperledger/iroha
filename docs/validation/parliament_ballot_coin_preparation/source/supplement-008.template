@@ -1,0 +1,347 @@
+"""Source-layout and finite quantum-support controls, never full-cap simulation."""
+from copy import deepcopy
+from dataclasses import FrozenInstanceError, replace
+import hashlib
+from itertools import islice
+import json
+from math import sqrt
+from pathlib import Path
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT/'target/parliament-sequential-composition-stage'),
+               str(ROOT/'target/parliament-ideal-machine-stage')]
+
+from bit_ir import Builder
+from l0_machine import OverlayLookup
+from public_machine import PublicShape
+from purification import (CoinInterval, PurifiedSequence, SCHEMA_PINS, authenticate_schema_sources,
+                          request_generator, source_generator_coins, source_schema, validate_intervals)
+from request_family import ContentFamily, RejectedVoteFamily
+from request_generator import Generator
+from sequence import Call, Geometry, Sequence
+from stage_plan import CleanMap, Invocation, RetainedPlan
+from test_content_request import fixture as content_fixture
+from test_request_transition import synthetic
+
+
+def put(basis, start, width, value):
+    mask = ((1 << width)-1) << start
+    return (basis & ~mask) | (value << start)
+
+
+def read(basis, start, width):
+    return (basis >> start) & ((1 << width)-1)
+
+
+def evolve(state, gates):
+    """Sparse amplitudes over full integer wire labels with a fixed toy F."""
+    state = dict(state)
+    for op, *args in gates:
+        updated = {}
+        for basis, amplitude in state.items():
+            if op == 'h':
+                bit = 1 << args[0]
+                zero = basis & ~bit
+                updated[zero] = updated.get(zero, 0)+amplitude/sqrt(2)
+                one = zero | bit
+                updated[one] = updated.get(one, 0)+(amplitude/sqrt(2))*(-1 if basis & bit else 1)
+                continue
+            if op == 'F:variable':
+                length, width, message, capacity, output, values = args
+                n = read(basis, length, width)
+                assert n <= capacity
+                value = 1+sum((i+1)*read(basis, message+8*i, 8) for i in range(n))
+                target = basis ^ ((value & ((1 << values)-1)) << output)
+            else:
+                assert op in ('x', 'cx', 'ccx')
+                assert len(set(args)) == len(args)
+                target = basis ^ (1 << args[-1]) if all((basis >> w)&1 for w in args[:-1]) else basis
+            updated[target] = updated.get(target, 0)+amplitude
+        state = {basis: amplitude for basis, amplitude in updated.items() if abs(amplitude) > 1e-12}
+    return state
+
+
+def density(state, wires):
+    """Partial trace of every wire except an explicit ordered finite selection."""
+    mask = sum(1 << w for w in wires)
+    groups = {}
+    for basis, amplitude in state.items():
+        index = sum(((basis >> wire)&1) << j for j, wire in enumerate(wires))
+        groups.setdefault(basis & ~mask, {})[index] = amplitude
+    result = [[0j]*(1 << len(wires)) for _ in range(1 << len(wires))]
+    for vector in groups.values():
+        for i, a in vector.items():
+            for j, b in vector.items():
+                result[i][j] += a*b.conjugate()
+    return result
+
+
+def assert_state(actual, expected):
+    assert set(actual) == set(expected)
+    assert all(abs(actual[b]-a) < 1e-10 for b, a in expected.items())
+
+
+def assert_matrix(actual, expected):
+    assert len(actual) == len(expected)
+    assert all(abs(a-b) < 1e-10 for ra, rb in zip(actual, expected) for a, b in zip(ra, rb))
+
+
+def toy_fixture():
+    original = synthetic()
+    request = replace(original, writes=replace(original.writes, capacity=8),
+                      generator=replace(original.generator, original_private_coin_bits=1))
+    lookup = OverlayLookup(8, 4, 8, 12, 256)
+    sequence = Sequence(Geometry(8, 4, 8, 256, 'fixed toy F', 'same completion'),
+                        (Call('first', request), Call('q1', lookup),
+                         Call('second', request), Call('q2', lookup)))
+    fields = {name: (start, width) for name, (_, start, width) in request.generator.fields}
+    offset, _ = fields['challenge_1']
+    wrapper = PurifiedSequence(sequence, toy_coin_intervals=(
+        ('first', (CoinInterval('toy_challenge_bit', offset, 1),)),
+        ('second', (CoinInterval('toy_challenge_bit', offset, 1),))))
+    allocations = {name: (start, width) for name, start, width in wrapper.allocations}
+    basis = 0
+    for name in ('first', 'second'):
+        start, _ = allocations['event.'+name+'.input']
+        for field, value in (('namespace_digest', 1), ('mu', 2), ('primary_flags', 1)):
+            off, width = fields[field]
+            basis = put(basis, start+off, width, value)
+    for name in ('q1', 'q2'):
+        start, _ = allocations['event.'+name+'.query']
+        raw = b'P\x01\x02\x09'
+        basis = put(basis, start, 4, len(raw))
+        for i, value in enumerate(raw):
+            basis = put(basis, start+4+8*i, 8, value)
+        start, _ = allocations['event.'+name+'.enable']
+        basis |= 1 << start
+        start, width = allocations['event.'+name+'.output']
+        basis = put(basis, start, width, 123)
+    return wrapper, basis, allocations
+
+
+def test_bell_preparation_partial_trace_and_arbitrary_entangled_complement():
+    wrapper, basis, allocations = toy_fixture()
+    # An unmeasured application-input bit is entangled with an outside spectator.
+    public, _ = allocations['event.first.input']
+    public += wrapper.sequence.calls[0].machine.generator.plan.inputs[0][1]-1
+    spectator = wrapper.size
+    initial = {basis: 1/sqrt(2), basis ^ (1 << public) ^ (1 << spectator): 1j/sqrt(2)}
+    state = evolve(initial, wrapper.emit_preparation())
+    coins = tuple(p.coin for p in wrapper.intervals)
+    purifiers = tuple(p.purifier for p in wrapper.intervals)
+    assert len(state) == 8
+    assert_matrix(density(state, coins), [[0.25 if i == j else 0 for j in range(4)] for i in range(4)])
+    assert_matrix(density(state, (public, spectator)), density(initial, (public, spectator)))
+    bell = [[0.5 if i in (0, 3) and j in (0, 3) else 0 for j in range(4)] for i in range(4)]
+    for pair in zip(coins, purifiers):
+        assert_matrix(density(state, pair), bell)
+    assert_state(evolve(state, wrapper.emit_preparation(inverse=True)), initial)
+    gates = tuple(wrapper.emit_preparation())
+    assert tuple(wrapper.emit_preparation(inverse=True)) == tuple(reversed(gates))
+
+
+def test_future_private_pair_freshness_full_body_inverse_and_no_early_erasure():
+    wrapper, basis, allocations = toy_fixture()
+    initial = {basis: 1.0+0j}
+    prepared = evolve(initial, wrapper.emit_preparation())
+    state = evolve(prepared, wrapper.sequence.emit_call(0))
+    future = wrapper.intervals[1]
+    bell = [[0.5 if i in (0, 3) and j in (0, 3) else 0 for j in range(4)] for i in range(4)]
+    assert_matrix(density(state, (future.coin, future.purifier)), bell)
+    for i in range(1, len(wrapper.sequence.calls)):
+        state = evolve(state, wrapper.sequence.emit_call(i))
+        start, width = allocations['reusable.clean']
+        assert all(read(b, start, width) == 0 for b in state)
+    assert_state(state, evolve(initial, wrapper.emit()))
+    assert len(state) == 4
+    for b in state:
+        for query, pair in zip(('q1', 'q2'), wrapper.intervals):
+            start, width = allocations['event.'+query+'.output']
+            assert read(b, start, width) == (123 ^ read(b, pair.coin, 1))
+            assert read(b, pair.coin, 1) == read(b, pair.purifier, 1)
+        assert read(b, *allocations['persistent.counter']) == 6
+    assert_state(evolve(state, wrapper.emit(inverse=True)), initial)
+    wrong = evolve(state, wrapper.emit_preparation(inverse=True))
+    assert set(wrong) != set(initial)
+    assert any(read(b, p.coin, 1) or read(b, p.purifier, 1) for b in wrong for p in wrapper.intervals)
+
+
+def test_nonzero_coin_is_not_reset_or_claimed_as_checked():
+    wrapper, basis, _ = toy_fixture()
+    coin, purifier = wrapper.intervals[0].coin, wrapper.intervals[0].purifier
+    bad_initial = {basis | (1 << coin): 1.0}
+    state = evolve(bad_initial, wrapper.emit_preparation())
+    rho = density(state, (coin, purifier))
+    assert abs(rho[0][3]+0.5) < 1e-10  # Bell-minus; no implicit reset.
+    assert_state(evolve(state, wrapper.emit_preparation(inverse=True)), bad_initial)
+    assert not wrapper.resources()['initial_quantum_state_checked']
+
+
+def test_resources_separate_H_and_preserve_body_counts_and_allocations():
+    wrapper, _, _ = toy_fixture()
+    body = wrapper.sequence.resources()
+    result = wrapper.resources()
+    assert result['body_gates'] == body['gates']
+    assert result['preparation_gates'] == {'h': 2, 'cx': 2}
+    assert result['aggregate_gate_vector']['cx'] == body['gates']['cx']+2
+    assert result['aggregate_gate_vector']['x'] == body['gates']['x']
+    assert result['non_h_elementary_gates'] == body['gates']['elementary_gates']+2
+    assert result['hadamard_gates'] == 2 and not result['hadamard_cost_merged_into_non_h']
+    assert result['logical_bits'] == wrapper.sequence.size+2
+    assert result['original_coin_and_purifier_zero_bits_required'] == 4
+    assert sum(width for _, _, width in result['allocations']) == wrapper.size
+    assert result['contract'] == 'toy' and not result['source_input_schema_authenticated']
+    for flag in ('full_cap_stream_executed', 'full_adaptive_driver_implemented',
+                 'full_joint_quantum_theorem_proved', 'complete_resource_vector',
+                 'physical_workspace_qualification', 'profile_qualified', 'production_gate_changed'):
+        assert result[flag] is False
+    with pytest.raises(FrozenInstanceError):
+        wrapper.coins = 3
+
+
+def test_lookup_and_size_rejection_have_no_preparation():
+    q = OverlayLookup(0, 3, 1, 4, 2)
+    bad = RejectedVoteFamily(1001, 5)
+    s = Sequence(Geometry(0, 3, 1, 2, 'toy', 'completion'), (Call('q', q), Call('bad', bad)))
+    for wrapper in (PurifiedSequence(s, toy_coin_intervals=()), PurifiedSequence(s, source_root=ROOT)):
+        assert wrapper.coins == 0 and wrapper.size == s.size
+        assert not wrapper.intervals and tuple(wrapper.emit_preparation()) == ()
+        assert tuple(islice(wrapper.emit(), 5)) == tuple(islice(s.emit(), 5))
+        assert wrapper.resources()['retained_purifier_bits'] == 0
+    assert request_generator(q) is None and request_generator(bad) is None
+
+
+@pytest.mark.parametrize('kind', ['accepted', 'content', 'common'])
+def test_synthetic_generators_cannot_enter_source_contract(kind):
+    machine = synthetic() if kind == 'accepted' else content_fixture()
+    if kind == 'common':
+        machine = ContentFamily(machine)
+    sequence = Sequence(Geometry(6, 4, 8, 256, 'toy', 'fixed'), (Call('request', machine),))
+    with pytest.raises(ValueError, match='source generator input schema'):
+        PurifiedSequence(sequence, source_root=ROOT)
+
+
+def schema_only_generator(shape, inputs, coins):
+    """Deliberately NOT actual source semantics; only structural-schema controls."""
+    b = Builder(1)
+    stage = Invocation('mock', CleanMap.block(b.finish((0,))), ((inputs[0][0], 0, 1),))
+    return Generator(RetainedPlan(inputs, (stage,)), (), shape, 2, coins)
+
+
+@pytest.mark.parametrize('mutation', ['reorder', 'same_total_widths', 'renamed', 'wrong_coins', 'bool_coins'])
+def test_source_generator_schema_mutations_refused(mutation):
+    shape = PublicShape('REG')
+    schema = source_schema(ROOT, shape, 2)
+    inputs, coins = list(schema.inputs), schema.coin_bits
+    if mutation == 'reorder': inputs[1], inputs[2] = inputs[2], inputs[1]
+    elif mutation == 'same_total_widths':
+        inputs[0] = (inputs[0][0], inputs[0][1]-1)
+        inputs[1] = (inputs[1][0], inputs[1][1]+1)
+    elif mutation == 'renamed': inputs[0] = ('renamed_public', inputs[0][1])
+    elif mutation == 'wrong_coins': coins += 1
+    else: coins = True
+    generator = schema_only_generator(shape, tuple(inputs), coins)
+    with pytest.raises(ValueError):
+        source_generator_coins(ROOT, generator)
+
+
+def test_source_schema_matches_all_eight_frozen_resource_observations():
+    path = ROOT/'target/parliament-ideal-machine-stage/request-accepted-observation.json'
+    raw = path.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == '81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c'
+    for case in json.loads(raw)['source_cases']:
+        shape = dict(case['public_shape'])
+        shape['context_bytes'] = tuple(shape['context_bytes'])
+        schema = source_schema(ROOT, PublicShape(**shape), 1 << 20)
+        resources = case['resources']
+        assert schema.coin_bits == resources['original_private_coin_bits']
+        assert schema.input_bits == resources['original_input_bits']
+        assert schema.public_bits+schema.coin_bits == schema.input_bits
+        assert schema.coins[0] == CoinInterval('iv_pre', schema.public_bits, 128)
+        assert schema.coins[1] == CoinInterval('salt', schema.public_bits+128, 256)
+        assert case['field_positions']['iv_pre'][0] != schema.coins[0].start
+        assert case['field_positions']['salt'][0] != schema.coins[1].start
+        assert validate_intervals(schema.coins, schema.input_bits, schema.coin_bits) == schema.coins
+    path = ROOT/'target/parliament-content-resources-stage/capture/observation.json'
+    raw = path.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == 'c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'
+    for case in json.loads(raw)['cases']:
+        schema = source_schema(ROOT, PublicShape('VOTE', row=case['row'], list_count=case['list_count']), 1 << 20)
+        r = case['family_resources']
+        assert schema.coin_bits == r['original_private_coin_bits']
+        assert schema.input_bits == r['original_input_bits']
+
+
+@pytest.mark.parametrize('shape,trials', [(PublicShape('VOTE', list_count=2), 2),
+                                        (PublicShape('VOTE', list_count=1001), 2),
+                                        (PublicShape('REG'), True), (PublicShape('REG'), 0),
+                                        (PublicShape('REG'), (1 << 20)+1), (object(), 2)])
+def test_invalid_source_schema_descriptors_refused(shape, trials):
+    with pytest.raises(ValueError):
+        source_schema(ROOT, shape, trials)
+
+
+def test_schema_source_drift_refused(tmp_path):
+    for name in SCHEMA_PINS:
+        dest = tmp_path/name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes((ROOT/name).read_bytes())
+    assert authenticate_schema_sources(tmp_path) == tuple(sorted(SCHEMA_PINS.items()))
+    file = tmp_path/'target/parliament-ideal-machine-stage/public_machine.py'
+    file.write_bytes(file.read_bytes()+b'\n# drift\n')
+    with pytest.raises(ValueError, match='identity'):
+        source_schema(tmp_path, PublicShape('REG'), 2)
+
+
+@pytest.mark.parametrize('field', ['iv_pre', 'salt'])
+def test_shifted_original_public_coin_regions_refused(monkeypatch, field):
+    original = PublicShape.input_regions
+    def shifted(shape):
+        return tuple((name, tuple(w+1 for w in wires) if name == field else wires)
+                     for name, wires in original(shape))
+    monkeypatch.setattr(PublicShape, 'input_regions', shifted)
+    with pytest.raises(ValueError, match='original public coin geometry'):
+        source_schema(ROOT, PublicShape('REG'), 2)
+
+
+@pytest.mark.parametrize('intervals,width,coins', [
+    ((CoinInterval('a', 0, 2), CoinInterval('b', 1, 1)), 4, 3),
+    ((CoinInterval('a', 0, 1), CoinInterval('a', 1, 1)), 4, 2),
+    ((CoinInterval('a', 4, 1),), 4, 1),
+    ((CoinInterval('a', 0, 1),), 4, 2),
+    ([CoinInterval('a', 0, 1)], 4, 1),
+    ((), 4, True),
+])
+def test_interval_alias_type_extent_and_total_refusals(intervals, width, coins):
+    with pytest.raises(ValueError):
+        validate_intervals(intervals, width, coins)
+
+
+def test_modes_and_toy_contract_membership_and_flags_refused():
+    wrapper, _, _ = toy_fixture()
+    s = wrapper.sequence
+    with pytest.raises(ValueError): PurifiedSequence(s)
+    with pytest.raises(ValueError): PurifiedSequence(s, source_root=ROOT, toy_coin_intervals=())
+    with pytest.raises(ValueError): PurifiedSequence(s, toy_coin_intervals=[])
+    with pytest.raises(ValueError): PurifiedSequence(s, toy_coin_intervals=())
+    with pytest.raises(ValueError): PurifiedSequence(s, toy_coin_intervals=(('q1', ()),))
+    with pytest.raises(ValueError): PurifiedSequence(s, toy_coin_intervals=(('first', ()), ('first', ())))
+    with pytest.raises(ValueError): PurifiedSequence(object(), toy_coin_intervals=())
+    with pytest.raises(ValueError): CoinInterval('x', True, 1)
+    with pytest.raises(ValueError): CoinInterval('', 0, 1)
+    with pytest.raises(ValueError): CoinInterval('x', 0, 0)
+    with pytest.raises(ValueError): request_generator(object())
+    with pytest.raises(ValueError): source_generator_coins(ROOT, object())
+    with pytest.raises(ValueError): authenticate_schema_sources(5)
+    with pytest.raises(ValueError): next(wrapper.emit_preparation(inverse=1))
+    with pytest.raises(ValueError): next(wrapper.emit(inverse=1))
+
+
+def test_empty_sequence_has_empty_purification():
+    sequence = Sequence(Geometry(0, 3, 1, 2, 'toy', 'same'), ())
+    wrapper = PurifiedSequence(sequence, toy_coin_intervals=())
+    assert tuple(wrapper.emit()) == tuple(wrapper.emit(inverse=True)) == ()
+    assert wrapper.resources()['preparation_gates'] == dict(h=0, cx=0)

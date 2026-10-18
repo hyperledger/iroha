@@ -1,0 +1,165 @@
+"""Content-invalid fixed-shape vote controller pieces, with explicit cleanup.
+
+P0's canonical output is valid1 || code3 || order16 || actual16 || declared16
+|| vote8 (60 bits). These helpers do not implement shape/length dispatch or P0.
+REG may use the ordinary always-valid route; no new source REG error is added.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost,integer,require
+from write_machine import ProgrammedWrites
+from return_machine import ReturnProjection
+
+P0_BITS=60
+P0_ERROR_BITS=P0_BITS-1
+
+# TODO: Join these local controllers to canonical P0, the totalized generator,
+# and its inverse before claiming content-invalid whole-request coverage.
+# Malformed role/row/length dispatch remains a separate bounded-machine task.
+
+
+@dataclass(frozen=True)
+class ValidatedWrites:
+    """Persistent writes disabled on content-invalid fixed-shape input.
+
+    Input is the original W0 input followed by one valid bit. Canonical log and
+    counter are retained registers, after those inputs. Valid calls require the
+    ordinary M+2 capacity premise and source S0 flags; invalid calls are log
+    identity even if the canonical log is full or the S0 flags are arbitrary.
+    Every fixed framing/append scan runs and is charged on both branches.
+    """
+    writes:ProgrammedWrites
+
+    def __post_init__(self):
+        require(type(self.writes) is ProgrammedWrites,'validated write component')
+
+    def field_inventory(self):return self.writes.field_inventory()
+    def append(self):return self.writes.append()
+
+    def layout(self):
+        base=self.writes.layout()
+        p=dict(base)
+        p['valid']=base['input_bits']
+        for name in ('input_bits','log','counter','enable','staging','append_work','trial','size'):
+            p[name]=base[name]+1
+        return p
+
+    def emit_record(self,challenge,index=0,*,inverse=False):
+        integer(challenge,1,3,'validated challenge number')
+        integer(index,0,self.writes.trials-1,'validated trial index')
+        require(type(inverse) is bool,'validated inverse flag')
+        p=self.layout();old_inputs=self.writes.layout()['input_bits']
+        def controls():
+            if challenge==3:
+                for j in range(32):
+                    if (index>>j)&1:yield ('x',p['trial']+j)
+                yield ('ccx',p['valid'],p['flags']+index,p['enable'])
+            else:yield ('cx',p['valid'],p['enable'])
+        def scatter():
+            for gate in self.writes.scatter(challenge,index):
+                yield (gate[0],*(w if w<old_inputs else w+1 for w in gate[1:]))
+        yield from controls()
+        yield from scatter()
+        for gate in self.append().emit(inverse=inverse):
+            yield (gate[0],*(p['input_bits']+w for w in gate[1:]))
+        yield from scatter()
+        yield from controls()
+
+    def emit(self,*,inverse=False):
+        require(type(inverse) is bool,'validated inverse flag')
+        if inverse:
+            for i in range(self.writes.trials-1,-1,-1):yield from self.emit_record(3,i,inverse=True)
+            for challenge in (2,1):yield from self.emit_record(challenge,inverse=True)
+        else:
+            for challenge in (1,2):yield from self.emit_record(challenge)
+            for i in range(self.writes.trials):yield from self.emit_record(3,i)
+
+    def resources(self):
+        value=self.writes.resources();g=value['gates'];m=self.writes.trials
+        cost=Cost(x=g['x']-4,cx=g['cx']+4-2*m,ccx=g['ccx']+2*m,base_calls=g['base_xor_oracle_calls'])
+        value.update(gates=cost.as_dict(),input_bits=value['input_bits']+1,borrowed_valid_input_bits=1,
+                     exact_delta_from_unvalidated=dict(x=-4,cx=4-2*m,ccx=2*m),
+                     invalid_content_preserves_log_and_counter=True,
+                     canonical_P0_validity_and_S0_fields_required=True,
+                     full_content_invalid_controller_implemented=False,
+                     malformed_shape_dispatch_implemented=False)
+        return value
+
+
+@dataclass(frozen=True)
+class ValidatedReturn:
+    """Clean XOR into an explicit mathematical typed-error/proof result union.
+
+    Inputs: P0[60] then the original ReturnProjection input (exhausted + fields).
+    Output: tag2 || P0_error_payload59 || last32 || length64 || proof bytes.
+    Tags are0 proof,1 primary exhaustion,2 public-input error. Canonical P0 input
+    comes from vote_validation at list count3..1000. This register interface is
+    not a Rust enum layout or a new wire format. For arbitrary caller targets,
+    zero-on-invalid means the copied contribution is zero, not erasing targets.
+    """
+    projection:ReturnProjection
+
+    def __post_init__(self):
+        require(type(self.projection) is ReturnProjection,'validated return component')
+
+    @property
+    def input_bits(self):return P0_BITS+self.projection.input_bits
+    @property
+    def output_bits(self):return self.projection.output_bits+60
+
+    def output_regions(self):
+        cursor=0;out={}
+        for name,width in (('tag',2),('public_error',59),('last',32),('length',64),
+                           ('proof',8*self.projection.proof_bytes)):
+            out[name]=(cursor,width);cursor+=width
+        require(cursor==self.output_bits,'validated result shape')
+        return out
+
+    def layout(self):
+        temporary=self.input_bits
+        work=temporary+self.projection.output_bits
+        invalid=work+1
+        output=invalid+1
+        return dict(valid=0,p0_error=1,projection_inputs=P0_BITS,temporary=temporary,
+                    projection_work=work,invalid=invalid,output_start=output,size=output+self.output_bits)
+
+    def emit_clean(self):
+        p=self.layout();base=self.projection.layout();out=self.output_regions()
+        def projection():
+            def wire(w):
+                require(type(w) is int and 0<=w<base['size'],'validated return component wire')
+                if w<self.projection.input_bits:return P0_BITS+w
+                if w==base['success']:return p['projection_work']
+                return p['temporary']+w-base['output']
+            for gate in self.projection.emit_clean():
+                yield (gate[0],*(wire(w) for w in gate[1:]))
+        yield from projection()
+        yield ('x',p['invalid'])
+        yield ('cx',p['valid'],p['invalid'])
+        # The old E error flag is the low tag bit. Public rejection is bit1.
+        yield ('cx',p['invalid'],p['output_start']+1)
+        yield ('ccx',p['valid'],p['temporary'],p['output_start'])
+        for bit in range(P0_ERROR_BITS):
+            yield ('ccx',p['invalid'],p['p0_error']+bit,p['output_start']+out['public_error'][0]+bit)
+        # E's last/length/proof suffix is contiguous and retains source order.
+        for bit in range(1,self.projection.output_bits):
+            yield ('ccx',p['valid'],p['temporary']+bit,p['output_start']+60+bit)
+        yield ('cx',p['valid'],p['invalid'])
+        yield ('x',p['invalid'])
+        yield from projection()
+
+    def resources(self):
+        original=self.projection.resources();g=original['gates']
+        cost=Cost(g['x'],g['cx'],g['ccx'],g['base_xor_oracle_calls']).times(2)
+        cost+=Cost(x=2,cx=3,ccx=self.projection.output_bits+P0_ERROR_BITS)
+        return dict(gates=cost.as_dict(),input_bits=self.input_bits,output_bits=self.output_bits,
+                    clean_work_bits=self.projection.output_bits+2,p0_input_bits=P0_BITS,
+                    temporary_E_output_bits=self.projection.output_bits,projection_work_bits=1,
+                    invalid_flag_work_bits=1,proof_bytes=self.projection.proof_bytes,
+                    output_regions=self.output_regions(),source_P0_payload_preserved_on_rejection=True,
+                    proof_last_length_contribution_zero_on_rejection=True,ordinary_backend_reads=0,
+                    mathematical_return_union=True,native_enum_wire_encoding_claimed=False,
+                    requires_canonical_P0_output=True,accepted_fixed_vote_shape_only=True,
+                    full_content_invalid_controller_implemented=False,malformed_shape_dispatch_implemented=False,
+                    complete_simulator_coverage=False,complete_resource_vector=False,
+                    profile_qualified=False,production_gate_changed=False)

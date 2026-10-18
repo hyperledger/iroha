@@ -1,5 +1,7 @@
 //! Closed native/SCCP audit DATA display; transport decoding grants no authority.
 #![allow(clippy::redundant_pub_crate, clippy::needless_pass_by_value)]
+use std::fmt::Write as _;
+
 use super::commands::{EvidenceCountArgs, EvidenceKindArg, EvidenceListArgs};
 use crate::{CliOutputFormat, RunContext};
 use eyre::Result;
@@ -121,7 +123,8 @@ fn format_sccp_evidence_summary(idx: usize, item: &SccpForgeryEvidenceAuditRecor
         status
     );
     if let Some(anchor) = &record.evidence.anchor {
-        text.push_str(&format!(
+        write!(
+            text,
             " anchor_core_hash={} anchor_raw_result={} anchor_path=[{}]",
             hex::encode(anchor.core_hash),
             hex::encode(anchor.result),
@@ -131,12 +134,13 @@ fn format_sccp_evidence_summary(idx: usize, item: &SccpForgeryEvidenceAuditRecor
                 .map(hex::encode)
                 .collect::<Vec<_>>()
                 .join(",")
-        ));
+        )
+        .expect("writing to a String cannot fail");
     } else {
         text.push_str(" anchor=none");
     }
     if let Some(height) = applied {
-        text.push_str(&format!(" penalty_height={height}"));
+        write!(text, " penalty_height={height}").expect("writing to a String cannot fail");
     }
     text
 }

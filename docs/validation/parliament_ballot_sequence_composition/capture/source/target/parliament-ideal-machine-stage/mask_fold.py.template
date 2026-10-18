@@ -1,0 +1,93 @@
+"""Exact source mask-tail residue linear circuit for V0; no table lookup oracle."""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+import re
+
+from bit_ir import Cost, integer, require
+
+TABLE_PINS = {
+    "candidate": ("crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs", "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e"),
+    "comparator": ("crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs", "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f"),
+}
+
+
+def load_moduli(root, row):
+    """Pin actual source bytes and parse only the complete literal TREE_MODULI."""
+    require(row in TABLE_PINS, "unknown modulus row")
+    path, expected = TABLE_PINS[row]
+    raw = (Path(root)/path).read_bytes()
+    require(hashlib.sha256(raw).hexdigest() == expected, "tree modulus source changed")
+    found = re.findall(r'pub static TREE_MODULI: \[u16; (\d+)\] = \[([^\]]+)\];',raw.decode())
+    require(len(found) == 1, "tree modulus declaration")
+    length, body = found[0]
+    tokens = [v.strip() for v in body.split(',') if v.strip()]
+    require(all(re.fullmatch(r'0x[0-9a-f]+',v) for v in tokens), "tree modulus literal")
+    values = tuple(int(v,16) for v in tokens)
+    require(len(values) == int(length), "tree modulus count")
+    require(hashlib.sha256((Path(root)/path).read_bytes()).hexdigest() == expected, "tree modulus changed during read")
+    return values
+
+
+def monomials(depth, modulus):
+    """Fixed public images x^j mod M for j through2d-2."""
+    integer(depth,1,12,"residue depth")
+    integer(modulus,1 << depth,(1 << (depth+1))-1,"tree modulus")
+    require(modulus&1 == 1,"constant coefficient")
+    value, out = 1, []
+    for _ in range(2*depth-1):
+        out.append(value)
+        value <<= 1
+        if value & (1 << depth): value ^= modulus
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class MaskFold:
+    """Input source columns; XOR ten word-padded residue rows into caller output."""
+    depths: tuple[int,...]
+    moduli: tuple[int,...]
+    ell: int
+    masks: int = 10
+
+    def __post_init__(self):
+        require(type(self.depths) is tuple and type(self.moduli) is tuple and
+                len(self.depths) == len(self.moduli) and len(self.depths)>0,"modulus shapes")
+        integer(self.ell,1,65536,"ell")
+        integer(self.masks,1,10,"mask count")
+        for d,m in zip(self.depths,self.moduli): monomials(d,m)
+
+    @property
+    def n_delta(self): return sum(self.depths)
+    @property
+    def d0(self): return max(self.depths)
+    @property
+    def width_bits(self): return 8*((self.ell+self.masks*self.d0+7)//8)
+    @property
+    def input_bits(self): return self.n_delta*self.width_bits
+    @property
+    def residue_row_bits(self): return 64*((self.n_delta+63)//64)
+    @property
+    def output_bits(self): return self.masks*self.residue_row_bits
+
+    def emit_clean(self):
+        start = 0
+        for depth,modulus in zip(self.depths,self.moduli):
+            images = monomials(depth,modulus)
+            for mask in range(self.masks):
+                for position in range(depth):
+                    for row_bit in range(depth):
+                        control = (start+position)*self.width_bits+self.ell+mask*self.d0+row_bit
+                        value = images[position+row_bit]
+                        for target in range(depth):
+                            if (value >> target)&1:
+                                yield ("cx",control,self.input_bits+mask*self.residue_row_bits+start+target)
+            start += depth
+
+    def resources(self):
+        count = self.masks*sum(sum(images[i+j].bit_count() for i in range(d) for j in range(d))
+                               for d,m in zip(self.depths,self.moduli) for images in (monomials(d,m),))
+        return dict(gates=Cost(cx=count).as_dict(),input_bits=self.input_bits,output_bits=self.output_bits,
+                    clean_work_bits=0,unused_mask_window_tail_ignored=True,source_word_padding_preserved=True,
+                    exact_for_defined_emitter=True,complete_V0_coverage=False,complete_resource_vector=False,
+                    profile_qualified=False,production_gate_changed=False)

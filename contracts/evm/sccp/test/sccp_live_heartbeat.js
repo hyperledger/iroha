@@ -80,13 +80,80 @@ function decodeBundle(source) {
     initialGeneration: BigInt(initial.generation), initialCommitteeRoot: root,
     initialStartHeight: BigInt(initial.start_height), initialUntilMs: initialDeadline,
   };
-  return { role, certificates, normal, successor, initial, root, nextRoot, initialDeadline, successorDeadline, deployment };
+  if (role === "heartbeat") assert(Object.hasOwn(source, "destination_latch"), "heartbeat export requires explicit destination latch certificate");
+  let latch = null;
+  if (Object.hasOwn(source, "destination_latch")) {
+    const input = source.destination_latch;
+    assert.equal(role, "heartbeat", "native V1 latch export requires unchanged heartbeat keys");
+    assert.equal(input.version, 1);
+    assert.equal(input.provenance, "runtime_test_quorum_not_chain_output");
+    assert.equal(input.rule, "V1");
+    latch = certificate(input.certificate, network, keys);
+    assert.equal(latch.encoded[0], certificates[0].encoded[0], "malicious test certificate retains original QC and signers");
+    assert.equal(latch.encoded[1], m.encodeHeader({ ...normal, timestampMs: normal.timestampMs + 1n }), "only the deliberately conflicting timestamp changes");
+    assert(latch.parsed.timestampMs < rotation.timestampMs, "conflict precedes the authentic handoff");
+    assert(((latch.parsed.timestampMs + 999n) / 1000n) * 1000n <= initialDeadline, "conflict replay remains within original deadline");
+    assert.notEqual(m.checkpointId(latch.encoded[1]), m.checkpointId(certificates[0].encoded[1]));
+  }
+  return { role, certificates, normal, successor, initial, root, nextRoot, initialDeadline, successorDeadline, deployment, latch };
+}
+
+/** Replay the explicit malicious native-key test certificate on its own fresh deployment. */
+async function replayLatch(hardfork, bundle) {
+  const { certificates, normal, deployment, latch } = bundle;
+  assert(latch, "a labeled native-key conflict is required");
+  const chain = await h.Chain.open(m.PROFILES.ethereum, { hardfork, allowBlocksWithSameTimestamp: true });
+  try {
+    assert.equal(BigInt(await chain.rpc("eth_chainId", [])), 1n);
+    const at = (latch.parsed.timestampMs + 999n) / 1000n;
+    const { destination, address } = await h.deploy(chain, deployment, { at });
+    assert.equal(address, m.create2Address(h.initCode(deployment)));
+    assert.equal(await chain.rpc("eth_getCode", [address, "latest"]), h.expectedRuntime(h.immutableWords(deployment)));
+    await destination.tx("submitCheckpoints", [[certificates[0].encoded]], { at });
+    const originalId = m.checkpointId(certificates[0].encoded[1]);
+    const conflictingId = m.checkpointId(latch.encoded[1]);
+    assert.equal(await destination.view("checkpointHeader", [normal.height]), originalId);
+    const state = Array.from(await destination.view("committeeState"));
+    const pause = Array.from(await destination.view("pauseState"));
+    assert.equal(await destination.view("equivocated"), false);
+    const badQc = m.ethers.getBytes(latch.encoded[0]); badQc[80] ^= 1;
+    await h.expectRevert(destination.tx("submitCheckpoints", [[[m.ethers.hexlify(badQc), ...latch.encoded.slice(1)]]], { at }), "BadSignature");
+    assert.deepEqual(Array.from(await destination.view("committeeState")), state);
+    assert.equal(await destination.view("equivocated"), false);
+    assert.equal(await destination.view("checkpointHeader", [normal.height]), originalId);
+    const receipt = await destination.tx("submitCheckpoints", [[latch.encoded]], { at });
+    assert.equal(destination.logs(receipt).length, 2);
+    assert.deepEqual(destination.events(receipt).map((event) => event.parsed.name), ["SccpCertificate", "SccpLatched"]);
+    const published = destination.events(receipt, "SccpCertificate");
+    assert.equal(published.length, 1);
+    assert.deepEqual(Array.from(published[0].parsed.args), [normal.height, normal.generation, ...latch.encoded.slice(0, 3)]);
+    const latched = destination.events(receipt, "SccpLatched");
+    assert.equal(latched.length, 1);
+    assert.deepEqual(Array.from(latched[0].parsed.args), [1n, normal.generation, normal.height, originalId, conflictingId]);
+    assert.equal(destination.events(receipt, "SccpCheckpointed").length, 0);
+    assert.equal(destination.events(receipt, "SccpCommitteeRotated").length, 0);
+    const frozen = [...state]; frozen[1] = 0n;
+    assert.deepEqual(Array.from(await destination.view("committeeState")), frozen);
+    assert.equal(await destination.view("equivocated"), true);
+    assert.equal(await destination.view("checkpointHeader", [normal.height]), originalId);
+    await h.expectRevert(destination.tx("submitCheckpoints", [[certificates[1].encoded]], { at }), "Equivocated");
+    assert.deepEqual(Array.from(await destination.view("committeeState")), frozen);
+    assert.equal(await destination.view("checkpointHeader", [certificates[1].parsed.height]), m.ZERO32);
+    assert.deepEqual(Array.from(await destination.view("pauseState")), pause);
+    assert.equal(await destination.view("totalSupply"), 0n);
+    assert.equal(await destination.view("opCount"), 0n);
+    assert.equal(await destination.view("equivocated"), true);
+    return { provenance: "runtime_test_quorum_not_chain_output", rule: "V1", address, height: normal.height.toString(), generation: normal.generation.toString(), original_checkpoint: originalId, conflicting_checkpoint: conflictingId, until_ms: "0", latched: true, later_checkpoint_refusal: "Equivocated", monetary_effects: 0, gas_used: BigInt(receipt.gasUsed).toString() };
+  } finally {
+    await chain.close();
+  }
 }
 
 async function replay(file) {
   const raw = fs.readFileSync(file);
   const source = JSON.parse(raw.toString("utf8"));
-  const { role, certificates, normal, successor, initial, root, nextRoot, initialDeadline, successorDeadline, deployment } = decodeBundle(source);
+  const bundle = decodeBundle(source);
+  const { role, certificates, normal, successor, initial, root, nextRoot, initialDeadline, successorDeadline, deployment } = bundle;
   const results = [];
   for (const hardfork of ["prague", "osaka"]) {
     const chain = await h.Chain.open(m.PROFILES.ethereum, { hardfork, allowBlocksWithSameTimestamp: true });
@@ -141,7 +208,7 @@ async function replay(file) {
       assert.equal(await destination.view("totalSupply"), 0n);
       assert.equal(await destination.view("opCount"), 0n);
       assert.equal(await destination.view("equivocated"), false);
-      results.push({ hardfork, chain_id: 1, address, steps, successor_deadline_ms: successorDeadline.toString(), old_generation_refused: true, expired_successor_refused: true, monetary_effects: 0 });
+      results.push({ hardfork, chain_id: 1, address, steps, successor_deadline_ms: successorDeadline.toString(), old_generation_refused: true, expired_successor_refused: true, monetary_effects: 0, destination_latch: bundle.latch ? await replayLatch(hardfork, bundle) : null });
     } finally {
       await chain.close();
     }
@@ -157,4 +224,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { certificate, decodeBundle, replay };
+module.exports = { certificate, decodeBundle, replayLatch, replay };

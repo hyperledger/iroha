@@ -6,7 +6,7 @@
 //! re-executed to its certified result and published through the node's `StateExecutor`.
 
 #[path = "./common.rs"]
-pub(crate) mod common;
+pub mod common;
 use common::*;
 use iroha_core::sumeragi::test_chain::CertifiedTestChain;
 use iroha_data_model::prelude::AccountId;

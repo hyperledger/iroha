@@ -1,0 +1,2164 @@
+[
+  {
+    "files": {
+      "collection.stderr": {
+        "member": "capture/collection.stderr",
+        "origin": "this-package"
+      },
+      "collection.stdout": {
+        "member": "capture/collection.stdout",
+        "origin": "this-package"
+      },
+      "envelopes.stderr": {
+        "member": "capture/envelopes.stderr",
+        "origin": "this-package"
+      },
+      "envelopes.stdout": {
+        "member": "capture/envelopes.stdout",
+        "origin": "this-package"
+      },
+      "junit.xml": {
+        "member": "capture/junit.xml",
+        "origin": "this-package"
+      },
+      "live-refusal.stderr": {
+        "member": "capture/live-refusal.stderr",
+        "origin": "this-package"
+      },
+      "live-refusal.stdout": {
+        "member": "capture/live-refusal.stdout",
+        "origin": "this-package"
+      },
+      "receipt.json": {
+        "member": "capture/receipt.json",
+        "origin": "this-package"
+      },
+      "require-qualified.stderr": {
+        "member": "capture/require-qualified.stderr",
+        "origin": "this-package"
+      },
+      "require-qualified.stdout": {
+        "member": "capture/require-qualified.stdout",
+        "origin": "this-package"
+      },
+      "source/crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/Cargo.toml": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/Cargo.toml"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/credential.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/credential.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/framing.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/framing.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/layout.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/layout.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/lib.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/lib.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/profile.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/profile.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/proving.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/proving.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/registration.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/registration.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/sealed_list.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/sealed_list.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/selector.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/selector.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/test_codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/vote.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/vote.rs"
+      },
+      "source/crates/iroha_zkp_vole/Cargo.toml": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/Cargo.toml"
+      },
+      "source/crates/iroha_zkp_vole/src/bavc.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/bavc.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/codec.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/algo.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/algo.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/bits.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/bits.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/codec.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/cost.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/cost.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/error.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/error.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/f4.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/f4.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generator.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generator.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/gf2poly.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/gf2poly.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/linalg.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/linalg.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/matrix.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/matrix.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/faest.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/faest/cipher.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest/cipher.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/faest/relation.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest/relation.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/field.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/field.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/field/poly.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/field/poly.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/hash.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/hash.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/lib.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/lib.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/params.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/params.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/prg.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/prg.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/proof.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/proof.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver/plain.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/plain.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver/prover.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/prover.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver/verifier.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/verifier.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/randomness.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/randomness.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/transcript.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/transcript.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/universal_hash.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/universal_hash.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/variant.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/variant.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/vole.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/vole/bits.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole/bits.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/vole/convert.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole/convert.rs"
+      },
+      "source/docs/validation/parliament_ballot_b6/provider-layout.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_b6/provider-layout.json"
+      },
+      "source/docs/validation/parliament_ballot_ideal_public_sampler/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_public_sampler/receipt.json"
+      },
+      "source/docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json"
+      },
+      "source/docs/validation/parliament_ballot_ideal_sampler_accounting/report.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_sampler_accounting/report.json"
+      },
+      "source/docs/validation/parliament_ballot_oracle_log_circuit/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_oracle_log_circuit/receipt.json"
+      },
+      "source/docs/validation/parliament_ballot_oracle_log_circuit/report.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_oracle_log_circuit/report.json"
+      },
+      "source/pytest.ini": {
+        "origin": "replay-input",
+        "path": "pytest.ini"
+      },
+      "source/scripts/check_parliament_ballot_resource_accounting.py": {
+        "origin": "replay-input",
+        "path": "scripts/check_parliament_ballot_resource_accounting.py"
+      },
+      "source/scripts/parliament_ballot_admissibility_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_admissibility_circuit.py"
+      },
+      "source/scripts/parliament_ballot_gf_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_gf_circuit.py"
+      },
+      "source/scripts/parliament_ballot_ideal_sampler_accounting.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_ideal_sampler_accounting.py"
+      },
+      "source/scripts/parliament_ballot_oracle_log_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_oracle_log_circuit.py"
+      },
+      "source/scripts/parliament_ballot_write_framing.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_write_framing.py"
+      },
+      "source/specs/parliament_ballot_b6_h5_fixed_opening.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_h5_fixed_opening.md"
+      },
+      "source/specs/parliament_ballot_b6_hidden_assignment_deletion.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_hidden_assignment_deletion.md"
+      },
+      "source/specs/parliament_ballot_b6_hybrid_driver.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_hybrid_driver.md"
+      },
+      "source/specs/parliament_ballot_b6_ideal_public_sampler.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_ideal_public_sampler.md"
+      },
+      "source/specs/parliament_ballot_b6_ideal_sampler_accounting.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_ideal_sampler_accounting.md"
+      },
+      "source/specs/parliament_ballot_b6_oracle_log_circuit.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_oracle_log_circuit.md"
+      },
+      "source/specs/parliament_ballot_b6_write_framing.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_write_framing.md"
+      },
+      "source/target/parliament-aes-machine-stage/aes256.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-aes-machine-stage/aes256.py"
+      },
+      "source/target/parliament-content-resources-stage/capture/observation.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-content-resources-stage/capture/observation.json"
+      },
+      "source/target/parliament-family-bounds-review/arithmetic.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/arithmetic.py"
+      },
+      "source/target/parliament-family-bounds-review/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture.py"
+      },
+      "source/target/parliament-family-bounds-review/capture/census.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/census.json"
+      },
+      "source/target/parliament-family-bounds-review/capture/receipt.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/receipt.json"
+      },
+      "source/target/parliament-family-bounds-review/capture/vote-census.csv": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/vote-census.csv"
+      },
+      "source/target/parliament-family-bounds-review/census.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/census.py"
+      },
+      "source/target/parliament-family-bounds-review/test_arithmetic.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/test_arithmetic.py"
+      },
+      "source/target/parliament-ideal-machine-stage/PUBLIC.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/PUBLIC.md"
+      },
+      "source/target/parliament-ideal-machine-stage/README.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/README.md"
+      },
+      "source/target/parliament-ideal-machine-stage/V0-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/V0-design.md"
+      },
+      "source/target/parliament-ideal-machine-stage/aes_kernel.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/aes_kernel.py"
+      },
+      "source/target/parliament-ideal-machine-stage/bavc_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/bavc_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/bit_ir.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/bit_ir.py"
+      },
+      "source/target/parliament-ideal-machine-stage/chronological_log.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/chronological_log.py"
+      },
+      "source/target/parliament-ideal-machine-stage/cleanup-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/cleanup-design.md"
+      },
+      "source/target/parliament-ideal-machine-stage/content_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/content_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/coverage.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/coverage.json"
+      },
+      "source/target/parliament-ideal-machine-stage/crt_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/crt_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/field_kernel.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/field_kernel.py"
+      },
+      "source/target/parliament-ideal-machine-stage/hash_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/hash_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/l0.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/l0.md"
+      },
+      "source/target/parliament-ideal-machine-stage/l0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/l0_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/leaf_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/leaf_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/mask_fold.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/mask_fold.py"
+      },
+      "source/target/parliament-ideal-machine-stage/opening.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/opening.py"
+      },
+      "source/target/parliament-ideal-machine-stage/opening_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/opening_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/prg_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/prg_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/public_capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_capture.py"
+      },
+      "source/target/parliament-ideal-machine-stage/public_hash.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_hash.py"
+      },
+      "source/target/parliament-ideal-machine-stage/public_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/r0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/r0_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/r1_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/r1_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request-accepted-observation.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request-accepted-observation.json"
+      },
+      "source/target/parliament-ideal-machine-stage/request_dispatch.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_dispatch.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_family.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_family.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_generator.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_generator.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_observation.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_observation.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_transition.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_transition.py"
+      },
+      "source/target/parliament-ideal-machine-stage/response_count_capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/response_count_capture.py"
+      },
+      "source/target/parliament-ideal-machine-stage/responses.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/responses.md"
+      },
+      "source/target/parliament-ideal-machine-stage/return_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/return_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/schedule.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/schedule.py"
+      },
+      "source/target/parliament-ideal-machine-stage/stage_plan.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/stage_plan.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_chronological_log.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_chronological_log.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_content_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_content_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_crt_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_crt_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_hash_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_hash_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_l0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_l0_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_leaf_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_leaf_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_opening_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_opening_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_prg_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_prg_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_public_hash.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_hash.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_public_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_public_programs.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_programs.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_request_dispatch.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_dispatch.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_request_family.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_family.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_request_transition.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_transition.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_responses.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_responses.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_return_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_return_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_stage_plan.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_stage_plan.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_validated_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_validated_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_vole_columns.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_columns.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_vole_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_vole_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_write_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_write_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/validated-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/validated-design.md"
+      },
+      "source/target/parliament-ideal-machine-stage/validated_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/validated_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/vole_columns.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_columns.py"
+      },
+      "source/target/parliament-ideal-machine-stage/vole_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/vole_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/write_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/write_machine.py"
+      },
+      "source/target/parliament-keccak-machine-stage/keccak1600.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-keccak-machine-stage/keccak1600.py"
+      },
+      "source/target/parliament-lifetime-composition-stage/ledger.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-lifetime-composition-stage/ledger.py"
+      },
+      "source/target/parliament-machine-final-capture/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/capture.py"
+      },
+      "source/target/parliament-machine-final-capture/capture_observer.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/capture_observer.py"
+      },
+      "source/target/parliament-machine-final-capture/test_capture_observer.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/test_capture_observer.py"
+      },
+      "source/target/parliament-request-family-envelope-stage/README.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/README.md"
+      },
+      "source/target/parliament-request-family-envelope-stage/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/capture.py"
+      },
+      "source/target/parliament-request-family-envelope-stage/envelope.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/envelope.py"
+      },
+      "source/target/parliament-request-family-envelope-stage/test_envelope.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/test_envelope.py"
+      },
+      "tests.stderr": {
+        "member": "capture/tests.stderr",
+        "origin": "this-package"
+      },
+      "tests.stdout": {
+        "member": "capture/tests.stdout",
+        "origin": "this-package"
+      }
+    },
+    "manifest_member": "capture/SHA256SUMS",
+    "manifest_sha256": "66c834fdbccd0818b94bd2428799321d12a08aea644ecbba3ce7b5e9910343c2"
+  },
+  {
+    "files": {
+      "collection.stderr": {
+        "member": "review/capture/collection.stderr",
+        "origin": "this-package"
+      },
+      "collection.stdout": {
+        "member": "review/capture/collection.stdout",
+        "origin": "this-package"
+      },
+      "junit.xml": {
+        "member": "review/capture/junit.xml",
+        "origin": "this-package"
+      },
+      "normal.stderr": {
+        "member": "review/capture/normal.stderr",
+        "origin": "this-package"
+      },
+      "normal.stdout": {
+        "member": "review/capture/normal.stdout",
+        "origin": "this-package"
+      },
+      "receipt.json": {
+        "member": "review/capture/receipt.json",
+        "origin": "this-package"
+      },
+      "refusal.stderr": {
+        "member": "review/capture/refusal.stderr",
+        "origin": "this-package"
+      },
+      "refusal.stdout": {
+        "member": "review/capture/refusal.stdout",
+        "origin": "this-package"
+      },
+      "source/crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/Cargo.toml": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/Cargo.toml"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/credential.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/credential.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/framing.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/framing.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/layout.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/layout.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/lib.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/lib.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/profile.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/profile.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/proving.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/proving.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/registration.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/registration.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/sealed_list.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/sealed_list.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/selector.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/selector.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/test_codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs"
+      },
+      "source/crates/iroha_parliament_ballot_proof/src/vote.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/vote.rs"
+      },
+      "source/crates/iroha_zkp_vole/Cargo.toml": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/Cargo.toml"
+      },
+      "source/crates/iroha_zkp_vole/src/bavc.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/bavc.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/codec.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/algo.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/algo.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/bits.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/bits.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/codec.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/cost.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/cost.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/error.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/error.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/f4.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/f4.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/generator.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generator.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/gf2poly.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/gf2poly.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/linalg.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/linalg.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/matrix.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/matrix.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/crt/tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/tables.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/faest.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/faest/cipher.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest/cipher.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/faest/relation.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest/relation.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/field.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/field.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/field/poly.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/field/poly.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/hash.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/hash.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/lib.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/lib.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/params.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/params.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/prg.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/prg.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/proof.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/proof.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver/plain.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/plain.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver/prover.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/prover.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/quicksilver/verifier.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/verifier.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/randomness.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/randomness.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/transcript.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/transcript.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/universal_hash.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/universal_hash.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/variant.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/variant.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/vole.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/vole/bits.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole/bits.rs"
+      },
+      "source/crates/iroha_zkp_vole/src/vole/convert.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole/convert.rs"
+      },
+      "source/docs/validation/parliament_ballot_b6/provider-layout.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_b6/provider-layout.json"
+      },
+      "source/docs/validation/parliament_ballot_ideal_public_sampler/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_public_sampler/receipt.json"
+      },
+      "source/docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json"
+      },
+      "source/docs/validation/parliament_ballot_ideal_sampler_accounting/report.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_sampler_accounting/report.json"
+      },
+      "source/docs/validation/parliament_ballot_oracle_log_circuit/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_oracle_log_circuit/receipt.json"
+      },
+      "source/docs/validation/parliament_ballot_oracle_log_circuit/report.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_oracle_log_circuit/report.json"
+      },
+      "source/pytest.ini": {
+        "origin": "replay-input",
+        "path": "pytest.ini"
+      },
+      "source/scripts/check_parliament_ballot_resource_accounting.py": {
+        "origin": "replay-input",
+        "path": "scripts/check_parliament_ballot_resource_accounting.py"
+      },
+      "source/scripts/parliament_ballot_admissibility_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_admissibility_circuit.py"
+      },
+      "source/scripts/parliament_ballot_gf_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_gf_circuit.py"
+      },
+      "source/scripts/parliament_ballot_ideal_sampler_accounting.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_ideal_sampler_accounting.py"
+      },
+      "source/scripts/parliament_ballot_oracle_log_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_oracle_log_circuit.py"
+      },
+      "source/scripts/parliament_ballot_write_framing.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_write_framing.py"
+      },
+      "source/specs/parliament_ballot_b6_h5_fixed_opening.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_h5_fixed_opening.md"
+      },
+      "source/specs/parliament_ballot_b6_hidden_assignment_deletion.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_hidden_assignment_deletion.md"
+      },
+      "source/specs/parliament_ballot_b6_hybrid_driver.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_hybrid_driver.md"
+      },
+      "source/specs/parliament_ballot_b6_ideal_public_sampler.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_ideal_public_sampler.md"
+      },
+      "source/specs/parliament_ballot_b6_ideal_sampler_accounting.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_ideal_sampler_accounting.md"
+      },
+      "source/specs/parliament_ballot_b6_oracle_log_circuit.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_oracle_log_circuit.md"
+      },
+      "source/specs/parliament_ballot_b6_write_framing.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_write_framing.md"
+      },
+      "source/target/parliament-aes-machine-stage/aes256.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-aes-machine-stage/aes256.py"
+      },
+      "source/target/parliament-content-resources-stage/capture/observation.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-content-resources-stage/capture/observation.json"
+      },
+      "source/target/parliament-family-bounds-review/arithmetic.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/arithmetic.py"
+      },
+      "source/target/parliament-family-bounds-review/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture.py"
+      },
+      "source/target/parliament-family-bounds-review/capture/census.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/census.json"
+      },
+      "source/target/parliament-family-bounds-review/capture/receipt.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/receipt.json"
+      },
+      "source/target/parliament-family-bounds-review/capture/vote-census.csv": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/vote-census.csv"
+      },
+      "source/target/parliament-family-bounds-review/census.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/census.py"
+      },
+      "source/target/parliament-family-bounds-review/test_arithmetic.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/test_arithmetic.py"
+      },
+      "source/target/parliament-ideal-machine-stage/PUBLIC.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/PUBLIC.md"
+      },
+      "source/target/parliament-ideal-machine-stage/README.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/README.md"
+      },
+      "source/target/parliament-ideal-machine-stage/V0-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/V0-design.md"
+      },
+      "source/target/parliament-ideal-machine-stage/aes_kernel.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/aes_kernel.py"
+      },
+      "source/target/parliament-ideal-machine-stage/bavc_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/bavc_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/bit_ir.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/bit_ir.py"
+      },
+      "source/target/parliament-ideal-machine-stage/chronological_log.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/chronological_log.py"
+      },
+      "source/target/parliament-ideal-machine-stage/cleanup-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/cleanup-design.md"
+      },
+      "source/target/parliament-ideal-machine-stage/content_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/content_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/coverage.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/coverage.json"
+      },
+      "source/target/parliament-ideal-machine-stage/crt_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/crt_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/field_kernel.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/field_kernel.py"
+      },
+      "source/target/parliament-ideal-machine-stage/hash_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/hash_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/l0.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/l0.md"
+      },
+      "source/target/parliament-ideal-machine-stage/l0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/l0_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/leaf_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/leaf_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/mask_fold.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/mask_fold.py"
+      },
+      "source/target/parliament-ideal-machine-stage/opening.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/opening.py"
+      },
+      "source/target/parliament-ideal-machine-stage/opening_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/opening_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/prg_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/prg_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/public_capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_capture.py"
+      },
+      "source/target/parliament-ideal-machine-stage/public_hash.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_hash.py"
+      },
+      "source/target/parliament-ideal-machine-stage/public_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/r0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/r0_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/r1_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/r1_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request-accepted-observation.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request-accepted-observation.json"
+      },
+      "source/target/parliament-ideal-machine-stage/request_dispatch.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_dispatch.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_family.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_family.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_generator.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_generator.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_observation.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_observation.py"
+      },
+      "source/target/parliament-ideal-machine-stage/request_transition.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_transition.py"
+      },
+      "source/target/parliament-ideal-machine-stage/response_count_capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/response_count_capture.py"
+      },
+      "source/target/parliament-ideal-machine-stage/responses.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/responses.md"
+      },
+      "source/target/parliament-ideal-machine-stage/return_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/return_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/schedule.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/schedule.py"
+      },
+      "source/target/parliament-ideal-machine-stage/stage_plan.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/stage_plan.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_chronological_log.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_chronological_log.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_content_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_content_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_crt_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_crt_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_hash_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_hash_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_l0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_l0_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_leaf_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_leaf_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_opening_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_opening_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_prg_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_prg_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_public_hash.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_hash.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_public_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_public_programs.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_programs.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_request_dispatch.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_dispatch.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_request_family.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_family.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_request_transition.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_transition.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_responses.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_responses.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_return_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_return_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_stage_plan.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_stage_plan.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_validated_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_validated_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_vole_columns.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_columns.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_vole_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_vole_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/test_write_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_write_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/validated-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/validated-design.md"
+      },
+      "source/target/parliament-ideal-machine-stage/validated_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/validated_request.py"
+      },
+      "source/target/parliament-ideal-machine-stage/vole_columns.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_columns.py"
+      },
+      "source/target/parliament-ideal-machine-stage/vole_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_machine.py"
+      },
+      "source/target/parliament-ideal-machine-stage/vole_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_reconstruction.py"
+      },
+      "source/target/parliament-ideal-machine-stage/write_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/write_machine.py"
+      },
+      "source/target/parliament-keccak-machine-stage/keccak1600.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-keccak-machine-stage/keccak1600.py"
+      },
+      "source/target/parliament-lifetime-composition-stage/ledger.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-lifetime-composition-stage/ledger.py"
+      },
+      "source/target/parliament-machine-final-capture/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/capture.py"
+      },
+      "source/target/parliament-machine-final-capture/capture_observer.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/capture_observer.py"
+      },
+      "source/target/parliament-machine-final-capture/test_capture_observer.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/test_capture_observer.py"
+      },
+      "source/target/parliament-request-family-envelope-review/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-review/capture.py"
+      },
+      "source/target/parliament-request-family-envelope-review/test_review.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-review/test_review.py"
+      },
+      "source/target/parliament-request-family-envelope-stage/README.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/README.md"
+      },
+      "source/target/parliament-request-family-envelope-stage/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/capture.py"
+      },
+      "source/target/parliament-request-family-envelope-stage/envelope.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/envelope.py"
+      },
+      "source/target/parliament-request-family-envelope-stage/test_envelope.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/test_envelope.py"
+      },
+      "tests.stderr": {
+        "member": "review/capture/tests.stderr",
+        "origin": "this-package"
+      },
+      "tests.stdout": {
+        "member": "review/capture/tests.stdout",
+        "origin": "this-package"
+      }
+    },
+    "manifest_member": "review/capture/SHA256SUMS",
+    "manifest_sha256": "946d8e84c8a8bd676f79d24dc77aa8c5758b762bd06ca040b94e0e14756133a0"
+  },
+  {
+    "files": {
+      "README.md": {
+        "member": "review/README.md",
+        "origin": "this-package"
+      },
+      "capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-review/capture.py"
+      },
+      "capture/SHA256SUMS": {
+        "member": "review/capture/SHA256SUMS",
+        "origin": "this-package"
+      },
+      "capture/collection.stderr": {
+        "member": "review/capture/collection.stderr",
+        "origin": "this-package"
+      },
+      "capture/collection.stdout": {
+        "member": "review/capture/collection.stdout",
+        "origin": "this-package"
+      },
+      "capture/junit.xml": {
+        "member": "review/capture/junit.xml",
+        "origin": "this-package"
+      },
+      "capture/normal.stderr": {
+        "member": "review/capture/normal.stderr",
+        "origin": "this-package"
+      },
+      "capture/normal.stdout": {
+        "member": "review/capture/normal.stdout",
+        "origin": "this-package"
+      },
+      "capture/receipt.json": {
+        "member": "review/capture/receipt.json",
+        "origin": "this-package"
+      },
+      "capture/refusal.stderr": {
+        "member": "review/capture/refusal.stderr",
+        "origin": "this-package"
+      },
+      "capture/refusal.stdout": {
+        "member": "review/capture/refusal.stdout",
+        "origin": "this-package"
+      },
+      "capture/source/crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/Cargo.toml": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/Cargo.toml"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/credential.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/credential.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/framing.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/framing.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/layout.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/layout.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/lib.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/lib.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/profile.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/profile.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/proving.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/proving.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/registration.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/registration.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/sealed_list.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/sealed_list.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/selector.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/selector.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/test_codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/test_codec.rs"
+      },
+      "capture/source/crates/iroha_parliament_ballot_proof/src/vote.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_parliament_ballot_proof/src/vote.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/Cargo.toml": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/Cargo.toml"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/bavc.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/bavc.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/codec.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/algo.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/algo.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/bits.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/bits.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/codec.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/codec.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/cost.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/cost.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/error.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/error.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/f4.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/f4.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/generator.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/generator.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/gf2poly.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/gf2poly.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/linalg.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/linalg.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/matrix.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/matrix.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/crt/tables.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/crt/tables.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/faest.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/faest/cipher.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest/cipher.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/faest/relation.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/faest/relation.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/field.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/field.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/field/poly.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/field/poly.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/hash.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/hash.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/lib.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/lib.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/params.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/params.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/prg.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/prg.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/proof.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/proof.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/quicksilver.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/quicksilver/plain.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/plain.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/quicksilver/prover.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/prover.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/quicksilver/verifier.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/quicksilver/verifier.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/randomness.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/randomness.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/transcript.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/transcript.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/universal_hash.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/universal_hash.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/variant.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/variant.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/vole.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/vole/bits.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole/bits.rs"
+      },
+      "capture/source/crates/iroha_zkp_vole/src/vole/convert.rs": {
+        "origin": "replay-input",
+        "path": "crates/iroha_zkp_vole/src/vole/convert.rs"
+      },
+      "capture/source/docs/validation/parliament_ballot_b6/provider-layout.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_b6/provider-layout.json"
+      },
+      "capture/source/docs/validation/parliament_ballot_ideal_public_sampler/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_public_sampler/receipt.json"
+      },
+      "capture/source/docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json"
+      },
+      "capture/source/docs/validation/parliament_ballot_ideal_sampler_accounting/report.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_ideal_sampler_accounting/report.json"
+      },
+      "capture/source/docs/validation/parliament_ballot_oracle_log_circuit/receipt.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_oracle_log_circuit/receipt.json"
+      },
+      "capture/source/docs/validation/parliament_ballot_oracle_log_circuit/report.json": {
+        "origin": "replay-input",
+        "path": "docs/validation/parliament_ballot_oracle_log_circuit/report.json"
+      },
+      "capture/source/pytest.ini": {
+        "origin": "replay-input",
+        "path": "pytest.ini"
+      },
+      "capture/source/scripts/check_parliament_ballot_resource_accounting.py": {
+        "origin": "replay-input",
+        "path": "scripts/check_parliament_ballot_resource_accounting.py"
+      },
+      "capture/source/scripts/parliament_ballot_admissibility_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_admissibility_circuit.py"
+      },
+      "capture/source/scripts/parliament_ballot_gf_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_gf_circuit.py"
+      },
+      "capture/source/scripts/parliament_ballot_ideal_sampler_accounting.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_ideal_sampler_accounting.py"
+      },
+      "capture/source/scripts/parliament_ballot_oracle_log_circuit.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_oracle_log_circuit.py"
+      },
+      "capture/source/scripts/parliament_ballot_write_framing.py": {
+        "origin": "replay-input",
+        "path": "scripts/parliament_ballot_write_framing.py"
+      },
+      "capture/source/specs/parliament_ballot_b6_h5_fixed_opening.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_h5_fixed_opening.md"
+      },
+      "capture/source/specs/parliament_ballot_b6_hidden_assignment_deletion.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_hidden_assignment_deletion.md"
+      },
+      "capture/source/specs/parliament_ballot_b6_hybrid_driver.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_hybrid_driver.md"
+      },
+      "capture/source/specs/parliament_ballot_b6_ideal_public_sampler.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_ideal_public_sampler.md"
+      },
+      "capture/source/specs/parliament_ballot_b6_ideal_sampler_accounting.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_ideal_sampler_accounting.md"
+      },
+      "capture/source/specs/parliament_ballot_b6_oracle_log_circuit.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_oracle_log_circuit.md"
+      },
+      "capture/source/specs/parliament_ballot_b6_write_framing.md": {
+        "origin": "replay-input",
+        "path": "specs/parliament_ballot_b6_write_framing.md"
+      },
+      "capture/source/target/parliament-aes-machine-stage/aes256.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-aes-machine-stage/aes256.py"
+      },
+      "capture/source/target/parliament-content-resources-stage/capture/observation.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-content-resources-stage/capture/observation.json"
+      },
+      "capture/source/target/parliament-family-bounds-review/arithmetic.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/arithmetic.py"
+      },
+      "capture/source/target/parliament-family-bounds-review/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture.py"
+      },
+      "capture/source/target/parliament-family-bounds-review/capture/census.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/census.json"
+      },
+      "capture/source/target/parliament-family-bounds-review/capture/receipt.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/receipt.json"
+      },
+      "capture/source/target/parliament-family-bounds-review/capture/vote-census.csv": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/capture/vote-census.csv"
+      },
+      "capture/source/target/parliament-family-bounds-review/census.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/census.py"
+      },
+      "capture/source/target/parliament-family-bounds-review/test_arithmetic.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-family-bounds-review/test_arithmetic.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/PUBLIC.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/PUBLIC.md"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/README.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/README.md"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/V0-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/V0-design.md"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/aes_kernel.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/aes_kernel.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/bavc_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/bavc_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/bit_ir.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/bit_ir.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/chronological_log.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/chronological_log.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/cleanup-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/cleanup-design.md"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/content_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/content_request.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/coverage.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/coverage.json"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/crt_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/crt_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/field_kernel.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/field_kernel.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/hash_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/hash_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/l0.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/l0.md"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/l0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/l0_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/leaf_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/leaf_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/mask_fold.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/mask_fold.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/opening.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/opening.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/opening_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/opening_reconstruction.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/prg_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/prg_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/public_capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_capture.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/public_hash.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_hash.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/public_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/public_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/r0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/r0_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/r1_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/r1_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/reconstruction.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/request-accepted-observation.json": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request-accepted-observation.json"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/request_dispatch.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_dispatch.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/request_family.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_family.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/request_generator.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_generator.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/request_observation.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_observation.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/request_transition.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/request_transition.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/response_count_capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/response_count_capture.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/responses.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/responses.md"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/return_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/return_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/schedule.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/schedule.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/stage_plan.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/stage_plan.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_chronological_log.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_chronological_log.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_content_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_content_request.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_crt_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_crt_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_hash_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_hash_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_l0_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_l0_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_leaf_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_leaf_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_opening_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_opening_reconstruction.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_prg_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_prg_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_public_hash.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_hash.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_public_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_public_programs.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_public_programs.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_reconstruction.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_request_dispatch.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_dispatch.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_request_family.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_family.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_request_transition.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_request_transition.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_responses.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_responses.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_return_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_return_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_stage_plan.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_stage_plan.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_validated_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_validated_request.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_vole_columns.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_columns.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_vole_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_vole_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_vole_reconstruction.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/test_write_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/test_write_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/validated-design.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/validated-design.md"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/validated_request.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/validated_request.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/vole_columns.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_columns.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/vole_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_machine.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/vole_reconstruction.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/vole_reconstruction.py"
+      },
+      "capture/source/target/parliament-ideal-machine-stage/write_machine.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-ideal-machine-stage/write_machine.py"
+      },
+      "capture/source/target/parliament-keccak-machine-stage/keccak1600.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-keccak-machine-stage/keccak1600.py"
+      },
+      "capture/source/target/parliament-lifetime-composition-stage/ledger.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-lifetime-composition-stage/ledger.py"
+      },
+      "capture/source/target/parliament-machine-final-capture/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/capture.py"
+      },
+      "capture/source/target/parliament-machine-final-capture/capture_observer.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/capture_observer.py"
+      },
+      "capture/source/target/parliament-machine-final-capture/test_capture_observer.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-machine-final-capture/test_capture_observer.py"
+      },
+      "capture/source/target/parliament-request-family-envelope-review/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-review/capture.py"
+      },
+      "capture/source/target/parliament-request-family-envelope-review/test_review.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-review/test_review.py"
+      },
+      "capture/source/target/parliament-request-family-envelope-stage/README.md": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/README.md"
+      },
+      "capture/source/target/parliament-request-family-envelope-stage/capture.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/capture.py"
+      },
+      "capture/source/target/parliament-request-family-envelope-stage/envelope.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/envelope.py"
+      },
+      "capture/source/target/parliament-request-family-envelope-stage/test_envelope.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-stage/test_envelope.py"
+      },
+      "capture/tests.stderr": {
+        "member": "review/capture/tests.stderr",
+        "origin": "this-package"
+      },
+      "capture/tests.stdout": {
+        "member": "review/capture/tests.stdout",
+        "origin": "this-package"
+      },
+      "review-summary.json": {
+        "member": "review/review-summary.json",
+        "origin": "this-package"
+      },
+      "test_review.py": {
+        "origin": "replay-input",
+        "path": "target/parliament-request-family-envelope-review/test_review.py"
+      }
+    },
+    "manifest_member": "review/SHA256SUMS",
+    "manifest_sha256": "f4fe917579959ae7f1d92a6fc88228f891c35394fde8d4dd246e24fb4613f043"
+  }
+]

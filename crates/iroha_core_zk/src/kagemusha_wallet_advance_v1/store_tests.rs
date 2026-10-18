@@ -942,6 +942,13 @@ mod std_fs {
         let euid = rustix::process::geteuid().as_raw();
         assert!(super::super::std_fs::root_is_private(euid, 0o700));
         assert!(!super::super::std_fs::root_is_private(euid, 0o701));
+        assert!(super::super::std_fs::root_is_private(euid, 0o000));
+        for permission in [0o001, 0o002, 0o004, 0o010, 0o020, 0o040] {
+            assert!(!super::super::std_fs::root_is_private(
+                euid,
+                0o700 | permission
+            ));
+        }
         assert!(!super::super::std_fs::root_is_private(
             euid.wrapping_add(1),
             0o700

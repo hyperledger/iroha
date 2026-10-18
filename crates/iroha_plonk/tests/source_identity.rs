@@ -334,6 +334,115 @@ fn restored_external_rust_sources_restore_their_relative_inputs_recursively() {
     }
 }
 
+#[test]
+fn prose_suffix_membership_is_lexical_and_case_sensitive() {
+    for (name, included) in [
+        (".md", false),
+        (".MD", true),
+        ("README.md", false),
+        ("README.MD", true),
+        ("docs/.md", false),
+        ("docs/.MD", true),
+        ("docs/案内.md", false),
+        ("docs/案内.MD", true),
+        ("specs/詳細.md", false),
+        ("specs/詳細.mD", true),
+        ("docs/name.md.txt", true),
+        ("docs/案内．md", true),
+    ] {
+        // Separate workspaces keep case variants distinct on every host filesystem.
+        let workspace = Workspace::new();
+        let empty = workspace.digest();
+        workspace.write(name, b"first");
+        let first = snapshot(&workspace.0).unwrap();
+        assert_eq!(
+            first.watched_paths.contains(&workspace.0.join(name)),
+            included,
+            "watched membership for {name}"
+        );
+        assert_eq!(first.digest != empty, included, "added input {name}");
+        workspace.write(name, b"second");
+        assert_eq!(
+            workspace.digest() != first.digest,
+            included,
+            "changed input {name}"
+        );
+    }
+}
+
+#[test]
+fn initial_rust_reference_scan_uses_the_exact_lexical_suffix() {
+    for (name, scanned) in [
+        (".rs", true),
+        (".RS", false),
+        ("source.rs", true),
+        ("source.RS", false),
+        ("source.rS", false),
+        ("入力.rs", true),
+        ("入力.RS", false),
+        ("入力．rs", false),
+        ("source.rs.txt", false),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(name, b"include_str!(\"docs/suffix_leaf.md\");\n");
+        workspace.write("docs/suffix_leaf.md", b"first");
+        let first = snapshot(&workspace.0).unwrap();
+        assert!(first.watched_paths.contains(&workspace.0.join(name)));
+        assert_eq!(
+            first
+                .watched_paths
+                .contains(&workspace.0.join("docs/suffix_leaf.md")),
+            scanned,
+            "reference restoration from {name}"
+        );
+        workspace.write("docs/suffix_leaf.md", b"second");
+        assert_eq!(
+            workspace.digest() != first.digest,
+            scanned,
+            "referenced input mutation from {name}"
+        );
+    }
+}
+
+#[test]
+fn restored_rust_reference_scan_uses_the_exact_lexical_suffix() {
+    for (name, scanned) in [
+        (".rs", true),
+        (".RS", false),
+        ("source.rs", true),
+        ("source.RS", false),
+        ("source.rS", false),
+        ("入力.rs", true),
+        ("入力.RS", false),
+        ("入力．rs", false),
+        ("source.rs.txt", false),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(
+            "crates/proof/src/circuit.rs",
+            format!("include!(\"../../../python/./{name}\");\n").as_bytes(),
+        );
+        let restored = format!("python/{name}");
+        workspace.write(&restored, b"include_str!(\"../docs/./suffix_leaf.md\");\n");
+        workspace.write("docs/suffix_leaf.md", b"first");
+        let first = snapshot(&workspace.0).unwrap();
+        assert!(first.watched_paths.contains(&workspace.0.join(&restored)));
+        assert_eq!(
+            first
+                .watched_paths
+                .contains(&workspace.0.join("docs/suffix_leaf.md")),
+            scanned,
+            "recursive restoration from {restored}"
+        );
+        workspace.write("docs/suffix_leaf.md", b"second");
+        assert_eq!(
+            workspace.digest() != first.digest,
+            scanned,
+            "recursive input mutation from {restored}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn reference_scanning_rejects_symlinked_source_ancestors_before_reading() {

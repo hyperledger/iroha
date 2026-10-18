@@ -37,8 +37,8 @@ fn norito_bytes_tlv<T: norito::core::NoritoSerialize>(val: &T) -> Vec<u8> {
     let payload = norito::to_bytes(val).expect("encode NoritoBytes payload");
     tlv_from_payload(&payload, PointerType::NoritoBytes as u16)
 }
-fn quantity_tlv(value: Quantity) -> Vec<u8> {
-    ivm_abi::numeric_tlv::encode_quantity(&value).expect("encode quantity pointer envelope")
+fn quantity_tlv(value: &Quantity) -> Vec<u8> {
+    ivm_abi::numeric_tlv::encode_quantity(value).expect("encode quantity pointer envelope")
 }
 fn tlv_from_payload(payload: &[u8], type_id: u16) -> Vec<u8> {
     let mut blob = Vec::with_capacity(2 + 1 + 4 + payload.len() + 32);
@@ -215,7 +215,7 @@ fn host_rejects_insufficient_asset_transfer() {
     let from_tlv = tlv_blob(&from, PointerType::AccountId as u16);
     let to_tlv = tlv_blob(&to, PointerType::AccountId as u16);
     let asset_tlv = tlv_blob(&asset_def, PointerType::AssetDefinitionId as u16);
-    let amount_tlv = quantity_tlv(Quantity::from(1000_u64));
+    let amount_tlv = quantity_tlv(&Quantity::from(1000_u64));
     let dataspace_tlv = tlv_blob(
         &iroha_model_base::topology::DataSpaceId::UNIVERSAL,
         PointerType::DataSpaceId as u16,
@@ -373,8 +373,8 @@ fn host_batches_transfer_v1_calls() {
     let first_recipient_tlv = tlv_blob(&to_a, PointerType::AccountId as u16);
     let second_recipient_tlv = tlv_blob(&to_b, PointerType::AccountId as u16);
     let asset_tlv = tlv_blob(&asset_def_id, PointerType::AssetDefinitionId as u16);
-    let amount_a_tlv = quantity_tlv(Quantity::from(7_u64));
-    let amount_b_tlv = quantity_tlv(Quantity::from(4_u64));
+    let first_amount_tlv = quantity_tlv(&Quantity::from(7_u64));
+    let second_amount_tlv = quantity_tlv(&Quantity::from(4_u64));
     let mut vm = IVM::new(AMPLE_TEST_GAS_LIMIT);
     vm.set_host(CoreHost::new(from.clone()));
     let mut cursor = 0;
@@ -382,8 +382,8 @@ fn host_batches_transfer_v1_calls() {
     let ptr_to_a = load_input_blob(&mut vm, &mut cursor, &first_recipient_tlv);
     let ptr_to_b = load_input_blob(&mut vm, &mut cursor, &second_recipient_tlv);
     let ptr_asset = load_input_blob(&mut vm, &mut cursor, &asset_tlv);
-    let ptr_amount_a = load_input_blob(&mut vm, &mut cursor, &amount_a_tlv);
-    let ptr_amount_b = load_input_blob(&mut vm, &mut cursor, &amount_b_tlv);
+    let ptr_amount_a = load_input_blob(&mut vm, &mut cursor, &first_amount_tlv);
+    let ptr_amount_b = load_input_blob(&mut vm, &mut cursor, &second_amount_tlv);
     run_syscall(&mut vm, ivm_sys::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &[]);
     run_syscall(
         &mut vm,
@@ -565,7 +565,7 @@ fn host_bridges_mint_asset() {
         );
     let authority_tlv = tlv_blob(&authority, PointerType::AccountId as u16);
     let asset_tlv = tlv_blob(&asset_def, PointerType::AssetDefinitionId as u16);
-    let amount_tlv = quantity_tlv(Quantity::from(123_u64));
+    let amount_tlv = quantity_tlv(&Quantity::from(123_u64));
     let mut vm = IVM::new(AMPLE_TEST_GAS_LIMIT);
     vm.set_host(CoreHost::new(authority.clone()));
     let mut cursor = 0;

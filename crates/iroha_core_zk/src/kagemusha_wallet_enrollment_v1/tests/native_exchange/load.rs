@@ -450,9 +450,10 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     }
 }
 
-fn activation_signed_wire<'a>(
-    mut transactions: impl Iterator<Item = &'a iroha_data_model::transaction::SignedTransaction>,
-) -> Vec<u8> {
+fn activation_signed_wire<'a, I>(mut transactions: I) -> Vec<u8>
+where
+    I: Iterator<Item = &'a iroha_data_model::transaction::SignedTransaction>,
+{
     let transaction = transactions
         .next()
         .expect("H4 requires its sole Activate transaction");

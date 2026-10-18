@@ -1,0 +1,486 @@
+"""Fixed arena and online source-component relocation, conditional on entry.
+
+TODO: price authenticated entry, the adaptive controller and physical execution;
+prove the complete game and primitive bridge. This module is not that theorem.
+"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+for relative in ('target/parliament-ideal-machine-stage',
+                 'target/parliament-sequential-composition-stage',
+                 'target/parliament-coin-preparation-stage',
+                 'target/parliament-request-family-envelope-stage'):
+    sys.path.insert(0, str(ROOT/relative))
+
+import envelope as family
+from bit_ir import integer, require
+from content_request import actual_content_request
+from l0_machine import actual_lookup
+from public_machine import PublicShape
+from purification import source_generator_coins, request_generator
+from request_family import ContentFamily, actual_rejected_vote
+from request_transition import actual_transition
+from sequence import Call, Geometry, Relocation, Segment, describe
+
+M = 1 << 20
+W = 215150
+V = 2112
+GATE_KEYS = ('x', 'cx', 'ccx', 'base_xor_oracle_calls')
+PINS = {
+    'target/parliament-request-family-envelope-stage/envelope.py':
+        'b48501cde4e69c5f563c1cd890788b57fa143e2a10f83297dfa8fffc83dd2eb4',
+    'target/parliament-sequential-composition-stage/sequence.py':
+        '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131',
+    'target/parliament-coin-preparation-stage/purification.py':
+        'af3de761b621bd98e79e31ab20b3449e4f96eb0dba9d36180e40d7b08034d56f',
+}
+MODULE_PATHS = {name: 'target/parliament-ideal-machine-stage/'+name+'.py' for name in
+    ('bit_ir', 'content_request', 'l0_machine', 'public_machine', 'request_family',
+     'request_transition', 'request_generator', 'stage_plan')}
+MODULE_PATHS.update(sequence='target/parliament-sequential-composition-stage/sequence.py',
+    purification='target/parliament-coin-preparation-stage/purification.py',
+    envelope='target/parliament-request-family-envelope-stage/envelope.py')
+VALID = 'valid-public-and-application-entry-premise'
+INVALID = 'public-invalid-bounded-vote-entry-premise'
+REJECTED = 'typed-rejected-size-entry-premise'
+PREPARED = 'all-private-banks-fresh-product-Bell-pairs-premise'
+QUERY = 'canonical-full-support-query-same-immutable-F-premise'
+
+
+def report(vector):
+    """Retain the ordinary elementary convention on a synthetic upper vector."""
+    result = {key: vector[key] for key in GATE_KEYS}
+    result['elementary_gates'] = result['x']+result['cx']+5*result['ccx']
+    return result
+
+
+def rejected_witness(limit):
+    """An attaining popcount maximum on [0,J] excluding 3..1000."""
+    integer(limit, 0, (1 << 64)-1, 'rejected mathematical length envelope')
+    candidates = {limit, 0, min(limit, 1), min(limit, 2)}
+    for bit in range(limit.bit_length()):
+        if limit & (1 << bit):
+            candidates.add(((limit >> (bit+1)) << (bit+1)) | ((1 << bit)-1))
+    # If a prefix candidate falls in the excluded interval, 0,1,2 are the
+    # complete possible fallback optima below it. All candidates above1000
+    # are admitted rejected-size shapes.
+    return max((n for n in candidates if not 3 <= n <= 1000),
+               key=lambda n: (n.bit_count(), n))
+
+
+@dataclass(frozen=True)
+class Budget:
+    """Explicit proposal parameters; none is an inferred theorem constant."""
+    row: str
+    valid: int
+    invalid: int
+    queries: int
+    message_bytes: int
+    length_bits: int
+    rejected_length: int
+    log_policy: str
+    oracle: str
+    completion: str
+
+    def __post_init__(self):
+        require(self.row in ('candidate', 'comparator'), 'source row')
+        for label in ('valid', 'invalid'):
+            integer(getattr(self, label), 0, 1 << 64, label+' cap')
+        require(type(self.queries) is int and self.queries >= 0, 'explicit finite lookup cap')
+        integer(self.valid+self.invalid, 0, 1 << 64, 'total-call log-sizing cap')
+        integer(self.length_bits, 1, 4096, 'query length width')
+        integer(self.message_bytes, 6882996, (1 << self.length_bits)-1, 'query message cap')
+        integer(self.rejected_length, 0, (1 << 64)-1, 'rejected mathematical length cap')
+        require(self.log_policy == 'conservative-total-calls', 'explicit log policy')
+        for label in ('oracle', 'completion'):
+            value = getattr(self, label)
+            require(type(value) is str and 0 < len(value) <= 256, 'named '+label)
+
+    @property
+    def slots(self):
+        return self.valid+self.invalid
+
+
+@dataclass(frozen=True)
+class Source:
+    """Frozen file inventory plus actual factories; no caller cost callback."""
+    root: Path
+    catalog: object
+    pins: tuple
+
+    def __init__(self, root):
+        root = Path(root).resolve()
+        # Imported emitter modules must belong to the same replay root. This
+        # does not defend against a hostile Python interpreter/monkeypatch.
+        require(root == ROOT, 'execute arena from its isolated source root')
+        for relative, expected in PINS.items():
+            family.authenticated(root/relative, expected)
+        catalog = family.Catalog(root)
+        pins = dict(catalog.pins)
+        for relative, expected in PINS.items():
+            require(relative not in pins or pins[relative] == expected, 'source pin conflict')
+            pins[relative] = expected
+        own = 'target/parliament-adaptive-arena-stage/arena.py'
+        pins[own] = hashlib.sha256((root/own).read_bytes()).hexdigest()
+        object.__setattr__(self, 'root', root)
+        object.__setattr__(self, 'catalog', catalog)
+        object.__setattr__(self, 'pins', tuple(sorted(pins.items())))
+        self.verify()
+
+    def verify(self):
+        for relative, expected in self.pins:
+            family.authenticated(self.root/relative, expected)
+        for name, relative in MODULE_PATHS.items():
+            module = sys.modules.get(name)
+            require(module is not None and Path(getattr(module, '__file__', '')).resolve() == self.root/relative,
+                    'loaded module source root: '+name)
+        for function in (actual_transition, actual_content_request, actual_rejected_vote,
+                         actual_lookup, describe, source_generator_coins, request_generator,
+                         PublicShape.__post_init__, family.request):
+            module = sys.modules[function.__module__]
+            require(function.__globals__ is module.__dict__, 'factory module globals identity')
+        # Verify every currently loaded selected source module's origin.
+        for module in tuple(sys.modules.values()):
+            filename = getattr(module, '__file__', None)
+            if not filename:
+                continue
+            path = Path(filename).resolve()
+            selected = [p for p, _ in self.pins if p.endswith('.py') and path.name == Path(p).name]
+            if selected and any(str(path).endswith('/'+p) for p in selected):
+                require(any(path == self.root/p for p in selected), 'loaded module source root')
+
+
+@dataclass(frozen=True)
+class Region:
+    """Arithmetic interval; no list proportional to an experiment cap."""
+    start: int
+    bits: int
+
+
+@dataclass(frozen=True, init=False)
+class Plan:
+    """Immutable geometry independent of any eventually selected call trace."""
+    source: Source
+    budget: Budget
+    geometry: Geometry
+    public: int
+    coins: int
+    output: int
+    work: int
+    request_stride: int
+    query_stride: int
+    request_start: int
+    query_start: int
+    work_start: int
+    size: int
+    valid_maxima: tuple
+    invalid_maxima: tuple
+    query_gates: tuple
+    rejected_popcount_witness: int
+
+    def __init__(self, source, budget):
+        require(type(source) is Source and type(budget) is Budget, 'typed plan dependencies')
+        source.verify()
+        s = budget.slots
+        geometry = Geometry(s*(M+2), budget.length_bits, W, V, budget.oracle, budget.completion)
+        lookup = actual_lookup(source.root, s, budget.message_bytes, budget.length_bits)
+        qr = lookup.resources()
+        pub = coins = output = 0
+        work = qr['clean_work_bits'] if budget.queries else 0
+        zeros = dict.fromkeys((*GATE_KEYS, 'elementary_gates'), 0)
+        valid = invalid = zeros
+        witness = rejected_witness(budget.rejected_length)
+        if s:
+            bounds = [family.envelope(source.catalog, budget.row, role, s, budget.length_bits)
+                      for role in ('REG', 'VOTE')]
+            endpoints = [item['maximum_storage_witness'] for item in bounds]
+            rejection = family.rejected_size(budget.row, witness)
+            max_n = 2 if 3 <= budget.rejected_length <= 1000 else budget.rejected_length
+            pub = max(*(e['public_input_bits'] for e in endpoints), 3608+1024*max_n)
+            coins = max(e['original_coin_bits'] for e in endpoints)
+            output = max(*(e['caller_output_bits'] for e in endpoints), rejection['caller_output_bits'])
+            work = max(work, 519, *(e['retained_derived_bits']+e['shared_work_bits'] for e in endpoints))
+            valid = {k: max(item['exact_coordinate_maxima'][k] for item in bounds) for k in zeros}
+            invalid = {k: max(bounds[1]['exact_coordinate_maxima'][k], rejection['gates'][k]) for k in zeros}
+        request_start = geometry.log_bits+geometry.counter_bits
+        stride = pub+2*coins+output
+        query_start = request_start+s*stride
+        qstride = budget.length_bits+8*budget.message_bytes+1+V
+        work_start = query_start+budget.queries*qstride
+        values = dict(source=source, budget=budget, geometry=geometry, public=pub, coins=coins,
+            output=output, work=work, request_stride=stride, query_stride=qstride,
+            request_start=request_start, query_start=query_start, work_start=work_start,
+            size=work_start+work, valid_maxima=tuple(valid.items()), invalid_maxima=tuple(invalid.items()),
+            query_gates=tuple(qr['gates'].items()), rejected_popcount_witness=witness)
+        source.verify()
+        for name, value in values.items():
+            object.__setattr__(self, name, value)
+
+    def request_slot(self, index):
+        integer(index, 0, self.budget.slots-1, 'request slot')
+        p = self.request_start+index*self.request_stride
+        return dict(public=Region(p, self.public), coins=Region(p+self.public, self.coins),
+            output=Region(p+self.public+self.coins, self.output),
+            purifier=Region(p+self.public+self.coins+self.output, self.coins))
+
+    def query_slot(self, index):
+        integer(index, 0, self.budget.queries-1, 'query slot')
+        p = self.query_start+index*self.query_stride
+        n = self.budget.length_bits+8*self.budget.message_bytes
+        return dict(query=Region(p, n), enable=Region(p+n, 1), output=Region(p+n+1, V))
+
+    def resources(self):
+        self.source.verify()
+        b = self.budget
+        vs, js, qs = map(dict, (self.valid_maxima, self.invalid_maxima, self.query_gates))
+        upper = {k: b.valid*vs[k]+b.invalid*js[k]+b.queries*qs[k] for k in GATE_KEYS}
+        prep = b.slots*self.coins
+        shared_zero = self.geometry.log_bits+self.geometry.counter_bits+self.work
+        return dict(scope='conditional bounded typed-body arena; external classical entry premises',
+            valid_cap=b.valid, invalid_typed_body_cap=b.invalid, external_lookup_cap=b.queries,
+            external_lookup_cap_is_not_theorem_query_bound=True,
+            message_capacity_bytes=b.message_bytes, rejected_length_envelope=b.rejected_length,
+            rejected_max_popcount_witness=self.rejected_popcount_witness,
+            explicit_log_policy=b.log_policy, log_sizing_total_calls=b.slots, log_slots=self.geometry.capacity,
+            valid_family_coordinate_maxima=vs, invalid_family_coordinate_maxima=js,
+            coordinatewise_body_gate_upper=report(upper),
+            separately_bounded_body_elementary=b.valid*vs['elementary_gates']+
+                b.invalid*js['elementary_gates']+b.queries*qs['elementary_gates'],
+            coordinatewise_maxima_not_claimed_simultaneously_attained=True,
+            preparation_gates=dict(h=prep, cx=prep), coin_and_purifier_initial_zero_bits=2*prep,
+            initial_log_zero_bits=self.geometry.log_bits,
+            initial_counter_zero_bits=self.geometry.counter_bits,
+            initial_boundary_clean_work_bits=self.work,
+            initial_log_counter_and_work_zero_bits=shared_zero,
+            explicit_preparation_total_internal_zero_bits=shared_zero+2*prep,
+            zero_input_budget_applies_to_explicit_H_CX_construction=True,
+            supplied_Bell_state_acknowledgment_does_not_claim_zero_coins=True,
+            retained_purifier_bits=prep, all_unused_banks_charged=True,
+            logical_bits=self.size, shared_clean_bits=self.work, public_slot_bits=self.public,
+            original_coin_slot_bits=self.coins, returned_slot_bits=self.output,
+            source_sha256=dict(self.source.pins),
+            requires_initial_zero_log_and_counter=True, requires_boundary_clean_work=True,
+            requires_external_no_write_to_log_counter_work=True,
+            requires_private_coin_purifier_and_future_bank_noninterference=True,
+            requires_actual_source_component_contracts=True,
+            initial_quantum_state_checked=False, source_module_memory_integrity_is_premise=True,
+            entry_and_witness_contract_checked=False, controller_execution_priced=False,
+            preparation_physically_executed=False, full_adaptive_game_implemented=False,
+            full_joint_quantum_theorem_proved=False, complete_resource_vector=False,
+            physical_workspace_bound=False, primitive_entry_bridge_proved=False,
+            current_candidate_qualified=False, production_gate_changed=False,
+            unknown_terms=('raw/public/application/witness/descriptor entry', 'adaptive control and history',
+                'caller state preparation and routing', 'context and direct verification calls',
+                'adversary state and work', 'base F implementation and state',
+                'physical initialization/reset/layout', 'primitive bridge and security advantages'))
+
+
+@dataclass(frozen=True)
+class BoundCall:
+    """Retained actual source component, description and immutable relocation."""
+    index: int
+    category: str
+    slot: int
+    entry_contract: str
+    call: Call
+    description: object
+    mapping: Relocation
+
+
+class OnlineArena:
+    """Classical stream interface; consumption is not physical execution proof."""
+    def __init__(self, plan):
+        require(type(plan) is Plan, 'typed fixed plan')
+        self._plan = plan
+        self._trace = ()
+        self._counts = (0, 0, 0)
+        self._emitted = 0
+        self._active = False
+        self._phase = 'planned'
+
+    @property
+    def plan(self):
+        return self._plan
+
+    @property
+    def trace(self):
+        return self._trace
+
+    @property
+    def counts(self):
+        return self._counts
+
+    @property
+    def phase(self):
+        return self._phase
+
+    def acknowledge_prepared_banks(self, contract):
+        """Record an explicit supplied-state premise, never an execution claim."""
+        require(self._phase == 'planned' and contract == PREPARED, 'fresh private preparation premise')
+        self.plan.source.verify()
+        self._phase = 'body'
+
+    def emit_preparation(self):
+        """Reserve one lazy preparation stream; only full exhaustion opens body."""
+        require(self._phase == 'planned', 'preparation lifecycle')
+        self.plan.source.verify()
+        self._phase = 'preparing'
+        def stream():
+            self.plan.source.verify()
+            for index in range(self.plan.budget.slots):
+                slot = self.plan.request_slot(index)
+                for bit in range(self.plan.coins):
+                    coin = slot['coins'].start+bit
+                    yield ('h', coin)
+                    yield ('cx', coin, slot['purifier'].start+bit)
+            self.plan.source.verify()
+            self._phase = 'body'
+        return stream()
+
+    def _preflight(self, category):
+        require(self._phase == 'body' and not self._active and self._emitted == len(self._trace),
+                'previous atomic stream must finish before next selection')
+        index = {'valid': 0, 'invalid': 1, 'query': 2}[category]
+        cap = (self.plan.budget.valid, self.plan.budget.invalid, self.plan.budget.queries)[index]
+        require(self._counts[index] < cap, category+' budget exhausted')
+        self.plan.source.verify()
+        return index
+
+    def _commit(self, category, entry, machine, expected):
+        index = self._preflight(category)
+        call = Call('event-'+str(len(self._trace)), machine)
+        description = describe(call, self.plan.geometry)
+        require(description.gates.as_dict() == expected['gates'], 'actual component gates versus family')
+        slot_index = self._counts[2] if category == 'query' else sum(self._counts[:2])
+        slots = self.plan.query_slot(slot_index) if category == 'query' else self.plan.request_slot(slot_index)
+        segments = []
+        generator = request_generator(machine)
+        public = expected.get('public_input_bits', 0)
+        if generator is not None:
+            intervals = source_generator_coins(self.plan.source.root, generator)
+            require(sum(i.bits for i in intervals) == description.coin_bits and
+                    intervals[0].start == public and
+                    all(a.start+a.bits == z.start for a, z in zip(intervals, intervals[1:])),
+                    'source public/coin interval boundary')
+        require(description.coin_bits == expected.get('original_coin_bits', 0), 'actual original coin width')
+        for name, local, width in description.regions:
+            if name == 'input':
+                require(width == public+description.coin_bits and public <= self.plan.public and
+                        description.coin_bits <= self.plan.coins, 'request input arena bound')
+                segments.append(Segment(local, public, slots['public'].start))
+                if description.coin_bits:
+                    segments.append(Segment(local+public, description.coin_bits, slots['coins'].start))
+            elif name.startswith('persistent.'):
+                start = 0 if name.endswith('.log') else self.plan.geometry.log_bits
+                segments.append(Segment(local, width, start))
+            elif name == 'reusable.clean':
+                require(width <= self.plan.work, 'clean arena bound')
+                segments.append(Segment(local, width, self.plan.work_start))
+            else:
+                require(name in slots and width <= slots[name].bits, 'caller region bound')
+                if name == 'output':
+                    require(width == expected['caller_output_bits'], 'actual return width')
+                segments.append(Segment(local, width, slots[name].start))
+        mapping = Relocation(description.size, tuple(segments))
+        require(all(s.global_start+s.bits <= self.plan.size for s in segments), 'global arena extent')
+        receipt = BoundCall(len(self._trace), category, slot_index, entry, call, description, mapping)
+        self.plan.source.verify()
+        counts = list(self._counts)
+        counts[index] += 1
+        self._counts = tuple(counts)
+        self._trace += (receipt,)
+        return receipt
+
+    def bind_reg(self, shape, *, entry_contract):
+        require(type(shape) is PublicShape and shape.role == 'REG' and shape.row == self.plan.budget.row,
+                'same-row typed REG shape')
+        require(entry_contract == VALID, 'valid application entry required; witness-invalid unsupported')
+        self._preflight('valid')
+        b = self.plan.budget
+        expected = family.request(self.plan.source.catalog, b.row, 'REG', b.slots, b.length_bits,
+                                  body=shape.body_bytes, contexts=shape.context_bytes)
+        machine = actual_transition(self.plan.source.root, shape, b.slots, trials=M, length_bits=b.length_bits)
+        return self._commit('valid', entry_contract, machine, expected)
+
+    def bind_vote(self, shape, *, entry_contract):
+        require(type(shape) is PublicShape and shape.role == 'VOTE' and shape.row == self.plan.budget.row,
+                'same-row typed VOTE shape')
+        require(entry_contract in (VALID, INVALID), 'supported VOTE entry premise')
+        category = 'valid' if entry_contract == VALID else 'invalid'
+        self._preflight(category)
+        b = self.plan.budget
+        expected = family.request(self.plan.source.catalog, b.row, 'VOTE', b.slots, b.length_bits,
+                                  count=shape.list_count)
+        machine = ContentFamily(actual_content_request(self.plan.source.root, shape, b.slots,
+                                                      trials=M, length_bits=b.length_bits))
+        return self._commit(category, entry_contract, machine, expected)
+
+    def bind_rejected(self, count, *, entry_contract):
+        require(entry_contract == REJECTED, 'typed rejected-size entry premise')
+        self._preflight('invalid')
+        b = self.plan.budget
+        integer(count, 0, b.rejected_length, 'bounded rejected descriptor')
+        expected = family.rejected_size(b.row, count)
+        machine = actual_rejected_vote(self.plan.source.root, b.row, count)
+        return self._commit('invalid', entry_contract, machine, expected)
+
+    def bind_lookup(self, *, query_contract):
+        require(query_contract == QUERY, 'canonical quantum query premise')
+        self._preflight('query')
+        b = self.plan.budget
+        machine = actual_lookup(self.plan.source.root, b.slots, b.message_bytes, b.length_bits)
+        resource = machine.resources()
+        return self._commit('query', query_contract, machine,
+                            dict(gates=resource['gates'], caller_output_bits=V))
+
+    def _stream(self, bound, inverse):
+        require(describe(bound.call, self.plan.geometry) == bound.description,
+                'retained actual component descriptor changed')
+        machine = bound.call.machine
+        gates = machine.emit_clean() if bound.category == 'query' else machine.emit(inverse=inverse)
+        for gate in gates:
+            yield bound.mapping.gate(gate)
+
+    def emit_next(self):
+        """One atomic body stream; iterator exhaustion is only bookkeeping."""
+        require(self._phase == 'body' and not self._active and self._emitted < len(self._trace),
+                'one pending atomic call')
+        self.plan.source.verify()
+        bound = self._trace[self._emitted]
+        self._active = True
+        def stream():
+            self.plan.source.verify()
+            yield from self._stream(bound, False)
+            self.plan.source.verify()
+            self._emitted += 1
+            self._active = False
+        return stream()
+
+    def emit_chosen_inverse(self):
+        """Reverse the retained component trace, excluding the external controller."""
+        require(self._phase == 'body' and not self._active and self._emitted == len(self._trace),
+                'completed atomic trace required for inverse')
+        self.plan.source.verify()
+        self._phase = 'inverting'
+        def stream():
+            self.plan.source.verify()
+            for bound in reversed(self._trace):
+                yield from self._stream(bound, True)
+            self.plan.source.verify()
+            self._phase = 'body-undone'
+        return stream()
+
+    def resources(self):
+        """Actual retained trace metadata, with unbounded external terms explicit."""
+        result = self.plan.resources()
+        chosen = {k: sum(c.description.gates.as_dict()[k] for c in self._trace) for k in GATE_KEYS}
+        result.update(chosen_body_gates=report(chosen), chosen_valid_calls=self._counts[0],
+            chosen_invalid_typed_calls=self._counts[1], chosen_lookup_calls=self._counts[2],
+            stream_consumed_calls=self._emitted, phase=self._phase,
+            iterator_consumption_is_not_execution_evidence=True,
+            chosen_trace_retained=True, external_controller_inverse_implemented=False,
+            chosen_trace_storage_priced=False, actual_full_cap_body_execution=False)
+        return result

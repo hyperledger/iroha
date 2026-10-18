@@ -52,7 +52,7 @@ pub(super) struct OriginArgs {
     /// Resume transaction confirmation with a selected cut at or after its committed height.
     #[arg(long, value_parser=clap::value_parser!(u64).range(2..))]
     pub at_height: u64,
-    /// Complete canonical WorldStateSnapshotV1 frame exported at that native cut.
+    /// Complete canonical `WorldStateSnapshotV1` frame exported at that native cut.
     #[arg(long)]
     pub world_snapshot: PathBuf,
     /// Native registry schema hash independently selected with the release that produced the snapshot.
@@ -407,11 +407,8 @@ pub(super) fn authenticate_origin_with_anchor<C: RunContext>(
             .1
             .cmp(right.public_key.to_bytes().1)
     });
-    let mut verifier = SumeragiFinalityVerifier::new(
-        genesis.block(),
-        &manifest.chain_id().to_string(),
-        validators,
-    )?;
+    let mut verifier =
+        SumeragiFinalityVerifier::new(genesis.block(), manifest.chain_id().as_ref(), validators)?;
     ensure!(
         verifier.root_scope() == SumeragiRootScope::Global,
         "SCCP requires the original Global root"
@@ -424,14 +421,14 @@ pub(super) fn authenticate_origin_with_anchor<C: RunContext>(
             NonZeroU64::new(height).expect("positive range"),
             verifier.root_scope(),
         )?;
-        let verified = verifier.verify(&proof)?;
+        let authenticated = verifier.verify(&proof)?;
         if anchor_height == Some(height) {
             anchor = Some(SccpAnchorV1 {
-                core_hash: verified.core_hash().0,
-                result: verified.result().0,
+                core_hash: authenticated.core_hash().0,
+                result: authenticated.result().0,
             });
         }
-        tip = Some(verified);
+        tip = Some(authenticated);
     }
     let tip = tip.ok_or_else(|| eyre!("no certified successor"))?;
     tip.verify_global_scope(network, verifier.chain_id())?;
@@ -543,7 +540,7 @@ mod tests {
                     .unwrap()
             })
             .collect();
-        keys.sort();
+        keys.sort_unstable();
         let members = (1..=4)
             .map(|seed| {
                 Some(SccpGenerationMemberV1 {

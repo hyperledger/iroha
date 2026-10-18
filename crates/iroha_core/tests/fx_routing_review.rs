@@ -252,11 +252,22 @@ fn fixture(active_sns_alias: Option<&str>) -> Fixture {
     let dataspaces = DataSpaceCatalog::new(dataspace_entries)
         .expect("explicit active SNS catalog without a canonical lane");
     let policy = routing_policy();
-    let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.lane_catalog = lanes.clone();
-    nexus.lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(&lanes);
-    nexus.dataspace_catalog = dataspaces.clone();
-    nexus.routing_policy = policy.clone();
+    let defaults = iroha_config::parameters::actual::Nexus::default();
+    let lane_catalog = lanes.clone();
+    drop(defaults.lane_catalog);
+    let lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(&lanes);
+    drop(defaults.lane_config);
+    let dataspace_catalog = dataspaces.clone();
+    drop(defaults.dataspace_catalog);
+    let routing_policy = policy.clone();
+    drop(defaults.routing_policy);
+    let nexus = iroha_config::parameters::actual::Nexus {
+        lane_catalog,
+        lane_config,
+        dataspace_catalog,
+        routing_policy,
+        ..defaults
+    };
     // Open Kura with the same original catalog that State will authenticate.
     let state =
         State::new_with_pre_genesis_nexus_for_testing(world, nexus, LiveQueryStore::start_test());

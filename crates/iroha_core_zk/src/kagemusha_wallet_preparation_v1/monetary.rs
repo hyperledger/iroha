@@ -448,7 +448,7 @@ fn quota(
 
 fn successor(
     source: &KagemushaWalletStateV1,
-    native: StateV1<Fp>,
+    native: &StateV1<Fp>,
 ) -> Result<KagemushaWalletStateV1, Error> {
     let mut out = *source;
     let c = &mut out.core;
@@ -471,7 +471,7 @@ fn successor(
     c.quota_usage_root = native.core.roots.quota_usage.to_repr();
     c.accepted_time_floor_ms = native.core.accepted_time_floor_ms;
     c.state_nonce = native.core.state_nonce.to_repr();
-    if state_fields(&out)? != native {
+    if state_fields(&out)? != *native {
         return Err(Error::Authority);
     }
     Ok(out)
@@ -487,7 +487,7 @@ fn derive(
     if !native.is_honest() {
         return Err(Error::Authority);
     }
-    let state = successor(source, native.successor_state.ok_or(Error::Authority)?)?;
+    let state = successor(source, &native.successor_state.ok_or(Error::Authority)?)?;
     let lineage = match &witness.inputs {
         StepInputs::Send(input) => (
             input.lineage.burned_total,
@@ -623,7 +623,7 @@ impl PreparationV1<'_> {
         predecessor: &FoldedStateV1,
         request_original: &[u8],
         controls: SendControlsV1<'_>,
-        maps: SendMapsV1,
+        maps: &SendMapsV1,
         successor_nonce: [u8; 32],
     ) -> Result<MonetaryStepV1, Error> {
         let (request, check) =
@@ -651,7 +651,7 @@ impl PreparationV1<'_> {
                 fee: request.body.fee,
                 fee_schedule_digest: request.body.fee_schedule,
             },
-            maps.fee,
+            &maps.fee,
         )?;
         let relation = SigmaRelation::send(source.core.enabled_controls);
         let witness = StepWitness {
@@ -688,7 +688,7 @@ impl PreparationV1<'_> {
         authority(statement.validate_for_credential(&owner.credential))?;
         authority(statement.validate_successor_of(&predecessor.source_statement))?;
         authority(statement.validate_against_lineage(&predecessor.lineage.public))?;
-        let native_maps = send_insertions(&maps.pending, request.body.fee, fee_witness)?;
+        let native_maps = send_insertions(&maps.pending, request.body.fee, &fee_witness)?;
         Ok(MonetaryStepV1 {
             manifest_digest: owner.manifest_digest,
             source_capsule_digest: predecessor.source_capsule_digest,
@@ -722,7 +722,7 @@ impl PreparationV1<'_> {
         payer_credential_original: &[u8],
         payer_certificate_set_original: &[u8],
         recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
-        maps: ReceiveMapsV1,
+        maps: &ReceiveMapsV1,
         successor_nonce: [u8; 32],
         budget: MemoryBudget,
     ) -> Result<MonetaryStepV1, Error> {
@@ -799,7 +799,7 @@ impl PreparationV1<'_> {
         payer_original: &[u8],
         payer_certificates: &[u8],
         recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
-        maps: ReceiveMapsV1,
+        maps: &ReceiveMapsV1,
         nonce: [u8; 32],
         budget: MemoryBudget,
     ) -> Result<MonetaryStepV1, Error> {
@@ -858,7 +858,7 @@ impl PreparationV1<'_> {
         payer: PayerOriginalV1,
         payer_certificate_set_original: &[u8],
         recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
-        maps: ReceiveMapsV1,
+        maps: &ReceiveMapsV1,
         successor_nonce: [u8; 32],
         effect: KagemushaWalletEffectV1,
     ) -> Result<MonetaryStepV1, Error> {
@@ -1218,8 +1218,7 @@ impl PreparationV1<'_> {
         // conjunction and the absence of corrected claims. Bind this proposal to both adjusted burn and the first record.
         let corrected = incoming_witness
             .modes
-            .iter()
-            .any(|mode| *mode == iroha_kagemusha_proof::q_sigma::native::IncomingMode::Corrected);
+            .contains(&iroha_kagemusha_proof::q_sigma::native::IncomingMode::Corrected);
         let burned = corrected || !incoming_witness.results.iter().all(|result| *result);
         let amount = match prepared.statement.effect {
             KagemushaWalletEffectV1::Receive { amount, .. } => amount,
@@ -1228,7 +1227,7 @@ impl PreparationV1<'_> {
         let expected_burn = proposed_receive_burn(
             predecessor.lineage.public.burned_total,
             amount,
-            &incoming_witness.results,
+            incoming_witness.results,
             corrected,
         )?;
         if public.burned_total != expected_burn {
@@ -1240,7 +1239,7 @@ impl PreparationV1<'_> {
             burned,
         };
         let credit = receive_credit_route(
-            maps.credit,
+            &maps.credit,
             &predecessor.lineage.public.credit_digest_root,
             &public.credit_digest_root,
             &credit_entry,
@@ -1278,7 +1277,7 @@ impl PreparationV1<'_> {
 fn proposed_receive_burn(
     previous: u128,
     amount: u128,
-    results: &[bool; 5],
+    results: [bool; 5],
     corrected: bool,
 ) -> Result<u128, Error> {
     previous
@@ -1291,7 +1290,7 @@ fn proposed_receive_burn(
 }
 
 fn receive_credit_route(
-    record: KagemushaWalletCreditDigestRecordV1,
+    record: &KagemushaWalletCreditDigestRecordV1,
     old_root: &[u8; 32],
     new_root: &[u8; 32],
     entry: &KagemushaWalletCreditDigestLeafV1,
@@ -1300,7 +1299,7 @@ fn receive_credit_route(
         return Err(Error::Authority);
     }
     match record {
-        KagemushaWalletCreditDigestRecordV1::Inserted { witness } => insertion(&witness),
+        KagemushaWalletCreditDigestRecordV1::Inserted { witness } => insertion(witness),
         KagemushaWalletCreditDigestRecordV1::Present { leaf, opening } => Ok(IndexedInsert {
             leaf: IndexedLeaf {
                 key: word(leaf.key)?,
@@ -1319,11 +1318,11 @@ fn receive_credit_route(
 pub(super) fn send_insertions(
     pending: &KagemushaWalletIndexedInsertV1,
     fee: u128,
-    fee_witness: IndexedInsert<Fp>,
+    fee_witness: &IndexedInsert<Fp>,
 ) -> Result<Vec<IndexedInsert<Fp>>, Error> {
     let mut maps = vec![insertion(pending)?];
     if fee != 0 {
-        maps.push(fee_witness);
+        maps.push(*fee_witness);
     }
     Ok(maps)
 }
@@ -1331,24 +1330,24 @@ pub(super) fn send_insertions(
 pub(super) fn send_fee_map(
     root: &[u8; 32],
     fee: KagemushaWalletFeeClaimLeafV1,
-    witness: SendFeeMapV1,
+    witness: &SendFeeMapV1,
 ) -> Result<([u8; 32], IndexedInsert<Fp>), Error> {
     match (fee.fee != 0, witness) {
         (true, SendFeeMapV1::Insert(insert)) => {
             let new_root =
                 authority(insert.verify(root, &fee.key(), &authority(fee.leaf_value())?))?;
-            Ok((new_root, insertion(&insert)?))
+            Ok((new_root, insertion(insert)?))
         }
         (false, SendFeeMapV1::Preserve { leaf, opening }) => {
-            if authority(opening.leaf_root(&leaf))? != *root {
+            if authority(opening.leaf_root(leaf))? != *root {
                 return Err(Error::Authority);
             }
             // insert_if authenticates both paths even when its insert bit is zero.
             // They must describe the same existing leaf, including after earlier fees.
             let unchanged = KagemushaWalletIndexedInsertV1 {
-                low: leaf,
-                low_opening: opening,
-                slot_opening: opening,
+                low: *leaf,
+                low_opening: *opening,
+                slot_opening: *opening,
             };
             Ok((*root, insertion(&unchanged)?))
         }

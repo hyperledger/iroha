@@ -93,6 +93,12 @@ fn observe(
     minter: [u8; 32],
     revision: u32,
 ) -> Result<Option<Projection>> {
+    #[derive(norito::derive::JsonSerialize)]
+    struct Locator {
+        account: [u8; 32],
+        revision: u32,
+        verification_time_ms: u64,
+    }
     let Some(source) = ton::account_state_evidence(client, original, lite, minter)? else {
         return Ok(None);
     };
@@ -105,12 +111,6 @@ fn observe(
     )?;
     identity(&state, original.network, original.instance, revision)?;
     let cut = authenticated_cut(&source.proof);
-    #[derive(norito::derive::JsonSerialize)]
-    struct Locator {
-        account: [u8; 32],
-        revision: u32,
-        verification_time_ms: u64,
-    }
     let evidence = vec![
         flows::evidence(
             "ton.original_minter.locator",

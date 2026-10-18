@@ -148,17 +148,6 @@ fn retained_control_nonce(
 
 impl Run for ControlCommand {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
-        let args = match self {
-            Self::Status(args) => return control_status(context, args),
-            Self::Apply(args) => args,
-        };
-        let client = blocking(context)?;
-        let original = origin::authenticate_origin(context, &client, &args.destination.origin)?;
-        let network = super::parse_network(&args.destination.network)?;
-        let revision = args.destination.revision;
-        let latest = latest_control_nonce(&client, &original, network, revision)?;
-        let mut nonce = args.nonce.map_or(latest, std::num::NonZeroU64::get);
-        ensure!(nonce != 0 && nonce <= latest, "no such committed control");
         #[derive(norito::derive::JsonSerialize)]
         struct Intent {
             network: SccpNetworkV1,
@@ -171,6 +160,18 @@ impl Run for ControlCommand {
             revision: u32,
             requested_nonce: Option<u64>,
         }
+        use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
+        let args = match self {
+            Self::Status(args) => return control_status(context, &args),
+            Self::Apply(args) => args,
+        };
+        let client = blocking(context)?;
+        let original = origin::authenticate_origin(context, &client, &args.destination.origin)?;
+        let network = super::parse_network(&args.destination.network)?;
+        let revision = args.destination.revision;
+        let latest = latest_control_nonce(&client, &original, network, revision)?;
+        let mut nonce = args.nonce.map_or(latest, std::num::NonZeroU64::get);
+        ensure!(nonce != 0 && nonce <= latest, "no such committed control");
         let flow = super::flows::open_with_intent(
             context,
             iroha_sccp_wallet::journal::SccpFlowKindV1::ControlApply,
@@ -186,7 +187,6 @@ impl Run for ControlCommand {
                 requested_nonce: args.nonce.map(std::num::NonZeroU64::get),
             })?),
         )?;
-        use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
         if let Some(step) = flow.latest(Action::Control)? {
             super::flows::check_flow(&flow, &step)?;
             nonce = retained_control_nonce(&step, network, revision)?;
@@ -196,8 +196,7 @@ impl Run for ControlCommand {
                 &context.sccp_config()?,
                 &client,
                 &original,
-                network,
-                Some(revision),
+                (network, Some(revision)),
                 &args.destination.rpc_url,
                 args.ton_wallet.as_deref(),
                 &args.key_file,
@@ -220,9 +219,11 @@ impl Run for ControlCommand {
                 .collect();
             super::flows::ton(
                 context,
-                &original,
-                &flow,
-                Action::Control,
+                super::flows::FlowStep {
+                    original: &original,
+                    flow: &flow,
+                    action: Action::Control,
+                },
                 destination.lite(),
                 items,
                 |_| {
@@ -262,9 +263,11 @@ impl Run for ControlCommand {
             let call = destination.control_call(&bundle, original.network, original.instance)?;
             super::flows::evm(
                 context,
-                &original,
-                &flow,
-                Action::Control,
+                super::flows::FlowStep {
+                    original: &original,
+                    flow: &flow,
+                    action: Action::Control,
+                },
                 network,
                 &destination,
                 &args.key_file,
@@ -280,6 +283,10 @@ impl Run for ControlCommand {
 #[path = "administration/control_tests.rs"]
 mod control_tests;
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "flat JSON reports independent native and destination pause and reconciliation observations"
+)]
 #[derive(Debug, PartialEq, Eq, norito::derive::JsonSerialize)]
 struct ControlStatus {
     network: SccpNetworkV1,
@@ -322,7 +329,7 @@ fn control_comparison(
     }
 }
 
-fn control_status(context: &mut impl RunContext, args: DeploymentArgs) -> Result<()> {
+fn control_status(context: &mut impl RunContext, args: &DeploymentArgs) -> Result<()> {
     use iroha_sccp_wallet::pure::control::TairaControlV1;
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args.origin)?;
@@ -398,7 +405,7 @@ fn control_status(context: &mut impl RunContext, args: DeploymentArgs) -> Result
 impl Run for DeploymentCommand {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
         let Self::Verify(args) = self;
-        super::deployment::verify(context, args)
+        super::deployment::verify(context, &args)
     }
 }
 

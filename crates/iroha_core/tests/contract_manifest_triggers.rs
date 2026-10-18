@@ -45,7 +45,7 @@ use iroha_model_base::topology::DataSpaceId;
 use iroha_primitives::json::Json;
 use mv::storage::StorageReadOnly;
 use nonzero_ext::nonzero;
-fn contract_artifact(entrypoints: Vec<EntrypointDescriptor>) -> (Vec<u8>, ContractManifest) {
+fn contract_artifact(entrypoints: &[EntrypointDescriptor]) -> (Vec<u8>, ContractManifest) {
     let meta = ivm::ProgramMetadata {
         version_major: 1,
         version_minor: 1,
@@ -107,7 +107,7 @@ fn contract_artifact(entrypoints: Vec<EntrypointDescriptor>) -> (Vec<u8>, Contra
         states: Vec::new(),
     };
     let mut code = Vec::new();
-    for _ in &entrypoints {
+    for _ in entrypoints {
         for instruction in [
             ivm::encoding::wide::encode_store(ivm::instruction::wide::memory::STORE64, 12, 0, 0),
             ivm::encoding::wide::encode_ri(ivm::instruction::wide::arithmetic::ADDI, 10, 12, 0),
@@ -130,7 +130,7 @@ fn trigger_fixture_authenticates_each_distinct_unit_return_entrypoint() {
             "seiyaku TriggerFixture { view fn run() authorize(anyone) { () } view fn arm() authorize(anyone) { () } }",
         )
         .unwrap();
-    let (program, _) = contract_artifact(manifest.entrypoints.unwrap());
+    let (program, _) = contract_artifact(&manifest.entrypoints.unwrap());
     let metadata = ivm::ProgramMetadata::parse(&program).unwrap();
     let interface = metadata.contract_interface.as_ref().unwrap();
     assert_eq!(interface.callables.len(), 2);
@@ -285,7 +285,7 @@ fn activate_registers_manifest_triggers_and_deactivate_removes() {
         access_hints_skipped: Vec::new(),
         triggers: vec![trigger],
     };
-    let (program, manifest) = contract_artifact(vec![entrypoint]);
+    let (program, manifest) = contract_artifact(&[entrypoint]);
     let code_hash = manifest.code_hash.expect("manifest code hash");
     RegisterSmartContractBytes {
         artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
@@ -458,7 +458,7 @@ fn activate_rejects_manifest_trigger_with_unauthorized_foreign_authority() {
         access_hints_skipped: Vec::new(),
         triggers: vec![trigger],
     };
-    let (program, manifest) = contract_artifact(vec![entrypoint]);
+    let (program, manifest) = contract_artifact(&[entrypoint]);
     let code_hash = manifest.code_hash.expect("manifest code hash");
     RegisterSmartContractBytes {
         artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
@@ -599,7 +599,7 @@ fn activate_registers_manifest_data_and_pipeline_triggers_and_deactivate_removes
         access_hints_skipped: Vec::new(),
         triggers: vec![data_trigger, pipeline_trigger],
     };
-    let (program, manifest) = contract_artifact(vec![entrypoint]);
+    let (program, manifest) = contract_artifact(&[entrypoint]);
     let code_hash = manifest.code_hash.expect("manifest code hash");
     RegisterSmartContractBytes {
         artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
@@ -810,7 +810,7 @@ fn activate_registers_cross_contract_manifest_trigger_callback() {
         access_hints_skipped: Vec::new(),
         triggers: Vec::new(),
     };
-    let (target_program, target_manifest) = contract_artifact(vec![target_entrypoint]);
+    let (target_program, target_manifest) = contract_artifact(&[target_entrypoint]);
     let target_code_hash = target_manifest.code_hash.expect("target code hash");
     RegisterSmartContractBytes {
         artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
@@ -895,7 +895,7 @@ fn activate_registers_cross_contract_manifest_trigger_callback() {
         access_hints_skipped: Vec::new(),
         triggers: vec![trigger],
     };
-    let (source_program, source_manifest) = contract_artifact(vec![source_entrypoint]);
+    let (source_program, source_manifest) = contract_artifact(&[source_entrypoint]);
     let source_code_hash = source_manifest.code_hash.expect("source code hash");
     RegisterSmartContractBytes {
         artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
@@ -1071,7 +1071,7 @@ fn activate_rejects_unresolved_cross_contract_manifest_trigger_callback() {
         access_hints_skipped: Vec::new(),
         triggers: vec![trigger],
     };
-    let (source_program, source_manifest) = contract_artifact(vec![source_entrypoint]);
+    let (source_program, source_manifest) = contract_artifact(&[source_entrypoint]);
     let source_code_hash = source_manifest.code_hash.expect("source code hash");
     RegisterSmartContractBytes {
         artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(

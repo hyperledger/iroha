@@ -1,0 +1,79 @@
+"""Capture exact owned test IDs and selected source stability, not full closure."""
+from contextlib import redirect_stderr, redirect_stdout
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+OUT = HERE/'test-capture-v2'
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+os.environ['PYTEST_DISABLE_PLUGIN_AUTOLOAD'] = '1'
+os.environ.pop('PYTEST_ADDOPTS', None)
+os.environ.pop('PYTEST_PLUGINS', None)
+sys.dont_write_bytecode = True
+import pytest
+
+
+def hashes(paths):
+    return {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(paths)}
+
+
+class Membership:
+    def __init__(self):
+        self.collected = []
+        self.reports = []
+
+    def pytest_collection_finish(self, session):
+        self.collected = [item.nodeid for item in session.items]
+
+    def pytest_runtest_logreport(self, report):
+        self.reports.append(dict(nodeid=report.nodeid, when=report.when, outcome=report.outcome))
+
+
+if OUT.exists():
+    raise ValueError('test capture already exists')
+OUT.mkdir()
+selected = set((ROOT/'target/parliament-ideal-machine-stage').glob('*.py'))
+selected.update(HERE/name for name in ('purification.py', 'test_purification.py', 'observe.py',
+                                     'README.md', 'capture_tests.py'))
+selected.update(ROOT/name for name in (
+    'target/parliament-sequential-composition-stage/sequence.py',
+    'target/parliament-ideal-machine-stage/request-accepted-observation.json',
+    'target/parliament-content-resources-stage/capture/observation.json',
+    'crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs',
+    'crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs'))
+before = hashes(selected)
+membership = Membership()
+with (OUT/'pytest.log').open('w') as log, redirect_stdout(log), redirect_stderr(log):
+    code = pytest.main(['-c', '/dev/null', '-o', 'addopts=', '-p', 'no:cacheprovider', '--noconftest',
+                       '--basetemp', str(OUT/'tmp'), str(HERE/'test_purification.py'), '-q'],
+                      plugins=[membership])
+after = hashes(selected)
+loaded = {}
+for module in tuple(sys.modules.values()):
+    filename = getattr(module, '__file__', None)
+    if filename:
+        path = Path(filename).resolve()
+        if path.is_file() and path.is_relative_to(ROOT):
+            loaded[path.relative_to(ROOT).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+calls = [r for r in membership.reports if r['when'] == 'call']
+loaded_inside = all(before.get(name) == h for name, h in loaded.items())
+success = (code == 0 and before == after and len(membership.collected) == len(calls) == 31
+           and all(r['outcome'] == 'passed' for r in membership.reports)
+           and len(set(membership.collected)) == 31
+           and loaded_inside)
+receipt = dict(success=success, exit_code=int(code), parent_tests=len(calls),
+    collected=membership.collected, reports=membership.reports, source_sha256_before=before,
+    source_sha256_after=after, selected_sources_stable=before == after,
+    loaded_repository_modules=loaded, loaded_repository_modules_within_selected=loaded_inside,
+    runtime=dict(python=platform.python_version(), executable=sys.executable, pytest=pytest.__version__),
+    full_cap_stream_executed=False, current_candidate_qualified=False, production_gate_changed=False,
+    dependency_closure_authenticated=False, full_joint_quantum_theorem=False)
+(OUT/'receipt.json').write_text(json.dumps(receipt, indent=2, sort_keys=True)+'\n')
+print(json.dumps(dict(success=success, tests=len(calls), selected=len(before), loaded=len(loaded))))
+raise SystemExit(0 if success else 1)

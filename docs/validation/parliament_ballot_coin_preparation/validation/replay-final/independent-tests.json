@@ -1,0 +1,642 @@
+{
+  "collected": [
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[0]",
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[1]",
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[2]",
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[3]",
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[4]",
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[5]",
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[6]",
+    "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[7]",
+    "target/parliament-coin-preparation-review/test_review.py::test_arbitrary_complex_coin_purifier_spectator_state_round_trips",
+    "target/parliament-coin-preparation-review/test_review.py::test_prior_coin_purifier_bell_entanglement_is_not_fresh_initialization",
+    "target/parliament-coin-preparation-review/test_review.py::test_uniform_coin_marginal_does_not_imply_independence_from_external_state",
+    "target/parliament-coin-preparation-review/test_review.py::test_full_joint_reduced_body_equals_mixture_with_entangled_complement",
+    "target/parliament-coin-preparation-review/test_review.py::test_future_private_pair_is_jointly_fresh_only_under_noninterference",
+    "target/parliament-coin-preparation-review/test_review.py::test_global_namespace_allocation_and_immutable_resources",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1048576]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1048576]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1048576]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1048576]",
+    "target/parliament-coin-preparation-review/test_review.py::test_source_guard_detects_mutation_during_schema_construction",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/bit_ir.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/content_request.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/opening.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/public_machine.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_family.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_generator.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_transition.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/schedule.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/stage_plan.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-sequential-composition-stage/sequence.py]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs]",
+    "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs]",
+    "target/parliament-coin-preparation-review/test_review.py::test_qualification_flags_do_not_promote_finite_controls",
+    "target/parliament-coin-preparation-review/test_review.py::test_frozen_full_cap_metadata_addition_and_original_coin_coordinates"
+  ],
+  "exit_code": 0,
+  "loaded_repository_modules": {
+    "target/parliament-coin-preparation-review/run_tests.py": "e1dd3f4ca66dd2308cc1456adae97490078a7b4a7f9071ba96bcbf6e8f2f9443",
+    "target/parliament-coin-preparation-review/test_review.py": "b1ecf27786d804d14f93d392a3d5c174a20cacf306231a33643ad3c47b2bb876",
+    "target/parliament-coin-preparation-stage/purification.py": "af3de761b621bd98e79e31ab20b3449e4f96eb0dba9d36180e40d7b08034d56f",
+    "target/parliament-ideal-machine-stage/aes_kernel.py": "52ce8e9dafcaf9969cb14cf46305842fa9ebc7f95409772d2738c2516562acae",
+    "target/parliament-ideal-machine-stage/bavc_machine.py": "f001ecf7580d09774f119eb913e6a3cbdbffe196ffbd14fea242e469afe49e4b",
+    "target/parliament-ideal-machine-stage/bit_ir.py": "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64",
+    "target/parliament-ideal-machine-stage/chronological_log.py": "200dfc7bbd53782c4aeb609b4c3322737bab934e8985712e84f96fd45cfa95cf",
+    "target/parliament-ideal-machine-stage/content_request.py": "5290f62284e8bc7a1d6ce9795d9a738074d956fc518ed7bc216c0ef3f416c3e0",
+    "target/parliament-ideal-machine-stage/crt_machine.py": "0bef11d58513949541dae259edac6afe57307f76aa9df07198906d2865f4fa73",
+    "target/parliament-ideal-machine-stage/field_kernel.py": "d708f053d19fab9464871c7df7343ec77592878a2c443204023ae573a6f1f9f2",
+    "target/parliament-ideal-machine-stage/hash_machine.py": "d97073f478decda2f7b0e82b502839a17f330f1563ede43604af9b27105c104b",
+    "target/parliament-ideal-machine-stage/l0_machine.py": "e10d3d6b49e778c9abdde8655188513d0dddf910da73e095ff19da6ddd0fba23",
+    "target/parliament-ideal-machine-stage/leaf_machine.py": "f2cd3773ad74341275da375433dc73815b75880de6acbf6b658f911228e0a8ba",
+    "target/parliament-ideal-machine-stage/mask_fold.py": "67386f460f7f66e1c18952a4c4507cfffb6029699e67f5e530d92a3d0ff91605",
+    "target/parliament-ideal-machine-stage/opening.py": "6223057116ba7652d90025327635384c102f7d68193715dc5d9d82b334ae9118",
+    "target/parliament-ideal-machine-stage/opening_reconstruction.py": "cbc9417de099e7f847c8618dc2e2b2443e5d170c8ce599548af3bfa5540de0b0",
+    "target/parliament-ideal-machine-stage/prg_machine.py": "5bf556a9de0f57230dd2639526c726124eb9d132b91e4714416ea0b3ff4511b6",
+    "target/parliament-ideal-machine-stage/public_hash.py": "f4ad52186a959025b9f9940c3099460e07a6981b078c666a0eee448c92f46e6c",
+    "target/parliament-ideal-machine-stage/public_machine.py": "da79c4e07bc5f504ff5b02a6af96f2bfcf4b09ea480eafdc2e5d59bfcf55cd6f",
+    "target/parliament-ideal-machine-stage/r0_machine.py": "19bf2f781df312c87b6981a6205d22b3cbeacb653abcc7690a741bd1bddd1d77",
+    "target/parliament-ideal-machine-stage/r1_machine.py": "5074c38518f455df3e583f7a361617136a20c366a36f575bd128047c3d5de3e3",
+    "target/parliament-ideal-machine-stage/reconstruction.py": "857b03b9c3b5d3a4e05e639ac7a4ad62e86438206c5cdbaadb68a99a1fe88757",
+    "target/parliament-ideal-machine-stage/request_dispatch.py": "94729ac8325800e40dbbe2011ff7c1fbf39937dd128960ade269ccfac7e927bb",
+    "target/parliament-ideal-machine-stage/request_family.py": "26a91d48a98a538de02b5d38d7875ef224fac1bbffc78bfa7b41155897f34041",
+    "target/parliament-ideal-machine-stage/request_generator.py": "0f3173dfb0d806685d7b437297928ae4edf31805b21a1628684d0b15cfb201d9",
+    "target/parliament-ideal-machine-stage/request_transition.py": "02d43d565b893497a16ec606917a19e3261479f82f5db8aaafbf4d9355bfdcd1",
+    "target/parliament-ideal-machine-stage/return_machine.py": "71e65a7840fee8c75c1913d3af4bf5826b5815c40c327766cae2a91344767b20",
+    "target/parliament-ideal-machine-stage/schedule.py": "f46ef5e6899aa2eaa078131d1d88eb7478e7e63cb49b72c0a8663178827405cf",
+    "target/parliament-ideal-machine-stage/stage_plan.py": "4087930673266d460ead30c4306e742a3e70595b70555210beec1a70b8b0ece4",
+    "target/parliament-ideal-machine-stage/test_request_transition.py": "16a286396aaf0a345a32871cfccb7e853464193bd28f37d2a5b05f2b72fda8fd",
+    "target/parliament-ideal-machine-stage/validated_request.py": "d54ea5b3a8e1739b39c3dfc844f988ae538135e6420fa0418159b4879283dab3",
+    "target/parliament-ideal-machine-stage/vole_columns.py": "13787c5c5d464908ae783dcee125f3bfba129620d9f9ec5e8c7cadfea4a06ab1",
+    "target/parliament-ideal-machine-stage/vole_machine.py": "ed41fc140050b87e7e1ddd62a3d62783987a9395c9429a43ff6553bac4e62a55",
+    "target/parliament-ideal-machine-stage/vole_reconstruction.py": "be2bb0c3a48bf2b4c5edef44694aad3e0832e8b37da31b01a0f7ea05086a635d",
+    "target/parliament-ideal-machine-stage/write_machine.py": "4982fb0bada85cbb6a323f367935a9743e6d383ed275f19e61a97f297e2964aa",
+    "target/parliament-sequential-composition-stage/sequence.py": "02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131"
+  },
+  "reports": [
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[0]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[0]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[0]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[1]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[1]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[1]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[2]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[2]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[2]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[3]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[3]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[3]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[4]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[4]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[4]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[5]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[5]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[5]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[6]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[6]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[6]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[7]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[7]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_every_three_pair_basis_obeys_independent_hadamard_formula[7]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_arbitrary_complex_coin_purifier_spectator_state_round_trips",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_arbitrary_complex_coin_purifier_spectator_state_round_trips",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_arbitrary_complex_coin_purifier_spectator_state_round_trips",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_prior_coin_purifier_bell_entanglement_is_not_fresh_initialization",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_prior_coin_purifier_bell_entanglement_is_not_fresh_initialization",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_prior_coin_purifier_bell_entanglement_is_not_fresh_initialization",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_uniform_coin_marginal_does_not_imply_independence_from_external_state",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_uniform_coin_marginal_does_not_imply_independence_from_external_state",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_uniform_coin_marginal_does_not_imply_independence_from_external_state",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_full_joint_reduced_body_equals_mixture_with_entangled_complement",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_full_joint_reduced_body_equals_mixture_with_entangled_complement",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_full_joint_reduced_body_equals_mixture_with_entangled_complement",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_future_private_pair_is_jointly_fresh_only_under_noninterference",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_future_private_pair_is_jointly_fresh_only_under_noninterference",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_future_private_pair_is_jointly_fresh_only_under_noninterference",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_global_namespace_allocation_and_immutable_resources",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_global_namespace_allocation_and_immutable_resources",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_global_namespace_allocation_and_immutable_resources",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1048576]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1048576]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-REG-1048576]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1048576]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1048576]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[candidate-VOTE-1048576]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1048576]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1048576]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-REG-1048576]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1048576]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1048576]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_partition_is_original_coin_suffix_with_independently_summed_fields[comparator-VOTE-1048576]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_guard_detects_mutation_during_schema_construction",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_guard_detects_mutation_during_schema_construction",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_source_guard_detects_mutation_during_schema_construction",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/bit_ir.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/bit_ir.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/bit_ir.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/content_request.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/content_request.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/content_request.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/opening.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/opening.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/opening.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/public_machine.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/public_machine.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/public_machine.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_family.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_family.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_family.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_generator.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_generator.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_generator.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_transition.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_transition.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/request_transition.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/schedule.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/schedule.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/schedule.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/stage_plan.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/stage_plan.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-ideal-machine-stage/stage_plan.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-sequential-composition-stage/sequence.py]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-sequential-composition-stage/sequence.py]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[target/parliament-sequential-composition-stage/sequence.py]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_each_selected_schema_source_refuses_drift[crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_qualification_flags_do_not_promote_finite_controls",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_qualification_flags_do_not_promote_finite_controls",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_qualification_flags_do_not_promote_finite_controls",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_frozen_full_cap_metadata_addition_and_original_coin_coordinates",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_frozen_full_cap_metadata_addition_and_original_coin_coordinates",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "target/parliament-coin-preparation-review/test_review.py::test_frozen_full_cap_metadata_addition_and_original_coin_coordinates",
+      "outcome": "passed",
+      "when": "teardown"
+    }
+  ],
+  "runtime": {
+    "executable": "/opt/homebrew/opt/python@3.11/bin/python3.11",
+    "pytest": "9.1.0",
+    "python": "3.11.17"
+  }
+}

@@ -93,7 +93,7 @@ impl WalletFixtureV1 {
         boot: [u8; 32],
         anchor: KagemushaWalletAnchorPolicyV1,
     ) -> KagemushaWalletMarkerRecordV1 {
-        KagemushaWalletMarkerRecordV1::new(self.slot, self.enrollment, anchor, None, boot)
+        KagemushaWalletMarkerRecordV1::new(self.slot, &self.enrollment, anchor, None, boot)
             .expect("enrollment record")
     }
 }

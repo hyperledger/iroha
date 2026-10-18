@@ -139,7 +139,11 @@ fn incoming_send_selector(payment: &KagemushaWalletPaymentV1) -> Result<u8, Erro
         .enabled_controls;
     // This is exactly IncomingPaymentCells' total selector. Invalid control words select
     // the fixed Send0 key while Objects records false; statement metadata is not authority.
-    Ok(2 + if controls <= 7 { controls as u8 } else { 0 })
+    let selected = u8::try_from(controls)
+        .ok()
+        .filter(|value| *value <= 7)
+        .unwrap_or(0);
+    Ok(2 + selected)
 }
 fn selector(step: &ReleasedStep) -> Result<OperationRoute, Error> {
     use KagemushaWalletOperationKindV1 as K;
@@ -634,7 +638,7 @@ impl NativeFoldWorkerV1 {
         match self.stage(
             route,
             fields.with_q(q)?,
-            public_fields,
+            &public_fields,
             &checkpoints[q_count..],
             originals,
             cancellation,

@@ -1,0 +1,175 @@
+"""Total fixed-shape VOTE request for list lengths3..1000.
+
+P0 is retained alongside totalized P1 and the ordinary generator. Rejected
+content still executes the charged finite computation, disables every append,
+returns only the first source public error and clears derived state. Original
+coins remain private retained inputs. Shape/header dispatch is separate.
+"""
+from dataclasses import dataclass, replace
+
+from bit_ir import integer, require
+from public_hash import load_public_keccak
+from public_machine import PublicShape, prepare_public, vote_validation
+from request_generator import Generator, build_generator, gate_cost
+from request_transition import RequestTransition
+from stage_plan import CleanMap, Invocation, RetainedPlan
+from validated_request import P0_BITS, ValidatedWrites, ValidatedReturn
+from write_machine import ProgrammedWrites, actual_frames
+from return_machine import actual_return
+
+
+def content_generator(root, shape, trials=1 << 20):
+    """Join the exact P0 and explicitly totalized P1 circuits to the source DAG."""
+    require(type(shape) is PublicShape and shape.role == 'VOTE' and 3 <= shape.list_count <= 1000,
+            'content controller requires bounded VOTE shape')
+    base = build_generator(root, shape, trials)
+    module = load_public_keccak(root)
+    p0 = vote_validation(shape, module, root)
+    p1 = prepare_public(shape, module, root, totalized_fixed_shape=True)
+    require(len(p0.block.outputs) == P0_BITS, 'source P0 result shape')
+    old_p1 = base.plan.stages[0]
+    require(old_p1.name == 'P1' and len(p1.block.outputs) == old_p1.circuit.outputs,
+            'source P1 replacement shape')
+    # The source-defined extension has exactly the same arithmetic and framing.
+    require(CleanMap.block(p1.block).cost == old_p1.circuit.cost, 'totalized P1 census')
+    stages = (Invocation('P0', CleanMap.block(p0.block), (('public_preparation', 0, shape.inputs),)),
+              replace(old_p1, circuit=CleanMap.block(p1.block)), *base.plan.stages[1:])
+    return Generator(RetainedPlan(base.plan.inputs, stages),
+                     (*base.fields, ('public_validation', ('P0', 0, P0_BITS)),
+                      ('public_valid', ('P0', 0, 1))),
+                     shape, trials, base.original_private_coin_bits)
+
+
+@dataclass(frozen=True)
+class ContentRequest:
+    """Full joint accepted/rejected-content transition with a true log inverse.
+
+    The Generator contract here additionally requires the exact P0 stage and
+    totalized P1 on the same typed public input. Synthetic tests check wiring,
+    not that arbitrary caller-supplied emitters implement those source stages.
+    """
+    base: RequestTransition
+
+    def __post_init__(self):
+        require(type(self.base) is RequestTransition, 'content request components')
+        require(self.generator.shape.role == 'VOTE' and 3 <= self.generator.shape.list_count <= 1000,
+                'content VOTE shape')
+        fields = self.generator.field_positions()
+        require('public_validation' in fields and fields['public_validation'][1] == P0_BITS,
+                'content P0 field')
+        require(fields.get('public_valid') == (fields['public_validation'][0], 1), 'content valid field')
+        self.source_pieces('writes'); self.source_pieces('returns')
+
+    @property
+    def generator(self): return self.base.generator
+    @property
+    def writes(self): return ValidatedWrites(self.base.writes)
+    @property
+    def returns(self): return ValidatedReturn(self.base.returns)
+
+    def source_pieces(self, stage):
+        fields = self.generator.field_positions()
+        if stage == 'writes':
+            pieces = (*self.base.source_pieces(stage), fields['public_valid'])
+            size = self.writes.layout()['input_bits']
+        elif stage == 'returns':
+            pieces = (fields['public_validation'], *self.base.source_pieces(stage))
+            size = self.returns.input_bits
+        else: raise ValueError('unknown content request stage')
+        ordered = sorted(pieces)
+        require(sum(n for _, n in pieces) == size and
+                all(a+n <= b for (a,n),(b,_) in zip(ordered,ordered[1:])), 'content input map')
+        return tuple(pieces)
+
+    def layout(self):
+        p = self.base.layout()
+        p['output_bits'] = self.returns.output_bits
+        p['retained'] = p['output'] + p['output_bits']
+        p['work'] = p['retained'] + p['retained_bits']
+        p['return_work_bits'] = self.returns.resources()['clean_work_bits']
+        p['work_bits'] = max(p['generator']['scratch_bits'], p['write_work_bits'], p['return_work_bits'])
+        p['size'] = p['work'] + p['work_bits']
+        return p
+
+    def emit(self, *, inverse=False):
+        """G -> controlled W -> typed E -> G inverse, all gates explicitly mapped."""
+        require(type(inverse) is bool, 'content request inverse')
+        p = self.layout(); g = p['generator']
+        def generated(local):
+            integer(local, 0, g['size']-1, 'content generator wire')
+            if local < g['input_bits']: return local
+            if local < g['scratch']: return p['retained'] + local - g['input_bits']
+            return p['work'] + local - g['scratch']
+        def run_generator(backward):
+            for gate in self.generator.plan.emit(inverse=backward):
+                yield (gate[0], *(generated(w) for w in gate[1:]))
+        def mapper(stage):
+            bounds, cursor = [], 0
+            for start, width in self.source_pieces(stage):
+                bounds.append((cursor+width, start-cursor)); cursor += width
+            def source(local):
+                for end, shift in bounds:
+                    if local < end: return generated(local+shift)
+                raise ValueError('unreachable content input')
+            return source
+        def run_writes():
+            w = self.writes.layout(); source = mapper('writes')
+            def wire(local):
+                integer(local, 0, w['size']-1, 'content write wire')
+                if local < w['input_bits']: return source(local)
+                if local < w['counter']: return p['log'] + local - w['log']
+                if local < w['enable']: return p['counter'] + local - w['counter']
+                return p['work'] + local - w['enable']
+            for gate in self.writes.emit(inverse=inverse):
+                yield (gate[0], *(wire(v) for v in gate[1:]))
+        def run_return():
+            e = self.returns.layout(); source = mapper('returns')
+            def wire(local):
+                integer(local, 0, e['size']-1, 'content return wire')
+                if local < self.returns.input_bits: return source(local)
+                if local < e['output_start']: return p['work'] + local - self.returns.input_bits
+                return p['output'] + local - e['output_start']
+            for gate in self.returns.emit_clean():
+                yield (gate[0], *(wire(v) for v in gate[1:]))
+        yield from run_generator(False)
+        if inverse:
+            yield from run_return(); yield from run_writes()
+        else:
+            yield from run_writes(); yield from run_return()
+        yield from run_generator(True)
+
+    def resources(self):
+        p = self.layout()
+        generation = self.generator.resources()
+        generation.update(requires_accepted_typed_public_request=False,
+                          exact_P0_and_totalized_P1_required=True,
+                          bounded_content_invalid_controller_implemented=True)
+        writes, returns = self.writes.resources(), self.returns.resources()
+        cost = gate_cost(generation['forward_and_inverse_gates']) + gate_cost(writes['gates']) + gate_cost(returns['gates'])
+        return dict(gates=cost.as_dict(), original_input_bits=p['original_input_bits'],
+                    original_private_coin_bits=self.generator.original_private_coin_bits,
+                    persistent_log_bits=p['log_bits'], persistent_counter_bits=p['counter_bits'],
+                    caller_output_bits=p['output_bits'], retained_derived_bits=p['retained_bits'],
+                    shared_work_bits=p['work_bits'], total_logical_bits=p['size'],
+                    components=dict(generator=generation,writes=writes,returns=returns),
+                    bounded_content_invalid_controller_implemented=True,
+                    invalid_content_has_joint_log_identity=True,
+                    typed_public_error_contribution_only_on_rejection=True,
+                    derived_work_cleared=True, original_coins_retained=True,
+                    invalid_content_pays_full_computation=True,
+                    generator_domains=(0,1,4,5,8), programmed_domains=(9,10,11),
+                    requires_one_immutable_source_padded_F_and_no_interleaving=True,
+                    full_source_trial_cap=self.generator.trials == 1 << 20,
+                    malformed_shape_dispatch_implemented=False,
+                    complete_simulator_coverage=False,complete_resource_vector=False,
+                    primitive_advantage_assumed=False, independent_cryptographic_review=False,
+                    profile_qualified=False,production_gate_changed=False)
+
+
+def actual_content_request(root, shape, requests, *, trials=1 << 20, length_bits=64):
+    """Build bounded VOTE content handling; only M=2^20 is the source trial cap."""
+    integer(requests, 1, 1 << 64, 'lifetime request cap')
+    integer(length_bits, 23, 4096, 'combined message length bits')
+    generator = content_generator(root,shape,trials)
+    writes = ProgrammedWrites(actual_frames(root,shape.row,'vote'),trials,requests*(trials+2),length_bits,215150)
+    return ContentRequest(RequestTransition(generator,writes,actual_return(root,shape.row,'vote')))

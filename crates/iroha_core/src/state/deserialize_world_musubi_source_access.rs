@@ -67,6 +67,18 @@ pub struct KeyWorkCursor {
     pub(crate) pending: usize,
 }
 
+/// Completion of an exact query over its retained original source.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum LookupResolution {
+    /// Source work remains before a presence or absence result is known.
+    #[default]
+    Pending,
+    /// The complete query proved that the original source has no matching row.
+    Absent,
+    /// The complete query identified this original row ordinal.
+    Present(usize),
+}
+
 /// Original query progress, scoped by its enclosing immutable semantic row/substep.
 /// The owner resets this cursor only when changing the query or finishing that row.
 #[derive(Clone, Copy, Debug, Default)]
@@ -84,7 +96,7 @@ pub struct LookupCursor {
     /// Retained geometry of the current original midpoint key.
     pub(crate) candidate: KeyWorkCursor,
     /// Exact resolved ordinal or proved absence, if complete.
-    pub(crate) resolved: Option<Option<usize>>,
+    pub(crate) resolved: LookupResolution,
 }
 impl LookupCursor {
     /// A fresh query on the enclosing original source; no work has been granted.
@@ -108,7 +120,7 @@ impl LookupCursor {
                 units: 0,
                 pending: 0,
             },
-            resolved: None,
+            resolved: LookupResolution::Pending,
         }
     }
     /// Start the next fixed query site after its previous semantic row completed.
@@ -180,30 +192,8 @@ pub trait MusubiRead {
         >,
         Self::Error,
     >;
-    /// Exact original lookup in `musubi_archive_locations`; absence never replaces a refusal.
-    fn musubi_archive_locations_get(
-        &self,
-        key: &MusubiArchiveLocationKeyV1,
-    ) -> Result<Option<&MusubiArchiveLocationV1>, Self::Error>;
-    /// Resume the same exact-key query; ordinary World readers require no native cursor.
-    fn musubi_archive_locations_get_retained(
-        &self,
-        key: &MusubiArchiveLocationKeyV1,
-        _query: &mut LookupCursor,
-    ) -> Result<Option<&MusubiArchiveLocationV1>, Self::Error> {
-        self.musubi_archive_locations_get(key)
-    }
     /// Original stored count of `musubi_locations_by_pin`, without a traversal.
     fn musubi_locations_by_pin_len(&self) -> Result<usize, Self::Error>;
-    /// Ordered original rows of `musubi_locations_by_pin`; local refusal is an explicit item.
-    fn musubi_locations_by_pin_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<(&ManifestDigest, &MusubiPinLocationReferenceV1), Self::Error>,
-        >,
-        Self::Error,
-    >;
     /// Exact original lookup in `musubi_locations_by_pin`; absence never replaces a refusal.
     fn musubi_locations_by_pin_get(
         &self,
@@ -219,13 +209,6 @@ pub trait MusubiRead {
     }
     /// Original stored count of `musubi_locations_by_provider`, without a traversal.
     fn musubi_locations_by_provider_len(&self) -> Result<usize, Self::Error>;
-    /// Ordered original rows of `musubi_locations_by_provider`; local refusal is an explicit item.
-    fn musubi_locations_by_provider_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&MusubiProviderLocationKeyV1, &()), Self::Error>>,
-        Self::Error,
-    >;
     /// Exact original lookup in `musubi_locations_by_provider`; absence never replaces a refusal.
     fn musubi_locations_by_provider_get(
         &self,
@@ -241,21 +224,6 @@ pub trait MusubiRead {
     }
     /// Original stored count of `musubi_locations_by_replication_order`, without a traversal.
     fn musubi_locations_by_replication_order_len(&self) -> Result<usize, Self::Error>;
-    /// Ordered original rows of `musubi_locations_by_replication_order`; local refusal is an explicit item.
-    fn musubi_locations_by_replication_order_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<
-                (
-                    &ReplicationOrderId,
-                    &MusubiReplicationOrderLocationReferenceV1,
-                ),
-                Self::Error,
-            >,
-        >,
-        Self::Error,
-    >;
     /// Exact original lookup in `musubi_locations_by_replication_order`; absence never replaces a refusal.
     fn musubi_locations_by_replication_order_get(
         &self,
@@ -332,19 +300,6 @@ pub trait MusubiRead {
         >,
         Self::Error,
     >;
-    /// Exact original lookup in `musubi_public_directory`; absence never replaces a refusal.
-    fn musubi_public_directory_get(
-        &self,
-        key: &MusubiPackageSelectorV1,
-    ) -> Result<Option<&MusubiOrderedPackageEntryV1>, Self::Error>;
-    /// Resume the same exact-key query; ordinary World readers require no native cursor.
-    fn musubi_public_directory_get_retained(
-        &self,
-        key: &MusubiPackageSelectorV1,
-        _query: &mut LookupCursor,
-    ) -> Result<Option<&MusubiOrderedPackageEntryV1>, Self::Error> {
-        self.musubi_public_directory_get(key)
-    }
     /// Original stored count of `musubi_releases`, without a traversal.
     fn musubi_releases_len(&self) -> Result<usize, Self::Error>;
     /// Ordered original rows of `musubi_releases`; local refusal is an explicit item.
@@ -393,13 +348,6 @@ pub trait MusubiRead {
     }
     /// Original stored count of `pin_manifests`, without a traversal.
     fn pin_manifests_len(&self) -> Result<usize, Self::Error>;
-    /// Ordered original rows of `pin_manifests`; local refusal is an explicit item.
-    fn pin_manifests_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&ManifestDigest, &PinManifestRecord), Self::Error>>,
-        Self::Error,
-    >;
     /// Exact original lookup in `pin_manifests`; absence never replaces a refusal.
     fn pin_manifests_get(
         &self,
@@ -415,13 +363,6 @@ pub trait MusubiRead {
     }
     /// Original stored count of `provider_owners`, without a traversal.
     fn provider_owners_len(&self) -> Result<usize, Self::Error>;
-    /// Ordered original rows of `provider_owners`; local refusal is an explicit item.
-    fn provider_owners_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&ProviderId, &AccountId), Self::Error>>,
-        Self::Error,
-    >;
     /// Exact original lookup in `provider_owners`; absence never replaces a refusal.
     fn provider_owners_get(&self, key: &ProviderId) -> Result<Option<&AccountId>, Self::Error>;
     /// Resume the same exact-key query; ordinary World readers require no native cursor.
@@ -434,15 +375,6 @@ pub trait MusubiRead {
     }
     /// Original stored count of `replication_orders`, without a traversal.
     fn replication_orders_len(&self) -> Result<usize, Self::Error>;
-    /// Ordered original rows of `replication_orders`; local refusal is an explicit item.
-    fn replication_orders_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<(&ReplicationOrderId, &ReplicationOrderRecord), Self::Error>,
-        >,
-        Self::Error,
-    >;
     /// Exact original lookup in `replication_orders`; absence never replaces a refusal.
     fn replication_orders_get(
         &self,
@@ -511,24 +443,8 @@ impl<W: MusubiSourceReadOnly> MusubiRead for W {
     > {
         Ok(self.source_musubi_archive_locations().iter().map(Ok))
     }
-    fn musubi_archive_locations_get(
-        &self,
-        key: &MusubiArchiveLocationKeyV1,
-    ) -> Result<Option<&MusubiArchiveLocationV1>, Self::Error> {
-        Ok(self.source_musubi_archive_locations().get(key))
-    }
     fn musubi_locations_by_pin_len(&self) -> Result<usize, Self::Error> {
         Ok(self.source_musubi_locations_by_pin().len())
-    }
-    fn musubi_locations_by_pin_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<(&ManifestDigest, &MusubiPinLocationReferenceV1), Self::Error>,
-        >,
-        Self::Error,
-    > {
-        Ok(self.source_musubi_locations_by_pin().iter().map(Ok))
     }
     fn musubi_locations_by_pin_get(
         &self,
@@ -539,14 +455,6 @@ impl<W: MusubiSourceReadOnly> MusubiRead for W {
     fn musubi_locations_by_provider_len(&self) -> Result<usize, Self::Error> {
         Ok(self.source_musubi_locations_by_provider().len())
     }
-    fn musubi_locations_by_provider_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&MusubiProviderLocationKeyV1, &()), Self::Error>>,
-        Self::Error,
-    > {
-        Ok(self.source_musubi_locations_by_provider().iter().map(Ok))
-    }
     fn musubi_locations_by_provider_get(
         &self,
         key: &MusubiProviderLocationKeyV1,
@@ -555,25 +463,6 @@ impl<W: MusubiSourceReadOnly> MusubiRead for W {
     }
     fn musubi_locations_by_replication_order_len(&self) -> Result<usize, Self::Error> {
         Ok(self.source_musubi_locations_by_replication_order().len())
-    }
-    fn musubi_locations_by_replication_order_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<
-                (
-                    &ReplicationOrderId,
-                    &MusubiReplicationOrderLocationReferenceV1,
-                ),
-                Self::Error,
-            >,
-        >,
-        Self::Error,
-    > {
-        Ok(self
-            .source_musubi_locations_by_replication_order()
-            .iter()
-            .map(Ok))
     }
     fn musubi_locations_by_replication_order_get(
         &self,
@@ -639,12 +528,6 @@ impl<W: MusubiSourceReadOnly> MusubiRead for W {
     > {
         Ok(self.source_musubi_public_directory().iter().map(Ok))
     }
-    fn musubi_public_directory_get(
-        &self,
-        key: &MusubiPackageSelectorV1,
-    ) -> Result<Option<&MusubiOrderedPackageEntryV1>, Self::Error> {
-        Ok(self.source_musubi_public_directory().get(key))
-    }
     fn musubi_releases_len(&self) -> Result<usize, Self::Error> {
         Ok(self.source_musubi_releases().len())
     }
@@ -684,14 +567,6 @@ impl<W: MusubiSourceReadOnly> MusubiRead for W {
     fn pin_manifests_len(&self) -> Result<usize, Self::Error> {
         Ok(self.source_pin_manifests().len())
     }
-    fn pin_manifests_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&ManifestDigest, &PinManifestRecord), Self::Error>>,
-        Self::Error,
-    > {
-        Ok(self.source_pin_manifests().iter().map(Ok))
-    }
     fn pin_manifests_get(
         &self,
         key: &ManifestDigest,
@@ -701,29 +576,11 @@ impl<W: MusubiSourceReadOnly> MusubiRead for W {
     fn provider_owners_len(&self) -> Result<usize, Self::Error> {
         Ok(self.source_provider_owners().len())
     }
-    fn provider_owners_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&ProviderId, &AccountId), Self::Error>>,
-        Self::Error,
-    > {
-        Ok(self.source_provider_owners().iter().map(Ok))
-    }
     fn provider_owners_get(&self, key: &ProviderId) -> Result<Option<&AccountId>, Self::Error> {
         Ok(self.source_provider_owners().get(key))
     }
     fn replication_orders_len(&self) -> Result<usize, Self::Error> {
         Ok(self.source_replication_orders().len())
-    }
-    fn replication_orders_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<(&ReplicationOrderId, &ReplicationOrderRecord), Self::Error>,
-        >,
-        Self::Error,
-    > {
-        Ok(self.source_replication_orders().iter().map(Ok))
     }
     fn replication_orders_get(
         &self,

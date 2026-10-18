@@ -154,8 +154,8 @@ struct DescriptorPolicyV1 {
     instance_types: Vec<InstanceType>,
 }
 
-fn policy(lineage: bool) -> DescriptorPolicyV1 {
-    DescriptorPolicyV1 {
+fn policy(lineage: bool) -> Result<DescriptorPolicyV1, Error> {
+    Ok(DescriptorPolicyV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
         curve: if lineage {
             CurveV1::Pallas
@@ -168,7 +168,7 @@ fn policy(lineage: bool) -> DescriptorPolicyV1 {
         instance_mode: InstanceModeV1::Direct,
         proof_suffix: ProofSuffixV1::FoldedGenerator,
         instance_lengths: if lineage {
-            vec![1, 2, K as u32]
+            vec![1, 2, u32::try_from(K).map_err(|_| Error::Profile)?]
         } else {
             vec![1]
         },
@@ -181,7 +181,7 @@ fn policy(lineage: bool) -> DescriptorPolicyV1 {
         } else {
             vec![InstanceType::Bounded]
         },
-    }
+    })
 }
 
 // This uses the wallet's existing H framing for its domain-separated artifact roles.
@@ -249,9 +249,9 @@ fn native_protocol_transcript(curve: CurveV1) -> Result<Vec<u8>, Error> {
     bytes.extend_from_slice(&Sha256::digest(&table));
     put_frame(&mut bytes, PARAMS_DOMAIN.as_bytes())?;
     put_u32(&mut bytes, 5)?;
-    for k in 12..=16 {
-        bytes.push(k as u8);
-        bytes.extend_from_slice(&pinned_params_digest(curve, k).ok_or(Error::Profile)?);
+    for k in 12_u8..=16 {
+        bytes.push(k);
+        bytes.extend_from_slice(&pinned_params_digest(curve, u32::from(k)).ok_or(Error::Profile)?);
     }
     // Scalar absorption: Pallas low128/high127 pair, Vesta exact Fp integer.
     // Challenge map: Pallas Fp->Fq identity, Vesta Fq->Fp one subtraction.
@@ -278,7 +278,7 @@ pub fn ep_protocol_transcript_v1() -> Result<Vec<u8>, Error> {
 
 /// Exact sole native artifact-profile preimage; it is not a producer qualification.
 /// # Errors
-/// Rejects failure to encode the fixed typed descriptor policies.
+/// Rejects an unrepresentable fixed round count or failure to encode the typed descriptor policies.
 pub fn native_profile_transcript_v1() -> Result<Vec<u8>, Error> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&KAGEMUSHA_WALLET_VERSION_V1.to_le_bytes());
@@ -288,7 +288,7 @@ pub fn native_profile_transcript_v1() -> Result<Vec<u8>, Error> {
         bytes.extend_from_slice(&mask.to_le_bytes());
     }
     for is_lineage in [false, true] {
-        let encoded = norito::encode_canonical(&policy(is_lineage)).map_err(|_| Error::Profile)?;
+        let encoded = norito::encode_canonical(&policy(is_lineage)?).map_err(|_| Error::Profile)?;
         put_frame(&mut bytes, &encoded)?;
     }
     for count in [
@@ -422,14 +422,15 @@ impl VerifierPackV1 {
         if allowlist.steps.len() != SIGMA_CATALOG_V1.len() {
             return Err(Error::Inventory);
         }
-        let eq_protocol_digest = artifact_digest(b"eq-protocol", &eq_protocol_transcript_v1()?);
-        let ep_protocol_digest = artifact_digest(b"ep-protocol", &ep_protocol_transcript_v1()?);
+        let step_protocol_digest = artifact_digest(b"eq-protocol", &eq_protocol_transcript_v1()?);
+        let lineage_protocol_digest =
+            artifact_digest(b"ep-protocol", &ep_protocol_transcript_v1()?);
         let native_profile_digest =
             artifact_digest(b"native-profile", &native_profile_transcript_v1()?);
         let mut inventory = Vec::new();
         inventory.extend_from_slice(&self.version.to_le_bytes());
-        inventory.extend_from_slice(&eq_protocol_digest);
-        inventory.extend_from_slice(&ep_protocol_digest);
+        inventory.extend_from_slice(&step_protocol_digest);
+        inventory.extend_from_slice(&lineage_protocol_digest);
         inventory.extend_from_slice(&native_profile_digest);
         put_u32(&mut inventory, self.allowlist.len())?;
         inventory.extend_from_slice(&Sha256::digest(&self.allowlist));
@@ -521,7 +522,7 @@ fn parse_artifact<C: PastaCurve>(
     artifact_bounds(original, &mut total)?;
     let binding = DescriptorBinding::decode_v2(&original.descriptor).map_err(|_| Error::Profile)?;
     let d = binding.descriptor();
-    let expected = policy(lineage);
+    let expected = policy(lineage)?;
     if d.protocol_version != PROTOCOL_VERSION
         || d.curve != expected.curve
         || !(expected.min_k..=expected.max_k).contains(&d.k)

@@ -1,0 +1,175 @@
+"""V1 source CRT maps and streamed visible H5 reconstruction.
+
+All matrix data are public, source-bound constants. H5 opcodes use the same
+immutable F as H0/H1, with the full actual namespace/IV/salt/gate/label input.
+Provided-oracle and canonical supplied-field premises remain explicit.
+"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+import re
+
+from bit_ir import Cost, integer, require
+from hash_machine import BASE_RESPONSE_BITS, prefix_query, scatter
+from mask_fold import TABLE_PINS
+
+
+@dataclass(frozen=True)
+class Matrix:
+    """Rows as exact low-column-bit-first integers, without padding coefficients."""
+    columns: int
+    rows: tuple[int,...]
+
+    def __post_init__(self):
+        integer(self.columns,1,768,"matrix columns")
+        require(type(self.rows) is tuple and 1 <= len(self.rows) <= 768,"matrix rows")
+        for row in self.rows: integer(row,0,(1 << self.columns)-1,"matrix row")
+
+    @property
+    def weight(self): return sum(row.bit_count() for row in self.rows)
+
+    def selected(self,row):
+        integer(row,0,len(self.rows)-1,"matrix row index")
+        value = self.rows[row]
+        while value:
+            bit = value&-value
+            yield bit.bit_length()-1
+            value ^= bit
+
+
+def load_matrices(root,row):
+    """Parse only literal packed words from exact pinned source table files."""
+    require(type(row) is str and row in TABLE_PINS,"matrix profile")
+    path,expected = TABLE_PINS[row]
+    raw = (Path(root)/path).read_bytes()
+    require(hashlib.sha256(raw).hexdigest() == expected,"CRT matrix source changed")
+    text = raw.decode()
+    nd,gates = (248,704) if row == 'candidate' else (250,696)
+    result = {}
+    for name,width,height in [('G',nd,gates),('W_CRT',nd,256),('W_TREE',nd,256),('W_GATE',gates,256)]:
+        matches = re.findall(r'pub static '+name+r': \[u64; (\d+)\] = \[([^\]]+)\];',text)
+        require(len(matches) == 1,"matrix declaration "+name)
+        length,body = matches[0]
+        tokens = [token.strip() for token in body.split(',') if token.strip()]
+        require(all(re.fullmatch(r'0x[0-9a-f_]+',token) for token in tokens),"matrix literal")
+        words = [int(token.replace('_',''),16) for token in tokens]
+        stride = (width+63)//64
+        require(len(words) == int(length) == height*stride,"matrix dimensions")
+        rows = tuple(sum(word << (64*j) for j,word in enumerate(words[i*stride:(i+1)*stride])) for i in range(height))
+        result[name] = Matrix(width,rows)
+    require(hashlib.sha256((Path(root)/path).read_bytes()).hexdigest() == expected,"CRT matrix source changed during read")
+    return result
+
+
+@dataclass(frozen=True)
+class CrtReconstruction:
+    """XOR Delta, Q rows and q_masks[0..10] into arbitrary clean-map targets.
+
+    Input namespace77||IV16||salt32||selector32||source columns||shares||c_mult.
+    Source columns are corrected V0 outputs, shares have64-bit word padding,
+    and c_mult is mask-major with exactly g bits per row. Pinned production g
+    values are byte aligned; supplied typed inputs own validation/error checks.
+    """
+    ell: int
+    width_bits: int
+    g_matrix: Matrix
+    w_crt: Matrix
+    w_tree: Matrix
+    w_gate: Matrix
+
+    def __post_init__(self):
+        integer(self.ell,256,65536,"ell")
+        integer(self.width_bits,self.ell,65536,"column width")
+        require(self.ell % 8 == self.width_bits % 8 == 0,"source byte alignment")
+        require(self.g_matrix.columns <= 256,"selector dimensions")
+        require(self.w_crt.columns == self.w_tree.columns == self.g_matrix.columns,"residue matrix width")
+        require(len(self.w_crt.rows) == len(self.w_tree.rows) == len(self.w_gate.rows) == 256,"field output dimension")
+        require(self.w_gate.columns == len(self.g_matrix.rows),"gate matrix width")
+        require(len(self.g_matrix.rows) % 8 == 0,"source correction rows require byte-aligned gate count")
+
+    @property
+    def n_delta(self): return self.g_matrix.columns
+    @property
+    def gates(self): return len(self.g_matrix.rows)
+    @property
+    def share_width(self): return 64*((self.n_delta+63)//64)
+    @property
+    def column_bits(self): return self.n_delta*self.width_bits
+    @property
+    def input_bits(self): return 1256+self.column_bits+10*self.share_width+10*self.gates
+    @property
+    def output_bits(self): return 256+self.ell*256+2560
+
+    def layout(self):
+        label = self.input_bits
+        counter = label+256
+        query = counter+32
+        response = query+1296
+        value = response+BASE_RESPONSE_BITS
+        gamma = value+10
+        output_start = gamma+1
+        return dict(label=label,counter=counter,query=query,response=response,value=value,gamma=gamma,
+                    output_start=output_start,size=output_start+self.output_bits)
+
+    def emit_clean(self):
+        p = self.layout()
+        selector,columns = 1000,1256
+        shares = columns+self.column_bits
+        corrections = shares+10*self.share_width
+        delta,q,q_masks = p['output_start'],p['output_start']+256,p['output_start']+256+self.ell*256
+        for row in range(256):
+            for col in self.w_crt.selected(row):
+                yield ('cx',selector+col,delta+row)
+                for bit in range(self.ell):
+                    yield ('cx',columns+col*self.width_bits+bit,q+bit*256+row)
+            for col in self.w_tree.selected(row):
+                for mask in range(10):
+                    yield ('cx',shares+mask*self.share_width+col,q_masks+mask*256+row)
+        label = tuple(range(p['label'],p['label']+256))
+        counter = tuple(range(p['counter'],p['counter']+32))
+        query = tuple(range(p['query'],p['query']+1296))
+        response = tuple(range(p['response'],p['response']+BASE_RESPONSE_BITS))
+        value = tuple(range(p['value'],p['value']+10))
+        fields = tuple(range(1000))+counter+label
+        for gate in range(self.gates):
+            def constant():
+                for bit in range(32):
+                    if (gate >> bit)&1: yield ('x',counter[bit])
+            def label_and_gamma():
+                for col in self.g_matrix.selected(gate):
+                    yield ('cx',selector+col,p['gamma'])
+                    for bit in range(256):
+                        yield ('cx',columns+col*self.width_bits+bit,label[bit])
+            def correct():
+                for mask in range(10):
+                    yield ('ccx',p['gamma'],corrections+mask*self.gates+gate,value[mask])
+            yield from constant()
+            yield from label_and_gamma()
+            yield from scatter(fields,query,5)
+            yield from prefix_query(query,value,response)
+            yield from correct()
+            for row, coefficients in enumerate(self.w_gate.rows):
+                if (coefficients >> gate)&1:
+                    for mask in range(10):
+                        yield ('cx',value[mask],q_masks+mask*256+row)
+            yield from correct()
+            yield from prefix_query(query,value,response)
+            yield from scatter(fields,query,5)
+            yield from label_and_gamma()
+            yield from constant()
+
+    def resources(self):
+        g = self.gates
+        cost = Cost(x=4*g+2*sum(i.bit_count() for i in range(g)),
+                    cx=(self.ell+1)*self.w_crt.weight+10*self.w_tree.weight+514*self.g_matrix.weight+2596*g+10*self.w_gate.weight,
+                    ccx=20*g,base_calls=4*g)
+        return dict(gates=cost.as_dict(),input_bits=self.input_bits,output_bits=self.output_bits,
+                    total_clean_work_bits=self.layout()['output_start']-self.input_bits,
+                    field_label_bits=256,gate_counter_bits=32,full_query_bits=1296,
+                    full_base_response_bits=BASE_RESPONSE_BITS,gate_response_bits=10,gamma_bits=1,
+                    source_mask_order_zero_through_nine=True,source_V1_algorithm_covered=True,
+                    source_canonical_inputs_and_bound_matrices_required=True,
+                    conditional_on_one_shared_immutable_F_and_domain5_disjoint_from_writes=True,
+                    exact_for_defined_lazy_emitter=True,whole_request_composition_implemented=False,
+                    complete_simulator_coverage=False,complete_resource_vector=False,
+                    actual_input_entry_bridge=False,profile_qualified=False,production_gate_changed=False)

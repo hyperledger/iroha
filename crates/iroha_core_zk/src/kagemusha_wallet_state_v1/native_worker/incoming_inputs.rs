@@ -29,11 +29,12 @@ fn word(bytes: [u8; 32]) -> Result<Fp, Error> {
 }
 fn history(
     leaf: KagemushaWalletIndexedLeafV1,
-    opening: KagemushaWalletIndexedOpeningV1,
+    opening: &KagemushaWalletIndexedOpeningV1,
 ) -> Result<IndexedInsert<Fp>, Error> {
     let siblings = opening
         .siblings
-        .into_iter()
+        .iter()
+        .copied()
         .map(word)
         .collect::<Result<Vec<_>, _>>()?
         .try_into()
@@ -165,7 +166,7 @@ pub(super) fn receive(
         after: sources.after,
         statement: sources.statement,
         consumed: sources.consumed,
-        blacklist: history(history_leaf, history_opening)?,
+        blacklist: history(history_leaf, &history_opening)?,
         incoming_statement: sources.incoming_statement,
         objects: sources.objects.clone(),
         signatures,
@@ -238,10 +239,7 @@ pub(super) fn receive(
     ))
 }
 
-fn retained<'a>(
-    step: &'a ReleasedStep,
-    role: KagemushaWalletRetainedInputRoleV1,
-) -> Result<&'a [u8], Error> {
+fn retained(step: &ReleasedStep, role: KagemushaWalletRetainedInputRoleV1) -> Result<&[u8], Error> {
     let mut found = step
         .frozen
         .capsule
@@ -379,7 +377,7 @@ pub(super) fn archive(
     let results = [
         transport
             .as_ref()
-            .map_or(sigma_claim.is_some(), |t| t.valid),
+            .map_or_else(|| sigma_claim.is_some(), |t| t.valid),
         bits[0],
         bits[1],
     ];
@@ -469,14 +467,14 @@ mod tests {
             slot: 17,
             siblings: core::array::from_fn(|i| Fp::from(i as u64).to_repr()),
         };
-        let native = history(leaf, opening).unwrap();
+        let native = history(leaf, &opening).unwrap();
         assert_eq!(native.leaf_slot, 17);
         assert_eq!(native.leaf.key, Fp::ONE);
         assert_eq!(native.leaf_siblings[31], Fp::from(31));
         opening.siblings[12] = [255; 32];
-        assert!(history(leaf, opening).is_err());
+        assert!(history(leaf, &opening).is_err());
         let mut invalid = leaf;
         invalid.value = [255; 32];
-        assert!(history(invalid, opening).is_err());
+        assert!(history(invalid, &opening).is_err());
     }
 }

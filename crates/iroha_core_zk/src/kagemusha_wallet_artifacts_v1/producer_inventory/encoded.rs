@@ -6,6 +6,7 @@
 
 use std::{
     collections::BTreeMap,
+    fmt::Write as _,
     io::{self, BufRead as _, BufReader, Read, Write},
     path::Path,
     sync::Mutex,
@@ -104,13 +105,15 @@ impl EncodedTransportV1 {
             if index != 0 {
                 output.push(',');
             }
-            output.push_str(&format!(
+            write!(
+                output,
                 "{{\"bytes\":{},\"sha256\":\"{}\",\"storedBytes\":{},\"storedSha256\":\"{}\"}}",
                 row.original.bytes,
                 hex::encode(row.original.sha256),
                 row.stored.bytes,
                 hex::encode(row.stored.sha256)
-            ));
+            )
+            .expect("writing to a String is infallible");
         }
         output.push_str("]}\n");
         output.into_bytes()
@@ -426,7 +429,8 @@ impl EncodedDirectoryOriginalsV1 {
 
     /// Verify both whole identities through a bounded stream and synchronize ancestry.
     /// # Errors
-    /// Wrong raw identity, missing/changed file, invalid encoding, bounds or either hash.
+    /// Wrong raw identity, missing/changed file, invalid encoding, bounds, either hash
+    /// or scratch allocation failure.
     pub fn verify_original(&self, identity: BlobV1) -> io::Result<()> {
         if self.originals.get(&identity.sha256).map(|row| row.original) != Some(identity) {
             return Err(invalid("original differs from selected transport"));
@@ -434,7 +438,7 @@ impl EncodedDirectoryOriginalsV1 {
         let mut reader = self
             .reader(identity.sha256)?
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-        let mut buffer = [0_u8; 64 << 10];
+        let mut buffer = super::original_stream_buffer()?;
         while reader
             .read(&mut buffer)
             .map_err(|_| invalid("encoded original custody or integrity failure"))?
@@ -506,7 +510,7 @@ pub fn encode_original(
     encoder.set_pledged_src_size(Some(identity.bytes))?;
     let mut total = 0_u64;
     let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 64 << 10];
+    let mut buffer = super::original_stream_buffer()?;
     loop {
         let count = input.read(&mut buffer)?;
         if count == 0 {
@@ -524,25 +528,25 @@ pub fn encode_original(
         return Err(invalid("raw source differs while encoding"));
     }
     let writer = encoder.finish()?;
-    let encoded = EncodedOriginalV1 {
+    let transport_identity = EncodedOriginalV1 {
         original: identity,
         stored: BlobV1 {
             bytes: writer.bytes,
             sha256: writer.hash.finalize().into(),
         },
     };
-    encoded.validate()?;
+    transport_identity.validate()?;
     let sealed = writer.file.seal_read_only()?;
     match sealed.publish_new_name(hex::encode(identity.sha256)) {
         Ok(file) => file.revalidate()?,
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
     }
-    let transport = EncodedTransportV1::new(vec![encoded])?;
+    let transport = EncodedTransportV1::new(vec![transport_identity])?;
     EncodedDirectoryOriginalsV1::open_existing(destination.path(), &transport)?
         .verify_original(identity)?;
     source.root()?;
-    Ok(encoded)
+    Ok(transport_identity)
 }
 
 /// Repackage a pinned signed carrier as bounded encoded DATA without changing its proofs.

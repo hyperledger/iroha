@@ -136,8 +136,8 @@ fn wait_for_code(
 /// The code cell of Acton artifact `<build_dir>/<name>.json` (`code_boc64`).
 fn ton_code(build_dir: &std::path::Path, name: &str) -> Result<iroha_sccp::v1::ton_cell::Cell> {
     use base64::Engine as _;
-    let path = build_dir.join(format!("{name}.json"));
     use std::io::Read as _;
+    let path = build_dir.join(format!("{name}.json"));
     let mut text = Vec::new();
     std::fs::File::open(&path)?
         .take(4 * 1024 * 1024 + 1)
@@ -166,7 +166,7 @@ fn ton_code(build_dir: &std::path::Path, name: &str) -> Result<iroha_sccp::v1::t
 
 /// `iroha sccp deploy --network ton-mainnet`: deploy the minter pinned to a Taira generation
 /// from the user's wallet (with `sccp_init`) and print its `RegisterRoute` action.
-fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
+fn deploy_ton<C: RunContext>(context: &mut C, args: &DeployArgs) -> Result<()> {
     use iroha::data_model::sccp::{
         deployment::{SccpDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1},
         governance::{SccpGovernanceActionV1, SccpRegisterRouteActionV1},
@@ -203,7 +203,7 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     }
     let flow = open_flow(
         context,
-        &args,
+        args,
         SccpNetworkV1::TonMainnet,
         max_wrapped_supply,
         &[
@@ -260,9 +260,11 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     .map_err(|error| eyre!("deployment message: {error}"))?;
     let outcome = flows::ton(
         context,
-        &authenticated_origin,
-        &flow,
-        Action::Deploy,
+        flows::FlowStep {
+            original: &authenticated_origin,
+            flow: &flow,
+            action: Action::Deploy,
+        },
         &lite,
         vec![flows::evidence("deployment.committee_pin", &original.pin)?],
         |_| {
@@ -291,7 +293,7 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     )?;
     require_retained_pin(&flow, &original.pin)?;
     context.println(format!("minter 0:{}", hex::encode(minter)))?;
-    if !flows::confirmed(&outcome) {
+    if !flows::confirmed(outcome.as_ref()) {
         return Ok(());
     }
     let action = SccpGovernanceActionV1::RegisterRoute(SccpRegisterRouteActionV1 {
@@ -311,7 +313,7 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
 
 /// `iroha sccp deploy`: deploy a pinned EVM or TON destination and print its `RegisterRoute`
 /// action.
-pub(super) fn run<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
+pub(super) fn run<C: RunContext>(context: &mut C, args: &DeployArgs) -> Result<()> {
     use iroha::data_model::sccp::{
         deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
         governance::{SccpGovernanceActionV1, SccpRegisterRouteActionV1},
@@ -342,7 +344,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()
     }
     let flow = open_flow(
         context,
-        &args,
+        args,
         network,
         max_wrapped_supply,
         &[iroha_sccp::v1::hashes::keccak256(&[&bytecode])],
@@ -372,34 +374,36 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()
     let deployment = evm::deployment(&context.sccp_config()?, &args.rpc_url, network, data)?;
     let address = deployment.address;
     let transport = deployment.transport();
-    if !flows::recover_evm_call(
+    if flows::recover_evm_call(
         context,
         &authenticated_origin,
         &flow,
         Action::Deploy,
         &transport,
     )? {
-        let outcome = flows::evm_call(
-            context,
-            &authenticated_origin,
-            &flow,
-            Action::Deploy,
-            network,
-            &transport,
-            &args.key_file,
-            deployment.calldata.clone(),
-            vec![flows::evidence("deployment.committee_pin", &original.pin)?],
-        )?;
-        if !flows::confirmed(&outcome) {
-            return Ok(());
-        }
-    } else {
         let step = flow
             .latest(Action::Deploy)?
             .ok_or_else(|| eyre!("missing retained deployment"))?;
         if step.outcome()?.is_none_or(|outcome| {
             outcome.outcome != iroha_sccp_wallet::journal::SccpStepOutcomeKindV1::Confirmed
         }) {
+            return Ok(());
+        }
+    } else {
+        let outcome = flows::evm_call(
+            context,
+            flows::FlowStep {
+                original: &authenticated_origin,
+                flow: &flow,
+                action: Action::Deploy,
+            },
+            network,
+            &transport,
+            &args.key_file,
+            deployment.calldata.clone(),
+            vec![flows::evidence("deployment.committee_pin", &original.pin)?],
+        )?;
+        if !flows::confirmed(outcome.as_ref()) {
             return Ok(());
         }
     }

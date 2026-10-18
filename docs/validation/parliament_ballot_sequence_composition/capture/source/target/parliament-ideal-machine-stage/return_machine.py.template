@@ -1,0 +1,122 @@
+"""E0 fixed source proof layout and typed success/exhaustion return projection.
+
+This component copies already generated fields. It is not a decoder, challenge
+comparison, arbitrary malformed-request handler, or whole-machine cleanup.
+The return envelope is an explicit mathematical register interface, not a new
+wire protocol or the native Rust enum representation.
+"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+
+from bit_ir import Cost, integer, require
+
+PINS = {
+    'crates/iroha_zkp_vole/src/codec.rs': 'ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f',
+    'crates/iroha_zkp_vole/src/proof.rs': 'f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc',
+    'crates/iroha_parliament_ballot_proof/src/profile.rs': '9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d',
+}
+
+
+def source_layout(root, row, role):
+    """Check source identities and reproduce the reviewed extended field order."""
+    require(type(row) is str and row in ('candidate', 'comparator'), 'proof row')
+    require(type(role) is str and role in ('registration', 'vote'), 'proof role')
+    before = {p: hashlib.sha256((Path(root)/p).read_bytes()).hexdigest() for p in PINS}
+    require(before == PINS, 'proof layout source changed')
+    tau, gates, opening = (33, 704, 112*33+32*229) if row == 'candidate' else (22, 696, 112*22+32*225)
+    witness = 4480 if role == 'registration' else 6688
+    fields = (('corrections', (tau-1)*witness), ('mult_corrections', 10*((gates+7)//8)),
+              ('u_tilde', 128), ('masked_witness', witness), ('coefficients', 192),
+              ('decommitment', opening), ('challenge', 32), ('iv_pre', 16),
+              ('salt', 32), ('counter', 4))
+    expected = {('candidate','registration'):160148, ('candidate','vote'):233012,
+                ('comparator','registration'):109498, ('comparator','vote'):158074}
+    require(sum(n for _,n in fields) == expected[row,role], 'source proof dimension')
+    after = {p: hashlib.sha256((Path(root)/p).read_bytes()).hexdigest() for p in PINS}
+    require(before == after, 'proof layout source drift')
+    return fields
+
+
+@dataclass(frozen=True)
+class ReturnProjection:
+    """Clean XOR map into error flag, error last-u32, length-u64, proof bytes.
+
+    Input is exhaustion then fields in the given input order. Successful
+    counter/field lengths are guaranteed by the generating stages, matching
+    encode_as's row/salt/counter/length checks. Exhaustion returns no proof and
+    the source GrindingExhausted { last: 2^20-1 }. Auxiliary success never
+    changes the exhaustion tag. All caller targets may be nonzero initially.
+    """
+    fields: tuple
+    input_order: tuple
+    last_counter: int = (1 << 20)-1
+
+    def __post_init__(self):
+        require(type(self.fields) is tuple and type(self.input_order) is tuple, 'projection containers')
+        names = []
+        for item in self.fields:
+            require(type(item) is tuple and len(item) == 2, 'proof field')
+            name, count = item
+            require(type(name) is str and name and name not in names, 'proof field name')
+            integer(count, 1, 233012, 'proof field bytes')
+            names.append(name)
+        require(names and len(self.input_order) == len(names)
+                and all(type(n) is str for n in self.input_order)
+                and set(self.input_order) == set(names), 'proof input order')
+        integer(self.last_counter, 0, (1 << 32)-1, 'exhaustion last counter')
+        integer(self.proof_bytes, 1, 233012, 'proof bytes')
+
+    @property
+    def proof_bytes(self): return sum(n for _, n in self.fields)
+    @property
+    def input_bits(self): return 1+8*self.proof_bytes
+    @property
+    def output_bits(self): return 1+32+64+8*self.proof_bytes
+
+    def layout(self):
+        lengths, fields, cursor = dict(self.fields), {}, 1
+        for name in self.input_order:
+            fields[name] = (cursor, 8*lengths[name]); cursor += 8*lengths[name]
+        success = self.input_bits
+        output = success+1
+        return dict(exhausted=0, fields=fields, success=success, output=output,
+                    error=output, last=output+1, length=output+33,
+                    proof=output+97, size=output+self.output_bits)
+
+    def emit_clean(self):
+        """One explicit conditional copy per proof bit, with clean success work."""
+        p = self.layout()
+        yield ('x', p['success'])
+        yield ('cx', p['exhausted'], p['success'])
+        yield ('cx', p['exhausted'], p['error'])
+        for bit in range(32):
+            if (self.last_counter >> bit)&1: yield ('cx', p['exhausted'], p['last']+bit)
+        for bit in range(64):
+            if (self.proof_bytes >> bit)&1: yield ('cx', p['success'], p['length']+bit)
+        cursor = p['proof']
+        for name, count in self.fields:
+            start = p['fields'][name][0]
+            for bit in range(8*count): yield ('ccx', p['success'], start+bit, cursor+bit)
+            cursor += 8*count
+        yield ('cx', p['exhausted'], p['success'])
+        yield ('x', p['success'])
+
+    def resources(self):
+        return dict(gates=Cost(x=2, cx=3+self.last_counter.bit_count()+self.proof_bytes.bit_count(),
+                               ccx=8*self.proof_bytes).as_dict(),
+                    input_bits=self.input_bits, output_bits=self.output_bits, clean_work_bits=1,
+                    proof_bytes=self.proof_bytes, source_counter_validity_is_generation_premise=True,
+                    mathematical_return_envelope_bits=97, native_enum_wire_encoding_claimed=False,
+                    extra_decoder_or_challenge_comparison=False, auxiliary_outcome_ignored=True,
+                    ordinary_backend_reads=0, conditional_on_generated_source_fields=True,
+                    whole_request_history_cleanup_implemented=False,
+                    joint_oracle_adversary_projection_proved=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    profile_qualified=False, production_gate_changed=False)
+
+
+def actual_return(root, row, role):
+    """Source-bound serialization with distinct named input fields."""
+    fields = source_layout(root, row, role)
+    return ReturnProjection(fields, tuple(sorted(name for name, _ in fields)))

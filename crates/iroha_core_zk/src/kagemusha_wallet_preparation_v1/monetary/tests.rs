@@ -281,7 +281,7 @@ fn zero_send_fee_requires_authenticated_depth32_noop_for_empty_and_populated_map
         let root = tree.root();
         let (leaf, opening) = tree.non_membership(&fee.credit_id).unwrap();
         let preserve = SendFeeMapV1::Preserve { leaf, opening };
-        let (unchanged, native) = send_fee_map(&root, fee, preserve).unwrap();
+        let (unchanged, native) = send_fee_map(&root, fee, &preserve).unwrap();
         assert_eq!(unchanged, root);
         assert_eq!(native.leaf_slot, native.slot);
         assert_eq!(native.leaf_siblings, native.slot_siblings);
@@ -307,14 +307,14 @@ fn zero_send_fee_requires_authenticated_depth32_noop_for_empty_and_populated_map
                 siblings: [[0; 32]; 32],
             },
         };
-        assert_eq!(send_fee_map(&root, fee, dummy), Err(Error::Authority));
+        assert_eq!(send_fee_map(&root, fee, &dummy), Err(Error::Authority));
         let mut changed = opening;
         changed.siblings[31] = Fp::from(17).to_repr();
         assert_eq!(
             send_fee_map(
                 &root,
                 fee,
-                SendFeeMapV1::Preserve {
+                &SendFeeMapV1::Preserve {
                     leaf,
                     opening: changed
                 }
@@ -322,14 +322,14 @@ fn zero_send_fee_requires_authenticated_depth32_noop_for_empty_and_populated_map
             Err(Error::Authority)
         );
         assert_eq!(
-            send_fee_map(&Fp::from(19).to_repr(), fee, preserve),
+            send_fee_map(&Fp::from(19).to_repr(), fee, &preserve),
             Err(Error::Authority)
         );
         assert_eq!(
             send_fee_map(
                 &root,
                 KagemushaWalletFeeClaimLeafV1 { fee: 1, ..fee },
-                preserve
+                &preserve
             ),
             Err(Error::Authority),
             "a nonzero fee cannot select a no-op"
@@ -347,14 +347,14 @@ fn nonzero_send_fee_keeps_exact_insertion_and_zero_fee_rejects_it() {
         fee_schedule_digest: Fp::from(19).to_repr(),
     };
     let insert = tree.insert(fee.key(), fee.leaf_value().unwrap()).unwrap();
-    let (new_root, witness) = send_fee_map(&root, fee, SendFeeMapV1::Insert(insert)).unwrap();
+    let (new_root, witness) = send_fee_map(&root, fee, &SendFeeMapV1::Insert(insert)).unwrap();
     assert_eq!(new_root, tree.root());
     assert_eq!(witness, insertion(&insert).unwrap());
     assert_eq!(
         send_fee_map(
             &root,
             KagemushaWalletFeeClaimLeafV1 { fee: 0, ..fee },
-            SendFeeMapV1::Insert(insert)
+            &SendFeeMapV1::Insert(insert)
         ),
         Err(Error::Authority)
     );
@@ -479,17 +479,17 @@ fn quota_segments_use_complete_signed_windows_and_running_actual_usage_paths() {
 
 #[test]
 fn receive_result_proposals_bind_exact_burn_and_overflow() {
-    assert_eq!(proposed_receive_burn(9, 11, &[true; 5], false).unwrap(), 9);
-    assert_eq!(proposed_receive_burn(9, 11, &[true; 5], true).unwrap(), 20);
-    assert!(proposed_receive_burn(u128::MAX, 1, &[true; 5], true).is_err());
+    assert_eq!(proposed_receive_burn(9, 11, [true; 5], false).unwrap(), 9);
+    assert_eq!(proposed_receive_burn(9, 11, [true; 5], true).unwrap(), 20);
+    assert!(proposed_receive_burn(u128::MAX, 1, [true; 5], true).is_err());
     for owner in 0..5 {
         let mut results = [true; 5];
         results[owner] = false;
-        assert_eq!(proposed_receive_burn(9, 11, &results, false).unwrap(), 20);
-        assert!(proposed_receive_burn(u128::MAX, 1, &results, false).is_err());
+        assert_eq!(proposed_receive_burn(9, 11, results, false).unwrap(), 20);
+        assert!(proposed_receive_burn(u128::MAX, 1, results, false).is_err());
     }
     assert_eq!(
-        proposed_receive_burn(u128::MAX, 1, &[true; 5], false).unwrap(),
+        proposed_receive_burn(u128::MAX, 1, [true; 5], false).unwrap(),
         u128::MAX
     );
 }
@@ -505,12 +505,12 @@ fn receive_credit_route_preserves_first_and_binds_inserted_burn() {
             burned,
         };
         let record = entry.record(&mut tree).unwrap();
-        receive_credit_route(record, &old, &tree.root(), &entry).unwrap();
+        receive_credit_route(&record, &old, &tree.root(), &entry).unwrap();
         let changed = KagemushaWalletCreditDigestLeafV1 {
             burned: !burned,
             ..entry
         };
-        assert!(receive_credit_route(record, &old, &tree.root(), &changed).is_err());
+        assert!(receive_credit_route(&record, &old, &tree.root(), &changed).is_err());
         let changed = KagemushaWalletCreditDigestLeafV1 {
             payment_digest: Fp::from(10).to_repr(),
             ..changed
@@ -520,7 +520,7 @@ fn receive_credit_route_preserves_first_and_binds_inserted_burn() {
             present,
             KagemushaWalletCreditDigestRecordV1::Present { .. }
         ));
-        receive_credit_route(present, &tree.root(), &tree.root(), &changed).unwrap();
-        assert!(receive_credit_route(present, &tree.root(), &old, &changed).is_err());
+        receive_credit_route(&present, &tree.root(), &tree.root(), &changed).unwrap();
+        assert!(receive_credit_route(&present, &tree.root(), &old, &changed).is_err());
     }
 }

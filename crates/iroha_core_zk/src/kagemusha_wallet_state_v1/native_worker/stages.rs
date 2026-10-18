@@ -216,11 +216,12 @@ impl NativeFoldWorkerV1 {
         &self,
         route: OperationRoute,
         inputs: OperationInputsV1,
-        public: [Fp; 18],
+        public: &[Fp; 18],
         checkpoints: &[Vec<u8>],
         originals: &mut dyn OriginalSourceV1,
         cancellation: &Cancellation,
     ) -> Result<NativeStageProgressV1, Error> {
+        let public = *public;
         cancellation.check()?;
         let selected = proof(self.sources.route(route))?;
         Ok(match (selected.owner(), inputs) {

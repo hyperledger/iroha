@@ -1073,10 +1073,10 @@ fn stark_binding_air_terms(
     let digest = crate::stark::stark_open_verify_air_terms_digest_v1(&preimage)
         .expect("bounded OpenVerify binding preimage hashes into six Goldilocks lanes");
     let mut terms = Vec::with_capacity(8);
-    for (idx, value) in digest.words().into_iter().enumerate() {
-        let coeff = (idx as u64) + 3;
+    for (wire_index, value) in (0_u32..).zip(digest.words()) {
+        let coeff = u64::from(wire_index) + 3;
         terms.push(crate::stark::StarkCompositionTermV1 {
-            wire_index: idx as u32,
+            wire_index,
             value,
             coeff,
         });
@@ -1126,6 +1126,13 @@ pub fn stark_open_verify_air_public_digest_current(
 /// public statement digest is reconstructed from the outer envelope metadata,
 /// verifying-key hash, schema descriptor, and public input columns.
 #[cfg(feature = "zk-stark")]
+///
+/// # Errors
+///
+/// Returns an input error for an unsupported or mismatched backend, circuit
+/// or verifier key, including reserved semantic relations that require their
+/// own prover. Native AIR/FRI production and canonical encoding/decoding
+/// failures propagate with their original typed causes.
 pub fn prove_stark_fri_open_verify_envelope(
     backend: &str,
     circuit_id: &str,
@@ -1604,6 +1611,12 @@ pub enum PreverifyResult {
 /// This lightweight stage performs backend/tag admission, verifier-key binding
 /// checks, bounded envelope parsing where applicable, and batch deduplication.
 /// Full cryptographic verification is deferred to lane/overlay execution.
+///
+/// # Errors
+///
+/// Returns the original local verification refusal if bounded envelope
+/// decoding cannot complete. Completed admission, budget, key-binding and
+/// deduplication outcomes are returned as `Ok(PreverifyResult)`.
 pub fn preverify_with_budget(
     proof: &ProofBox,
     vk: Option<&VerifyingKeyBox>,
@@ -1894,6 +1907,12 @@ fn verify_stark_fri_open_verify_envelope_with_limits(
 /// A successful binding proof does not establish execution, witness privacy,
 /// ledger authority, or current registry activation. Application callers should
 /// use [`verify_for_relation`] to require the exact relation they intend to verify.
+///
+/// # Errors
+///
+/// Returns the original local refusal if native verifier initialization,
+/// canonical decoding or verification cannot complete. Unsupported backends
+/// and completed proof rejection return `Ok(false)`.
 pub fn verify_backend(
     backend: &str,
     proof: &ProofBox,
@@ -3990,6 +4009,12 @@ pub struct ZkVerifyGuardrails {
     pub stark_max_proof_bytes: usize,
 }
 /// Verify a backend and report the elapsed time.
+///
+/// # Errors
+///
+/// Propagates the original local refusal from [`verify_backend`] when the
+/// verification attempt cannot complete; completed rejection is a report
+/// whose `ok` field is `false`.
 pub fn verify_backend_with_timing(
     backend: &str,
     proof: &ProofBox,
@@ -4006,6 +4031,13 @@ pub fn verify_backend_with_timing(
 ///
 /// This helper exists to prevent accidentally accepting proofs for a backend that is
 /// compiled in but disabled at runtime.
+///
+/// # Errors
+///
+/// Returns the original local refusal if canonical decoding, native verifier
+/// initialization or verification cannot complete. Disabled backends, payload
+/// limit violations and completed rejection are returned as reports with
+/// `ok` set to `false`.
 pub fn verify_backend_with_timing_guardrails(
     backend: &str,
     proof: &ProofBox,
@@ -4188,8 +4220,10 @@ pub fn verify_backend_with_timing_guardrails(
         #[cfg(feature = "zk-stark")]
         {
             let started = Instant::now();
-            let mut limits = crate::stark::StarkVerifierLimits::default();
-            limits.max_envelope_bytes = guardrails.stark_max_proof_bytes;
+            let limits = crate::stark::StarkVerifierLimits {
+                max_envelope_bytes: guardrails.stark_max_proof_bytes,
+                ..crate::stark::StarkVerifierLimits::default()
+            };
             let ok =
                 verify_stark_fri_open_verify_envelope_with_limits(backend, proof, vk, &limits)?;
             return Ok(VerifyReport {

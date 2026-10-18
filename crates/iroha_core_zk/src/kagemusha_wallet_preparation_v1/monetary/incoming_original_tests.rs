@@ -362,7 +362,7 @@ impl PreparationV1<'_> {
                     &payer_bytes,
                     &cert_bytes,
                     None,
-                    maps,
+                    &maps,
                     Fp::from(203).to_repr(),
                     MemoryBudget::DEFAULT
                 )
@@ -377,7 +377,7 @@ impl PreparationV1<'_> {
                     &payer_bytes,
                     &cert_bytes,
                     None,
-                    maps,
+                    &maps,
                     Fp::from(203).to_repr(),
                     MemoryBudget::DEFAULT,
                 )
@@ -409,7 +409,7 @@ impl PreparationV1<'_> {
                 &payer_bytes,
                 &cert_bytes,
                 None,
-                maps,
+                &maps,
                 Fp::from(203).to_repr(),
                 MemoryBudget::DEFAULT
             )

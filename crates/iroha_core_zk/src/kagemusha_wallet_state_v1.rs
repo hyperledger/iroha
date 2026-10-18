@@ -667,7 +667,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             return Err(Error::Invalid("transition incarnation"));
         }
         let request = frozen.request()?;
-        let owner = TransitionOwner::new(frozen.credential.clone());
+        let owner = TransitionOwner::new(&frozen.credential);
         let lookup = self.custody.lookup(&c.body().operation_id)?;
         // A released Receive is recognized by its permanent credit identity even after its
         // completion was collected. Validate the original Payment below before returning its
@@ -822,7 +822,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let (_, _, digest) = marker.head().ok_or(Error::NoHead)?;
         let frozen = self.frozen(digest)?;
         self.status()?;
-        let owner = TransitionOwner::new(frozen.credential.clone());
+        let owner = TransitionOwner::new(&frozen.credential);
         let outcome = map_outcome(self.custody.advance(&owner, &frozen.request()?)?);
         if matches!(outcome, Completion::Complete(_)) {
             self.sync_manifest()?;

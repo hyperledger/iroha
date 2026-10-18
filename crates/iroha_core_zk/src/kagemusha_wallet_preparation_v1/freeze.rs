@@ -58,7 +58,10 @@ impl PreparedRecoveryV1 {
     /// Check an existing validated wrapper without drawing entropy or changing its opening.
     pub(crate) fn require_matches(&self, frozen: &FrozenTransition) -> Result<(), Error> {
         frozen.validate().map_err(|_| Error::Authority)?;
-        if self.credential != frozen.credential || self.body.body() != frozen.capsule.body() {
+        if self.credential != frozen.credential {
+            return Err(Error::Authority);
+        }
+        if self.body.body() != frozen.capsule.body() {
             return Err(Error::Authority);
         }
         Ok(())
@@ -100,7 +103,7 @@ fn map_openings(maps: &[IndexedInsert<Fp>]) -> Vec<Vec<u8>> {
 // Pure assembly is private and is never an acceptance path. Every public adapter
 // must pass the installed verifier before this capsule leaves PreparationV1.
 fn assemble(
-    credential: KagemushaWalletCredentialV1,
+    credential: &KagemushaWalletCredentialV1,
     input: CapsuleFields<'_>,
     proof: KagemushaWalletStepProofV1,
 ) -> Result<PreparedRecoveryV1, Error> {
@@ -112,7 +115,7 @@ fn assemble(
         if predecessor.manifest_digest != input.manifest
             || predecessor.source_capsule_digest != input.source
             || predecessor.source_statement.successor != input.statement.predecessor
-            || predecessor.credential != credential
+            || predecessor.credential != *credential
         {
             return Err(Error::Authority);
         }
@@ -152,13 +155,13 @@ fn assemble(
         output,
     };
     authority(credential.validate())?;
-    authority(body.successor_state.validate_for_credential(&credential))?;
-    authority(body.statement.validate_for_credential(&credential))?;
+    authority(body.successor_state.validate_for_credential(credential))?;
+    authority(body.statement.validate_for_credential(credential))?;
     if credential.body.wallet_id != body.wallet_id {
         return Err(Error::Authority);
     }
     Ok(PreparedRecoveryV1 {
-        credential,
+        credential: *credential,
         body: authority(body.freeze())?,
     })
 }
@@ -176,7 +179,7 @@ impl PreparationV1<'_> {
             return Err(Error::Authority);
         }
         self.statement_fields(owner, input.statement)?;
-        let frozen = assemble(owner.credential, input, proof)?;
+        let frozen = assemble(&owner.credential, input, proof)?;
         self.installed.verifier().verify_body_proofs_cancellable(
             frozen.body.body(),
             &frozen.credential,

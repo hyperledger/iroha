@@ -1,0 +1,185 @@
+"""Independent scalar census of frozen P0/P1 and the R1 per-item difference.
+
+This is a conditional source arithmetic review, not a new emitter/certificate.
+No gate stream, raw input parser, witness checker or physical execution is priced.
+"""
+from dataclasses import dataclass
+
+K = (76972, 539372, 76800, 0)
+P16 = b'PARL-SHAKE-V1\0\0\0'
+PREFIX = b'PARL/FAEST/v1'
+SUITE = b'KECCAK-F1600/2R-FWD/SEL-32X32-PREFIX/PAD-256/TAPE-112/CTR-U20-LE32/NS-PREFIX77/NF-1024/VAUTH-512/SALT-256/H5-SALT/LEAF-AFFINE-896'
+
+
+@dataclass
+class Census:
+    """Count fresh SSA history and serially shared clean kernel work."""
+    x: int = 0
+    cx: int = 0
+    ccx: int = 0
+    f: int = 0
+    history: int = 0
+    work: int = 0
+
+    def basic(self, kind, count=1):
+        assert type(count) is int and count >= 0
+        self.history += count
+        self.x += count * (kind in ('one', 'not'))
+        self.cx += count * dict(zero=0, one=0, copy=1, not_=1, xor=2, and_=0)[
+            kind + '_' if kind in ('not', 'and') else kind]
+        self.ccx += count * (kind == 'and')
+
+    def constant(self, raw):
+        assert type(raw) is bytes
+        self.history += 8 * len(raw)
+        self.x += sum(v.bit_count() for v in raw)
+        return len(raw)
+
+    def frame(self, tag, lengths):
+        # Independent reconstruction of only framing bytes, not their data.
+        header = len(tag).to_bytes(2, 'little') + tag + len(lengths).to_bytes(2, 'little')
+        prefixes = b''.join(n.to_bytes(4, 'little') for n in lengths)
+        self.constant(header + prefixes)
+        return len(header) + len(prefixes) + sum(lengths)
+
+    def hash(self, message, *, shake=False):
+        rate, pad = (136, 6) if shake else (72, 3)
+        blocks = message // rate + 1
+        self.history += 512
+        self.x += 2 * blocks * K[0] + 2 * pad
+        self.cx += 2 * blocks * K[1] + 32 * message + 512 + 2 * pad
+        self.ccx += 2 * blocks * K[2]
+        self.work = max(self.work, 1600 + 8 * message + pad + 1600 * blocks + 192086)
+        return 64
+
+    def backend(self, domain, output):
+        self.constant(bytes((domain,)))
+        self.history += 8 * output
+        self.cx += 8 * output
+        self.f += 2
+        self.work = max(self.work, 2112)
+
+    def finish(self, outputs):
+        gates = dict(x=2*self.x, cx=2*self.cx+outputs, ccx=2*self.ccx,
+                     base_xor_oracle_calls=2*self.f)
+        gates['elementary_gates'] = gates['x'] + gates['cx'] + 5*gates['ccx']
+        return dict(gates=gates, history_bits=self.history, clean_kernel_work_bits=self.work,
+                    total_clean_work_bits=self.history+self.work, output_bits=outputs)
+
+
+def profile(c, row, table):
+    """All fixed profile constants are charged, including both namespaces."""
+    tau, grind, opening, mult = {'candidate': (33, 8, 229, 704), 'comparator': (22, 6, 225, 696)}[row]
+    assert len(table) == {'candidate': 84304, 'comparator': 83704}[row]
+    crt = c.hash(c.constant(table), shake=True)
+    params = b''.join(v.to_bytes(2, 'little') for v in (256, tau, grind, opening, 7, mult))
+    dimensions = b''.join(v.to_bytes(4, 'little') for v in (35840, 72576, 53504, 108931))
+    lengths = (c.constant(P16), c.constant(b'FAEST-3.0'), c.constant(params), crt,
+               c.constant(dimensions), c.constant(SUITE))
+    assert c.frame(b'PARL/DESC/v1', lengths) == 286
+    c.hash(286)
+    for role in (b'REG', b'VOTE'):
+        c.hash(c.frame(b'PARL/NS/v1', (64, c.constant(role))))
+        c.constant(PREFIX)
+
+
+def public_block(c, tag):
+    c.constant(tag + P16 + bytes(48))
+    c.constant(b'\x1f\0\0\x80' + bytes(64))
+
+
+def p1(row, table, role, body=0, contexts=(0,)*6, count=0):
+    """Exact scalar count derived independently from the fixed framing call tree."""
+    c = Census()
+    profile(c, row, table)
+    if role == 'REG':
+        body_m = c.frame(b'PARL/BODY/v1', (c.constant(P16), body))
+        c.hash(body_m)
+        auth_m = c.frame(b'PARL/REG-AUTH/v1', (c.constant(P16), c.constant(b'REG'), 64,
+                                            body, *contexts, 64, 128))
+        c.hash(auth_m)
+        mu_m = c.frame(b'PARL/MU/REG/v1', (body, *contexts, 64, 128, 64))
+        assert (body_m, auth_m, mu_m) == (40+body, 343+body+sum(contexts), 314+body+sum(contexts))
+        public_block(c, b'PCR1'); public_block(c, b'PAU1')
+        outputs = 6376
+    else:
+        assert role == 'VOTE' and 3 <= count <= 1000
+        auth_m = c.frame(b'PARL/VOTE-AUTH/v1', (c.constant(P16), c.constant(b'VOTE'),
+                                            64, 64, 64, 64, 2, 128*count, 128, 1, 64))
+        c.hash(auth_m)
+        mu_m = c.frame(b'PARL/MU/VOTE/v1', (64, 64, 64, 2, 128*count, 128, 64, 1, 64))
+        assert (auth_m, mu_m) == (536+128*count, 506+128*count)
+        for tag in (b'PCR1', b'PNF1', b'PAV1'): public_block(c, tag)
+        outputs = 7976 + 1024*count
+    c.backend(8, 64); c.backend(4, 16)
+    return c.finish(outputs)
+
+
+def equality(c, width):
+    c.basic('one')
+    for kind in ('xor', 'not', 'and'): c.basic(kind, width)
+
+
+def p0(count):
+    """Exact P0 fresh-node count; LexLess is included as a clean kernel."""
+    assert type(count) is int and 3 <= count <= 1000
+    c = Census()
+    c.basic('zero')
+    for value in range(3):
+        c.constant(bytes((value,))); equality(c, 8); c.basic('xor')
+    c.basic('one'); c.basic('zero'); c.constant(bytes(2))
+    for i in range(1, count):
+        # Derive LexLess from 1024 steps: 2 NOT, 2 XOR, 3 AND plus 1/0.
+        c.history += 1
+        c.x += 2*(1+2048)
+        c.cx += 2*(2048+2*2048)+1
+        c.ccx += 2*3072
+        c.work = max(c.work, 2+7*1024)
+        c.basic('not', 2); c.basic('and'); c.constant(i.to_bytes(2, 'little'))
+        c.basic('xor', 32); c.basic('and', 16); c.basic('xor')
+    c.constant(count.to_bytes(2, 'little')); equality(c, 16)
+    message = c.frame(b'PARL/LIST/v1', (c.constant(P16), 64, 2, 128*count))
+    assert message == 114+128*count
+    c.hash(message); equality(c, 512)
+    c.basic('one'); c.basic('not')
+    c.basic('not', 5); c.basic('and', 10)
+    c.basic('zero', 3); c.basic('xor', sum(i.bit_count() for i in range(1, 6)))
+    c.basic('xor'); c.basic('and', 56)
+    return c.finish(60)
+
+
+def r1_item_delta():
+    """Derive the VOTE item increment from independent polynomial division.
+
+    One extra selector product needs one clean 256-bit product with its two
+    operand copies and one field XOR. Each of 1024 public bits adds a selection
+    and an XOR. Both forward and inverse traversals are included; R1's 322-bit
+    return width is unchanged. This uses the frozen source polynomial, not a
+    field-operation multiplier or an endpoint subtraction.
+    """
+    modulus = (1 << 256) | (1 << 10) | (1 << 5) | (1 << 2) | 1
+    product_cx = 0
+    for exponent in range(511):
+        polynomial = 1 << exponent
+        while polynomial.bit_length() > 256:
+            polynomial ^= modulus << (polynomial.bit_length() - 257)
+        product_cx += polynomial.bit_count()
+    cx = 2 * (product_cx + 2*512 + 1025*512)
+    ccx = 2 * (2*256*256 + 1024*256)
+    history = (1+1025+1024)*256
+    return dict(x=0, cx=cx, ccx=ccx, base_xor_oracle_calls=0,
+                elementary_gates=cx+5*ccx, history_bits=history,
+                total_clean_work_bits=history)
+
+
+R1_PER_ITEM = r1_item_delta()
+
+
+def reg_variable(body, contexts):
+    """Exact nonconstant clean gate terms, useful for direct finite envelopes."""
+    n = body + sum(contexts)
+    blocks = (40+body)//72 + 1 + (343+n)//72 + 1
+    pc = 3*body.bit_count() + 2*sum(v.bit_count() for v in contexts)
+    return dict(x=4*K[0]*blocks + 2*pc,
+                cx=4*K[1]*blocks + 64*(2*body+sum(contexts)),
+                ccx=4*K[2]*blocks)

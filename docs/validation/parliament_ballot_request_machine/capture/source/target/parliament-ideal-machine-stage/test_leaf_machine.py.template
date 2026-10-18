@@ -1,0 +1,151 @@
+"""Source-shaped leaf tests with independent polynomial and byte references."""
+from collections import Counter
+from pathlib import Path
+import random
+import unittest
+
+from bit_ir import bits, unpack
+from field_kernel import FieldKernel, load_field
+from leaf_machine import LeafScan, leaf_block
+from schedule import load_predicate
+from test_prg_machine import ToyCipher, reference_cipher
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def product_mod(left, right, modulus):
+    """Integer carryless multiplication plus degree-driven polynomial division."""
+    product = 0
+    for i in range(left.bit_length()):
+        if left & (1 << i):
+            product ^= right << i
+    while product.bit_length() >= modulus.bit_length():
+        product ^= modulus << (product.bit_length() - modulus.bit_length())
+    return product
+
+
+def reference_leaf(key, iv, tweak, h0, marked, hidden):
+    """The actual extended byte split, independent of the bit-IR implementation."""
+    if marked:
+        return 0, hidden
+    iv_bytes = iv.to_bytes(16, "little")
+    expanded = b""
+    for counter in range(9):
+        low = (int.from_bytes(iv_bytes[:4], "little") + counter) % (1 << 32)
+        high = (int.from_bytes(iv_bytes[12:], "little") + tweak) % (1 << 32)
+        raw = low.to_bytes(4, "little") + iv_bytes[4:12] + high.to_bytes(4, "little")
+        expanded += reference_cipher(key, int.from_bytes(raw, "little")).to_bytes(16, "little")
+    seed = int.from_bytes(expanded[:32], "little")
+    b0, b1 = int.from_bytes(expanded[32:128], "little"), int.from_bytes(expanded[128:], "little")
+    c0 = product_mod(seed, h0 % (1 << 768), (1 << 768) | (1 << 19) | (1 << 17) | 17) ^ b0
+    c1 = (product_mod(seed, h0 >> 768, (1 << 256) | (1 << 10) | (1 << 5) | 5) % (1 << 128)) ^ b1
+    return seed, c0 | (c1 << 768)
+
+
+class LeafMachineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_field(ROOT)
+        cls.tripled = FieldKernel(cls.module, "gf256_mul_tripled")
+        cls.field = FieldKernel(cls.module, "gf256_mul")
+        cls.geometry_module = load_predicate(ROOT)
+
+    def test_field_adapter_exact_pins_and_counts(self):
+        expected = {"gf256_mul": (131072, 1298), "gf256_mul_u64": (32768, 508),
+                    "gf256_mul_tripled": (393216, 1788)}
+        for name, (toffoli, cnot) in expected.items():
+            kernel = FieldKernel(self.module, name)
+            self.assertEqual((kernel.cost.ccx, kernel.cost.cx), (toffoli, cnot))
+            g = kernel.geometry
+            for left, right in ((0, 0), (1, 1), (1 << (g.p - 1), 1 << (g.q - 1))):
+                self.assertEqual(unpack(kernel.evaluate(bits(left, g.p) + bits(right, g.q))),
+                                 product_mod(left, right, g.modulus))
+        with self.assertRaises(ValueError):
+            FieldKernel(self.module, "not-a-kernel")
+        with self.assertRaises(ValueError):
+            tuple(self.field.emit((0,) * 512, tuple(range(512, 768)), tuple(range(768, 1279))))
+
+    def test_actual_affine_leaf_byte_splits_and_hidden_zero_seed(self):
+        c = leaf_block(ToyCipher(), self.tripled, self.field)
+        rng = random.Random(31823)
+        for key, iv, tweak, h0 in [(0, (1 << 128) - 1, 61461, 0),
+                                    ((1 << 256) - 1, 0, 0xffffffff, (1 << 1024) - 1)] + [
+                                        (rng.getrandbits(256), rng.getrandbits(128), rng.randrange(1 << 32), rng.getrandbits(1024))
+                                        for _ in range(6)]:
+            hidden = rng.getrandbits(896)
+            for marked in (0, 1):
+                values = bits(key, 256) + bits(iv, 128) + bits(tweak, 32) + bits(h0, 1024) + (marked,) + bits(hidden, 896)
+                got = c.evaluate(values)
+                self.assertEqual((unpack(got[:256]), unpack(got[256:])),
+                                 reference_leaf(key, iv, tweak, h0, marked, hidden))
+
+    def test_actual_field_clean_leaf_emitter_full_joint_map_and_count(self):
+        c = leaf_block(ToyCipher(), self.tripled, self.field)
+        key, iv, tweak, h0, hidden = 11, (1 << 128) - 1, 12, (1 << 1023) | (1 << 767) | 29, 7
+        values = bits(key, 256) + bits(iv, 128) + bits(tweak, 32) + bits(h0, 1024) + (0,) + bits(hidden, 896)
+        seed, com = reference_leaf(key, iv, tweak, h0, 0, hidden)
+        output_start = c.inputs + c.derived + c.work
+        z = sum(1 << i for i in range(0, 1152, 11))
+        state = unpack(values) | (z << output_start)
+        before, census = state, Counter()
+        # Independent packed basis interpreter avoids relying on apply_gates.
+        for gate in c.emit_clean():
+            census[gate[0]] += 1
+            target, controls = gate[-1], gate[1:-1]
+            if all((state >> control) & 1 for control in controls):
+                state ^= 1 << target
+        self.assertEqual(state & ((1 << c.inputs) - 1), before & ((1 << c.inputs) - 1))
+        self.assertEqual((state >> c.inputs) & ((1 << (c.derived + c.work)) - 1), 0)
+        self.assertEqual(state >> output_start, z ^ seed ^ (com << 256))
+        counts = c.clean_resources()["gates"]
+        for kind in ("x", "cx", "ccx"):
+            self.assertEqual(census[kind], counts[kind])
+
+    def test_mixed_vector_order_and_heap_bijection(self):
+        for tau1 in (0, 1, 2):
+            g = self.geometry_module.Geometry(2, 3, tau1, 1, (2 + tau1) * 4 - 1)
+            scan = LeafScan(g, ToyCipher(), self.tripled, self.field)
+            positions, pairs = [], []
+            for vector in range(g.tau):
+                half = 1 << (g.k - 1)
+                positions.extend(g.leaves - 1 + g.tau * j + vector for j in range(half))
+                pairs.extend((vector, j) for j in range(half))
+                if vector < tau1:
+                    positions.extend(g.leaves - 1 + g.tau * half + g.tau1 * j + vector for j in range(half))
+                    pairs.extend((vector, half + j) for j in range(half))
+            self.assertEqual(sorted(positions), list(range(g.leaves - 1, 2 * g.leaves - 1)))
+            self.assertEqual([scan.coordinates(i) for i in range(g.leaves)],
+                             [(*pair, position) for pair, position in zip(pairs, positions)])
+            # Both vectors have different cached commitments; all keys zero is legal.
+            marks = [0] * (2 * g.leaves - 1)
+            for vector, index in ((0, 0), (1, 2)):
+                marks[positions[pairs.index((vector, index))]] = 1
+            keys, iv, h0, hidden = [0] * len(marks), 39, 31, [9, 73]
+            got = scan.evaluate(marks, keys, iv, h0, hidden)
+            wanted = [reference_leaf(keys[node], iv, g.leaves - 1 + vector, h0, marks[node], hidden[vector])
+                      for vector, _, node in (scan.coordinates(i) for i in range(g.leaves))]
+            self.assertEqual(got, wanted)
+
+    def test_real_row_lazy_frame_geometry_and_nonqualification(self):
+        for row in ("candidate", "comparator"):
+            g = self.geometry_module.row(row)
+            scan = LeafScan(g, ToyCipher(), self.tripled, self.field)
+            p = scan.layout()
+            self.assertNotIn("frames", p)
+            for flat in (0, 1, g.leaves // 2, g.leaves - 1):
+                inputs, start = scan.frame(p, flat)
+                vector, _, node = scan.coordinates(flat)
+                self.assertEqual(len(set(inputs)), 2337)
+                self.assertEqual(inputs[1440], node)
+                self.assertLess(max(inputs), start)
+                self.assertEqual(inputs[384:416], tuple(range(p["tweaks_start"] + 32 * vector,
+                                                             p["tweaks_start"] + 32 * (vector + 1))))
+            resource = scan.resources()
+            self.assertEqual(resource["clean_concrete_aes_calls"], 18 * g.leaves)
+            self.assertEqual(resource["clean_field_mul_calls"], 2 * g.leaves)
+            self.assertFalse(resource["complete_B1_coverage"])
+            self.assertEqual(next(scan.emit_clean())[0], "x")
+
+
+if __name__ == "__main__":
+    unittest.main()

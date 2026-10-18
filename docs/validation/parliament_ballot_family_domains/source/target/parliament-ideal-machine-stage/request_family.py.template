@@ -1,0 +1,177 @@
+"""Typed vote-family adapters into one full-usize mathematical result union.
+
+Family selection is classical and uses authenticated metadata of the same
+typed request. These adapters do not decode raw requests or implement coherent
+selection among lengths. Native Rust enum memory is not the result encoding.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost,integer,require
+from content_request import ContentRequest
+from request_dispatch import VoteHeaderDispatch,source_bound_dispatch
+from return_machine import actual_return
+
+
+def common_output_regions(proof_bytes):
+    """tag2, code3, usize64 order/actual, declared16, vote8, last32, length64."""
+    integer(proof_bytes,1,233012,'family proof capacity')
+    cursor=0;out={}
+    for name,width in (('tag',2),('error_code',3),('order_index',64),('actual_length',64),
+                       ('declared_count',16),('vote_value',8),('last_counter',32),
+                       ('proof_length',64),('proof',8*proof_bytes)):
+        out[name]=(cursor,width);cursor+=width
+    require(cursor==253+8*proof_bytes,'common result inventory')
+    return out
+
+
+def content_output_wire(local,proof_bytes):
+    """Inject the old157+proof bits, inserting zero contributions after each u16."""
+    integer(proof_bytes,1,233012,'content proof capacity')
+    integer(local,0,156+8*proof_bytes,'content result wire')
+    if local<21:return local
+    if local<37:return local+48
+    return local+96
+
+
+@dataclass(frozen=True)
+class ContentFamily:
+    """Relocate bounded ContentRequest results; no extra arithmetic or gates."""
+    request:ContentRequest
+
+    def __post_init__(self):
+        require(type(self.request) is ContentRequest,'bounded content family')
+        require(self.request.layout()['output_bits']==157+8*self.proof_bytes,
+                'content result union shape')
+
+    @property
+    def proof_bytes(self):return self.request.base.returns.proof_bytes
+
+    def layout(self):
+        p=self.request.layout()
+        p['output_bits']+=96
+        for name in ('retained','work','size'):p[name]+=96
+        return p
+
+    def emit(self,*,inverse=False):
+        require(type(inverse) is bool,'content family inverse')
+        old=self.request.layout()
+        def wire(local):
+            integer(local,0,old['size']-1,'content family wire')
+            if local<old['output']:return local
+            if local<old['retained']:
+                return old['output']+content_output_wire(local-old['output'],self.proof_bytes)
+            return local+96
+        for gate in self.request.emit(inverse=inverse):
+            yield (gate[0],*(wire(w) for w in gate[1:]))
+
+    def resources(self):
+        out=self.request.resources()
+        out['caller_output_bits']+=96;out['total_logical_bits']+=96
+        out.update(common_output_regions=common_output_regions(self.proof_bytes),
+            mathematical_typed_union=True,native_enum_wire_encoding_claimed=False,
+            usize_payload_bits=64,zero_extended_content_usize_fields=('order_index','actual_length'),
+            extra_output_bits=96,extra_gates=0,
+            zero_extension_justified_by_source_list_bound=1000,
+            classical_typed_family_selection_external=True,
+            raw_descriptor_authentication_implemented=False,
+            complete_family_dispatch_composed=False)
+        return out
+
+
+@dataclass(frozen=True)
+class RejectedVoteFamily:
+    """Fixed n outside3..1000, retaining every typed input bit untouched.
+
+The actual Vec length is the public family parameter, not the declared size
+field. Its64-bit constant is prepared explicitly for the header circuit. The
+same-n authenticated descriptor premise binds this parameter to the list.
+No list read/allocation, material sampling, F call, log or counter access occurs.
+"""
+    list_count:int
+    proof_bytes:int
+
+    def __post_init__(self):
+        integer(self.list_count,0,(1<<64)-1,'native usize64 list length')
+        require(not 3<=self.list_count<=1000,'rejected-size family required')
+        common_output_regions(self.proof_bytes)
+
+    @property
+    def input_bits(self):return 8*451+1024*self.list_count
+
+    @property
+    def output_bits(self):return 253+8*self.proof_bytes
+
+    def input_regions(self):
+        cursor=0;out={}
+        for name,width in (('body_digest',512),('scope',512),('list_digest',512),
+            ('declared_count',16),('list',1024*self.list_count),('nullifier',1024),
+            ('authorization',512),('vote',8),('policy_hash',512)):
+            out[name]=(cursor,width);cursor+=width
+        require(cursor==self.input_bits,'typed rejected input inventory')
+        return out
+
+    def layout(self):
+        h=VoteHeaderDispatch().block
+        length=self.input_bits
+        work=length+64
+        result=work+h.derived+h.work
+        output=result+76
+        return dict(input_bits=self.input_bits,vote=self.input_regions()['vote'][0],
+                    prepared_length=length,header_work=work,header_result=result,
+                    output=output,output_bits=self.output_bits,size=output+self.output_bits)
+
+    def emit(self,*,inverse=False):
+        # The complete map is clean XOR into the return, hence self-inverse.
+        require(type(inverse) is bool,'rejected family inverse')
+        h=VoteHeaderDispatch();b=h.block;p=self.layout();regions=common_output_regions(self.proof_bytes)
+        def constants():
+            for bit in range(64):
+                if (self.list_count>>bit)&1:yield ('x',p['prepared_length']+bit)
+        def header():
+            def wire(local):
+                if local<8:return p['vote']+local
+                if local<72:return p['prepared_length']+local-8
+                if local<72+b.derived+b.work:return p['header_work']+local-72
+                return p['header_result']+local-(72+b.derived+b.work)
+            for gate in h.emit_clean():yield (gate[0],*(wire(w) for w in gate[1:]))
+        yield from constants()
+        yield from header()
+        # Canonical header payloads are already zero on continuation. At these
+        # fixed rejected sizes, continuation is always zero for every vote byte.
+        yield ('x',p['output']+1)
+        yield ('cx',p['header_result'],p['output']+1)
+        for name,old_start,width in (('error_code',1,3),('actual_length',4,64),('vote_value',68,8)):
+            for bit in range(width):
+                yield ('cx',p['header_result']+old_start+bit,p['output']+regions[name][0]+bit)
+        yield from header()
+        yield from constants()
+
+    def resources(self):
+        p=self.layout();header=VoteHeaderDispatch().resources();g=header['gates']
+        cost=Cost(g['x'],g['cx'],g['ccx'],g['base_xor_oracle_calls']).times(2)
+        cost+=Cost(x=1+2*self.list_count.bit_count(),cx=76)
+        return dict(gates=cost.as_dict(),borrowed_typed_input_bits=self.input_bits,
+            borrowed_list_storage_bits=1024*self.list_count,borrowed_nonlist_storage_bits=3608,
+            source_list_content_bits_read=0,list_storage_allocated_or_copied=False,
+            prepared_header_length=self.list_count,prepared_length_bits=64,
+            header_clean_work_bits=header['total_clean_work_bits'],header_result_work_bits=76,
+            clean_work_bits=p['output']-self.input_bits,caller_output_bits=self.output_bits,
+            local_logical_bits=p['size'],persistent_log_and_counter_external_untouched=True,
+            common_output_regions=common_output_regions(self.proof_bytes),
+            usize_payload_bits=64,source_native_usize64_descriptor_premise=True,
+            same_typed_payload_and_family_length_authenticated_upstream=True,
+            fixed_public_out_of_range_length=True,private_random_coins_sampled=0,
+            source_backend_reads=0,mathematical_typed_union=True,native_enum_wire_encoding_claimed=False,
+            classical_typed_family_selection_external=True,raw_descriptor_authentication_implemented=False,
+            complete_family_dispatch_composed=False,complete_simulator_coverage=False,
+            complete_resource_vector=False,actual_input_entry_bridge=False,
+            profile_qualified=False,production_gate_changed=False)
+
+
+def actual_rejected_vote(root,row,list_count):
+    """Source-bound proof envelope with a fixed typed out-of-range list length."""
+    integer(list_count,0,(1<<64)-1,'native usize64 list length')
+    require(not 3<=list_count<=1000,'rejected-size family required')
+    source_bound_dispatch(root)
+    returned=actual_return(root,row,'vote')
+    return RejectedVoteFamily(list_count,returned.proof_bytes)

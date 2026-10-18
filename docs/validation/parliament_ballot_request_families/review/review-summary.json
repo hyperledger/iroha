@@ -1,0 +1,16 @@
+{
+  "capture_manifest_sha256": "946d8e84c8a8bd676f79d24dc77aa8c5758b762bd06ca040b94e0e14756133a0",
+  "capture_receipt_sha256": "692e61e2e3234bb5ab598865cf44a3de2628f26a0b515038a52a3a045371502e",
+  "complete_resource_vector": false,
+  "findings": [],
+  "independent_cryptographic_review": false,
+  "production_gate_changed": false,
+  "readme_sha256": "b33dac4c5bc951957f02ad62d3edb42635cfcd353f085251f1db9e5a97ea207b",
+  "review": "conditional request-family arithmetic",
+  "source_code_sha256": {
+    "capture.py": "bc0e356bce503ee0b502fa1c4a931efe13000ddd1e47501960ed7ae399e2c86a",
+    "test_review.py": "02e07db849de4da4c53b2e4c872fae879bc857059f22e72acd266913d11d40cf"
+  },
+  "source_count": 167,
+  "tests": 42
+}

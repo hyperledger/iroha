@@ -1,0 +1,99 @@
+"""Source-byte, frame and public preparation component controls; no qualification."""
+from pathlib import Path
+import hashlib
+import unittest
+from unittest import mock
+
+from bit_ir import bits,unpack,apply_gates
+from public_hash import load_public_keccak
+from public_machine import PublicBuilder,BackendPrefix,table_bytes,profile_reference,frame_bytes,P16,PREFIX
+
+ROOT=Path(__file__).resolve().parents[2]
+
+
+class PublicMachineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):cls.module=load_public_keccak(ROOT)
+
+    def test_actual_crt_codec_and_profile_golden_digests(self):
+        expected={
+          'candidate':(84304,'a9c572a7c8f2cc735218123c6456e1e016e78b06aa2d03192ef801bf7fdb93ae014a9e16555e6bad81382c630467e45e76c9b1c3948f9dfea41a7a1435bcffea','01ed9f564981a07ab383d513c4e816f5a76542c7220eaaa36742f8eb0c51341da089e154a815f92fcd18353077cde18f435dfaa0834b65fdf3a658b0accdda28'),
+          'comparator':(83704,'792f81bf102cac84b7c559595342b6b23ad27dab9065651feb928dd0a649a3f4bd1da3d350fbd4c62f1707d441d46ef084430b5f00b53a1af7088281d6a7386e','4c38e45d70b5aa1295c107fe9035e82b179d8ec10ab7acf59b6955e0b22f9fdb09976788745a0fbb4ee1cabd840a12d9e746bf76b3998ab72c06e019bb889412')}
+        for row,(size,crt,digest) in expected.items():
+            with self.subTest(row=row):
+                raw=table_bytes(ROOT,row)
+                self.assertEqual(len(raw),size)
+                self.assertEqual(raw[:16],b'FAESTCRT'+(256).to_bytes(8,'little'))
+                value=profile_reference(ROOT,row)
+                self.assertEqual(value['crt'].hex(),crt)
+                self.assertEqual(value['digest'].hex(),digest)
+                self.assertEqual(len(value['descriptor']),286)
+                self.assertNotEqual(value['namespaces'][b'REG'],value['namespaces'][b'VOTE'])
+                self.assertNotEqual(hashlib.sha3_512(raw).digest(),value['crt'])
+
+    def test_crt_late_source_drift_and_profile_row_refuse(self):
+        original=Path.read_bytes;reads=0
+        def late(path):
+            nonlocal reads
+            data=original(path)
+            if str(path).endswith('faest_256f_tables.rs'):
+                reads+=1
+                if reads>1:return data+b'\n'
+            return data
+        with mock.patch.object(Path,'read_bytes',late),self.assertRaises(ValueError):table_bytes(ROOT,'candidate')
+        self.assertEqual(reads,2)
+        for invalid in ('BAD',False,[],0):
+            with self.assertRaises(ValueError):profile_reference(ROOT,invalid)
+
+    def test_frame_constants_and_real_clean_scatter(self):
+        p=PublicBuilder(16,self.module)
+        frame=p.frame(b'TAG',(tuple(range(8)),tuple(range(8,16))))
+        block=p.b.finish(frame)
+        raw=b'\xab\xcd'
+        source=tuple(v for byte in raw for v in bits(byte,8))
+        expected=b'\x03\x00TAG\x02\x00\x01\x00\x00\x00\xab\x01\x00\x00\x00\xcd'
+        self.assertEqual(frame_bytes(b'TAG',(b'\xab',b'\xcd')),expected)
+        self.assertEqual(unpack(block.evaluate(source)).to_bytes(len(expected),'little'),expected)
+        output=[(i%3)==0 for i in range(len(frame))]
+        memory=list(source)+[0]*(block.derived+block.work)+list(map(int,output))
+        before=memory[:]
+        apply_gates(memory,block.emit_clean())
+        self.assertEqual(memory[:16],list(source))
+        self.assertEqual(memory[16:16+block.derived+block.work],[0]*(block.derived+block.work))
+        self.assertEqual(memory[-len(frame):],[int(v)^int((expected[i//8]>>(i%8))&1) for i,v in enumerate(output)])
+        apply_gates(memory,block.emit_clean());self.assertEqual(memory,before)
+
+    def test_relation_public_block_exact_zero_secret_and_little_endian(self):
+        p=PublicBuilder(512,self.module)
+        wires=p.public_block(b'PNF1',tuple(range(512)))
+        block=p.b.finish(wires)
+        raw=bytes(range(64));source=tuple(v for byte in raw for v in bits(byte,8))
+        expected=b'PNF1'+P16+bytes(48)+raw+b'\x1f\0\0\x80'+bytes(64)
+        self.assertEqual(len(expected),200)
+        self.assertEqual(unpack(block.evaluate(source)).to_bytes(200,'little'),expected)
+
+    def test_shared_f_prefix_charges_full_response_and_repeats_same_address(self):
+        seen=[]
+        def oracle(raw):seen.append(raw);return hashlib.shake_256(b'TOY'+raw).digest(264)
+        kernel=BackendPrefix(2,128,oracle)
+        self.assertEqual(kernel.cost.base_calls,2)
+        result=kernel.evaluate(bits(0x0408,16));self.assertEqual(seen,[b'\x08\x04'])
+        self.assertEqual(unpack(result).to_bytes(16,'little'),hashlib.shake_256(b'TOY\x08\x04').digest(16))
+        gates=list(kernel.emit(tuple(range(16)),tuple(range(16,144)),tuple(range(144,2256))))
+        self.assertEqual(gates[0],gates[-1]);self.assertEqual(gates[0][0],'F:2')
+        self.assertEqual(len(gates),130)
+        self.assertEqual(len(gates[0])-1,16+2112)
+        with self.assertRaises(ValueError):next(kernel.emit(tuple(range(16)),tuple(range(128)),tuple(range(144,2256))))
+
+    def test_public_shape_and_frame_refusals(self):
+        with self.assertRaises(ValueError):table_bytes(ROOT,'bogus')
+        with self.assertRaises(ValueError):frame_bytes(b'\xff',())
+        with self.assertRaises(ValueError):frame_bytes(b'T',(bytearray(1),))
+        p=PublicBuilder(1,self.module)
+        with self.assertRaises(ValueError):p.frame(b'T',((0,)*7,))
+        with self.assertRaises(ValueError):p.public_block(b'A',(0,)*512)
+        with self.assertRaises(ValueError):p.backend((0,)*8,16,9)
+        with self.assertRaises(ValueError):BackendPrefix(True,512)
+
+
+if __name__=='__main__':unittest.main()

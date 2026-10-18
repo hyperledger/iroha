@@ -2258,8 +2258,7 @@ fn lane_proof_original_namespace_survives_funded_refusal_and_identical_replaceme
     for _ in 0..2 {
         let error = reader
             .poll()
-            .err()
-            .expect("original native lane namespace must remain retained");
+            .expect_err("original native lane namespace must remain retained");
         assert_eq!(error.io_kind(), io::ErrorKind::Other);
         assert_eq!(reader.cursor.next_frontier().unwrap(), expected);
         assert_eq!(
@@ -2309,8 +2308,7 @@ fn completed_lane_proof_rejoins_original_namespace_before_attribution() {
     let retained = substitute_lane_namespace(&path);
     let error = reader
         .verify(&proof)
-        .err()
-        .expect("original native lane namespace must remain retained");
+        .expect_err("original native lane namespace must remain retained");
     assert!(
         matches!(error, super::super::NativeEvidenceError::Source(ref error)
         if error.io_kind() == io::ErrorKind::Other)

@@ -278,49 +278,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
             })
         }))
     }
-    fn musubi_archive_locations_get(
-        &self,
-        key: &MusubiArchiveLocationKeyV1,
-    ) -> Result<Option<&MusubiArchiveLocationV1>, Self::Error> {
-        self.musubi_archive_locations_len()?;
-        let table = self
-            .data
-            .musubi_archive_locations
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup(key, work, limit),
-            OriginalMusubiImage::Predecessor => table.predecessor_lookup(key, work, limit),
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_archive_locations",
-            original,
-        })
-    }
-    fn musubi_archive_locations_get_retained(
-        &self,
-        key: &MusubiArchiveLocationKeyV1,
-        query: &mut LookupCursor,
-    ) -> Result<Option<&MusubiArchiveLocationV1>, Self::Error> {
-        self.musubi_archive_locations_len()?;
-        let table = self
-            .data
-            .musubi_archive_locations
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup_retained(key, query, work, limit),
-            OriginalMusubiImage::Predecessor => {
-                table.predecessor_lookup_retained(key, query, work, limit)
-            }
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_archive_locations",
-            original,
-        })
-    }
     fn musubi_locations_by_pin_len(&self) -> Result<usize, Self::Error> {
         let table = self
             .data
@@ -338,31 +295,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
             return Err(Self::Error::Incomplete);
         }
         Ok(count)
-    }
-    fn musubi_locations_by_pin_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<(&ManifestDigest, &MusubiPinLocationReferenceV1), Self::Error>,
-        >,
-        Self::Error,
-    > {
-        let count = self.musubi_locations_by_pin_len()?;
-        let table = self
-            .data
-            .musubi_locations_by_pin
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        Ok((0..count).map(move |index| {
-            self.with_work(|work, limit| match self.image {
-                OriginalMusubiImage::Current => table.current_row(index, work, limit),
-                OriginalMusubiImage::Predecessor => table.predecessor_row(index, work, limit),
-            })
-            .map_err(|original| Self::Error::Field {
-                field: "musubi_locations_by_pin",
-                original,
-            })
-        }))
     }
     fn musubi_locations_by_pin_get(
         &self,
@@ -425,29 +357,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
         }
         Ok(count)
     }
-    fn musubi_locations_by_provider_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&MusubiProviderLocationKeyV1, &()), Self::Error>>,
-        Self::Error,
-    > {
-        let count = self.musubi_locations_by_provider_len()?;
-        let table = self
-            .data
-            .musubi_locations_by_provider
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        Ok((0..count).map(move |index| {
-            self.with_work(|work, limit| match self.image {
-                OriginalMusubiImage::Current => table.current_row(index, work, limit),
-                OriginalMusubiImage::Predecessor => table.predecessor_row(index, work, limit),
-            })
-            .map_err(|original| Self::Error::Field {
-                field: "musubi_locations_by_provider",
-                original,
-            })
-        }))
-    }
     fn musubi_locations_by_provider_get(
         &self,
         key: &MusubiProviderLocationKeyV1,
@@ -508,37 +417,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
             return Err(Self::Error::Incomplete);
         }
         Ok(count)
-    }
-    fn musubi_locations_by_replication_order_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<
-                (
-                    &ReplicationOrderId,
-                    &MusubiReplicationOrderLocationReferenceV1,
-                ),
-                Self::Error,
-            >,
-        >,
-        Self::Error,
-    > {
-        let count = self.musubi_locations_by_replication_order_len()?;
-        let table = self
-            .data
-            .musubi_locations_by_replication_order
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        Ok((0..count).map(move |index| {
-            self.with_work(|work, limit| match self.image {
-                OriginalMusubiImage::Current => table.current_row(index, work, limit),
-                OriginalMusubiImage::Predecessor => table.predecessor_row(index, work, limit),
-            })
-            .map_err(|original| Self::Error::Field {
-                field: "musubi_locations_by_replication_order",
-                original,
-            })
-        }))
     }
     fn musubi_locations_by_replication_order_get(
         &self,
@@ -802,49 +680,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
             })
         }))
     }
-    fn musubi_public_directory_get(
-        &self,
-        key: &MusubiPackageSelectorV1,
-    ) -> Result<Option<&MusubiOrderedPackageEntryV1>, Self::Error> {
-        self.musubi_public_directory_len()?;
-        let table = self
-            .data
-            .musubi_public_directory
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup(key, work, limit),
-            OriginalMusubiImage::Predecessor => table.predecessor_lookup(key, work, limit),
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_public_directory",
-            original,
-        })
-    }
-    fn musubi_public_directory_get_retained(
-        &self,
-        key: &MusubiPackageSelectorV1,
-        query: &mut LookupCursor,
-    ) -> Result<Option<&MusubiOrderedPackageEntryV1>, Self::Error> {
-        self.musubi_public_directory_len()?;
-        let table = self
-            .data
-            .musubi_public_directory
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup_retained(key, query, work, limit),
-            OriginalMusubiImage::Predecessor => {
-                table.predecessor_lookup_retained(key, query, work, limit)
-            }
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_public_directory",
-            original,
-        })
-    }
     fn musubi_releases_len(&self) -> Result<usize, Self::Error> {
         let table = self
             .data
@@ -1033,29 +868,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
         }
         Ok(count)
     }
-    fn pin_manifests_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&ManifestDigest, &PinManifestRecord), Self::Error>>,
-        Self::Error,
-    > {
-        let count = self.pin_manifests_len()?;
-        let table = self
-            .data
-            .pin_manifests
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        Ok((0..count).map(move |index| {
-            self.with_work(|work, limit| match self.image {
-                OriginalMusubiImage::Current => table.current_row(index, work, limit),
-                OriginalMusubiImage::Predecessor => table.predecessor_row(index, work, limit),
-            })
-            .map_err(|original| Self::Error::Field {
-                field: "pin_manifests",
-                original,
-            })
-        }))
-    }
     fn pin_manifests_get(
         &self,
         key: &ManifestDigest,
@@ -1117,29 +929,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
         }
         Ok(count)
     }
-    fn provider_owners_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<Item = Result<(&ProviderId, &AccountId), Self::Error>>,
-        Self::Error,
-    > {
-        let count = self.provider_owners_len()?;
-        let table = self
-            .data
-            .provider_owners
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        Ok((0..count).map(move |index| {
-            self.with_work(|work, limit| match self.image {
-                OriginalMusubiImage::Current => table.current_row(index, work, limit),
-                OriginalMusubiImage::Predecessor => table.predecessor_row(index, work, limit),
-            })
-            .map_err(|original| Self::Error::Field {
-                field: "provider_owners",
-                original,
-            })
-        }))
-    }
     fn provider_owners_get(&self, key: &ProviderId) -> Result<Option<&AccountId>, Self::Error> {
         self.provider_owners_len()?;
         let table = self
@@ -1197,31 +986,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
             return Err(Self::Error::Incomplete);
         }
         Ok(count)
-    }
-    fn replication_orders_rows(
-        &self,
-    ) -> Result<
-        impl ExactSizeIterator<
-            Item = Result<(&ReplicationOrderId, &ReplicationOrderRecord), Self::Error>,
-        >,
-        Self::Error,
-    > {
-        let count = self.replication_orders_len()?;
-        let table = self
-            .data
-            .replication_orders
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        Ok((0..count).map(move |index| {
-            self.with_work(|work, limit| match self.image {
-                OriginalMusubiImage::Current => table.current_row(index, work, limit),
-                OriginalMusubiImage::Predecessor => table.predecessor_row(index, work, limit),
-            })
-            .map_err(|original| Self::Error::Field {
-                field: "replication_orders",
-                original,
-            })
-        }))
     }
     fn replication_orders_get(
         &self,
@@ -1390,6 +1154,7 @@ impl OriginalMusubiRows<'_> {
     /// The enclosing owner checks the actual State, paired maps and revision
     /// before/after this call. Local refusal retains all original descriptors
     /// and cumulative native work; it cannot authorize a semantic output.
+    #[cfg(test)]
     pub(in crate::state) fn validate_image(
         &mut self,
         image: OriginalMusubiImage,
@@ -1411,7 +1176,7 @@ impl OriginalMusubiRows<'_> {
             image,
             revision: revision.get(),
         };
-        musubi_source_work::validate_read(&cut, self.budget, limits, context)
+        musubi_source_work::validate_read(&cut, self.scope.allocation_budget(), limits, context)
     }
 }
 
@@ -1420,7 +1185,9 @@ impl OriginalMusubiRows<'_> {
 pub(super) struct OriginalMusubiAdmissionPair {
     images: [musubi_source_work::Admission; 2],
     universal: [UniversalValidation<usize, usize>; 2],
-    live: [LiveValidation; 2],
+    // Separate prepaid backing avoids constructing both large live cursors on
+    // the stack while retaining their charge with the original admission owner.
+    live: ChargedBuffer<LiveValidation>,
     materializers: Option<crate::state::authority_registry::OriginalMusubiMaterializers>,
     directory: [DirectoryValidation<usize>; 2],
     nfc: [Option<iroha_allocation::AllocationReservation>; 2],
@@ -1468,14 +1235,43 @@ impl OriginalMusubiCapture<'_, '_> {
         {
             return Err(RetainedMusubiGroupReadError::Incomplete);
         }
-        let mut original = ChargedBuffer::new(1, plan.scope.allocation_budget())
-            .map_err(RetainedMusubiGroupReadError::Control)?;
+        let control_layout = std::alloc::Layout::new::<OriginalMusubiAdmissionPair>();
+        let live_layout = std::alloc::Layout::array::<LiveValidation>(2).map_err(|_| {
+            RetainedMusubiGroupReadError::Control(
+                iroha_allocation::AllocationRefusal::DemandOverflow.into(),
+            )
+        })?;
+        // Admit both physical layouts atomically before either allocation. A
+        // capacity refusal must not refund an earlier partial charge and wake
+        // its own unchanged retry through the original pool's release sequence.
+        let mut reservation = plan
+            .scope
+            .allocation_budget()
+            .try_reserve_layouts([control_layout, live_layout])
+            .map_err(|original| RetainedMusubiGroupReadError::Control(original.into()))?;
+        let prepaid_control = |error| match error {
+            iroha_allocation::PrepaidBufferError::Allocation(original) => {
+                RetainedMusubiGroupReadError::Control(original)
+            }
+            iroha_allocation::PrepaidBufferError::Reservation(_) => {
+                // Exact layouts were prepaid above; a broken partition is an
+                // incomplete owner, never a new pool-capacity observation.
+                RetainedMusubiGroupReadError::Incomplete
+            }
+        };
+        let mut original =
+            ChargedBuffer::from_reservation(1, &mut reservation).map_err(prepaid_control)?;
+        let mut live =
+            ChargedBuffer::from_reservation(2, &mut reservation).map_err(prepaid_control)?;
+        for _ in 0..2 {
+            live.push_reserved(LiveValidation::new());
+        }
         original.push_reserved(OriginalMusubiAdmissionPair {
             images: [
                 musubi_source_work::Admission::new(limits),
                 musubi_source_work::Admission::new(limits),
             ],
-            live: [LiveValidation::new(), LiveValidation::new()],
+            live,
             materializers: None,
             universal: [
                 UniversalValidation::new(ProjectionCut::Current),
@@ -1626,17 +1422,19 @@ impl OriginalMusubiCapture<'_, '_> {
             image,
             revision: revision.get(),
         };
-        let result = original.live[index].advance(&cut).map_err(|error| {
-            error.map_predicate(|original| {
-                SourceValidationError::Attempt(original.map_rejection(|rejection| {
-                    rejection.with_cut(match image {
-                        OriginalMusubiImage::Current => ProjectionCut::Current,
-                        OriginalMusubiImage::Predecessor => ProjectionCut::Predecessor,
-                    })
-                }))
-            })
-        });
-        let progress = original.live[index].progress();
+        let result = original.live.as_mut_slice()[index]
+            .advance(&cut)
+            .map_err(|error| {
+                error.map_predicate(|original| {
+                    SourceValidationError::Attempt(original.map_rejection(|rejection| {
+                        rejection.with_cut(match image {
+                            OriginalMusubiImage::Current => ProjectionCut::Current,
+                            OriginalMusubiImage::Predecessor => ProjectionCut::Predecessor,
+                        })
+                    }))
+                })
+            });
+        let progress = original.live.as_slice()[index].progress();
         data.retain_retry(
             stage,
             attempt_start,
@@ -1829,7 +1627,7 @@ impl OriginalMusubiAdmissionPair {
     fn validated(&self) -> bool {
         (0..2).all(|image| {
             self.images[image].progress().complete
-                && self.live[image].progress().complete
+                && self.live.as_slice()[image].progress().complete
                 && self.directory[image].progress().complete
                 && self.universal[image].progress().complete
         })
@@ -1910,18 +1708,6 @@ impl OriginalMusubiCapture<'_, '_> {
         Ok(())
     }
 
-    /// Borrow only fully validated original images; no reader may escape this callback.
-    #[cfg(test)]
-    pub(in crate::state) fn with_validated_original_musubi_rows<R>(
-        &mut self,
-        limit: usize,
-        callback: impl for<'read> FnOnce(OriginalMusubiRows<'read>, OriginalMusubiRevision<'read>) -> R,
-    ) -> Result<R, RetainedMusubiGroupReadError> {
-        self.with_validated_original_musubi_materializers(limit, |rows, revision, _| {
-            callback(rows, revision)
-        })
-    }
-
     /// Use the three retained table builders beside their exact original validated rows.
     /// Original control allocation includes this slot; builders own their separately
     /// charged buffers. No source, allocation scope or table root is detached.
@@ -1960,12 +1746,11 @@ impl OriginalMusubiCapture<'_, '_> {
             OriginalMusubiRows {
                 data,
                 work: &mut plan.work,
-                budget: plan.scope.allocation_budget(),
                 scope: &plan.scope,
                 limit,
             },
             OriginalMusubiRevision {
-                current: &**revision.current(),
+                current: revision.current(),
                 predecessor: revision.get_before_block(),
             },
             &mut original.materializers,
