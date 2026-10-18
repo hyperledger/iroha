@@ -57,7 +57,8 @@ impl Execute for iroha_data_model::isi::content::PublishContentBundle {
                 "content bundle already exists".into(),
             ));
         }
-        let chunk_size = usize::try_from(config.chunk_size_bytes).unwrap_or(0);
+        let chunk_size_bytes = config.chunk_size_bytes;
+        let chunk_size = usize::try_from(chunk_size_bytes).unwrap_or(0);
         if chunk_size == 0 {
             return Err(Error::InvariantViolation(
                 "content.chunk_size_bytes must be greater than zero".into(),
@@ -121,7 +122,7 @@ impl Execute for iroha_data_model::isi::content::PublishContentBundle {
             bundle_id,
             manifest,
             total_bytes: tar_len,
-            chunk_size: config.chunk_size_bytes,
+            chunk_size: chunk_size_bytes,
             chunk_hashes,
             chunk_root,
             stripe_layout,

@@ -7,11 +7,6 @@ fn seed_parliament_attempt_cadence_fixture(
     state_transaction: &mut StateTransaction<'_, '_>,
 ) -> gov::CreateParliamentGovernanceAttemptV1 {
     let proposal = parliament_permissionless_progress_proposal();
-    let requirements = parliament_attempt_policy_v1(&proposal).1;
-    let mut governance = parliament_test_governance(&requirements);
-    governance.citizenship_bond_amount = Quantity::from(10_u64);
-    governance.parliament_sortition_pulse_delay_blocks = 4;
-    state_transaction.gov = governance;
     state_transaction.world.account_permissions.insert(
         ALICE_ID.clone(),
         BTreeSet::from([Permission::from(CanManageParliament)]),
@@ -96,7 +91,12 @@ fn parliament_attempt_creation_is_rejected_without_the_native_npos_cadence() {
     );
 
     // A Permissioned chain: neither an NPoS policy nor a schedule (as inside genesis).
-    let state = blank_test_state();
+    let mut state = blank_test_state();
+    configure_parliament_fixture_state(
+        &mut state,
+        &parliament_permissionless_progress_proposal(),
+        4,
+    );
     let mut block = state.block(first_test_block_header());
     let mut state_transaction = block.transaction();
     let create = seed_parliament_attempt_cadence_fixture(&mut state_transaction);
@@ -137,7 +137,12 @@ fn parliament_attempt_creation_is_rejected_without_the_native_npos_cadence() {
     drop(block);
 
     // The NPoS policy before any schedule exists, as inside genesis execution.
-    let state = blank_test_state();
+    let mut state = blank_test_state();
+    configure_parliament_fixture_state(
+        &mut state,
+        &parliament_permissionless_progress_proposal(),
+        4,
+    );
     let mut block = state.block(first_test_block_header());
     let mut state_transaction = block.transaction();
     let create = seed_parliament_attempt_cadence_fixture(&mut state_transaction);
@@ -163,7 +168,12 @@ fn parliament_attempt_creation_is_rejected_without_the_native_npos_cadence() {
 
 #[test]
 fn parliament_attempt_creation_freezes_the_committed_npos_epoch_length() {
-    let state = blank_test_state();
+    let mut state = blank_test_state();
+    configure_parliament_fixture_state(
+        &mut state,
+        &parliament_permissionless_progress_proposal(),
+        4,
+    );
     let mut block = state.block(first_test_block_header());
     let mut state_transaction = block.transaction();
     let create = seed_parliament_attempt_cadence_fixture(&mut state_transaction);
@@ -187,9 +197,13 @@ fn parliament_attempt_creation_freezes_the_committed_npos_epoch_length() {
     // Later node-local governance configuration cannot move the frozen geometry, and the
     // executor derives the initial slot from the frozen fields alone: the request in block 1
     // targets height 9, the first native pulse height at or after the four-block delay.
-    state_transaction
-        .gov
-        .parliament_sortition_pulse_delay_blocks = 99;
+    state_transaction.apply();
+    block
+        .commit_world_overlay_for_testing()
+        .expect("retain the attempt's original cadence before policy change");
+    state.gov.parliament_sortition_pulse_delay_blocks = 99;
+    let mut block = state.block(first_test_block_header());
+    let mut state_transaction = block.transaction();
     gov::SubmitParliamentLifecycleTransitionV1 {
         governance_attempt_id,
         transition: gov::ParliamentLifecycleTransitionV1::CompleteQualification,

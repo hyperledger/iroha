@@ -2,8 +2,8 @@
 //!
 //! Filesystem source paths and parsed engine handles are not authority. The
 //! ordered policy values and audit/enforcement mode determine admission.
-//! TODO: Fund policy cloning and encoding from the complete State-root resource
-//! owner before this projection is used during finalized publication.
+//! Original-cut capture borrows every rule and funds its exact canonical frame.
+//! Finalized complete-root publication remains a separate owner obligation.
 
 use super::{LaneComplianceEngine, LaneCompliancePolicy};
 use norito::{Decode, Encode, NoritoSchema};
@@ -40,6 +40,40 @@ impl LaneComplianceAuthorityV1 {
     }
 }
 
+/// Borrow the original optional enforcement policy and every ordered rule.
+pub(crate) struct BorrowedCompliance<'a>(pub(crate) Option<&'a LaneComplianceEngine>);
+impl norito::SerializePayload for BorrowedCompliance<'_> {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        use crate::state::authority_registry::policy_borrowed::record;
+        record!(
+            self.0.is_some(),
+            self.0.is_some_and(|engine| engine.audit_only),
+            Policies(self.0)
+        )
+        .serialize(writer)
+    }
+}
+struct Policies<'a>(Option<&'a LaneComplianceEngine>);
+impl norito::SerializePayload for Policies<'_> {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        use crate::state::authority_registry::policy_borrowed::{Ref, Seq};
+        if let Some(engine) = self.0 {
+            Seq(engine.policies.values().map(|policy| Ref(policy.as_ref()))).serialize(writer)
+        } else {
+            norito::core::write_seq_len(writer, 0)?;
+            Ok(())
+        }
+    }
+}
+/// Recompute the loaded policy identity from the same original without copying rules.
+pub(crate) fn borrowed_digest(engine: &LaneComplianceEngine) -> Result<[u8; 32], norito::Error> {
+    use crate::state::authority_registry::policy_borrowed::{hash_payload, record};
+    hash_payload(
+        b"iroha:nexus:lane-compliance-policy-set:v1\0",
+        &record!(1_u8, engine.audit_only, Policies(Some(engine))),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,6 +103,16 @@ mod tests {
     }
 
     fn frame(engine: Option<&LaneComplianceEngine>) -> Vec<u8> {
+        crate::state::authority_registry::policy_borrowed::assert_same_payload(
+            &BorrowedCompliance(engine),
+            &LaneComplianceAuthorityV1::from_engine(engine),
+        );
+        if let Some(engine) = engine {
+            assert_eq!(
+                borrowed_digest(engine).unwrap(),
+                engine.consensus_policy_digest()
+            );
+        }
         norito::encode_canonical(&LaneComplianceAuthorityV1::from_engine(engine)).unwrap()
     }
 

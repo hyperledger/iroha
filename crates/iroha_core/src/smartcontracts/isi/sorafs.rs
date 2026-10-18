@@ -8163,8 +8163,8 @@ mod sorafs_tests {
                 ..Self::all_proofs(strike_threshold, penalty_bond_bps, cooldown_windows)
             }
         }
-        fn install(self, stx: &mut StateTransaction<'_, '_>, bonded_nanos: u128) -> ProviderId {
-            stx.gov.sorafs_penalty = iroha_config::parameters::actual::SorafsPenaltyPolicy {
+        fn policy(self) -> iroha_config::parameters::actual::SorafsPenaltyPolicy {
+            iroha_config::parameters::actual::SorafsPenaltyPolicy {
                 utilisation_floor_bps: 7_500,
                 uptime_floor_bps: 9_000,
                 por_success_floor_bps: 9_000,
@@ -8173,7 +8173,17 @@ mod sorafs_tests {
                 cooldown_windows: self.cooldown_windows,
                 max_pdp_failures: self.max_pdp_failures,
                 max_potr_breaches: self.max_potr_breaches,
-            };
+            }
+        }
+        fn configure(self, state: &mut State) {
+            state.gov.sorafs_penalty = self.policy();
+        }
+        fn install(self, stx: &mut StateTransaction<'_, '_>, bonded_nanos: u128) -> ProviderId {
+            assert_eq!(
+                stx.gov.sorafs_penalty,
+                self.policy(),
+                "capture the exact fixture policy before opening its scope"
+            );
             let (provider, record) = sample_capacity_record();
             register_governed_capacity_declaration(stx, &alice(), record)
                 .expect("register capacity declaration");
@@ -8794,6 +8804,8 @@ mod sorafs_tests {
     fn capacity_telemetry_enforces_owner_metadata() {
         let mut state = make_state();
         seed_sorafs_permissions(&mut state, &bob());
+        state.gov.sorafs_telemetry.require_submitter = true;
+        state.gov.sorafs_telemetry.submitters = vec![alice(), bob()];
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let (provider, declaration) = sample_capacity_record();
@@ -8809,8 +8821,6 @@ mod sorafs_tests {
         }
         .execute(&alice(), &mut stx)
         .expect("fund the provider's declared telemetry credit");
-        stx.gov.sorafs_telemetry.require_submitter = true;
-        stx.gov.sorafs_telemetry.submitters = vec![alice(), bob()];
         let telemetry = CapacityTelemetryRecord::new(
             provider, 1, 2, 512, 512, 512, 0, 0, 1_000, 1_000, 0, 0, 0, 0, 0,
         )
@@ -9018,10 +9028,16 @@ mod sorafs_tests {
     }
     #[test]
     fn governed_registration_stays_pending_until_verified_approval() {
-        let state = make_state();
+        let mut state = make_state();
+        state.gov.sorafs_pin_policy.require_council_signatures = true;
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_policy(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        stx.gov.sorafs_pin_policy.require_council_signatures = true;
         let (provider, declaration) = capacity_record_with_owner(&alice());
         seed_provider_owners(&mut stx, &[provider], &alice());
         stx.world
@@ -9070,12 +9086,6 @@ mod sorafs_tests {
             "pending manifests must not publish aliases"
         );
         assert_eq!(stx.world.replication_orders.iter().count(), 0);
-        let council_key = checked_ed25519_keypair();
-        set_council_approval_policy(
-            &mut stx,
-            1,
-            vec![council_approval_signer("council-a", &council_key, 0, None)],
-        );
         let (envelope, _) = build_envelope(&pending, &council_key);
         ApprovePinManifest {
             digest: manifest_digest,
@@ -9417,7 +9427,13 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_with_alias_records_council_digest() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_policy(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
@@ -9436,12 +9452,6 @@ mod sorafs_tests {
             .get(&default_digest())
             .cloned()
             .expect("manifest stored");
-        let council_key = checked_ed25519_keypair();
-        set_council_approval_policy(
-            &mut stx,
-            1,
-            vec![council_approval_signer("council-a", &council_key, 0, None)],
-        );
         let (envelope, _) = build_envelope(&stored_record, &council_key);
         ApprovePinManifest {
             digest: default_digest(),
@@ -9804,8 +9814,14 @@ mod sorafs_tests {
     }
     #[test]
     fn approval_replication_shortfall_does_not_publish_pending_alias() {
-        let state = make_state();
+        let mut state = make_state();
         let approval_epoch = 5;
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_policy(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header_at_epoch(approval_epoch));
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let alias = default_alias_binding();
@@ -9826,12 +9842,6 @@ mod sorafs_tests {
             Metadata::default(),
         );
         insert_pin_record_with_accounting(&mut stx, record.clone());
-        let council_key = checked_ed25519_keypair();
-        set_council_approval_policy(
-            &mut stx,
-            1,
-            vec![council_approval_signer("council-a", &council_key, 0, None)],
-        );
         let (envelope, _) = build_envelope(&record, &council_key);
         let error = ApprovePinManifest {
             digest: default_digest(),
@@ -9865,7 +9875,13 @@ mod sorafs_tests {
     }
     #[test]
     fn approval_never_overwrites_an_automatic_order_collision() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_policy(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let alias = default_alias_binding();
@@ -9896,12 +9912,6 @@ mod sorafs_tests {
         stx.world
             .replication_orders
             .insert(collision.order_id, collision.clone());
-        let council_key = checked_ed25519_keypair();
-        set_council_approval_policy(
-            &mut stx,
-            1,
-            vec![council_approval_signer("council-a", &council_key, 0, None)],
-        );
         let (envelope, _) = build_envelope(&record, &council_key);
         let error = ApprovePinManifest {
             digest: default_digest(),
@@ -10450,11 +10460,11 @@ mod sorafs_tests {
     }
     #[test]
     fn register_manifest_rejects_successor_fanout_limit() {
-        let state = make_state();
+        let mut state = make_state();
+        state.gov.sorafs_pin_policy.max_successor_fanout = 1;
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
-        stx.gov.sorafs_pin_policy.max_successor_fanout = 1;
         insert_manifest_with_status(
             &mut stx,
             second_digest(),
@@ -10499,11 +10509,11 @@ mod sorafs_tests {
     }
     #[test]
     fn retired_successor_does_not_reopen_the_parent_fanout_ceiling() {
-        let state = make_state();
+        let mut state = make_state();
+        state.gov.sorafs_pin_policy.max_successor_fanout = 1;
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
-        stx.gov.sorafs_pin_policy.max_successor_fanout = 1;
         insert_manifest_with_status(
             &mut stx,
             second_digest(),
@@ -10555,10 +10565,10 @@ mod sorafs_tests {
     }
     #[test]
     fn register_manifest_rejects_lineage_beyond_consensus_depth_limit() {
-        let state = make_state();
+        let mut state = make_state();
+        state.gov.sorafs_pin_policy.max_lineage_depth = 1;
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        stx.gov.sorafs_pin_policy.max_lineage_depth = 1;
         insert_manifest_with_status_at_epoch(
             &mut stx,
             second_digest(),
@@ -10598,7 +10608,13 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_records_council_digest_for_auto_approved_manifest() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
@@ -10616,8 +10632,7 @@ mod sorafs_tests {
             .get(&default_digest())
             .expect("manifest stored")
             .clone();
-        let council_key = checked_ed25519_keypair();
-        let (envelope, _) = build_trusted_envelope(&mut stx, &stored_record, &council_key);
+        let (envelope, _) = build_envelope(&stored_record, &council_key);
         let expected_digest = {
             let hash = blake3_hash(&envelope);
             let mut out = [0u8; 32];
@@ -10642,10 +10657,16 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_mismatched_manifest_digest() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (envelope, _, _) = registered_manifest_approval_envelope(&mut stx);
+        let (envelope, _, _) = registered_manifest_approval_envelope(&mut stx, &council_key);
         let mut invalid_json =
             String::from_utf8(envelope.clone()).expect("envelope is valid UTF-8 JSON");
         let manifest_hex = hex::encode(default_digest().as_bytes());
@@ -10664,10 +10685,17 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_invalid_signature() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (envelope, signature_hex, _) = registered_manifest_approval_envelope(&mut stx);
+        let (envelope, signature_hex, _) =
+            registered_manifest_approval_envelope(&mut stx, &council_key);
         let mut modified_signature =
             hex::decode(&signature_hex).expect("signature hex decodes cleanly");
         modified_signature[0] ^= 0xFF;
@@ -10689,10 +10717,17 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_all_zero_signature_material() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (envelope, signature_hex, _) = registered_manifest_approval_envelope(&mut stx);
+        let (envelope, signature_hex, _) =
+            registered_manifest_approval_envelope(&mut stx, &council_key);
         let pending = stx
             .world
             .pin_manifests
@@ -10731,10 +10766,17 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_inert_or_malformed_ed25519_signer_key() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (envelope, _, signer_hex) = registered_manifest_approval_envelope(&mut stx);
+        let (envelope, _, signer_hex) =
+            registered_manifest_approval_envelope(&mut stx, &council_key);
         for (label, malformed_signer) in [
             ("all-zero", [0_u8; 32]),
             ("small-order", SMALL_ORDER_ED25519_R),
@@ -10758,10 +10800,17 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_malformed_ed25519_signature_r() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (envelope, signature_hex, _) = registered_manifest_approval_envelope(&mut stx);
+        let (envelope, signature_hex, _) =
+            registered_manifest_approval_envelope(&mut stx, &council_key);
         for (label, replacement_r) in [
             ("small-order", SMALL_ORDER_ED25519_R),
             ("noncanonical", NONCANONICAL_ED25519_R),
@@ -10791,7 +10840,13 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_self_selected_signer_and_below_quorum() {
-        let state = make_state();
+        let mut state = make_state();
+        let trusted_key = checked_ed25519_keypair();
+        set_council_approval_policy(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &trusted_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         insert_pending_manifest(&mut stx, default_digest(), default_chunk_digest());
@@ -10801,14 +10856,8 @@ mod sorafs_tests {
             .get(&default_digest())
             .expect("pending manifest")
             .clone();
-        let trusted_key = checked_ed25519_keypair();
         let second_trusted_key = checked_ed25519_keypair();
         let attacker_key = checked_ed25519_keypair();
-        set_council_approval_policy(
-            &mut stx,
-            1,
-            vec![council_approval_signer("council-a", &trusted_key, 0, None)],
-        );
         let (attacker_envelope, _) = build_envelope(&record, &attacker_key);
         let untrusted_error = ApprovePinManifest {
             digest: default_digest(),
@@ -10823,14 +10872,20 @@ mod sorafs_tests {
                 InvalidParameterError::SmartContract(message)
             ) if message.contains("not present in the governed approval roster")
         ));
+        stx.apply();
+        block
+            .commit_world_overlay_for_testing()
+            .expect("retain manifest before approval policy change");
         set_council_approval_policy(
-            &mut stx,
+            &mut state,
             2,
             vec![
                 council_approval_signer("council-a", &trusted_key, 0, None),
                 council_approval_signer("council-b", &second_trusted_key, 0, None),
             ],
         );
+        let mut block = state.block(block_header());
+        let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let (single_signature_envelope, _) = build_envelope(&record, &trusted_key);
         let quorum_error = ApprovePinManifest {
             digest: default_digest(),
@@ -10856,7 +10911,17 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_not_yet_active_governed_signer() {
-        let state = make_state();
+        let mut state = make_state();
+        let future_key = checked_ed25519_keypair();
+        let active_key = checked_ed25519_keypair();
+        set_council_approval_policy(
+            &mut state,
+            1,
+            vec![
+                council_approval_signer("council-active", &active_key, 0, None),
+                council_approval_signer("council-future", &future_key, 2, None),
+            ],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         insert_pending_manifest(&mut stx, default_digest(), default_chunk_digest());
@@ -10866,16 +10931,6 @@ mod sorafs_tests {
             .get(&default_digest())
             .expect("pending manifest")
             .clone();
-        let active_key = checked_ed25519_keypair();
-        let future_key = checked_ed25519_keypair();
-        set_council_approval_policy(
-            &mut stx,
-            1,
-            vec![
-                council_approval_signer("council-active", &active_key, 0, None),
-                council_approval_signer("council-future", &future_key, 2, None),
-            ],
-        );
         let (envelope, _) = build_envelope(&record, &future_key);
         let error = ApprovePinManifest {
             digest: default_digest(),
@@ -10902,7 +10957,17 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_revoked_signer_despite_backdated_approval_epoch() {
-        let state = make_state();
+        let mut state = make_state();
+        let revoked_key = checked_ed25519_keypair();
+        let current_key = checked_ed25519_keypair();
+        set_council_approval_policy(
+            &mut state,
+            1,
+            vec![
+                council_approval_signer("council-current", &current_key, 0, None),
+                council_approval_signer("council-revoked", &revoked_key, 0, Some(10)),
+            ],
+        );
         let mut block = state.block(repair_block_header(10, 0));
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let record = PinManifestRecord::new(
@@ -10920,16 +10985,6 @@ mod sorafs_tests {
             Metadata::default(),
         );
         insert_pin_record_with_accounting(&mut stx, record.clone());
-        let current_key = checked_ed25519_keypair();
-        let revoked_key = checked_ed25519_keypair();
-        set_council_approval_policy(
-            &mut stx,
-            1,
-            vec![
-                council_approval_signer("council-current", &current_key, 0, None),
-                council_approval_signer("council-revoked", &revoked_key, 0, Some(10)),
-            ],
-        );
         let (envelope, _) = build_envelope(&record, &revoked_key);
         let error = ApprovePinManifest {
             digest: default_digest(),
@@ -11112,10 +11167,16 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_digest_mismatch() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (envelope, _, _) = registered_manifest_approval_envelope(&mut stx);
+        let (envelope, _, _) = registered_manifest_approval_envelope(&mut stx, &council_key);
         let message = rejected_manifest_approval_message(
             &mut stx,
             envelope,
@@ -11129,10 +11190,16 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_rejects_provided_digest_mismatch_with_envelope() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (envelope, _, _) = registered_manifest_approval_envelope(&mut stx);
+        let (envelope, _, _) = registered_manifest_approval_envelope(&mut stx, &council_key);
         let message = rejected_manifest_approval_message(
             &mut stx,
             envelope,
@@ -11205,10 +11272,21 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_reapproval_accepts_stored_digest_without_payload() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let expected_digest = stx
             .world
             .pin_manifests
@@ -11234,10 +11312,21 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_reapproval_accepts_matching_stored_digest() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let expected_digest = stx
             .world
             .pin_manifests
@@ -11263,10 +11352,32 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_reapproval_rejects_valid_replacement_envelope() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
+        let replacement_key = checked_ed25519_keypair();
+        state
+            .gov
+            .sorafs_pin_policy
+            .approval_signers
+            .push(council_approval_signer(
+                "council-b",
+                &replacement_key,
+                0,
+                None,
+            ));
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let record = stx
             .world
             .pin_manifests
@@ -11276,16 +11387,6 @@ mod sorafs_tests {
         let expected_digest = record
             .council_envelope_digest
             .expect("initial approval digest recorded");
-        let replacement_key = checked_ed25519_keypair();
-        stx.gov
-            .sorafs_pin_policy
-            .approval_signers
-            .push(council_approval_signer(
-                "council-b",
-                &replacement_key,
-                0,
-                None,
-            ));
         let (replacement, _) = build_envelope(&record, &replacement_key);
         let error = ApprovePinManifest {
             digest: default_digest(),
@@ -11310,10 +11411,21 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_manifest_reapproval_rejects_mismatched_stored_digest() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let approve = ApprovePinManifest {
             digest: default_digest(),
             council_envelope: None,
@@ -11421,7 +11533,13 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_pending_manifest_rejects_invalid_signature_without_side_effects() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let alias = default_alias_binding();
@@ -11431,8 +11549,7 @@ mod sorafs_tests {
             default_chunk_digest(),
             alias.clone(),
         );
-        let council_key = checked_ed25519_keypair();
-        let (envelope, signature_hex) = build_trusted_envelope(&mut stx, &record, &council_key);
+        let (envelope, signature_hex) = build_envelope(&record, &council_key);
         let mut modified_signature =
             hex::decode(&signature_hex).expect("signature hex decodes cleanly");
         modified_signature[0] ^= 0xAA;
@@ -11476,7 +11593,13 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_pending_manifest_rejects_alias_collision_without_side_effects() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let alias = default_alias_binding();
@@ -11493,8 +11616,7 @@ mod sorafs_tests {
         stx.world
             .manifest_aliases
             .insert(alias_id.clone(), stale_record);
-        let council_key = checked_ed25519_keypair();
-        let (envelope, _) = build_trusted_envelope(&mut stx, &record, &council_key);
+        let (envelope, _) = build_envelope(&record, &council_key);
         let approve = ApprovePinManifest {
             digest: default_digest(),
             council_envelope: Some(envelope),
@@ -11529,7 +11651,13 @@ mod sorafs_tests {
     }
     #[test]
     fn approve_pending_manifest_rejects_digest_mismatch_with_envelope_without_side_effects() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let alias = default_alias_binding();
@@ -11539,8 +11667,7 @@ mod sorafs_tests {
             default_chunk_digest(),
             alias.clone(),
         );
-        let council_key = checked_ed25519_keypair();
-        let (envelope, _) = build_trusted_envelope(&mut stx, &record, &council_key);
+        let (envelope, _) = build_envelope(&record, &council_key);
         let approve = ApprovePinManifest {
             digest: default_digest(),
             council_envelope: Some(envelope),
@@ -11786,10 +11913,21 @@ mod sorafs_tests {
     }
     #[test]
     fn retire_manifest_rejects_conflicting_repeat_without_side_effects() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let binding = sample_alias_binding();
         BindManifestAlias {
             digest: default_digest(),
@@ -11836,10 +11974,21 @@ mod sorafs_tests {
     }
     #[test]
     fn bind_manifest_alias_registers_record() {
-        let state = make_initial_sorafs_state();
+        let mut state = make_initial_sorafs_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(initial_sorafs_block_header(&state));
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let binding = sample_alias_binding();
         let bind = BindManifestAlias {
             digest: default_digest(),
@@ -11867,11 +12016,27 @@ mod sorafs_tests {
     }
     #[test]
     fn bind_manifest_alias_rejects_duplicates() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
-        register_and_approve_manifest(&mut stx, second_digest(), chunk_digest_for_seed(0xBB));
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
+        register_and_approve_manifest(
+            &mut stx,
+            second_digest(),
+            chunk_digest_for_seed(0xBB),
+            &council_key,
+        );
         let binding = sample_alias_binding();
         let first = BindManifestAlias {
             digest: default_digest(),
@@ -11920,10 +12085,21 @@ mod sorafs_tests {
     }
     #[test]
     fn bind_manifest_alias_rejects_expiry_before_bound_without_side_effects() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let binding = alias_binding_for(default_digest(), "sora", "docs", 8, 7);
         let err = BindManifestAlias {
             digest: default_digest(),
@@ -11997,10 +12173,21 @@ mod sorafs_tests {
     }
     #[test]
     fn bind_manifest_alias_rejects_expiry_past_retention_without_side_effects() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let expiry_epoch = default_policy().retention_epoch + 1;
         let binding = alias_binding_for(default_digest(), "sora", "docs", 8, expiry_epoch);
         let err = BindManifestAlias {
@@ -12037,10 +12224,21 @@ mod sorafs_tests {
     }
     #[test]
     fn bind_manifest_alias_rejects_bound_before_approval_without_side_effects() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let binding = alias_binding_for(default_digest(), "sora", "docs", 4, 16);
         let err = BindManifestAlias {
             digest: default_digest(),
@@ -12111,10 +12309,21 @@ mod sorafs_tests {
     }
     #[test]
     fn bind_manifest_alias_rejects_proof_epoch_mismatch() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let mismatched_binding = alias_binding_for(default_digest(), "sora", "docs", 4, 12);
         let bind = BindManifestAlias {
             digest: default_digest(),
@@ -12270,10 +12479,21 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_stores_record() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x44; 32]);
         let providers = vec![
             ProviderId::new([0x11; 32]),
@@ -12340,10 +12560,21 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_requires_one_unix_second_window_and_live_pin_horizon() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let providers = vec![
             ProviderId::new([0x91; 32]),
             ProviderId::new([0x92; 32]),
@@ -12439,10 +12670,21 @@ mod sorafs_tests {
     }
     #[test]
     fn instruction_box_dispatches_replication_order_issue() {
-        let state = make_initial_sorafs_state();
+        let mut state = make_initial_sorafs_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(initial_sorafs_block_header(&state));
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x54; 32]);
         let providers = vec![
             ProviderId::new([0x21; 32]),
@@ -12469,10 +12711,21 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_rejects_target_below_policy() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x66; 32]);
         let providers = vec![
             ProviderId::new([0x41; 32]),
@@ -12505,10 +12758,21 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_rejects_chunker_mismatch() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x67; 32]);
         let providers = vec![
             ProviderId::new([0x51; 32]),
@@ -12541,10 +12805,21 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_rejects_noncanonical_unbound_and_oversized_payloads() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let providers = vec![
             ProviderId::new([0x50; 32]),
             ProviderId::new([0x51; 32]),
@@ -12664,11 +12939,22 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_requires_permission_after_manifest_setup() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         remove_permission(&mut stx, "CanIssueSorafsReplicationOrder");
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x47; 32]);
         let providers = vec![ProviderId::new([0x26; 32])];
         seed_provider_owners(&mut stx, &providers, &alice());
@@ -12691,10 +12977,21 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_allows_registered_provider_owned_by_another_account() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x45; 32]);
         let providers = vec![
             ProviderId::new([0x24; 32]),
@@ -12725,10 +13022,21 @@ mod sorafs_tests {
     }
     #[test]
     fn issue_replication_order_rejects_missing_owner() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x46; 32]);
         let providers = vec![ProviderId::new([0x25; 32])];
         let order_struct = replication_order_struct(order_id, default_digest(), &providers, 3);
@@ -13092,10 +13400,21 @@ mod sorafs_tests {
     }
     #[test]
     fn complete_replication_order_requires_permission_after_manifest_setup() {
-        let state = make_state();
+        let mut state = make_state();
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x7A; 32]);
         let providers = vec![
             ProviderId::new([0x36; 32]),
@@ -13128,9 +13447,20 @@ mod sorafs_tests {
     fn complete_replication_order_rejects_permissioned_non_owner_governance() {
         let mut state = make_state_with_completion_anchor();
         seed_sorafs_permissions(&mut state, &bob());
+        let council_key = checked_ed25519_keypair();
+        set_council_approval_signers(
+            &mut state,
+            1,
+            vec![council_approval_signer("council-a", &council_key, 0, None)],
+        );
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        register_and_approve_manifest(&mut stx, default_digest(), default_chunk_digest());
+        register_and_approve_manifest(
+            &mut stx,
+            default_digest(),
+            default_chunk_digest(),
+            &council_key,
+        );
         let order_id = ReplicationOrderId::new([0x78; 32]);
         let providers = vec![
             ProviderId::new([0x34; 32]),
@@ -13592,7 +13922,8 @@ mod sorafs_tests {
     }
     #[test]
     fn record_capacity_telemetry_rejects_overlap_gap_and_replay() {
-        let state = make_state();
+        let mut state = make_state();
+        state.gov.sorafs_telemetry.max_window_gap = core::time::Duration::from_secs(2);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let (provider, declaration) = sample_capacity_record();
@@ -13635,7 +13966,6 @@ mod sorafs_tests {
                 message
             )) if message.contains("replayed_nonce")
         ));
-        stx.gov.sorafs_telemetry.max_window_gap = core::time::Duration::from_secs(2);
         let gap = CapacityTelemetryRecord::new(
             provider, 30, 35, 50, 50, 25, 1, 1, 9_500, 9_500, 0, 0, 0, 0, 0,
         )
@@ -13652,7 +13982,8 @@ mod sorafs_tests {
     }
     #[test]
     fn record_capacity_telemetry_rejects_replay_when_nonce_optional() {
-        let state = make_state();
+        let mut state = make_state();
+        state.gov.sorafs_telemetry.require_nonce = false;
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let (provider, declaration) = sample_capacity_record();
@@ -13668,7 +13999,6 @@ mod sorafs_tests {
         }
         .execute(&alice(), &mut stx)
         .expect("fund the provider's declared telemetry credit");
-        stx.gov.sorafs_telemetry.require_nonce = false;
         record_capacity_window(&mut stx, provider, 0, 10, 50, 50, 25, 9_500, 9_500, 0);
         let replay = CapacityTelemetryRecord::new(
             provider, 11, 18, 50, 50, 25, 1, 1, 9_500, 9_500, 0, 0, 0, 0, 0,
@@ -13689,13 +14019,13 @@ mod sorafs_tests {
         let mut state = make_state();
         let bob = bob();
         seed_sorafs_permissions(&mut state, &bob);
+        state.gov.sorafs_telemetry.submitters = vec![alice()];
+        state.gov.sorafs_telemetry.require_submitter = true;
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let (provider, declaration) = sample_capacity_record();
         register_governed_capacity_declaration(&mut stx, &alice(), declaration)
             .expect("register capacity declaration");
-        stx.gov.sorafs_telemetry.submitters = vec![alice()];
-        stx.gov.sorafs_telemetry.require_submitter = true;
         let telemetry = CapacityTelemetryRecord::new(
             provider, 0, 10, 50, 50, 25, 1, 1, 10_000, 10_000, 0, 0, 0, 0, 0,
         )
@@ -13718,9 +14048,16 @@ mod sorafs_tests {
     fn record_capacity_telemetry_provider_override_allows_owner_when_global_rejects() {
         let mut state = make_state();
         seed_sorafs_permissions(&mut state, &bob());
+        state.gov.sorafs_telemetry.require_submitter = true;
+        state.gov.sorafs_telemetry.submitters = vec![alice()];
+        let (provider, declaration) = capacity_record_with_owner(&bob());
+        state
+            .gov
+            .sorafs_telemetry
+            .per_provider_submitters
+            .insert(provider, vec![bob()]);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let (provider, declaration) = capacity_record_with_owner(&bob());
         register_governed_capacity_declaration(&mut stx, &bob(), declaration)
             .expect("register capacity declaration");
         UpsertProviderCredit {
@@ -13733,12 +14070,6 @@ mod sorafs_tests {
         }
         .execute(&alice(), &mut stx)
         .expect("fund the provider's declared telemetry credit");
-        stx.gov.sorafs_telemetry.require_submitter = true;
-        stx.gov.sorafs_telemetry.submitters = vec![alice()];
-        stx.gov
-            .sorafs_telemetry
-            .per_provider_submitters
-            .insert(provider, vec![bob()]);
         let telemetry = CapacityTelemetryRecord::new(
             provider, 0, 10, 50, 50, 25, 1, 1, 10_000, 10_000, 0, 0, 0, 0, 0,
         )
@@ -13749,18 +14080,19 @@ mod sorafs_tests {
     }
     #[test]
     fn record_capacity_telemetry_provider_override_blocks_owner_not_listed() {
-        let state = make_state();
-        let mut block = state.block(block_header());
-        let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
+        let mut state = make_state();
+        state.gov.sorafs_telemetry.require_submitter = true;
+        state.gov.sorafs_telemetry.submitters = vec![alice()];
         let (provider, declaration) = sample_capacity_record();
-        register_governed_capacity_declaration(&mut stx, &alice(), declaration)
-            .expect("register capacity declaration");
-        stx.gov.sorafs_telemetry.require_submitter = true;
-        stx.gov.sorafs_telemetry.submitters = vec![alice()];
-        stx.gov
+        state
+            .gov
             .sorafs_telemetry
             .per_provider_submitters
             .insert(provider, vec![bob()]);
+        let mut block = state.block(block_header());
+        let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
+        register_governed_capacity_declaration(&mut stx, &alice(), declaration)
+            .expect("register capacity declaration");
         let telemetry = CapacityTelemetryRecord::new(
             provider, 0, 10, 50, 50, 25, 1, 1, 10_000, 10_000, 0, 0, 0, 0, 0,
         )
@@ -13778,10 +14110,8 @@ mod sorafs_tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn record_capacity_telemetry_penalises_persistent_under_delivery() {
-        let state = make_state();
-        let mut block = state.block(block_header());
-        let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        stx.gov.sorafs_penalty = iroha_config::parameters::actual::SorafsPenaltyPolicy {
+        let mut state = make_state();
+        state.gov.sorafs_penalty = iroha_config::parameters::actual::SorafsPenaltyPolicy {
             utilisation_floor_bps: 9_500,
             uptime_floor_bps: 9_500,
             por_success_floor_bps: 9_500,
@@ -13791,6 +14121,8 @@ mod sorafs_tests {
             max_pdp_failures: 0,
             max_potr_breaches: 0,
         };
+        let mut block = state.block(block_header());
+        let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let (provider, record) = sample_capacity_record();
         register_governed_capacity_declaration(&mut stx, &alice(), record)
             .expect("register capacity declaration");
@@ -13934,10 +14266,8 @@ mod sorafs_tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn record_capacity_telemetry_respects_cooldown_between_penalties() {
-        let state = make_state();
-        let mut block = state.block(block_header());
-        let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        stx.gov.sorafs_penalty = iroha_config::parameters::actual::SorafsPenaltyPolicy {
+        let mut state = make_state();
+        state.gov.sorafs_penalty = iroha_config::parameters::actual::SorafsPenaltyPolicy {
             utilisation_floor_bps: 9_500,
             uptime_floor_bps: 9_500,
             por_success_floor_bps: 9_500,
@@ -13947,6 +14277,8 @@ mod sorafs_tests {
             max_pdp_failures: u32::MAX,
             max_potr_breaches: u32::MAX,
         };
+        let mut block = state.block(block_header());
+        let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         let (provider, record) = sample_capacity_record();
         register_governed_capacity_declaration(&mut stx, &alice(), record)
             .expect("register capacity declaration");
@@ -14095,10 +14427,12 @@ mod sorafs_tests {
     }
     #[test]
     fn record_capacity_telemetry_forces_penalty_on_pdp_failure() {
-        let state = make_state();
+        let mut state = make_state();
+        let proof_health = ProofHealthFixture::all_proofs(3, 5_000, 1);
+        proof_health.configure(&mut state);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let provider = ProofHealthFixture::all_proofs(3, 5_000, 1).install(&mut stx, 6_000_000_000);
+        let provider = proof_health.install(&mut stx, 6_000_000_000);
         let window = SECONDS_PER_BILLING_MONTH;
         record_capacity_window_with_proofs(
             &mut stx,
@@ -14138,10 +14472,12 @@ mod sorafs_tests {
     }
     #[test]
     fn record_capacity_telemetry_penalises_pdp_failures_without_challenge_count() {
-        let state = make_state();
+        let mut state = make_state();
+        let proof_health = ProofHealthFixture::all_proofs(3, 5_000, 1);
+        proof_health.configure(&mut state);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let provider = ProofHealthFixture::all_proofs(3, 5_000, 1).install(&mut stx, 6_000_000_000);
+        let provider = proof_health.install(&mut stx, 6_000_000_000);
         let window = SECONDS_PER_BILLING_MONTH;
         record_capacity_window_with_proofs(
             &mut stx,
@@ -14180,10 +14516,12 @@ mod sorafs_tests {
     }
     #[test]
     fn record_capacity_telemetry_does_not_mutate_capacity_disputes() {
-        let state = make_state();
+        let mut state = make_state();
+        let proof_health = ProofHealthFixture::all_proofs(3, 5_000, 1);
+        proof_health.configure(&mut state);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let provider = ProofHealthFixture::all_proofs(3, 5_000, 1).install(&mut stx, 6_000_000_000);
+        let provider = proof_health.install(&mut stx, 6_000_000_000);
         let window = SECONDS_PER_BILLING_MONTH;
         let proof = ProofWindowCounters {
             pdp_challenges: 5,
@@ -14202,10 +14540,12 @@ mod sorafs_tests {
     }
     #[test]
     fn duplicate_proof_failure_telemetry_remains_dispute_free() {
-        let state = make_state();
+        let mut state = make_state();
+        let proof_health = ProofHealthFixture::all_proofs(3, 5_000, 1);
+        proof_health.configure(&mut state);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let provider = ProofHealthFixture::all_proofs(3, 5_000, 1).install(&mut stx, 6_000_000_000);
+        let provider = proof_health.install(&mut stx, 6_000_000_000);
         let window = SECONDS_PER_BILLING_MONTH;
         let telemetry = CapacityTelemetryRecord::new(
             provider, 0, window, 100, 90, 40, 1, 1, 7_500, 7_400, 128, 5, 1, 0, 0,
@@ -14226,12 +14566,13 @@ mod sorafs_tests {
     #[test]
     fn proof_failure_telemetry_replay_is_deterministic() {
         fn run_once() -> (CapacityFeeLedgerEntry, ProviderCreditRecord) {
-            let state = make_state();
+            let mut state = make_state();
+            let proof_health = ProofHealthFixture::all_proofs(3, 5_000, 1);
+            proof_health.configure(&mut state);
             let mut block = state.block(block_header());
             let mut stx =
                 block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-            let provider =
-                ProofHealthFixture::all_proofs(3, 5_000, 1).install(&mut stx, 6_000_000_000);
+            let provider = proof_health.install(&mut stx, 6_000_000_000);
             let window = SECONDS_PER_BILLING_MONTH;
             record_capacity_window_with_proofs(
                 &mut stx,
@@ -14277,10 +14618,12 @@ mod sorafs_tests {
     }
     #[test]
     fn record_capacity_telemetry_emits_proof_health_event() {
-        let state = make_state();
+        let mut state = make_state();
+        let proof_health = ProofHealthFixture::all_proofs(2, 5_000, 0);
+        proof_health.configure(&mut state);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let provider = ProofHealthFixture::all_proofs(2, 5_000, 0).install(&mut stx, 5_000_000_000);
+        let provider = proof_health.install(&mut stx, 5_000_000_000);
         let window = SECONDS_PER_BILLING_MONTH;
         record_capacity_window_with_proofs(
             &mut stx,
@@ -14321,10 +14664,12 @@ mod sorafs_tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn proof_health_alert_emitted_for_potr_failures() {
-        let state = make_state();
+        let mut state = make_state();
+        let proof_health = ProofHealthFixture::potr(1, 4_000, 0);
+        proof_health.configure(&mut state);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let provider = ProofHealthFixture::potr(1, 4_000, 0).install(&mut stx, 3_500_000_000);
+        let provider = proof_health.install(&mut stx, 3_500_000_000);
         let window = SECONDS_PER_BILLING_MONTH;
         record_capacity_window_with_proofs(
             &mut stx,
@@ -14364,10 +14709,12 @@ mod sorafs_tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn proof_health_alert_reports_cooldown_state() {
-        let state = make_state();
+        let mut state = make_state();
+        let proof_health = ProofHealthFixture::pdp(1, 5_000, 2);
+        proof_health.configure(&mut state);
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        let provider = ProofHealthFixture::pdp(1, 5_000, 2).install(&mut stx, 4_000_000_000);
+        let provider = proof_health.install(&mut stx, 4_000_000_000);
         let window = SECONDS_PER_BILLING_MONTH;
         record_capacity_window_with_proofs(
             &mut stx,
@@ -14422,11 +14769,11 @@ mod sorafs_tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn capacity_fee_ledger_30_day_soak_deterministic() {
-        let state = make_state();
+        let mut state = make_state();
+        state.gov.sorafs_penalty.penalty_bond_bps = 0;
+        state.gov.sorafs_penalty.strike_threshold = u32::MAX;
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
-        stx.gov.sorafs_penalty.penalty_bond_bps = 0;
-        stx.gov.sorafs_penalty.strike_threshold = u32::MAX;
         let mut schedule = PricingScheduleRecord::launch_default();
         schedule.credit = CreditPolicy {
             settlement_window_secs: SECONDS_PER_BILLING_MONTH,

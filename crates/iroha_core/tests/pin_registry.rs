@@ -46,7 +46,7 @@ const ORDER_ISSUED_EPOCH: u64 = 20;
 const ORDER_DEADLINE_EPOCH: u64 = 28;
 #[test]
 fn pin_registry_snapshot_matches_fixture() {
-    let state = make_state();
+    let mut state = make_state();
     seed_completion_anchor(&state);
     assert_eq!(
         state
@@ -60,6 +60,7 @@ fn pin_registry_snapshot_matches_fixture() {
     let digest = default_digest();
     let chunk_digest = default_chunk_digest();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let alias_binding = alias_binding_for(digest, "sora", "docs", 12, 36, &council_keys);
     {
         // Approval and completion observe their real consensus-time headers in
@@ -250,8 +251,9 @@ fn replication_order_fixture_decodes() {
 }
 #[test]
 fn duplicate_alias_binding_is_rejected() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     {
         let mut block = state.block(block_header(1));
         let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0x91; Hash::LENGTH]));
@@ -302,8 +304,9 @@ fn duplicate_alias_binding_is_rejected() {
 }
 #[test]
 fn replication_order_with_mismatched_profile_is_rejected() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let digest = default_digest();
     let chunk_digest = default_chunk_digest();
     let mut block = state.block(block_header(1));
@@ -342,8 +345,9 @@ fn replication_order_with_mismatched_profile_is_rejected() {
 }
 #[test]
 fn alias_binding_with_expiry_before_bound_is_rejected() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let mut block = state.block(block_header(1));
     let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0x91; Hash::LENGTH]));
     bootstrap_sorafs(&mut tx);
@@ -373,8 +377,9 @@ fn alias_binding_with_expiry_before_bound_is_rejected() {
 }
 #[test]
 fn alias_binding_exceeding_retention_is_rejected() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let mut block = state.block(block_header(1));
     let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0x91; Hash::LENGTH]));
     bootstrap_sorafs(&mut tx);
@@ -412,8 +417,9 @@ fn alias_binding_exceeding_retention_is_rejected() {
 }
 #[test]
 fn replication_order_below_min_replicas_is_rejected() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let digest = default_digest();
     let chunk_digest = default_chunk_digest();
     let mut block = state.block(block_header(1));
@@ -638,8 +644,9 @@ fn register_manifest_accepts_active_successor() {
 }
 #[test]
 fn register_manifest_rejects_retired_successor() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let parent = manifest_digest_for_seed(0xE5);
     let mut block = state.block(block_header(1));
     let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0x91; Hash::LENGTH]));
@@ -692,8 +699,9 @@ fn register_manifest_rejects_retired_successor() {
 }
 #[test]
 fn register_manifest_with_successor_persists_pointer() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let parent = manifest_digest_for_seed(0xE7);
     let mut block = state.block(block_header(1));
     let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0x91; Hash::LENGTH]));
@@ -724,8 +732,9 @@ fn register_manifest_with_successor_persists_pointer() {
 }
 #[test]
 fn bind_alias_rejects_expiry_before_bound_epoch() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let digest = manifest_digest_for_seed(0xD1);
     let chunk_digest = chunk_digest_for_seed(0xD1);
     let mut block = state.block(block_header(1));
@@ -753,8 +762,9 @@ fn bind_alias_rejects_expiry_before_bound_epoch() {
 }
 #[test]
 fn bind_alias_rejects_bound_epoch_before_approval() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let digest = manifest_digest_for_seed(0xD2);
     let chunk_digest = chunk_digest_for_seed(0xD2);
     let mut block = state.block(block_header_at(1, 5_000));
@@ -790,8 +800,9 @@ fn bind_alias_rejects_bound_epoch_before_approval() {
 }
 #[test]
 fn bind_alias_rejects_expiry_after_retention_epoch() {
-    let state = make_state();
+    let mut state = make_state();
     let council_keys = council_keypair();
+    configure_council_approval(&mut state, &council_keys);
     let digest = manifest_digest_for_seed(0xD3);
     let chunk_digest = chunk_digest_for_seed(0xD3);
     let mut block = state.block(block_header(1));
@@ -1144,6 +1155,17 @@ fn bootstrap_sorafs(tx: &mut iroha_core::state::StateTransaction<'_, '_>) {
         .expect("register provider completion authority");
     }
 }
+// Author the trusted roster before block construction, preserving automatic registration.
+fn configure_council_approval(state: &mut State, council_keys: &KeyPair) {
+    state.gov.sorafs_pin_policy.approval_quorum = 1;
+    state.gov.sorafs_pin_policy.approval_signers =
+        vec![iroha_config::parameters::actual::SorafsPinApprovalSigner {
+            signer_id: "council-a".to_owned(),
+            public_key: council_keys.public_key().clone(),
+            valid_from_block_height: 0,
+            revoked_at_block_height: None,
+        }];
+}
 fn register_and_approve(
     tx: &mut iroha_core::state::StateTransaction<'_, '_>,
     digest: ManifestDigest,
@@ -1170,15 +1192,6 @@ fn register_and_approve(
         .get(&digest)
         .expect("manifest stored")
         .clone();
-    tx.gov.sorafs_pin_policy.require_council_signatures = true;
-    tx.gov.sorafs_pin_policy.approval_quorum = 1;
-    tx.gov.sorafs_pin_policy.approval_signers =
-        vec![iroha_config::parameters::actual::SorafsPinApprovalSigner {
-            signer_id: "council-a".to_owned(),
-            public_key: council_keys.public_key().clone(),
-            valid_from_block_height: 0,
-            revoked_at_block_height: None,
-        }];
     let envelope = build_envelope(&stored, council_keys);
     ApprovePinManifest {
         digest,

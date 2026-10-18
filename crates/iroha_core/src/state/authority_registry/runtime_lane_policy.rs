@@ -61,6 +61,23 @@ impl RuntimeLaneCatalogAuthorityV1 {
     }
 }
 
+/// Stream the validated original lane catalog without a cloned projection vector.
+pub(super) fn borrowed(
+    lanes: &[LaneConfig],
+) -> Result<impl norito::SerializePayload + '_, RuntimeLaneProjectionError> {
+    use super::policy_borrowed::{Seq, record};
+    if lanes.is_empty() || lanes.len() > MAX_ACTIVE_EXECUTION_LANES {
+        return Err(RuntimeLaneProjectionError::LaneCount);
+    }
+    if lanes.windows(2).any(|pair| pair[0].id >= pair[1].id) {
+        return Err(RuntimeLaneProjectionError::LaneOrder);
+    }
+    Ok(record!(
+        LaneConsensusProjectionV1::VERSION,
+        Seq(lanes.iter().map(LaneConfig::borrowed_consensus_projection))
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,6 +93,25 @@ mod tests {
                 ..LaneConfig::default()
             },
         ]
+    }
+
+    #[test]
+    fn borrowed_runtime_catalog_matches_owned_and_rejects_order_substitution() {
+        let original = lanes();
+        super::super::policy_borrowed::assert_same_payload(
+            &borrowed(&original).unwrap(),
+            &RuntimeLaneCatalogAuthorityV1::from_lanes(&original).unwrap(),
+        );
+        let mut swapped = original;
+        swapped.reverse();
+        assert!(matches!(
+            borrowed(&swapped),
+            Err(RuntimeLaneProjectionError::LaneOrder)
+        ));
+        assert!(matches!(
+            borrowed(&[]),
+            Err(RuntimeLaneProjectionError::LaneCount)
+        ));
     }
 
     #[test]

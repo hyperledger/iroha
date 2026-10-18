@@ -5,8 +5,9 @@
 //! This value retains the exact V1 policy bytes, including the configured
 //! baseline lane catalog and loaded compliance/manifest identities. Runtime
 //! progress and committed catalog additions have separate owners.
-//! TODO: fund preimage allocation and bind this value to atomic State root
-//! publication and authenticated recovery.
+//! The original-cut encoder streams this policy from retained parameter/runtime
+//! versions; the complete-cut owner funds its exact frame.
+//! TODO: bind the complete cut to atomic State root publication and recovery.
 
 use super::lane_manifest_policy::StateAuthorityCaptureError;
 use crate::state::{State, StateViewError, is_stable_state_view_generation};
@@ -126,6 +127,251 @@ pub(super) fn canonical_preimage_once(
     attempt
 }
 
+/// Complete borrowed policy selected from the original runtime and parameter pair.
+pub(super) struct BorrowedNexusPolicy<'a> {
+    nexus: &'a Nexus,
+    runtime: &'a crate::state::SnapshotNexusRuntime,
+    fees: &'a iroha_data_model::block::consensus::RootFeePolicy,
+    configured_lane_catalog_hash: [u8; 32],
+    compliance_digest: Option<[u8; 32]>,
+    manifest_digest: Option<[u8; 32]>,
+    ratios: [u64; 4],
+    rotation_decay: u64,
+}
+impl<'a> BorrowedNexusPolicy<'a> {
+    pub(super) fn new(
+        nexus: &'a Nexus,
+        runtime: &'a crate::state::SnapshotNexusRuntime,
+        fees: &'a iroha_data_model::block::consensus::RootFeePolicy,
+        compliance_digest: Option<[u8; 32]>,
+        manifest_digest: Option<[u8; 32]>,
+    ) -> Result<Self, norito::Error> {
+        use super::policy_borrowed::{Seq, hash_payload, record};
+        if nexus.compliance.enabled && compliance_digest.is_none() {
+            return Err(norito::Error::Message(
+                "enabled compliance has no captured policy identity".into(),
+            ));
+        }
+        let ratios = [
+            nexus.autoscale.scale_out_latency_ratio,
+            nexus.autoscale.scale_in_latency_ratio,
+            nexus.autoscale.scale_out_utilization_ratio,
+            nexus.autoscale.scale_in_utilization_ratio,
+        ];
+        if ratios
+            .iter()
+            .any(|value| !value.is_finite() || *value <= 0.0)
+            || !nexus.da.rotation.latency_decay.is_finite()
+            || !(0.0..=1.0).contains(&nexus.da.rotation.latency_decay)
+        {
+            return Err(norito::Error::Message(
+                "invalid captured Nexus ratio".into(),
+            ));
+        }
+        let catalog = &nexus.configured_lane_catalog;
+        // DataSpaceCatalog construction owns canonical identifier order; no sort copy is needed.
+        if nexus
+            .configured_dataspace_catalog
+            .entries()
+            .windows(2)
+            .any(|pair| pair[0].id >= pair[1].id)
+        {
+            return Err(norito::Error::Message(
+                "configured data spaces are not in canonical order".into(),
+            ));
+        }
+        let configured_lane_catalog_hash = hash_payload(
+            b"iroha:nexus:configured-lane-catalog:v1\0",
+            &record!(
+                catalog.lane_count().get(),
+                Seq(catalog
+                    .lanes()
+                    .iter()
+                    .map(|lane| lane.borrowed_consensus_projection()))
+            ),
+        )?;
+        Ok(Self {
+            nexus,
+            runtime,
+            fees,
+            configured_lane_catalog_hash,
+            compliance_digest,
+            manifest_digest,
+            ratios: ratios.map(f64::to_bits),
+            rotation_decay: nexus.da.rotation.latency_decay.to_bits(),
+        })
+    }
+}
+impl norito::SerializePayload for BorrowedNexusPolicy<'_> {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        use super::policy_borrowed::{BareBytes, DisplayString, Raw, Ref, Seq, record};
+        fn duration(value: std::time::Duration) -> impl norito::SerializePayload {
+            record!(value.as_secs(), value.subsec_nanos())
+        }
+        fn mode_tag(mode: crate::state::SnapshotLaneValidatorMode) -> u8 {
+            match mode {
+                crate::state::SnapshotLaneValidatorMode::StakeElected => 0,
+                crate::state::SnapshotLaneValidatorMode::AdminManaged => 1,
+            }
+        }
+        let nexus = self.nexus;
+        let runtime = self.runtime;
+        let autoscale = &nexus.autoscale;
+        let preimage = record!(
+            1_u8,
+            Raw(&self.configured_lane_catalog_hash),
+            Seq(nexus
+                .configured_dataspace_catalog
+                .entries()
+                .iter()
+                .map(|entry| record!(entry.id.as_u64(), Ref(&entry.alias), entry.fault_tolerance))),
+            Seq(nexus
+                .dataspace_fee_sponsor_program_ids
+                .iter()
+                .map(|(id, program)| (id.as_u64(), Ref(program)))),
+            record!(
+                runtime.owner_policy.routing_default_lane.as_u32(),
+                runtime.owner_policy.routing_default_dataspace.as_u64(),
+                Seq(nexus.routing_policy.rules.iter().map(|rule| record!(
+                    rule.lane.as_u32(),
+                    rule.dataspace.map(|id| id.as_u64()),
+                    Ref(&rule.matcher.account),
+                    Ref(&rule.matcher.instruction)
+                )))
+            ),
+            record!(
+                mode_tag(runtime.owner_policy.public_validator_mode),
+                mode_tag(runtime.owner_policy.restricted_validator_mode),
+                Ref(&nexus.staking.min_validator_stake),
+                runtime.owner_policy.max_validators,
+                nexus.staking.max_stake_shares_per_validator.get(),
+                nexus.staking.max_pending_unbonds_per_share.get(),
+                duration(nexus.staking.unbonding_delay),
+                nexus.staking.max_slash_bps,
+                Ref(&nexus.staking.stake_asset_id),
+                Ref(&nexus.staking.stake_escrow_account_id),
+                Ref(&nexus.staking.slash_sink_account_id)
+            ),
+            Ref(self.fees),
+            record!(duration(nexus.hf_shared_leases.drain_grace)),
+            record!(
+                nexus.uploaded_models.max_plaintext_bytes_per_model,
+                nexus.uploaded_models.max_chunk_count_per_model
+            ),
+            record!(
+                Seq(nexus.endorsement.committee_keys.iter().map(DisplayString)),
+                nexus.endorsement.quorum
+            ),
+            record!(
+                nexus.axt.slot_length_ms.get(),
+                nexus.axt.max_clock_skew_ms,
+                nexus.axt.proof_cache_ttl_slots.get(),
+                nexus.axt.replay_retention_slots.get()
+            ),
+            record!(
+                nexus.atomic_private_settlement.enabled,
+                nexus.atomic_private_settlement.activation_height,
+                nexus
+                    .atomic_private_settlement
+                    .minimum_activation_notice_blocks
+                    .get(),
+                nexus.atomic_private_settlement.proof_profile_version.get(),
+                nexus.atomic_private_settlement.max_participants.get(),
+                nexus.atomic_private_settlement.max_expiry_blocks.get(),
+                nexus.atomic_private_settlement.audit_timeout_blocks.get(),
+                nexus.atomic_private_settlement.prepare_timeout_blocks.get(),
+                nexus.atomic_private_settlement.commit_timeout_blocks.get(),
+                Seq(nexus
+                    .atomic_private_settlement
+                    .capsule_padding_classes_bytes
+                    .iter()
+                    .map(|bytes| bytes.get())),
+                nexus.atomic_private_settlement.max_proof_bytes.get(),
+                nexus.atomic_private_settlement.max_capsule_bytes.get(),
+                nexus.atomic_private_settlement.max_carrier_bytes.get(),
+                nexus
+                    .atomic_private_settlement
+                    .sidecar_retention_blocks
+                    .get(),
+                nexus.atomic_private_settlement.sidecar_max_records.get(),
+                nexus
+                    .atomic_private_settlement
+                    .sidecar_max_total_bytes
+                    .get(),
+                nexus
+                    .atomic_private_settlement
+                    .default_min_auditor_approvals
+                    .get(),
+                Seq(nexus
+                    .atomic_private_settlement
+                    .permitted_policy_versions
+                    .iter()
+                    .copied())
+            ),
+            record!(
+                Ref(&nexus.governance.default_module),
+                Seq(nexus
+                    .governance
+                    .modules
+                    .iter()
+                    .map(|(name, module)| record!(
+                        Ref(name),
+                        Ref(&module.module_type),
+                        Seq(module
+                            .params
+                            .iter()
+                            .map(|(key, value)| (Ref(key), Ref(value))))
+                    )))
+            ),
+            nexus.compliance.enabled,
+            nexus.compliance.audit_only,
+            self.compliance_digest,
+            self.manifest_digest,
+            record!(
+                nexus.fusion.floor_teu,
+                nexus.fusion.exit_teu,
+                nexus.fusion.observation_slots.get(),
+                nexus.fusion.max_window_slots.get()
+            ),
+            record!(
+                runtime.owner_policy.autoscale_enabled,
+                runtime.owner_policy.autoscale_min_lane_id,
+                runtime.owner_policy.autoscale_max_lane_id_exclusive,
+                autoscale.target_block_ms.get(),
+                self.ratios[0],
+                self.ratios[1],
+                self.ratios[2],
+                self.ratios[3],
+                runtime.autoscale_scale_out_window_blocks,
+                runtime.autoscale_scale_in_window_blocks,
+                autoscale.cooldown_blocks.get(),
+                autoscale.per_lane_target_tps.get()
+            ),
+            nexus.commit.window_slots.get(),
+            record!(
+                nexus.da.q_in_slot_total.get(),
+                nexus.da.q_in_slot_per_ds_min.get(),
+                nexus.da.sample_size_base.get(),
+                nexus.da.sample_size_max.get(),
+                nexus.da.threshold_base.get(),
+                nexus.da.per_attester_shards.get(),
+                nexus.da.ingest_quota_window_blocks.get(),
+                nexus.da.ingest_quota_max_count_per_account.get(),
+                nexus.da.ingest_quota_max_bytes_per_account.get(),
+                nexus.da.audit.sample_size.get(),
+                nexus.da.audit.window_count.get(),
+                duration(nexus.da.audit.interval),
+                duration(nexus.da.recovery.request_timeout),
+                nexus.da.rotation.max_hits_per_window.get(),
+                nexus.da.rotation.window_slots.get(),
+                Ref(&nexus.da.rotation.seed_tag),
+                self.rotation_decay
+            )
+        );
+        record!(1_u16, BareBytes(preimage)).serialize(writer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,9 +406,63 @@ mod tests {
         state
     }
 
+    fn runtime(nexus: &Nexus) -> crate::state::SnapshotNexusRuntime {
+        crate::state::SnapshotNexusRuntime {
+            version: crate::state::SnapshotNexusRuntime::VERSION,
+            owner_policy: crate::state::SnapshotNexusOwnerPolicy::from_nexus(nexus),
+            lane_count: nexus.lane_catalog.lane_count().get(),
+            lanes: nexus.lane_catalog.lanes().to_vec(),
+            lane_incarnation_lineage: Vec::new(),
+            autoscale_last_transition_height: 0,
+            autoscale_scale_out_window_blocks: nexus.autoscale.scale_out_window_blocks.get(),
+            autoscale_scale_in_window_blocks: nexus.autoscale.scale_in_window_blocks.get(),
+            autoscale_sample_history_cap: 0,
+            autoscale_sample_history: Vec::new(),
+        }
+    }
+    #[test]
+    fn borrowed_nexus_uses_committed_fee_and_runtime_cut_with_complete_source_bindings() {
+        let baseline = Nexus::default();
+        let mut effective = baseline.clone();
+        effective.routing_policy.default_lane = LaneId::new(7);
+        effective.staking.max_validators = NonZeroU32::new(7).unwrap();
+        effective.autoscale.enabled = true;
+        effective.autoscale.scale_out_window_blocks = std::num::NonZeroU16::new(19).unwrap();
+        effective.fees.base_fee = 37_u32.into();
+        let runtime = runtime(&effective);
+        let expected =
+            NexusStaticAuthorityV1::from_actual(&effective, Some([3; 32]), Some([4; 32])).unwrap();
+        let actual = BorrowedNexusPolicy::new(
+            &baseline,
+            &runtime,
+            &effective.fees,
+            Some([3; 32]),
+            Some([4; 32]),
+        )
+        .unwrap();
+        super::super::policy_borrowed::assert_same_payload(&actual, &expected);
+        let mut enabled = baseline.clone();
+        enabled.compliance.enabled = true;
+        assert!(
+            BorrowedNexusPolicy::new(&enabled, &runtime, &effective.fees, None, Some([4; 32]))
+                .is_err()
+        );
+        enabled.compliance.enabled = false;
+        enabled.autoscale.scale_in_latency_ratio = f64::NAN;
+        assert!(
+            BorrowedNexusPolicy::new(&enabled, &runtime, &effective.fees, None, Some([4; 32]))
+                .is_err()
+        );
+    }
+
     fn authority(nexus: &Nexus) -> NexusStaticAuthorityV1 {
-        NexusStaticAuthorityV1::from_actual(nexus, None, Some([0xA5; 32]))
-            .expect("valid static Nexus policy")
+        let expected = NexusStaticAuthorityV1::from_actual(nexus, None, Some([0xA5; 32]))
+            .expect("valid static Nexus policy");
+        let runtime = runtime(nexus);
+        let borrowed =
+            BorrowedNexusPolicy::new(nexus, &runtime, &nexus.fees, None, Some([0xA5; 32])).unwrap();
+        super::super::policy_borrowed::assert_same_payload(&borrowed, &expected);
+        expected
     }
 
     #[test]

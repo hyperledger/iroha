@@ -44,12 +44,21 @@ impl SettlementPolicyV1 {
     }
 }
 
+/// The existing router DTO contains only scalars and needs no projection storage.
+pub(super) fn borrowed(config: &Settlement) -> impl norito::SerializePayload {
+    SettlementPolicyV1::from_actual(config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
 
     fn frame(config: &Settlement) -> Vec<u8> {
+        super::super::policy_borrowed::assert_same_payload(
+            &borrowed(config),
+            &SettlementPolicyV1::from_actual(config),
+        );
         norito::encode_canonical(&SettlementPolicyV1::from_actual(config)).unwrap()
     }
 

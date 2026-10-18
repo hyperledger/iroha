@@ -179,10 +179,23 @@ fn isolated_replay_recovers_nonempty_h1_and_h2_without_live_publication() {
             let missing = (0..64)
                 .find_map(|_| read.poll().err())
                 .expect("nonempty missing original tape is not empty success");
-            assert!(
-                matches!(missing, crate::query::native_context_archive::fastpq_source::SourceReadError::Archive(
-                crate::query::native_context_archive::NativeContextArchiveError::Io(ref e)) if e.kind()==io::ErrorKind::NotFound)
-            );
+            use crate::query::native_context_archive::{
+                NativeContextArchiveError, fastpq_source::SourceReadError,
+            };
+            match &missing {
+                SourceReadError::Archive(NativeContextArchiveError::Io(original)) => {
+                    assert_eq!(original.kind(), io::ErrorKind::NotFound, "{missing:?}");
+                }
+                SourceReadError::Archive(NativeContextArchiveError::Storage(
+                    crate::kura::Error::IO(original, path),
+                )) => {
+                    assert_eq!(original.kind(), io::ErrorKind::NotFound, "{missing:?}");
+                    assert!(path.starts_with(chain.kura().store_root()), "{missing:?}");
+                }
+                _ => panic!(
+                    "missing original tape must retain its physical NotFound owner: {missing:?}"
+                ),
+            }
             let deadline = Instant::now() + Duration::from_secs(120);
             let mut replay = seed.begin(read.native().unwrap(), deadline).unwrap();
             let completed = replay
@@ -299,7 +312,7 @@ fn isolated_state_configuration_preserves_live_pool_and_process_cache() {
             world,
             kura,
             query,
-            iroha_model_base::chain::ChainId::from("replay resources"),
+            iroha_model_base::chain::ChainId::from("replay-resources"),
             iroha_data_model::NetworkId::from_genesis_hash(
                 iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
                     b"isolated runtime fixture",
@@ -439,7 +452,10 @@ fn genesis_original_capacity_retries(phase: super::super::super::startup::test_h
         Ok(_) => panic!("the full original pool must refuse {phase:?}"),
         Err(error) => error,
     };
-    assert!(called.get(), "the hook must reach the actual genesis owner");
+    assert!(
+        called.get(),
+        "the hook must reach the actual genesis owner; earlier refusal: {error:?}"
+    );
     assert_genesis_capacity(&error, phase);
     drop(occupied.borrow_mut().take());
     assert_eq!(budget.limit_bytes(), maximum);
@@ -524,12 +540,15 @@ fn isolated_h1_malformed_original_witness_is_terminal_without_live_publication()
             Ok(_) => panic!("missing lane commitment cannot become a source"),
             Err(error) => error,
         };
-        assert!(matches!(
-            &error,
-            IsolatedReplayError::Startup(NodeError::Startup(StartupError::LaneProof(
-                NativeLaneStateProofError::Malformed(_)
-            )))
-        ));
+        assert!(
+            matches!(
+                &error,
+                IsolatedReplayError::Startup(NodeError::Startup(StartupError::LaneProof(
+                    NativeLaneStateProofError::Malformed(_)
+                )))
+            ),
+            "the actual lane-proof owner must reject the tampered witness: {error:?}"
+        );
         assert!(!replay_retryable(&error));
         assert_eq!(inventory(&chain.kura().store_root()), files);
         assert_eq!(

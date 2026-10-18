@@ -187,7 +187,7 @@ async fn account_finality_transport_preserves_exact_height_scope_and_codec_check
         assert_eq!(requests[0].method, http::Method::GET);
         assert_eq!(
             requests[0].url.path(),
-            format!("/provider/v1/sumeragi/finality/{height}")
+            format!("/provider/v1/bridge/finality/{height}")
         );
         assert_eq!(
             requests[0].max_response_bytes,

@@ -279,7 +279,7 @@ mod tests {
     fn inadmissible_controllers_can_never_be_credited() {
         let state = blank_state();
         let mut block = state.block(header(2));
-        let mut stx = block.transaction();
+        let stx = block.transaction();
         let secp = AccountId::new(
             iroha_crypto::KeyPair::try_from_seed(vec![9; 32], iroha_crypto::Algorithm::Secp256k1)
                 .expect("seed")
@@ -290,9 +290,13 @@ mod tests {
             classify_account(&stx, secp.clone()),
             SccpRecipientClassV1::Creditable { .. }
         ));
-        let mut crypto = (*stx.crypto).clone();
+        drop(stx);
+        drop(block);
+        let mut crypto = (*state.crypto()).clone();
         crypto.allowed_signing = vec![iroha_crypto::Algorithm::Ed25519];
-        stx.crypto = std::sync::Arc::new(crypto);
+        state.install_crypto_snapshot_for_isolated_replay(crypto);
+        let mut block = state.block(header(2));
+        let stx = block.transaction();
         assert_eq!(
             classify_account(&stx, secp.clone()),
             SccpRecipientClassV1::Uncreditable {

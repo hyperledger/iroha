@@ -3309,18 +3309,10 @@ mod tests {
     use crate::client::evidence_http_tests::{
         SnapshotStore, base_url, client_with_base_url, respond_with, with_mock_http,
     };
-    use iroha_data_model::{
-        nexus::{PrivateSettlementLegCommitmentV1, PrivateSettlementRouteV1},
-        privacy::{
-            PRIVACY_IVM_PRIVATE_ENCRYPTED_OUTPUT_BYTES_V1, PrivacyCommitmentV1,
-            PrivacyEncryptedOutputV1, PrivacyEncryptionKeyV1, PrivacyNullifierV1, PrivacyPoolIdV1,
-            PrivacyRecipientIdV1, PrivacyRootV1,
-        },
-    };
+    use iroha_data_model::nexus::PrivateSettlementRouteV1;
     use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
     use iroha_test_samples::private_settlement::{
-        availability_material_fixture_v1, finalization_authority_v1, finalization_delta_v1,
-        finalization_manifest_v1,
+        availability_material_fixture_v1, finalization_authority_v1, finalization_manifest_v1,
     };
     use std::{
         num::NonZeroU64,

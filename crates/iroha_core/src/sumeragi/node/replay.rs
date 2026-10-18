@@ -132,9 +132,6 @@ impl NativeReplaySeed {
             &self.nexus.lane_config,
             &self.nexus.configured_lane_catalog,
         )?;
-        // The canonical store owns serialization, certificates and exact-byte
-        // idempotency. No original source destination is ever opened for writing.
-        kura.store_block(genesis.clone())?;
         let account = iroha_data_model::account::Account::new(self.genesis_account.clone())
             .build(&self.genesis_account);
         let domain =
@@ -176,6 +173,12 @@ impl NativeReplaySeed {
         state.prepare_configured_primary_geometry_anchor(&self.nexus.configured_lane_catalog)?;
         state.restore_kura_lane_segments_before_startup_replay()?;
         state.set_nexus_from_config(self.nexus.clone())?;
+        // Canonical H0 geometry must be authenticated and provisioned while this
+        // temporary destination still has no durable blocks. A stored H1 makes
+        // missing physical geometry a corruption error, just as on ordinary startup.
+        // Only now does the canonical store retain the exact pinned signed genesis;
+        // no original source destination is ever opened for writing.
+        state.kura().store_block(genesis.clone())?;
         // The new State's tiered backend is disabled and has no configured external
         // paths; no live tiered directory, signer, runtime or query route is attached.
         let state = Arc::new(state);

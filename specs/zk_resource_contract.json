@@ -7600,7 +7600,7 @@
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/state/native_maintenance.rs",
-          "contains": ".max_native_maintenance_invocations as usize"
+          "contains": ".checked_sub(quota.native_usage().executed_entries)"
         },
         {
           "stage": "follower",
@@ -7617,7 +7617,8 @@
       "catalog": {
         "id": "fastpq_source_policy_v1",
         "field": "max_native_maintenance_invocations"
-      }
+      },
+      "note": "Native Time obtains the frozen committed total, subtracts already executed entries from the original source quota, and checked-converts only the remainder to host width. Retail and SNS cannot each reacquire the total; the committed count and reservation geometry are unchanged."
     },
     {
       "id": "work_budget.fastpq_mandatory_max_retained_obligations",
@@ -11323,6 +11324,50 @@
           "name": "engine_set_and_identifier_bounds_are_fixed_protocol_values"
         }
       ]
+    },
+    {
+      "id": "transport.explorer_transaction_proof_json_bytes",
+      "group": "transport",
+      "what": "Maximum JSON response for the selective original-input/execution-output/certificate Explorer proof, further limited by the original admitted history-query response budget.",
+      "unit": "bytes",
+      "value": 16777216,
+      "source": "constant",
+      "class": "local_defer",
+      "owner": {
+        "path": "crates/iroha_torii/src/routing/explorer_transaction_proof.rs",
+        "symbol": "MAX_RESPONSE_BYTES",
+        "kind": "const",
+        "expr": "16 * 1024 * 1024"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "torii",
+          "path": "crates/iroha_torii/src/routing/explorer_transaction_proof.rs",
+          "contains": "owner.json_with_limit(&proof, maximum_response_bytes.min(MAX_RESPONSE_BYTES))?;"
+        }
+      ],
+      "validity": false,
+      "on_exhaustion": "local_refusal",
+      "guarded_by": "explorer_transaction_proof_nominal_input_capacity",
+      "tests": [
+        {
+          "path": "crates/iroha_torii/src/routing/explorer_transaction_proof.rs",
+          "name": "explorer_transaction_proof_base64_preserves_padding_and_exact_sink_bounds",
+          "features": [
+            "app_api"
+          ]
+        },
+        {
+          "path": "crates/iroha_torii/src/routing/explorer_transaction_proof.rs",
+          "name": "explorer_transaction_proof_certificate_has_one_cumulative_output_bound",
+          "features": [
+            "app_api"
+          ]
+        }
+      ],
+      "test_note": "These tests exercise exact/one-short bounded certificate serialization, not a maximum admitted transaction and execution output through this route. That route-level acceptance gap remains open in the relation.",
+      "note": "HistoryProducerOwner keeps the same admitted pool across bounded JSON encoding and response custody. A full response returns local capacity without altering payment execution or finality; no current measurement proves every allowed input/output JSON projection fits this ceiling."
     }
   ],
   "relations": [
@@ -12245,6 +12290,19 @@
       "why": "The committed native PIPA-R envelope cap fits the hard encoded-proof limit checked before native verification.",
       "expect": {
         "today": "holds"
+      }
+    },
+    {
+      "id": "explorer_transaction_proof_nominal_input_capacity",
+      "expr": "transaction.max_tx_bytes <= transport.explorer_transaction_proof_json_bytes",
+      "why": "The nominal JSON response ceiling exceeds the signed transaction byte cap. This numeric comparison does not model serialization or prove route completeness: the borrowed entrypoint and execution output use JSON rather than the signed binary frame, and also require Merkle paths and a certificate.",
+      "expect": {
+        "today": "holds",
+        "x2_target": "holds"
+      },
+      "open": {
+        "owner": "S.1",
+        "summary": "Measure the actual selective Explorer response for maximum protocol-valid native payment and worst allowed input/output shapes under the unchanged original query owner. Existing certificate sink tests and the nominal input comparison do not prove route completeness. If a legitimate confirmation response exceeds the 16 MiB cap or original response budget, complete bounded recovery/transport through the canonical receipt owner; do not turn local capacity into a payment rejection."
       }
     }
   ],
@@ -24375,6 +24433,16 @@
             "crates/iroha_data_model/src/bond.rs: BOND_MAX_PAYMENT_GRACE_MS"
           ]
         }
+      },
+      {
+        "path": "crates/iroha_core/src/sumeragi/certified_chain/prefix_checkpoints.rs",
+        "reason": "A process-local cache of completed native proof-prefix walks, limited to 256 entries after retention (insertion may transiently hold the next entry before eviction). It stores no block bodies or serialized authority. Resume rechecks the original pinned frame hash, canonical wire identity, root scope and instance; a miss recomputes from signed genesis. Eviction changes read work, never proof validity. Tests eviction_keeps_newest_point_and_an_even_bounded_ladder and eviction_never_removes_the_only_or_newest_point cover its cardinality policy; full reader resource qualification remains under S.1. Cache export and retention currently use ordinary schedule clone, Arc/BTreeMap allocation and an eviction Vec without an AllocationBudget reservation; the entry-count bound and these tests do not establish local-memory custody. This remains an S.1 resource qualification gap.",
+        "symbols": [
+          "MAX_CHECKPOINTS"
+        ],
+        "exprs": {
+          "MAX_CHECKPOINTS": "256"
+        }
       }
     ],
     "literals": {
@@ -24792,6 +24860,25 @@
               "path": "crates/iroha_torii/src/private_settlement_context.rs",
               "sites": {
                 "*h >= 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/validation_fee.rs",
+              "sites": {
+                "history.archived_at_height < 2": 1,
+                "archived_at_height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_core/src/validation_fee/policy_history.rs",
+              "sites": {
+                "height < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/routing/explorer_transaction_proof.rs",
+              "sites": {
+                "height < 2": 1
               }
             }
           ]
@@ -27494,6 +27581,40 @@
                 "m <= 2": 1,
                 "month <= 2": 1,
                 "month > 2": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Local verified decision retention keeps at least the three decisions required by the existing restart context. It prunes only an already authenticated in-memory prefix; increasing the request does not recreate earlier pruned authority, change verification rules, or enlarge checkpoint encoding. decision_window_preserves_genesis_and_checkpoint_floor and decision_window_preserves_lagging_witness_across_pruning cover the original verifier.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/sumeragi_finality.rs",
+              "sites": {
+                "count.max(3)": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Conservative local allocation accounting for native finality root/committee materialization. The minimum nonzero Vec capacity of four is included in checked geometric storage demand before reserve_decode_allocation. It is not a committee-validity minimum or an admission ceiling; a genuine funding refusal stays a typed local execution deferral. The actual four-validator native prefix is exercised by finite_finality_interval_under_original_codec_checks_each_real_quorum_once.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/sumeragi/certified_chain/query_reader.rs",
+              "sites": {
+                "count .max(4)": 1,
+                "count.max(4)": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Cooperative isolated FASTPQ replay accepts 1 through 64 native steps per local continuation, matching the configured producer maximum. It retains the exact original target, canonical executor and pending body between continuations. Ending a valid step budget returns unresolved work; it neither skips a nonempty H1 nor changes source proof or settlement validity. Invalid caller budgets are terminal configuration/identity errors, while an expired absolute attempt deadline is retried. replay_preserves_original_target_and_expired_deadline exercises the same target and finite one-step continuation; user configuration tests reject 65.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/sumeragi/node/replay.rs",
+              "sites": {
+                "maximum_steps > 64": 1
               }
             }
           ]

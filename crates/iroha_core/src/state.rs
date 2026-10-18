@@ -12794,10 +12794,6 @@ pub struct StateBlockFields<'state> {
     accounts_snapshot_cache: SyncOnceCell<Arc<Vec<AccountId>>>,
     /// Pipeline execution preferences for this block.
     pub pipeline: iroha_config::parameters::actual::Pipeline,
-    /// Oracle configuration snapshot for this block.
-    pub oracle: iroha_config::parameters::actual::Oracle,
-    /// Cryptography configuration snapshot for this block.
-    pub crypto: Arc<iroha_config::parameters::actual::Crypto>,
     /// Nexus configuration snapshot for this block.
     pub nexus: iroha_config::parameters::actual::Nexus,
     /// Active lane incarnation commitments for this block scope.
@@ -12816,12 +12812,6 @@ pub struct StateBlockFields<'state> {
     pub fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring,
     /// Zero-knowledge verification configuration snapshot for this block.
     pub zk: iroha_config::parameters::actual::Zk,
-    /// Governance configuration snapshot for this block.
-    pub gov: iroha_config::parameters::actual::Governance,
-    /// Content lane configuration snapshot for this block.
-    pub content: iroha_config::parameters::actual::Content,
-    /// Settlement configuration snapshot for this block.
-    pub settlement: iroha_config::parameters::actual::Settlement,
     /// Settlement engine snapshot for this block.
     pub settlement_engine: crate::settlement::SettlementEngine,
     /// Chain identifier for this block.
@@ -12966,6 +12956,17 @@ pub struct StateBlockFields<'state> {
     _read_releases: StateViewReleases<'state>,
     /// Original execution-pool scratch wakes outlive every physical State writer.
     _ivm_refunds: iroha_allocation::AllocationRefundBatch,
+}
+
+/// Immutable execution inputs retained by the original block construction owner.
+pub use canonical_runtime::StaticExecutionPolicy;
+
+impl std::ops::Deref for StateBlockFields<'_> {
+    type Target = StaticExecutionPolicy;
+
+    fn deref(&self) -> &Self::Target {
+        self.runtime_policy.static_inputs()
+    }
 }
 
 impl<'state> std::ops::Deref for StateBlock<'state> {
@@ -14025,10 +14026,8 @@ pub struct StateTransaction<'block, 'state> {
     pub(crate) zk_dedup: &'block mut crate::zk::DedupCache,
     /// Pipeline execution preferences snapshot for this transaction.
     pub pipeline: iroha_config::parameters::actual::Pipeline,
-    /// Oracle configuration snapshot for this transaction.
-    pub oracle: iroha_config::parameters::actual::Oracle,
-    /// Cryptography configuration snapshot for this transaction.
-    pub crypto: Arc<iroha_config::parameters::actual::Crypto>,
+    /// The exact block-owned immutable policy; rollback never acquires another source.
+    static_policy: &'block StaticExecutionPolicy,
     /// Nexus configuration snapshot for this transaction.
     pub nexus: iroha_config::parameters::actual::Nexus,
     /// Active lane incarnation commitments for this transaction overlay.
@@ -14067,12 +14066,6 @@ pub struct StateTransaction<'block, 'state> {
     pub zk: iroha_config::parameters::actual::Zk,
     /// Parent block ZK configuration snapshot updated when the transaction commits.
     block_zk: &'block mut iroha_config::parameters::actual::Zk,
-    /// Governance configuration snapshot for this transaction.
-    pub gov: iroha_config::parameters::actual::Governance,
-    /// Content lane configuration snapshot for this transaction.
-    pub content: iroha_config::parameters::actual::Content,
-    /// Settlement configuration snapshot for this transaction.
-    pub settlement: iroha_config::parameters::actual::Settlement,
     /// Settlement engine snapshot for this transaction.
     pub settlement_engine: crate::settlement::SettlementEngine,
     /// Display chain identifier snapshot exposed through the display sysvar.
@@ -14299,7 +14292,25 @@ pub struct StateTransaction<'block, 'state> {
     /// Lazy snapshot of accounts for trigger execution within this transaction.
     accounts_snapshot_cache: OnceCell<Arc<Vec<AccountId>>>,
 }
+
+impl std::ops::Deref for StateTransaction<'_, '_> {
+    type Target = StaticExecutionPolicy;
+
+    fn deref(&self) -> &Self::Target {
+        self.static_policy
+    }
+}
+
 impl<'block, 'state> StateTransaction<'block, 'state> {
+    /// Borrow the exact immutable execution inputs retained by this transaction's block.
+    ///
+    /// The borrow keeps the original block lifetime, allowing a caller to inspect
+    /// these inputs while updating disjoint transaction state. It cannot replace
+    /// the owner, reacquire live State configuration, or outlive the block.
+    pub fn static_execution_policy(&self) -> &'block StaticExecutionPolicy {
+        self.static_policy
+    }
+
     /// Return whether execution is currently inside a scheduled or data-trigger body.
     #[inline]
     pub(crate) const fn is_trigger_execution_active(&self) -> bool {
@@ -34932,10 +34943,6 @@ fn ensure_autoscale_managed_created_heights_not_future(
     }
     Ok(())
 }
-fn nexus_fee_asset_selector_is_canonical(value: &str) -> bool {
-    value.trim() == value
-        && (AssetDefinitionId::parse_address_literal(value).is_ok() || value == "xor#universal")
-}
 fn ensure_autoscale_managed_lane_in_range(
     lane: LaneId,
     min_lane_id: u32,
@@ -38517,8 +38524,7 @@ impl<'state> StateBlock<'state> {
             #[cfg(feature = "zk-preverify")]
             zk_dedup: &mut fields.zk_dedup,
             pipeline: fields.pipeline.clone(),
-            oracle: fields.oracle.clone(),
-            crypto: fields.crypto.clone(),
+            static_policy: fields.runtime_policy.static_inputs(),
             nexus,
             lane_incarnations,
             lane_incarnation_lineage,
@@ -38539,9 +38545,6 @@ impl<'state> StateBlock<'state> {
             fraud_monitoring: fields.fraud_monitoring.clone(),
             zk,
             block_zk: &mut fields.zk,
-            gov: fields.gov.clone(),
-            content: fields.content.clone(),
-            settlement: fields.settlement,
             settlement_engine: fields.settlement_engine.clone(),
             chain_id: fields.chain_id.clone(),
             network_id: fields.network_id,

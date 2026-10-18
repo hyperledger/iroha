@@ -25,7 +25,6 @@ fn sccp_route_governance_test_proposal(
 }
 
 fn bond_sccp_route_governance_test_proposer(state_transaction: &mut StateTransaction<'_, '_>) {
-    state_transaction.gov.citizenship_bond_amount = Quantity::from(10_u32);
     state_transaction.world.citizens.insert(
         ALICE_ID.clone(),
         crate::state::CitizenshipRecord::new(ALICE_ID.clone(), Quantity::from(10_u32), 1),
@@ -43,7 +42,9 @@ fn sccp_route_governance_test_kind(
 }
 
 world_test!(sccp_route_governance_proposal_rejects_statically_invalid_proposals {
-    blank_test_state_transaction!(checked state, block, stx);
+    blank_test_state_transaction!(checked state, block, stx; |state: &mut State| {
+        state.gov.citizenship_bond_amount = Quantity::from(10_u32);
+    });
     bond_sccp_route_governance_test_proposer(&mut stx);
     let foreign = iroha_data_model::NetworkId::from_genesis_hash(
         iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"foreign SCCP network")),
@@ -100,7 +101,9 @@ world_test!(sccp_route_governance_proposal_requires_permission_or_bond {
 });
 
 world_test!(sccp_route_governance_storage_records_once_and_replays_idempotently {
-    blank_test_state_transaction!(checked state, block, stx);
+    blank_test_state_transaction!(checked state, block, stx; |state: &mut State| {
+        state.gov.citizenship_bond_amount = Quantity::from(10_u32);
+    });
     bond_sccp_route_governance_test_proposer(&mut stx);
     let proposal = sccp_route_governance_test_proposal(stx.network_id);
     record_sccp_route_governance_proposal(proposal.clone(), &ALICE_ID, &mut stx)
@@ -210,7 +213,9 @@ world_test!(bridge_payloads_without_an_authoritative_verifier_fail_closed {
 
 world_test!(sccp_governance_proposals_list_open_proposals_with_their_admissibility {
     use crate::smartcontracts::isi::sccp::{read, store};
-    blank_test_state_transaction!(checked state, block, stx);
+    blank_test_state_transaction!(checked state, block, stx; |state: &mut State| {
+        state.gov.citizenship_bond_amount = Quantity::from(10_u32);
+    });
     bond_sccp_route_governance_test_proposer(&mut stx);
     assert!(read::governance_proposals(&*stx.world).is_empty());
     let proposal = sccp_route_governance_test_proposal(stx.network_id);

@@ -307,10 +307,33 @@ mod native_genesis_policy_tests {
         }
         ValidBlock::validate_native_genesis_policy(genesis, &staged)
             .expect("restoring the exact original staged cadence restores acceptance");
+        let original_clock = staged.world().parameters().sumeragi().clone();
+        // The signed fixture chooses its own cadence (currently 1 ms). Derive
+        // the CT5 boundary from the actual executed inputs, not an assumed
+        // 1,000 ms cadence that would make a fixed 5,999 ms lag invalid.
+        let minimum_lag = original_clock
+            .max_clock_drift_ms()
+            .checked_mul(2)
+            .and_then(|drift| {
+                original_cadence
+                    .get()
+                    .checked_mul(4)
+                    .and_then(|cadence| drift.checked_add(cadence))
+            })
+            .expect("the original signed CT5 margin fits");
         {
             let parameters = staged.world.parameters.get_mut();
-            let mut consensus = parameters.sumeragi().clone();
-            consensus.due_work_max_lag_ms = std::num::NonZeroU64::new(5_999).unwrap();
+            let mut consensus = original_clock.clone();
+            consensus.due_work_max_lag_ms = std::num::NonZeroU64::new(minimum_lag).unwrap();
+            parameters.set_sumeragi(consensus);
+        }
+        ValidBlock::validate_native_genesis_policy(genesis, &staged)
+            .expect("the exact combined CT5 margin is valid before publication");
+        let below_minimum = minimum_lag.checked_sub(1).unwrap();
+        {
+            let parameters = staged.world.parameters.get_mut();
+            let mut consensus = original_clock.clone();
+            consensus.due_work_max_lag_ms = std::num::NonZeroU64::new(below_minimum).unwrap();
             parameters.set_sumeragi(consensus);
         }
         let error = ValidBlock::validate_native_genesis_policy(genesis, &staged)
@@ -319,6 +342,22 @@ mod native_genesis_policy_tests {
             matches!(error, BlockValidationError::ExecutionContextInvalid(ref reason) if reason.contains("due_work_max_lag_ms")),
             "{error}"
         );
+        let expected = format!(
+            "due_work_max_lag_ms {below_minimum} is below the committed minimum {minimum_lag}"
+        );
+        assert!(
+            matches!(error, BlockValidationError::ExecutionContextInvalid(ref reason) if reason == &expected),
+            "{error}"
+        );
+        assert_eq!(prepared.state.committed_height(), 0);
+        assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
+        staged
+            .world
+            .parameters
+            .get_mut()
+            .set_sumeragi(original_clock);
+        ValidBlock::validate_native_genesis_policy(genesis, &staged)
+            .expect("the exact original signed execution remains valid after the negative probe");
         assert_eq!(prepared.state.committed_height(), 0);
         assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
     }

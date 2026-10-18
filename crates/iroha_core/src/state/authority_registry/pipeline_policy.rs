@@ -127,6 +127,65 @@ impl PipelineExecutionPolicyV1 {
     }
 }
 
+/// Borrow validated parameter projections and fund only canonical asset-set bytes.
+pub(super) struct BorrowedPipelinePolicy<'a> {
+    policy: &'a iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1,
+    gas: &'a iroha_config::parameters::actual::Gas,
+    accepted: super::policy_borrowed::EncodedSet,
+}
+impl<'a> BorrowedPipelinePolicy<'a> {
+    pub(super) fn new(
+        policy: &'a iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1,
+        gas: &'a iroha_config::parameters::actual::Gas,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, super::policy_borrowed::OrderError> {
+        let accepted = super::policy_borrowed::EncodedSet::new(&gas.accepted_assets, budget)?;
+        Ok(Self {
+            policy,
+            gas,
+            accepted,
+        })
+    }
+}
+impl norito::SerializePayload for BorrowedPipelinePolicy<'_> {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        use super::policy_borrowed::{BareBytes, Ref, Seq, record};
+        let policy = self.policy;
+        let gas = self.gas;
+        let gas_policy = record!(
+            Ref(&gas.tech_account_id),
+            Seq(self.accepted.unique().map(BareBytes)),
+            Seq(gas.units_per_gas.iter().map(|rate| record!(
+                Ref(&rate.asset),
+                rate.units_per_gas,
+                Ref(&rate.twap_local_per_xor),
+                liquidity_tag(rate.liquidity),
+                volatility_tag(rate.volatility)
+            )))
+        );
+        record!(
+            policy.dynamic_prepass,
+            policy.overlay_max_instructions,
+            policy.overlay_max_bytes,
+            policy.overlay_chunk_instructions,
+            gas_policy,
+            policy.ivm_max_cycles_upper_bound,
+            policy.ivm_max_decoded_instructions,
+            policy.ivm_max_decoded_bytes,
+            policy.quarantine_max_txs_per_block,
+            policy.quarantine_tx_max_cycles,
+            policy.query_max_fetch_size,
+            policy.query_stored_min_gas_units,
+            policy.amx_per_dataspace_budget_ms,
+            policy.amx_group_budget_ms,
+            policy.amx_per_instruction_ns,
+            policy.amx_per_memory_access_ns,
+            policy.amx_per_syscall_ns
+        )
+        .serialize(writer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +207,15 @@ mod tests {
     }
 
     fn frame(config: &Pipeline) -> Vec<u8> {
+        super::super::policy_borrowed::assert_same_payload(
+            &BorrowedPipelinePolicy::new(
+                &crate::pipeline_validity_policy::policy_of(config),
+                &config.gas,
+                &iroha_allocation::AllocationBudget::new(1 << 20),
+            )
+            .unwrap(),
+            &PipelineExecutionPolicyV1::from_actual(config),
+        );
         norito::encode_canonical(&PipelineExecutionPolicyV1::from_actual(config)).unwrap()
     }
 

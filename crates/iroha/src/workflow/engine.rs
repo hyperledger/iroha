@@ -1557,8 +1557,17 @@ fn round_pending_error(journal: &WorkflowJournalV1, index: usize) -> WorkflowErr
 }
 
 impl WorkflowHandle {
-    /// Read the existing engine-owned journal without granting receipt authority.
-    pub(crate) fn journal_snapshot(&self) -> Result<Option<WorkflowJournalV1>, WorkflowError> {
+    /// Read an owned snapshot of the existing engine-validated journal.
+    ///
+    /// This read neither creates a journal nor acquires a runner lease. The snapshot
+    /// may become stale, and changing it cannot change stored state. Local journal
+    /// contents do not grant receipt or finality authority; callers independently
+    /// authenticate any recovered business outcome.
+    ///
+    /// # Errors
+    /// Returns the original storage, canonical decoding, workflow binding or retained
+    /// transaction identity error. An absent journal returns `None`.
+    pub fn journal_snapshot(&self) -> Result<Option<WorkflowJournalV1>, WorkflowError> {
         Ok(self.engine.load(&self.id)?.map(|(journal, _)| journal))
     }
 

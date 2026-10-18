@@ -109,7 +109,7 @@ impl FilePrivateSettlementArtifacts {
     }
     /// Reopen the exact original all-leg public context. Decode and AEAD custody do not authenticate it;
     /// the caller must reverify it against the independently pinned original native decision.
-    pub fn read_context(
+    pub(super) fn read_context(
         &self,
         key: ArtifactKey,
         maximum: usize,
@@ -147,7 +147,7 @@ impl FilePrivateSettlementArtifacts {
     }
     /// Persist a verified original all-leg batch before wallet reservation or proving, under the same round lease.
     /// A failed durable acknowledgement must be reconciled by reading this exact filename first.
-    pub fn publish_context(
+    pub(super) fn publish_context(
         &self,
         key: ArtifactKey,
         proof: &PrivateSettlementContextsProofV1,
@@ -169,7 +169,8 @@ impl FilePrivateSettlementArtifacts {
             .map_err(OneCallPrivateSettlementError::Storage)?;
         Ok(length)
     }
-    pub fn read(
+    /// Reopen one original encrypted leg and verify its exact request, round and ordinal.
+    pub(super) fn read(
         &self,
         key: ArtifactKey,
         maximum: usize,
@@ -215,7 +216,7 @@ impl FilePrivateSettlementArtifacts {
     }
     /// Caller holds the original durable per-round runner lease throughout publication.
     /// An I/O error is deliberately ambiguous; next recovery reads this original name first.
-    pub fn publish(
+    pub(super) fn publish(
         &self,
         artifact: &Artifact,
         maximum: usize,
