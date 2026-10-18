@@ -3,6 +3,7 @@ package org.hyperledger.iroha.android.model.instructions;
 import java.util.Locale;
 import org.hyperledger.iroha.android.address.AccountAddress;
 import org.hyperledger.iroha.android.address.PublicKeyCodec;
+import org.hyperledger.iroha.sdk.client.IdentifierOwnerInputV1;
 import org.hyperledger.iroha.sdk.client.IdentifierReceiptAttestation;
 import org.hyperledger.iroha.sdk.client.IdentifierReceiptCanonicalEncoder;
 import org.hyperledger.iroha.sdk.client.IdentifierResolutionExecutionPayload;
@@ -11,6 +12,7 @@ import org.hyperledger.iroha.sdk.client.IdentifierResolutionReceipt;
 import org.hyperledger.iroha.sdk.client.RamLfeOutputOpening;
 import org.hyperledger.iroha.sdk.client.RamLfeOutputOpeningPayload;
 import org.hyperledger.iroha.sdk.core.model.InstructionBox;
+import org.hyperledger.iroha.sdk.core.model.NetworkId;
 import org.hyperledger.iroha.sdk.core.model.instructions.ClaimIdentifierWirePayloadEncoder;
 import org.hyperledger.iroha.android.test.FixtureGeneratorRunner;
 import org.hyperledger.iroha.norito.CRC64;
@@ -24,6 +26,8 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
   private static final String PARITY_SIGNATURE_HEX = "CD".repeat(64);
   private static final String PARITY_HASH_HEX =
       "C6A23EC291940DF33EF948BCE1DF0FC42B8108661529A4E4CD6E084D3BD944C3";
+  private static final NetworkId NETWORK_ID =
+      NetworkId.parse("hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0");
 
   public static void main(String[] args) throws Exception {
     claimIdentifierEncodesExpectedWirePayload();
@@ -36,32 +40,7 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
   }
 
   private static void claimIdentifierEncodesExpectedWirePayload() {
-    final String signatureHex = "A1B2C3D4";
-    final IdentifierResolutionPayload payload =
-        new IdentifierResolutionPayload(
-            "email#retail",
-            new IdentifierResolutionExecutionPayload(
-                "identifier_lookup_retail",
-                "11".repeat(32),
-                "bfv-affine-v1",
-                "signed",
-                "AA".repeat(32),
-                "BB".repeat(32),
-                "CC".repeat(32),
-                "DD".repeat(32),
-                "22".repeat(32),
-                "33".repeat(32),
-                42L,
-                142L),
-            sampleOpening("identifier_lookup_retail", signatureHex),
-            "opaque:" + "44".repeat(32),
-            "55".repeat(32),
-            "uaid:" + "66".repeat(31) + "67",
-            ACCOUNT_ID);
-    final IdentifierResolutionReceipt receipt =
-        new IdentifierResolutionReceipt(
-            payload,
-            new IdentifierReceiptAttestation("signed", signatureHex, null, null));
+    final IdentifierResolutionReceipt receipt = sampleReceipt(ACCOUNT_ID, "A1B2C3D4");
 
     final InstructionBox instruction = ClaimIdentifierWirePayloadEncoder.encode(ACCOUNT_ID, receipt);
     assert ClaimIdentifierWirePayloadEncoder.WIRE_NAME.equals(instruction.getName())
@@ -114,32 +93,7 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
   }
 
   private static void printClaimIdentifierWirePayloadHex() {
-    final String signatureHex = "AB".repeat(64);
-    final IdentifierResolutionPayload payload =
-        new IdentifierResolutionPayload(
-            "email#retail",
-            new IdentifierResolutionExecutionPayload(
-                "email_retail",
-                "11".repeat(32),
-                "bfv-affine-v1",
-                "signed",
-                "AA".repeat(32),
-                "BB".repeat(32),
-                "CC".repeat(32),
-                "DD".repeat(32),
-                "22".repeat(32),
-                "33".repeat(32),
-                42L,
-                142L),
-            sampleOpening("email_retail", signatureHex),
-            "opaque:" + "44".repeat(32),
-            "55".repeat(32),
-            "uaid:" + "66".repeat(31) + "67",
-            ACCOUNT_ID);
-    final IdentifierResolutionReceipt receipt =
-        new IdentifierResolutionReceipt(
-            payload,
-            new IdentifierReceiptAttestation("signed", signatureHex, null, null));
+    final IdentifierResolutionReceipt receipt = sampleReceipt(ACCOUNT_ID, "AB".repeat(64));
 
     final InstructionBox instruction = ClaimIdentifierWirePayloadEncoder.encode(ACCOUNT_ID, receipt);
     final org.hyperledger.iroha.sdk.core.model.WirePayload wirePayload = (org.hyperledger.iroha.sdk.core.model.WirePayload) instruction.getPayload();
@@ -153,11 +107,12 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
   }
 
   private static void claimIdentifierMatchesRustCanonicalFixture() throws Exception {
-    final String rustFramedHex =
-        FixtureGeneratorRunner.run("claim-identifier").get(0).toUpperCase(Locale.ROOT);
+    final java.util.List<String> lines = FixtureGeneratorRunner.run("claim-identifier");
+    final String rustFramedHex = lines.get(0).toUpperCase(Locale.ROOT);
     final String liveAccountId = canonicalI105AccountId(PARITY_ACCOUNT_MULTIHASH);
     final IdentifierResolutionPayload payload =
         new IdentifierResolutionPayload(
+            IdentifierOwnerInputV1.rawNetworkId(lines.get(4)),
             "email#retail",
             new IdentifierResolutionExecutionPayload(
                 "parity_test",
@@ -171,8 +126,8 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
                 PARITY_HASH_HEX,
                 PARITY_HASH_HEX,
                 1_735_000_000_000L,
-                null),
-            sampleOpening("parity_test", PARITY_SIGNATURE_HEX, PARITY_HASH_HEX),
+                1_735_000_120_000L),
+            parityOpening(),
             "opaque:" + PARITY_HASH_HEX,
             PARITY_HASH_HEX,
             "uaid:" + PARITY_HASH_HEX.toLowerCase(Locale.ROOT),
@@ -180,7 +135,8 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
     final IdentifierResolutionReceipt receipt =
         new IdentifierResolutionReceipt(
             payload,
-            new IdentifierReceiptAttestation("signed", PARITY_SIGNATURE_HEX, null, null));
+            new IdentifierReceiptAttestation("signed", PARITY_SIGNATURE_HEX, null, null),
+            null);
 
     final InstructionBox instruction =
         ClaimIdentifierWirePayloadEncoder.encode(liveAccountId, receipt);
@@ -268,63 +224,73 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
     final IdentifierResolutionReceipt phone =
         new IdentifierResolutionReceipt(
             new IdentifierResolutionPayload(
-                "phone#retail", source.execution, source.opening, source.opaqueId,
-                source.receiptHash, source.uaid, source.accountId),
-            ordinary.attestation);
+                source.networkId, "phone#retail", source.execution, source.opening,
+                source.opaqueId, source.receiptHash, source.uaid, source.accountId),
+            ordinary.attestation,
+            null);
     boolean threw = false;
     try {
       ClaimIdentifierWirePayloadEncoder.encode(ACCOUNT_ID, phone);
     } catch (final IllegalArgumentException ex) {
-      threw = ex.getMessage() != null && ex.getMessage().contains("canonicality attestation");
+      threw =
+          ex.getMessage() != null
+              && ex.getMessage().contains("original independent signed canonicality");
     }
     assert threw : "phone#retail claim without signed canonicality evidence must fail closed";
   }
 
-  private static RamLfeOutputOpening sampleOpening(
-      final String programId, final String signatureHex) {
-    return sampleOpening(programId, signatureHex, "EE".repeat(32));
-  }
-
-  private static RamLfeOutputOpening sampleOpening(
-      final String programId, final String signatureHex, final String hashHex) {
+  /** The Rust fixture's opening: one lease of exactly 120 s, as the owner input requires. */
+  private static RamLfeOutputOpening parityOpening() {
     return new RamLfeOutputOpening(
         new RamLfeOutputOpeningPayload(
-            programId,
-            hashHex,
-            hashHex,
-            hashHex,
-            hashHex,
-            hashHex,
+            "parity_test",
+            PARITY_HASH_HEX,
+            PARITY_HASH_HEX,
+            PARITY_HASH_HEX,
+            PARITY_HASH_HEX,
+            PARITY_HASH_HEX,
             1_735_000_000_000L,
-            null),
-        signatureHex);
+            1_735_000_120_000L),
+        PARITY_SIGNATURE_HEX);
   }
 
+  /** Current signed HKDF receipt; mirrors the Kotlin parity test's sample payload. */
   private static IdentifierResolutionReceipt sampleReceipt(
       final String accountId, final String signatureHex) {
     final IdentifierResolutionPayload payload =
         new IdentifierResolutionPayload(
+            NETWORK_ID,
             "email#retail",
             new IdentifierResolutionExecutionPayload(
                 "identifier_lookup_retail",
                 "11".repeat(32),
-                "bfv-affine-v1",
+                IdentifierOwnerInputV1.BACKEND,
                 "signed",
-                "AA".repeat(32),
-                "BB".repeat(32),
-                "CC".repeat(32),
-                "DD".repeat(32),
-                "22".repeat(32),
+                "aa".repeat(31) + "ab",
+                "bb".repeat(32),
+                "cc".repeat(31) + "cd",
+                "dd".repeat(32),
+                "22".repeat(31) + "23",
                 "33".repeat(32),
                 42L,
                 142L),
-            sampleOpening("identifier_lookup_retail", signatureHex),
-            "opaque:" + "44".repeat(32),
+            new RamLfeOutputOpening(
+                new RamLfeOutputOpeningPayload(
+                    "identifier_lookup_retail",
+                    "ee".repeat(31) + "ef",
+                    "ee".repeat(31) + "ef",
+                    "ee".repeat(31) + "ef",
+                    "ee".repeat(31) + "ef",
+                    "ee".repeat(31) + "ef",
+                    84L,
+                    184L),
+                signatureHex),
+            "opaque:" + "44".repeat(31) + "45",
             "55".repeat(32),
             "uaid:" + "66".repeat(31) + "67",
             accountId);
     return new IdentifierResolutionReceipt(
-        payload, new IdentifierReceiptAttestation("signed", signatureHex, null, null));
+        payload, new IdentifierReceiptAttestation("signed", signatureHex, null, null), null);
   }
 
   private static byte[] readSizedField(final NoritoDecoder decoder) {

@@ -22,9 +22,9 @@ class ToriiKagemushaWalletEnrollmentCodecV1Test {
     private val dispatch = byteArrayOf(1, 2, 3)
     private val evidence = byteArrayOf(4, 5, 6)
     private fun requests() = listOf(Request.preKey(dispatch), Request.evidence(dispatch, evidence),
-        Request.issue(dispatch), Request.deliver(dispatch))
+        Request.issue(dispatch), Request.deliver(dispatch), Request.expiryProof(dispatch))
     private fun responses() = listOf(Response.Permit(byteArrayOf(7, 8)), Response.EvidenceReady,
-        Response.Pending, Response.CredentialReady, Response.Credential(byteArrayOf(9, 10)))
+        Response.Pending, Response.CredentialReady, Response.Credential(byteArrayOf(9, 10)), Response.ExpiryProof(byteArrayOf(11, 12)))
 
     @Test
     fun rustCanonicalFixturesMatchEveryActionResponseAndInclusiveBoundary() {
@@ -43,24 +43,25 @@ class ToriiKagemushaWalletEnrollmentCodecV1Test {
             assertContentEquals(hex(row["sha256"]), MessageDigest.getInstance("SHA-256").digest(wire))
             if (includeWire) assertContentEquals(hex(row["wire_hex"]), wire)
         }
-        assertEquals(4, rows("requests").size)
+        assertEquals(5, rows("requests").size)
         rows("requests").zip(requests()).forEach { (row, request) ->
             check(row, request.canonicalWire(), true)
             assertContentEquals(request.canonicalWire(), Request.decodeCanonical(hex(row["wire_hex"])).canonicalWire())
         }
-        assertEquals(5, rows("responses").size)
+        assertEquals(6, rows("responses").size)
         rows("responses").zip(responses()).forEachIndexed { index, (row, response) ->
             check(row, response.canonicalWire(), true)
-            val request = requests()[when (index) { 0 -> 0; 1, 2 -> 1; 3 -> 2; else -> 3 }]
+            val request = requests()[when (index) { 0 -> 0; 1, 2 -> 1; 3 -> 2; 4 -> 3; else -> 4 }]
             assertContentEquals(response.canonicalWire(), request.decodeResponse(hex(row["wire_hex"])).canonicalWire())
         }
         val fullDispatch = ByteArray(Request.MAXIMUM_DISPATCH_BYTES) { 1 }
         val fullEvidence = ByteArray(Request.MAXIMUM_EVIDENCE_BYTES) { 2 }
         val bounds = listOf(Request.preKey(fullDispatch).canonicalWire(), Request.evidence(fullDispatch, fullEvidence).canonicalWire(),
-            Request.issue(fullDispatch).canonicalWire(), Request.deliver(fullDispatch).canonicalWire(),
+            Request.issue(fullDispatch).canonicalWire(), Request.deliver(fullDispatch).canonicalWire(), Request.expiryProof(fullDispatch).canonicalWire(),
             Response.Permit(ByteArray(Response.MAXIMUM_PERMIT_BYTES) { 1 }).canonicalWire(),
-            Response.Credential(ByteArray(Response.MAXIMUM_CREDENTIAL_BYTES) { 2 }).canonicalWire())
-        assertEquals(6, rows("inclusive_bounds").size)
+            Response.Credential(ByteArray(Response.MAXIMUM_CREDENTIAL_BYTES) { 2 }).canonicalWire(),
+            Response.ExpiryProof(ByteArray(Response.MAXIMUM_EXPIRY_PROOF_BYTES) { 3 }).canonicalWire())
+        assertEquals(8, rows("inclusive_bounds").size)
         rows("inclusive_bounds").zip(bounds).forEach { (row, wire) -> check(row, wire, false) }
     }
 
@@ -89,7 +90,7 @@ class ToriiKagemushaWalletEnrollmentCodecV1Test {
         requests().forEachIndexed { action, request ->
             responses().forEachIndexed { variant, response ->
                 val accepted = (action == 0 && variant == 0) || (action == 1 && variant in 1..2) ||
-                    (action == 2 && variant == 3) || (action == 3 && variant == 4)
+                    (action == 2 && variant == 3) || (action == 3 && variant == 4) || (action == 4 && variant == 5)
                 if (accepted) {
                     val decoded = request.decodeResponse(response.canonicalWire())
                     assertContentEquals(response.canonicalWire(), decoded.canonicalWire())
@@ -100,13 +101,15 @@ class ToriiKagemushaWalletEnrollmentCodecV1Test {
     }
 
     @Test
-    fun permitAndCredentialSnapshotAndReturnOwnedExactOriginals() {
+    fun permitCredentialAndExpiryProofSnapshotAndReturnOwnedExactOriginals() {
         val original = byteArrayOf(7, 8)
         val permit = Response.Permit(original)
         val credential = Response.Credential(original)
-        original.fill(0); permit.unverifiedOriginal.fill(0); credential.unverifiedOriginal.fill(0)
+        val expiry = Response.ExpiryProof(original)
+        original.fill(0); permit.unverifiedOriginal.fill(0); credential.unverifiedOriginal.fill(0); expiry.unverifiedOriginal.fill(0)
         assertContentEquals(byteArrayOf(7, 8), permit.unverifiedOriginal)
         assertContentEquals(byteArrayOf(7, 8), credential.unverifiedOriginal)
+        assertContentEquals(byteArrayOf(7, 8), expiry.unverifiedOriginal)
     }
 
     @Test
@@ -117,11 +120,14 @@ class ToriiKagemushaWalletEnrollmentCodecV1Test {
         assertContentEquals(permit.canonicalWire(), Request.preKey(dispatch).decodeResponse(permit.canonicalWire()).canonicalWire())
         val credential = Response.Credential(ByteArray(Response.MAXIMUM_CREDENTIAL_BYTES))
         assertContentEquals(credential.canonicalWire(), Request.deliver(dispatch).decodeResponse(credential.canonicalWire()).canonicalWire())
+        val expiry = Response.ExpiryProof(ByteArray(Response.MAXIMUM_EXPIRY_PROOF_BYTES))
+        assertContentEquals(expiry.canonicalWire(), Request.expiryProof(dispatch).decodeResponse(expiry.canonicalWire()).canonicalWire())
         for (bad in listOf(ByteArray(0), ByteArray(Request.MAXIMUM_DISPATCH_BYTES + 1))) {
             assertFailsWith<IllegalArgumentException> { Request.preKey(bad) }
             assertFailsWith<IllegalArgumentException> { Request.evidence(bad, evidence) }
             assertFailsWith<IllegalArgumentException> { Request.issue(bad) }
             assertFailsWith<IllegalArgumentException> { Request.deliver(bad) }
+            assertFailsWith<IllegalArgumentException> { Request.expiryProof(bad) }
         }
         for (bad in listOf(ByteArray(0), ByteArray(Request.MAXIMUM_EVIDENCE_BYTES + 1))) {
             assertFailsWith<IllegalArgumentException> { Request.evidence(dispatch, bad) }
@@ -135,13 +141,21 @@ class ToriiKagemushaWalletEnrollmentCodecV1Test {
     }
 
     @Test
+    fun expiryProofRejectsEmptyAndExcessOriginals() {
+        for (bad in listOf(ByteArray(0), ByteArray(Response.MAXIMUM_EXPIRY_PROOF_BYTES + 1))) {
+            assertFailsWith<IllegalArgumentException> { Response.ExpiryProof(bad) }
+        }
+    }
+
+    @Test
     fun malformedRequestShapeAndUnboundedLengthsFailBeforeAllocation() {
         fun request(version: Int = 1, action: Long = 0, dispatch: ByteArray = bytes(this.dispatch),
             evidence: ByteArray = bytes(ByteArray(0))): ByteArray = frame("request", fields(listOf(
                 uint(version.toLong(), 16), uint(action, 32), dispatch, evidence)))
-        val malformed = listOf(request(version = 0), request(version = 2), request(action = 4), request(action = 0xffffffffL),
+        val malformed = listOf(request(version = 0), request(version = 2), request(action = 5), request(action = 0xffffffffL),
             request(dispatch = bytes(ByteArray(0))), request(action = 1), request(evidence = bytes(evidence)),
             request(action = 2, evidence = bytes(evidence)), request(action = 3, evidence = bytes(evidence)),
+            request(action = 4, evidence = bytes(evidence)),
             request(dispatch = uint(Long.MAX_VALUE, 64)), request(dispatch = uint(-1, 64)),
             request(dispatch = bytes(dispatch) + byteArrayOf(0)),
             frame("request", byteArrayOf(0xff.toByte(), 0xff.toByte(), 0xff.toByte(), 0xff.toByte(), 0x0f)))
@@ -150,12 +164,14 @@ class ToriiKagemushaWalletEnrollmentCodecV1Test {
 
     @Test
     fun malformedResponseVariantsAndLengthsFail() {
-        val malformed = listOf(frame("response", uint(5, 32)), frame("response", uint(0xffffffffL, 32)),
+        val malformed = listOf(frame("response", uint(5, 32)), frame("response", uint(6, 32)), frame("response", uint(0xffffffffL, 32)),
             frame("response", uint(0, 32)), frame("response", uint(0, 32) + fields(listOf(bytes(ByteArray(0))))),
             frame("response", uint(4, 32) + fields(listOf(bytes(ByteArray(0))))),
+            frame("response", uint(5, 32) + fields(listOf(bytes(ByteArray(0))))),
             frame("response", uint(0, 32) + fields(listOf(uint(Long.MAX_VALUE, 64)))),
             frame("response", uint(0, 32) + fields(listOf(bytes(ByteArray(Response.MAXIMUM_PERMIT_BYTES + 1))))),
             frame("response", uint(4, 32) + fields(listOf(bytes(ByteArray(Response.MAXIMUM_CREDENTIAL_BYTES + 1))))),
+            frame("response", uint(5, 32) + fields(listOf(bytes(ByteArray(Response.MAXIMUM_EXPIRY_PROOF_BYTES + 1))))),
             frame("response", uint(1, 32) + byteArrayOf(0)), frame("response", uint(2, 32) + byteArrayOf(0)),
             frame("response", uint(3, 32) + byteArrayOf(0)))
         requests().forEach { request -> malformed.forEach { assertFailsWith<IllegalArgumentException> { request.decodeResponse(it) } } }

@@ -12,7 +12,7 @@ import org.hyperledger.iroha.sdk.norito.SchemaHash
 
 /** One explicitly authorized issuer operation; Pending does not authorize a new attempt. */
 enum class ToriiKagemushaWalletEnrollmentActionV1(internal val tag: Int) {
-    PRE_KEY(0), EVIDENCE(1), ISSUE(2), DELIVER(3),
+    PRE_KEY(0), EVIDENCE(1), ISSUE(2), DELIVER(3), EXPIRY_PROOF(4),
 }
 
 /**
@@ -75,6 +75,10 @@ class ToriiKagemushaWalletEnrollmentRequestV1 private constructor(
         @JvmStatic fun deliver(dispatchOriginal: ByteArray): ToriiKagemushaWalletEnrollmentRequestV1 =
             ToriiKagemushaWalletEnrollmentRequestV1(ToriiKagemushaWalletEnrollmentActionV1.DELIVER, dispatchOriginal, ByteArray(0))
 
+        /** Request an issuer expiry original; the same native owner must explicitly admit it. */
+        @JvmStatic fun expiryProof(dispatchOriginal: ByteArray): ToriiKagemushaWalletEnrollmentRequestV1 =
+            ToriiKagemushaWalletEnrollmentRequestV1(ToriiKagemushaWalletEnrollmentActionV1.EXPIRY_PROOF, dispatchOriginal, ByteArray(0))
+
         /** Recover one bounded canonical request; rejects alternative layouts and trailing bytes. */
         @JvmStatic fun decodeCanonical(original: ByteArray): ToriiKagemushaWalletEnrollmentRequestV1 {
             val payload = EnrollmentEnvelopeCodec.unframe(original, REQUEST_SCHEMA, MAXIMUM_BYTES)
@@ -94,7 +98,7 @@ class ToriiKagemushaWalletEnrollmentRequestV1 private constructor(
 
 /**
  * Closed issuer response DATA. Ready and Pending describe the server operation only; they confer
- * no enrollment or balance authority. Pass Permit/Credential originals to the native wallet owner.
+ * no enrollment or balance authority. Pass Permit/Credential/ExpiryProof originals to the native wallet owner.
  */
 sealed class ToriiKagemushaWalletEnrollmentResponseV1 private constructor(internal val tag: Int) {
     /** Exact original permit, unverified until Native admits it for the retained dispatch. */
@@ -115,6 +119,12 @@ sealed class ToriiKagemushaWalletEnrollmentResponseV1 private constructor(intern
         val unverifiedOriginal: ByteArray get() = original.copyOf()
         override fun originalOrNull(): ByteArray = original.copyOf()
     }
+    /** Signed expiry original, unverified until explicit native abandoned-attempt admission. */
+    class ExpiryProof internal constructor(original: ByteArray) : ToriiKagemushaWalletEnrollmentResponseV1(5) {
+        private val original = enrollmentOriginal(original, MAXIMUM_EXPIRY_PROOF_BYTES)
+        val unverifiedOriginal: ByteArray get() = original.copyOf()
+        override fun originalOrNull(): ByteArray = original.copyOf()
+    }
 
     internal open fun originalOrNull(): ByteArray? = null
 
@@ -131,6 +141,7 @@ sealed class ToriiKagemushaWalletEnrollmentResponseV1 private constructor(intern
     companion object {
         const val MAXIMUM_PERMIT_BYTES = 2048
         const val MAXIMUM_CREDENTIAL_BYTES = 262_144
+        const val MAXIMUM_EXPIRY_PROOF_BYTES = 4096
         const val MAXIMUM_BYTES = 264 * 1024
         private const val RESPONSE_SCHEMA = "iroha.torii.kagemusha.enrollment.response.v1"
 
@@ -142,11 +153,11 @@ sealed class ToriiKagemushaWalletEnrollmentResponseV1 private constructor(intern
             val tag = decoder.readUInt(32)
             val remainder = decoder.readBytes(decoder.remaining())
             val response = when (tag) {
-                0L, 4L -> {
-                    val bound = if (tag == 0L) MAXIMUM_PERMIT_BYTES else MAXIMUM_CREDENTIAL_BYTES
+                0L, 4L, 5L -> {
+                    val bound = when (tag) { 0L -> MAXIMUM_PERMIT_BYTES; 4L -> MAXIMUM_CREDENTIAL_BYTES; else -> MAXIMUM_EXPIRY_PROOF_BYTES }
                     val fields = EnrollmentEnvelopeCodec.readFields(remainder, intArrayOf(bound + 8))
                     val bytes = EnrollmentEnvelopeCodec.readBytes(fields.single(), bound)
-                    if (tag == 0L) Permit(bytes) else Credential(bytes)
+                    when (tag) { 0L -> Permit(bytes); 4L -> Credential(bytes); else -> ExpiryProof(bytes) }
                 }
                 1L, 2L, 3L -> {
                     require(remainder.isEmpty()) { "trailing enrollment status bytes" }
@@ -159,6 +170,7 @@ sealed class ToriiKagemushaWalletEnrollmentResponseV1 private constructor(intern
                 ToriiKagemushaWalletEnrollmentActionV1.EVIDENCE -> response === EvidenceReady || response === Pending
                 ToriiKagemushaWalletEnrollmentActionV1.ISSUE -> response === CredentialReady
                 ToriiKagemushaWalletEnrollmentActionV1.DELIVER -> response is Credential
+                ToriiKagemushaWalletEnrollmentActionV1.EXPIRY_PROOF -> response is ExpiryProof
             }
             require(matches) { "enrollment response does not match requested action" }
             require(response.canonicalWire().contentEquals(original)) { "noncanonical enrollment response" }

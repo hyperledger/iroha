@@ -142,6 +142,7 @@ fn every_actual_qc_control_layout_refusal_keeps_original_input_and_reclaims_reti
         assert_eq!(pool.reserved_bytes(), floor);
         assert_eq!(input.as_slice().as_ptr(), ptr);
         assert_eq!(norito::core::crc64_fallback(input.as_slice()), hash);
+        drop(refused);
         let mut ready = PreparedQc::new(&input, range, &pool).unwrap();
         ready.prepare(&input, range, limits()).unwrap();
         let owner = ready.finish().unwrap();
