@@ -10100,7 +10100,7 @@ def test_lane_wait_retirement_and_debug_mutations_keep_exact_original_owners(
     assert code.count(f'sumeragi_core_mutation = "{identifier}"') == 1
     if identifier == "HC390":
         guard = f'#[cfg(not(all(test, sumeragi_core_mutation = "{identifier}")))]'
-        assert re.search(re.escape(guard) + r"\s*self\.inputs\.stores\.resume_retired_publications\(&lanes,\s*\|key\|\s*\{\s*!self\.running\.lock\(\)\.contains_key\(key\)\s*\}\);", code)
+        assert re.search(re.escape(guard) + r"\s*self\s*\.\s*inputs\s*\.\s*stores\s*\.\s*resume_retired_publications\(&lanes,\s*\|key\|\s*!self\.running\.lock\(\)\.contains_key\(key\)\);", code)
         assert code.index(guard) < code.index('if cfg!(all(test, sumeragi_core_mutation = "HC349"))')
     else:
         guard = f'#[cfg(all(test, sumeragi_core_mutation = "{identifier}"))]'

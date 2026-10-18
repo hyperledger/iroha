@@ -558,6 +558,8 @@ fn retired_directory_sync_does_not_block_other_lane_transaction_delivery() {
             runner.install_retirement_driver_for_test(fixture.retired, a.instance, a.running);
             runner.install_retirement_driver_for_test(fixture.active, b.instance, b.running);
             let stop = std::sync::atomic::AtomicBool::new(false);
+            let requested_turn = std::sync::atomic::AtomicBool::new(false);
+            let (acknowledge_turn, observed_turn) = std::sync::mpsc::sync_channel(1);
             let _setup_release = StopRetiredSyncOnDrop {
                 stop: &stop,
                 gate: Arc::clone(fixture.gate),
@@ -570,18 +572,27 @@ fn retired_directory_sync_does_not_block_other_lane_transaction_delivery() {
                 };
                 let lifecycle = scope.spawn(|| {
                     while !stop.load(Ordering::Acquire) {
+                        // Only acknowledge a whole turn begun after the explicit wake below.
+                        let acknowledge = requested_turn.swap(false, Ordering::AcqRel);
                         runner.drive_retirement_for_test();
+                        if acknowledge {
+                            let _ = acknowledge_turn.send(());
+                        }
                         std::thread::sleep(Duration::from_millis(5));
                     }
                 });
                 let entered = fixture.gate.wait_entered();
                 b.fakes.exec.add_tx(2);
                 runner.handle().transactions_available();
+                requested_turn.store(true, Ordering::Release);
+                let mut turn_observed = false;
                 let progressed = entered.is_ok()
                     && observed_within(Duration::from_secs(1), || {
-                        b_handle
-                            .status()
-                            .is_some_and(|status| status.committed_height >= 1)
+                        turn_observed |= observed_turn.try_recv().is_ok();
+                        turn_observed
+                            && b_handle
+                                .status()
+                                .is_some_and(|status| status.committed_height >= 1)
                             && b.fakes.exec.state.lock().txs.is_empty()
                     });
                 let tip = fixture.store.height();
