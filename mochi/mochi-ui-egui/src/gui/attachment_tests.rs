@@ -100,7 +100,7 @@ fn fail_invalid_alias(desktop: &mut Desktop, replaced: bool) {
             .unwrap_err()
             .contains("managed names must contain")
     );
-    let opened = refreshed.as_ref().ok().expect("workspace remains readable");
+    let opened = refreshed.as_ref().expect("workspace remains readable");
     if replaced {
         assert!(opened.selected.as_ref().err().unwrap().contains("replaced"));
     } else {

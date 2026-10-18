@@ -11,7 +11,7 @@ use iroha_kagemusha_proof::{
     },
 };
 use iroha_pasta::Eq;
-use iroha_plonk::ProverRandomness;
+use iroha_plonk::{ProverConfig, ProverRandomness};
 
 use super::*;
 #[path = "monetary/incoming_original.rs"]
@@ -889,8 +889,10 @@ impl PreparationV1<'_> {
 
     /// Prove the derived witness with the actual original-PK native component matching the
     /// installed signed selector/descriptor/VK, then fully self-verify under the caller budget.
+    /// A preparation bound to a cancellation signal stops the prover at its next boundary.
     /// # Errors
-    /// Another installation/component/source selector, failed proof or statement parity.
+    /// Another installation/component/source selector, failed proof or statement parity, or
+    /// cancellation without a proof.
     pub fn prove_monetary_sigma(
         &self,
         step: &MonetaryStepV1,
@@ -918,9 +920,23 @@ impl PreparationV1<'_> {
         {
             return Err(Error::Profile);
         }
+        // The same engine and randomness as an uncancellable proof; the signal only stops it.
         let proof = prover
-            .prove(&step.witness, randomness)
-            .map_err(|_| Error::Proof)?;
+            .prove_with_config(
+                &step.witness,
+                randomness,
+                ProverConfig {
+                    cancellation: self.cancellation,
+                    ..ProverConfig::default()
+                },
+            )
+            .map_err(|error| {
+                if error.is_cancelled() {
+                    Error::Cancelled
+                } else {
+                    Error::Proof
+                }
+            })?;
         if proof.public.statement.to_repr() != authority(step.statement.statement_digest())?
             || proof.bytes.len() != verifier.proof_bytes().map_err(|_| Error::Profile)?
         {

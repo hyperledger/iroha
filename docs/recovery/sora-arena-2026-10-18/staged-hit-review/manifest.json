@@ -1,0 +1,187 @@
+{
+  "base_commit": "8209033deae7409d800fcc576a63609a0c2c5f9d",
+  "base_git_tree": "735a286aa99bdffe689eed5366028bf2a5da3489",
+  "candidate_scope": "eight-file component patch; optional new README is a separate patch",
+  "candidate_selected_tree_sha256": "ba4116dfa6ea485b4082a4a706e5ab7f18e497402b0701a207148ea944773f6b",
+  "candidate_tree_hash_encoding": "UTF-8 sorted path + NUL + lowercase SHA-256 + LF for each of eight candidate files; not a Git tree ID",
+  "component_readme": {
+    "patch_sha256": "4d5b60e4e771f54f8c00856f27cc5092ced2b61600b462976d4e884def8484ef",
+    "path": "crates/iroha_core/src/execution_proofs/README-arena-staged-hit.md",
+    "sha256": "ad165c31dc9ce63204e1ec7f65bca5ba4d71c7818ba12432adcc9c59c289efa3"
+  },
+  "created_utc": "2026-10-18T05:34:27.679085+00:00",
+  "explicit_exclusions": [
+    "Cargo.toml",
+    "Cargo.lock",
+    "full dirty execution_proofs/mod.rs",
+    "registry/proof/custody/SDK/staking changes",
+    "native runner helper",
+    "existing unrelated README/status/roadmap edits"
+  ],
+  "files": [
+    {
+      "base_git_blob": null,
+      "base_sha256": null,
+      "bytes": 6717,
+      "candidate_sha256": "5238f640c5203abc027868a22c6e4c46e9ecbe92ef239e206abc8c16ca7f0f28",
+      "mode": "100644",
+      "observed_working_tree_sha256": "5238f640c5203abc027868a22c6e4c46e9ecbe92ef239e206abc8c16ca7f0f28",
+      "path": "crates/iroha_core/src/execution_proofs/arena_aim_air.rs",
+      "selection": "complete working file"
+    },
+    {
+      "base_git_blob": null,
+      "base_sha256": null,
+      "bytes": 29155,
+      "candidate_sha256": "74b8073807fccbb1aa2e07104311f3b933e69eb0ba054e312611eab8c18ecc40",
+      "mode": "100644",
+      "observed_working_tree_sha256": "74b8073807fccbb1aa2e07104311f3b933e69eb0ba054e312611eab8c18ecc40",
+      "path": "crates/iroha_core/src/execution_proofs/arena_geometry_air.rs",
+      "selection": "complete working file"
+    },
+    {
+      "base_git_blob": null,
+      "base_sha256": null,
+      "bytes": 42648,
+      "candidate_sha256": "e2d6d84c1a5e511c46552a036bb2044c1d121a32fb91ff2a1fb9a3da289a4a8f",
+      "mode": "100644",
+      "observed_working_tree_sha256": "e2d6d84c1a5e511c46552a036bb2044c1d121a32fb91ff2a1fb9a3da289a4a8f",
+      "path": "crates/iroha_core/src/execution_proofs/arena_staged_hit_air.rs",
+      "selection": "complete working file"
+    },
+    {
+      "base_git_blob": null,
+      "base_sha256": null,
+      "bytes": 21933,
+      "candidate_sha256": "05c4e15af2d7b9d0f5674413e46190c58b3e7ab4a0c4d85c88d9b6c8b2e9f846",
+      "mode": "100644",
+      "observed_working_tree_sha256": "05c4e15af2d7b9d0f5674413e46190c58b3e7ab4a0c4d85c88d9b6c8b2e9f846",
+      "path": "crates/iroha_core/src/execution_proofs/arena_staged_hit_stark_research.rs",
+      "selection": "complete working file"
+    },
+    {
+      "base_git_blob": "ec2f365ac959052bfd24a0f062abbeb654e857d6",
+      "base_sha256": "688afd8e9e39d60eb702a08f8d381f2bfea9339f3aca2ca2dc8e286069a90e71",
+      "bytes": 28382,
+      "candidate_sha256": "106b5589b91be64881a3b8dd522c01bf72d4f04c7dbf6f0cc887d450c0b65446",
+      "mode": "100644",
+      "observed_working_tree_sha256": "106b5589b91be64881a3b8dd522c01bf72d4f04c7dbf6f0cc887d450c0b65446",
+      "path": "crates/iroha_core/src/execution_proofs/integer_air.rs",
+      "selection": "complete working file"
+    },
+    {
+      "base_git_blob": "59b27a536da297d214464b48db8beeaf30caaf7d",
+      "base_sha256": "b579ccc43663fc8a0377b2937395ff4e1148f39eb9b45b07274d95899b78a6a1",
+      "bytes": 21614,
+      "candidate_sha256": "d362db7c8b537b550f960536f0750ae18b456fa0c41e5be06a3ffa543293c25c",
+      "mode": "100644",
+      "observed_working_tree_sha256": "d362db7c8b537b550f960536f0750ae18b456fa0c41e5be06a3ffa543293c25c",
+      "path": "crates/iroha_core/src/execution_proofs/checked_integer_air.rs",
+      "selection": "complete working file"
+    },
+    {
+      "base_git_blob": "7ed8042be0c6979cdb9839163ec00c113638c828",
+      "base_sha256": "c113950265791e12d94bee7e9667277067d006decc2676b50fdc72ae8e8ddfbb",
+      "bytes": 1353,
+      "candidate_sha256": "44f2e371723925658738665b9a6d375de049f731246ac39e443375dc85337074",
+      "mode": "100644",
+      "observed_working_tree_sha256": "fd3ba31d5431705308d0078776c3e4f9fb643c47aa933fe72f5902be48630741",
+      "path": "crates/iroha_core/src/execution_proofs/mod.rs",
+      "selection": "surgical replacement against base"
+    },
+    {
+      "base_git_blob": null,
+      "base_sha256": null,
+      "bytes": 709498,
+      "candidate_sha256": "d0a3443232c3b9440f5cb607861e8459285da7b1184303bbb81c01b61e08d3bf",
+      "mode": "100644",
+      "observed_working_tree_sha256": "d0a3443232c3b9440f5cb607861e8459285da7b1184303bbb81c01b61e08d3bf",
+      "path": "crates/iroha_core/tests/fixtures/arena_staged_hit_reference.json",
+      "selection": "complete working file"
+    }
+  ],
+  "gpg_executable": null,
+  "native_root": "/Users/takemiyamakoto/soramitsudev/iroha-arena",
+  "patch_sha256": "46bdc8475c0da58ddf9e2a1d2f043b08b8c2d17e62a3e3295ad0dcd55317fa1c",
+  "previous_proof_evidence": {
+    "all_artifact_hashes_verified": true,
+    "all_referenced_sources_match_current": false,
+    "final_source_proof_pending": true,
+    "fixture_cases_identical": true,
+    "fixture_matches_candidate": false,
+    "historical_fixture_sha256": "eb76f44972c628d1f6de7512070e46a9ce3526d995155ea978420e7e8c639f88",
+    "historical_source_mismatches": [
+      {
+        "candidate_sha256": "e2d6d84c1a5e511c46552a036bb2044c1d121a32fb91ff2a1fb9a3da289a4a8f",
+        "historical_proof_sha256": "fd00c11015cb03b5ec49b799a5e21fac1d2ca67abce7cb936090d52120471ec1",
+        "path": "crates/iroha_core/src/execution_proofs/arena_staged_hit_air.rs"
+      },
+      {
+        "candidate_sha256": "05c4e15af2d7b9d0f5674413e46190c58b3e7ab4a0c4d85c88d9b6c8b2e9f846",
+        "historical_proof_sha256": "c74797afd2a28c2c0451e827b413b14a886c2decc461bc06eb243452f34d3b96",
+        "path": "crates/iroha_core/src/execution_proofs/arena_staged_hit_stark_research.rs"
+      }
+    ],
+    "native_tree_seal": {
+      "sourceGitRevision": "8209033deae7409d800fcc576a63609a0c2c5f9d",
+      "sourceTreeClean": false,
+      "sourceTreeSha256": "4f1385385d1d13622b3005b9e0a7d217c69dbf8d6b15bac0cc82d73c0cefee3d"
+    },
+    "path": "/Users/takemiyamakoto/soramitsudev/sora-arena/Saved/Qualification/2026-10-18/staged-hit-stark-qualified-harness",
+    "run_status_sha256": "4b729ca4fd3eb8ce23a9ad794709f1906cb93eda34a7f8ad5ece652ba9a6768a",
+    "scope": "source-sealed extracted native harness compiled from full dirty checkout with pinned prebuilt dependencies; not isolated patch qualification",
+    "source_provenance_sha256": "e526549aef60891eef565925f12177c02f47b4b55fa413e751ec17c9e93a9bbe"
+  },
+  "schema": "sora-arena.native-staged-hit.review-candidate.v1",
+  "unchanged_native_source_dependencies": [
+    {
+      "base_and_working_tree_sha256": "40d95e3dfdcd1c3d9734f827ff2d7e4971fc557f4338069efe0880d2864de018",
+      "git_blob": "a1a13e33e515d43ff5160fef923d4ea4c52eb95e",
+      "path": "crates/iroha_core/src/execution_proofs/stark/aggregate_stark.rs"
+    },
+    {
+      "base_and_working_tree_sha256": "6acd3b828419442f87d8bc15d525d39b31c32ea6d6aab67c63ea69a363a40a87",
+      "git_blob": "1c9a3dc5df221fb4c90635d44f7386cc08a836e3",
+      "path": "crates/iroha_core/src/execution_proofs/stark/mod.rs"
+    },
+    {
+      "base_and_working_tree_sha256": "8219e01c886487f45a7647e0d00c34ef40d25d14a12e741399331d737afc207d",
+      "git_blob": "1703e540c4d969208d768e4e9f0654a033d2f6f9",
+      "path": "crates/iroha_core/src/execution_proofs/stark/proof_managed_note_stark.rs"
+    },
+    {
+      "base_and_working_tree_sha256": "5184e5737c60be7e88b3741ca0e435e0e1f13aa5328da131c05e4f0bbb09c135",
+      "git_blob": "62cf66f1eeae0779af68532f2244bcef9bc2f485",
+      "path": "crates/iroha_core/src/execution_proofs/stark/proof_managed_note_stark_execution_fixed.rs"
+    },
+    {
+      "base_and_working_tree_sha256": "aa22872f6e1d9ba8e6671bb27785c64abe0339230ee5daebbc5b4d153211a3a2",
+      "git_blob": "31cb8ebf9d25559c02318013f0d8e2f6c8c4e2f4",
+      "path": "crates/iroha_core/src/execution_proofs/stark/transparent_stark.rs"
+    },
+    {
+      "base_and_working_tree_sha256": "2d1791f8ae5d5ab4b056e31f40758c9041b7d496e86d3a132dd06a1cc9c18d8c",
+      "git_blob": "a35ec30623967284783ec0b615e52229e6a88fe4",
+      "path": "crates/iroha_core/src/execution_proofs/stark/transparent_stark_digest_tests.rs"
+    },
+    {
+      "base_and_working_tree_sha256": "6cb295a60d9afd7adb35527c86e5d481f64e569955a94c14da14bc1e73a76350",
+      "git_blob": "3ee5123e33016ebd9754625682e4bb2244c9d7f5",
+      "path": "crates/iroha_core/src/privacy_engines/transparent_stark.rs"
+    }
+  ],
+  "unpackaged_runner_dependency": {
+    "path": "scripts/check_arena_geometry_stark.py",
+    "sha256": "c17a359dea93bd72740ff55c2694521ebaa46343bea2e3eccd75a8006ab23b59",
+    "tracked_in_base": false
+  },
+  "validation": {
+    "isolated_candidate_built": false,
+    "isolated_candidate_tested": false,
+    "native_build_launched": false,
+    "native_commit_created": false,
+    "patch_applicability": true,
+    "qualified": false,
+    "registered": false
+  }
+}

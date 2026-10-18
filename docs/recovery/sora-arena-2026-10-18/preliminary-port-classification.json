@@ -1,0 +1,812 @@
+[
+  {
+    "source": "crates/connect_norito_bridge/include/connect_norito_bridge.h",
+    "target": "crates/connect_norito_bridge/include/connect_norito_bridge.h",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/connect_norito_bridge/src/arena_join_terms_inspection.rs",
+    "target": "crates/connect_norito_bridge/src/arena_join_terms_inspection.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/connect_norito_bridge/src/lib.rs",
+    "target": "crates/connect_norito_bridge/src/lib.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/connect_norito_bridge/src/parliament_timed_ovn_ffi.rs",
+    "target": "crates/connect_norito_bridge/src/parliament_timed_ovn_ffi.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_cli/src/execution_finality.rs",
+    "target": "crates/iroha_cli/src/execution_finality.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/Cargo.toml",
+    "target": "crates/iroha_core/Cargo.toml",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/examples/race_prover.rs",
+    "target": "crates/iroha_core/examples/race_prover.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/beacon.rs",
+    "target": "crates/iroha_core/src/beacon.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/ARENA_DAMAGE_AIR.md",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/ARENA_DAMAGE_AIR.md",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/ARENA_DAMAGE_STARK_RESEARCH.md",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/ARENA_DAMAGE_STARK_RESEARCH.md",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/ARENA_GEOMETRY_AIR.md",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/ARENA_GEOMETRY_AIR.md",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/ARENA_HIT_AIR.md",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/ARENA_HIT_AIR.md",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/README.md",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/README.md",
+    "status": "clean_copy"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_aim_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_aim_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_capacity_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_capacity_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_damage_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_damage_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_damage_stark_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_damage_stark_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_geometry_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_geometry_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_geometry_stark_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_geometry_stark_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_history_translation_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_history_translation_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_hit_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_hit_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_kill_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_kill_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_kill_history_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_kill_history_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_kill_history_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_kill_history_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_kill_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_kill_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_moved_kill_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_moved_kill_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_movement_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_movement_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_movement_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_movement_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_profile_identity_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_profile_identity_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_ranged_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_ranged_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_staged_hit_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_staged_hit_air.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/arena_staged_hit_stark_research.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/arena_staged_hit_stark_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/checked_integer_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/checked_integer_air.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/classed_race_v1/admission.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/classed_race_v1/admission.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/classed_race_v1/proof_tests.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/classed_race_v1/proof_tests.rs",
+    "status": "clean_copy"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/integer_air.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/integer_air.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/mod.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/mod.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/proof.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/proof.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/proof_tests.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/proof_tests.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/execution_proofs/registry.rs",
+    "target": "crates/iroha_core_privacy/src/execution_proofs/registry.rs",
+    "status": "clean_copy"
+  },
+  {
+    "source": "crates/iroha_core/src/executor.rs",
+    "target": "crates/iroha_core/src/executor.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/gas.rs",
+    "target": "crates/iroha_core/src/gas.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/kagemusha_v1_test_fixtures.rs",
+    "target": "crates/iroha_core/src/kagemusha_v1_test_fixtures.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/kura/read_only_evidence.rs",
+    "target": "crates/iroha_core/src/kura/read_only_evidence.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/query/fixture_write_tests.rs",
+    "target": "crates/iroha_core/src/query/fixture_write_tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/asset.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/asset.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/domain.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/domain.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/game.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/game.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/game_equipment.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/game_equipment.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/game_equipment_policy.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/game_equipment_policy.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/game_equipment_policy_tests.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/game_equipment_policy_tests.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/game_equipment_test_support.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/game_equipment_test_support.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/game_items.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/game_items.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/game_resources.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/game_resources.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/kagemusha.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/kagemusha.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/mod.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/mod.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/multisig.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/multisig.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/query.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/query.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/query/ordinary_memory.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/query/ordinary_memory.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/staking.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/staking.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/staking_admission_tests.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/staking_admission_tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/staking_core_tests.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/staking_core_tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/staking_custody_tests.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/staking_custody_tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/staking_effects.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/staking_effects.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/staking_reward_tests.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/staking_reward_tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/staking_rewards.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/staking_rewards.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+    "target": "crates/iroha_core/src/smartcontracts/isi/world.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/state.rs",
+    "target": "crates/iroha_core/src/state.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/state/carrier_preparation.rs",
+    "target": "crates/iroha_core/src/state/carrier_preparation.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/state/carrier_preparation/publication.rs",
+    "target": "crates/iroha_core/src/state/carrier_preparation/publication.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/state/deserialize_world.rs",
+    "target": "crates/iroha_core/src/state/deserialize_world.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/state/execution_publication_test_support.rs",
+    "target": "crates/iroha_core/src/state/execution_publication_test_support.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/state/reward_reserves.rs",
+    "target": "crates/iroha_core/src/state/reward_reserves.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/state/tests.rs",
+    "target": "crates/iroha_core/src/state/tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/state/world_journals_tests.rs",
+    "target": "crates/iroha_core/src/state/world_journals_tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/state/world_publication_tests.rs",
+    "target": "crates/iroha_core/src/state/world_publication_tests.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_apply.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_apply.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_block_sync.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_block_sync.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_body_store_tests.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_body_store_tests.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_candidate.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_candidate.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_certified_serve_payload_store.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_certified_serve_payload_store.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_chunks.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_chunks.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_context.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_context.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_context_store.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_context_store.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_wire_registry_and_authentication.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_wire_registry_and_authentication.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/sumeragi/v2_worker_io_execution.rs",
+    "target": "crates/iroha_core/src/sumeragi/v2_worker_io_execution.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/tx.rs",
+    "target": "crates/iroha_core/src/tx.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/validation_fee.rs",
+    "target": "crates/iroha_core/src/validation_fee.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_core/src/validation_fee/staking_effects.rs",
+    "target": "crates/iroha_core/src/validation_fee/staking_effects.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/zk/kagemusha_v1_recursion/generation.rs",
+    "target": "crates/iroha_core/src/zk/kagemusha_v1_recursion/generation.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/zk/kagemusha_v1_recursion/mint_authority_generation.rs",
+    "target": "crates/iroha_core/src/zk/kagemusha_v1_recursion/mint_authority_generation.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/zk/kagemusha_v1_recursion/mint_helper/epoch_authorization.rs",
+    "target": "crates/iroha_core/src/zk/kagemusha_v1_recursion/mint_helper/epoch_authorization.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/zk/kagemusha_v1_state/mint_fold_private_inputs.rs",
+    "target": "crates/iroha_core/src/zk/kagemusha_v1_state/mint_fold_private_inputs.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/src/zk/kagemusha_v1_state/tests.rs",
+    "target": "crates/iroha_core/src/zk/kagemusha_v1_state/tests.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_capacity_research.rs",
+    "target": "crates/iroha_core/tests/arena_capacity_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_history_translation_research.rs",
+    "target": "crates/iroha_core/tests/arena_history_translation_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_kill_history_research.rs",
+    "target": "crates/iroha_core/tests/arena_kill_history_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_kill_research.rs",
+    "target": "crates/iroha_core/tests/arena_kill_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_kill_two_tick_history.rs",
+    "target": "crates/iroha_core/tests/arena_kill_two_tick_history.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_moved_kill_research.rs",
+    "target": "crates/iroha_core/tests/arena_moved_kill_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_movement_research.rs",
+    "target": "crates/iroha_core/tests/arena_movement_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/arena_ranged_research.rs",
+    "target": "crates/iroha_core/tests/arena_ranged_research.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/fixtures/arena_staged_hit_reference.json",
+    "target": "crates/iroha_core/tests/fixtures/arena_staged_hit_reference.json",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/game_genesis_admission.rs",
+    "target": "crates/iroha_core/tests/game_genesis_admission.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/game_history_restore.rs",
+    "target": "crates/iroha_core/tests/game_history_restore.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_core/tests/native_game_equipment.rs",
+    "target": "crates/iroha_core/tests/native_game_equipment.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_data_model/src/game.rs",
+    "target": "crates/iroha_data_model/src/game.rs",
+    "status": "clean_copy"
+  },
+  {
+    "source": "crates/iroha_data_model/src/game_admission_tests.rs",
+    "target": "crates/iroha_data_model/src/game_admission_tests.rs",
+    "status": "clean_copy"
+  },
+  {
+    "source": "crates/iroha_data_model/src/game_equipment.rs",
+    "target": "crates/iroha_data_model/src/game_equipment.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_data_model/src/game_resources.rs",
+    "target": "crates/iroha_data_model/src/game_resources.rs",
+    "status": "clean_copy"
+  },
+  {
+    "source": "crates/iroha_data_model/src/isi/game_equipment.rs",
+    "target": "crates/iroha_data_model/src/isi/game_equipment.rs",
+    "status": "new"
+  },
+  {
+    "source": "crates/iroha_data_model/src/isi/kagemusha_v1.rs",
+    "target": "crates/iroha_data_model/src/isi/kagemusha_v1.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_data_model/src/isi/mod.rs",
+    "target": "crates/iroha_data_model/src/isi/mod.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_data_model/src/isi/registry/wire_ids.rs",
+    "target": "crates/iroha_data_model/src/isi/registry/wire_ids.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_data_model/src/kagemusha/kagemusha_v1.rs",
+    "target": "crates/iroha_data_model/src/kagemusha/kagemusha_v1.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_data_model/src/kagemusha/kagemusha_v1/funding.rs",
+    "target": "crates/iroha_data_model/src/kagemusha/kagemusha_v1/funding.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_data_model/src/lib.rs",
+    "target": "crates/iroha_data_model/src/lib.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_data_model/src/nexus/staking.rs",
+    "target": "crates/iroha_data_model/src/nexus/staking.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_data_model/src/query/domain_queries.rs",
+    "target": "crates/iroha_data_model/src/query/domain_queries.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_data_model/src/query/mod.rs",
+    "target": "crates/iroha_data_model/src/query/mod.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_data_model/src/visit/visit_query.rs",
+    "target": "crates/iroha_data_model/src/visit/visit_query.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_data_model/tests/game_resources_v1_codec.rs",
+    "target": "crates/iroha_data_model/tests/game_resources_v1_codec.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_data_model/tests/game_v1_codec.rs",
+    "target": "crates/iroha_data_model/tests/game_v1_codec.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_data_model/tests/grouped/group_02.rs",
+    "target": "crates/iroha_data_model/tests/grouped/group_02.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "crates/iroha_data_model/tests/sumeragi_v2_cross_sdk_fixtures.rs",
+    "target": "crates/iroha_data_model/tests/sumeragi_v2_cross_sdk_fixtures.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/iroha_genesis/src/lib.rs",
+    "target": "crates/iroha_genesis/src/lib.rs",
+    "status": "conflict"
+  },
+  {
+    "source": "crates/iroha_sccp/src/test_fixtures.rs",
+    "target": "crates/iroha_sccp/src/test_fixtures.rs",
+    "status": "upstream_removed"
+  },
+  {
+    "source": "crates/ivm/Cargo.toml",
+    "target": "crates/ivm/Cargo.toml",
+    "status": "conflict"
+  },
+  {
+    "source": "docs/source/arena_authority_generation_prerequisite.json",
+    "target": "docs/source/arena_authority_generation_prerequisite.json",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_authority_generation_prerequisite.md",
+    "target": "docs/source/arena_authority_generation_prerequisite.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_batch_capacity_research_v1.md",
+    "target": "docs/source/arena_batch_capacity_research_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_history_translation_research_v1.md",
+    "target": "docs/source/arena_history_translation_research_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_kill_history_research_v2.md",
+    "target": "docs/source/arena_kill_history_research_v2.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_kill_research_v1.md",
+    "target": "docs/source/arena_kill_research_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_kill_two_tick_history_research_v1.md",
+    "target": "docs/source/arena_kill_two_tick_history_research_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_moved_kill_research_v1.md",
+    "target": "docs/source/arena_moved_kill_research_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_movement_research_v1.md",
+    "target": "docs/source/arena_movement_research_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/arena_ranged_research_v1.md",
+    "target": "docs/source/arena_ranged_research_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/native_game_equipment_v1.md",
+    "target": "docs/source/native_game_equipment_v1.md",
+    "status": "new"
+  },
+  {
+    "source": "docs/source/native_game_sessions_v1.md",
+    "target": "docs/source/native_game_sessions_v1.md",
+    "status": "clean_copy"
+  },
+  {
+    "source": "integration_tests/tests/native_game_sessions.rs",
+    "target": "integration_tests/tests/native_game_sessions.rs",
+    "status": "clean_merge"
+  },
+  {
+    "source": "javascript/iroha_js/game-resources.d.ts",
+    "target": "javascript/iroha_js/game-resources.d.ts",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/game.d.ts",
+    "target": "javascript/iroha_js/game.d.ts",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/src/gameResources.js",
+    "target": "javascript/iroha_js/src/gameResources.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/src/noritoGameCodecs.js",
+    "target": "javascript/iroha_js/src/noritoGameCodecs.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/src/noritoGameEngine.js",
+    "target": "javascript/iroha_js/src/noritoGameEngine.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/src/noritoGameInstructionCodecs.js",
+    "target": "javascript/iroha_js/src/noritoGameInstructionCodecs.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/src/noritoGameResourceEngine.js",
+    "target": "javascript/iroha_js/src/noritoGameResourceEngine.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/src/raceOutcomes.js",
+    "target": "javascript/iroha_js/src/raceOutcomes.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/test/fixtures/game-resource-v1-codec.json",
+    "target": "javascript/iroha_js/test/fixtures/game-resource-v1-codec.json",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/test/fixtures/game-v1-codec.json",
+    "target": "javascript/iroha_js/test/fixtures/game-v1-codec.json",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/test/gameAllocations.test.js",
+    "target": "javascript/iroha_js/test/gameAllocations.test.js",
+    "status": "new"
+  },
+  {
+    "source": "javascript/iroha_js/test/gameEquipment.test.js",
+    "target": "javascript/iroha_js/test/gameEquipment.test.js",
+    "status": "clean_merge"
+  },
+  {
+    "source": "javascript/iroha_js/test/gameResources.test.js",
+    "target": "javascript/iroha_js/test/gameResources.test.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "javascript/iroha_js/test/raceOutcomes.test.js",
+    "target": "javascript/iroha_js/test/raceOutcomes.test.js",
+    "status": "clean_copy"
+  },
+  {
+    "source": "scripts/check_arena_damage_air.py",
+    "target": "scripts/check_arena_damage_air.py",
+    "status": "new"
+  },
+  {
+    "source": "scripts/check_arena_damage_stark.py",
+    "target": "scripts/check_arena_damage_stark.py",
+    "status": "new"
+  },
+  {
+    "source": "scripts/check_arena_damage_stark_test.py",
+    "target": "scripts/check_arena_damage_stark_test.py",
+    "status": "new"
+  },
+  {
+    "source": "scripts/check_arena_geometry_stark.py",
+    "target": "scripts/check_arena_geometry_stark.py",
+    "status": "new"
+  },
+  {
+    "source": "scripts/check_arena_hit_stark_feasibility.py",
+    "target": "scripts/check_arena_hit_stark_feasibility.py",
+    "status": "new"
+  },
+  {
+    "source": "status.md",
+    "target": "status.md",
+    "status": "conflict"
+  }
+]

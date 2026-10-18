@@ -424,6 +424,68 @@ impl QualifiedWalletSourcesV1 {
             cancellation,
         )?)
     }
+    /// Revalidate one selected sigma's exact signed originals without rebuilding its key.
+    /// A wallet's speculative Send checks them under the wallet owner and then rebuilds the
+    /// same sealed source through [`Self::bind_sigma_cancellable`] without that owner.
+    /// # Errors
+    /// Undefined selector, changed seal/source identity, the local row cap, bounded original
+    /// failure or cancellation.
+    pub(crate) fn revalidate_sigma_cancellable(
+        &self,
+        selector: u8,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), WalletSourcesErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        let index = *self
+            .inventory()
+            .sigma
+            .get(usize::from(selector))
+            .ok_or(Error::Inventory)?;
+        let view = self.sigmas.bind(selector, index, cancellation)?;
+        revalidate_stage(
+            &self.authenticated,
+            index,
+            view,
+            originals,
+            config,
+            cancellation,
+        )?;
+        Ok(())
+    }
+    /// The sealed sigma source of [`Self::import_sigma_cancellable`] without reading any
+    /// original. A wallet's speculative Send binds it to prove without the wallet owner,
+    /// after [`Self::revalidate_sigma_cancellable`] checked the same originals in that
+    /// speculation's locked prepare; it grants nothing more.
+    /// # Errors
+    /// Undefined selector, changed seal/source identity, the local row cap, a rebuilt source
+    /// that differs from the sealed source, or cancellation.
+    pub(crate) fn bind_sigma_cancellable(
+        &self,
+        selector: u8,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<ImportedSigmaV1, WalletSourcesErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        let index = *self
+            .inventory()
+            .sigma
+            .get(usize::from(selector))
+            .ok_or(Error::Inventory)?;
+        let view = self.sigmas.bind(selector, index, cancellation)?;
+        if view.binding().n() > config.maximum_rows {
+            return Err(Error::Inventory.into());
+        }
+        Ok(sigma::rebuild_prover(
+            usize::from(selector),
+            view,
+            &self.sigma_parameters[0],
+            &self.sigma_parameters[1],
+            config.coset_cache,
+            cancellation,
+        )?)
+    }
     /// Revalidate one sealed Q source and borrow its installed signature policy and metadata.
     /// # Errors
     /// Undefined route/stage, bounded original failure or a changed source/key identity.

@@ -1,0 +1,21 @@
+{
+  "branch": "codex/arena-native-games",
+  "commit_gpgsign": null,
+  "dirty_tracked_path_count": 104,
+  "gpg_executable": null,
+  "gpg_format": null,
+  "gpg_program": null,
+  "head": "8209033deae7409d800fcc576a63609a0c2c5f9d",
+  "native_commit_created": false,
+  "native_mutations": false,
+  "safe_next_actions": [
+    "Review the isolated candidate, build and test it before integration.",
+    "Create a signed commit with the configured local signing identity when its signing program is available, or have the local maintainer commit this preserved patch.",
+    "Do not bypass commit signing or include unrelated dirty native work."
+  ],
+  "signing_policy_quote": "Never bypass commit signing (do not use `git commit --no-gpg-sign`). If GPG signing is not available in the automation environment, leave the change uncommitted and ask the user to create a signed commit locally.",
+  "signing_policy_source": "/Users/takemiyamakoto/soramitsudev/iroha-arena/AGENTS.md",
+  "staged_path_count": 0,
+  "staged_paths": [],
+  "untracked_path_count": 59
+}

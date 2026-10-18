@@ -136,6 +136,10 @@ impl Background {
         }
         Ok(())
     }
+    /// Resume the worker after a speculative σ_send released the scheduler's slot.
+    pub(super) fn wake(&self) {
+        self.inner.wake();
+    }
     pub(super) fn stop(&self) {
         let mut state = self.inner.lock();
         state.stopped = true;

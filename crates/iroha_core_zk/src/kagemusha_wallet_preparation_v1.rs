@@ -72,7 +72,9 @@ mod freeze;
 #[path = "kagemusha_wallet_preparation_v1/dispatch.rs"]
 mod dispatch;
 pub use dispatch::{NativeAdvanceCheckV1, NativePreparedOperationV1};
-pub(crate) use dispatch::{OperationPreparationV1, PreparedOperationV1};
+pub(crate) use dispatch::{
+    OperationPreparationV1, PreparedOperationV1, SpeculativeSendStepV1, SpeculativeSigmaV1,
+};
 
 #[path = "kagemusha_wallet_preparation_v1/derivation_counts.rs"]
 mod derivation_counts;
