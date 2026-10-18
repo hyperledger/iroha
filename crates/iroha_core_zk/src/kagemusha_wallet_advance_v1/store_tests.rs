@@ -1857,6 +1857,32 @@ mod std_fs {
     }
 
     #[test]
+    fn wallet_advance_v1_std_fs_publications_are_ordered_for_the_durability_fence() {
+        let (_temp, store) = std_store();
+        assert_eq!(
+            store.write_new(&dir(), &name("fenced"), BYTES),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        // Other tests' publications may share this flush; none of them fences.
+        let flushed = iroha_fs::durability_fence().expect("fence");
+        if cfg!(target_vendor = "apple") {
+            assert!(
+                flushed >= 1,
+                "an Apple publication is ordered and awaits the fence"
+            );
+        } else {
+            assert_eq!(
+                flushed, 0,
+                "other platforms publish durably without a fence"
+            );
+        }
+        assert_eq!(
+            store.read(&dir(), &name("fenced"), 1_024),
+            KagemushaWalletReadV1::Present(BYTES.to_vec())
+        );
+    }
+
+    #[test]
     fn wallet_advance_v1_std_fs_create_new_rewrite_remove() {
         let (_temp, store) = std_store();
         assert_eq!(

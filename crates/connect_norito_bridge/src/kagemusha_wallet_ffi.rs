@@ -701,7 +701,24 @@ pub(crate) fn credit(id: u64, credit: &[u8], payment: &[u8]) -> Result<Response>
 pub fn wallet_fold_metrics(handle: u64) -> std::result::Result<state::FoldMetricsV1, Failure> {
     Ok(owner(handle)?.background.fold_metrics())
 }
+#[cfg(test)]
+thread_local! {
+    /// Durability fences issued on this thread; tests observe where they happen.
+    pub(crate) static DURABILITY_FENCES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+/// Persist this process's ordered wallet-storage syncs (`iroha_fs::durability_fence`: on Apple one
+/// `F_FULLFSYNC` per device, elsewhere nothing). Wallet storage syncs only order on Apple, so every
+/// effect outside the store follows a fence: a call's result, and each Keychain anchor write and
+/// Secure Enclave key generation or deletion.
+pub(crate) fn durability_fence() -> std::io::Result<()> {
+    #[cfg(test)]
+    DURABILITY_FENCES.with(|fences| fences.set(fences.get() + 1));
+    iroha_fs::durability_fence().map(|_| ())
+}
 pub(crate) fn run<T>(action: impl FnOnce() -> Result<T>) -> Result<T> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(action))
-        .unwrap_or(Err(Failure::code(INTERNAL)))
+    let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(action))
+        .unwrap_or(Err(Failure::code(INTERNAL)))?;
+    // The result may carry or name what this call wrote: never release it before durability.
+    durability_fence().map_err(|_| Failure::code(UNAVAILABLE))?;
+    Ok(value)
 }

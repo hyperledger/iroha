@@ -390,6 +390,17 @@ pub(super) fn journal_snapshot(file: &File) -> io::Result<FileSnapshot> {
 pub(super) fn validate_public_original(file: &File) -> io::Result<()> {
     snapshot(file, false, false).map(|_| ())
 }
+
+/// Windows publication syncs are write-through: an ordered sync is the durable `FlushFileBuffers`.
+pub(super) fn sync_file_ordered(file: &File) -> io::Result<()> {
+    file.sync_all()
+}
+
+/// Ordered syncs are already durable on Windows: nothing to flush.
+pub(super) fn durability_fence() -> io::Result<u64> {
+    Ok(0)
+}
+
 impl Directory {
     pub(super) fn snapshot_directory(&self) -> io::Result<FileSnapshot> {
         self.revalidate()?;
@@ -1329,6 +1340,11 @@ impl Directory {
     pub(super) fn sync(&self) -> io::Result<()> {
         self.revalidate()?;
         sync_directory_metadata(&self.current().file)
+    }
+
+    /// Windows publication syncs are write-through: ordering is the durable sync.
+    pub(super) fn sync_ordered(&self) -> io::Result<()> {
+        self.sync()
     }
 
     pub(super) fn rename_to_sibling(mut self, name: &OsStr, mode: PublishMode) -> io::Result<Self> {

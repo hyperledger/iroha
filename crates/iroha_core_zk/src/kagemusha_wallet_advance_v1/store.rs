@@ -276,12 +276,14 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
     /// the whole batch.
     ///
     /// In chunks of at most [`KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1`] names, each name's bytes
-    /// are staged on an exclusive staging file, written and synced (`fsync`; `F_FULLFSYNC` on
-    /// Apple), and only then is every staged file of the chunk renamed into place through its
+    /// are staged on an exclusive staging file, written and synced (`fsync`; on Apple
+    /// `F_BARRIERFSYNC`, see [`KagemushaWalletFsV1::sync_staged`]), and only then is every staged
+    /// file of the chunk renamed into place through its
     /// retained original: create-new for [`KagemushaWalletBatchActionV1::New`], replacing for
     /// [`KagemushaWalletBatchActionV1::Replace`]. After the last chunk `dir` is synced once.
-    /// Each file's data is durable before its rename, so after power loss every name is absent
-    /// or holds its exact bytes, whichever subset of the renames survives; no name is torn.
+    /// Each file's data is persisted no later than its rename (durable before it on Android,
+    /// ordered before it on Apple), so after power loss every name is absent or holds its exact
+    /// bytes, whichever subset of the renames survives; no name is torn.
     ///
     /// - `Published`: every rename and the final parent sync succeeded.
     /// - `NotPublished`: a failure before the first rename took effect; the chunk's staged
@@ -1140,11 +1142,13 @@ mod std_fs {
                 .as_ref()
                 .ok_or_else(|| io::Error::other("staged original was consumed"))?;
             original.revalidate()?;
-            original.file().sync_all()?;
+            // Ordered only on Apple: the native bridge's durability fences persist it before
+            // any Keychain or Secure Enclave effect and before any result leaves the call.
+            iroha_fs::sync_file_ordered(original.file())?;
             original.revalidate()
         }
         fn sync_named(&self, dir: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()> {
-            self.directory(dir)?.sync_custody_file(name)
+            self.directory(dir)?.sync_custody_file_ordered(name)
         }
         fn rename_noreplace(
             &self,
@@ -1199,7 +1203,7 @@ mod std_fs {
             }
         }
         fn sync_dir(&self, dir: &KagemushaWalletCustodyDirV1) -> io::Result<()> {
-            self.directory(dir)?.sync()
+            self.directory(dir)?.sync_ordered()
         }
         fn mkdir(&self, parent: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()> {
             let parent_directory = self.directory(parent)?;
