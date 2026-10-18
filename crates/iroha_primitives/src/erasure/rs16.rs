@@ -1,6 +1,17 @@
 //! Reed-Solomon (16-bit) parity helpers shared across Torii and tooling.
+//!
+//! Symbols are little-endian GF(2^16) elements modulo x^16 + x^12 + x^3 + x + 1. Systematic
+//! parity rows are `V[k..k+m] * V[..k]^-1` for the Vandermonde matrix `V[r][c] = (2^r)^c`;
+//! one generator implementation serves the compact consensus codec and the owned-row API.
+//! Row arithmetic runs on the host's SIMD backend or the scalar fallback with bit-identical
+//! results.
 #[path = "rs16/compact.rs"]
 pub mod compact;
+#[path = "rs16/kernel.rs"]
+mod kernel;
+#[cfg(test)]
+#[path = "rs16/reference.rs"]
+mod reference;
 use std::{
     collections::HashMap,
     sync::{
@@ -29,14 +40,6 @@ pub struct Rs16Error;
 struct FieldTables {
     exp: Vec<u16>,
     log: Vec<u16>,
-}
-#[cfg(all(
-    feature = "simd-accel",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-struct FieldTablesU32 {
-    exp: Vec<u32>,
-    log: Vec<u32>,
 }
 static SIMD_ENABLED: AtomicBool = AtomicBool::new(true);
 /// Enable or disable SIMD acceleration for RS16 parity encoding.
@@ -69,23 +72,7 @@ fn tables() -> &'static FieldTables {
         FieldTables { exp, log }
     })
 }
-#[cfg(all(
-    feature = "simd-accel",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-fn tables_u32() -> &'static FieldTablesU32 {
-    static TABLES: OnceLock<FieldTablesU32> = OnceLock::new();
-    TABLES.get_or_init(|| {
-        let tables = tables();
-        let exp = tables.exp.iter().map(|value| u32::from(*value)).collect();
-        let log = tables.log.iter().map(|value| u32::from(*value)).collect();
-        FieldTablesU32 { exp, log }
-    })
-}
-#[inline]
-fn gf_add(a: u16, b: u16) -> u16 {
-    a ^ b
-}
+/// Field product for matrix construction; row kernels use per-coefficient product tables.
 #[inline]
 fn gf_mul(a: u16, b: u16) -> u16 {
     if a == 0 || b == 0 {
@@ -110,63 +97,78 @@ fn gf_pow(exp: usize) -> u16 {
     let tables = tables();
     tables.exp[exp % ORDER_MINUS_ONE]
 }
-#[allow(clippy::needless_range_loop)]
-fn invert_matrix(mut matrix: Vec<Vec<u16>>) -> Result<Vec<Vec<u16>>, Rs16Error> {
-    let size = matrix.len();
-    if size == 0 {
-        return Ok(Vec::new());
+/// Gauss-Jordan inverse of the row-major `k x k` matrix, which is consumed as scratch.
+fn invert(k: usize, matrix: &mut [u16], inverse: &mut [u16]) -> Result<(), Rs16Error> {
+    inverse.fill(0);
+    for row in 0..k {
+        inverse[row * k + row] = 1;
     }
-    let width = matrix[0].len();
-    if size != width {
-        return Err(Rs16Error);
-    }
-    let mut identity = vec![vec![0u16; size]; size];
-    for i in 0..size {
-        identity[i][i] = 1;
-    }
-    for col in 0..size {
-        let mut pivot_row = None;
-        for row in col..size {
-            if matrix[row][col] != 0 {
-                pivot_row = Some(row);
-                break;
-            }
+    for column in 0..k {
+        let pivot = (column..k)
+            .find(|row| matrix[row * k + column] != 0)
+            .ok_or(Rs16Error)?;
+        for index in 0..k {
+            matrix.swap(column * k + index, pivot * k + index);
+            inverse.swap(column * k + index, pivot * k + index);
         }
-        let pivot_row = pivot_row.ok_or(Rs16Error)?;
-        if pivot_row != col {
-            matrix.swap(pivot_row, col);
-            identity.swap(pivot_row, col);
+        let reciprocal = gf_inv(matrix[column * k + column]).ok_or(Rs16Error)?;
+        for index in 0..k {
+            matrix[column * k + index] = gf_mul(matrix[column * k + index], reciprocal);
+            inverse[column * k + index] = gf_mul(inverse[column * k + index], reciprocal);
         }
-        let inv = gf_inv(matrix[col][col]).ok_or(Rs16Error)?;
-        for j in 0..size {
-            matrix[col][j] = gf_mul(matrix[col][j], inv);
-            identity[col][j] = gf_mul(identity[col][j], inv);
-        }
-        for row in 0..size {
-            if row == col {
+        for row in 0..k {
+            if row == column {
                 continue;
             }
-            let factor = matrix[row][col];
-            if factor == 0 {
-                continue;
-            }
-            for j in 0..size {
-                let term = gf_mul(factor, matrix[col][j]);
-                matrix[row][j] = gf_add(matrix[row][j], term);
-                let term = gf_mul(factor, identity[col][j]);
-                identity[row][j] = gf_add(identity[row][j], term);
+            let factor = matrix[row * k + column];
+            for index in 0..k {
+                matrix[row * k + index] ^= gf_mul(factor, matrix[column * k + index]);
+                inverse[row * k + index] ^= gf_mul(factor, inverse[column * k + index]);
             }
         }
     }
-    Ok(identity)
+    Ok(())
 }
-#[derive(Clone)]
-struct ParityMatrix {
-    rows: Vec<Vec<u16>>,
+/// The sole generator construction: row-major `m x k` systematic parity coefficients in
+/// `parity`, using `matrix` and `inverse` (`k x k` each) as scratch.
+fn prepare(
+    k: usize,
+    m: usize,
+    matrix: &mut [u16],
+    inverse: &mut [u16],
+    parity: &mut [u16],
+) -> Result<(), Rs16Error> {
+    for row in 0..k {
+        for column in 0..k {
+            matrix[row * k + column] = if row == 0 || column == 0 {
+                1
+            } else {
+                gf_pow(row * column)
+            };
+        }
+    }
+    invert(k, matrix, inverse)?;
+    for row in 0..m {
+        for column in 0..k {
+            let mut value = 0;
+            for source in 0..k {
+                let coefficient = if source == 0 {
+                    1
+                } else {
+                    gf_pow((k + row) * source)
+                };
+                value ^= gf_mul(coefficient, inverse[source * k + column]);
+            }
+            parity[row * k + column] = value;
+        }
+    }
+    Ok(())
 }
-type ParityMatrixCache = OnceLock<Mutex<HashMap<(usize, usize), Arc<ParityMatrix>>>>;
-fn parity_matrix(data_shards: usize, parity_shards: usize) -> Result<Arc<ParityMatrix>, Rs16Error> {
-    static CACHE: ParityMatrixCache = OnceLock::new();
+type ParityCache = OnceLock<Mutex<HashMap<(usize, usize), Arc<[u16]>>>>;
+/// Memoized [`prepare`] output for the owned-row API, whose Torii column stripes can have
+/// thousands of data rows; the compact codec prepares into its caller-owned workspace.
+fn parity_coefficients(data_shards: usize, parity_shards: usize) -> Result<Arc<[u16]>, Rs16Error> {
+    static CACHE: ParityCache = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let cached = cache
         .lock()
@@ -176,39 +178,43 @@ fn parity_matrix(data_shards: usize, parity_shards: usize) -> Result<Arc<ParityM
     if let Some(entry) = cached {
         return Ok(entry);
     }
-    let total = data_shards
+    data_shards
         .checked_add(parity_shards)
         .filter(|total| data_shards != 0 && parity_shards != 0 && *total <= ORDER_MINUS_ONE)
         .ok_or(Rs16Error)?;
-    let mut vandermonde = vec![vec![0u16; data_shards]; total];
-    for (row_idx, row) in vandermonde.iter_mut().enumerate() {
-        for (col_idx, value) in row.iter_mut().enumerate() {
-            *value = if row_idx == 0 || col_idx == 0 {
-                1
-            } else {
-                gf_pow(row_idx.checked_mul(col_idx).ok_or(Rs16Error)?)
-            };
-        }
-    }
-    let data_block = invert_matrix(vandermonde[..data_shards].to_vec())?;
-    let mut parity_rows = vec![vec![0u16; data_shards]; parity_shards];
-    for (parity_idx, parity_row) in parity_rows.iter_mut().enumerate() {
-        let source = &vandermonde[data_shards + parity_idx];
-        for (col_idx, slot) in parity_row.iter_mut().enumerate() {
-            let mut acc = 0u16;
-            for (data_idx, src_val) in source.iter().take(data_shards).enumerate() {
-                let term = gf_mul(*src_val, data_block[data_idx][col_idx]);
-                acc = gf_add(acc, term);
-            }
-            *slot = acc;
-        }
-    }
-    let matrix = Arc::new(ParityMatrix { rows: parity_rows });
+    let mut matrix = vec![0u16; data_shards * data_shards];
+    let mut inverse = vec![0u16; data_shards * data_shards];
+    let mut parity = vec![0u16; data_shards * parity_shards];
+    prepare(
+        data_shards,
+        parity_shards,
+        &mut matrix,
+        &mut inverse,
+        &mut parity,
+    )?;
+    let parity: Arc<[u16]> = parity.into();
     cache
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert((data_shards, parity_shards), matrix.clone());
-    Ok(matrix)
+        .insert((data_shards, parity_shards), parity.clone());
+    Ok(parity)
+}
+/// Every backend this host can run, scalar first, regardless of the global SIMD toggle.
+#[cfg(test)]
+fn host_backends() -> Vec<Backend> {
+    let accelerated: Option<Backend> = None;
+    #[cfg(all(
+        feature = "simd-accel",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
+    let accelerated = accelerated
+        .or_else(|| std::arch::is_x86_feature_detected!("avx2").then_some(Backend::Avx2));
+    #[cfg(all(feature = "simd-accel", target_arch = "aarch64"))]
+    let accelerated = accelerated
+        .or_else(|| std::arch::is_aarch64_feature_detected!("neon").then_some(Backend::Neon));
+    std::iter::once(Backend::Scalar)
+        .chain(accelerated)
+        .collect()
 }
 fn choose_backend() -> Backend {
     if !simd_enabled() {
@@ -238,213 +244,13 @@ pub fn encode_parity(
 ) -> Result<Vec<Vec<u16>>, Rs16Error> {
     encode_parity_with_backend(data_symbols, parity_count, choose_backend())
 }
-/// Convert a payload slice into RS16 symbols using the configured chunk size.
-///
-/// # Errors
-/// Returns `Rs16Error` if `chunk_size` is smaller than 2 or odd, `length`
-/// exceeds `chunk_size`, or the requested range is out of bounds.
-pub fn symbols_from_payload(
-    chunk_size: usize,
-    payload: &[u8],
-    offset: usize,
-    length: usize,
-) -> Result<Vec<u16>, Rs16Error> {
-    if chunk_size < 2 || !chunk_size.is_multiple_of(2) || length > chunk_size {
-        return Err(Rs16Error);
-    }
-    let end = offset.checked_add(length).ok_or(Rs16Error)?;
-    if end > payload.len() {
-        return Err(Rs16Error);
-    }
-    let symbol_count = chunk_size / 2;
-    Ok(symbols_from_chunk(symbol_count, &payload[offset..end]))
-}
 /// Convert chunk bytes into RS16 symbols padded to the requested symbol count.
 pub fn symbols_from_chunk(symbol_count: usize, chunk: &[u8]) -> Vec<u16> {
     let mut symbols = vec![0u16; symbol_count];
-    let mut cursor = 0usize;
-    for slot in &mut symbols {
-        if cursor >= chunk.len() {
-            break;
-        }
-        let mut pair = [0u8; 2];
-        let remaining = 2.min(chunk.len() - cursor);
-        pair[..remaining].copy_from_slice(&chunk[cursor..cursor + remaining]);
-        *slot = u16::from_le_bytes(pair);
-        cursor += remaining;
+    for (slot, pair) in symbols.iter_mut().zip(chunk.chunks(2)) {
+        *slot = u16::from_le_bytes([pair[0], pair.get(1).copied().unwrap_or(0)]);
     }
     symbols
-}
-/// Convert RS16 symbols back into chunk bytes.
-///
-/// # Errors
-/// Returns `Rs16Error` if `byte_len` exceeds the symbol capacity.
-pub fn chunk_from_symbols(symbols: &[u16], byte_len: usize) -> Result<Vec<u8>, Rs16Error> {
-    let capacity = symbols.len().saturating_mul(2);
-    if byte_len > capacity {
-        return Err(Rs16Error);
-    }
-    let mut bytes = Vec::with_capacity(byte_len);
-    for symbol in symbols {
-        if bytes.len() == byte_len {
-            break;
-        }
-        let pair = symbol.to_le_bytes();
-        let remaining = byte_len.saturating_sub(bytes.len()).min(2);
-        bytes.extend_from_slice(&pair[..remaining]);
-    }
-    Ok(bytes)
-}
-fn generator_row(
-    data_shards: usize,
-    parity_shards: usize,
-    shard_idx: usize,
-) -> Result<Vec<u16>, Rs16Error> {
-    if shard_idx < data_shards {
-        let mut row = vec![0u16; data_shards];
-        row[shard_idx] = 1;
-        return Ok(row);
-    }
-    let parity_idx = shard_idx.checked_sub(data_shards).ok_or(Rs16Error)?;
-    let matrix = parity_matrix(data_shards, parity_shards)?;
-    matrix.rows.get(parity_idx).cloned().ok_or(Rs16Error)
-}
-/// Reconstruct a full RS16 stripe from any `data_shards` present shards.
-///
-/// The slice must contain exactly `data_shards + parity_shards` entries. Present
-/// entries must all use the same symbol width. Missing entries are filled with
-/// reconstructed data/parity rows when recovery succeeds.
-///
-/// # Errors
-/// Returns `Rs16Error` if too few shards are present, symbol widths differ, or
-/// the selected recovery matrix is singular.
-pub fn reconstruct_shards(
-    shards: &mut [Option<Vec<u16>>],
-    data_shards: usize,
-    parity_shards: usize,
-) -> Result<(), Rs16Error> {
-    if data_shards == 0 {
-        return Err(Rs16Error);
-    }
-    if shards.len() != data_shards.saturating_add(parity_shards) {
-        return Err(Rs16Error);
-    }
-    let mut selected = Vec::with_capacity(data_shards);
-    let mut symbol_count: Option<usize> = None;
-    for (idx, maybe_row) in shards.iter().enumerate() {
-        let Some(row) = maybe_row.as_ref() else {
-            continue;
-        };
-        match symbol_count {
-            Some(expected) if expected != row.len() => return Err(Rs16Error),
-            Some(_) => {}
-            None => {
-                symbol_count = Some(row.len());
-            }
-        }
-        selected.push((idx, row.clone()));
-        if selected.len() == data_shards {
-            break;
-        }
-    }
-    let symbol_count = symbol_count.ok_or(Rs16Error)?;
-    if selected.len() < data_shards {
-        return Err(Rs16Error);
-    }
-    let mut decode_matrix = Vec::with_capacity(data_shards);
-    let mut selected_rows = Vec::with_capacity(data_shards);
-    for (idx, row) in selected {
-        decode_matrix.push(generator_row(data_shards, parity_shards, idx)?);
-        selected_rows.push(row);
-    }
-    let inverse = invert_matrix(decode_matrix)?;
-    let mut data_rows = vec![vec![0u16; symbol_count]; data_shards];
-    for (data_idx, output_row) in data_rows.iter_mut().enumerate() {
-        for (selected_idx, input_row) in selected_rows.iter().enumerate() {
-            let coef = inverse[data_idx][selected_idx];
-            if coef == 0 {
-                continue;
-            }
-            mul_add_row_scalar(coef, input_row, output_row);
-        }
-    }
-    let parity_rows = encode_parity(&data_rows, parity_shards)?;
-    for (idx, slot) in shards.iter_mut().enumerate() {
-        *slot = Some(if idx < data_shards {
-            data_rows[idx].clone()
-        } else {
-            parity_rows[idx - data_shards].clone()
-        });
-    }
-    Ok(())
-}
-
-/// Reconstruct only the missing data rows of one RS16 stripe.
-///
-/// The returned vector has exactly `data_shards` slots. A slot is populated
-/// only when the corresponding data row was absent from `shards`; present data
-/// rows remain borrowed by the caller and are not cloned. Parity rows are
-/// never regenerated. This is the preferred recovery path for consumers that
-/// need the original payload but do not need to repair the complete codeword.
-///
-/// # Errors
-/// Returns `Rs16Error` if the stripe geometry is invalid, fewer than
-/// `data_shards` rows are present, symbol widths differ, or the selected
-/// recovery matrix is singular.
-pub fn reconstruct_missing_data_shards(
-    shards: &[Option<Vec<u16>>],
-    data_shards: usize,
-    parity_shards: usize,
-) -> Result<Vec<Option<Vec<u16>>>, Rs16Error> {
-    if data_shards == 0 || shards.len() != data_shards.saturating_add(parity_shards) {
-        return Err(Rs16Error);
-    }
-
-    let mut selected = Vec::with_capacity(data_shards);
-    let mut symbol_count = None;
-    for (idx, maybe_row) in shards.iter().enumerate() {
-        let Some(row) = maybe_row.as_deref() else {
-            continue;
-        };
-        match symbol_count {
-            Some(expected) if expected != row.len() => return Err(Rs16Error),
-            Some(_) => {}
-            None => symbol_count = Some(row.len()),
-        }
-        if selected.len() < data_shards {
-            selected.push((idx, row));
-        }
-    }
-    let symbol_count = symbol_count.ok_or(Rs16Error)?;
-    if selected.len() != data_shards {
-        return Err(Rs16Error);
-    }
-
-    let mut recovered = (0..data_shards).map(|_| None).collect::<Vec<_>>();
-    if shards.iter().take(data_shards).all(Option::is_some) {
-        return Ok(recovered);
-    }
-
-    let decode_matrix = selected
-        .iter()
-        .map(|(idx, _)| generator_row(data_shards, parity_shards, *idx))
-        .collect::<Result<Vec<_>, _>>()?;
-    let inverse = invert_matrix(decode_matrix)?;
-    let backend = choose_backend();
-    for data_idx in 0..data_shards {
-        if shards[data_idx].is_some() {
-            continue;
-        }
-        let mut output = vec![0_u16; symbol_count];
-        for (selected_idx, (_, input)) in selected.iter().enumerate() {
-            let coefficient = inverse[data_idx][selected_idx];
-            if coefficient != 0 {
-                mul_add_row(coefficient, input, &mut output, backend);
-            }
-        }
-        recovered[data_idx] = Some(output);
-    }
-    Ok(recovered)
 }
 /// Compute the parity chunk offset for a given stripe/parity index.
 pub fn parity_offset(
@@ -461,6 +267,8 @@ pub fn parity_offset(
         .checked_add(parity_index as u64)?;
     total_size.checked_add(slot.checked_mul(stride)?)
 }
+/// Owned-row parity: data rows are staged as little-endian bytes one kernel group at a time,
+/// so the transient copy is bounded by [`kernel::GROUP`] rows on every host byte order.
 fn encode_parity_with_backend(
     data_symbols: &[Vec<u16>],
     parity_count: usize,
@@ -473,218 +281,44 @@ fn encode_parity_with_backend(
     if data_symbols.iter().any(|row| row.len() != symbol_count) {
         return Err(Rs16Error);
     }
-    let matrix = parity_matrix(data_symbols.len(), parity_count)?;
-    let mut parity = vec![vec![0u16; symbol_count]; parity_count];
-    for (row_idx, coeffs) in matrix.rows.iter().enumerate() {
-        let row = &mut parity[row_idx];
-        for (data_idx, coef) in coeffs.iter().enumerate() {
-            if *coef == 0 {
-                continue;
-            }
-            let data_row = &data_symbols[data_idx];
-            mul_add_row(*coef, data_row, row, backend);
-        }
+    let data_count = data_symbols.len();
+    let coefficients = parity_coefficients(data_count, parity_count)?;
+    if symbol_count == 0 {
+        return Ok(vec![Vec::new(); parity_count]);
     }
-    Ok(parity)
-}
-#[allow(unsafe_code)]
-fn mul_add_row(coef: u16, data_row: &[u16], out: &mut [u16], backend: Backend) {
-    match backend {
-        Backend::Scalar => mul_add_row_scalar(coef, data_row, out),
-        #[cfg(all(
-            feature = "simd-accel",
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        Backend::Avx2 => {
-            // SAFETY: Backend::Avx2 is only selected when AVX2 is available.
-            unsafe {
-                avx2::mul_add_row_avx2(coef, data_row, out);
+    let row_bytes = 2 * symbol_count;
+    let mut parity = vec![0u8; parity_count.checked_mul(row_bytes).ok_or(Rs16Error)?];
+    let mut staged = vec![0u8; data_count.min(kernel::GROUP) * row_bytes];
+    for (group, rows) in data_symbols.chunks(kernel::GROUP).enumerate() {
+        for (bytes, row) in staged.chunks_exact_mut(row_bytes).zip(rows) {
+            for (pair, symbol) in bytes.chunks_exact_mut(2).zip(row) {
+                pair.copy_from_slice(&symbol.to_le_bytes());
             }
         }
-        #[cfg(all(feature = "simd-accel", target_arch = "aarch64"))]
-        Backend::Neon => {
-            // SAFETY: Backend::Neon is only selected when NEON is available.
-            unsafe {
-                neon::mul_add_row_neon(coef, data_row, out);
-            }
+        let first = group * kernel::GROUP;
+        for (coefficients, output) in coefficients
+            .chunks_exact(data_count)
+            .zip(parity.chunks_exact_mut(row_bytes))
+        {
+            kernel::combine(
+                coefficients[first..first + rows.len()]
+                    .iter()
+                    .copied()
+                    .zip(staged.chunks_exact(row_bytes)),
+                output,
+                group != 0,
+                backend,
+            );
         }
     }
-}
-fn mul_add_row_scalar(coef: u16, data_row: &[u16], out: &mut [u16]) {
-    debug_assert_eq!(data_row.len(), out.len());
-    if coef == 0 {
-        return;
-    }
-    if coef == 1 {
-        for (slot, symbol) in out.iter_mut().zip(data_row.iter()) {
-            *slot ^= symbol;
-        }
-        return;
-    }
-    for (slot, symbol) in out.iter_mut().zip(data_row.iter()) {
-        let term = gf_mul(coef, *symbol);
-        *slot ^= term;
-    }
-}
-#[cfg(all(
-    feature = "simd-accel",
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-mod avx2 {
-    use super::{gf_mul, tables_u32};
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86 as arch;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64 as arch;
-    /// AVX2 path that vectorizes the XOR accumulation and `gf_mul` table lookups.
-    #[allow(unsafe_code)]
-    #[allow(clippy::cast_ptr_alignment)]
-    #[target_feature(enable = "avx2")]
-    pub(super) unsafe fn mul_add_row_avx2(coef: u16, data_row: &[u16], out: &mut [u16]) {
-        // SAFETY: Caller ensures AVX2 is available and slices are equal length.
-        unsafe {
-            debug_assert_eq!(data_row.len(), out.len());
-            if coef == 0 {
-                return;
-            }
-            let len = data_row.len();
-            let mut idx = 0usize;
-            if coef == 1 {
-                while idx + 16 <= len {
-                    let data_vec = arch::_mm256_loadu_si256(
-                        data_row.as_ptr().add(idx).cast::<arch::__m256i>(),
-                    );
-                    let out_vec =
-                        arch::_mm256_loadu_si256(out.as_ptr().add(idx).cast::<arch::__m256i>());
-                    let merged = arch::_mm256_xor_si256(out_vec, data_vec);
-                    arch::_mm256_storeu_si256(
-                        out.as_mut_ptr().add(idx).cast::<arch::__m256i>(),
-                        merged,
-                    );
-                    idx += 16;
-                }
-                for (slot, symbol) in out.iter_mut().zip(data_row.iter()).skip(idx) {
-                    *slot ^= symbol;
-                }
-                return;
-            }
-            let tables = tables_u32();
-            let log_table = tables.log.as_ptr().cast::<i32>();
-            let exp_table = tables.exp.as_ptr().cast::<i32>();
-            let log_coef = tables.log[coef as usize].cast_signed();
-            let log_coef_vec = arch::_mm256_set1_epi32(log_coef);
-            let zero = arch::_mm256_setzero_si256();
-            while idx + 8 <= len {
-                let data_vec =
-                    arch::_mm_loadu_si128(data_row.as_ptr().add(idx).cast::<arch::__m128i>());
-                let indices = arch::_mm256_cvtepu16_epi32(data_vec);
-                let zero_mask = arch::_mm256_cmpeq_epi32(indices, zero);
-                let log_vec = arch::_mm256_i32gather_epi32(log_table, indices, 4);
-                let exp_indices = arch::_mm256_add_epi32(log_vec, log_coef_vec);
-                let mut term_vec = arch::_mm256_i32gather_epi32(exp_table, exp_indices, 4);
-                term_vec = arch::_mm256_andnot_si256(zero_mask, term_vec);
-                let term_lo = arch::_mm256_castsi256_si128(term_vec);
-                let term_hi = arch::_mm256_extracti128_si256(term_vec, 1);
-                let packed = arch::_mm_packus_epi32(term_lo, term_hi);
-                let out_vec = arch::_mm_loadu_si128(out.as_ptr().add(idx).cast::<arch::__m128i>());
-                let merged = arch::_mm_xor_si128(out_vec, packed);
-                arch::_mm_storeu_si128(out.as_mut_ptr().add(idx).cast::<arch::__m128i>(), merged);
-                idx += 8;
-            }
-            for (slot, symbol) in out.iter_mut().zip(data_row.iter()).skip(idx) {
-                *slot ^= gf_mul(coef, *symbol);
-            }
-        }
-    }
-}
-#[cfg(all(feature = "simd-accel", target_arch = "aarch64"))]
-mod neon {
-    use super::gf_mul;
-    use std::arch::aarch64 as arch;
-    /// NEON path that vectorizes the XOR accumulation and `gf_mul` operations.
-    #[allow(unsafe_code)]
-    #[target_feature(enable = "neon")]
-    pub(super) unsafe fn mul_add_row_neon(coef: u16, data_row: &[u16], out: &mut [u16]) {
-        // SAFETY: Caller ensures NEON is available and slices are equal length.
-        unsafe {
-            debug_assert_eq!(data_row.len(), out.len());
-            if coef == 0 {
-                return;
-            }
-            let len = data_row.len();
-            let mut idx = 0usize;
-            if coef == 1 {
-                while idx + 8 <= len {
-                    let data_vec = arch::vld1q_u16(data_row.as_ptr().add(idx));
-                    let out_vec = arch::vld1q_u16(out.as_ptr().add(idx));
-                    let merged = arch::veorq_u16(out_vec, data_vec);
-                    arch::vst1q_u16(out.as_mut_ptr().add(idx), merged);
-                    idx += 8;
-                }
-                for (slot, symbol) in out.iter_mut().zip(data_row.iter()).skip(idx) {
-                    *slot ^= symbol;
-                }
-                return;
-            }
-            while idx + 8 <= len {
-                let data_vec = arch::vld1q_u16(data_row.as_ptr().add(idx));
-                let term_vec = gf_mul_vec(coef, data_vec);
-                let out_vec = arch::vld1q_u16(out.as_ptr().add(idx));
-                let merged = arch::veorq_u16(out_vec, term_vec);
-                arch::vst1q_u16(out.as_mut_ptr().add(idx), merged);
-                idx += 8;
-            }
-            for (slot, symbol) in out.iter_mut().zip(data_row.iter()).skip(idx) {
-                *slot ^= gf_mul(coef, *symbol);
-            }
-        }
-    }
-    #[allow(unsafe_code)]
-    #[inline]
-    unsafe fn gf_mul_vec(coef: u16, data: arch::uint16x8_t) -> arch::uint16x8_t {
-        // SAFETY: Caller ensures NEON is available.
-        unsafe {
-            let mut a = arch::vdupq_n_u16(coef);
-            let mut b = data;
-            let mut acc = arch::vdupq_n_u16(0);
-            let one = arch::vdupq_n_u16(1);
-            let poly = arch::vdupq_n_u16(0x100B);
-            for _ in 0..16 {
-                let lsb = arch::vandq_u16(b, one);
-                let mask = arch::vceqq_u16(lsb, one);
-                acc = arch::veorq_u16(acc, arch::vandq_u16(a, mask));
-                b = arch::vshrq_n_u16(b, 1);
-                let carry = arch::vshrq_n_u16(a, 15);
-                a = arch::vshlq_n_u16(a, 1);
-                let carry_mask = arch::vceqq_u16(carry, one);
-                a = arch::veorq_u16(a, arch::vandq_u16(poly, carry_mask));
-            }
-            acc
-        }
-    }
-    #[cfg(test)]
-    mod tests {
-        use super::{gf_mul, gf_mul_vec};
-        use std::arch::aarch64 as arch;
-        #[test]
-        #[allow(unsafe_code)]
-        fn neon_gf_mul_vec_matches_scalar() {
-            if !std::arch::is_aarch64_feature_detected!("neon") {
-                return;
-            }
-            let coef = 0x1234u16;
-            let data = [0u16, 1, 2, 3, 4, 5, 0x00FF, 0xFFFF];
-            let mut out = [0u16; 8];
-            unsafe {
-                let vec = arch::vld1q_u16(data.as_ptr());
-                let result = gf_mul_vec(coef, vec);
-                arch::vst1q_u16(out.as_mut_ptr(), result);
-            }
-            for idx in 0..8 {
-                assert_eq!(out[idx], gf_mul(coef, data[idx]));
-            }
-        }
-    }
+    Ok(parity
+        .chunks_exact(row_bytes)
+        .map(|row| {
+            row.chunks_exact(2)
+                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .collect()
+        })
+        .collect())
 }
 #[cfg(test)]
 mod tests {
@@ -711,60 +345,27 @@ mod tests {
     }
     #[test]
     fn simd_toggle_roundtrip() {
-        let _guard = SIMULATED_GUARD
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap();
         let prev = simd_enabled();
         set_simd_enabled(!prev);
         assert_eq!(simd_enabled(), !prev);
+        assert_eq!(
+            choose_backend() == Backend::Scalar,
+            prev || host_backends().len() == 1
+        );
         set_simd_enabled(prev);
     }
     #[test]
     fn simd_backends_match_scalar() {
         let data = sample_symbols(6, 128);
         let scalar = encode_parity_with_backend(&data, 4, Backend::Scalar).expect("scalar");
-        let _ = &scalar;
-        #[cfg(all(
-            feature = "simd-accel",
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        if std::arch::is_x86_feature_detected!("avx2") {
-            let avx = encode_parity_with_backend(&data, 4, Backend::Avx2).expect("avx2");
-            assert_eq!(scalar, avx);
-        }
-        #[cfg(all(feature = "simd-accel", target_arch = "aarch64"))]
-        if std::arch::is_aarch64_feature_detected!("neon") {
-            let neon = encode_parity_with_backend(&data, 4, Backend::Neon).expect("neon");
-            assert_eq!(scalar, neon);
+        for backend in host_backends() {
+            let parity = encode_parity_with_backend(&data, 4, backend).expect("parity");
+            assert_eq!(scalar, parity, "{backend:?}");
         }
     }
-    /// Every available SIMD backend computes exactly the scalar `out ^= coef · data` over
-    /// GF(2^16): the special coefficients 0 and 1, the reduction boundaries, arbitrary ones,
-    /// zero and all-ones symbols, and every row length through two vector widths (the scalar
-    /// tails included). Payload availability relies on this for bit-identical chunks on every
-    /// node.
+    /// The matrix field operations agree with the independent bit-serial reference.
     #[test]
-    fn backends_agree_on_every_coefficient_class_and_tail() {
-        /// The SIMD backend of this machine, whatever the global toggle says.
-        fn simd_backend() -> Option<Backend> {
-            #[cfg(all(
-                feature = "simd-accel",
-                any(target_arch = "x86", target_arch = "x86_64")
-            ))]
-            if std::arch::is_x86_feature_detected!("avx2") {
-                return Some(Backend::Avx2);
-            }
-            #[cfg(all(feature = "simd-accel", target_arch = "aarch64"))]
-            if std::arch::is_aarch64_feature_detected!("neon") {
-                return Some(Backend::Neon);
-            }
-            None
-        }
-        let backends: Vec<Backend> = std::iter::once(Backend::Scalar)
-            .chain(simd_backend())
-            .collect();
-        let coefficients = [0u16, 1, 2, 3, 0x8000, 0x100B, 0x1234, 0xFFFE, 0xFFFF];
+    fn matrix_field_operations_match_reference() {
         let mut state = 0x9E37_79B9_u32;
         let mut next = || {
             state ^= state << 13;
@@ -772,156 +373,137 @@ mod tests {
             state ^= state << 5;
             u16::try_from(state & 0xFFFF).expect("masked")
         };
-        for len in 0..=40usize {
-            let data: Vec<u16> = (0..len)
-                .map(|i| match i % 5 {
-                    0 => 0,
-                    1 => 0xFFFF,
-                    _ => next(),
-                })
-                .collect();
-            let start: Vec<u16> = (0..len).map(|_| next()).collect();
-            for coef in coefficients.into_iter().chain([next(), next()]) {
-                let mut expected = start.clone();
-                mul_add_row(coef, &data, &mut expected, Backend::Scalar);
-                for (slot, (value, symbol)) in expected.iter().zip(start.iter().zip(&data)) {
-                    assert_eq!(*slot, value ^ gf_mul(coef, *symbol), "scalar {coef:#x}");
-                }
-                for backend in &backends {
-                    let mut out = start.clone();
-                    mul_add_row(coef, &data, &mut out, *backend);
-                    assert_eq!(out, expected, "{backend:?} len {len} coef {coef:#x}");
-                }
+        for _ in 0..20_000 {
+            let (a, b) = (next(), next());
+            assert_eq!(gf_mul(a, b), reference::mul(a, b), "{a:#x}*{b:#x}");
+            if a != 0 {
+                assert_eq!(gf_inv(a), Some(reference::inv(a)), "{a:#x}^-1");
+            }
+        }
+        assert_eq!(gf_inv(0), None);
+        for exponent in [0usize, 1, 15, 16, 65_534, 65_535, 65_536, 1 << 20] {
+            assert_eq!(
+                gf_pow(exponent),
+                reference::pow(2, exponent as u64),
+                "2^{exponent}"
+            );
+        }
+    }
+    /// The single generator construction matches the reference Vandermonde construction.
+    #[test]
+    fn generator_matches_reference_parity_matrix() {
+        for (k, m) in [(1, 1), (1, 16), (4, 2), (16, 1), (16, 16), (7, 9), (40, 3)] {
+            let coefficients = parity_coefficients(k, m).expect("coefficients");
+            let expected = reference::parity_matrix(k, m)
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            assert_eq!(&*coefficients, expected.as_slice(), "{k}+{m}");
+            assert!(Arc::ptr_eq(
+                &coefficients,
+                &parity_coefficients(k, m).expect("cached")
+            ));
+        }
+        let mut singular = vec![1, 1, 1, 1];
+        let mut inverse = vec![0; 4];
+        assert_eq!(invert(2, &mut singular, &mut inverse), Err(Rs16Error));
+    }
+    /// `(data rows, parity rows, symbols per row, BLAKE3 of the little-endian parity rows)`
+    /// pinned from the original kernels for the owned-row API used by Torii and `SoraFS`.
+    #[rustfmt::skip]
+    const PINNED_PARITY: &[(usize, usize, usize, &str)] = &[
+        (1, 1, 1, "bf0de6eda1ae618676cbad90affb1fcac1519b9f7cd67c805e5d3e2cda4bdf5a"),
+        (1, 3, 7, "78d414f0ad34af6c767e1283676a99384735432b8f6657885086d794592677dc"),
+        (2, 2, 0, "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"),
+        (4, 2, 8, "9011f8c4a0b247c3fc76935adc33a33e3905e28c9f0dddf355c84eb504e3224b"),
+        (4, 2, 4096, "3839881147ab5c7b40370dac08433f90c2fc1ea99770b729a1511dbca442bf4e"),
+        (6, 4, 128, "67f69071cc8f5c190f1e1b7c42cc5ade41378b692953acb85ed440a8d041c8c3"),
+        (10, 4, 257, "bfeef581247166e1ba6241817d8fa3ebdbbb0c4c799d5198decf95c336cea664"),
+        (16, 16, 33, "914e04ce0e9840c0630c71cb014afcd2b1b9557268f4fac1af2c76b027d9d3f5"),
+        (32, 8, 100, "0ee20109b910b1138da96227435ec884cbac3208dc126e7b9858a740e9310e48"),
+        (100, 3, 17, "c34d84c611b83320f6092f2ec7408fb914d715051d6a1c3dc0ac6a2305bbb455"),
+    ];
+    fn pinned_rows(k: usize, m: usize, symbols: usize) -> Vec<Vec<u16>> {
+        (0..k)
+            .map(|row| {
+                let seed = 0xC0DE ^ ((k * 10_000 + m * 100 + row) as u64) ^ (symbols as u64) << 32;
+                reference::bytes(seed, 2 * symbols)
+                    .chunks_exact(2)
+                    .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                    .collect()
+            })
+            .collect()
+    }
+    /// The owned-row parity API matches the independent reference on every backend,
+    /// including stripes wider than one kernel group.
+    #[test]
+    fn owned_row_parity_matches_reference_and_pinned_digests() {
+        for &(k, m, symbols, expected) in PINNED_PARITY {
+            let data = pinned_rows(k, m, symbols);
+            let reference = reference::encode_parity(&data, m);
+            let bytes = reference
+                .iter()
+                .flatten()
+                .flat_map(|symbol| symbol.to_le_bytes())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                reference::digest(&bytes),
+                expected,
+                "reference {k}+{m} symbols {symbols}"
+            );
+            assert_eq!(encode_parity(&data, m).unwrap(), reference);
+            for backend in host_backends() {
+                assert_eq!(
+                    encode_parity_with_backend(&data, m, backend).unwrap(),
+                    reference,
+                    "{backend:?} {k}+{m} symbols {symbols}"
+                );
             }
         }
     }
     #[test]
-    #[cfg(all(
-        feature = "simd-accel",
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
-    fn tables_u32_matches_u16() {
-        let tables = tables();
-        let tables_u32 = tables_u32();
-        assert_eq!(tables.exp.len(), tables_u32.exp.len());
-        assert_eq!(tables.log.len(), tables_u32.log.len());
-        let mut exp_indices = vec![0usize, 1, 2, 17, 1024, tables.exp.len() - 1];
-        exp_indices.sort_unstable();
-        exp_indices.dedup();
-        for idx in exp_indices {
-            assert_eq!(
-                tables.exp[idx],
-                u16::try_from(tables_u32.exp[idx]).expect("u32 exp entry fits u16")
-            );
-        }
-        let mut log_indices = vec![0usize, 1, 2, 17, 1024, tables.log.len() - 1];
-        log_indices.sort_unstable();
-        log_indices.dedup();
-        for idx in log_indices {
-            assert_eq!(
-                tables.log[idx],
-                u16::try_from(tables_u32.log[idx]).expect("u32 log entry fits u16")
-            );
-        }
+    fn owned_row_parity_rejects_ragged_rows_and_unrepresentable_stripes() {
+        assert_eq!(encode_parity(&[], 3).unwrap(), Vec::<Vec<u16>>::new());
+        assert_eq!(
+            encode_parity(&[vec![1, 2]], 0).unwrap(),
+            Vec::<Vec<u16>>::new()
+        );
+        assert!(encode_parity(&[vec![1, 2], vec![3]], 1).is_err());
+        assert!(encode_parity(&[vec![1]], ORDER_MINUS_ONE).is_err());
+        assert!(encode_parity(&[Vec::new()], ORDER_MINUS_ONE).is_err());
+        assert_eq!(
+            encode_parity(&[Vec::new(), Vec::new()], 2).unwrap(),
+            vec![Vec::<u16>::new(); 2]
+        );
+        assert_eq!(
+            encode_parity(&[vec![0x1234, 0]], 2).unwrap(),
+            vec![vec![0x1234, 0], vec![0x1234, 0]]
+        );
     }
-    static SIMULATED_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
     #[test]
     fn symbols_from_chunk_packs_pairs() {
-        let chunk = [0x01u8, 0x02, 0x03];
-        let symbols = symbols_from_chunk(2, &chunk);
-        assert_eq!(symbols, vec![0x0201, 0x0003]);
+        assert_eq!(
+            symbols_from_chunk(2, &[0x01, 0x02, 0x03]),
+            vec![0x0201, 0x0003]
+        );
+        assert_eq!(symbols_from_chunk(3, &[0x01, 0x02]), vec![0x0201, 0, 0]);
+        assert_eq!(
+            symbols_from_chunk(1, &[0x01, 0x02, 0x03, 0x04]),
+            vec![0x0201]
+        );
+        assert_eq!(symbols_from_chunk(2, &[]), vec![0, 0]);
+        assert_eq!(symbols_from_chunk(0, &[0x01]), Vec::<u16>::new());
     }
     #[test]
-    fn symbols_from_payload_bounds_check() {
-        let payload = [0u8; 4];
-        let ok = symbols_from_payload(4, &payload, 0, 4).expect("symbols");
-        assert_eq!(ok.len(), 2);
-        assert!(symbols_from_payload(3, &payload, 0, 3).is_err());
-        assert!(symbols_from_payload(2, &payload, 0, 4).is_err());
-        assert!(symbols_from_payload(4, &payload, 3, 2).is_err());
-    }
-    #[test]
-    fn parity_matrix_rejects_invalid_field_geometry_before_allocation() {
-        assert!(parity_matrix(0, 1).is_err());
-        assert!(parity_matrix(1, 0).is_err());
-        assert!(parity_matrix(ORDER_MINUS_ONE, 1).is_err());
-        assert!(parity_matrix(usize::MAX, 1).is_err());
+    fn parity_coefficients_reject_invalid_field_geometry_before_allocation() {
+        assert!(parity_coefficients(0, 1).is_err());
+        assert!(parity_coefficients(1, 0).is_err());
+        assert!(parity_coefficients(ORDER_MINUS_ONE, 1).is_err());
+        assert!(parity_coefficients(usize::MAX, 1).is_err());
     }
     #[test]
     fn parity_offset_matches_expected() {
         let offset = parity_offset(100, 2, 1, 3, 16).expect("offset");
         assert_eq!(offset, 100 + (2 * 3 + 1) as u64 * 16);
-    }
-    #[test]
-    fn chunk_from_symbols_respects_requested_length() {
-        let symbols = vec![0x0201, 0x0403];
-        let bytes = chunk_from_symbols(&symbols, 3).expect("bytes");
-        assert_eq!(bytes, vec![0x01, 0x02, 0x03]);
-        assert!(chunk_from_symbols(&symbols, 5).is_err());
-    }
-    #[test]
-    fn reconstruct_shards_restores_missing_data_and_parity() {
-        let data = sample_symbols(4, 8);
-        let expected_data = data[1].clone();
-        let parity = encode_parity(&data, 2).expect("parity");
-        let mut shards: Vec<Option<Vec<u16>>> =
-            data.into_iter().chain(parity.clone()).map(Some).collect();
-        shards[1] = None;
-        shards[4] = None;
-        reconstruct_shards(&mut shards, 4, 2).expect("reconstruct");
-        assert_eq!(shards[1].as_ref().expect("data shard"), &expected_data);
-        assert_eq!(shards[4].as_ref().expect("parity shard"), &parity[0]);
-    }
-
-    #[test]
-    fn payload_recovery_allocates_only_missing_data_rows() {
-        let data = sample_symbols(4, 8);
-        let expected_missing = data[1].clone();
-        let parity = encode_parity(&data, 2).expect("parity");
-        let mut shards = data.into_iter().chain(parity).map(Some).collect::<Vec<_>>();
-        shards[1] = None;
-        shards[5] = None;
-
-        let recovered =
-            reconstruct_missing_data_shards(&shards, 4, 2).expect("recover payload data");
-        assert_eq!(recovered.len(), 4);
-        assert_eq!(
-            recovered.iter().filter(|row| row.is_some()).count(),
-            1,
-            "present data and missing parity must not allocate output rows"
-        );
-        assert_eq!(
-            recovered[1].as_ref().expect("missing data row"),
-            &expected_missing
-        );
-    }
-
-    #[test]
-    fn payload_recovery_simd_matches_scalar_for_multiple_missing_rows() {
-        struct RestoreSimd(bool);
-        impl Drop for RestoreSimd {
-            fn drop(&mut self) {
-                set_simd_enabled(self.0);
-            }
-        }
-
-        let _guard = SIMULATED_GUARD
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap();
-        let data = sample_symbols(4, 257);
-        let parity = encode_parity_with_backend(&data, 2, Backend::Scalar).expect("parity");
-        let mut shards = data.into_iter().chain(parity).map(Some).collect::<Vec<_>>();
-        shards[0] = None;
-        shards[2] = None;
-
-        let _restore = RestoreSimd(simd_enabled());
-        set_simd_enabled(false);
-        let scalar = reconstruct_missing_data_shards(&shards, 4, 2).expect("scalar recovery");
-        set_simd_enabled(true);
-        let accelerated =
-            reconstruct_missing_data_shards(&shards, 4, 2).expect("accelerated recovery");
-
-        assert_eq!(accelerated, scalar);
     }
 }

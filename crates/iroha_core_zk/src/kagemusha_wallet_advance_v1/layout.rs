@@ -50,7 +50,7 @@ pub const KAGEMUSHA_WALLET_ROOT_SENTINEL_NAME_V1: &str = "root.norito";
 /// Exclusive lock file name.
 pub const KAGEMUSHA_WALLET_LOCK_NAME_V1: &str = "lock";
 /// iOS protected-data canary file name.
-// TODO(G2-iOS): the canary is created with FileProtectionType.complete by the Swift adapter.
+// The canary is created with FileProtectionType.complete by the Swift adapter.
 pub const KAGEMUSHA_WALLET_CANARY_NAME_V1: &str = "canary";
 /// Capacity ballast file name (written at enrollment, drawn and regrown by `advance.rs`).
 pub const KAGEMUSHA_WALLET_BALLAST_NAME_V1: &str = "ballast.bin";

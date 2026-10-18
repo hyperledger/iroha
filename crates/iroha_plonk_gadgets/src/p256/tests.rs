@@ -1107,8 +1107,8 @@ const VARIABLE_SHA_CELLS: usize = 139_208;
 /// Q-leaf layout.
 const VARIABLE_SHA_SHARED_ROWS: usize = 12_097;
 
-/// Every gate and lookup of a P-256 circuit (with the SHA chip) has degree
-/// at most [`crate::MAX_GATE_DEGREE`]; the window lookup is the widest.
+/// Ordinary arithmetic gates retain [`crate::MAX_GATE_DEGREE`]; the
+/// expression-dependent norm lookups separately determine total degree 10.
 #[test]
 fn p256_gate_degree_at_most_six() {
     let mut rng = ChaCha20Rng::seed_from_u64(12);
@@ -1123,17 +1123,52 @@ fn p256_gate_degree_at_most_six() {
     );
     for circuit in [&plain, &hashed] {
         let (cs, _) = configure(circuit).expect("configure");
-        assert!(
-            cs.degree() <= crate::MAX_GATE_DEGREE,
-            "degree {}",
-            cs.degree()
-        );
+        for gate in cs.gates() {
+            for polynomial in gate.polynomials() {
+                assert!(
+                    polynomial.degree() <= crate::MAX_GATE_DEGREE,
+                    "gate {}",
+                    gate.name()
+                );
+            }
+        }
+        for lookup in cs.lookups() {
+            let expected = match lookup.name() {
+                "ff c_0 range" | "ff c_1 range" | "ff c_2 range" | "ff q_0 range"
+                | "ff q_1 range" | "ff q_2 range" => (3, 1, 10),
+                "ff u_0 range" | "ff u_1 range" | "ff u_2 range" | "ff u_3 range"
+                | "sha256 spread" => (2, 1, 8),
+                "p256 window" => (2, 2, 10),
+                other => panic!("unexpected P-256 lookup: {other}"),
+            };
+            assert_eq!(
+                (
+                    lookup
+                        .input_expressions()
+                        .iter()
+                        .map(iroha_plonk::Expression::degree)
+                        .max()
+                        .expect("input"),
+                    lookup
+                        .table_expressions()
+                        .iter()
+                        .map(iroha_plonk::Expression::degree)
+                        .max()
+                        .expect("table"),
+                    lookup.required_degree(),
+                ),
+                expected,
+                "{}: norm degree is 2 + 2*d_input + 2*d_table",
+                lookup.name()
+            );
+        }
+        assert_eq!(cs.degree(), 10);
         let window = cs
             .lookups()
             .iter()
             .find(|lookup| lookup.name() == "p256 window")
             .expect("window lookup");
-        assert_eq!(window.required_degree(), crate::MAX_GATE_DEGREE);
+        assert_eq!(window.required_degree(), 10);
     }
 }
 

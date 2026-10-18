@@ -294,6 +294,18 @@ fn id_candidates<K: Ord>(
     })
 }
 
+/// Entrypoint index of a visited history position.
+///
+/// History walks visit network entrypoints by their index in the carrier, so
+/// visibility checks read that entrypoint's committed route directly instead
+/// of re-hashing every entrypoint of the block to find it. An index beyond
+/// the address space names no entrypoint and stays hidden.
+fn entrypoint_index(
+    position: iroha_core::smartcontracts::isi::tx::TransactionHistoryPosition,
+) -> usize {
+    usize::try_from(position.block_index()).unwrap_or(usize::MAX)
+}
+
 /// Feed fallible rows to the engine, keeping the first error.
 fn until_error<'a, T: 'a, I>(
     rows: I,
@@ -1047,8 +1059,7 @@ fn account_subrow_page(
                 return std::ops::ControlFlow::Break(());
             }
             if !(visibility.can_read_all()
-                || visibility
-                    .allows_external_entrypoint_hash(block, *transaction.entrypoint_hash()))
+                || visibility.allows_external_entrypoint(block, entrypoint_index(position)))
             {
                 return std::ops::ControlFlow::Continue(());
             }
@@ -1395,8 +1406,7 @@ fn transaction_page(
                 return std::ops::ControlFlow::Break(());
             }
             let visible = visibility.can_read_all()
-                || visibility
-                    .allows_external_entrypoint_hash(block, *transaction.entrypoint_hash());
+                || visibility.allows_external_entrypoint(block, entrypoint_index(position));
             if !visible
                 || subject.is_some_and(|account| {
                     !tx_matches_account_history_subject(&transaction, account)

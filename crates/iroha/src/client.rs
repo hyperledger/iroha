@@ -60,7 +60,8 @@ mod validator_committee;
 mod verified_payment;
 pub use native_payment::{
     NativePaymentError, NativePaymentObservationError, NativePaymentOperation,
-    NativePaymentRecovery, NativePaymentRequest, NativePaymentRunOptions, NativePaymentSettlement,
+    NativePaymentRecovery, NativePaymentRequest, NativePaymentRunOptions, NativePaymentSession,
+    NativePaymentSettlement,
 };
 pub use payment_inbox::{PaymentCreditEntry, PaymentCreditStatus, PaymentInbox, PaymentInboxError};
 pub use payment_return::{
@@ -153,14 +154,9 @@ pub use iroha_torii_shared::governance_proposal_api::{
     SccpRouteGovernanceProposalDraftResponseV1,
 };
 pub use iroha_torii_shared::parliament_api::{
-    PARLIAMENT_API_VERSION_V1, PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1, ParliamentAttemptDraftRequestV1,
-    ParliamentAttemptDraftResponseV1, ParliamentAttemptPlanResponseV1,
-    ParliamentAttemptReadResponseV1, ParliamentDecisionModeProjectionV1,
-    ParliamentInstructionDraftV1, ParliamentTimedOvnCastingContextResponseV1,
-    ParliamentTimedOvnCastingPhaseProjectionV1, ParliamentTimedOvnCastingProofRequestV1,
-    ParliamentTimedOvnCastingProofResponseV1, ParliamentTimedOvnSessionProjectionV1,
-    ParliamentTlePartialReleaseShareV1, ParliamentTleReleaseContextResponseV1,
+    PARLIAMENT_API_VERSION_V1, ParliamentAttemptDraftRequestV1, ParliamentAttemptDraftResponseV1,
+    ParliamentAttemptPlanResponseV1, ParliamentAttemptReadResponseV1,
+    ParliamentDecisionModeProjectionV1, ParliamentInstructionDraftV1,
     ParliamentTransitionDraftRequestV1, ParliamentTransitionDraftResponseV1,
     RequiredParliamentBodyProjectionV1,
 };
@@ -321,11 +317,6 @@ const GOVERNANCE_PROPOSAL_JSON_RESPONSE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const VALIDATION_FEE_JSON_RESPONSE_MAX_BYTES: usize = 4 * 1024 * 1024;
 const PARLIAMENT_JSON_RESPONSE_MAX_BYTES: usize =
     MAX_PARLIAMENT_ATTEMPT_STATE_BYTES_V1 * 2 + 1024 * 1024;
-const PARLIAMENT_TLE_RELEASE_CONTEXT_RESPONSE_MAX_BYTES: usize = 1024 * 1024;
-const PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_RESPONSE_MAX_BYTES: usize = 16 * 1024 * 1024;
-const PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES: usize =
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1;
-const PARLIAMENT_TLE_PARTIAL_RELEASE_RESPONSE_MAX_BYTES: usize = 16 * 1024;
 const VALIDATION_FEE_PROOF_RESPONSE_MAX_BYTES: usize =
     iroha_torii_shared::validation_fee_api::VALIDATION_FEE_POLICY_PROOF_MAX_RESPONSE_BYTES;
 const CONTRACT_CODE_ARTIFACT_MAX_BYTES: usize = 16 * 1024 * 1024;
@@ -2789,16 +2780,7 @@ pub struct ValidationFeePolicyProofCatchUp {
     /// Complete authenticated native checkpoint to persist before the next request.
     pub promoted_checkpoint: SumeragiFinalityCheckpoint,
 }
-/// Result of verifying one or more bounded Parliament casting checkpoint pages.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ParliamentTimedOvnCastingProofCatchUp {
-    /// Terminal page containing the consensus-authenticated casting archive.
-    pub final_page: ParliamentTimedOvnCastingProofResponseV1,
-    /// Number of independently verified checkpoint pages.
-    pub pages_verified: u32,
-    /// Complete authenticated native checkpoint to persist before the next request.
-    pub promoted_checkpoint: SumeragiFinalityCheckpoint,
-}
+
 fn canonical_validation_fee_draft_instruction(
     request: &ValidationFeeProposalDraftRequestV1,
 ) -> Result<(
@@ -19760,239 +19742,6 @@ impl Client {
                 "Parliament attempt plan response differs from the requested attempt"
             ));
         }
-        Ok(result)
-    }
-
-    /// Read one replay-validated public timed-OVN inspection context.
-    ///
-    /// The response carries strict JSON projections and one canonical bounded
-    /// Norito archive for public inspection. It is not consensus-authenticated
-    /// and must never be passed to a secret-local wallet; use
-    /// [`Self::get_parliament_timed_ovn_casting_proof_page`] instead. Torii never
-    /// receives or generates a registration secret, masked ballot, proof
-    /// nonce, release share, or individual opening.
-    ///
-    /// # Errors
-    /// Returns an error for a zero identifier, transport or HTTP failure,
-    /// malformed JSON, or any oversized, noncanonical, cross-bound, or
-    /// phase-inconsistent public response.
-    pub fn get_parliament_timed_ovn_casting_context(
-        &self,
-        ballot_attempt_id: iroha_data_model::governance::types::BallotAttemptId,
-    ) -> Result<ParliamentTimedOvnCastingContextResponseV1> {
-        if ballot_attempt_id.as_bytes().iter().all(|byte| *byte == 0) {
-            return Err(eyre!("Parliament ballot attempt id must be non-zero"));
-        }
-        let path = torii_routes::runtime_governance::GOV_PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ
-            .path()
-            .replace("{ballot_attempt_id}", &ballot_attempt_id.to_hex());
-        let url = join_torii_url(&self.torii_url, &path);
-        let response = self.send_builder(
-            self.account_signed_request(HttpMethod::GET, url, Vec::new())?
-                .header("Accept", APPLICATION_JSON)
-                .max_response_bytes(PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_RESPONSE_MAX_BYTES),
-        )?;
-        Self::ensure_response_status(
-            &response,
-            StatusCode::OK,
-            "Failed to read Parliament timed-OVN casting context",
-            " ",
-        )?;
-        let result: ParliamentTimedOvnCastingContextResponseV1 =
-            norito::json::from_slice(response.body())
-                .wrap_err("failed to decode Parliament timed-OVN casting-context response")?;
-        result
-            .validate_for_ballot(ballot_attempt_id)
-            .map_err(|reason| eyre!(reason))?;
-        Ok(result)
-    }
-
-    /// Fetch and verify one bounded consensus-authenticated casting-proof page.
-    ///
-    /// The caller supplies a durable, independently trusted checkpoint. An
-    /// intermediate response advances that checkpoint by at most 63 blocks and
-    /// contains no casting archive. A terminal response authenticates the
-    /// requested ballot's compact binding through the block execution root.
-    /// Secret-local native code must still replay the included Core archive and
-    /// require that it exactly rederives the authenticated compact binding.
-    ///
-    /// # Errors
-    /// Returns an error for an invalid ballot/anchor, transport or HTTP failure,
-    /// non-Norito response, malformed finality, or invalid witness/membership.
-    pub fn get_parliament_timed_ovn_casting_proof_page(
-        &self,
-        ballot_attempt_id: iroha_data_model::governance::types::BallotAttemptId,
-        trusted_checkpoint: &SumeragiFinalityCheckpoint,
-    ) -> Result<(
-        ParliamentTimedOvnCastingProofResponseV1,
-        SumeragiFinalityCheckpoint,
-    )> {
-        if trusted_checkpoint.network_id() != self.network_id {
-            return Err(eyre!("trusted checkpoint belongs to a different network"));
-        }
-        if ballot_attempt_id.as_bytes().iter().all(|byte| *byte == 0) {
-            return Err(eyre!("Parliament ballot attempt id must be non-zero"));
-        }
-        let request = ParliamentTimedOvnCastingProofRequestV1 {
-            version: PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1,
-            trusted_checkpoint_height: trusted_checkpoint.height(),
-        };
-        let body = to_bytes(&request)
-            .wrap_err("failed to encode Parliament casting proof request as Norito")?;
-        let path = torii_routes::runtime_governance::GOV_PARLIAMENT_TIMED_OVN_CASTING_PROOF
-            .path()
-            .replace("{ballot_attempt_id}", &ballot_attempt_id.to_hex());
-        let url = join_torii_url(&self.torii_url, &path);
-        let response = self.send_builder(
-            self.account_signed_request(HttpMethod::POST, url, body)?
-                .header("Content-Type", APPLICATION_NORITO)
-                .header("Accept", APPLICATION_NORITO)
-                .max_response_bytes(PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES),
-        )?;
-        if response.status() != StatusCode::OK {
-            return Err(eyre!(
-                "Failed to fetch Parliament casting proof: {} {}",
-                response.status(),
-                std::str::from_utf8(response.body()).unwrap_or("")
-            ));
-        }
-        let content_type = Self::response_content_type(&response);
-        if !content_type.starts_with(APPLICATION_NORITO) {
-            return Err(eyre!(
-                "Parliament casting proof response has invalid content type {content_type}"
-            ));
-        }
-        let proof: ParliamentTimedOvnCastingProofResponseV1 = decode_from_bytes(response.body())
-            .wrap_err("failed to decode Parliament casting proof response")?;
-        let (_, promoted_checkpoint) = proof
-            .verify_consensus_page_against(self.network_id, trusted_checkpoint, ballot_attempt_id)
-            .map_err(|error| eyre!("Parliament casting proof verification failed: {error}"))?;
-        Ok((proof, promoted_checkpoint))
-    }
-
-    /// Verify bounded casting-proof pages until the endpoint's observed tip.
-    ///
-    /// Applications should durably persist each complete promoted checkpoint before
-    /// requesting the next page. This convenience method performs the same
-    /// checks in memory and returns only after a terminal page authenticates the
-    /// requested ballot's casting archive.
-    ///
-    /// # Errors
-    /// Returns an error if any page fails, does not advance, omits the terminal
-    /// archive, or attempts an unbounded pagination loop.
-    pub fn catch_up_parliament_timed_ovn_casting_proof(
-        &self,
-        ballot_attempt_id: iroha_data_model::governance::types::BallotAttemptId,
-        trusted_checkpoint: &SumeragiFinalityCheckpoint,
-    ) -> Result<ParliamentTimedOvnCastingProofCatchUp> {
-        const MAX_PAGES_PER_CALL: u32 = 4_096;
-        let mut checkpoint = trusted_checkpoint.clone();
-        for pages_verified in 1..=MAX_PAGES_PER_CALL {
-            let (page, promoted_checkpoint) =
-                self.get_parliament_timed_ovn_casting_proof_page(ballot_attempt_id, &checkpoint)?;
-            if page.evaluated_block_height < checkpoint.height()
-                || (page.more_available && page.evaluated_block_height == checkpoint.height())
-            {
-                return Err(eyre!(
-                    "Parliament casting checkpoint promotion did not advance"
-                ));
-            }
-            checkpoint = promoted_checkpoint;
-            if !page.more_available {
-                if page.casting_context_archive.is_none() {
-                    return Err(eyre!(
-                        "terminal Parliament casting proof omitted its archive"
-                    ));
-                }
-                return Ok(ParliamentTimedOvnCastingProofCatchUp {
-                    final_page: page,
-                    pages_verified,
-                    promoted_checkpoint: checkpoint,
-                });
-            }
-        }
-        Err(eyre!(
-            "Parliament casting checkpoint promotion exceeded {MAX_PAGES_PER_CALL} pages"
-        ))
-    }
-
-    /// Read and strictly validate one Core-authorized public TLE release context.
-    ///
-    /// The response includes the complete public DKG transcript required by an
-    /// independent coordinator. It never includes registration or ballot
-    /// corpora, secret shares, or individual openings.
-    ///
-    /// # Errors
-    /// Returns an error for a zero identifier, transport or HTTP failure,
-    /// malformed JSON, or any transcript, identity, height, or digest mismatch.
-    pub fn get_parliament_tle_release_context(
-        &self,
-        ballot_attempt_id: iroha_data_model::governance::types::BallotAttemptId,
-    ) -> Result<ParliamentTleReleaseContextResponseV1> {
-        if ballot_attempt_id.as_bytes().iter().all(|byte| *byte == 0) {
-            return Err(eyre!("Parliament ballot attempt id must be non-zero"));
-        }
-        let path = torii_routes::runtime_governance::GOV_PARLIAMENT_TLE_RELEASE_CONTEXT_READ
-            .path()
-            .replace("{ballot_attempt_id}", &ballot_attempt_id.to_hex());
-        let url = join_torii_url(&self.torii_url, &path);
-        let response = self.send_builder(
-            self.account_signed_request(HttpMethod::GET, url, Vec::new())?
-                .header("Accept", APPLICATION_JSON)
-                .max_response_bytes(PARLIAMENT_TLE_RELEASE_CONTEXT_RESPONSE_MAX_BYTES),
-        )?;
-        Self::ensure_response_status(
-            &response,
-            StatusCode::OK,
-            "Failed to read Parliament TLE release context",
-            " ",
-        )?;
-        let result: ParliamentTleReleaseContextResponseV1 =
-            norito::json::from_slice(response.body())
-                .wrap_err("failed to decode Parliament TLE release-context response")?;
-        result
-            .validate_for_ballot(ballot_attempt_id)
-            .map_err(|reason| eyre!(reason))?;
-        Ok(result)
-    }
-
-    /// Request this node's proof-carrying public partial for a validated context.
-    ///
-    /// The request body is exactly empty. The returned share is structurally
-    /// bound to the fetched key session and identity digest; an operational
-    /// coordinator must still independently verify its proof equations before
-    /// combining it with peer shares.
-    ///
-    /// # Errors
-    /// Returns an error for an invalid context, transport or HTTP failure,
-    /// malformed JSON, or a cross-session/invalid partial response.
-    pub fn post_parliament_tle_partial_release(
-        &self,
-        context: &ParliamentTleReleaseContextResponseV1,
-    ) -> Result<ParliamentTlePartialReleaseShareV1> {
-        context
-            .validate_for_ballot(context.ballot_attempt_id)
-            .map_err(|reason| eyre!(reason))?;
-        let path = torii_routes::runtime_governance::GOV_PARLIAMENT_TLE_PARTIAL_RELEASE
-            .path()
-            .replace("{ballot_attempt_id}", &context.ballot_attempt_id.to_hex());
-        let url = join_torii_url(&self.torii_url, &path);
-        let response = self.send_builder(
-            self.account_signed_request(HttpMethod::POST, url, Vec::new())?
-                .header("Accept", APPLICATION_JSON)
-                .max_response_bytes(PARLIAMENT_TLE_PARTIAL_RELEASE_RESPONSE_MAX_BYTES),
-        )?;
-        Self::ensure_response_status(
-            &response,
-            StatusCode::OK,
-            "Failed to request Parliament TLE partial release",
-            " ",
-        )?;
-        let result: ParliamentTlePartialReleaseShareV1 = norito::json::from_slice(response.body())
-            .wrap_err("failed to decode Parliament TLE partial-release response")?;
-        result
-            .validate_against(context)
-            .map_err(|reason| eyre!(reason))?;
         Ok(result)
     }
 

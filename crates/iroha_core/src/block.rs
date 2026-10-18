@@ -4778,6 +4778,7 @@ pub(crate) mod valid {
                     topology,
                     genesis_account,
                     &view,
+                    state.pipeline_parallelism(),
                     soft_fork,
                     time_source,
                     skip_block_signatures,
@@ -4934,6 +4935,12 @@ pub(crate) mod valid {
             };
             if let Some(timings) = timings.as_deref_mut() {
                 timings.execution_state_block_ms = to_ms(state_block_start.elapsed());
+            }
+            // `validate_static_with_snapshot` above verified (batched and in parallel)
+            // the signature of every Network input of this exact block and rejects
+            // the block on any failure, so its execution need not verify them again.
+            if !block.header().is_genesis() {
+                state_block.mark_network_signatures_prechecked();
             }
             if let Err(error) = Self::validate_staged_execution_controls(&block, &state_block) {
                 drop(state_block);
@@ -5093,6 +5100,7 @@ pub(crate) mod valid {
             topology: &Topology,
             genesis_account: &AccountId,
             state: &impl StateReadOnly,
+            pipeline_parallelism: &crate::state::PipelineParallelism,
             soft_fork: bool,
             time_source: &TimeSource,
             skip_block_signatures: bool,
@@ -5255,7 +5263,6 @@ pub(crate) mod valid {
             }
             let crypto_cfg = state.crypto();
             let pipeline_cfg = state.pipeline().clone();
-            let pipeline_parallelism = crate::state::PipelineParallelism::new(&pipeline_cfg);
             let aggregate_lane = nexus.routing_policy.default_lane;
             Ok(StaticValidationData {
                 expected_block_height,
@@ -5263,7 +5270,7 @@ pub(crate) mod valid {
                 tx_params,
                 crypto_cfg,
                 pipeline_cfg,
-                pipeline_parallelism,
+                pipeline_parallelism: pipeline_parallelism.clone(),
                 aggregate_lane,
             })
         }

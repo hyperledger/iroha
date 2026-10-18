@@ -30,6 +30,7 @@ Both profiles use the same creation code, built by solc
 | `test/sccp_replay.js` | Replays fixture rows and scenario steps as calls and compares outcome, logs, return value and state |
 | `test/harness/SccpBlsHarness.sol` | Test-only wrapper that exposes the library's internal functions |
 | `test/harness/SccpDirtyMemoryHarness.sol` | Test-only subclass that runs the certificate-verifying entry points on memory that is not zero |
+| `test/harness/SccpFixtureHarness.sol` | Test-only exposure of the production payload, commitment-tree and history helpers |
 | `test/sccp_bls.test.js` | Library suite |
 | `test/sccp_v1_fixtures.test.js` | Fixture replay suite |
 | `test/sccp_live_fourpeer.js` | Replays the authentic public four-peer export through the locked chain-1 CREATE2 destination |
@@ -209,9 +210,16 @@ the Osaka rules, and under chain ids 1 and 56 where a row binds a network.
 EDR runs the L1 chain type under each chain id, so the BSC profile is
 execution evidence for the contract, not a measurement of a BSC node.
 
-- `sccp_bls.test.js` checks the library against the `hash_to_g2_dst_sig`
-  traces of `fixtures/sccp/bls_consensus_v1.json` and against `@noble/curves`,
-  with the precompile failure cases and a build that omits the `Z_pad` writes.
+- `sccp_bls.test.js` checks the library against the hash-to-G2, signature and
+  fast-aggregate verification rows of `bls_consensus_v1.json` and
+  `bls_consensus_rust_v1.json`, including standard inputs and verification
+  negatives, and against `@noble/curves`. It preserves the precompile failure
+  cases and the build that omits the `Z_pad` writes. Its row ledger records
+  destination-specific outcomes: the affine EIP-2537 pairing helper does not
+  implement compressed-key decoding or Rust's generic-signature API.
+  Key generation, signing, distinct-message aggregation, w3f PoP generation
+  and Rust-only allowlist APIs are outside the destination verifier; skipped
+  fixture sections are explicitly counted and explained.
 - `sccp_v1_fixtures.test.js` replays `finality_v1.json`,
   `finality_rust_v1.json`, `committee_transitions_v1.json` and
   `control_v1.json` row by row: outcome or exact error with its arguments,
@@ -223,6 +231,14 @@ execution evidence for the contract, not a measurement of a BSC node.
   and deploys its P4 sample at the CREATE2 address derived from the locked
   creation code and all nine constructor words. Its last test of each hardfork fails when a
   row did not run or a pinned row count changed.
+  It also imports `payload_v1.json`, `commitment_tree_v1.json`, `history_v1.json`
+  and `native_transfer_event_v1.json`: applicable payloads and exact refusals,
+  every tree and history path, leaf-kind confusion negatives, and Ethereum/BSC
+  transfer and void event bytes. Helper replays compile the production source
+  with visibility changes only; the locked destination build is unchanged.
+  The expired-void event golden contains a synthetic message id with no payload
+  preimage, so its exact ABI bytes are checked through the inherited event in
+  the test harness, alongside the real payload-derived production void path.
 - `sccp_taira_xor.test.js` covers what the fixtures do not (§11): constructor
   bounds, raw storage slots, every admitted committee size, the first failing
   step of `VerifyCertificate`, latch precedence, saturation of the clock and

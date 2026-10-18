@@ -242,3 +242,9 @@ fn deployment(
 #[cfg(test)]
 #[path = "registration/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "registration/reference_fixtures.rs"]
+mod reference_fixtures;
+#[cfg(test)]
+pub(crate) use reference_fixtures::rows as reference_pin_rows;

@@ -588,7 +588,52 @@ fn actual_same_a_absorbs_charged_load_once_after_pending_unload_with_restart() {
         &finality_bytes,
         KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1,
     );
-    let loaded = complete(a.execute(load.clone()).unwrap());
+    let mut conflicting = load.clone();
+    let OperationActionV1::Load {
+        receipt: changed_original,
+        ..
+    } = &mut conflicting.action
+    else {
+        unreachable!()
+    };
+    *changed_original = changed.to_canonical_bytes().unwrap();
+    let mut conflicting_qc = load.clone();
+    let mut changed_qc = finality.clone();
+    let mut qc: iroha_sumeragi::message::Qc = decode(&changed_qc.certificate.commit_qc);
+    qc.agg_sig.0[0] ^= 1;
+    changed_qc.certificate.commit_qc = norito::encode_canonical(&qc).unwrap();
+    let OperationActionV1::Load {
+        finality: changed_original,
+        ..
+    } = &mut conflicting_qc.action
+    else {
+        unreachable!()
+    };
+    *changed_original = changed_qc.to_canonical_bytes().unwrap();
+    let mut conflicting_event = load.clone();
+    let mut changed_event = finality.clone();
+    changed_event.event_proof = iroha_crypto::MerkleProof::from_audit_path(
+        changed_event.event_proof.leaf_index() ^ 1,
+        changed_event.event_proof.audit_path().to_vec(),
+    );
+    let OperationActionV1::Load {
+        finality: changed_original,
+        ..
+    } = &mut conflicting_event.action
+    else {
+        unreachable!()
+    };
+    *changed_original = changed_event.to_canonical_bytes().unwrap();
+    let (mut a, device, loaded, restart_record) = restart::exercise(
+        a,
+        device,
+        &sources,
+        &f,
+        &frames,
+        &load,
+        &[conflicting, conflicting_qc, conflicting_event],
+    );
+    assert_eq!(restart_record["successful_signatures"].as_u64(), Some(1));
     let package_original = retain_bounded(
         &output,
         "charged-load-package.norito",
@@ -613,7 +658,9 @@ fn actual_same_a_absorbs_charged_load_once_after_pending_unload_with_restart() {
         .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     let after_signatures = device.platform.with(|state| state.sign_calls);
-    assert_eq!(after_signatures, signatures + 1);
+    // The successful resume was observed in the preceding process. The completed
+    // owner was reconstructed with its signer unavailable and made no new call.
+    assert_eq!(after_signatures, 0);
     assert_eq!(complete(a.execute(load.clone()).unwrap()), loaded);
     fold(&mut a);
     let after = a.snapshot().unwrap();
@@ -679,5 +726,6 @@ fn actual_same_a_absorbs_charged_load_once_after_pending_unload_with_restart() {
         "new_payment_signatures":1,"exact_retry_after_restart":true,"original_pending_unload_retained":true,
         "scope":"Same dedicated retained A consumes the genuine later ordinal1 charged Load after its Unload100 has been paid on that same authenticated chain. Native adds net100, not online debit103, once. Altered charge with original/rebound digest is refused before payment signing; exact completion and historical Unload originals survive reopen, while new-request replay and changed original are refused. Native uses production proofs/finality/custody with simulated hardware. Core balances are asserted by the independently pinned ordinary execution producer; this is not four live peers, native Unload acknowledgement, hardware/power-loss or release qualification.",
         "complete_online_originals":[online_receipt,online_finality,package_original],
+        "selected_restart":restart_record,
     })).unwrap());
 }

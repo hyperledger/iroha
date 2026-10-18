@@ -381,7 +381,17 @@ impl StateBlock<'_> {
     }
 
     pub(in crate::state) fn reject_quantity_source_census(&mut self) {
-        self.fastpq_quantity_candidate
+        assert!(
+            matches!(
+                self.execution_output_plan,
+                Some(super::super::output_capacity::ExecutionOutputPlanState::Poisoned)
+            ) && matches!(self.fastpq_source_inventory, Some(Err(_))),
+            "quantity rejection requires the original failed source owner"
+        );
+        self.fields
+            .as_mut()
+            .expect("original source failure owner")
+            .fastpq_quantity_candidate
             .poison(QuantityCaptureIssue::UnsupportedOwner);
     }
 
@@ -392,7 +402,11 @@ impl StateBlock<'_> {
             QuantitySourceCensusState::Unsealed | QuantitySourceCensusState::Failed => Ok(()),
         };
         if let Err(issue) = result {
-            self.fastpq_quantity_candidate.poison(issue);
+            self.fields
+                .as_mut()
+                .expect("original quantity observation owner")
+                .fastpq_quantity_candidate
+                .poison(issue);
         }
     }
 }

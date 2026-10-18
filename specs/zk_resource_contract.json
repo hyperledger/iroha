@@ -14032,6 +14032,11 @@
         ],
         "matching": "^MAX_PAYLOAD_BYTES$",
         "why": "Keep the already inventoried authenticated snapshot payload default under its exact module owner, independent of unrelated same-name SCCP imports. Other configuration modules retain their complete scopes."
+      },
+      {
+        "path": "crates/iroha/src/client/native_payment/session.rs",
+        "kind": "const",
+        "comparisons": true
       }
     ],
     "excluded": [
@@ -18291,7 +18296,7 @@
         ]
       },
       {
-        "reason": "The SCCP bridge beside its listed source-proof ceiling (proof.sccp_source_proof_max_bytes): history size, governance action and memo bounds, JSON-safe and supply maxima, retired keys, light-client bootstrap, advance and evidence frames with their default update, header and proof bounds, parameter ranges (validity windows, fees, message and attestation counts) and roster size in the data model, and the per-block leaf, prune, rotation-page and void-range work bounds of the node's handlers. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached. The per-proof, per-transaction and per-block proof and verifier-work limits a node enforces are listed bounds (proof.config_sccp_max_proof_bytes_per_proof and its siblings).",
+        "reason": "The SCCP bridge beside its listed source-proof ceiling (proof.sccp_source_proof_max_bytes): history size, governance action and memo bounds, JSON-safe and supply maxima, retained committee generations, light-client bootstrap, advance and evidence frames with their default update, header and proof bounds, parameter ranges (validity windows, fees, message and exempt-transaction counts) and native committee/certificate bounds, and the per-block leaf, prune, rotation-page and void-range work bounds of the node's handlers. A record of this group that travels in a transaction is inside transaction.max_tx_bytes (10 MiB) and transaction.max_instructions whatever its own ceiling says. A ceiling above 10 MiB here therefore never decides the admission of a transaction: it bounds what the product reads from its own files, evidence, requests, queries or served projections, or it cannot be reached. The per-proof, per-transaction and per-block proof and verifier-work limits a node enforces are listed bounds (proof.config_sccp_max_proof_bytes_per_proof and its siblings).",
         "files": [
           {
             "path": "crates/iroha_data_model/src/sccp/bounded_bytes.rs",
@@ -27586,12 +27591,18 @@
           ]
         },
         {
-          "reason": "Local verified decision retention keeps at least the three decisions required by the existing restart context. It prunes only an already authenticated in-memory prefix; increasing the request does not recreate earlier pruned authority, change verification rules, or enlarge checkpoint encoding. decision_window_preserves_genesis_and_checkpoint_floor and decision_window_preserves_lagging_witness_across_pruning cover the original verifier.",
+          "reason": "Local verified decision retention keeps at least the three decisions required by the existing restart context. It prunes only an already authenticated in-memory prefix; increasing the request does not recreate earlier pruned authority, change verification rules, or enlarge checkpoint encoding. decision_window_preserves_genesis_and_checkpoint_floor and decision_window_preserves_lagging_witness_across_pruning cover the original verifier. The SDK native payment session requires an explicit finite capacity of at least three decisions; the cold operation chooses the existing 64-decision observation scale independently of its per-call proof-read allowance. Retired history returns typed local HistoryUnavailable before proof reads and never establishes absence/rejection or authorizes another carrier. sequential_payments_share_original_prefix_and_retire_only_local_history and retired_unresolved_payment_requires_cold_original_recovery_without_new_carrier cover continued forward progress and recovery of the same original journal from independent genesis.",
           "files": [
             {
               "path": "crates/iroha_data_model/src/sumeragi_finality.rs",
               "sites": {
                 "count.max(3)": 1
+              }
+            },
+            {
+              "path": "crates/iroha/src/client/native_payment/session.rs",
+              "sites": {
+                "retained_decisions.get() < 3": 1
               }
             }
           ]

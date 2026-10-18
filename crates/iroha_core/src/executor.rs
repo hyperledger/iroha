@@ -9387,13 +9387,7 @@ fn authority_has_permission(
     authority: &AccountId,
     target: &Permission,
 ) -> Result<bool, ValidationFail> {
-    let permissions = world
-        .account_permissions_iter(authority)
-        .map_err(|err| ValidationFail::InstructionFailed(InstructionExecutionError::Find(err)))?;
-    if permissions
-        .into_iter()
-        .any(|permission| permission == target)
-    {
+    if authority_has_direct_permission(world, authority, target)? {
         return Ok(true);
     }
     for role_id in world.account_roles_iter(authority) {
@@ -9405,19 +9399,19 @@ fn authority_has_permission(
     }
     Ok(false)
 }
+/// Whether `authority` holds `target` directly (not through a role).
+///
+/// The account must exist. Membership is one ordered-set lookup rather than a
+/// scan of every permission granted to the account.
 fn authority_has_direct_permission(
     world: &impl WorldReadOnly,
     authority: &AccountId,
     target: &Permission,
 ) -> Result<bool, ValidationFail> {
     world
-        .account_permissions_iter(authority)
-        .map_err(|err| ValidationFail::InstructionFailed(InstructionExecutionError::Find(err)))
-        .map(|permissions| {
-            permissions
-                .into_iter()
-                .any(|permission| permission == target)
-        })
+        .account(authority)
+        .map_err(|err| ValidationFail::InstructionFailed(InstructionExecutionError::Find(err)))?;
+    Ok(world.account_contains_inherent_permission(authority, target))
 }
 fn authority_has_role(world: &impl WorldReadOnly, authority: &AccountId, role_id: &RoleId) -> bool {
     world

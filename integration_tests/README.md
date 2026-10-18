@@ -410,29 +410,25 @@ mandatory-NPoS corridors, which need the `test-network-parliament-signers`
 beacon fixture. Sortition corridors run on a signed 128-block NPoS epoch and
 compute each slot from the certified epoch length.
 
-### Parliament timed-OVN deadline/retry corridor
+### Running the Parliament corridors
 
-The feature-isolated `sora_parliament_lifecycle_smoke` target includes
-`failure_paths::private_ballot_retry::four_validator_private_ballot_deadline_retry_exhaustion_and_restore`.
-It registers actual private-ballot sessions, rejects premature failure and old-TLE
-reuse, derives registration-deadline NoResult, admits one fresh retry, exhausts
-the frozen limit, checks four-peer finality and restores a validator.
-It does not replace the sibling proof-valid timed-OVN aggregate-opening test or
-provide deployment/audit qualification. Timed-OVN is retired by the
-[ballot decision](../specs/parliament_private_ballot_design.md); no further
-timed-OVN coverage is planned. The anonymous ballot needs its own
-four-validator corridor, and the shared Parliament corridor support (with the
-gates that reuse it) must move to that ballot.
+The reusable corridor support lives in `sora_parliament_lifecycle_support.rs`; it
+funds registered citizens with signed transfers of the signed-genesis NPoS fee
+asset. Its finality reader validates the independently constructed genesis bundle
+and every contiguous embedded certificate, preserving exact four-validator,
+three-vote roster authority comparisons. The corridors exercise sortition, native
+pulses, public findings, epoch authorization and mandatory beacon custody.
 
 Prebuild the same-source native `iroha3d` with `test-network-parliament-signers`
 and the ordinary `iroha` CLI; point `TEST_NETWORK_BIN_IROHAD_PARLIAMENT_SIGNERS`
 and `TEST_NETWORK_BIN_IROHA` to those exact artifacts. With
 `IROHA_TEST_SKIP_BUILD=1 IROHA_TEST_REQUIRE_NETWORK=1 IROHA_TEST_SERIALIZE_NETWORKS=1`,
-run `cargo test --locked -p integration_tests --features parliament-test-signers --test sora_parliament_lifecycle_smoke failure_paths::private_ballot_retry::four_validator_private_ballot_deadline_retry_exhaustion_and_restore -- --exact --nocapture --test-threads=1`.
-The new scenario rejects an unavailable network even in a developer run; require
-network startup for the whole target so sibling optional sandbox skips cannot be
-counted as successful qualification. Deterministic test signers are feature
-isolated and are not a deployment-selected custody provider.
+run `cargo test --locked -p integration_tests --features parliament-test-signers --test sora_parliament_lifecycle_smoke four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart -- --exact --nocapture --test-threads=1`.
+`IROHA_TEST_REQUIRE_NETWORK=1` makes an unavailable network fail the target, so
+sibling optional sandbox skips cannot be counted as successful qualification.
+Deterministic test signers are feature isolated and are not a deployment-selected
+custody provider. Source and unit-test presence do not establish successful network
+qualification; each corridor must run successfully with its exact test filter.
 
 ### Native SoraFS publication lifecycle
 
@@ -449,36 +445,12 @@ verified saved checkpoint, requires its complete success receipt and asset
 readback, and independently challenges the resulting native completion again.
 Set `TEST_NETWORK_BIN_SORAFS_CLI` to the absolute prebuilt `sorafs_cli` artifact
 built with `cli-orchestrator`; missing CLI artifacts fail before network startup.
-Both publication qualification tests fail if the four-validator network cannot
+The publication qualification test fails if the four-validator network cannot
 start; an unavailable sandbox cannot produce a passing skip.
 Each provider explicitly declares and bounds two GiB for these two small pins;
 the test does not preallocate that disk space.
 The gateway uses a genuinely signed and acknowledged empty compliance catalog;
 its configured optional HTTPS feed is not fetched by this scenario.
-
-The explicit `sorafs_publication_governance` target requires
-`parliament-test-signers`. Its
-`four_peer_native_publication_repair_and_parliament_revocation` test adds the
-shared real seven-body Parliament corridor, then requires a specific admission
-denial across provider restart while an unaffected replica still serves bytes.
-It is `#[ignore]`d, with the three hidden-ballot Parliament corridors, until the
-anonymous ballot replaces timed-OVN: a timed-OVN release slot is no longer
-consensus demand, so the hidden ballot these corridors enact through cannot
-open.
-The reusable corridor lives in `sora_parliament_lifecycle_support.rs`; it funds
-registered citizens with signed transfers of the signed-genesis NPoS fee asset.
-Its current finality reader validates the independently constructed genesis bundle
-and every contiguous embedded certificate, preserving exact four-validator,
-three-vote roster authority and per-peer enacted execution comparisons. The
-publication target does not collect unrelated mandatory-beacon scenarios.
-The broader Parliament scenarios exercise epoch authorization and mandatory
-beacon custody separately; the complete target requires its own current-source
-qualification.
-Use the same-source Parliament daemon and ordinary CLI artifacts described above,
-`IROHA_TEST_REQUIRE_NETWORK=1`, and exact test filters. Native stream-token quota,
-sequencer and reputation deployment adapters remain separate qualification.
-Source and unit-test presence do not establish successful network qualification;
-the lifecycle and governed revocation tests must both run successfully.
 
 ### Paid linked full return at the final block
 

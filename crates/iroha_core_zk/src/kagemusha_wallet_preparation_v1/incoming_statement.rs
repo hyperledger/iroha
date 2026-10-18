@@ -189,7 +189,7 @@ mod tests {
                 asset_digest: [3; 32],
                 credential_digest: f(4),
                 lifecycle: KagemushaWalletLifecycleV1::Active,
-                sequence: if bootstrap { 0 } else { 1 },
+                sequence: u128::from(!bootstrap),
                 next_load: 0,
                 enabled_controls: 0,
                 lineage_burned_total: 0,

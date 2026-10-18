@@ -8114,6 +8114,8 @@ final class ToriiClientTests: XCTestCase {
     @available(iOS 15.0, macOS 12.0, *)
     func testGetExplorerTransfersFiltersByAccount() async throws {
         let assetIdFilter = "62Fk4FPcMuLvW5QjDGNF2a4jAmjM"
+        let secondSender = try explorerAccountFixture(seed: 0x31)
+        let secondReceiver = try explorerAccountFixture(seed: 0x32)
         StubURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/v1/explorer/instructions/query")
             let query = try self.explorerQueryValues(request)
@@ -8138,10 +8140,10 @@ final class ToriiClientTests: XCTestCase {
                         "index":0
                     },
                     {
-                        "authority":"sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM",
+                        "authority":"\(secondSender)",
                         "created_at":"2025-01-01T00:00:00Z",
                         "kind":"Transfer",
-                        "box":\(try explorerBatchBoxFixture([("sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM", "sorauﾛ1PﾜKNﾗ7ｼｺa2WｸｼﾒﾐQﾎbｺﾄocﾆﾁヰJaｱbg6sｾgｲﾖPfX7WAWRY", "61CtjvNd9T3THAR65GsMVHr82Bjc", "2")])),
+                        "box":\(try explorerBatchBoxFixture([(secondSender, secondReceiver, "61CtjvNd9T3THAR65GsMVHr82Bjc", "2")])),
                         "transaction_hash":"hash2",
                         "transaction_status":"Committed",
                         "block":1,

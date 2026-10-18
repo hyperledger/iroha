@@ -388,12 +388,6 @@ pub struct Kura {
     /// Counts raw durable-budget metadata reads for focused cache tests.
     #[cfg(test)]
     durable_budget_metadata_reads: AtomicUsize,
-    /// Test hook that pauses an inline read immediately before its cache publication recheck.
-    #[cfg(test)]
-    pause_block_read_before_cache_recheck: AtomicBool,
-    /// Test hook indicating an inline read is paused before its cache publication recheck.
-    #[cfg(test)]
-    block_read_paused_before_cache_recheck: AtomicBool,
     /// Test hook forcing `durable_blocks_count` through its in-memory fallback.
     #[cfg(test)]
     force_durable_blocks_count_fallback: AtomicBool,
@@ -833,11 +827,32 @@ impl Kura {
             index.incomplete_heights.is_empty() && index.indexed_heights.len() == chain_len;
     }
 
+    #[cfg(test)]
     fn mark_transaction_entrypoint_index_incomplete(&self, height: usize, chain_len: usize) {
         let Some(height) = NonZeroUsize::new(height) else {
             return;
         };
         let mut index = self.transaction_entrypoint_index.lock();
+        Self::remove_transaction_entrypoint_height(&mut index, height);
+        index.incomplete_heights.insert(height);
+        index.complete =
+            index.incomplete_heights.is_empty() && index.indexed_heights.len() == chain_len;
+    }
+
+    /// Record a height read back from storage as unindexed unless the append path
+    /// already indexed it; checked and updated under one lock acquisition.
+    fn mark_transaction_entrypoint_index_incomplete_unless_indexed(
+        &self,
+        height: usize,
+        chain_len: usize,
+    ) {
+        let Some(height) = NonZeroUsize::new(height) else {
+            return;
+        };
+        let mut index = self.transaction_entrypoint_index.lock();
+        if index.indexed_heights.contains(&height) {
+            return;
+        }
         Self::remove_transaction_entrypoint_height(&mut index, height);
         index.incomplete_heights.insert(height);
         index.complete =
@@ -861,13 +876,20 @@ impl Kura {
         }
         index.complete = index.incomplete_heights.is_empty() && index.indexed_heights.len() == keep;
     }
+    /// Map `hash` to `height` in the reverse index.
+    ///
+    /// The runtime canonical chain is append-only (`BlockData` is only pushed,
+    /// and a height's hash never changes once learned), so no other hash can be
+    /// indexed at `height`; this is one O(log n) map operation per stored block
+    /// or block read rather than a scan of the whole chain.
     fn set_block_height_index_entry(&self, height: usize, hash: HashOf<BlockHeader>) {
         let Some(height) = NonZeroUsize::new(height) else {
             return;
         };
         let mut index = self.block_height_index.lock();
-        index.retain(|_, indexed_height| *indexed_height != height);
-        index.insert(hash, height);
+        if index.get(&hash) != Some(&height) {
+            index.insert(hash, height);
+        }
     }
 }
 impl Kura {
@@ -1562,10 +1584,6 @@ impl Kura {
             #[cfg(test)]
             durable_budget_metadata_reads: AtomicUsize::new(0),
             #[cfg(test)]
-            pause_block_read_before_cache_recheck: AtomicBool::new(false),
-            #[cfg(test)]
-            block_read_paused_before_cache_recheck: AtomicBool::new(false),
-            #[cfg(test)]
             force_durable_blocks_count_fallback: AtomicBool::new(false),
             #[cfg(test)]
             durable_blocks_count_fallback_reached: AtomicBool::new(false),
@@ -1781,10 +1799,6 @@ impl Kura {
             geometry_reference_publication_paused: AtomicBool::new(false),
             #[cfg(test)]
             durable_budget_metadata_reads: AtomicUsize::new(0),
-            #[cfg(test)]
-            pause_block_read_before_cache_recheck: AtomicBool::new(false),
-            #[cfg(test)]
-            block_read_paused_before_cache_recheck: AtomicBool::new(false),
             #[cfg(test)]
             force_durable_blocks_count_fallback: AtomicBool::new(false),
             #[cfg(test)]
@@ -2191,22 +2205,6 @@ impl Kura {
         self.block_store_write_lock.lock()
     }
 
-    #[cfg(test)]
-    fn maybe_pause_block_read_before_cache_recheck_for_tests(&self) {
-        if self
-            .pause_block_read_before_cache_recheck
-            .swap(false, Ordering::AcqRel)
-        {
-            self.block_read_paused_before_cache_recheck
-                .store(true, Ordering::Release);
-            while self
-                .block_read_paused_before_cache_recheck
-                .load(Ordering::Acquire)
-            {
-                std::thread::yield_now();
-            }
-        }
-    }
     #[cfg(test)]
     fn maybe_pause_canonical_poison_after_latch_for_tests(&self) {
         if self
@@ -5338,7 +5336,7 @@ impl Kura {
                 self.set_block_height_index_entry(block_height.get(), expected_hash);
             }
         }
-        let (block, is_evicted, authenticated_for_index) = {
+        let block = {
             let mut block_store = self.block_store.lock();
             if self.prune_recovery_is_required() {
                 return Err(Error::CanonicalStoragePoisoned.into());
@@ -5376,7 +5374,6 @@ impl Kura {
                 let outcome = if is_evicted { "miss" } else { "hit" };
                 telemetry.inc_storage_da_cache("kura", outcome);
             }
-            let authenticated_for_index = false;
             let loaded = if is_evicted {
                 let height = block_index.saturating_add(1) as u64;
                 let bytes = match block_store.read_optional_da_cache(height) {
@@ -5448,7 +5445,7 @@ impl Kura {
                     }
                 }
             };
-            (loaded, is_evicted, authenticated_for_index)
+            loaded
         };
         if self.prune_recovery_is_required() {
             return Err(Error::CanonicalStoragePoisoned.into());
@@ -5497,58 +5494,14 @@ impl Kura {
         }
         let block_arc = block;
         if update_transaction_index {
-            let height = NonZeroUsize::new(block_index.saturating_add(1))
-                .expect("canonical block index produces a non-zero height");
-            let already_indexed = self
-                .transaction_entrypoint_index
-                .lock()
-                .indexed_heights
-                .contains(&height);
-            if !authenticated_for_index {
-                self.mark_transaction_entrypoint_index_incomplete(height.get(), chain_len);
-            } else if !already_indexed {
-                // Index only the complete Network projection of this canonical body.
-                // A retired merge carrier or invalid result remains incomplete.
-                self.set_transaction_entrypoint_index_entry(
-                    height.get(),
-                    block_arc.as_ref(),
-                    chain_len,
-                );
-            }
-        }
-        if should_cache && update_transaction_index && !is_evicted && authenticated_for_index {
-            #[cfg(test)]
-            self.maybe_pause_block_read_before_cache_recheck_for_tests();
-            // Cache publication is opportunistic, but it must be ordered after the durable index
-            // observation. Eviction publishes its new index and clears this slot while retaining
-            // `block_store`; re-read both durable identity fields before acquiring the cache so a
-            // reader that decoded the old inline body cannot reinsert it after that publication.
-            // Some canonical writers already own `block_data` before taking `block_store`, so use
-            // a non-blocking cache acquisition while the store guard is held to avoid introducing
-            // a reverse-order deadlock. A missed cache fill is harmless.
-            let mut block_store = self.block_store.lock();
-            let current_index = block_store.read_block_index(block_index as u64);
-            let current_hash = block_store
-                .read_block_hashes(block_index as u64, 1)
-                .map(|hashes| hashes.first().copied());
-            match (current_index, current_hash) {
-                (Ok(index), Ok(Some(hash)))
-                    if !index.is_evicted() && index.length > 0 && hash == expected_hash =>
-                {
-                    if let Some(mut data) = self.block_data.try_lock() {
-                        let _ =
-                            data.cache_body_if_hash(block_index, expected_hash, block_arc.clone());
-                    }
-                }
-                (Err(error), _) | (_, Err(error)) => {
-                    debug!(
-                        ?error,
-                        block_index, "Skipping block cache fill after durable recheck failed"
-                    );
-                }
-                _ => {}
-            }
-            drop(block_store);
+            // A body read back from storage never publishes index entries, but this
+            // exact (hash-checked) block cannot invalidate entries the append path
+            // already published; un-indexing it would force every later lookup by
+            // entrypoint hash into a full chain scan.
+            self.mark_transaction_entrypoint_index_incomplete_unless_indexed(
+                block_index.saturating_add(1),
+                chain_len,
+            );
         }
         if self.prune_recovery_is_required() {
             return Err(Error::CanonicalStoragePoisoned.into());
@@ -6590,14 +6543,22 @@ impl Kura {
         }
         // (Genesis block is used in metrics to get genesis timestamp.)
         match block_data {
+            // Bodies enter `BlockData` only by appends, so the retained bodies
+            // (genesis aside) form a suffix. Evict backwards from the retention
+            // edge and stop at the first already-evicted entry: each append then
+            // evicts only what just left the window instead of rescanning the chain.
             BlockData::Dense(entries) => {
-                for entry in entries.iter_mut().take(limit).skip(1) {
-                    entry.1 = None;
+                for entry in entries[1..limit].iter_mut().rev() {
+                    if entry.1.take().is_none() {
+                        break;
+                    }
                 }
             }
             BlockData::Deferred { entries, .. } => {
-                for entry in entries.range_mut(1..limit).map(|(_, entry)| entry) {
-                    entry.1 = None;
+                for (_, entry) in entries.range_mut(1..limit).rev() {
+                    if entry.1.take().is_none() {
+                        break;
+                    }
                 }
             }
         }

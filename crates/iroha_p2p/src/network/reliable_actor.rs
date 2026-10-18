@@ -80,43 +80,56 @@ pub(super) fn scaled_reply_writer_flush_timeout(base: Duration, attempt: u8) -> 
     timeout
 }
 pub(super) enum AdmittedNetworkPayload<T> {
-    Unsigned(NetworkMessage<T>),
-    Signed(Arc<RelayMessage<T>>),
+    /// The admitted message before its first reliable dispatch.
+    Pending(NetworkMessage<T>),
+    /// The frame materialized once by the first reliable dispatch.
+    ///
+    /// It starts link-local. The first hand-off to a hop that may forward it
+    /// adds the origin signature in place, so retries never sign again.
+    Framed(Arc<RelayMessage<T>>),
 }
 impl<T> AdmittedNetworkPayload<T> {
     pub(super) fn from_network(message: NetworkMessage<T>) -> Self {
-        Self::Unsigned(message)
+        Self::Pending(message)
     }
 
     pub(super) fn into_network(self) -> NetworkMessage<T> {
-        let Self::Unsigned(message) = self else {
-            unreachable!("a signed reliable envelope cannot return to best-effort admission")
+        let Self::Pending(message) = self else {
+            unreachable!("a materialized reliable frame cannot return to best-effort admission")
         };
         message
     }
 
-    pub(super) fn signed_frame(&self) -> &Arc<RelayMessage<T>> {
-        let Self::Signed(frame) = self else {
+    #[cfg(test)]
+    pub(super) fn frame(&self) -> &Arc<RelayMessage<T>> {
+        let Self::Framed(frame) = self else {
+            panic!("test expected a materialized reliable frame")
+        };
+        frame
+    }
+
+    pub(super) fn frame_mut(&mut self) -> &mut Arc<RelayMessage<T>> {
+        let Self::Framed(frame) = self else {
             unreachable!("reliable dispatch must materialize its relay envelope once")
         };
         frame
     }
-}
-impl<T: Encode> AdmittedNetworkPayload<T> {
-    pub(super) fn materialize(self, key_pair: &KeyPair, relay_ttl: u8) -> Self {
+
+    /// Materialize the link-local frame once; later retries reuse it.
+    pub(super) fn materialize(self, origin: &PeerId, relay_ttl: u8) -> Self {
         match self {
-            Self::Signed(frame) => Self::Signed(frame),
-            Self::Unsigned(NetworkMessage::Post(post)) => {
-                Self::Signed(Arc::new(RelayMessage::new_signed(
-                    key_pair,
+            Self::Framed(frame) => Self::Framed(frame),
+            Self::Pending(NetworkMessage::Post(post)) => {
+                Self::Framed(Arc::new(RelayMessage::new_link(
+                    origin.clone(),
                     RelayTarget::Direct(post.peer_id),
                     relay_ttl,
                     post.data,
                 )))
             }
-            Self::Unsigned(NetworkMessage::Broadcast(broadcast)) => {
-                Self::Signed(Arc::new(RelayMessage::new_signed(
-                    key_pair,
+            Self::Pending(NetworkMessage::Broadcast(broadcast)) => {
+                Self::Framed(Arc::new(RelayMessage::new_link(
+                    origin.clone(),
                     RelayTarget::Broadcast,
                     relay_ttl,
                     broadcast.data,
@@ -141,11 +154,12 @@ pub(super) struct NetworkDispatchParts<T> {
 }
 
 pub(super) struct AdmittedNetworkMessage<T> {
-    /// One signed relay envelope retained across every actor retry.
+    /// One relay envelope retained across every actor retry.
     ///
-    /// Actor turns reuse this `Arc` and its signature allocation without
-    /// repeating BLS signing. A live peer writer still receives its bounded
-    /// owned frame clone after all connection preflights pass.
+    /// Actor turns reuse this `Arc` (and any origin signature a forwarding
+    /// hop required) without re-encoding or re-signing. A live peer writer
+    /// still receives its bounded owned frame clone after all connection
+    /// preflights pass.
     pub(super) message: Option<AdmittedNetworkPayload<T>>,
     /// Exact actor queue ownership for this one retained payload.
     pub(super) byte_lease: NetworkActorLease,

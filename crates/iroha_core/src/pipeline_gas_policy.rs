@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn zk_projection_and_bootstrap_fees_share_original_atomic_parameter_owner() {
-        use iroha_data_model::zk_validity_policy::ZkValidityPolicyV1;
+        use iroha_data_model::zk_validity_policy::{ZkValidityPolicyError, ZkValidityPolicyV1};
         let mut owner = StateParameters::default();
         let bootstrap = owner.effective_root_fees().clone();
         assert!(owner.root_fees().is_none());
@@ -604,12 +604,13 @@ mod tests {
         assert_eq!(owner.zk_policy(), &policy);
         let committed = owner.clone();
         let mut invalid = policy.clone();
-        invalid.proofs.max_verify_batch = 0;
-        assert!(
-            owner
-                .set_parameter(Parameter::Custom(invalid.into_custom_parameter()))
-                .is_err()
-        );
+        invalid.sccp.max_proofs_per_transaction = 0;
+        let cause = ZkValidityPolicyError::Zero("sccp.max_proofs_per_transaction");
+        assert_eq!(invalid.validate(), Err(cause.clone()));
+        let error = owner
+            .set_parameter(Parameter::Custom(invalid.into_custom_parameter()))
+            .expect_err("a structurally invalid policy cannot replace its original owner");
+        assert!(matches!(error, norito::Error::Message(message) if message == cause.to_string()));
         assert_eq!(owner, committed);
         let canonical = norito::json::to_json(&owner).unwrap();
         assert_eq!(

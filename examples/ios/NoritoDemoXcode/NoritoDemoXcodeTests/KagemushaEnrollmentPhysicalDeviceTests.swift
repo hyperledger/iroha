@@ -150,19 +150,9 @@ final class KagemushaEnrollmentPhysicalDeviceTests: XCTestCase {
             continue
           }
           let after = mach_continuous_time()
-          let stages: [String: Set<String>] = [
-            "native-installation-registered": ["installed"],
-            "installed-owner-retained": ["installed"],
-            "live-dispatch-exported": ["dispatch"], "native-durable-e5-exported": ["e5"],
-            "retained-e5-exported": ["e5"], "native-durable-e6-exported-not-activated": ["e6"],
-            "retained-e6-exported": ["e6"], "native-wallet-opened": ["opened"],
-            "native-activation-confirmed": ["activated"], "native-complete-load": ["loaded"],
-            "native-complete-send": ["sent"], "native-complete-receive": ["received"],
-            "native-exact-send-delivery-admitted-over-nearby": ["sent"],
-            "native-durable-receive-acknowledged-over-nearby": ["received"],
-            "native-unload-confirmed": ["unloaded"],
-          ]
-          achievedStages.formUnion(stages[outcome] ?? [])
+          if let stage = KagemushaEnrollmentProbeStage.observed(outcome) {
+            achievedStages.insert(stage)
+          }
           try files.publish(
             publicPath + "/" + name + "-finished.plist",
             bytes: EnrollmentProbeFiles.encode([

@@ -810,16 +810,6 @@ pub(crate) fn sample_fast_pause_round(
     }
 }
 
-/// Non-authority cause for isolated effect/commitment tests. Production derives both fields
-/// from World's exact authenticated due certificate; these fixed bytes grant no authority.
-pub(crate) fn effect_cause() -> super::controls::ControlCauseV1 {
-    super::controls::ControlCauseV1 {
-        track: 1,
-        certificate_id: [0x31; 32],
-        effect_hash: [0x33; 32],
-    }
-}
-
 /// Install an originally funded pause as an effect-consumer fixture precondition.
 /// This grants no panel/enactment authority and does not qualify the unfinished producer.
 pub(crate) fn install_consumer_fast_pause(

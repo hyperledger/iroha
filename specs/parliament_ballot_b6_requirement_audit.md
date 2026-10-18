@@ -200,16 +200,20 @@ continue engineering.
 | Step 2.5: envelope/work/allocation evidence and three-roster measurements | **Unmet** despite all-size measurements; complete certificates remain absent |
 | Step 2.6: enumerate remaining obligations | This matrix and the profile/B6 record enumerate them; enumeration does not discharge them |
 | Step 2.7: launch gate false | Current `parliament_binding_ballot_available()` returns false; qualified attempt latency remains `None` |
-| Step 3: production schemas | Blocked on selection, including signerless envelope, stored records and authenticated context mappings |
-| Step 4: build paths and retire timed-OVN/TLE together | Postselection: Core/State, admission, corpus/closure, Torii/CLI/canonical SDKs and wallet disclosure; no premature retirement |
+| Step 3: production schemas | In progress under the engineering authorization of design §12.2 (owner instruction of 2026-10-18): signerless envelope, stored records and authenticated context mappings; activation still requires qualification |
+| Step 4: build paths and retire timed-OVN/TLE together | In progress under the same authorization: Core/State, admission, corpus/closure, Torii/CLI/canonical SDKs and wallet disclosure, with the timed-OVN/TLE retirement in the same candidate |
 | Step 5: model, review and qualify | Postimplementation: formal model, independent review, lifecycle/load, real-peer restart/rollback, SDK parity and release evidence; owner records activation qualification |
 
-**Envelope sequencing:** step 2.5 requires complete envelope sizes before
-selection, while step 3 supplies production schemas and step 2 forbids them
-before selection; §5 also defers complete-envelope compliance until the schema
-exists. The design owner and independent profile reviewer must record the
-permitted preselection certificate and its relation to the later schema, or
-explicitly amend the contract. No waiver or schema authorization is inferred.
+**Envelope sequencing:** production envelope and authenticated-context
+schemas are authorized during integration. Measure their actual canonical
+encodings and include their complete framing, decoding, copying, verification
+and allocation costs in the qualification evidence. Standalone `TEST_RECORD`
+measurements do not certify production envelopes. Complete production-envelope
+compliance and the remaining security, resource, independent-review and
+named-hardware obligations are required before activation, but no longer block
+schema or integration engineering. The owner's qualification record must
+identify the final schemas, implementation, parameters and evidence. No
+qualification is inferred from this sequencing amendment.
 
 ## Section 13 validation mapping
 

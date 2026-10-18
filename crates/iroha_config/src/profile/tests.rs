@@ -640,9 +640,10 @@ fn compiled_sccp_staking_policy_is_bound_into_consensus_digest() {
         assert_eq!(changed.policy_digest().unwrap(), policy, "{key}");
     }
 
-    // Causal input control for the stale golden: removing exactly the two newly committed
-    // leaves recovers the old preimage's digest. This deliberately altered test clone is not
-    // a supported profile, startup path, or compatibility decoder.
+    // Removing the two staking leaves must change the current consensus input, and
+    // restoring exactly those leaves must recover it. Other signed profile fields can
+    // evolve independently; the full-profile golden is pinned in `digests_are_pinned`.
+    // This altered clone is never admitted as a node profile.
     let mut omitted = profile.clone();
     let staking = omitted
         .static_config
@@ -662,12 +663,17 @@ fn compiled_sccp_staking_policy_is_bound_into_consensus_digest() {
         staking.remove("max_slash_bps"),
         Some(toml::Value::Integer(10_000))
     );
-    assert_eq!(
-        omitted.consensus_digest(4).unwrap().to_string(),
-        "a4b90a9c3e3cbb2c70690511bf4296ebeecafa1dc427274b4d9fc75f53e1476b",
-        "only the two signed staking leaves account for this digest change"
-    );
     assert_ne!(omitted.consensus_digest(4).unwrap(), consensus);
+    assert_eq!(omitted.policy_digest().unwrap(), policy);
+
+    for (key, value) in [
+        ("nexus.staking.unbonding_delay_ms", 1_814_400_000),
+        ("nexus.staking.max_slash_bps", 10_000),
+    ] {
+        set(&mut omitted.static_config, key, toml::Value::Integer(value));
+    }
+    assert_eq!(omitted.static_config, profile.static_config);
+    assert_eq!(omitted.consensus_digest(4).unwrap(), consensus);
     assert_eq!(omitted.policy_digest().unwrap(), policy);
 }
 

@@ -213,43 +213,6 @@ pub(super) fn pause_eligibility<'a, W: crate::state::WorldReadOnly + ?Sized>(
     ))
 }
 
-/// Approving Policy Jury opening, bound to the original effect transaction and certificate.
-pub(super) struct PolicyJuryOpening<'a, 'block, 'state> {
-    source: &'a crate::state::StateTransaction<'block, 'state>,
-    header: iroha_data_model::block::BlockHeader,
-    certificate: [u8; 32],
-    effect: [u8; 32],
-    anchor: iroha_data_model::governance::GovernanceAnchorV1,
-}
-impl<'block, 'state> PolicyJuryOpening<'_, 'block, 'state> {
-    pub(super) fn for_original(
-        &self,
-        state: &crate::state::StateTransaction<'block, 'state>,
-        cause: super::controls::ControlCauseV1,
-    ) -> Result<iroha_data_model::governance::GovernanceAnchorV1, super::Error> {
-        if !core::ptr::eq(self.source, state)
-            || self.header != state._curr_block
-            || self.certificate != cause.certificate_id
-            || self.effect != cause.effect_hash
-        {
-            return Err(super::Error::InvariantViolation(
-                "SCCP Policy Jury opening changed source".into(),
-            ));
-        }
-        Ok(self.anchor)
-    }
-}
-/// TODO: Parliament must supply the actual Policy Jury casting-open anchor of this
-/// certificate. Its timestamp, metadata or a caller-supplied anchor cannot substitute it.
-pub(super) fn policy_jury_casting_open<'a, 'block, 'state>(
-    _: &'a crate::state::StateTransaction<'block, 'state>,
-    _: super::controls::ControlCauseV1,
-) -> Result<PolicyJuryOpening<'a, 'block, 'state>, super::Error> {
-    Err(super::Error::InvariantViolation(
-        "SCCP Policy Jury casting-open source is unavailable".into(),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

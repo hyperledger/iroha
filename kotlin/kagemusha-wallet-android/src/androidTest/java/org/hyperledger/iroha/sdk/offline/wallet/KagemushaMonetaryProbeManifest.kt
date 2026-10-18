@@ -84,20 +84,3 @@ internal object KagemushaMonetaryProbeManifest {
         }
     }
 }
-
-/** A component stage requires the exact Native observation, never an export or controller claim. */
-internal fun enrollmentProbeStage(outcome: String): String? = when (outcome) {
-    "native-installation-registered", "installed-owner-retained" -> "installed"
-    "live-dispatch-exported" -> "dispatch"
-    "retained-e5-exported", "native-durable-e5-exported" -> "e5"
-    "retained-e6-exported", "native-durable-e6-exported-not-activated" -> "e6"
-    "native-wallet-opened" -> "opened"
-    "native-local-abandoned", "native-signed-abandonment-exported", "native-expired-local-abandoned" -> "abandoned"
-    "native-activation-confirmed" -> "activated"
-    "native-complete-load" -> "loaded"
-    "native-complete-send", "native-exact-send-delivery-admitted-over-nearby" -> "sent"
-    "native-complete-receive", "native-durable-receive-acknowledged-over-nearby" -> "received"
-    "native-current-head-folded" -> "folded"
-    "native-unload-confirmed" -> "unloaded"
-    else -> null
-}

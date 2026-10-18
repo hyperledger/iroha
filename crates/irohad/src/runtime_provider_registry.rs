@@ -163,12 +163,10 @@ pub enum IrohaRuntimeProviderSlotV1 {
     MusubiProviderAttestationAuthenticatedInventory = 58,
     /// Runtime-only adaptive global threshold-beacon partial signer.
     GlobalBeaconPartialSigner = 59,
-    /// Runtime-only adaptive Parliament TLE partial-release signer.
-    ParliamentTlePartialReleaseSigner = 60,
 }
 impl IrohaRuntimeProviderSlotV1 {
     /// Every first-release runtime-provider slot in wire-ID order.
-    pub const ALL: [Self; 59] = [
+    pub const ALL: [Self; 58] = [
         Self::ModerationQuarantineKeyWrapper,
         Self::PrivacyCyclePrfProvider,
         Self::PrivacyReleaseAnchor,
@@ -227,7 +225,6 @@ impl IrohaRuntimeProviderSlotV1 {
         Self::MusubiProviderAttestationApprovalSigner,
         Self::MusubiProviderAttestationAuthenticatedInventory,
         Self::GlobalBeaconPartialSigner,
-        Self::ParliamentTlePartialReleaseSigner,
     ];
     /// Return the stable first-release broker protocol identifier for this role.
     #[must_use]
@@ -296,7 +293,6 @@ impl IrohaRuntimeProviderSlotV1 {
             57 => Some(Self::MusubiProviderAttestationApprovalSigner),
             58 => Some(Self::MusubiProviderAttestationAuthenticatedInventory),
             59 => Some(Self::GlobalBeaconPartialSigner),
-            60 => Some(Self::ParliamentTlePartialReleaseSigner),
             _ => None,
         }
     }
@@ -1603,7 +1599,7 @@ impl IrohaRuntimeProviderBindingsV1 {
     /// Check the parsed local memory policy against this public assembly.
     ///
     /// A positive catalog bound must match exactly. Zero is valid only when
-    /// neither consensus threshold-signing slot is present and therefore grants
+    /// the consensus threshold-signing slot is absent and therefore grants
     /// no threshold custody. This compares public metadata only; it does not
     /// qualify a backend, validate credentials, or grant allocation credit.
     /// The bound controls local operational admission, not transaction validity
@@ -1618,13 +1614,9 @@ impl IrohaRuntimeProviderBindingsV1 {
         &self,
         policy: &iroha_config::parameters::actual::RuntimeProviderBroker,
     ) -> Result<(), IrohaRuntimeProviderRegistryErrorV1> {
-        let has_threshold_custody = self.iter().any(|binding| {
-            matches!(
-                binding.slot(),
-                IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner
-                    | IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner
-            )
-        });
+        let has_threshold_custody = self
+            .iter()
+            .any(|binding| binding.slot() == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner);
         if (self.credential_max_memory_bytes != 0 || has_threshold_custody)
             && self.credential_max_memory_bytes != policy.credential_max_memory_bytes.get()
         {

@@ -5,10 +5,15 @@
 // two-pair pairing check over the EIP-2537 precompiles. The library is
 // exercised through `test/harness/SccpBlsHarness.sol`, compiled with the pinned
 // compiler and the locked settings, under both the Prague and the Osaka rules.
-// Expected values come from the shared fixtures (`bls_consensus_v1.json`,
-// `finality_v1.json`, written by the Python reference) and, for digests the
-// fixtures do not list, from `@noble/curves`; nothing is compared with the
-// library's own output.
+// Expected values come from the shared Python and Rust BLS/finality fixtures
+// and, for digests the fixtures do not list, from `@noble/curves`; nothing is
+// compared with the library's own output. Every applicable signature and
+// fast-aggregate row is replayed, including the pinned upstream Ethereum
+// suite, malformed coordinates and the captured Ethereum sync committee.
+// The upstream QUUX-domain hash rows exercise EIP-2537 map-and-add; the fixed
+// POP/bytes32 library API is covered end to end by its native hash traces.
+// The ledger distinguishes executed rows
+// from APIs the destination does not expose, and pins coverage floors.
 //
 // Run: `node --test contracts/evm/sccp/test/sccp_bls.test.js` with the locked
 // EVM runtime installed (`npm ci --ignore-scripts` in
@@ -23,15 +28,22 @@ const { createRequire } = require("node:module");
 const { after, before, describe, it } = require("node:test");
 const m = require("./sccp_v1_model.js");
 const h = require("./sccp_edr_harness.js");
+const { Ledger } = require("./sccp_replay.js");
 
 const { ethers, REPO, RUNTIME_DIR } = m;
 const { bls12_381: noble } = createRequire(path.join(RUNTIME_DIR, "package.json"))("@noble/curves/bls12-381");
 
 const LIBRARY_SOURCE = "contracts/evm/sccp/lib/BLS12_381.sol";
 const HARNESS_SOURCE = "contracts/evm/sccp/test/harness/SccpBlsHarness.sol";
+const DESTINATION_SOURCE = "contracts/evm/sccp/SccpTairaXor.sol";
+const ENCODING_HARNESS_SOURCE = "contracts/evm/sccp/test/harness/SccpBlsEncodingHarness.sol";
 const HARDFORKS = ["prague", "osaka"];
 const PROFILE = Object.freeze({ name: "ethereum", chainId: 1n });
 const BLS = JSON.parse(fs.readFileSync(path.join(REPO, "fixtures", "sccp", "bls_consensus_v1.json"), "utf8"));
+const BLS_RUST = JSON.parse(fs.readFileSync(path.join(REPO, "fixtures", "sccp", "bls_consensus_rust_v1.json"), "utf8"));
+const MALFORMED = BLS.sccp_extra_malformed_inputs;
+const IMPORTED = BLS.ethereum_bls12_381_tests;
+const ETHEREUM = IMPORTED.groups;
 const FINALITY = JSON.parse(fs.readFileSync(path.join(REPO, "fixtures", "sccp", "finality_v1.json"), "utf8"));
 const FINALITY_RUST = JSON.parse(fs.readFileSync(path.join(REPO, "fixtures", "sccp", "finality_rust_v1.json"), "utf8"));
 
@@ -67,6 +79,55 @@ const RECORDED_GAS = Object.freeze({
   osaka: Object.freeze({ hashToField: 6_478n, hashToG2: 55_236n, pairingCheck: 103_124n, g1Add: 591n }),
 });
 const MODEXP_REPRICING = 4n * 300n;
+
+// Each group is enumerated independently of its replay loop. Counts are floors:
+// newly generated rows are replayed automatically, while removing rows fails.
+const BLS_ROWS = Object.freeze({
+  "ethereum.deserialization_G1": [ETHEREUM.deserialization_G1.filter((row) => row.evm_affine_pairing !== null), 11],
+  "ethereum.deserialization_G2": [ETHEREUM.deserialization_G2.filter((row) => row.evm_affine_pairing !== null), 13],
+  "ethereum.verify": [ETHEREUM.verify, 29],
+  "ethereum.fast_aggregate_verify": [ETHEREUM.fast_aggregate_verify, 12],
+  "ethereum.hash_to_G2.map_and_add": [ETHEREUM.hash_to_G2, 4],
+  "sccp_extra_malformed_inputs.g1_deserialization": [MALFORMED.g1_deserialization.filter((row) => row.evm_affine_pairing !== null), 3],
+  "sccp_extra_malformed_inputs.g2_deserialization": [MALFORMED.g2_deserialization.filter((row) => row.evm_affine_pairing !== null), 3],
+  "hash_to_g2_dst_sig": [BLS.hash_to_g2_dst_sig, 4],
+  "sign_verify.signatures": [BLS.sign_verify.signatures, 6],
+  "sign_verify.negatives": [BLS.sign_verify.negatives, 15],
+  "aggregates.fast_aggregate_verify": [BLS.aggregates.fast_aggregate_verify, 10],
+  "ethereum_mainnet_sync_committee": [[BLS.ethereum_mainnet_sync_committee,
+    BLS.ethereum_mainnet_sync_committee.negative_first_participant_dropped], 2],
+  "rust.standard_vectors.verify": [BLS_RUST.standard_vectors.verify, 27],
+  "rust.standard_vectors.fast_aggregate_verify": [BLS_RUST.standard_vectors.fast_aggregate_verify, 9],
+  "rust.negatives": [BLS_RUST.negatives, 21],
+});
+
+// These operations are not exposed by the destination. Record the reason
+// and count separately from executed operations. For the RFC hash rows, only
+// map-and-add is executed; the unavailable full hash is listed separately.
+const BLS_SKIPS = Object.freeze({
+  "ethereum.deserialization_G1.compressed_lengths": [ETHEREUM.deserialization_G1.filter((row) => row.evm_affine_pairing === null), 2, "wrong compressed lengths have no EIP-2537 affine encoding; Rust and TON exercise them"],
+  "ethereum.deserialization_G2.compressed_lengths": [ETHEREUM.deserialization_G2.filter((row) => row.evm_affine_pairing === null), 2, "wrong compressed lengths have no EIP-2537 affine encoding; Rust and TON exercise them"],
+  "ethereum.sign": [ETHEREUM.sign, 10, "the destination never signs; matching signatures are replayed by verify"],
+  "ethereum.aggregate": [ETHEREUM.aggregate, 6, "the destination aggregates public keys, never signatures"],
+  "ethereum.aggregate_verify": [ETHEREUM.aggregate_verify, 5, "the destination verifies one common Commit digest, never distinct-message aggregates"],
+  "ethereum.batch_verify": [ETHEREUM.batch_verify, 4, "the destination never batches independent signature equations"],
+  "ethereum.hash_to_G2.full_hash": [ETHEREUM.hash_to_G2, 4, "upstream RFC QUUX-DST text messages are outside the fixed POP-DST/bytes32 API; map-and-add is executed and counted separately"],
+  "sccp_extra_malformed_inputs.g1_compressed_lengths": [MALFORMED.g1_deserialization.filter((row) => row.evm_affine_pairing === null), 2, "wrong compressed lengths have no EIP-2537 affine encoding; Rust and TON exercise them"],
+  "sccp_extra_malformed_inputs.g2_compressed_lengths": [MALFORMED.g2_deserialization.filter((row) => row.evm_affine_pairing === null), 2, "wrong compressed lengths have no EIP-2537 affine encoding; Rust and TON exercise them"],
+  "sign_verify.keys": [BLS.sign_verify.keys, 3, "key generation; public keys are used by verification"],
+  "aggregates.aggregate_verify": [BLS.aggregates.aggregate_verify, 3, "distinct-message aggregation"],
+  "consensus_allowlist": [BLS.consensus_allowlist, 32, "Rust-only consensus-preimage allowlist API"],
+  "imported_rfc9380.expand_message_xmd": [BLS.imported_rfc9380.expand_message_xmd.vectors, 10, "generic-message RFC suite has another DST; destination hashes a 32-byte digest under DST_SIG"],
+  "imported_rfc9380.hash_to_g2": [BLS.imported_rfc9380.hash_to_g2.vectors, 5, "generic-message RFC suite has another DST; destination hashes a 32-byte digest under DST_SIG"],
+  "rust.keys": [BLS_RUST.keys, 3, "key generation and w3f PoP generation; public keys are used by verification"],
+  "rust.allowlist": [BLS_RUST.allowlist, 8, "Rust-only consensus-preimage allowlist API"],
+  "rust.allowlist_rejections": [BLS_RUST.allowlist_rejections, 34, "Rust-only consensus-preimage allowlist API"],
+  "rust.standard_vectors.sign": [BLS_RUST.standard_vectors.sign, 9, "signing; these signatures are replayed by standard_vectors.verify"],
+  "rust.standard_vectors.aggregate": [BLS_RUST.standard_vectors.aggregate, 3, "signature generation/aggregation; resulting signatures are replayed by fast_aggregate_verify"],
+  "rust.standard_vectors.aggregate_verify": [BLS_RUST.standard_vectors.aggregate_verify, 2, "distinct-message aggregation"],
+});
+
+const fixtureRowId = (entry, index) => `${index}:${entry.label ?? entry.case ?? "row"}`;
 
 // ---------------------------------------------------------------------------
 // Encodings
@@ -106,6 +167,95 @@ function g1Bytes(point) {
   if (point.equals(noble.G1.ProjectivePoint.ZERO)) return zeros(128);
   const { x, y } = point.toAffine();
   return ethers.concat([fieldElement(x), fieldElement(y)]);
+}
+
+/**
+ * Translates a fixture's compressed point to the affine EIP-2537 ABI without
+ * performing the subgroup check in JavaScript. Malformed field values remain
+ * unreduced; off-curve x coordinates get y = 0, so the actual precompile refuses
+ * them. Flag-only errors have no affine representation: the helper sees the
+ * same point. This is deliberately not a compressed-point verifier, and the
+ * tests below distinguish its arithmetic result from certificate admission.
+ */
+function fixtureAffine(compressed, group) {
+  const bytes = ethers.getBytes(compressed);
+  assert.equal(bytes.length, group === 1 ? 48 : 96, "fixture compressed-point length");
+  const infinity = (bytes[0] & 0x40) !== 0;
+  const sign = (bytes[0] & 0x20) !== 0;
+  bytes[0] &= 0x1f;
+  if (group === 1) {
+    const x = BigInt(ethers.hexlify(bytes));
+    let y = 0n;
+    if (!infinity && x < P) {
+      try {
+        y = noble.fields.Fp.sqrt(noble.fields.Fp.add(noble.fields.Fp.pow(x, 3n), 4n));
+        if ((y > HALF_P) !== sign) y = P - y;
+      } catch { /* Preserve the invalid x with y = 0 for the precompile. */ }
+    }
+    return ethers.concat([fieldElement(x), fieldElement(y)]);
+  }
+  const x = { c0: BigInt(ethers.hexlify(bytes.slice(48))), c1: BigInt(ethers.hexlify(bytes.slice(0, 48))) };
+  let y = { c0: 0n, c1: 0n };
+  const fp2 = noble.fields.Fp2;
+  if (!infinity && x.c0 < P && x.c1 < P) {
+    try {
+      y = fp2.sqrt(fp2.add(fp2.pow(x, 3n), noble.params.G2b));
+      if (((y.c1 === 0n ? y.c0 : y.c1) > HALF_P) !== sign) y = fp2.neg(y);
+    } catch { /* Preserve invalid coordinates for the precompile. */ }
+  }
+  return ethers.concat([fieldElement(x.c0), fieldElement(x.c1), fieldElement(y.c0), fieldElement(y.c1)]);
+}
+
+/** A fixed-length step-6 input, independent of quorum and certificate authentication. */
+function encodingCertificate(key, signature = fixtureAffine(IMPORTED.baseline.signature, 2)) {
+  const point = fixtureAffine(key, 1);
+  const limbs = [];
+  for (let offset = 0; offset < 256; offset += 64) limbs.push(slice(signature, offset + 16, offset + 64));
+  return ["0x", "0x", ethers.concat(limbs), key, slice(point, 80, 128)];
+}
+
+// Expected step-6 failures are separate from compressed decoding and subgroup
+// parsing. Curve membership is deferred to G1ADD/PAIRING_CHECK; G2 compressed
+// flags do not exist in the destination's uncompressed signature ABI.
+const G1_STEP6_REJECTIONS = new Set([
+  "deserialization_fails_infinity_with_true_b_flag",
+  "deserialization_fails_with_b_flag_and_a_flag_true",
+  "deserialization_fails_with_b_flag_and_x_nonzero",
+  "deserialization_fails_with_wrong_c_flag",
+  "deserialization_fails_x_equal_to_modulus",
+  "deserialization_fails_x_greater_than_modulus",
+  "deserialization_succeeds_infinity_with_true_b_flag",
+]);
+const G2_STEP6_REJECTIONS = new Set([
+  "deserialization_fails_infinity_with_false_b_flag",
+  "deserialization_fails_with_b_flag_and_a_flag_true",
+  "deserialization_fails_xim_equal_to_modulus",
+  "deserialization_fails_xim_greater_than_modulus",
+  "deserialization_fails_xre_equal_to_modulus",
+  "deserialization_fails_xre_greater_than_modulus",
+  "deserialization_succeeds_infinity_with_true_b_flag",
+]);
+
+/** Replays aggregation, hash-to-G2 and pairing through the deployed library. */
+async function replayVerification(bench, keys, message, signature, expected, label, aggregatePoint) {
+  assert.equal(size(message), 32, `${label}: destination message is a digest`);
+  if (keys.length === 0) {
+    assert.equal(expected, false, `${label}: empty key list`);
+    await expectRevertData(bench.call("g1Sum", ["0x", ...CLEAN]), "0x", label);
+    return;
+  }
+  const points = keys.map((key) => fixtureAffine(key, 1));
+  const aggregate = await bench.g1Sum(points, CLEAN, REFUSAL_GAS);
+  if (!aggregate.ok) {
+    assert.equal(expected, false, `${label}: EIP-2537 G1ADD refused the key`);
+    return;
+  }
+  if (aggregatePoint !== undefined) assert.equal(aggregate.sum, aggregatePoint, `${label}: aggregate key`);
+  const q = await bench.hashToG2(message);
+  const negG1 = FINALITY.constants.bls12_381.neg_g1.eip2537;
+  const sigma = fixtureAffine(signature, 2);
+  const result = await bench.pairingCheck(ethers.concat([aggregate.sum, q, negG1, sigma]), CLEAN, REFUSAL_GAS);
+  assert.equal(result.ok, expected, `${label}: EIP-2537 affine pairing outcome`);
 }
 
 /**
@@ -190,6 +340,21 @@ function build(kind) {
     builds.set(kind, h.compileTestSources([LIBRARY_SOURCE, HARNESS_SOURCE], overrides));
   }
   return builds.get(kind);
+}
+
+/** Compiles the actual production step-6 body with only its visibility changed. */
+function encodingBuild() {
+  const kind = "encoding-harness";
+  if (!builds.has(kind)) {
+    const source = fs.readFileSync(path.join(REPO, DESTINATION_SOURCE), "utf8");
+    const declaration = "function _checkEncodings(TairaCertificateV1 calldata certificate, uint256 signers) private pure";
+    assert.equal(source.split(declaration).length, 2, "one production step-6 declaration");
+    const exposed = source.replace(declaration, declaration.replace(" private ", " internal "));
+    builds.set(kind, h.compileTestSources([LIBRARY_SOURCE, DESTINATION_SOURCE, ENCODING_HARNESS_SOURCE], {
+      [DESTINATION_SOURCE]: exposed,
+    }));
+  }
+  return builds.get(kind)[ENCODING_HARNESS_SOURCE].SccpBlsEncodingHarness;
 }
 
 /** One deployed `SccpBlsHarness` on an EDR chain. */
@@ -353,10 +518,21 @@ for (const hardfork of HARDFORKS) {
   describe(`BLS12_381 on EDR (${hardfork})`, () => {
     let chain;
     let bench;
+    let encodingBench;
+    const ledger = new Ledger();
 
     before(async () => {
       chain = await h.Chain.open(PROFILE, { hardfork });
       bench = await Bench.deploy(chain, "library");
+      const artifact = encodingBuild();
+      const init = h.initCode({
+        tairaNetworkId: ethers.toBeHex(1, 32), consensusInstance: ethers.toBeHex(2, 32),
+        networkTag: 0x41, routeRevision: 1, maxWrappedSupply: 1n, initialGeneration: 1n,
+        initialCommitteeRoot: ethers.toBeHex(3, 32), initialStartHeight: 1n,
+        initialUntilMs: chain.nowMs() + 60_000n,
+      }, `0x${artifact.evm.bytecode.object}`);
+      const receipt = await chain.send({ data: init });
+      encodingBench = new Bench(chain, ethers.getAddress(receipt.contractAddress), new ethers.Interface(artifact.abi));
     });
 
     after(async () => {
@@ -435,7 +611,7 @@ for (const hardfork of HARDFORKS) {
         BLS.hash_to_g2_dst_sig.map((trace) => trace.label),
         ["spec_11_2_m", "zero_digest", "sha256_empty", "sha256_sccp"],
       );
-      for (const trace of BLS.hash_to_g2_dst_sig) {
+      for (const [index, trace] of BLS.hash_to_g2_dst_sig.entries()) {
         // The trace is self-consistent: u_k = OS2IP(uniform_bytes[64k..64k+64]) mod p.
         const elements = [...trace.u0, ...trace.u1].map((value) => BigInt(value));
         assert.equal(size(trace.uniform_bytes), 256);
@@ -456,6 +632,194 @@ for (const hardfork of HARDFORKS) {
         assert.equal(q, trace.q.eip2537, `${trace.label}: hashToG2`);
         assert.equal(q, expandLimbs(trace.q.evm192));
         assert.equal(q, g2Bytes(noble.G2.ProjectivePoint.fromHex(trace.q.compressed.slice(2))));
+        assert.equal(fixtureAffine(trace.q.compressed, 2), q, "fixture translation retains the affine point");
+        ledger.ran("hash_to_g2_dst_sig", fixtureRowId(trace, index));
+      }
+    });
+
+    it("replays all sign_verify signatures and negatives with explicit affine-helper outcomes", async () => {
+      assert.equal(BLS.sign_verify.dst, DST_SIG);
+      for (const [index, entry] of BLS.sign_verify.signatures.entries()) {
+        const key = BLS.sign_verify.keys[entry.key].pk;
+        assert.equal(fixtureAffine(key, 1), g1Bytes(noble.G1.ProjectivePoint.fromHex(key.slice(2))));
+        await replayVerification(bench, [key], entry.msg, entry.signature, entry.verify, `sign_verify.signatures/${index}`);
+        ledger.ran("sign_verify.signatures", fixtureRowId(entry, index));
+      }
+      for (const [index, entry] of BLS.sign_verify.negatives.entries()) {
+        // These two rows alter only compressed-point metadata. EIP-2537 takes
+        // affine coordinates, so the pairing equation remains valid. The
+        // production _checkSignerKey separately rejects a key without its
+        // compression flag; the EVM signature ABI has no compression flag.
+        const affineOnly = ["pk_missing_compression_flag", "sig_missing_compression_flag"].includes(entry.label);
+        if (affineOnly) assert.equal(entry.verify, false, `${entry.label}: compressed API refuses`);
+        await replayVerification(bench, [entry.pk], entry.msg, entry.signature,
+          affineOnly ? true : entry.verify, `sign_verify.negatives/${entry.label}`);
+        ledger.ran("sign_verify.negatives", fixtureRowId(entry, index));
+      }
+    });
+
+    it("replays every fast aggregate including the arithmetic-only identity-key outcome", async () => {
+      for (const [index, entry] of BLS.aggregates.fast_aggregate_verify.entries()) {
+        // G1ADD drops O: the arithmetic helper accepts this valid aggregate
+        // equation, while certificate admission rejects each identity signer
+        // in _checkSignerKey before aggregation. This is NOT destination
+        // acceptance of an identity key (covered by finality fixture replays).
+        const identityKey = entry.label === "identity_key_in_list";
+        if (identityKey) assert.equal(entry.result, false, "compressed API refuses identity signer");
+        await replayVerification(bench, entry.pks, entry.msg, entry.signature,
+          identityKey ? true : entry.result, `aggregates.fast_aggregate_verify/${entry.label}`,
+          entry.aggregate_public_key?.eip2537);
+        ledger.ran("aggregates.fast_aggregate_verify", fixtureRowId(entry, index));
+      }
+    });
+
+    it("replays SCCP-only malformed extras with explicit EIP-2537 outcomes", async () => {
+      assert.equal(MALFORMED.source_kind, "sccp_extra_cases");
+      const baseline = MALFORMED.baseline;
+      for (const group of [1, 2]) {
+        const section = `sccp_extra_malformed_inputs.g${group}_deserialization`;
+        const rows = BLS_ROWS[section][0];
+        for (const [index, entry] of rows.entries()) {
+          const point = fixtureAffine(entry.encoding, group);
+          // A cancelling pairing tests curve/subgroup parsing independently
+          // of the signature equation. Infinity is legal to EIP-2537, while
+          // compressed metadata is outside its affine-only input boundary.
+          const input = group === 1
+            ? ethers.concat([point, g2Bytes(noble.G2.ProjectivePoint.BASE), point, g2Bytes(noble.G2.ProjectivePoint.BASE.negate())])
+            : ethers.concat([g1Bytes(noble.G1.ProjectivePoint.BASE), point, g1Bytes(noble.G1.ProjectivePoint.BASE.negate()), point]);
+          const parsed = await bench.pairingCheck(input, CLEAN, REFUSAL_GAS);
+          assert.equal(parsed.ok, entry.evm_affine_pairing, `${section}/${entry.label}: affine deserialization`);
+          await replayVerification(bench, [group === 1 ? entry.encoding : baseline.pk], baseline.msg,
+            group === 2 ? entry.encoding : baseline.signature, entry.evm_affine_verify, `${section}/${entry.label}: verify`);
+          ledger.ran(section, fixtureRowId(entry, index));
+        }
+      }
+    });
+
+    it("replays imported deserialization through production step 6 and EIP-2537 subgroup parsing", async () => {
+      for (const group of [1, 2]) {
+        const section = `ethereum.deserialization_G${group}`;
+        for (const [index, entry] of BLS_ROWS[section][0].entries()) {
+          const point = fixtureAffine(entry.encoding, group);
+          const key = group === 1 ? entry.encoding : IMPORTED.baseline.pk;
+          const certificate = group === 1 ? encodingCertificate(key) : encodingCertificate(key, point);
+          const rejected = (group === 1 ? G1_STEP6_REJECTIONS : G2_STEP6_REJECTIONS).has(entry.label);
+          if (rejected) {
+            await expectRevertData(encodingBench.call("checkEncodings", [certificate]),
+              m.iface.getError(group === 1 ? "BadCommittee" : "BadSignature").selector,
+              `${section}/${entry.label}: step-6 encoding`);
+          } else {
+            await encodingBench.call("checkEncodings", [certificate]);
+          }
+          // Cancelling pairs isolate EIP-2537's curve and subgroup checks.
+          // Identity is legal to this arithmetic API; step 6 excludes it.
+          const input = group === 1
+            ? ethers.concat([point, g2Bytes(noble.G2.ProjectivePoint.BASE), point, g2Bytes(noble.G2.ProjectivePoint.BASE.negate())])
+            : ethers.concat([g1Bytes(noble.G1.ProjectivePoint.BASE), point, g1Bytes(noble.G1.ProjectivePoint.BASE.negate()), point]);
+          assert.equal((await bench.pairingCheck(input, CLEAN, REFUSAL_GAS)).ok, entry.evm_affine_pairing,
+            `${section}/${entry.label}: affine curve/subgroup parsing; upstream compressed decode=${entry.output}`);
+          await replayVerification(bench, [key], IMPORTED.baseline.msg,
+            group === 2 ? entry.encoding : IMPORTED.baseline.signature, entry.evm_affine_verify,
+            `${section}/${entry.label}: affine verification`);
+          ledger.ran(section, fixtureRowId(entry, index));
+        }
+      }
+    });
+
+    it("replays every imported Ethereum Verify and FastAggregateVerify row", async () => {
+      for (const section of ["verify", "fast_aggregate_verify"]) {
+        for (const [index, entry] of ETHEREUM[section].entries()) {
+          const { pubkey, pubkeys, message, signature } = entry.input;
+          // The arithmetic equation alone accepts both identities and drops
+          // an identity signer. Production step 6 rejects the infinity flag
+          // before aggregation. Both boundaries are exercised here.
+          const identityKey = entry.label === "verify_infinity_pubkey_and_infinity_signature"
+            || entry.label === "fast_aggregate_verify_infinity_pubkey";
+          if (identityKey) assert.equal(entry.output, false, `${entry.label}: upstream KeyValidate refuses`);
+          const keys = pubkeys ?? [pubkey];
+          await replayVerification(bench, keys, message, signature,
+            identityKey ? true : entry.output, `ethereum.${section}/${entry.label}`);
+          for (const key of keys) {
+            const identity = key === `0xc0${"00".repeat(47)}`;
+            const certificate = encodingCertificate(key);
+            if (identity) {
+              await expectRevertData(encodingBench.call("checkEncodings", [certificate]),
+                m.iface.getError("BadCommittee").selector, `${entry.label}: step 6 refuses identity key`);
+            }
+          }
+          ledger.ran(`ethereum.${section}`, fixtureRowId(entry, index));
+        }
+      }
+    });
+
+    it("replays the imported RFC hash rows' map-and-add path under their actual QUUX domain", async () => {
+      for (const [index, entry] of ETHEREUM.hash_to_G2.entries()) {
+        assert.equal(entry.dst, "QUUX-V01-CS02-with-BLS12381G2_XMD:SHA-256_SSWU_RO_");
+        assert.notEqual(ethers.toUtf8Bytes(entry.input.msg).length, 32,
+          `${entry.label}: upstream message is outside the destination bytes32 API`);
+        const trace = entry.trace;
+        const q0 = await bench.precompile(MAP_FP2_TO_G2, trace.map_fp2_to_g2_input_u0);
+        const q1 = await bench.precompile(MAP_FP2_TO_G2, trace.map_fp2_to_g2_input_u1);
+        assert.equal(q0, trace.map_fp2_to_g2_output_u0, `${entry.label}: mapped u0`);
+        assert.equal(q1, trace.map_fp2_to_g2_output_u1, `${entry.label}: mapped u1`);
+        const actual = await bench.precompile(G2ADD, ethers.concat([q0, q1]));
+        const expected = ethers.concat([...entry.output.x.split(","), ...entry.output.y.split(",")].map(fieldElement));
+        assert.equal(actual, expected, `${entry.label}: exact upstream affine point`);
+        assert.equal(actual, entry.point.eip2537, `${entry.label}: generated encoding agrees with upstream output`);
+        const pairing = ethers.concat([g1Bytes(noble.G1.ProjectivePoint.BASE), actual,
+          g1Bytes(noble.G1.ProjectivePoint.BASE.negate()), expected]);
+        assert.equal((await bench.pairingCheck(pairing)).ok, true, `${entry.label}: library pairing accepts the point`);
+        ledger.ran("ethereum.hash_to_G2.map_and_add", fixtureRowId(entry, index));
+      }
+    });
+
+    it("replays the captured mainnet sync committee and dropped-participant aggregate", async () => {
+      const mainnet = BLS.ethereum_mainnet_sync_committee;
+      assert.equal(mainnet.dst, DST_SIG);
+      // This capture provides the aggregate key, not 502 individual keys.
+      // The two-pair equation is exactly the destination's verification step.
+      for (const [index, entry] of BLS_ROWS.ethereum_mainnet_sync_committee[0].entries()) {
+        await replayVerification(bench, [entry.aggregate_public_key.compressed], mainnet.signing_root,
+          mainnet.signature, entry.fast_aggregate_verify, `ethereum_mainnet_sync_committee/${index}`,
+          entry.aggregate_public_key.eip2537);
+        ledger.ran("ethereum_mainnet_sync_committee", fixtureRowId(entry, index));
+      }
+    });
+
+    it("replays all Rust standard verification and fast-aggregate cases", async () => {
+      assert.equal(BLS_RUST.suite.dst_sig, DST_SIG);
+      for (const [index, entry] of BLS_RUST.standard_vectors.verify.entries()) {
+        await replayVerification(bench, [BLS_RUST.keys[entry.key].public_key], entry.message,
+          entry.signature, entry.valid, `rust.standard_vectors.verify/${index}`);
+        ledger.ran("rust.standard_vectors.verify", fixtureRowId(entry, index));
+      }
+      for (const [index, entry] of BLS_RUST.standard_vectors.fast_aggregate_verify.entries()) {
+        await replayVerification(bench, entry.keys.map((key) => BLS_RUST.keys[key].public_key),
+          entry.message, entry.signature, entry.valid, `rust.standard_vectors.fast_aggregate_verify/${index}`);
+        ledger.ran("rust.standard_vectors.fast_aggregate_verify", fixtureRowId(entry, index));
+      }
+    });
+
+    it("replays every Rust verification negative with destination-domain outcomes", async () => {
+      const baseline = BLS_RUST.standard_vectors.verify.find((entry) => entry.valid && entry.key === 0);
+      assert(baseline, "valid baseline for malformed public-key verification");
+      for (const [index, entry] of BLS_RUST.negatives.entries()) {
+        const keys = entry.public_keys ?? [entry.public_key ?? BLS_RUST.keys[entry.key].public_key];
+        const message = entry.message ?? (entry.preimage ? ethers.sha256(entry.preimage) : baseline.message);
+        const signature = entry.signature ?? baseline.signature;
+        // A valid DST_SIG signature presented to the unrelated generic w3f
+        // API fails there but succeeds on this destination. A cleared G1
+        // compression flag likewise changes no affine coordinate; production
+        // certificate admission checks that flag before invoking the helper.
+        const expected = ["dst_sig_signature_presented_to_generic_api", "public_key_compression_flag_cleared"].includes(entry.case);
+        if (entry.case === "dst_sig_signature_presented_to_generic_api") {
+          assert.equal(entry.generic_valid_over_digest, false);
+          assert.equal(entry.generic_valid_over_preimage, false);
+        } else {
+          assert.equal(entry.consensus_valid ?? entry.key_validate, false, `${entry.case}: fixture refuses`);
+        }
+        await replayVerification(bench, keys, message, signature, expected, `rust.negatives/${entry.case}`);
+        ledger.ran("rust.negatives", fixtureRowId(entry, index));
       }
     });
 
@@ -856,6 +1220,30 @@ for (const hardfork of HARDFORKS) {
         assert(withinBound, `${hardfork} ${label}: ${gas[label]} gas is above 1.1 × ${recorded}`);
       }
       measured[hardfork] = gas;
+    });
+
+    it("accounts for every BLS verification row and lists every out-of-scope API", (t) => {
+      const counts = {};
+      for (const [group, [rows, minimum]] of Object.entries(BLS_ROWS)) {
+        assert(rows.length >= minimum, `${group}: fixture shrank below ${minimum} rows`);
+        assert.deepEqual(ledger.rows(group), rows.map(fixtureRowId).sort(), `${group}: every fixture row ran`);
+        counts[group] = rows.length;
+      }
+      assert.deepEqual(ledger.counts(), counts, "only executed fixture groups are counted");
+      const importedExecuted = Object.entries(BLS_ROWS).filter(([group]) => group.startsWith("ethereum."))
+        .flatMap(([, [rows]]) => rows);
+      const importedSkipped = Object.entries(BLS_SKIPS)
+        .filter(([group]) => group.startsWith("ethereum.") && group !== "ethereum.hash_to_G2.full_hash")
+        .flatMap(([, [rows]]) => rows);
+      const upstreamFiles = Object.values(ETHEREUM).flat().map((entry) => entry.source_file).sort();
+      assert.equal(upstreamFiles.length, 98, "all 98 pinned upstream files have a destination disposition");
+      assert.deepEqual([...importedExecuted, ...importedSkipped].map((entry) => entry.source_file).sort(), upstreamFiles,
+        "every upstream file is accounted once; RFC rows count only their executed map-and-add path");
+      t.diagnostic(`${hardfork} BLS executed rows: ${JSON.stringify(counts)}; total ${Object.values(counts).reduce((a, b) => a + b, 0)}`);
+      for (const [group, [rows, minimum, reason]] of Object.entries(BLS_SKIPS)) {
+        assert(rows.length >= minimum, `${group}: skipped fixture group shrank below ${minimum} rows`);
+        t.diagnostic(`${hardfork} BLS outside contract API: ${group}, ${rows.length} rows; ${reason}`);
+      }
     });
   });
 }

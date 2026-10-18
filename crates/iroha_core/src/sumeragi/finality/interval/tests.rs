@@ -58,13 +58,14 @@ fn finite_interval_resumes_retained_prefix_with_identical_proofs() {
 fn check_resumed_prefix(chain: &CertifiedTestChain) {
     let view = chain.state().view();
     let checkpoints = FinalityPrefixCheckpoints::new();
+    let cache_budget = chain.state().ivm_execution_budget();
     let source = NativeFinalityProofSource::new(
         view.chain_id(),
         view.network_id(),
         view.block_hashes(),
         view.kura(),
     );
-    let resumable = source.with_checkpoints(&checkpoints);
+    let resumable = source.with_checkpoints(&checkpoints, &cache_budget);
     let budget = view.execution_budget();
     let owner = test_budget(budget.clone());
     let reserved = budget.reserved_bytes();
@@ -109,10 +110,327 @@ fn check_resumed_prefix(chain: &CertifiedTestChain) {
     assert_eq!(counts.qcs, [5]);
     assert_eq!(checkpoints.heights(), [4, 5, 7]);
     drop((resumed, replayed));
+    assert!(
+        budget.reserved_bytes() > reserved,
+        "cache keeps actual State funding"
+    );
+    drop(checkpoints);
     assert_eq!(
         budget.reserved_bytes(),
         reserved,
-        "retained prefixes own no request-pool charge"
+        "final cache owner releases all original State-pool storage"
+    );
+}
+
+#[test]
+fn finite_interval_cache_capacity_refusal_retries_original_pool_and_releases_final_owner() {
+    with_chain_of(5, check_cache_capacity_and_final_owner);
+}
+#[inline(never)]
+fn check_cache_capacity_and_final_owner(chain: &CertifiedTestChain) {
+    use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+    use std::task::{Context, Waker};
+
+    let view = chain.state().view();
+    let cache_budget = chain.state().ivm_execution_budget();
+    let initial_state_bytes = cache_budget.reserved_bytes();
+    let checkpoints = FinalityPrefixCheckpoints::new();
+    let source = NativeFinalityProofSource::new(
+        view.chain_id(),
+        view.network_id(),
+        view.block_hashes(),
+        view.kura(),
+    );
+    let resumable = source.with_checkpoints(&checkpoints, &cache_budget);
+    // Request leases and the persistent State source are genuinely distinct pools.
+    let frames = AllocationBudget::new(cache_budget.limit_bytes());
+    let graphs = AllocationBudget::new(33_312_848);
+    let owner = NativeFinalityProofBudget::new(frames.clone(), graphs.clone(), codec_limits());
+    let cancelled = AtomicBool::new(false);
+    let expected = build_proof_interval(&source, &owner, &limits(3, 4), &cancelled).unwrap();
+    checkpoints.prepare(&cache_budget).unwrap();
+    let table_bytes = cache_budget.reserved_bytes();
+    assert!(table_bytes > initial_state_bytes);
+    let mut registration_charge = frames
+        .try_reserve(ReleaseRegistration::allocation_layout())
+        .unwrap();
+    let mut registration = ReleaseRegistration::from_reservation(&mut registration_charge).unwrap();
+    drop(registration_charge);
+    let occupied = cache_budget
+        .try_reserve_bytes(cache_budget.limit_bytes() - table_bytes)
+        .unwrap();
+    let AllocationRefusal::Capacity {
+        release: observed, ..
+    } = cache_budget.try_reserve_bytes(1).unwrap_err()
+    else {
+        panic!("the original State pool must be occupied by the fixture owner");
+    };
+    let (refused, counts) = relation_counts::measure(|| {
+        build_proof_interval(&resumable, &owner, &limits(3, 4), &cancelled)
+    });
+    let refused = refused.unwrap();
+    assert_eq!(counts.qcs, [2, 3, 4]);
+    for at in 0..2 {
+        assert_eq!(refused.proof(at), expected.proof(at));
+    }
+    let AllocationRefusal::Capacity {
+        release,
+        reserved_bytes,
+        limit_bytes,
+        ..
+    } = refused
+        .cache_retention_refusal()
+        .expect("optional retention preserves its actual refusal")
+        .allocation_refusal()
+        .expect("actual original pool capacity refusal")
+    else {
+        panic!("optional cache refusal must not become proof rejection or a fixed bound");
+    };
+    assert_eq!(
+        release, &observed,
+        "the exact original State-pool observation survives"
+    );
+    assert_eq!(*reserved_bytes, cache_budget.limit_bytes());
+    assert_eq!(*limit_bytes, cache_budget.limit_bytes());
+    assert!(
+        registration
+            .poll_wait(release, &mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
+    assert!(checkpoints.heights().is_empty());
+    drop(occupied);
+    assert!(
+        registration
+            .poll_wait(release, &mut Context::from_waker(Waker::noop()))
+            .is_ready()
+    );
+    assert_eq!(cache_budget.reserved_bytes(), table_bytes);
+    let retried = build_proof_interval(&resumable, &owner, &limits(3, 4), &cancelled).unwrap();
+    assert!(retried.cache_retention_refusal().is_none());
+    assert_eq!(checkpoints.heights(), [4]);
+    for at in 0..2 {
+        assert_eq!(retried.proof(at), expected.proof(at));
+    }
+    let original = checkpoints.resume_point(5, &cache_budget).unwrap();
+    let (next, counts) = relation_counts::measure(|| {
+        build_proof_interval(&resumable, &owner, &limits(5, 5), &cancelled)
+    });
+    let next = next.unwrap();
+    assert!(next.cache_retention_refusal().is_none());
+    assert_eq!(counts.qcs, [5]);
+    let retained = checkpoints.resume_point(6, &cache_budget).unwrap();
+    assert!(
+        original.shares_authority_with(&retained),
+        "resumed interval keeps the original authority allocation"
+    );
+    assert!(cache_budget.reserved_bytes() > table_bytes);
+    drop((expected, refused, retried, next, owner, registration));
+    assert_eq!(
+        frames.reserved_bytes(),
+        0,
+        "no request credit supplies persistent cache custody"
+    );
+    assert_eq!(
+        graphs.reserved_bytes(),
+        0,
+        "the request graph lease has physically retired"
+    );
+    drop((checkpoints, original));
+    assert!(
+        cache_budget.reserved_bytes() > initial_state_bytes,
+        "the final shared checkpoint still owns its actual source graph"
+    );
+    drop(retained);
+    assert_eq!(
+        cache_budget.reserved_bytes(),
+        initial_state_bytes,
+        "the final owner releases schedule, credentials, control and table backing"
+    );
+}
+
+#[test]
+fn finite_interval_cache_rejects_foreign_pool_without_changing_native_proof() {
+    with_chain(check_foreign_cache_pool);
+}
+#[inline(never)]
+fn check_foreign_cache_pool(chain: &CertifiedTestChain) {
+    let view = chain.state().view();
+    let cache_budget = chain.state().ivm_execution_budget();
+    let initial_state_bytes = cache_budget.reserved_bytes();
+    let checkpoints = FinalityPrefixCheckpoints::new();
+    let source = NativeFinalityProofSource::new(
+        view.chain_id(),
+        view.network_id(),
+        view.block_hashes(),
+        view.kura(),
+    );
+    let resumable = source.with_checkpoints(&checkpoints, &cache_budget);
+    let frames = AllocationBudget::new(cache_budget.limit_bytes());
+    let owner = test_budget(frames.clone());
+    let cancelled = AtomicBool::new(false);
+    drop(build_proof_interval(&resumable, &owner, &limits(3, 3), &cancelled).unwrap());
+    let retained_bytes = cache_budget.reserved_bytes();
+    let foreign = AllocationBudget::new(cache_budget.limit_bytes());
+    let wrong_owner = source.with_checkpoints(&checkpoints, &foreign);
+    let (proof, counts) = relation_counts::measure(|| {
+        build_proof_interval(&wrong_owner, &owner, &limits(4, 4), &cancelled)
+    });
+    let proof = proof.unwrap();
+    assert_eq!(
+        counts.qcs,
+        [2, 3, 4],
+        "equal pool limits cannot authorize resume"
+    );
+    assert_eq!(
+        proof.cache_retention_refusal().unwrap().reason(),
+        ivm::error::ExecutionDeferral::LocalInvariantViolation
+    );
+    assert!(
+        proof
+            .cache_retention_refusal()
+            .unwrap()
+            .allocation_refusal()
+            .is_none()
+    );
+    assert_eq!(checkpoints.heights(), [3]);
+    assert_eq!(cache_budget.reserved_bytes(), retained_bytes);
+    assert_eq!(foreign.reserved_bytes(), 0);
+    let (retried, counts) = relation_counts::measure(|| {
+        build_proof_interval(&resumable, &owner, &limits(4, 4), &cancelled)
+    });
+    let retried = retried.unwrap();
+    assert_eq!(counts.qcs, [4]);
+    assert!(retried.cache_retention_refusal().is_none());
+    assert_eq!(proof.proof(0), retried.proof(0));
+    drop((proof, retried, owner, checkpoints));
+    assert_eq!(frames.reserved_bytes(), 0);
+    assert_eq!(cache_budget.reserved_bytes(), initial_state_bytes);
+}
+
+#[test]
+fn finite_interval_late_cache_shell_refusal_moves_original_authority_without_query_debit() {
+    with_chain(check_late_cache_shell_refusal);
+}
+#[inline(never)]
+fn check_late_cache_shell_refusal(chain: &CertifiedTestChain) {
+    use crate::sumeragi::certified_chain::{
+        query_authority_shell_layout, with_refused_query_authority_shell,
+    };
+    use iroha_allocation::PrepaidSharedError;
+
+    let view = chain.state().view();
+    let cache_budget = chain.state().ivm_execution_budget();
+    let initial_state_bytes = cache_budget.reserved_bytes();
+    let checkpoints = FinalityPrefixCheckpoints::new();
+    checkpoints.prepare(&cache_budget).unwrap();
+    let table_bytes = cache_budget.reserved_bytes();
+    let source = NativeFinalityProofSource::new(
+        view.chain_id(),
+        view.network_id(),
+        view.block_hashes(),
+        view.kura(),
+    );
+    let resumable = source.with_checkpoints(&checkpoints, &cache_budget);
+    let frames = AllocationBudget::new(cache_budget.limit_bytes());
+    let owner = test_budget(frames.clone());
+    let cancelled = AtomicBool::new(false);
+    let original_allowance = DecodeBudgetContext::new(codec_limits());
+    let expected = original_allowance
+        .with(|| build_proof_interval(&source, &owner, &limits(3, 4), &cancelled))
+        .unwrap();
+    let admitted = original_allowance.consumed_allocated_bytes();
+    let inherited = DecodeBudgetContext::new(codec_limits());
+    let actual = with_refused_query_authority_shell(|| {
+        inherited.with(|| build_proof_interval(&resumable, &owner, &limits(3, 4), &cancelled))
+    })
+    .unwrap();
+    assert_eq!(
+        inherited.consumed_allocated_bytes(),
+        admitted,
+        "late optional failure cannot consume an extra inherited query debit"
+    );
+    let local = actual
+        .cache_retention_refusal()
+        .expect("preserve actual optional wrapper failure");
+    assert_eq!(
+        local.reason(),
+        ivm::error::ExecutionDeferral::AllocationUnavailable
+    );
+    assert!(
+        local.allocation_refusal().is_none(),
+        "global allocation refusal cannot invent a pool wake"
+    );
+    assert_eq!(
+        local.allocator_refusal().unwrap().shared_error(),
+        Some(&PrepaidSharedError::Allocator {
+            requested_bytes: query_authority_shell_layout().size(),
+        })
+    );
+    for at in 0..2 {
+        assert_eq!(actual.proof(at), expected.proof(at));
+    }
+    assert!(checkpoints.heights().is_empty());
+    assert_eq!(
+        cache_budget.reserved_bytes(),
+        table_bytes,
+        "failed optional shell retains no State payload charge"
+    );
+    let retried = build_proof_interval(&resumable, &owner, &limits(3, 4), &cancelled).unwrap();
+    assert!(retried.cache_retention_refusal().is_none());
+    for at in 0..2 {
+        assert_eq!(retried.proof(at), expected.proof(at));
+    }
+    assert_eq!(checkpoints.heights(), [4]);
+    drop((expected, actual, retried, checkpoints));
+    assert_eq!(cache_budget.reserved_bytes(), initial_state_bytes);
+    // Corruption deliberately evicts Kura's original cached body. Keep that actual
+    // State-funded allocation alive while checking query/cache refunds, so eviction
+    // cannot be mistaken for a refund by the optional authority wrapper.
+    let original_block = chain
+        .kura()
+        .get_block(NonZeroUsize::new(2).unwrap(), &cache_budget)
+        .unwrap()
+        .unwrap();
+    assert!(original_block.belongs_to(&cache_budget));
+    let last_original_block = original_block.clone();
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        &original_block,
+        &last_original_block,
+    ));
+    assert_eq!(cache_budget.reserved_bytes(), initial_state_bytes);
+    // A physical optional-shell refusal cannot replace a genuine certificate error.
+    chain.corrupt_local_quorum_for_test(2, Signers::BelowQuorum);
+    assert_eq!(cache_budget.reserved_bytes(), initial_state_bytes);
+    let rejected_cold = DecodeBudgetContext::new(codec_limits());
+    let expected =
+        rejected_cold.with(|| build_proof_interval(&source, &owner, &limits(3, 4), &cancelled));
+    let Err(NativeFinalityProofIntervalError::Native(expected)) = expected else {
+        panic!("the original cold native verifier must reject the real below-quorum certificate");
+    };
+    let checkpoints = FinalityPrefixCheckpoints::new();
+    let resumable = source.with_checkpoints(&checkpoints, &cache_budget);
+    let rejected_cached = DecodeBudgetContext::new(codec_limits());
+    let actual = with_refused_query_authority_shell(|| {
+        rejected_cached.with(|| build_proof_interval(&resumable, &owner, &limits(3, 4), &cancelled))
+    });
+    let Err(NativeFinalityProofIntervalError::Native(actual)) = actual else {
+        panic!("optional wrapper refusal cannot replace the original native certificate rejection");
+    };
+    assert_eq!(actual, expected);
+    assert_eq!(
+        rejected_cached.consumed_allocated_bytes(),
+        rejected_cold.consumed_allocated_bytes()
+    );
+    assert!(checkpoints.heights().is_empty());
+    drop((owner, checkpoints));
+    assert_eq!(frames.reserved_bytes(), 0);
+    assert_eq!(cache_budget.reserved_bytes(), initial_state_bytes);
+    drop(original_block);
+    assert_eq!(cache_budget.reserved_bytes(), initial_state_bytes);
+    drop(last_original_block);
+    assert!(
+        cache_budget.reserved_bytes() < initial_state_bytes,
+        "only the final evicted-block owner releases its original physical storage"
     );
 }
 
@@ -125,13 +443,14 @@ fn finality_proof_cost_report() {
 fn report_proof_cost(chain: &CertifiedTestChain) {
     let view = chain.state().view();
     let checkpoints = FinalityPrefixCheckpoints::new();
+    let cache_budget = chain.state().ivm_execution_budget();
     let cold = NativeFinalityProofSource::new(
         view.chain_id(),
         view.network_id(),
         view.block_hashes(),
         view.kura(),
     );
-    let resumable = cold.with_checkpoints(&checkpoints);
+    let resumable = cold.with_checkpoints(&checkpoints, &cache_budget);
     let owner = test_budget(view.execution_budget());
     let cancelled = AtomicBool::new(false);
     let time = |source: &NativeFinalityProofSource<'_>, height: u64| {
@@ -169,13 +488,14 @@ fn finite_interval_discards_prefix_whose_retained_frame_changed() {
 fn check_changed_retained_frame(chain: &CertifiedTestChain) {
     let view = chain.state().view();
     let checkpoints = FinalityPrefixCheckpoints::new();
+    let cache_budget = chain.state().ivm_execution_budget();
     let source = NativeFinalityProofSource::new(
         view.chain_id(),
         view.network_id(),
         view.block_hashes(),
         view.kura(),
     )
-    .with_checkpoints(&checkpoints);
+    .with_checkpoints(&checkpoints, &cache_budget);
     let owner = test_budget(view.execution_budget());
     let cancelled = AtomicBool::new(false);
     drop(build_proof_interval(&source, &owner, &limits(3, 4), &cancelled).unwrap());
@@ -219,13 +539,14 @@ fn finite_interval_retains_no_prefix_after_late_source_change() {
 fn check_no_prefix_after_failed_join(chain: &CertifiedTestChain) {
     let view = chain.state().view();
     let checkpoints = FinalityPrefixCheckpoints::new();
+    let cache_budget = chain.state().ivm_execution_budget();
     let source = NativeFinalityProofSource::new(
         view.chain_id(),
         view.network_id(),
         view.block_hashes(),
         view.kura(),
     )
-    .with_checkpoints(&checkpoints);
+    .with_checkpoints(&checkpoints, &cache_budget);
     let owner = test_budget(view.execution_budget());
     let qc = chain
         .committed(3)

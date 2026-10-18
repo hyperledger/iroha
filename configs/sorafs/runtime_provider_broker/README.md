@@ -68,19 +68,15 @@ startup before credential input or backend assembly. Credential imports and
 serving retain the same initially loaded catalog; executable assembly does not
 reopen it. Accepted startup creates one original pool from the parsed policy and
 passes it through both platform threshold handoffs; currently admitted transcript
-owners retain its charges. Parliament TLE imports reserve the decoded handle,
-nested session buffers, charge ledger and prepared decoder controls before their
-physical allocation. The private backend retains decoded-graph charges through
-its final reader; clones share those charges. Public inventory hashing borrows
-the original graph and transcript validation uses bounded inline scratch.
+owners retain its charges.
 TODO: fund supervisor input buffers, outer `std::Arc` controls and Core custody-map
 nodes with exact original owners before full memory qualification can pass.
-These remaining allocations are not covered by the decoded-graph reservation.
-A zero catalog bound is valid only for an inventory without either threshold
+These remaining allocations are not covered by the original-pool reservation.
+A zero catalog bound is valid only for an inventory without the threshold
 slot, and grants no threshold custody. This is a local operational admission
 policy; it does not change transaction validity or gas accounting.
 
-Global-beacon and Parliament timed-release credentials bind their public
+The global-beacon credential binds its public
 `policy_digest` to the complete provisioned signer inventory. The digest uses
 one consensus-threshold inventory domain and covers the exact role slot,
 network, every public threshold session transcript, and every seat index in
@@ -93,11 +89,9 @@ strictly sorted before recomputing the digest, so only one canonical credential
 ordering is accepted. Reordering provisioning input preserves the encoded
 credential, while reordered wire entries, transcript substitution, or seat
 substitution fail closed. Secret share components are not included in the
-public inventory encoding. The header-framed top-level inventory schema names
-are
-`iroha.runtime_provider_broker.v1.consensus_threshold.global_beacon_public_inventory`
-and
-`iroha.runtime_provider_broker.v1.consensus_threshold.parliament_tle_public_inventory`;
+public inventory encoding. The header-framed top-level inventory schema name
+is
+`iroha.runtime_provider_broker.v1.consensus_threshold.global_beacon_public_inventory`;
 credential and nested wire types also carry explicit V1 schema names so Rust
 type renames cannot silently change the operator contract.
 
@@ -113,10 +107,9 @@ Broker session workers use a fixed 4 MiB stack. This is large enough for the
 proof-carrying threshold transcript validators in unoptimized builds while
 remaining bounded by the fixed maximum number of authenticated sessions.
 
-On Linux, a reviewed provider drop-in supplies the two fixed credential names
+On Linux, a reviewed provider drop-in supplies the fixed credential name
 through systemd's per-unit credential mount:
-`iroha-global-beacon-partial-signer-v1.norito` and
-`iroha-parliament-tle-partial-release-signer-v1.norito`. A requested file must
+`iroha-global-beacon-partial-signer-v1.norito`. A requested file must
 not be exposed through `Environment=` or `EnvironmentFile=`.
 
 On macOS, an independent administrator creates the named pipe
@@ -134,16 +127,15 @@ validates the already-open descriptor as a root-owned, single-link, exact-mode
 validator, and leaves no persistent credential bytes after the writer closes.
 
 The V1 bundle is `IRTHB001 || u16_be(1) || u16_be(flags) ||
-u64_be(beacon_len) || u64_be(tle_len) || beacon || tle`. Flag bit 0 denotes the
-global-beacon credential and bit 1 the Parliament-TLE credential; no other bit
-is admitted. Presence must exactly match the two public catalog slots, each
-credential is bounded to 16 MiB, and trailing, truncated, empty-present, or
-unrequested payloads fail before socket publication. Deployment provisioning
+u64_be(beacon_len) || beacon`. Flag bit 0 denotes the global-beacon
+credential; no other bit is admitted. Presence must exactly match the public
+catalog slot, the credential is bounded to 16 MiB, and trailing, truncated,
+empty-present, or unrequested payloads fail before socket publication. Deployment provisioning
 should call the zeroizing
 `encode_consensus_threshold_credential_bundle_v1` API and write its result
 directly to the FIFO; do not stage the bundle, credential frames, or scalar
 shares in the plist, argv, environment, public catalog, repo, or a path readable
-by the shared validator UID. Even a catalog with neither threshold slot receives
+by the shared validator UID. Even a catalog without the threshold slot receives
 and validates the exact header-only bundle on each launch, keeping one immutable
 launchd service contract.
 

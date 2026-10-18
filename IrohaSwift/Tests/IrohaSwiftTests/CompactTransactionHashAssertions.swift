@@ -14,6 +14,37 @@ func canonicalSignedTransactionPayload(_ signedTransaction: Data) throws -> Data
     return payload
 }
 
+/// Compare hedged Ed25519 output without hiding invalid signatures or changing payload framing.
+/// Both original signatures must verify before only the signature field is substituted.
+func canonicalSignedTransactionUsingReferenceSignature(
+    _ envelope: SignedTransactionEnvelope,
+    referenceWire: Data
+) throws -> Data {
+    guard envelope.signedTransaction == Data(envelope.norito.dropFirst()) else {
+        throw CanonicalNoritoDecodingError.invalidField(
+            "signed transaction differs from its versioned wire"
+        )
+    }
+    let actual = try ToriiCanonicalTransactionDraft.inspectVersionedSignedTransaction(
+        envelope.norito, context: "actual signing parity"
+    )
+    let reference = try ToriiCanonicalTransactionDraft.inspectVersionedSignedTransaction(
+        referenceWire, context: "reference signing parity"
+    )
+    guard actual.transactionPayload == reference.transactionPayload else {
+        throw CanonicalNoritoDecodingError.invalidField(
+            "signing parity requires exactly equal canonical payloads"
+        )
+    }
+    var actualReader = CanonicalNoritoReader(data: envelope.signedTransaction)
+    _ = try actualReader.readCompactField()
+    var referenceReader = CanonicalNoritoReader(data: Data(referenceWire.dropFirst()))
+    _ = try referenceReader.readCompactField()
+    // Retain all original payload/attachment bytes, including their length prefixes.
+    return Data(referenceWire.prefix(1 + referenceReader.offset))
+        + Data(envelope.norito.dropFirst(1 + actualReader.offset))
+}
+
 func XCTAssertCanonicalExternalEntrypointHash(
     _ envelope: SignedTransactionEnvelope,
     file: StaticString = #filePath,

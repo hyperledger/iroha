@@ -4872,8 +4872,9 @@ async fn low_byte_posts_and_broadcasts_charge_materialized_data_framing() {
         } else {
             RelayTarget::Direct(peer.id().clone())
         };
+        // A non-hub peer consumes the frame itself, so it stays link-local.
         let relay =
-            RelayMessage::new_signed(&network.key_pair, target, network.relay_ttl, DummyMsg);
+            RelayMessage::new_link(network.self_id.clone(), target, network.relay_ttl, DummyMsg);
         let plaintext = crate::peer::materialized_data_message_wire_len(relay).unwrap();
         network.low_bytes_per_sec = Some(1.0);
         network.low_bytes_burst = f64::from(u32::try_from(plaintext).unwrap());
@@ -7587,32 +7588,32 @@ fn cap_one_blocked_source_cannot_prevent_live_source_service() {
 }
 #[test]
 fn admitted_reliable_payload_materializes_once_and_reuses_its_allocation() {
-    let key_pair = random_node_key_pair();
-    let unsigned = AdmittedNetworkPayload::from_network(NetworkMessage::Broadcast(Broadcast {
+    let origin = random_peer_id();
+    let pending = AdmittedNetworkPayload::from_network(NetworkMessage::Broadcast(Broadcast {
         data: DeferredProgressMsg::Lane(40),
         priority: Priority::High,
     }));
 
-    let first_state = unsigned.materialize(&key_pair, 8);
-    let first = Arc::clone(first_state.signed_frame());
-    let signature_allocation = first.origin_signature.as_ptr();
-    let second_state = first_state.materialize(&key_pair, 8);
-    let second = second_state.signed_frame();
+    let first_state = pending.materialize(&origin, 8);
+    let first = Arc::clone(first_state.frame());
+    let second_state = first_state.materialize(&origin, 8);
+    let second = second_state.frame();
 
-    // A repeated `new_signed` call would necessarily create a distinct
-    // live relay allocation and signature buffer while `first` is held.
-    // These pointer checks therefore pin the retry materialization count
-    // to one without adding production-only instrumentation.
+    // A repeated materialization would necessarily create a distinct live
+    // relay allocation while `first` is held. These pointer checks therefore
+    // pin the retry materialization count to one without adding
+    // production-only instrumentation.
     assert!(Arc::ptr_eq(&first, second));
     assert_eq!(Arc::strong_count(&first), 2);
-    assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert!(matches!(&second.target, RelayTarget::Broadcast));
-    second
-        .verify_origin_signature()
-        .expect("the one retained envelope remains validly signed");
+    assert_eq!(second.origin, origin);
+    assert!(
+        !second.is_relay_signed(),
+        "materialization creates a link-local frame; only a forwarding hop signs it"
+    );
 }
 #[test]
-fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
+fn reliable_direct_retry_reuses_the_link_envelope_without_signing() {
     let_deferred_test_network!(network, DeferredProgressMsg);
     let target = random_peer_id();
     let (admitted, actor_budget, retained_bytes) = admitted_with_exact_actor_bytes(
@@ -7632,9 +7633,8 @@ fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
             .message
             .as_ref()
             .expect("first dispatch retains one payload")
-            .signed_frame(),
+            .frame(),
     );
-    let signature_allocation = first.origin_signature.as_ptr();
     let retained = network
         .dispatch_reliable_actor_message(retained)
         .expect_err("the unavailable direct target must remain retryable");
@@ -7642,14 +7642,14 @@ fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
         .message
         .as_ref()
         .expect("retry retains the payload")
-        .signed_frame();
+        .frame();
 
     assert!(Arc::ptr_eq(&first, second));
-    assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert!(matches!(&second.target, RelayTarget::Direct(peer) if peer == &target));
-    second
-        .verify_origin_signature()
-        .expect("the retained direct envelope remains validly signed");
+    assert!(
+        !second.is_relay_signed(),
+        "a direct frame for its own target never needs an origin signature"
+    );
     assert_eq!(
         actor_budget.retained(),
         NetworkActorRetainedBytes {
@@ -7659,7 +7659,7 @@ fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
     );
 }
 #[test]
-fn reliable_broadcast_retry_reuses_the_signed_envelope_allocation() {
+fn reliable_broadcast_retry_reuses_the_link_envelope_allocation() {
     let_deferred_test_network!(network, DeferredProgressMsg);
     let blocked_peer = random_peer_id();
     network.current_topology = HashSet::from([blocked_peer]);
@@ -7679,12 +7679,12 @@ fn reliable_broadcast_retry_reuses_the_signed_envelope_allocation() {
             .message
             .as_ref()
             .expect("first dispatch retains one payload")
-            .signed_frame(),
+            .frame(),
     );
-    let signature_allocation = first.origin_signature.as_ptr();
-    first
-        .verify_origin_signature()
-        .expect("cached envelope remains validly signed");
+    assert!(
+        !first.is_relay_signed(),
+        "no hop received the broadcast, so nothing required an origin signature"
+    );
 
     let retained = network
         .dispatch_reliable_actor_message(retained)
@@ -7693,10 +7693,9 @@ fn reliable_broadcast_retry_reuses_the_signed_envelope_allocation() {
         .message
         .as_ref()
         .expect("retry retains the payload")
-        .signed_frame();
+        .frame();
 
     assert!(Arc::ptr_eq(&first, second));
-    assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert!(matches!(&second.target, RelayTarget::Broadcast));
     assert_eq!(
         actor_budget.retained(),
@@ -7743,8 +7742,11 @@ fn reliable_hub_routed_retry_reuses_the_signed_envelope_allocation() {
             .message
             .as_ref()
             .expect("hub-routed dispatch retains one payload")
-            .signed_frame(),
+            .frame(),
     );
+    first
+        .verify_origin_signature()
+        .expect("the hub relays this frame, so its hand-off adds a valid origin signature");
     let signature_allocation = first.origin_signature.as_ptr();
     let first_delivery = hub_receivers
         .try_recv_any()
@@ -7762,7 +7764,7 @@ fn reliable_hub_routed_retry_reuses_the_signed_envelope_allocation() {
         .message
         .as_ref()
         .expect("hub retry retains the payload")
-        .signed_frame();
+        .frame();
     assert!(Arc::ptr_eq(&first, second));
     assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert_eq!(
@@ -10946,3 +10948,4 @@ fn pending_connects_drop_outside_topology() {
         "connect should not be attempted for peers outside topology"
     );
 }
+include!("link_frame_tests.rs");

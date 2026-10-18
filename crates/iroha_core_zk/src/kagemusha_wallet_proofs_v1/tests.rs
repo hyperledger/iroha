@@ -1323,3 +1323,164 @@ fn installed_lineage_memo_matches_fresh_owners_for_every_transport_mutation() {
         verdicts.join(", ")
     );
 }
+
+/// A valid outer proof must not hide a failed transported Pallas or Vesta obligation.
+/// These are genuine proofs of `TransportRelation`, which permits every canonical public
+/// tuple; they are not proofs of a wallet operation or members of its production catalog.
+/// Unlike mutations of an existing proof's instances, each poisoned claim is bound by a
+/// newly proved statement whose complete outer verification succeeds before native refusal.
+#[test]
+#[ignore = "three genuine k16 transport stand-in proofs and fresh installed owners; run optimized"]
+fn installed_lineage_rejects_bound_nondeciding_claims() {
+    use crate::kagemusha_wallet_artifacts_v1::{
+        ArtifactOriginalV1, InstalledVerifierPackV1, engineering_fixture,
+    };
+    use iroha_plonk::{
+        ProverConfig, ProverRandomness,
+        keys::{CosetCachePolicy, KeygenConfigV2, keygen_pk_v2},
+        prover::{Witness, create_proof_owned},
+    };
+
+    let budget = MemoryBudget::DEFAULT;
+    let pallas = PinnedParams::<Ep>::derive(16).unwrap();
+    let vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    let mut config = KeygenConfigV2::pipa_r(vec![
+        InstanceType::Bounded,
+        InstanceType::Field,
+        InstanceType::Bounded,
+    ]);
+    config.coset_cache = CosetCachePolicy::OnDemand;
+    let proving_key =
+        keygen_pk_v2(&pallas, &TransportRelation { instances: None }, &config).unwrap();
+    let (pack, installation) =
+        engineering_fixture::signed_inventory_with_lineage(ArtifactOriginalV1 {
+            descriptor: proving_key.binding().encoded().to_vec(),
+            verifying_key: proving_key.vk().to_bytes().to_vec(),
+        });
+    let original = pack.to_canonical_bytes().unwrap();
+    let fresh = || InstalledVerifierPackV1::load(&original, installation).unwrap();
+    let warm = fresh();
+    let verifier = warm.verifier();
+    let mut outputs = lineage_public();
+    outputs.scheme_id = verifier.scheme.scheme_id();
+    outputs.relation_id = verifier.scheme.relation_id;
+
+    let acc_p = honest_claim(&pallas, 21);
+    let acc_v = honest_claim(&vesta, 41);
+    assert_eq!(acc_p.decide(&pallas, budget), Ok(()));
+    assert_eq!(acc_v.decide(&vesta, budget), Ok(()));
+    let poisoned_p = AccumulatorT::<Ep>::new(-*acc_p.g(), *acc_p.challenges()).unwrap();
+    let poisoned_v = AccumulatorT::<Eq>::new(-*acc_v.g(), *acc_v.challenges()).unwrap();
+    assert_ne!(poisoned_p.g(), acc_p.g());
+    assert_ne!(poisoned_v.g(), acc_v.g());
+    assert_eq!(
+        AccumulatorT::<Ep>::from_bytes(&poisoned_p.to_bytes()),
+        Ok(poisoned_p.clone())
+    );
+    assert_eq!(
+        AccumulatorT::<Eq>::from_bytes(&poisoned_v.to_bytes()),
+        Ok(poisoned_v.clone())
+    );
+    assert_eq!(
+        poisoned_p.decide(&pallas, budget),
+        Err(iroha_plonk_recursion::Error::Undecidable)
+    );
+    assert_eq!(
+        poisoned_v.decide(&vesta, budget),
+        Err(iroha_plonk_recursion::Error::Undecidable)
+    );
+
+    let prove_transport = |p: &AccumulatorT<Ep>, v: &AccumulatorT<Eq>| {
+        let digest =
+            lineage_digest(&outputs, verifier.allowlist.lineage_verifying_key_digest, p).unwrap();
+        let (x, y) = generator_coordinates::<Eq>(v.g());
+        let instances = vec![
+            vec![Fq::from_repr(digest).unwrap()],
+            vec![x, y],
+            v.challenges()
+                .iter()
+                .map(|challenge| Fq::from_repr(challenge.to_repr()).unwrap())
+                .collect(),
+        ];
+        let relation = TransportRelation {
+            instances: Some(instances.clone()),
+        };
+        let mut proof = create_proof_owned(
+            &pallas,
+            &proving_key,
+            Witness::from_circuit(&proving_key, &relation, &instances).unwrap(),
+            ProverRandomness::hedged(),
+            ProverConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(proof.len(), verifier.lineage.proof_bytes);
+        // Check the exact installed key and derived instances independently.
+        // The separate parameter owner does not warm the installed owners.
+        assert_eq!(
+            verify_full_cancellable(
+                &pallas,
+                &verifier.lineage.binding,
+                &verifier.lineage.vk,
+                &instances,
+                &proof,
+                budget,
+                None,
+            ),
+            Ok(()),
+            "bound stand-in proof must pass full verification before accumulator decisions"
+        );
+        proof.extend_from_slice(&p.to_bytes());
+        proof.extend_from_slice(&v.to_bytes());
+        KagemushaWalletLineageV1 {
+            public: outputs,
+            proof,
+        }
+    };
+    let exact = prove_transport(&acc_p, &acc_v);
+    let cases = [
+        ("Pallas", prove_transport(&poisoned_p, &acc_v), 1),
+        ("Vesta", prove_transport(&acc_p, &poisoned_v), 2),
+    ];
+    assert_eq!(verifier.verify_lineage(&exact, budget), Ok(()));
+    let counted = |owner: &ArtifactSet, lineage: &KagemushaWalletLineageV1| {
+        let start = KagemushaWalletVerificationCountsV1::current_thread();
+        let verdict = owner.verify_lineage(lineage, budget);
+        (
+            verdict,
+            KagemushaWalletVerificationCountsV1::current_thread().since(start),
+        )
+    };
+    for (claim, lineage, expected_decisions) in cases {
+        let independent = fresh();
+        for (state, owner) in [("warm", verifier), ("fresh", independent.verifier())] {
+            for repeat in 0..2 {
+                let (verdict, work) = counted(owner, &lineage);
+                assert_eq!(
+                    verdict,
+                    Err(Error::Proof),
+                    "{claim}: {state}, repeat {repeat}"
+                );
+                assert_eq!(work.verify_lineage, 1);
+                assert_eq!(work.proofs.verify_full, 1);
+                assert_eq!(work.proofs.decides, expected_decisions, "{claim}: {state}");
+                // The full outer proof may be remembered after its acceptance,
+                // although the lineage was refused. Its hit must still execute
+                // and propagate the failed transported obligation every time.
+                assert_eq!(work.proofs.reused_verifications, repeat);
+                let (replay, replay_work) = counted(owner, &exact);
+                assert_eq!(
+                    replay,
+                    Ok(()),
+                    "healthy exact replay after {claim}: {state}"
+                );
+                assert_eq!(replay_work.proofs.verify_full, 1);
+                assert_eq!(replay_work.proofs.decides, 2);
+            }
+        }
+    }
+    eprintln!(
+        "INSTALLED_LINEAGE_BOUND_CLAIMS independent_outer_full_checks=3 poisoned_claims=2 \
+         boundary_refusals=8 healthy_replays=8 warm_equals_fresh=true \
+         omega_relation=transport_stand_in production_catalog=false"
+    );
+}

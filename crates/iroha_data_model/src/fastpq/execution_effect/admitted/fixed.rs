@@ -37,11 +37,13 @@ macro_rules! scalar {
 scalar!(u8, u16, u32, u64, Hash, HashOf<BlockHeader>, NetworkId);
 impl<const N: usize> Fixed for [u8; N] {
     fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        let value = bytes
+        // Canonical raw-array fields have no child payload context. The generated
+        // record walker already checked this field's exact width and owns the
+        // enclosing record's completion; finishing from this pointer would instead
+        // require every following field in that record to be absent.
+        bytes
             .try_into()
-            .map_err(|_| norito::Error::LengthMismatch)?;
-        finish(bytes, N)?;
-        Ok(value)
+            .map_err(|_| norito::Error::LengthMismatch.into())
     }
 }
 // These two transparent model owners contain only byte-aligned fixed leaves.

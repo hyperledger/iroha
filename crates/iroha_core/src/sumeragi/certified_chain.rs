@@ -108,6 +108,13 @@ mod amx_initialization;
 mod artifacts;
 mod native_acquisition;
 mod prefix_checkpoints;
+mod retained_query_authority;
+pub(crate) use retained_query_authority::QueryCacheOwner;
+use retained_query_authority::{PrefixAuthority, QueryAuthorityReservation};
+#[cfg(test)]
+pub(crate) use retained_query_authority::{
+    query_authority_shell_layout, with_refused_query_authority_shell,
+};
 mod query_reader;
 pub(crate) use amx_initialization::AmxChainInitialization;
 pub(crate) use native_acquisition::NativeCarrierAcquisition;
@@ -1146,7 +1153,7 @@ impl VerifiedAuthority {
 struct VerifiedPrefix {
     tip: CommittedBlock,
     schedule: schedule::ConsensusSchedule,
-    authority: Arc<VerifiedAuthority>,
+    authority: PrefixAuthority,
     // Bounded exact-value structural reuse ends when this cursor is reset or dropped.
     validation: EpochValidationScope,
     // An opt-in local byte fence, never a consensus digest or wire field.
@@ -1193,7 +1200,7 @@ impl CertificateVerdict {
 struct PreparedAdvance {
     certificate: CertificateVerdict,
     schedule: schedule::ConsensusSchedule,
-    authority: Arc<VerifiedAuthority>,
+    authority: PrefixAuthority,
     proof_source: Option<Hash>,
 }
 
@@ -1256,7 +1263,7 @@ impl PrefixVerifierContext {
         committed: &CommittedBlock,
         artifacts: Option<PrefixArtifacts>,
     ) -> Result<PreparedAdvance, ExecutionAttemptError<ChainReadError>> {
-        self.prepare_advance_with_funding(prefix, committed, artifacts, false)
+        self.prepare_advance_with_funding(prefix, committed, artifacts, false, None)
     }
 
     fn prepare_advance_query(
@@ -1264,8 +1271,9 @@ impl PrefixVerifierContext {
         prefix: &mut VerifiedPrefix,
         committed: &CommittedBlock,
         artifacts: Option<PrefixArtifacts>,
+        cache: Option<&mut QueryCacheOwner>,
     ) -> Result<PreparedAdvance, ExecutionAttemptError<ChainReadError>> {
-        self.prepare_advance_with_funding(prefix, committed, artifacts, true)
+        self.prepare_advance_with_funding(prefix, committed, artifacts, true, cache)
     }
 
     fn prepare_advance_with_funding(
@@ -1274,6 +1282,7 @@ impl PrefixVerifierContext {
         committed: &CommittedBlock,
         artifacts: Option<PrefixArtifacts>,
         query: bool,
+        cache: Option<&mut QueryCacheOwner>,
     ) -> Result<PreparedAdvance, ExecutionAttemptError<ChainReadError>> {
         let height = committed.height;
         if committed.root_scope != prefix.tip.root_scope || !committed.extends(&prefix.tip) {
@@ -1284,27 +1293,33 @@ impl PrefixVerifierContext {
             .schedule
             .ready(height)
             .map_err(|error| malformed(error.to_string()))?;
-        let authority = if scheduled.epoch == prefix.authority.material {
+        let authority = if &scheduled.epoch == prefix.authority.material() {
             Clone::clone(&prefix.authority)
-        } else {
-            if query {
-                query_reader::admit_epoch_clone(&scheduled.epoch, height)?;
-                norito::core::reserve_decode_arc_allocation::<VerifiedAuthority>()
-                    .map_err(|error| read_decode_error(height, error))?;
-                Arc::new(VerifiedAuthority::new_query(
-                    scheduled.epoch.clone(),
-                    height,
-                    &mut prefix.validation,
-                )?)
-            } else {
-                Arc::new(VerifiedAuthority::new(
-                    scheduled.epoch.clone(),
-                    height,
-                    &mut prefix.validation,
-                )?)
+        } else if query {
+            query_reader::admit_epoch_clone(&scheduled.epoch, height)?;
+            norito::core::reserve_decode_arc_allocation::<VerifiedAuthority>()
+                .map_err(|error| read_decode_error(height, error))?;
+            let mut cache = cache;
+            let reservation = cache
+                .as_mut()
+                .and_then(|owner| owner.reserve_authority(&scheduled.epoch));
+            let original = VerifiedAuthority::new_query(
+                scheduled.epoch.clone(),
+                height,
+                &mut prefix.validation,
+            )?;
+            match cache {
+                Some(owner) => owner.retain_authority(original, reservation),
+                None => PrefixAuthority::Transient(Arc::new(original)),
             }
+        } else {
+            PrefixAuthority::Transient(Arc::new(VerifiedAuthority::new(
+                scheduled.epoch.clone(),
+                height,
+                &mut prefix.validation,
+            )?))
         };
-        if committed.commitment().schedule.current != authority.material {
+        if &committed.commitment().schedule.current != authority.material() {
             return Err(
                 malformed("result changes its authenticated incumbent context".into()).into(),
             );
@@ -1347,7 +1362,7 @@ impl PrefixVerifierContext {
     fn verify_certificate(
         &self,
         committed: CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: &PrefixAuthority,
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
     ) -> Result<CertifiedBlock, ExecutionAttemptError<ChainReadError>> {
@@ -1358,7 +1373,7 @@ impl PrefixVerifierContext {
     fn prepare_certificate(
         &self,
         committed: &CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: &PrefixAuthority,
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
     ) -> Result<CertificateVerdict, ExecutionAttemptError<ChainReadError>> {
@@ -1638,22 +1653,18 @@ fn genesis_prefix_authority(
     tip: &CommittedBlock,
     material: ValidatorEpochContextV1,
     validation: &mut EpochValidationScope,
-) -> Result<
-    (schedule::ConsensusSchedule, Arc<VerifiedAuthority>),
-    ExecutionAttemptError<ChainReadError>,
-> {
-    genesis_prefix_authority_with_funding(tip, material, validation, false)
+) -> Result<(schedule::ConsensusSchedule, PrefixAuthority), ExecutionAttemptError<ChainReadError>> {
+    genesis_prefix_authority_with_funding(tip, material, validation, false, None, None)
 }
 
 fn genesis_prefix_authority_query(
     tip: &CommittedBlock,
     material: ValidatorEpochContextV1,
     validation: &mut EpochValidationScope,
-) -> Result<
-    (schedule::ConsensusSchedule, Arc<VerifiedAuthority>),
-    ExecutionAttemptError<ChainReadError>,
-> {
-    genesis_prefix_authority_with_funding(tip, material, validation, true)
+    cache: Option<&mut QueryCacheOwner>,
+    reservation: Option<QueryAuthorityReservation>,
+) -> Result<(schedule::ConsensusSchedule, PrefixAuthority), ExecutionAttemptError<ChainReadError>> {
+    genesis_prefix_authority_with_funding(tip, material, validation, true, cache, reservation)
 }
 
 fn genesis_prefix_authority_with_funding(
@@ -1661,11 +1672,20 @@ fn genesis_prefix_authority_with_funding(
     material: ValidatorEpochContextV1,
     validation: &mut EpochValidationScope,
     query: bool,
-) -> Result<
-    (schedule::ConsensusSchedule, Arc<VerifiedAuthority>),
-    ExecutionAttemptError<ChainReadError>,
-> {
-    if tip.commitment().schedule.current != material {
+    cache: Option<&mut QueryCacheOwner>,
+    reservation: Option<QueryAuthorityReservation>,
+) -> Result<(schedule::ConsensusSchedule, PrefixAuthority), ExecutionAttemptError<ChainReadError>> {
+    // On an early schedule/source refusal the material drops before its optional
+    // persistent credits. A completed constructor consumes the same original field.
+    struct OriginalMaterial {
+        material: ValidatorEpochContextV1,
+        reservation: Option<QueryAuthorityReservation>,
+    }
+    let input = OriginalMaterial {
+        material,
+        reservation,
+    };
+    if tip.commitment().schedule.current != input.material {
         return Err(ChainReadError::Committee {
             height: GENESIS_HEIGHT,
             reason: "genesis result context differs from its signed body".into(),
@@ -1687,17 +1707,17 @@ fn genesis_prefix_authority_with_funding(
     let authority = if query {
         norito::core::reserve_decode_arc_allocation::<VerifiedAuthority>()
             .map_err(|error| read_decode_error(GENESIS_HEIGHT, error))?;
-        Arc::new(VerifiedAuthority::new_query(
-            material,
-            GENESIS_HEIGHT,
-            validation,
-        )?)
+        let original = VerifiedAuthority::new_query(input.material, GENESIS_HEIGHT, validation)?;
+        match cache {
+            Some(owner) => owner.retain_authority(original, input.reservation),
+            None => PrefixAuthority::Transient(Arc::new(original)),
+        }
     } else {
-        Arc::new(VerifiedAuthority::new(
-            material,
+        PrefixAuthority::Transient(Arc::new(VerifiedAuthority::new(
+            input.material,
             GENESIS_HEIGHT,
             validation,
-        )?)
+        )?))
     };
     Ok((schedule, authority))
 }
@@ -1961,7 +1981,7 @@ impl CertifiedPrefix {
 
     /// Borrow the complete authority already authenticated by this prefix's source relation.
     pub(crate) fn current_epoch_context(&self) -> &ValidatorEpochContextV1 {
-        &self.prefix.authority.material
+        self.prefix.authority.material()
     }
 
     /// Start with the exact configured chain identity and independently pinned genesis network.
@@ -2395,6 +2415,8 @@ pub struct CertifiedChain<'v, V: StateReadOnly + ?Sized> {
     terminal_probe: parking_lot::Mutex<Option<TerminalProbe<'v>>>,
     // Only the scoped portable producer enables original canonical-byte capture.
     proof_source_genesis: Option<(u64, Hash)>,
+    // Optional persistent cache custody never contributes authority or a proof verdict.
+    query_cache: parking_lot::Mutex<Option<QueryCacheOwner>>,
     // Only AMX transfers its actual constructor acquisition into this same reader. The
     // genesis body/control lives above; raw bytes and original source retire here after
     // the prefix/terminal graphs at the caller's existing scoped chain drop.
@@ -2461,6 +2483,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             #[cfg(test)]
             terminal_probe: parking_lot::Mutex::new(None),
             proof_source_genesis: None,
+            query_cache: parking_lot::Mutex::new(None),
             amx_genesis_authentication: None,
             amx_genesis_source: None,
         }

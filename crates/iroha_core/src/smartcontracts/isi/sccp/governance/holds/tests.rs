@@ -17,6 +17,13 @@ use iroha_data_model::{
 };
 use std::num::NonZeroU64;
 
+const S0: iroha_data_model::governance::GovernanceAnchorV1 =
+    iroha_data_model::governance::GovernanceAnchorV1 {
+        height: 1,
+        position: 0,
+        timestamp_ms: 1,
+    };
+
 const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 
 fn attest_action(at: SccpDeploymentProgressV1) -> SccpAttestDeploymentProgressActionV1 {
@@ -58,13 +65,7 @@ fn native_offence_release_and_later_attestation_never_lower_the_floor() {
     };
     // Effect component receives a cause; this is not a claim that the unavailable
     // production Parliament ballot admitted or certified the proposal.
-    enact(
-        &mut stx,
-        &proposal,
-        [3; 32],
-        ControlCauseV1::for_test([1; 32], [2; 32]),
-    )
-    .unwrap();
+    enact(&mut stx, [1; 32], [2; 32], S0, &proposal).unwrap();
     route = store::routes::get(&*stx.world, &NETWORK).unwrap().clone();
     assert_eq!(route.revisions[&1].forgery_floor, u64::MAX);
     assert!(!route.revisions[&1].forgery_held(store::forgery_max_generation(&*stx.world)));
@@ -211,7 +212,13 @@ fn quarantined_retirement_requires_the_single_completed_reconciliation_window() 
             },
         )],
     };
-    let premature = enact(&mut stx, &retire, [3; 32], cause);
+    let premature = enact(
+        &mut stx,
+        cause.certificate_id,
+        cause.effect_hash,
+        S0,
+        &retire,
+    );
     assert!(
         premature.is_err(),
         "SCCP quarantined retirement must await reconciliation"
@@ -222,10 +229,35 @@ fn quarantined_retirement_requires_the_single_completed_reconciliation_window() 
             .to_string()
             .contains("reconciled before retirement")
     );
-    enact(&mut stx, &opening, [4; 32], cause).unwrap();
+    enact(
+        &mut stx,
+        cause.certificate_id,
+        cause.effect_hash,
+        S0,
+        &opening,
+    )
+    .unwrap();
     assert!(!reconciliation::is_reconciled(&*stx.world, NETWORK, 1));
-    assert!(enact(&mut stx, &opening, [4; 32], cause).is_err());
-    assert!(enact(&mut stx, &retire, [3; 32], cause).is_err());
+    assert!(
+        enact(
+            &mut stx,
+            cause.certificate_id,
+            cause.effect_hash,
+            S0,
+            &opening
+        )
+        .is_err()
+    );
+    assert!(
+        enact(
+            &mut stx,
+            cause.certificate_id,
+            cause.effect_hash,
+            S0,
+            &retire
+        )
+        .is_err()
+    );
     assert!(!reconciliation::end_one(&mut stx, NETWORK, 1).unwrap());
     stx.apply();
     block.commit_world_overlay_for_testing().unwrap();
@@ -235,7 +267,14 @@ fn quarantined_retirement_requires_the_single_completed_reconciliation_window() 
     // its original higher-rank receipt before it can call this reducer.
     assert!(reconciliation::end_one(&mut stx, NETWORK, 1).unwrap());
     assert!(reconciliation::is_reconciled(&*stx.world, NETWORK, 1));
-    enact(&mut stx, &retire, [3; 32], cause).unwrap();
+    enact(
+        &mut stx,
+        cause.certificate_id,
+        cause.effect_hash,
+        S0,
+        &retire,
+    )
+    .unwrap();
     let route = store::routes::get(&*stx.world, &NETWORK).unwrap();
     assert_eq!(
         route.revisions[&1].activation,

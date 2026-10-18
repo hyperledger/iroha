@@ -2,7 +2,7 @@
 
 use super::*;
 
-pub(crate) struct BootstrapStepV1 {
+pub struct BootstrapStepV1 {
     pub(crate) state: KagemushaWalletStateV1,
     pub(crate) statement: KagemushaWalletStatementV1,
     pub(crate) witness: BootstrapWitness,

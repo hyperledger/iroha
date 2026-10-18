@@ -2094,7 +2094,7 @@ mod handle_update_tests {
             .expect("first progress post must be queued");
         assert!(matches!(
             &first.message,
-            Some(AdmittedNetworkPayload::Unsigned(NetworkMessage::Post(
+            Some(AdmittedNetworkPayload::Pending(NetworkMessage::Post(
                 Post {
                     priority: Priority::High,
                     ..
@@ -2323,7 +2323,7 @@ mod handle_update_tests {
             .expect("responsive target is independently admitted");
         assert!(matches!(
             &second.message,
-            Some(AdmittedNetworkPayload::Unsigned(NetworkMessage::Post(Post { peer_id, .. })))
+            Some(AdmittedNetworkPayload::Pending(NetworkMessage::Post(Post { peer_id, .. })))
                 if peer_id == &responsive_peer
         ));
         drop(first);

@@ -35,7 +35,6 @@ cuda = ["ivm/cuda"]
 [dependencies]
 p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa"] }
 iroha_core_privacy = { workspace = true, default-features = false, features = ["zk-stark"] }
-iroha_core_timed_ovn = { workspace = true }
 iroha_model_base = { workspace = true }
 norito = { path = "../norito", version = "2.0.0-rc.2.0", default-features = false, features = ["node-codec"] }
 # The production bridge selects the complete Halo2/IPA circuit-parameter and
@@ -72,7 +71,6 @@ tempfile = { workspace = true }
 [dev-dependencies]
 iroha_core_zk = { workspace = true, default-features = false, features = ["test-utils"] }
 iroha_core_privacy = { workspace = true, default-features = false, features = ["test-utils"] }
-iroha_core_timed_ovn = { workspace = true, features = ["test-utils"] }
 # Synthetic portable-proof fixtures remain test-only; production exports no fixture constructors.
 iroha_data_model = { workspace = true, default-features = false, features = ["test-fixtures", "transparent_api"] }
 iroha_core = { path = "../iroha_core", default-features = false, features = ["node", "iroha-core-tests"] }

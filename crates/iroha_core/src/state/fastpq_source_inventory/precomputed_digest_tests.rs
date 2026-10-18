@@ -82,7 +82,8 @@ fn invalid_supplied_digest_is_preserved_and_failure_latches_before_publication()
     assert!(block.parliament_timed_ovn_casting_bindings.is_none());
 
     // A caller cannot repair the original failure by retrying a smaller archive.
-    block.fastpq_transcripts.clear();
+    super::tests::assert_completed_state_refuses_mutation(|| block.fastpq_transcripts.clear());
+    assert_eq!(block.fastpq_transcripts, before);
     assert!(
         block
             .finalize_fastpq_source_inventory(&[], &[], &[])
@@ -199,7 +200,10 @@ fn missing_or_zero_wire_commitment_latches_before_any_digest_finalization() {
             assert!(block.fastpq_entry_dataspaces.is_empty());
 
             // Supplying the missing authority later cannot repair a latched failure.
-            cache_canonical_test_transaction_set(&mut block, &[]);
+            super::tests::assert_completed_state_refuses_mutation(|| {
+                cache_canonical_test_transaction_set(&mut block, &[]);
+            });
+            assert_eq!(block.fastpq_tx_set_hash, invalid_commitment);
             assert!(
                 block
                     .finalize_fastpq_source_inventory_with_pending(&[], &[], &[], None)

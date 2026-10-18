@@ -538,7 +538,7 @@ fn evm_deployment_refuses_another_creation_code_proxy_or_salt() {
 
 #[test]
 fn validated_deployments_do_not_open_missing_launch_authority() {
-    use crate::smartcontracts::isi::sccp::{controls::ControlCauseV1, escrow, governance};
+    use crate::smartcontracts::isi::sccp::{escrow, governance};
     use iroha_data_model::sccp::{
         governance::{SccpGovernanceActionV1, SccpGovernanceProposalV1, SccpGovernanceSubjectV1},
         params::SccpParametersV1,
@@ -573,9 +573,14 @@ fn validated_deployments_do_not_open_missing_launch_authority() {
         let events = stx.world.internal_event_buf.len();
         let error = governance::enact(
             &mut stx,
+            [2; 32],
+            [3; 32],
+            iroha_data_model::governance::GovernanceAnchorV1 {
+                height: 1,
+                position: 0,
+                timestamp_ms: 1,
+            },
             &proposal,
-            [1; 32],
-            ControlCauseV1::for_test([2; 32], [3; 32]),
         )
         .unwrap_err();
         assert!(

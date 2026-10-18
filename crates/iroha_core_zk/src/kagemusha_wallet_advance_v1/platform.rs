@@ -735,7 +735,7 @@ pub fn kagemusha_wallet_native_boot_id_v1() -> Result<[u8; 32], KagemushaWalletU
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
-        // TODO(G2-iOS): the Swift adapter supplies `kern.bootsessionuuid` via `boot_id`.
+        // The Swift adapter supplies `kern.bootsessionuuid` via `boot_id`.
         Err(KagemushaWalletUnavailableV1::Platform(0))
     }
 }

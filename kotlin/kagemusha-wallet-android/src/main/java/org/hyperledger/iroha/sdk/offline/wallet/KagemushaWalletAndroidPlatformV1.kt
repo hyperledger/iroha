@@ -13,9 +13,9 @@ import org.hyperledger.iroha.sdk.crypto.keystore.attestation.AttestationResult
 import org.hyperledger.iroha.sdk.offline.KagemushaWalletEnrollmentRefusalV1
 
 // Rust JNI retains this opaque object and calls nativeCall from attached worker threads.
-// TODO(G3/G4): authenticated operation/Λ/Ω artifact loading still gates native wallet open.
-// TODO(G2-android): declare `android:manageSpaceActivity` with a custody warning screen so
-// Settings > Storage offers "Manage space" instead of silently clearing custody (device test).
+// Native installation authenticates the complete operation/Λ/Ω catalog before wallet admission.
+// Host apps may provide android:manageSpaceActivity as optional storage UX. Wallet-controlled
+// custody deletion requires an explicit destructive warning (§1.2); OS clear-data is not recovery.
 
 /**
  * Opaque Android platform handle of the KAGEMUSHA wallet `Advance` provider (spec §§1.2, 2.2,

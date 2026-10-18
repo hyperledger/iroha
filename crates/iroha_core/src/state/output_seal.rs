@@ -1,6 +1,15 @@
 //! Consuming common output attachment, preserving State ownership on every exit.
 //! Sealed actual outputs join the original witness and durable finality before
 //! one deterministic metadata tail can authorize their exact journal publication.
+//!
+//! Generic mutable projection and child acquisition end at Sealed. Witness cache
+//! bookkeeping and input extraction use their existing private owners. After exact
+//! durable authorization, the private finalizer exclusively borrows State through
+//! Finalizing and returns only Finalized or Poisoned; ordinary callers cannot retain
+//! a writable tail. Refusing a late caller does not poison the intact original output.
+//! TODO: retain the complete original pre-tail byte/change stream and join the
+//! selected keyed engine to publication and authenticated recovery. This boundary
+//! alone grants neither a complete State root nor committed local-policy validity.
 
 use super::*;
 use crate::queue::RoutingDecision;
@@ -68,7 +77,11 @@ struct SealOwner<'owner, 'state> {
 impl Drop for SealOwner<'_, '_> {
     fn drop(&mut self) {
         if !self.finished {
-            self.state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            self.state
+                .fields
+                .as_mut()
+                .expect("original execution output owner")
+                .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
         }
     }
 }
@@ -117,7 +130,13 @@ impl StateBlock<'_> {
             return Ok(());
         }
         let surface = crate::state::output_publication::FinalizedPublicationSurface::capture(self)?;
-        let Some(plan) = self.execution_output_plan.as_mut() else {
+        let Some(plan) = self
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
+            .execution_output_plan
+            .as_mut()
+        else {
             return Ok(());
         };
         let ExecutionOutputPlanState::Sealed(sealed) = plan else {
@@ -188,11 +207,19 @@ impl StateBlock<'_> {
                 "the durable block or its certificate differs from the committed one".into(),
             );
         }
-        let Some(ExecutionOutputPlanState::Sealed(sealed)) = self.execution_output_plan.take()
+        let Some(ExecutionOutputPlanState::Sealed(sealed)) = self
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
+            .execution_output_plan
+            .take()
         else {
             unreachable!("exclusive borrow retains the checked seal")
         };
-        self.execution_output_plan = Some(ExecutionOutputPlanState::Authorized(
+        self.fields
+            .as_mut()
+            .expect("original execution output owner")
+            .execution_output_plan = Some(ExecutionOutputPlanState::Authorized(
             AuthorizedExecutionOutputs {
                 sealed,
                 finality_hash: HashOf::new(certificate).into(),
@@ -231,10 +258,16 @@ impl StateBlock<'_> {
     ) -> Result<Vec<iroha_data_model::events::EventBox>, crate::state::MergeLedgerCommitError> {
         let invalid = crate::state::MergeLedgerCommitError::ExecutionBatchInvalid;
         let Some(ExecutionOutputPlanState::Authorized(authorized)) = self
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
             .execution_output_plan
             .replace(ExecutionOutputPlanState::Finalizing)
         else {
-            self.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            self.fields
+                .as_mut()
+                .expect("original execution output owner")
+                .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
             return Err(invalid(
                 "execution publication lacks exact durable finality authorization".into(),
             ));
@@ -273,12 +306,14 @@ impl StateBlock<'_> {
         let surface = state
             .prepare_finalized_publication_surface()
             .map_err(invalid)?;
-        state.execution_output_plan = Some(ExecutionOutputPlanState::Finalized(
+        state
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
+            .execution_output_plan = Some(ExecutionOutputPlanState::Finalized(
             FinalizedExecutionOutputs {
                 authorized,
                 surface: Box::new(surface),
-                _events_hash: crate::state::world_projection::hash_value(&events)
-                    .map_err(invalid)?,
             },
         ));
         owner.finished = true;
@@ -367,7 +402,10 @@ impl StateBlock<'_> {
                 _ => None,
             };
             if let Some(rejection) = rejection {
-                self.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+                self.fields
+                    .as_mut()
+                    .expect("original execution output owner")
+                    .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
                 return Err(ExecutionOutputSealError::RejectedGenesis(rejection));
             }
         }
@@ -390,10 +428,16 @@ impl StateBlock<'_> {
         self.require_storage_admission()
             .map_err(ExecutionOutputSealError::Storage)?;
         let Some(ExecutionOutputPlanState::Retained(retained)) = self
+            .fields
+            .as_mut()
+            .expect("original execution output owner")
             .execution_output_plan
             .replace(ExecutionOutputPlanState::Sealing)
         else {
-            self.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            self.fields
+                .as_mut()
+                .expect("original execution output owner")
+                .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
             return Err("output seal requires one retained actual execution".into());
         };
         let mut owner = SealOwner {
@@ -522,12 +566,20 @@ impl StateBlock<'_> {
         })();
         match result {
             Ok(sealed) => {
-                state.execution_output_plan = Some(ExecutionOutputPlanState::Sealed(sealed));
+                state
+                    .fields
+                    .as_mut()
+                    .expect("original execution output owner")
+                    .execution_output_plan = Some(ExecutionOutputPlanState::Sealed(sealed));
                 owner.finished = true;
                 Ok(())
             }
             Err(error) => {
-                state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+                state
+                    .fields
+                    .as_mut()
+                    .expect("original execution output owner")
+                    .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
                 Err(error)
             }
         }
@@ -557,5 +609,67 @@ impl StateBlock<'_> {
         }
         self.verified_fastpq_source_inventory_for_capture()?;
         Ok(())
+    }
+}
+
+// Extraction moves only completed native inputs; it never reopens State journals.
+impl StateBlock<'_> {
+    /// Move the exact canonical fields and original allocation ledger into execution-result
+    /// custody. The result builder retains this owner across validation, publication and replay.
+    pub(crate) fn take_sumeragi_execution_inputs(
+        &mut self,
+    ) -> Result<
+        iroha_allocation::RetainedPayload<crate::sumeragi::schedule::NativeExecutionInputs>,
+        crate::sumeragi::schedule::ScheduleError,
+    > {
+        let step = std::mem::take(
+            &mut self
+                .fields
+                .as_mut()
+                .expect("original native input owner")
+                .sumeragi_schedule,
+        );
+        match step {
+            crate::sumeragi::schedule::ScheduleStep::Done(inputs) => Ok(inputs),
+            other => {
+                self.fields
+                    .as_mut()
+                    .expect("original native input owner")
+                    .sumeragi_schedule = other;
+                Err(crate::sumeragi::schedule::ScheduleError::NotAdvanced)
+            }
+        }
+    }
+
+    /// The outcome of the requested step.
+    ///
+    /// # Errors
+    /// The step failed or never ran.
+    pub(crate) fn take_sumeragi_lanes(
+        &mut self,
+    ) -> Result<(), crate::sumeragi::lanes::step::LaneStepError> {
+        match std::mem::take(
+            &mut self
+                .fields
+                .as_mut()
+                .expect("original lane result owner")
+                .sumeragi_lanes_step,
+        ) {
+            crate::sumeragi::lanes::step::LaneStep::Done => Ok(()),
+            crate::sumeragi::lanes::step::LaneStep::Off
+            | crate::sumeragi::lanes::step::LaneStep::Requested(_) => {
+                Err(crate::sumeragi::lanes::step::LaneStepError::NotAdvanced)
+            }
+            crate::sumeragi::lanes::step::LaneStep::FailedOwnerMoved => {
+                self.fields
+                    .as_mut()
+                    .expect("original lane result owner")
+                    .sumeragi_lanes_step = crate::sumeragi::lanes::step::LaneStep::FailedOwnerMoved;
+                Err(crate::execution_attempt::ExecutionDeferred::from(
+                    ivm::error::ExecutionDeferral::LocalInvariantViolation,
+                )
+                .into())
+            }
+        }
     }
 }

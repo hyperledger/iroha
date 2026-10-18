@@ -15,6 +15,9 @@
 // - `control_v1.json`: every step of every destination-effect scenario, the
 //   rejected controls certified by the model, and every recorded control leaf
 //   of an EVM target applied on its own chain;
+// - `payload_v1.json`, `commitment_tree_v1.json`, `history_v1.json` and
+//   `native_transfer_event_v1.json`: every EVM payload direction/refusal, every
+//   tree/history root and path, confusion negatives, and ETH/BSC event bytes;
 // - `evm_calldata_v1.json`: every selector, topic, golden call, view, return
 //   and log, the P4 CREATE2 sample, and every `calldata_conformance` entry.
 //
@@ -54,6 +57,7 @@ const { describe, it } = require("node:test");
 const m = require("./sccp_v1_model.js");
 const h = require("./sccp_edr_harness.js");
 const r = require("./sccp_replay.js");
+const shared = require("./sccp_shared_vectors.js");
 
 const { ethers, REPO } = m;
 const { ethereum: ETHEREUM, bsc: BSC } = m.PROFILES;
@@ -169,6 +173,7 @@ function expectedRows() {
   const conformance = CONFORMANCE.map((entry) => `${entry.function}/${entry.label}`);
   const controlsOf = (profile) => CONTROL.controls.filter((row) => row.target === profile.network).map(controlRowId);
   const rows = {
+    ...shared.expectedRows(),
     "ethereum/finality.headers.valid": labels(FINALITY.headers.valid),
     "ethereum/finality.headers.invalid": labels(FINALITY.headers.invalid),
     "ethereum/transitions.steps": stepIds(EVM_SCENARIOS),
@@ -253,7 +258,7 @@ function appliedControl(row, at) {
  * the destination is moved to that address and Taira's leaves name it;
  * `target` selects the build (`sccp_replay.js`).
  */
-async function modelDestination({ hardfork, profile, revision = 1, relocateTo, signedBy, target }) {
+async function modelDestination({ hardfork, profile, revision = 1, relocateTo, signedBy, target, at = T0 }) {
   const pinned = signedBy ?? m.committee("M", [...MODEL_COMMITTEE_KEYS]);
   const deployment = {
     tairaNetworkId: CONTROL.taira_network_id,
@@ -264,9 +269,9 @@ async function modelDestination({ hardfork, profile, revision = 1, relocateTo, s
     initialGeneration: 5n,
     initialCommitteeRoot: pinned.root,
     initialStartHeight: 1000n,
-    initialUntilMs: T0 * 1000n + VALIDITY_MS,
+    initialUntilMs: at * 1000n + VALIDITY_MS,
   };
-  const { chain, destination } = await r.openDestination({ hardfork, profile, deployment, at: T0, relocateTo, target });
+  const { chain, destination } = await r.openDestination({ hardfork, profile, deployment, at, relocateTo, target });
   const taira = new m.TairaModel({
     networkId: deployment.tairaNetworkId,
     instance: deployment.consensusInstance,
@@ -378,6 +383,7 @@ function rustGoldenScenario() {
 
 describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () => {
   it("pins the row counts of every fixture this suite replays", () => {
+    shared.pinRows();
     const count = (rows, keep) => rows.filter(keep).length;
     const measured = {
       "finality.test_keys": FINALITY.test_keys.length,
@@ -2134,6 +2140,27 @@ for (const hardfork of HARDFORKS) {
         }
       });
     }
+
+    // -- payload/tree/history/native-event shared fixtures ----------------------
+
+    it("replays every applicable payload direction and every refusal through the EVM helpers", async () => {
+      await shared.replayPayloads(hardfork, ledger, modelDestination);
+    });
+    it("replays every commitment-tree root and path and every confusion negative", async () => {
+      await shared.replayTrees(hardfork, ledger, modelDestination);
+    });
+    it("replays every history root and positional path through the block-reference verifier", async () => {
+      await shared.replayHistory(hardfork, ledger, modelDestination);
+    });
+    it("emits the ETH/BSC native transfer and void golden topics and data", async () => {
+      await shared.replayNativeEvents(hardfork, ledger, modelDestination);
+    });
+    it("replays shared fast-pause controls, expiry, clamp and stale-nonce outcomes", async () => {
+      await shared.replayFastPause(hardfork, ledger, modelDestination);
+    });
+    it("binds every shared forgery evidence id to the contract's exact Commit digest", async () => {
+      await shared.replayForgeryIds(hardfork, ledger, modelDestination);
+    });
 
     // -- coverage ---------------------------------------------------------------
 

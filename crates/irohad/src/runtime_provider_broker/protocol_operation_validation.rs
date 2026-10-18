@@ -221,8 +221,6 @@ const fn operation_semantic_frame_limit(operation: u16) -> usize {
             MAX_BOOTLE_LANTERN_ISSUANCE_FRAME_BYTES_V1
         }
         OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1
-        | OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1
-        | OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1
         | OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1
         | OPERATION_GLOBAL_BEACON_SEAT_READINESS_V1 => MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
         _ => MAX_BROKER_UNARY_FRAME_BYTES_V1,
@@ -233,8 +231,6 @@ const fn operation_frame_limit(operation: u16) -> usize {
     let broker_limit = match operation {
         OPERATION_SIGN_V1 => MAX_GOVERNANCE_SIGNING_FRAME_BYTES_V1,
         OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1
-        | OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1
-        | OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1
         | OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1
         | OPERATION_GLOBAL_BEACON_SEAT_READINESS_V1 => MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
         OPERATION_SEALED_LOAD_V1
@@ -404,8 +400,6 @@ const fn operation_is_known(operation: u16) -> bool {
             | OPERATION_BOOTLE_LANTERN_ISSUANCE_VALIDATE_REQUEST_V1
             | OPERATION_BOOTLE_LANTERN_ISSUANCE_ISSUE_VALIDATED_V1
             | OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1
-            | OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1
-            | OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1
             | OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1
             | OPERATION_GLOBAL_BEACON_SEAT_READINESS_V1
     )
@@ -1125,81 +1119,6 @@ fn decode_global_beacon_seat_readiness_request(
     Ok((request, session))
 }
 
-fn decode_parliament_tle_partial_release_sign_request(
-    payload: &[u8],
-    session_network_id: &NetworkId,
-) -> Result<
-    (
-        ParliamentTlePartialReleaseSignRequestWireV1,
-        iroha_core_timed_ovn::tle::ValidatedTleReleaseProjectionV1,
-    ),
-    BrokerError,
-> {
-    let request = decode_canonical::<ParliamentTlePartialReleaseSignRequestWireV1>(
-        payload,
-        MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-    )?;
-    if request.projection.key_session.network_id != *session_network_id.as_bytes() {
-        return Err(BrokerError::BindingMismatch);
-    }
-    let projection = request
-        .projection
-        .clone()
-        .validate()
-        .map_err(|_| BrokerError::Rejected)?;
-    Ok((request, projection))
-}
-
-fn decode_parliament_tle_capability_attest_request(
-    payload: &[u8],
-    session_network_id: &NetworkId,
-) -> Result<
-    (
-        ParliamentTleCapabilityAttestRequestWireV1,
-        iroha_core_timed_ovn::tle::ValidatedTleKeySessionV1,
-    ),
-    BrokerError,
-> {
-    let request = decode_canonical::<ParliamentTleCapabilityAttestRequestWireV1>(
-        payload,
-        MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-    )?;
-    if request.key_session.network_id != *session_network_id.as_bytes() {
-        return Err(BrokerError::BindingMismatch);
-    }
-    let session = request
-        .key_session
-        .clone()
-        .validate()
-        .map_err(|_| BrokerError::Rejected)?;
-    iroha_core::tle_release::TlePartialReleaseCapabilityAttestationV1::for_validated_session(
-        &session,
-        request.participant_index,
-    )
-    .map_err(|_| BrokerError::Rejected)?;
-    Ok((request, session))
-}
-
-fn verify_parliament_tle_capability_attest_result(
-    session: &iroha_core_timed_ovn::tle::ValidatedTleKeySessionV1,
-    participant_index: u16,
-    result: &ParliamentTleCapabilityAttestResultWireV1,
-) -> Result<(), BrokerError> {
-    let expected =
-        iroha_core::tle_release::TlePartialReleaseCapabilityAttestationV1::for_validated_session(
-            session,
-            participant_index,
-        )
-        .map_err(|_| BrokerError::Rejected)?;
-    if result.key_session_id != expected.key_session_id()
-        || result.transcript_hash != expected.transcript_hash()
-        || result.participant_index != expected.participant_index()
-    {
-        return Err(BrokerError::Rejected);
-    }
-    Ok(())
-}
-
 fn decode_global_beacon_capability_attest_request(
     payload: &[u8],
     session_network_id: &NetworkId,
@@ -1253,20 +1172,6 @@ fn verify_global_beacon_capability_attest_result(
     Ok(())
 }
 
-fn verify_parliament_tle_partial_release_result(
-    projection: &iroha_core_timed_ovn::tle::ValidatedTleReleaseProjectionV1,
-    partial: &iroha_core_timed_ovn::tle::TlePartialReleaseShareV1,
-) -> Result<(), BrokerError> {
-    projection
-        .session()
-        .verify_partial_release(
-            projection.identity(),
-            projection.finalized_height(),
-            partial,
-        )
-        .map(|_| ())
-        .map_err(|_| BrokerError::Rejected)
-}
 include!("governance_request_ingress.rs");
 include!("validate_operation_payload.rs");
 fn validate_operation_response(
@@ -1302,14 +1207,6 @@ fn validate_operation_response_for_client(
         (request.binding.slot, request.operation),
         (slot, OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1 | OPERATION_GLOBAL_BEACON_SEAT_READINESS_V1)
             if slot == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id()
-    ) || matches!(
-        (request.binding.slot, request.operation),
-        (slot, OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1)
-            if slot == IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id()
-    ) || matches!(
-        (request.binding.slot, request.operation),
-        (slot, OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1)
-            if slot == IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id()
     ) || matches!(
         (request.binding.slot, request.operation),
         (slot, OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1)
@@ -1690,11 +1587,8 @@ fn validate_operation_result(
                 validate_stream_token_metadata_result(&request.binding, result)?;
             }
             OPERATION_QUALIFY_V1
-                if matches!(
-                    request.binding.slot,
-                    slot if slot == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id()
-                        || slot == IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id()
-                ) =>
+                if request.binding.slot
+                    == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id() =>
             {
                 let qualification = decode_canonical::<QualificationResultWireV1>(
                     result,
@@ -1739,44 +1633,6 @@ fn validate_operation_result(
                     MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
                 )?;
                 iroha_core::beacon::seat_readiness::verify_global_threshold_beacon_seat_readiness_v1(&session, &prepared.authority, &prepared.context, &signed.partial).map_err(|_| BrokerError::Protocol)?;
-            }
-            OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1 => {
-                if request.binding.slot
-                    != IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id()
-                {
-                    return Err(BrokerError::BindingMismatch);
-                }
-                let (_, projection) = decode_parliament_tle_partial_release_sign_request(
-                    &request.payload,
-                    session_network_id,
-                )?;
-                let signed = decode_canonical::<ParliamentTlePartialReleaseSignResultWireV1>(
-                    result,
-                    MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-                )?;
-                verify_parliament_tle_partial_release_result(&projection, &signed.partial)
-                    .map_err(|_| BrokerError::Protocol)?;
-            }
-            OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1 => {
-                if request.binding.slot
-                    != IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id()
-                {
-                    return Err(BrokerError::BindingMismatch);
-                }
-                let (attest, session) = decode_parliament_tle_capability_attest_request(
-                    &request.payload,
-                    session_network_id,
-                )?;
-                let result = decode_canonical::<ParliamentTleCapabilityAttestResultWireV1>(
-                    result,
-                    MAX_CONSENSUS_SIGNER_FRAME_BYTES_V1,
-                )?;
-                verify_parliament_tle_capability_attest_result(
-                    &session,
-                    attest.participant_index,
-                    &result,
-                )
-                .map_err(|_| BrokerError::Protocol)?;
             }
             OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1 => {
                 if request.binding.slot

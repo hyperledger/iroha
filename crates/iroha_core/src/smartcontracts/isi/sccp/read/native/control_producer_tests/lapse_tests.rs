@@ -1,8 +1,8 @@
-//! Actual Global lapse consumers over the paid due-certificate fixture.
+//! Actual Global lapse consumers over the paid control-component fixture.
 //!
-//! The pause and route are pre-genesis component facts. The H60 Parliament confirmation,
-//! native output, subsequent lapse/cancellation and publication all execute normally;
-//! these controls do not qualify the missing panel or casting-open producers.
+//! The pause, route and Parliament-track control are pre-genesis component facts. The H60
+//! native output, subsequent lapse/cancellation and publication execute normally; these
+//! controls do not qualify Parliament enactment or the missing panel/casting-open producers.
 
 use super::*;
 use crate::smartcontracts::isi::sccp::{hold, pause_record::RetainedSccpFastPause};
@@ -99,7 +99,7 @@ fn assert_confirmation_unchanged(
     let revision = &store::routes::get(world, &ETH).unwrap().revisions[&1];
     assert!(
         revision.destination_paused,
-        "actual Parliament confirmation survives lapse"
+        "the component's Parliament-track confirmation survives lapse"
     );
     assert_eq!(revision.next_control_nonce, 2);
     assert_eq!(revision.activation, SccpRouteActivationV1::Bidirectional);

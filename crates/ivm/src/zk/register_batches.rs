@@ -5,10 +5,69 @@
 //! logger; nested work partitions already admitted credit. Callback masks and
 //! repeated installation of the same logger move its quota, never duplicate it.
 //! A different VM suspends the original invocation with its quota intact.
+//!
+//! A process-wide count of live event-capable scopes lets every register
+//! access and batch skip the TLS lookup while no thread can emit events. Any
+//! live scope falls back to the exact per-thread policy below.
 
 use super::{RegEvent, SharedRegLog};
 use crate::VMError;
-use std::{cell::RefCell, marker::PhantomData, rc::Rc};
+use std::{
+    cell::RefCell,
+    marker::PhantomData,
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+/// Live scopes, on any thread, installed with a logger that may emit events.
+///
+/// A thread's own increment precedes its TLS installation and its decrement
+/// follows TLS restoration, so a thread with an enabled scope always observes
+/// a non-zero count. Zero therefore proves that no TLS state on the reading
+/// thread can emit an event or admit batch rows; masks keep their count.
+static EVENT_SCOPES: EventScopeCounter = EventScopeCounter(AtomicUsize::new(0));
+
+/// Keep the read-mostly counter off cache lines that other statics write.
+#[repr(align(128))]
+struct EventScopeCounter(AtomicUsize);
+
+#[cfg(test)]
+thread_local! {
+    /// This thread's share of [`EVENT_SCOPES`], for deterministic balance tests.
+    static THREAD_EVENT_SCOPES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether no thread holds a scope whose logger may emit register events.
+#[inline]
+fn no_event_scopes() -> bool {
+    EVENT_SCOPES.0.load(Ordering::Relaxed) == 0
+}
+
+/// One counted event-capable scope. It is created before its TLS state is
+/// installed and, as a guard field, dropped only after that state is restored,
+/// including during unwinding.
+struct EventScopeCount {
+    _not_send_or_sync: PhantomData<Rc<()>>,
+}
+
+impl EventScopeCount {
+    fn new() -> Self {
+        EVENT_SCOPES.0.fetch_add(1, Ordering::Relaxed);
+        #[cfg(test)]
+        THREAD_EVENT_SCOPES.with(|count| count.set(count.get() + 1));
+        Self {
+            _not_send_or_sync: PhantomData,
+        }
+    }
+}
+
+impl Drop for EventScopeCount {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        THREAD_EVENT_SCOPES.with(|count| count.set(count.get() - 1));
+        EVENT_SCOPES.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 #[derive(Default)]
 enum Quota {
@@ -51,6 +110,8 @@ fn same_log(left: Option<&SharedRegLog>, right: Option<&SharedRegLog>) -> bool {
 pub(crate) struct RegLoggerGuard {
     previous: Option<State>,
     transfer_quota: bool,
+    // Dropped after `Drop::drop` restores the previous TLS state.
+    _event_scope: Option<EventScopeCount>,
     _not_send_or_sync: PhantomData<Rc<()>>,
 }
 
@@ -59,6 +120,7 @@ impl RegLoggerGuard {
     /// the same logger retains its existing quota rather than making new credit.
     pub(crate) fn install(log: Option<SharedRegLog>) -> Self {
         let logging_enabled = log.is_some();
+        let event_scope = logging_enabled.then(EventScopeCount::new);
         let (previous, transfer_quota) = LOGGER.with(|slot| {
             let mut local = slot.borrow_mut();
             let mut previous = local.state.take();
@@ -80,6 +142,7 @@ impl RegLoggerGuard {
         Self {
             previous,
             transfer_quota,
+            _event_scope: event_scope,
             _not_send_or_sync: PhantomData,
         }
     }
@@ -101,6 +164,7 @@ impl RegLoggerGuard {
         Self {
             previous,
             transfer_quota,
+            _event_scope: None,
             _not_send_or_sync: PhantomData,
         }
     }
@@ -159,6 +223,9 @@ pub(crate) fn scoped_reg_logger() -> Option<SharedRegLog> {
 
 /// Obtain the original logger only if the current scope may emit an event.
 pub(crate) fn event_reg_logger() -> Option<SharedRegLog> {
+    if no_event_scopes() {
+        return None;
+    }
     LOGGER.with(|slot| {
         slot.borrow()
             .state
@@ -195,6 +262,14 @@ impl RegEventBatch {
     /// Allocation refusal is possible only at an outer boundary. Reentrant
     /// preparation and a child exceeding its parent are rejected before entry.
     pub(crate) fn begin(rows: usize) -> Result<Self, VMError> {
+        if no_event_scopes() {
+            // No thread-local scope can be enabled, so the TLS lookup below
+            // would also return an inactive batch.
+            return Ok(Self {
+                active: None,
+                _not_send_or_sync: PhantomData,
+            });
+        }
         let active = LOGGER.with(|slot| {
             let mut local = slot.borrow_mut();
             let Some(state) = local.state.as_ref().filter(|state| state.logging_enabled) else {
@@ -330,7 +405,18 @@ impl Drop for RegEventBatch {
 /// Emit exactly one event from a previously admitted batch. The event builder
 /// runs only for an enabled logger, after releasing TLS and before the logger
 /// mutex. Fixed register Merkle paths require no fallible allocation here.
+///
+/// Every register access calls this; while no thread holds an event-capable
+/// scope it returns after one relaxed load, without touching TLS.
+#[inline]
 pub(crate) fn record_register_event(build: impl FnOnce() -> RegEvent) {
+    if no_event_scopes() {
+        return;
+    }
+    record_scoped_register_event(build);
+}
+
+fn record_scoped_register_event(build: impl FnOnce() -> RegEvent) {
     let log = LOGGER.with(|slot| {
         let mut local = slot.borrow_mut();
         let state = local.state.as_mut().filter(|state| state.logging_enabled)?;

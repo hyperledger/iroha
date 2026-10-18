@@ -219,7 +219,7 @@ fn unload_uses_adjusted_value_and_exact_paths_and_matches_the_strict_sigma() {
         source.lineage.pending_outgoing_root
     );
     assert_eq!(derived.state.core.next_redeem, 8);
-    let mut restored = derived.state.clone();
+    let mut restored = derived.state;
     restored.core.balance = source.before.core.balance;
     restored.core.burned_total = source.before.core.burned_total;
     restored.core.pending_outgoing_root = source.before.core.pending_outgoing_root;
@@ -259,7 +259,7 @@ fn retiring_synchronizes_lineage_without_removing_value_or_pending_claims() {
         derived.state.core.pending_outgoing_root,
         source.lineage.pending_outgoing_root
     );
-    let mut restored = derived.state.clone();
+    let mut restored = derived.state;
     restored.core.lifecycle = source.before.core.lifecycle;
     restored.core.burned_total = source.before.core.burned_total;
     restored.core.pending_outgoing_root = source.before.core.pending_outgoing_root;

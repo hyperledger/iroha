@@ -6,6 +6,12 @@ import XCTest
 // Fixtures use the same current Rust wire schema as explorer_history.rs. These
 // helpers author complete frames; no retired JSON instruction representation is
 // accepted by the production decoder.
+func explorerAccountFixture(seed: UInt8) throws -> String {
+    let keypair = try Keypair(privateKeyBytes: Data(repeating: seed, count: 32))
+    return try AccountAddress.fromAccount(publicKey: keypair.publicKey)
+        .toI105(networkPrefix: AccountId.defaultNetworkPrefix)
+}
+
 func explorerInstructionBoxFixture(frame: Data, wireId: String) throws -> String {
     let box: [String: String] = [
         "wire_id": wireId,
@@ -26,6 +32,12 @@ func explorerInstructionFixtureFrame(wireId: String, schema: String, payload: Da
 
 func explorerTransferBoxFixture(sourceAssetId: String, destination: String, amount: String,
                                 kind: String = "Transfer") throws -> String {
+    try explorerTransferBoxFixture(sourceAssetId: sourceAssetId, destination: destination,
+        quantityPayload: CanonicalNorito.encodeCompactQuantity(amount), kind: kind)
+}
+
+func explorerTransferBoxFixture(sourceAssetId: String, destination: String, quantityPayload: Data,
+                                kind: String = "Transfer") throws -> String {
     let parts = sourceAssetId.split(separator: "#", omittingEmptySubsequences: false)
     guard parts.count >= 2 else { throw ToriiClientError.invalidPayload("fixture requires a full AssetId") }
     var source = CompactNoritoWriter()
@@ -41,7 +53,7 @@ func explorerTransferBoxFixture(sourceAssetId: String, destination: String, amou
     source.writeField(scope.data)
     var body = CompactNoritoWriter()
     if kind == "Transfer" { body.writeField(source.data) }
-    body.writeField(try CanonicalNorito.encodeCompactQuantity(amount))
+    body.writeField(quantityPayload)
     body.writeField(kind == "Transfer"
         ? try CanonicalNorito.encodeCompactAccountId(destination) : source.data)
     var payload = CompactNoritoWriter()
@@ -56,6 +68,12 @@ func explorerTransferBoxFixture(sourceAssetId: String, destination: String, amou
 }
 
 func explorerBatchBoxFixture(_ entries: [(String, String, String, String)]) throws -> String {
+    try explorerBatchBoxFixture(quantities: entries.map {
+        ($0.0, $0.1, $0.2, try CanonicalNorito.encodeCompactQuantity($0.3))
+    })
+}
+
+func explorerBatchBoxFixture(quantities entries: [(String, String, String, Data)]) throws -> String {
     var vector = CompactNoritoWriter()
     vector.writeUInt64LE(UInt64(entries.count))
     for (index, entry) in entries.enumerated() {
@@ -64,7 +82,7 @@ func explorerBatchBoxFixture(_ entries: [(String, String, String, String)]) thro
         body.writeField(try CanonicalNorito.encodeCompactAccountId(entry.0))
         body.writeField(try CanonicalNorito.encodeCompactAccountId(entry.1))
         body.writeField(try CanonicalNorito.encodeCompactAssetDefinitionId(entry.2))
-        body.writeField(try CanonicalNorito.encodeCompactQuantity(entry.3))
+        body.writeField(entry.3)
         vector.writeField(body.data)
     }
     var payload = CompactNoritoWriter()

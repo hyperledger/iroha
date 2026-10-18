@@ -1,0 +1,2190 @@
+{
+  "constants": {
+    "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "revision_map": [
+      {
+        "revision": 1,
+        "subject": {
+          "kind": "route",
+          "network": "ethereum-mainnet"
+        }
+      },
+      {
+        "revision": 2,
+        "subject": {
+          "kind": "route",
+          "network": "bsc-mainnet"
+        }
+      },
+      {
+        "revision": 3,
+        "subject": {
+          "kind": "route",
+          "network": "ton-mainnet"
+        }
+      },
+      {
+        "revision": 4,
+        "subject": {
+          "kind": "route_control",
+          "network": "ethereum-mainnet"
+        }
+      },
+      {
+        "revision": 5,
+        "subject": {
+          "kind": "route_control",
+          "network": "bsc-mainnet"
+        }
+      },
+      {
+        "revision": 6,
+        "subject": {
+          "kind": "route_control",
+          "network": "ton-mainnet"
+        }
+      },
+      {
+        "revision": 7,
+        "subject": {
+          "kind": "light_client",
+          "network": "ethereum-mainnet"
+        }
+      },
+      {
+        "revision": 8,
+        "subject": {
+          "kind": "light_client",
+          "network": "bsc-mainnet"
+        }
+      },
+      {
+        "revision": 9,
+        "subject": {
+          "kind": "light_client",
+          "network": "ton-mainnet"
+        }
+      },
+      {
+        "revision": 10,
+        "subject": {
+          "kind": "parameters",
+          "network": null
+        }
+      },
+      {
+        "revision": 11,
+        "subject": {
+          "kind": "forgery_hold",
+          "network": "ethereum-mainnet"
+        }
+      },
+      {
+        "revision": 12,
+        "subject": {
+          "kind": "forgery_hold",
+          "network": "bsc-mainnet"
+        }
+      },
+      {
+        "revision": 13,
+        "subject": {
+          "kind": "forgery_hold",
+          "network": "ton-mainnet"
+        }
+      },
+      {
+        "revision": 14,
+        "subject": {
+          "kind": "fast_hold",
+          "network": "ethereum-mainnet"
+        }
+      },
+      {
+        "revision": 15,
+        "subject": {
+          "kind": "fast_hold",
+          "network": "bsc-mainnet"
+        }
+      },
+      {
+        "revision": 16,
+        "subject": {
+          "kind": "fast_hold",
+          "network": "ton-mainnet"
+        }
+      },
+      {
+        "revision": 17,
+        "subject": {
+          "kind": "fast_pause_control",
+          "network": "ethereum-mainnet"
+        }
+      },
+      {
+        "revision": 18,
+        "subject": {
+          "kind": "fast_pause_control",
+          "network": "bsc-mainnet"
+        }
+      },
+      {
+        "revision": 19,
+        "subject": {
+          "kind": "fast_pause_control",
+          "network": "ton-mainnet"
+        }
+      }
+    ]
+  },
+  "conventions": {
+    "authority": "Proposal/head computation does not authenticate a ballot or enact an effect. Both launch gates remain false.",
+    "encoding": "Norito v1, uncompressed, COMPACT_LEN field lengths, flags 2; hex is 0x-prefixed.",
+    "fast_hold": "FastHold is automatic state; it has head snapshots but no Parliament action. An extra FastHold base revision is refused."
+  },
+  "generator": "scripts/sccp_reference/vectors_governance.py and crates/iroha_core/src/smartcontracts/isi/sccp/governance/reference_fixtures.rs",
+  "head_snapshots": [
+    {
+      "expected": {
+        "head_root": "0x935d3fa7d263d636be1176ba8a3c0a137b8777b042f82b388627ffc04eab8951",
+        "heads": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ],
+        "outcome": "Present",
+        "version": 191
+      },
+      "label": "all_subjects_including_automatic_fast_hold",
+      "subjects": [
+        {
+          "kind": "route",
+          "network": "ethereum-mainnet"
+        },
+        {
+          "kind": "route",
+          "network": "bsc-mainnet"
+        },
+        {
+          "kind": "route",
+          "network": "ton-mainnet"
+        },
+        {
+          "kind": "route_control",
+          "network": "ethereum-mainnet"
+        },
+        {
+          "kind": "route_control",
+          "network": "bsc-mainnet"
+        },
+        {
+          "kind": "route_control",
+          "network": "ton-mainnet"
+        },
+        {
+          "kind": "light_client",
+          "network": "ethereum-mainnet"
+        },
+        {
+          "kind": "light_client",
+          "network": "bsc-mainnet"
+        },
+        {
+          "kind": "light_client",
+          "network": "ton-mainnet"
+        },
+        {
+          "kind": "parameters",
+          "network": null
+        },
+        {
+          "kind": "forgery_hold",
+          "network": "ethereum-mainnet"
+        },
+        {
+          "kind": "forgery_hold",
+          "network": "bsc-mainnet"
+        },
+        {
+          "kind": "forgery_hold",
+          "network": "ton-mainnet"
+        },
+        {
+          "kind": "fast_hold",
+          "network": "ethereum-mainnet"
+        },
+        {
+          "kind": "fast_hold",
+          "network": "bsc-mainnet"
+        },
+        {
+          "kind": "fast_hold",
+          "network": "ton-mainnet"
+        },
+        {
+          "kind": "fast_pause_control",
+          "network": "ethereum-mainnet"
+        },
+        {
+          "kind": "fast_pause_control",
+          "network": "bsc-mainnet"
+        },
+        {
+          "kind": "fast_pause_control",
+          "network": "ton-mainnet"
+        }
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "expected": {
+        "attempt_outcome": "Accepted",
+        "effect_hash": "0xd16f883cc7ff40a2cfba92ae53d7cdc0429902e5027e22adc14961c5ca57d822",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa00540000000000000098ba7128d50541f5022011111111111111111111111111111111111111111111111111111111111111111c010000000000000013090000000004410000000800000000000000001501000000000000000c070000000704410000000101",
+        "head": {
+          "head_root": "0xced3a1a8a2af8819a10eaba9e459d59262c3ee89ef7f8a18fcaf5cb21388a69c",
+          "heads": [
+            {
+              "revision": 0,
+              "subject": {
+                "kind": "route",
+                "network": "ethereum-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0xd2993d349dc0ae2834151610e9af8930e38ea0643bba00a162467442f6637591",
+          "version": 1
+        },
+        "proposal_id": "0x6f7b240fd29ebff6747ce40208838325dd71f84d6255cb9e72df1e37430bc6c6",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "route",
+            "network": "ethereum-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": true
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 0,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": []
+      },
+      "label": "absent_route_head"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "Accepted",
+        "effect_hash": "0x952630e525dcd4e2c7c0a8df2d7cc8124883773034f288e411faca1b06c8b1a6",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa005400000000000000000c18d5bc12b7d8022011111111111111111111111111111111111111111111111111111111111111111c010000000000000013090000000004410000000801000000000000001501000000000000000c070000000704410000000101",
+        "head": {
+          "head_root": "0x1de1e595b1ff32e3d1e045d66df0d29aa1952f2794cd42ec9ea685879388631c",
+          "heads": [
+            {
+              "revision": 1,
+              "subject": {
+                "kind": "route",
+                "network": "ethereum-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0xd2993d349dc0ae2834151610e9af8930e38ea0643bba00a162467442f6637591",
+          "version": 2
+        },
+        "proposal_id": "0x1f5e87e54937382db8dfb8fb7c1d6c0f3be8115a9f39f36a07c03362361edac0",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "route",
+            "network": "ethereum-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": true
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "fixed_route_head"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "Accepted",
+        "effect_hash": "0x6a9e1e68db89a9ad4dc7a19c15c8fd534955b6fce9aba999713e95664c8212a4",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa0054000000000000006f53bfd6025e996b022011111111111111111111111111111111111111111111111111111111111111111c010000000000000013090000000004410000000801000000000000001501000000000000000c070000000704410000000100",
+        "head": {
+          "head_root": "0x1de1e595b1ff32e3d1e045d66df0d29aa1952f2794cd42ec9ea685879388631c",
+          "heads": [
+            {
+              "revision": 1,
+              "subject": {
+                "kind": "route",
+                "network": "ethereum-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0xd2993d349dc0ae2834151610e9af8930e38ea0643bba00a162467442f6637591",
+          "version": 2
+        },
+        "proposal_id": "0xfc94566ef9e81d73aad8c04316ebfde998da9eb81ca00a32eb43e5b22cc836cd",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "route",
+            "network": "ethereum-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": false
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "different_effect_same_subject"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "Accepted",
+        "effect_hash": "0x2c391c66170e573417df5cc4689be6919954ab7169b663af1cfd4466c3c684bd",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa005900000000000000f3236436d806e426022011111111111111111111111111111111111111111111111111111111111111111c010000000000000013090100000004410000000804000000000000001a010000000000000011080000000c044100000004010000000100",
+        "head": {
+          "head_root": "0x2ddfdc0ff5377480b673e450fe39a00c31d0d4a42d83575ab959bb73c0cd8c62",
+          "heads": [
+            {
+              "revision": 4,
+              "subject": {
+                "kind": "route_control",
+                "network": "ethereum-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0x8abe2fd65ab83acc97394fa8ede74e518b5171cccf144d613cd36446f4855941",
+          "version": 5
+        },
+        "proposal_id": "0xa9b2eefd191ce9aab23bfb50746378e484f1fda5a7e78e677f42662c08db65ae",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "route_control",
+            "network": "ethereum-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "set_destination_paused",
+            "network": "ethereum-mainnet",
+            "paused": false,
+            "revision": 1
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "control_head"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "Accepted",
+        "effect_hash": "0xe5a4fcc4c2c46b0f4fb0019b11be1b13dcb2a3ea79f46e2c9cd2be949e93af26",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa0057000000000000000b97d5ea83aacb76022011111111111111111111111111111111111111111111111111111111111111111c01000000000000001309050000000442000000080c000000000000001801000000000000000f100000000a04420000000402000000",
+        "head": {
+          "head_root": "0x3c4e697c1c0d00ed80ec0382fabc2ea5a7390357583e4cc164ef5f844f91cc3c",
+          "heads": [
+            {
+              "revision": 12,
+              "subject": {
+                "kind": "forgery_hold",
+                "network": "bsc-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0xade8b67c399c54eb3728d2f42d7bcd1d62e4ac2e9cf4614e1ec20728da980dc4",
+          "version": 13
+        },
+        "proposal_id": "0xfbd53d5b02f75a56743eefb3a038dc9f4ec148d81d7c4a36a00450c2b2e6aabe",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "forgery_hold",
+            "network": "bsc-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "quarantine_revision",
+            "network": "bsc-mainnet",
+            "revision": 2
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "forgery_hold_head"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "Accepted",
+        "effect_hash": "0x17d2a448b280651b03129f206ef57b4a8a6010aea224c4d4ceb7c1f811fa1b19",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa005b00000000000000a69770425a7248dc022011111111111111111111111111111111111111111111111111111111111111111c010000000000000013090700000004440000000813000000000000001c010000000000000013120000000e04440000000860ea000000000000",
+        "head": {
+          "head_root": "0x2c95e981999e96fb91a83d41668816009db36a14cac177ec9d395d055a704066",
+          "heads": [
+            {
+              "revision": 19,
+              "subject": {
+                "kind": "fast_pause_control",
+                "network": "ton-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0xa1932419b1626ddae9da31cc0dae2cf63b0c22b326d54e23f1402c5421a9dbed",
+          "version": 20
+        },
+        "proposal_id": "0x5121900855c8cead8585015fe2735cec766e1bbc82240faf1118202b66d9db17",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "fast_pause_control",
+            "network": "ton-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "duration_ms": 60000,
+            "kind": "set_fast_pause_suspended",
+            "network": "ton-mainnet"
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "fast_pause_control_head"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "Accepted",
+        "effect_hash": "0x4e68a6e552e18f5e904ac256dcfe830ef63c4482eecb1212f8e5403a07f79a9a",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa00f200000000000000da59b7f3bed56c1a022011111111111111111111111111111111111111111111111111111111111111116c05000000000000001309000000000441000000080100000000000000130901000000044100000008040000000000000013090200000004420000000808000000000000001309050000000442000000080c00000000000000130907000000044400000008130000000000000063060000000000000013120000000e04440000000860ea00000000000011080000000c0441000000040100000001000f100000000a044200000004020000000c0700000007044100000001010a0b0000000504420000000c070000000704410000000101",
+        "head": {
+          "head_root": "0x314d42517ba16dc80d3a0225f71dca77e6a29400e3269a7432787975f79d8995",
+          "heads": [
+            {
+              "revision": 1,
+              "subject": {
+                "kind": "route",
+                "network": "ethereum-mainnet"
+              }
+            },
+            {
+              "revision": 4,
+              "subject": {
+                "kind": "route_control",
+                "network": "ethereum-mainnet"
+              }
+            },
+            {
+              "revision": 8,
+              "subject": {
+                "kind": "light_client",
+                "network": "bsc-mainnet"
+              }
+            },
+            {
+              "revision": 12,
+              "subject": {
+                "kind": "forgery_hold",
+                "network": "bsc-mainnet"
+              }
+            },
+            {
+              "revision": 19,
+              "subject": {
+                "kind": "fast_pause_control",
+                "network": "ton-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0x5d1346e2d9e03c8195f12871c53023d204a650d5ff6d7ffedf24dd5a50c6efdc",
+          "version": 45
+        },
+        "proposal_id": "0xce3f60a05cf21ae2c78837e2da0c9cf0a62b1e080ab58d969fd59647792105fa",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "route",
+            "network": "ethereum-mainnet"
+          },
+          {
+            "kind": "route_control",
+            "network": "ethereum-mainnet"
+          },
+          {
+            "kind": "light_client",
+            "network": "bsc-mainnet"
+          },
+          {
+            "kind": "forgery_hold",
+            "network": "bsc-mainnet"
+          },
+          {
+            "kind": "fast_pause_control",
+            "network": "ton-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "duration_ms": 60000,
+            "kind": "set_fast_pause_suspended",
+            "network": "ton-mainnet"
+          },
+          {
+            "kind": "set_destination_paused",
+            "network": "ethereum-mainnet",
+            "paused": false,
+            "revision": 1
+          },
+          {
+            "kind": "quarantine_revision",
+            "network": "bsc-mainnet",
+            "revision": 2
+          },
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": true
+          },
+          {
+            "kind": "freeze_light_client",
+            "network": "bsc-mainnet"
+          },
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": true
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "sorted_deduplicated_subjects"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "Stale",
+        "effect_hash": "0xb7a458090b304f12be177f77d366d2d7aeb845480df4e7fe4707ebea91157d20",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa005400000000000000a8d7a2d2062badae022011111111111111111111111111111111111111111111111111111111111111111c010000000000000013090000000004410000000802000000000000001501000000000000000c070000000704410000000101",
+        "head": {
+          "head_root": "0x1de1e595b1ff32e3d1e045d66df0d29aa1952f2794cd42ec9ea685879388631c",
+          "heads": [
+            {
+              "revision": 1,
+              "subject": {
+                "kind": "route",
+                "network": "ethereum-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0xd2993d349dc0ae2834151610e9af8930e38ea0643bba00a162467442f6637591",
+          "version": 2
+        },
+        "proposal_id": "0x0b5cd03bbbf879c0bf142ac1e5478084b157c83a59ebf5396f4d012372ce876b",
+        "static_outcome": "Accepted",
+        "subjects": [
+          {
+            "kind": "route",
+            "network": "ethereum-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": true
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "stale_base_revision"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "NotAttempted",
+        "effect_hash": "0xc8c7c163a7ea63fb532a91c98fdcc6a2be4fd136d870ff55f6e0ba5d4a7f3f7d",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa006800000000000000b221fec2154d2e6402201111111111111111111111111111111111111111111111111111111111111111300200000000000000130900000000044100000008010000000000000013090600000004410000000800000000000000001501000000000000000c070000000704410000000101",
+        "head": {
+          "head_root": "0x1de1e595b1ff32e3d1e045d66df0d29aa1952f2794cd42ec9ea685879388631c",
+          "heads": [
+            {
+              "revision": 1,
+              "subject": {
+                "kind": "route",
+                "network": "ethereum-mainnet"
+              }
+            }
+          ],
+          "outcome": "Present",
+          "subject_id": "0xd2993d349dc0ae2834151610e9af8930e38ea0643bba00a162467442f6637591",
+          "version": 2
+        },
+        "proposal_id": "0x71b5a1082387c7c7e90f7d1fe0c7cd428ac3c54981aff46531ba45b4ede173e9",
+        "static_outcome": "BaseRevisionsMismatch",
+        "subjects": [
+          {
+            "kind": "route",
+            "network": "ethereum-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": true
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 0,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 1,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 2,
+            "subject": {
+              "kind": "route",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 3,
+            "subject": {
+              "kind": "route",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 4,
+            "subject": {
+              "kind": "route_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 5,
+            "subject": {
+              "kind": "route_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 6,
+            "subject": {
+              "kind": "route_control",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 7,
+            "subject": {
+              "kind": "light_client",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 8,
+            "subject": {
+              "kind": "light_client",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 9,
+            "subject": {
+              "kind": "light_client",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 10,
+            "subject": {
+              "kind": "parameters",
+              "network": null
+            }
+          },
+          {
+            "revision": 11,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 12,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 13,
+            "subject": {
+              "kind": "forgery_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 14,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 15,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 16,
+            "subject": {
+              "kind": "fast_hold",
+              "network": "ton-mainnet"
+            }
+          },
+          {
+            "revision": 17,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ethereum-mainnet"
+            }
+          },
+          {
+            "revision": 18,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "bsc-mainnet"
+            }
+          },
+          {
+            "revision": 19,
+            "subject": {
+              "kind": "fast_pause_control",
+              "network": "ton-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "fast_hold_is_not_a_parliament_action"
+    },
+    {
+      "expected": {
+        "attempt_outcome": "NotAttempted",
+        "effect_hash": "0x4ec2809eef7081e512db48cef4534a5527a517b3aacb5ff3709d2659836e085d",
+        "frame": "0x4e52543000006b4a0bc0f1fbcc7d935fd560ad7b09fa00540000000000000017a219fc2fd01e5b022011111111111111111111111111111111111111111111111111111111111111111c0100000000000000130900000000044100000008ffffffffffffffff1501000000000000000c070000000704410000000101",
+        "head": {
+          "outcome": "VersionOverflow"
+        },
+        "proposal_id": "0x6b552942d6962c6043bf7e6fdb10ba22ee76b78b98cedbfb4634bb68d017b8ae",
+        "static_outcome": "ExceedsJsonSafeInteger",
+        "subjects": [
+          {
+            "kind": "route",
+            "network": "ethereum-mainnet"
+          }
+        ]
+      },
+      "input": {
+        "actions": [
+          {
+            "kind": "set_taira_paused",
+            "network": "ethereum-mainnet",
+            "paused": true
+          }
+        ],
+        "base_revisions": [
+          {
+            "revision": 18446744073709551615,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ],
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "revision_map": [
+          {
+            "revision": 18446744073709551615,
+            "subject": {
+              "kind": "route",
+              "network": "ethereum-mainnet"
+            }
+          }
+        ]
+      },
+      "label": "head_version_overflow"
+    }
+  ],
+  "schema": "iroha.sccp.governance.v1",
+  "subject_encodings": [
+    {
+      "bytes": "0x000000000441000000",
+      "subject": {
+        "kind": "route",
+        "network": "ethereum-mainnet"
+      }
+    },
+    {
+      "bytes": "0x000000000442000000",
+      "subject": {
+        "kind": "route",
+        "network": "bsc-mainnet"
+      }
+    },
+    {
+      "bytes": "0x000000000444000000",
+      "subject": {
+        "kind": "route",
+        "network": "ton-mainnet"
+      }
+    },
+    {
+      "bytes": "0x010000000441000000",
+      "subject": {
+        "kind": "route_control",
+        "network": "ethereum-mainnet"
+      }
+    },
+    {
+      "bytes": "0x010000000442000000",
+      "subject": {
+        "kind": "route_control",
+        "network": "bsc-mainnet"
+      }
+    },
+    {
+      "bytes": "0x010000000444000000",
+      "subject": {
+        "kind": "route_control",
+        "network": "ton-mainnet"
+      }
+    },
+    {
+      "bytes": "0x020000000441000000",
+      "subject": {
+        "kind": "light_client",
+        "network": "ethereum-mainnet"
+      }
+    },
+    {
+      "bytes": "0x020000000442000000",
+      "subject": {
+        "kind": "light_client",
+        "network": "bsc-mainnet"
+      }
+    },
+    {
+      "bytes": "0x020000000444000000",
+      "subject": {
+        "kind": "light_client",
+        "network": "ton-mainnet"
+      }
+    },
+    {
+      "bytes": "0x03000000",
+      "subject": {
+        "kind": "parameters",
+        "network": null
+      }
+    },
+    {
+      "bytes": "0x050000000441000000",
+      "subject": {
+        "kind": "forgery_hold",
+        "network": "ethereum-mainnet"
+      }
+    },
+    {
+      "bytes": "0x050000000442000000",
+      "subject": {
+        "kind": "forgery_hold",
+        "network": "bsc-mainnet"
+      }
+    },
+    {
+      "bytes": "0x050000000444000000",
+      "subject": {
+        "kind": "forgery_hold",
+        "network": "ton-mainnet"
+      }
+    },
+    {
+      "bytes": "0x060000000441000000",
+      "subject": {
+        "kind": "fast_hold",
+        "network": "ethereum-mainnet"
+      }
+    },
+    {
+      "bytes": "0x060000000442000000",
+      "subject": {
+        "kind": "fast_hold",
+        "network": "bsc-mainnet"
+      }
+    },
+    {
+      "bytes": "0x060000000444000000",
+      "subject": {
+        "kind": "fast_hold",
+        "network": "ton-mainnet"
+      }
+    },
+    {
+      "bytes": "0x070000000441000000",
+      "subject": {
+        "kind": "fast_pause_control",
+        "network": "ethereum-mainnet"
+      }
+    },
+    {
+      "bytes": "0x070000000442000000",
+      "subject": {
+        "kind": "fast_pause_control",
+        "network": "bsc-mainnet"
+      }
+    },
+    {
+      "bytes": "0x070000000444000000",
+      "subject": {
+        "kind": "fast_pause_control",
+        "network": "ton-mainnet"
+      }
+    }
+  ]
+}

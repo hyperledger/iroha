@@ -1047,7 +1047,7 @@ fn canonical_compiled_profile_catalog_validator_is_bounded_and_fail_closed() {
 #[test]
 fn canonical_capability_archive_validator_is_bounded_typed_and_fail_closed() {
     use PrivacyCapabilityArchiveValidationStatusV1 as Status;
-    assert_eq!(PRIVACY_BRIDGE_ABI_VERSION_V1, 29);
+    assert_eq!(PRIVACY_BRIDGE_ABI_VERSION_V1, 30);
     assert_eq!(PRIVACY_CAPABILITY_ARCHIVE_MAX_BYTES_V1, 256 * 1024);
     assert_eq!(Status::Valid.code(), 0);
     assert_eq!(Status::NullPointer.code(), 1);

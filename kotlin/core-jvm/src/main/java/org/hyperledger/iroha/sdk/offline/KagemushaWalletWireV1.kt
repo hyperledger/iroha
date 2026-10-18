@@ -548,8 +548,8 @@ object KagemushaWalletWireV1 {
      *
      * The carried message is not fully decoded or authenticated. These structural checks do not
      * select a trusted scheme or authorize a payment.
-     * TODO(G4): decode and validate the typed wallet message once the Kotlin exchange
-     * integration owns the typed codec.
+     * Typed canonical decoding, validation and monetary admission belong to the shared native
+     * wallet reached through the Android wallet module.
      *
      * @throws IllegalArgumentException for any violation.
      */
@@ -625,12 +625,12 @@ object KagemushaWalletWireV1 {
      * rejects a Payment that belongs to another Request, and Credited evidence under another
      * scheme, before handing either to the wallet. No digest or signature is checked here and
      * nothing grants monetary authority.
-     * TODO(G4): the typed decoder also checks the Credited evidence against the held Request and
-     * the retained Payment (its credit, payer wallet and amount, or its opening, and the Payment
-     * digest the evidence binds). The receiver is matched by the Request's receiver wallet and
-     * its receiver credential's payment key, never by credential digest, so evidence from a
-     * receiver that renewed its credential after quoting the Request still matches (owner
-     * answer Q8).
+     * The shared native wallet's exact-Send delivery admission checks Credited evidence against
+     * the held Request and retained Payment (its credit, payer wallet and amount, or its opening,
+     * and the Payment digest the evidence binds). The receiver is matched by the Request's
+     * receiver wallet and its receiver credential's payment key, never by credential digest, so
+     * evidence from a receiver that renewed its credential after quoting the Request still
+     * matches (owner answer Q8).
      *
      * @throws IllegalArgumentException for any violation.
      */

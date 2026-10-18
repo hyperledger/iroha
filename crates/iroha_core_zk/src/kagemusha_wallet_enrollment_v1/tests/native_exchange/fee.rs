@@ -407,6 +407,13 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     assert_eq!(b.snapshot().unwrap().owned_balance, 0);
 
     let offer = a.offer([210; 32], 97).unwrap();
+    let offer_measurement = message_census::record(
+        &output,
+        "fee-offer",
+        KagemushaWalletMessageV1::Offer {
+            offer: decode(&offer),
+        },
+    );
     let request_bytes = b
         .request([211; 32], &offer, Some(&(schedule, certificate)))
         .unwrap();
@@ -441,6 +448,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
             payment: payment.clone(),
         },
     );
+    let lineage_measurement = message_census::record_payment_lineage(&output, "fee", &payment);
     let certificates_a: KagemushaWalletCertificateSetV1 = decode(&frames_a[1]);
     let digests = payment
         .verify(scheme, &credential_a, &certificates_a, &request)
@@ -511,6 +519,13 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     assert_eq!(b.snapshot().unwrap().owned_balance, 97);
     assert_eq!(b.snapshot().unwrap().known_burned_total, 0);
     let acknowledgement = credited(&received);
+    let credited_measurement = message_census::record(
+        &output,
+        "fee-credited",
+        KagemushaWalletMessageV1::Credited {
+            credited: decode(&acknowledgement),
+        },
+    );
     let (mut a, archived) =
         archive::exercise(a, &device_a, &sources, &f, &frames_a, &acknowledgement);
     assert_eq!(
@@ -590,6 +605,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     let mut producer_originals = Vec::new();
     for (name, bytes) in [
         ("target.json", target_bytes.clone()),
+        ("offer.norito", offer),
         ("load-package.norito", loaded),
         (
             "regulatory-certificate.norito",
@@ -619,6 +635,15 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
         producer_originals
             .push(norito::json!({"name":name,"bytes":(bytes.len()),"sha256":(sha(&bytes))}));
     }
+    let complete_envelopes = vec![
+        offer_measurement,
+        request_measurement,
+        payment_measurement,
+        credited_measurement,
+        lineage_measurement,
+    ];
+    let complete_exchange_roles =
+        message_census::complete_exchange_roles(&complete_envelopes, "fee");
     let result = norito::json!({
         "schema":"iroha.kagemusha.native-fee-result.v1",
         "target_sha256":(sha(&target_bytes)),
@@ -646,7 +671,8 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
         "finality_epoch":(initial_epoch.epoch),
         "scope":"Genuine installed native Send, Receive, ArchiveReceive and SchemePolicy refresh proofs over real host storage with simulated hardware and an engineering issuer. Fee claim retains its historical signed Request after restart, delivery Archive and local fee disable. No online payout or payout acknowledgement is asserted here. Four live validators, physical hardware, enabled offline controls and nonzero online charges remain separate.",
         "originals":originals, "producer_originals":producer_originals,
-        "complete_envelopes":[request_measurement,payment_measurement],
+        "complete_envelopes":complete_envelopes,
+        "complete_exchange_roles":complete_exchange_roles,
     });
     let bytes = norito::json::to_vec(&result).unwrap();
     assert!(bytes.len() <= TARGET_MAX);

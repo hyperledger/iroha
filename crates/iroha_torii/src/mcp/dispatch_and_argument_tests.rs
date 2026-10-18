@@ -2299,24 +2299,6 @@ fn parliament_mcp_catalog_exposes_authenticated_draft_and_read_tools() {
             ToolEffect::Read,
         ),
         (
-            "iroha.gov.parliament.ballots.timed_ovn_casting_context.get",
-            Method::GET,
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-            ToolEffect::Read,
-        ),
-        (
-            "iroha.gov.parliament.ballots.tle_release_context.get",
-            Method::GET,
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-            ToolEffect::Read,
-        ),
-        (
-            "iroha.gov.parliament.ballots.tle_partial_release.create",
-            Method::POST,
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
-            ToolEffect::Write,
-        ),
-        (
             "iroha.gov.parliament.transitions.draft",
             Method::POST,
             "/v1/gov/parliament/transitions/draft",
@@ -2376,82 +2358,6 @@ fn parliament_mcp_dispatch_requires_exact_nonzero_attempt_id() {
         assert!(
             extract_parliament_attempt_id_argument(rejected.as_object().expect("arguments object"))
                 .is_err()
-        );
-    }
-}
-#[test]
-fn parliament_tle_release_context_mcp_requires_exact_nonzero_ballot_id() {
-    let expected = format!("01{}", "cd".repeat(31));
-    let arguments = norito::json!({
-        "path": { "ballot_attempt_id": (expected.clone()) }
-    });
-    assert_eq!(
-        extract_parliament_ballot_attempt_id_argument(
-            arguments.as_object().expect("arguments object"),
-            "Parliament TLE release-context read",
-        )
-        .expect("canonical Parliament ballot attempt id"),
-        expected
-    );
-
-    for rejected in [
-        norito::json!({ "ballot_attempt_id": ("ab".repeat(32)) }),
-        norito::json!({ "path": { "id": ("ab".repeat(32)) } }),
-        norito::json!({ "path": { "ballot_attempt_id": ("AB".repeat(32)) } }),
-        norito::json!({ "path": { "ballot_attempt_id": ("00".repeat(32)) } }),
-        norito::json!({
-            "path": {
-                "ballot_attempt_id": ("ab".repeat(32)),
-                "unexpected": true
-            }
-        }),
-    ] {
-        assert!(
-            extract_parliament_ballot_attempt_id_argument(
-                rejected.as_object().expect("arguments object"),
-                "Parliament TLE release-context read",
-            )
-            .is_err()
-        );
-    }
-}
-
-#[test]
-fn parliament_tle_partial_release_mcp_is_strict_zero_body_write() {
-    let cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    let tools = build_tool_specs(&cfg);
-    let tool = tools
-        .iter()
-        .find(|tool| tool.name == "iroha.gov.parliament.ballots.tle_partial_release.create")
-        .expect("partial-release MCP tool");
-    let (effect, method, _) = tool
-        .route_backing()
-        .expect("partial-release MCP tool must be route-backed");
-    assert_eq!(effect, ToolEffect::Write);
-    assert_eq!(method, &Method::POST);
-    let properties = tool
-        .input_schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .expect("partial-release input properties");
-    assert!(!properties.contains_key("body"));
-
-    for rejected in [
-        norito::json!({
-            "path": { "ballot_attempt_id": ("ab".repeat(32)) },
-            "body": {}
-        }),
-        norito::json!({
-            "path": { "ballot_attempt_id": ("ab".repeat(32)) },
-            "unexpected": true
-        }),
-    ] {
-        assert!(
-            extract_parliament_ballot_attempt_id_argument(
-                rejected.as_object().expect("arguments object"),
-                "Parliament TLE partial-release request",
-            )
-            .is_err()
         );
     }
 }

@@ -794,3 +794,6 @@ fn epoch_explicit_reference_refuses_parent_loss_and_replacement_then_original_re
     fixture.validate(&mut reader).unwrap();
     assert_eq!(reader.records.len(), 2);
 }
+
+#[path = "epoch_census_scope_tests.rs"]
+pub(super) mod scope_tests;

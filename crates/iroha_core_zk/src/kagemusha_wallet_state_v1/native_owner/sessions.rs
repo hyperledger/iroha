@@ -277,7 +277,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         }
         let action = Action::Offer { amount };
         let mut plan = self.setup(setup_id, &action)?;
-        let scheme = self.proofs.installed.verifier().scheme().clone();
+        let scheme = *self.proofs.installed.verifier().scheme();
         if let Some(output) = plan.output {
             let bytes = self
                 .archive
@@ -350,7 +350,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         if offer_bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
             return Err(Error::Invalid("Offer bound"));
         }
-        let scheme = self.proofs.installed.verifier().scheme().clone();
+        let scheme = *self.proofs.installed.verifier().scheme();
         let offer: KagemushaWalletOfferV1 = archive::decode(offer_bytes)?;
         valid(offer.verify(&scheme))?;
         let action = Action::Request {
@@ -532,6 +532,16 @@ mod tests {
     fn setup_quote(
         source: &FrozenTransition,
     ) -> (KagemushaWalletOfferV1, KagemushaWalletRequestV1) {
+        fn sign(
+            credential: &KagemushaWalletCredentialV1,
+            message: &[u8],
+        ) -> KagemushaDeviceSignatureV1 {
+            let signature: Signature = signer(credential).sign(message);
+            KagemushaDeviceSignatureV1::from_raw_bytes(
+                &signature.normalize_s().unwrap_or(signature).to_bytes(),
+            )
+            .unwrap()
+        }
         let template: KagemushaWalletRecoveryCapsuleV1 =
             fixture("KagemushaWalletRecoveryCapsuleV1");
         let original = template
@@ -559,16 +569,6 @@ mod tests {
             amount: 7,
             session_nonce: [72; 32],
         };
-        fn sign(
-            credential: &KagemushaWalletCredentialV1,
-            message: &[u8],
-        ) -> KagemushaDeviceSignatureV1 {
-            let signature: Signature = signer(credential).sign(message);
-            KagemushaDeviceSignatureV1::from_raw_bytes(
-                &signature.normalize_s().unwrap_or(signature).to_bytes(),
-            )
-            .unwrap()
-        }
         let offer = KagemushaWalletOfferV1 {
             body,
             payer_credential: remote,

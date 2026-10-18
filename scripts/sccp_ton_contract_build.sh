@@ -3,7 +3,7 @@
 # revision 5, §5.3) with the pinned native Acton 1.2.0 / Tolk 1.4.2 toolchain
 # (specs/sccp.md §5.5). Prerequisite: python3 (3.9 or later) on PATH.
 #
-# Without a command it runs `all`: the freshness check of the two Tolk vector
+# Without a command it runs `all`: the freshness check of the three Tolk vector
 # files generated from the fixtures under fixtures/sccp/, `acton fmt --check`,
 # `acton build` (with the Tolk stdlib version check), the wrapper freshness
 # check, the Acton emulator suite `tests/unit` with its gas report

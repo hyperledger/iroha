@@ -5,7 +5,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_LIB="${ROOT_DIR}/crates/connect_norito_bridge/src/lib.rs"
-PARLIAMENT_RUST="${ROOT_DIR}/crates/connect_norito_bridge/src/parliament_timed_ovn_ffi.rs"
 PRIVATE_SETTLEMENT_RUST="${ROOT_DIR}/crates/connect_norito_bridge/src/private_settlement_ffi.rs"
 HEADER="${ROOT_DIR}/crates/connect_norito_bridge/include/connect_norito_bridge.h"
 UMBRELLA="${ROOT_DIR}/crates/connect_norito_bridge/include/NoritoBridge.h"
@@ -56,11 +55,6 @@ SELF_TESTS=(
   --self-test-bad-privacy-signature
   --self-test-missing-privacy-rust-symbol
   --self-test-extra-privacy-symbol
-  --self-test-missing-parliament-header-symbol
-  --self-test-bad-parliament-page-rust-width
-  --self-test-bad-parliament-page-header-width
-  --self-test-retired-parliament-page-rust-name
-  --self-test-retired-parliament-page-header-name
   --self-test-missing-retail-header-symbol
   --self-test-bad-retail-signature
   --self-test-bad-retail-marker-bound
@@ -90,17 +84,15 @@ run_contract_check() {
   local header="$2"
   local umbrella="$3"
   local privacy_model="$4"
-  local parliament_rust="$5"
-  local retail_model="$6"
-  local private_settlement_rust="$7"
-  local platform_jni_rust="$8"
+  local retail_model="$5"
+  local private_settlement_rust="$6"
+  local platform_jni_rust="$7"
 
   python3 - \
     "${rust_lib}" \
     "${header}" \
     "${umbrella}" \
     "${privacy_model}" \
-    "${parliament_rust}" \
     "${retail_model}" \
     "${private_settlement_rust}" \
     "${platform_jni_rust}" <<'PY'
@@ -112,10 +104,9 @@ rust = Path(sys.argv[1]).read_text(encoding="utf-8")
 header = Path(sys.argv[2]).read_text(encoding="utf-8")
 umbrella = Path(sys.argv[3]).read_text(encoding="utf-8")
 privacy = Path(sys.argv[4]).read_text(encoding="utf-8")
-rust += "\n" + Path(sys.argv[5]).read_text(encoding="utf-8")
-retail_model = Path(sys.argv[6]).read_text(encoding="utf-8")
-rust += "\n" + Path(sys.argv[7]).read_text(encoding="utf-8")
-jni_path = Path(sys.argv[8])
+retail_model = Path(sys.argv[5]).read_text(encoding="utf-8")
+rust += "\n" + Path(sys.argv[6]).read_text(encoding="utf-8")
+jni_path = Path(sys.argv[7])
 wallet_exports_path = jni_path.parent / "kagemusha_wallet_ffi/exports.rs"
 rust += "\n" + wallet_exports_path.read_text(encoding="utf-8")
 wallet_load_path = jni_path.parent / "kagemusha_wallet_load_original.rs"
@@ -164,12 +155,6 @@ DETACHED_EXPORTS = {
     "connect_norito_canonical_json_blake3_v1",
     "connect_norito_detached_transaction_scaffold_finalize_ed25519_v1",
     "connect_norito_detached_transaction_scaffold_inspect_v1",
-}
-PARLIAMENT_EXPORTS = {
-    "connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1",
-    "connect_norito_parliament_timed_ovn_verify_casting_proof_v1",
-    "connect_norito_parliament_timed_ovn_ballot_from_proof_v1",
-    "connect_norito_parliament_timed_ovn_registration_from_proof_v1",
 }
 RETAIL_EXPORTS = {
     "connect_norito_retail_fee_intent_hash_v1",
@@ -527,8 +512,6 @@ exact(
     header_exports("connect_norito_detached_transaction_")
     | header_exports("connect_norito_canonical_json_"),
 )
-exact("Rust Parliament timed-OVN", PARLIAMENT_EXPORTS, rust_exports("connect_norito_parliament_timed_ovn_"))
-exact("C Parliament timed-OVN", PARLIAMENT_EXPORTS, header_exports("connect_norito_parliament_timed_ovn_"))
 exact("Rust retail fee", RETAIL_EXPORTS, rust_exports("connect_norito_retail_fee_"))
 exact("C retail fee", RETAIL_EXPORTS, header_exports("connect_norito_retail_fee_"))
 # First-release artifacts cannot retain a second, retired fee protocol.
@@ -568,7 +551,6 @@ require_signature_parity(
     PRIVACY_EXPORTS
     | SORAFS_REFERENCE_EXPORTS
     | DETACHED_EXPORTS
-    | PARLIAMENT_EXPORTS
     | RETAIL_EXPORTS
     | PRIVATE_SETTLEMENT_EXPORTS
     | KAGEMUSHA_WALLET_EXPORTS
@@ -576,8 +558,8 @@ require_signature_parity(
     | {"connect_norito_bridge_abi_version", "connect_norito_free", "connect_norito_domain_id_validate_v1"}
 )
 
-require(r"#define\s+CONNECT_NORITO_BRIDGE_ABI_VERSION\s+29\b", header, "C bridge ABI version")
-require(r"pub\s+const\s+PRIVACY_BRIDGE_ABI_VERSION_V1:\s*u32\s*=\s*29\s*;", privacy, "Rust bridge ABI version")
+require(r"#define\s+CONNECT_NORITO_BRIDGE_ABI_VERSION\s+30\b", header, "C bridge ABI version")
+require(r"pub\s+const\s+PRIVACY_BRIDGE_ABI_VERSION_V1:\s*u32\s*=\s*30\s*;", privacy, "Rust bridge ABI version")
 require(
     r"const\s+CONNECT_NORITO_BRIDGE_ABI_VERSION:\s*u32\s*=\s*PRIVACY_BRIDGE_ABI_VERSION_V1\s*;",
     rust,
@@ -598,7 +580,6 @@ for rust_name, value in (("NOT_ENOUGH_STORAGE", "-12"), ("NOT_ENOUGH_MEMORY", "-
 if re.search(r"\bpub\s+const\s+NO_SPACE\b", native_rust):
     raise SystemExit("[connect-norito-header] retired KAGEMUSHA wallet NO_SPACE status")
 for rust_name, value, header_name in (
-    ("ERR_PARLIAMENT_TIMED_OVN", "-505", "CONNECT_NORITO_ERR_PARLIAMENT_TIMED_OVN"),
     (
         "ERR_RETAIL_FEE_ASSESSMENT",
         "-506",
@@ -654,13 +635,6 @@ require(r"value\.qualifying_payments\s*>\s*1_000", rust, "Native retail qualifyi
 require(r"bytes\.len\(\)\s*>\s*\(RETAIL_FEE_MARKER_MAX_BYTES\s*-\s*RETAIL_FEE_MARKER_PREFIX\.len\(\)\)\s*/\s*2", rust, "Native complete marker output cap")
 require(r"json\.len\(\)\s*>\s*RETAIL_FEE_ASSESSMENT_MAX_BYTES", rust, "Native assessment JSON output cap")
 
-require(r"pub\s+const\s+CONNECT_NORITO_PARLIAMENT_TIMED_OVN_SEED_BYTES_V1\s*:\s*usize\s*=\s*32\s*;", rust, "Parliament seed width")
-require(r"#define\s+CONNECT_NORITO_PARLIAMENT_TIMED_OVN_SEED_BYTES_V1\s+32\b", header, "C Parliament seed width")
-require(r"#define\s+CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_BYTES_V1\s+8388608\b", header, "C Parliament proof cap")
-require(r"pub\s+const\s+CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1\s*:\s*usize\s*=\s*41\s*;", rust, "Parliament page summary width")
-require(r"#define\s+CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1\s+41\b", header, "C Parliament page summary width")
-require(r"#define\s+CONNECT_NORITO_PARLIAMENT_TIMED_OVN_TRUST_ANCHOR_BYTES_V1\s+32\b", header, "C Parliament trust anchor width")
-
 def umbrella_contract(contents: str) -> list[str]:
     # Documentation and formatting do not alter the sole canonical include owner.
     without_comments = re.sub(r"/\*.*?\*/|//[^\n]*", "", contents, flags=re.S)
@@ -674,10 +648,10 @@ if umbrella_contract(umbrella) != [
     raise SystemExit("[connect-norito-header] umbrella header drift")
 
 print(
-    "[connect-norito-header] ABI 29 synchronized: "
+    "[connect-norito-header] ABI 30 synchronized: "
     f"{len(PRIVACY_EXPORTS)} privacy, "
     f"{len(SORAFS_REFERENCE_EXPORTS)} SoraFS, {len(DETACHED_EXPORTS)} detached, "
-    f"{len(PARLIAMENT_EXPORTS)} Parliament, {len(RETAIL_EXPORTS)} retail-fee, "
+    f"{len(RETAIL_EXPORTS)} retail-fee, "
     f"{len(PRIVATE_SETTLEMENT_EXPORTS)} private-settlement, "
     f"{len(KAGEMUSHA_WALLET_EXPORTS)} KAGEMUSHA wallet, "
     f"and {len(TRANSACTION_SIGNER_EXPORTS)} transaction-signer exports"
@@ -748,7 +722,6 @@ make_negative_workspace() {
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/iroha-bridge-header.XXXXXX")"
   cp "${RUST_LIB}" "${tmp}/lib.rs"
-  cp "${PARLIAMENT_RUST}" "${tmp}/parliament_timed_ovn_ffi.rs"
   cp "${PRIVATE_SETTLEMENT_RUST}" "${tmp}/private_settlement_ffi.rs"
   cp "${PLATFORM_JNI_RUST}" "${tmp}/platform_jni.rs"
   cp -R "${PLATFORM_JNI_RUST%.rs}" "${tmp}/platform_jni"
@@ -772,7 +745,6 @@ expect_contract_rejection() {
       "${tmp}/connect_norito_bridge.h" \
       "${tmp}/NoritoBridge.h" \
       "${tmp}/privacy.rs" \
-      "${tmp}/parliament_timed_ovn_ffi.rs" \
       "${tmp}/retail_fee_model.rs" \
       "${tmp}/private_settlement_ffi.rs" \
       "${tmp}/platform_jni.rs" 2>&1)"; then
@@ -803,7 +775,6 @@ if [[ "${MODE}" == --self-test-* ]]; then
     "${HEADER}" \
     "${UMBRELLA}" \
     "${PRIVACY_MODEL}" \
-    "${PARLIAMENT_RUST}" \
     "${RETAIL_MODEL}" \
     "${PRIVATE_SETTLEMENT_RUST}" \
     "${PLATFORM_JNI_RUST}" >/dev/null
@@ -984,33 +955,9 @@ if [[ "${MODE}" == --self-test-* ]]; then
         'connect_norito_domain_id_validate_v1(const char* input, unsigned long input_len)' \
         'connect_norito_domain_id_validate_v1(const char* input, uint32_t input_len)'
       ;;
-    --self-test-bad-parliament-page-rust-width)
-      replace_once "${tmp}/parliament_timed_ovn_ffi.rs" \
-        'pub const CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1: usize = 41;' \
-        'pub const CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1: usize = 40;'
-      expected_diagnostic="missing or invalid Parliament page summary width"
-      ;;
-    --self-test-bad-parliament-page-header-width)
-      replace_once "${tmp_header}" \
-        '#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1 41' \
-        '#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1 40'
-      expected_diagnostic="missing or invalid C Parliament page summary width"
-      ;;
-    --self-test-retired-parliament-page-rust-name)
-      replace_once "${tmp}/parliament_timed_ovn_ffi.rs" \
-        'pub const CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1:' \
-        'pub const CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_RESULT_BYTES_V1:'
-      expected_diagnostic="missing or invalid Parliament page summary width"
-      ;;
-    --self-test-retired-parliament-page-header-name)
-      replace_once "${tmp_header}" \
-        '#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_SUMMARY_BYTES_V1 ' \
-        '#define CONNECT_NORITO_PARLIAMENT_TIMED_OVN_CASTING_PROOF_PAGE_RESULT_BYTES_V1 '
-      expected_diagnostic="missing or invalid C Parliament page summary width"
-      ;;
     --self-test-bad-abi)
       replace_once "${tmp_header}" \
-        "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 29" \
+        "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 30" \
         "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 22"
       ;;
     --self-test-bad-wallet-memory-rust-status)
@@ -1051,11 +998,6 @@ pub const NO_SPACE: i32 = -12;"
       replace_once "${tmp_header}" \
         $'#ifdef __cplusplus\nextern "C" {' \
         $'int32_t iroha_privacy_retired_v1(void);\n\n#ifdef __cplusplus\nextern "C" {'
-      ;;
-    --self-test-missing-parliament-header-symbol)
-      replace_once "${tmp_header}" \
-        "connect_norito_parliament_timed_ovn_ballot_from_proof_v1" \
-        "removed_connect_norito_parliament_timed_ovn_ballot_from_proof_v1"
       ;;
     --self-test-missing-retail-header-symbol)
       replace_once "${tmp_header}" \
@@ -1140,7 +1082,7 @@ pub const NO_SPACE: i32 = -12;"
       printf '\n/* Documentary growth preserves the canonical include owner. */\n// Additional source guidance.\n' >> "${tmp_umbrella}"
       run_contract_check \
         "${tmp_rust}" "${tmp_header}" "${tmp_umbrella}" \
-        "${tmp}/privacy.rs" "${tmp}/parliament_timed_ovn_ffi.rs" \
+        "${tmp}/privacy.rs" \
         "${tmp}/retail_fee_model.rs" "${tmp}/private_settlement_ffi.rs" \
         "${tmp}/platform_jni.rs"
       echo "[connect-norito-header] positive control preserved canonical umbrella: ${MODE}"
@@ -1171,7 +1113,6 @@ run_contract_check \
   "${HEADER}" \
   "${UMBRELLA}" \
   "${PRIVACY_MODEL}" \
-  "${PARLIAMENT_RUST}" \
   "${RETAIL_MODEL}" \
   "${PRIVATE_SETTLEMENT_RUST}" \
   "${PLATFORM_JNI_RUST}"

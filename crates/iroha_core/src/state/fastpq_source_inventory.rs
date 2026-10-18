@@ -176,7 +176,16 @@ impl StateBlock<'_> {
                 Ok(())
             }
             Err(error) => {
-                self.reject_quantity_source_census();
+                // A repeated request can fail before source finalization starts.
+                // Only the original failed owner admits diagnostic cleanup; an
+                // intact retained inventory keeps its exact phase and custody.
+                if matches!(
+                    self.execution_output_plan,
+                    Some(super::output_capacity::ExecutionOutputPlanState::Poisoned)
+                ) && matches!(self.fastpq_source_inventory, Some(Err(_)))
+                {
+                    self.reject_quantity_source_census();
+                }
                 Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
                     error,
                 ))
@@ -316,9 +325,10 @@ impl StateBlock<'_> {
                 Ok(())
             }
             Err(error) => {
-                self.execution_output_plan =
+                let fields = self.fields.as_mut().expect("original source failure owner");
+                fields.execution_output_plan =
                     Some(super::output_capacity::ExecutionOutputPlanState::Poisoned);
-                self.fastpq_source_inventory = Some(Err(error.clone()));
+                fields.fastpq_source_inventory = Some(Err(error.clone()));
                 Err(error)
             }
         }

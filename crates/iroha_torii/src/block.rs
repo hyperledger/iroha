@@ -55,24 +55,33 @@ impl<'ws> Consumer<'ws> {
             execution_budget,
         })
     }
-    /// Forwards block if block for given height already exists
+    /// Height of the next block this consumer forwards.
+    pub fn next_height(&self) -> NonZeroUsize {
+        self.height
+    }
+    /// Forwards the block at the next height if Kura already holds it, and
+    /// returns whether a block was sent.
     ///
     /// # Errors
     /// Can fail due to timeout. Also receiving might fail
     #[iroha_futures::telemetry_future]
-    pub async fn consume(&mut self) -> Result<()> {
-        if let Some(block) = self
+    pub async fn consume(&mut self) -> Result<bool> {
+        let Some(block) = self
             .kura
             .get_block(self.height, &self.execution_budget)
             .map_err(Error::History)?
-        {
-            self.stream.send(BlockMessageSend(block)).await?;
-            self.height = self.height.checked_add(1).ok_or_else(|| {
-                Error::InvalidHeight("maximum block height is achieved".to_string())
-            })?;
-        }
-        Ok(())
+        else {
+            return Ok(false);
+        };
+        self.stream.send(BlockMessageSend(block)).await?;
+        self.height = advance_height(self.height)?;
+        Ok(true)
     }
+}
+fn advance_height(height: NonZeroUsize) -> Result<NonZeroUsize> {
+    height
+        .checked_add(1)
+        .ok_or_else(|| Error::InvalidHeight("maximum block height is achieved".to_string()))
 }
 fn request_height_to_kura(height: NonZeroU64) -> Result<NonZeroUsize> {
     let raw = usize::try_from(height.get())
@@ -92,5 +101,16 @@ mod tests {
             let too_large = NonZeroU64::new(max + 1).expect("non-zero");
             assert!(request_height_to_kura(too_large).is_err());
         }
+    }
+    #[test]
+    fn advance_height_moves_to_the_next_block_and_rejects_overflow() {
+        assert_eq!(
+            advance_height(NonZeroUsize::MIN).unwrap(),
+            NonZeroUsize::new(2).unwrap()
+        );
+        assert!(matches!(
+            advance_height(NonZeroUsize::MAX),
+            Err(Error::InvalidHeight(_))
+        ));
     }
 }

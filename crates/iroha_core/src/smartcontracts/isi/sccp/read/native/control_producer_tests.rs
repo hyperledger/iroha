@@ -1,7 +1,8 @@
-//! Proof/effect consumer controls over a real paid native chain through genuine due H60.
-//! Route and reducer-produced certificate preconditions are installed before genesis only.
-//! These tests do not qualify route establishment, live ballot/PQ proofs or emergency-pause
-//! creation. Positive fixtures use their original certified sources without World writes.
+//! Control proof consumers over a real paid native chain through certified H60.
+//! Routes, a component control leaf and its certificate-cause DATA are installed before
+//! genesis. No genuine casting-open anchor is available, so these tests do not qualify
+//! Parliament enactment, route establishment, ballot/PQ proofs or emergency-pause creation.
+//! Positive proof reads use their original certified sources without later World writes.
 //! The adversarial branch control changes only durable certificate bytes after that cut.
 
 use super::*;
@@ -68,7 +69,7 @@ fn control_chain(branch: bool) -> (Box<CertifiedTestChain>, GovernanceCertificat
     world.sccp_reset_nonce = mv::cell::Cell::new(Some([1; 32]));
     let mut config = TestChainConfig::new(world, 1_000);
     config.genesis_key = key.clone();
-    // The H60 reducer fixture below publishes only governance preconditions before
+    // The H60 component fixture below publishes control/cause DATA before
     // genesis. Asset registration and supply belong to the original signed G1,
     // which establishes their canonical AXT incarnation at execution.
     config.genesis_instructions.extend([
@@ -202,7 +203,7 @@ fn control_chain(branch: bool) -> (Box<CertifiedTestChain>, GovernanceCertificat
     .unwrap();
     state.world.sccp_fast_pauses.insert(ETH, pause);
     let certificate =
-        crate::smartcontracts::isi::world::isi::seed_sccp_native_proof_certificate_before_genesis(
+        crate::smartcontracts::isi::world::isi::seed_sccp_native_proof_control_before_genesis(
             state, &proposal,
         );
     assert_eq!(certificate.enact_at_height, 60);
@@ -233,7 +234,7 @@ fn control_chain(branch: bool) -> (Box<CertifiedTestChain>, GovernanceCertificat
         let valid = paid(&chain, &key, instructions, time);
         let expected = if height == 60 {
             // First leaf write in this paid transaction must disappear on the second
-            // instruction's actual route-revision rejection. The block-start control survives.
+            // instruction's actual route-revision rejection. The component control survives.
             let mut first = outbound_record(1, [0xfa; 20]);
             first.network = BSC;
             let mut refused = outbound_record(1, [0xfb; 20]);
@@ -327,7 +328,7 @@ fn paid(
 }
 
 #[test]
-fn native_control_binds_due_certificate_paid_rollback_and_current_fields_to_original_x() {
+fn native_control_binds_component_cause_paid_rollback_and_current_fields_to_original_x() {
     let (chain, cause) = control_chain(false);
     let stop = AtomicBool::new(false);
     let view = chain.state().view();

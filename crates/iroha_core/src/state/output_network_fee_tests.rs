@@ -451,6 +451,7 @@ fn actual_failed_execution_fee_authority_is_once_only_and_bound_to_its_source_co
             parameters.transaction(),
             &block.crypto,
             source.header().creation_time(),
+            false,
         )
         .unwrap();
         let mut cache = IvmCache::with_prepared_contract_cache(

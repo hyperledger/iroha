@@ -57,11 +57,9 @@ mod json_from_value_fast;
 #[path = "../tests/json_parse_string_allocations.rs"]
 mod json_parse_string_allocations;
 use std::{
-    alloc::{Layout, alloc, dealloc},
     cell::Cell,
     collections::{BTreeMap, HashMap},
     io::{Read, Write},
-    ptr,
     sync::OnceLock,
 };
 // std imported selectively where needed
@@ -79,69 +77,6 @@ pub use core::{
 };
 #[doc(hidden)]
 pub use core::{SequencePlan, SequenceSpan, plan_binary_sequence};
-struct ArchiveSlice {
-    ptr: *mut u8,
-    len: usize,
-    layout: Option<Layout>,
-}
-impl ArchiveSlice {
-    fn new_owned(src: &[u8], align: usize) -> Result<Self, Error> {
-        let align = align.max(1);
-        if src.is_empty() {
-            return Ok(Self {
-                ptr: align as *mut u8,
-                len: 0,
-                layout: None,
-            });
-        }
-        let layout =
-            Layout::from_size_align(src.len(), align).map_err(|_| Error::LengthMismatch)?;
-        core::reserve_decode_allocation(src.len())?;
-        unsafe {
-            let ptr = alloc(layout);
-            if ptr.is_null() {
-                return Err(Error::AllocationFailed {
-                    bytes: u64::try_from(src.len()).unwrap_or(u64::MAX),
-                });
-            }
-            ptr::copy_nonoverlapping(src.as_ptr(), ptr, src.len());
-            Ok(Self {
-                ptr,
-                len: src.len(),
-                layout: Some(layout),
-            })
-        }
-    }
-    fn new(src: &[u8], align: usize) -> Result<Self, Error> {
-        if src.is_empty() {
-            Ok(Self {
-                ptr: align.max(1) as *mut u8,
-                len: 0,
-                layout: None,
-            })
-        } else if align <= 1 || (src.as_ptr() as usize).is_multiple_of(align) {
-            Ok(Self {
-                ptr: src.as_ptr() as *mut u8,
-                len: src.len(),
-                layout: None,
-            })
-        } else {
-            Self::new_owned(src, align)
-        }
-    }
-    fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr as *const u8, self.len) }
-    }
-}
-impl Drop for ArchiveSlice {
-    fn drop(&mut self) {
-        if let Some(layout) = self.layout {
-            unsafe {
-                dealloc(self.ptr, layout);
-            }
-        }
-    }
-}
 #[doc(hidden)]
 #[inline]
 pub fn debug_trace_enabled() -> bool {
@@ -10773,7 +10708,8 @@ pub struct StreamMapIter<K, V> {
     flags: u8,
     entries: usize,
     idx: usize,
-    digest: crc64fast::Digest,
+    // Entry prefixes are read in tiny pieces; batch them for the digest.
+    digest: core::PayloadChecksum,
     payload_remaining: usize,
     checksum: u64,
     flags_guard: core::DecodeFlagsGuard,
@@ -10807,7 +10743,7 @@ where
     #[inline]
     fn read_exact_update_buf(
         reader: &mut dyn Read,
-        digest: &mut crc64fast::Digest,
+        digest: &mut core::PayloadChecksum,
         remaining: &mut usize,
         buf: &mut [u8],
     ) -> Result<(), Error> {
@@ -10815,7 +10751,7 @@ where
             .checked_sub(buf.len())
             .ok_or(Error::LengthMismatch)?;
         reader.read_exact(buf)?;
-        digest.write(buf);
+        digest.update(buf);
         *remaining = new_remaining;
         Ok(())
     }
@@ -10933,27 +10869,27 @@ where
                 }
             }
         };
-        let mut digest = crc64fast::Digest::new();
+        let mut digest = core::PayloadChecksum::new();
         let mut remaining = payload_len;
         #[inline]
         fn read_exact_update<Rd: Read>(
             src: &mut Rd,
             dst: &mut [u8],
-            d: &mut crc64fast::Digest,
+            d: &mut core::PayloadChecksum,
             remaining: &mut usize,
         ) -> Result<(), Error> {
             let new_remaining = remaining
                 .checked_sub(dst.len())
                 .ok_or(Error::LengthMismatch)?;
             src.read_exact(dst)?;
-            d.write(dst);
+            d.update(dst);
             *remaining = new_remaining;
             Ok(())
         }
         #[inline]
         fn read_u64_update<Rd: Read>(
             src: &mut Rd,
-            d: &mut crc64fast::Digest,
+            d: &mut core::PayloadChecksum,
             remaining: &mut usize,
         ) -> Result<u64, Error> {
             let mut b = [0u8; 8];

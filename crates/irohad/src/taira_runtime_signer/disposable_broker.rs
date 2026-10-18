@@ -9,10 +9,8 @@ use crate::{
     soracloud_runtime_signer::qualify_soracloud_runtime_mutation_signer_v1,
 };
 
-const THRESHOLD_SLOTS: &[IrohaRuntimeProviderSlotV1] = &[
-    IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner,
-    IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
-];
+const THRESHOLD_SLOTS: &[IrohaRuntimeProviderSlotV1] =
+    &[IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner];
 
 fn threshold_import_error(
     error: &RuntimeConsensusThresholdSignerCredentialErrorV1,
@@ -21,8 +19,7 @@ fn threshold_import_error(
         RuntimeConsensusThresholdSignerCredentialErrorV1::Unavailable
         | RuntimeConsensusThresholdSignerCredentialErrorV1::Session(_)
         | RuntimeConsensusThresholdSignerCredentialErrorV1::DecodeResource(_)
-        | RuntimeConsensusThresholdSignerCredentialErrorV1::Output(_)
-        | RuntimeConsensusThresholdSignerCredentialErrorV1::ParliamentFunding(_) => {
+        | RuntimeConsensusThresholdSignerCredentialErrorV1::Output(_) => {
             IrohaRuntimeProviderRegistryErrorV1::Unavailable
         }
         _ => IrohaRuntimeProviderRegistryErrorV1::BindingMismatch,
@@ -117,7 +114,7 @@ pub(super) fn load_with_signer(
 /// both platform threshold handoffs receive the one original policy pool. The
 /// stock broker independently qualifies every returned backend before readiness.
 /// TODO: Fund supervisor input, outer shared controls and Core custody-map nodes
-/// before full memory qualification; decoded Parliament graph backing is prepaid.
+/// before full memory qualification.
 ///
 /// # Errors
 ///
@@ -142,19 +139,11 @@ mod threshold_import_error_tests {
     use super::*;
 
     #[test]
-    fn actual_parliament_backing_refusal_is_unavailable_and_bad_credentials_stay_mismatched() {
-        let pool = iroha_allocation::AllocationBudget::new(1);
-        let original = pool
-            .try_reserve(std::alloc::Layout::array::<u8>(2).unwrap())
-            .err()
-            .unwrap();
-        assert_eq!(threshold_import_error(
-            &RuntimeConsensusThresholdSignerCredentialErrorV1::ParliamentFunding(
-                crate::external_software_signer::RuntimeParliamentTleCredentialFundingErrorV1::Storage(
-                    iroha_allocation::ChargedBufferError::Admission(original),
-                ),
-            ),
-        ), IrohaRuntimeProviderRegistryErrorV1::Unavailable);
+    fn local_credential_failures_are_unavailable_and_bad_credentials_stay_mismatched() {
+        assert_eq!(
+            threshold_import_error(&RuntimeConsensusThresholdSignerCredentialErrorV1::Unavailable),
+            IrohaRuntimeProviderRegistryErrorV1::Unavailable
+        );
         assert_eq!(
             threshold_import_error(&RuntimeConsensusThresholdSignerCredentialErrorV1::Rejected),
             IrohaRuntimeProviderRegistryErrorV1::BindingMismatch

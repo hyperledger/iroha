@@ -140,6 +140,67 @@ def test_actual_availability_boundaries_have_separate_strict_kill_tests():
         assert gate.has_switch(mutation)
 
 
+@pytest.mark.parametrize("mid,tests,hook", [
+    ("MS51", (
+        "sim::world::clock_guard::tests::f33_hidden_prepareqc_due_work_block_commits_after_lag",
+        "machine::tests::liveness::det_s51_execute_certified_flag",
+        "machine::tests::liveness::det_s51_reproposal_q_certifies_without_matching_lock",
+    ), "machine/proposal.rs"),
+    ("MS52", (
+        "sim::world::clock_guard::tests::guard_rules_and_leads",
+        "sim::world::clock_guard::tests::clock_guard_certified_time_within_two_drifts",
+        "sim::world::clock_guard::tests::clock_guard_liveness_with_f_plus_one_slow_clocks",
+    ), "sim/world/clock_guard.rs"),
+    ("MS65", (
+        "sim::world::clock_guard::tests::clock_guard_due_work_lower_bound_at_first_prepare",
+    ), "sim/world/clock_guard.rs"),
+    ("MS66", (
+        "sim::world::clock_guard::tests::clock_guard_accepts_exact_drift_allowance",
+        "sim::world::clock_guard::tests::clock_guard_liveness_with_f_plus_one_slow_clocks",
+    ), "sim/world/clock_guard.rs"),
+    ("MS80", (
+        "machine::tests::liveness::det_s80_unrelated_lock_does_not_certify_execution",
+    ), "machine/proposal.rs"),
+    ("MS81", (
+        "machine::tests::recovery::det_s81_unsigned_proposal_restart_refuses_mismatched_high_pqc",
+        "machine::tests::recovery::det_s81_signed_proposal_restart_refuses_mismatched_high_pqc",
+    ), "safety.rs"),
+])
+def test_clock_guard_mutations_pin_exact_controls_and_owning_hooks(mid, tests, hook):
+    rule = gate.BY_ID[mid]
+    assert rule.tests == tests
+    assert rule.scenarios == (() if mid in {"MS80", "MS81"} else ("f39",))
+    source = (gate.CRATE_SRC / hook).read_text()
+    assert re.search(r'sumeragi_mutation\s*=\s*"' + mid + r'"', source)
+    assert gate.has_switch(mid)
+    assert not gate.has_switch(mid, core=True)
+    assert not gate.has_switch(mid, model=True)
+
+
+def test_unrelated_lock_mutation_requires_original_certification_failure():
+    rule = gate.BY_ID["MS80"]
+    cause = "a held PrepareQC must certify the executed block, not merely its height"
+    source = "crates/iroha_sumeragi/src/machine/tests/liveness.rs"
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    body = named_rust_function(
+        (ROOT / source).read_text(), "det_s80_unrelated_lock_does_not_certify_execution"
+    )
+    assert cause in body
+
+
+def test_restored_proposal_mutation_requires_original_block_binding_failure():
+    rule = gate.BY_ID["MS81"]
+    cause = "a restored proposal must name the block certified by its TC high-PQC before signing or execution"
+    source = "crates/iroha_sumeragi/src/machine/tests/recovery.rs"
+    assert rule.causes == (gate.ExpectedFailure(cause, source),) * 2
+    text = (ROOT / source).read_text()
+    body = named_rust_function(text, "rejects_mismatched_proposal_justify")
+    assert cause in body
+    for signed, selector in zip((False, True), rule.tests):
+        control = named_rust_function(text, selector.rsplit("::", 1)[1])
+        assert f"rejects_mismatched_proposal_justify({str(signed).lower()})" in control
+
+
 @pytest.mark.parametrize("mid,test,cause,source", [
     ("MX13", "sim::tests::amx_final_payment::amx_final_payment_silent_participant_requires_actionable_abort",
      "healthy global root must resolve the due final obligation without unrelated height advancement",
@@ -6763,11 +6824,11 @@ def test_native_cursor_pending_retention_accounts_every_named_control(monkeypatc
 
 
 @pytest.mark.parametrize("mid,owner", [
-    ("HC237", "smartcontracts/isi/world.rs"),
+    ("HC237", "smartcontracts/isi/sccp/governance.rs"),
     ("HC238", "smartcontracts/isi/sccp/controls.rs"),
 ])
 def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, owner):
-    name = "smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state"
+    name = "smartcontracts::isi::world::isi::tests::sccp_enactment_component_binds_exact_certificate_and_complete_pause_state"
     rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
     assert rule.tests == (name,) and not rule.scenarios
     assert gate.has_switch(mid, core=True)
@@ -6783,22 +6844,20 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
     compact = re.sub(r"\s+", "", source)
     assert f'all(test,{needle.replace(" ", "")})' in compact
     if mid == "HC237":
-        effect = source.split("fn apply_parliament_proposal_effect_v1(", 1)[1]
-        effect = effect.split("ProposalKind::SccpRouteGovernance(payload) => {", 1)[1]
-        effect = effect.split("ProposalKind::SorafsProviderGovernance", 1)[0]
+        effect = named_rust_function(source, "enact")
         compact_effect = re.sub(r"\s+", "", effect)
-        assert "ControlCauseV1::from_parliament_certificate(certificate)?" in compact_effect
-        assert "ControlCauseV1::for_test(proposal_id,certificate.effect_preimage_hash,)" in compact_effect
+        assert "letcertificate_id={let_=certificate_id;proposal_id};" in compact_effect
+        assert "ControlCauseV1::from_parliament(certificate_id,effect_hash)?" in compact_effect
+        assert effect.index(needle) < effect.index("ControlCauseV1::from_parliament")
+        assert effect.index("ControlCauseV1::from_parliament") < effect.index("apply_action(")
         cause_source = (core / "smartcontracts/isi/sccp/controls.rs").read_text()
-        constructor = cause_source.split("fn from_parliament_certificate(", 1)[1].split("fn require_supported(", 1)[0]
+        constructor = named_rust_function(cause_source, "from_parliament")
         compact_constructor = re.sub(r"\s+", "", constructor)
-        assert re.search(r"GovernanceCertificateId::derive_v1\(certificate,?\)\.as_bytes\(\)", compact_constructor)
-        assert "effect_hash:certificate.effect_preimage_hash" in compact_constructor
-        assert "certificate.validate()" in compact_constructor
-        assert "cause.require_supported()?" in compact_constructor
-        assert effect.index("ControlCauseV1::from_parliament_certificate") < effect.index(needle)
-        assert effect.index(needle) < effect.index("sccp::governance::enact(")
-        assert "exact_due_parliament_certificate_context_v1(governance_attempt_id,state_transaction)?" in compact
+        assert "certificate_id:[u8;32],effect_hash:[u8;32]," in compact_constructor
+        assert "certificate_id==[0;32]||effect_hash==[0;32]" in compact_constructor
+        assert "Ok(Self{track:iroha_sccp::v1::control::TRACK_PARLIAMENT,certificate_id,effect_hash,})" in compact_constructor
+        assert "GovernanceCertificateV1" not in cause_source
+        assert "GovernanceCertificateId" not in cause_source
     else:
         assert f'ifcfg!(all(test,{needle.replace(" ", "")})){{0}}else{{' in compact
         assert "store::fast_pauses::get(&*state_transaction.world,&network).map_or(0,|pause|" in compact
@@ -6807,12 +6866,11 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
         assert "destination_paused =" not in production
         assert "fast_pauses::insert(" not in production
     tests = (core / "smartcontracts/isi/world_sccp_governance_tests.rs").read_text()
-    control = tests.split("fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state()", 1)[1]
-    control = control.split("\n#[test]", 1)[0]
+    control = named_rust_function(tests, name.rsplit("::", 1)[-1])
     compact_control = re.sub(r"\s+", "", control)
     for obligation in (
         "seed_due_sccp_control_certificate(&mut seed, paused)",
-        "execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)",
+        "enact_sccp_control_component(&fixture, &mut execution)",
         "GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes()",
         "assert_ne!(expected_id, fixture.proposal_id)",
         'assert_eq!(row.certificate_id, expected_id, "control record must bind the exact enacting governance certificate")',
@@ -6823,6 +6881,9 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
         "event.certificate_id == expected_id", "event.fast_pause_until_ms == original_pause.until_ms",
     ):
         assert re.sub(r"\s+", "", obligation) in compact_control
+    component = re.sub(r"\s+", "", named_rust_function(tests, "enact_sccp_control_component"))
+    assert "fixture.certificate.validate()" in component
+    assert "governance::enact(execution,*GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes(),fixture.certificate.effect_preimage_hash,s0,&payload.proposal,)" in component
     spec = (ROOT / "specs/sumeragi.md").read_text()
     rows = re.findall(rf"^\| {mid} \|.*$", spec, re.M)
     assert len(rows) == 1 and name in rows[0]
@@ -6830,6 +6891,154 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
     assert "| SC6 (HC259, HC260, HC264) | CT3 builder pacing disabled |" in spec
     # The existing pending-proof custody rule remains an independent live rule.
     assert len(gate.index_mutations(gate.CORE_MUTATIONS)["HC236"].tests) == 3
+
+
+def test_sccp_parliament_boundary_owns_certificate_checks_and_requires_original_s0():
+    core = ROOT / "crates/iroha_core/src"
+    world = (core / "smartcontracts/isi/world.rs").read_text()
+    effect = named_rust_function(world, "apply_parliament_proposal_effect_v1")
+    adapter = effect.split("ProposalKind::SccpRouteGovernance(payload) => {", 1)[1]
+    adapter = adapter.split("ProposalKind::SorafsProviderGovernance", 1)[0]
+    compact_adapter = re.sub(r"\s+", "", adapter)
+    assert "payload.proposal.network_id!=state_transaction.network_id" in compact_adapter
+    assert "certificate.validate()" in compact_adapter
+    assert "GovernanceCertificateId::derive_v1(certificate,).as_bytes()" in compact_adapter
+    assert "None::<iroha_data_model::governance::GovernanceAnchorV1>.ok_or_else(" in compact_adapter
+    assert "casting-open source is unavailable" in adapter
+    assert "sccp::governance::enact(state_transaction,certificate_id,certificate.effect_preimage_hash,s0,&payload.proposal,)" in compact_adapter
+    assert adapter.index("certificate.validate()") < adapter.index("GovernanceCertificateId::derive_v1")
+    assert adapter.index("GovernanceCertificateId::derive_v1") < adapter.index("let s0")
+    assert adapter.index("let s0") < adapter.index("sccp::governance::enact(")
+    for fabrication in ("GovernanceAnchorV1 {", "GovernanceAnchorV1::", "for_test", "#[cfg(test)]"):
+        assert fabrication not in adapter
+
+    context = re.sub(r"\s+", "", named_rust_function(world, "exact_due_parliament_certificate_context_v1"))
+    for obligation in (
+        "attempt.validate().map_err(parliament_reducer_error)?",
+        "attempt.attempt().status != GovernanceAttemptStatusV1::Certified",
+        "certificate.validate()",
+        "certificate.enact_at_height != current_height",
+        "ensure_certificate_only_proposal_v1(proposal_id, &proposal, state_transaction)?",
+        "validate_proposal_bindings_v1(&proposal.kind)",
+        "certificate.proposal_content_id != attempt.proposal_content_id()",
+        "certificate.governance_attempt_id != governance_attempt_id",
+        "certificate.governance_attempt_sequence != attempt.attempt().sequence",
+        "certificate.effect_preimage_hash != proposal.kind.effect_preimage_hash_v1()",
+        "proposal.kind.fingerprint() != proposal_id",
+    ):
+        assert re.sub(r"\s+", "", obligation) in context
+    executor = named_rust_function(world, "execute_due_parliament_certificate_v1")
+    compact_executor = re.sub(r"\s+", "", executor)
+    assert "exact_due_parliament_certificate_context_v1(governance_attempt_id,state_transaction)?" in compact_executor
+    assert "observed_head!=certificate.expected_head" in compact_executor
+    assert executor.index("exact_due_parliament_certificate_context_v1(") < executor.index("observed_head != certificate.expected_head")
+    assert executor.index("observed_head != certificate.expected_head") < executor.index("apply_parliament_proposal_effect_v1(")
+
+    governance = (core / "smartcontracts/isi/sccp/governance.rs").read_text()
+    enact = named_rust_function(governance, "enact")
+    signature = enact.split("->", 1)[0]
+    assert "GovernanceCertificateV1" not in enact and "GovernanceCertificateId" not in enact
+    assert "certificate_id:[u8;32],effect_hash:[u8;32],s0:GovernanceAnchorV1,proposal:&SccpGovernanceProposalV1," in re.sub(r"\s+", "", signature)
+    assert "apply_action(state_transaction,action,proposal_id,cause,s0)" in re.sub(r"\s+", "", enact)
+    action = re.sub(r"\s+", "", named_rust_function(governance, "apply_action"))
+    assert action.count("super::fast_pause::lift(") == 2
+    assert "SccpFastPausePartV1::Taira,s0,)?" in action
+    assert "SccpFastPausePartV1::Destination{revision:action.revision,},s0,)?" in action
+    pause = (core / "smartcontracts/isi/sccp/fast_pause.rs").read_text()
+    lift = named_rust_function(pause, "lift")
+    assert "precedes_casting_open(s0)" in lift
+    assert 'sumeragi_core_mutation = "HC298"' in lift
+    assert "policy_jury_casting_open" not in pause
+    iface = (core / "smartcontracts/isi/sccp/parliament_iface.rs").read_text()
+    assert "PolicyJuryOpening" not in iface and "policy_jury_casting_open" not in iface
+
+    tests = (core / "smartcontracts/isi/world_sccp_governance_tests.rs").read_text()
+    closed = re.sub(r"\s+", "", named_rust_function(
+        tests, "parliament_due_sccp_certificate_without_casting_open_anchor_fails_without_effects"
+    ))
+    for obligation in (
+        "for paused in [false, true]",
+        "fixture.certificate.validate()",
+        "apply_parliament_proposal_effect_v1(",
+        "execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)",
+        "DueParliamentCertificateExecutionV1::EffectFailed",
+        "parliament_execution_failure_root_v1(&fixture.certificate, PARLIAMENT_DUE_CERTIFICATE_HEIGHT,)",
+        "Some(&original_route)", "Some(&original_pause)", "Some(&original_attempt)",
+        "Some(norito::codec::Encode::encode(&original_proposal))",
+        "assert_eq!(execution.world.internal_event_buf.len(), original_events)",
+        "SccpGovernanceSubjectV1::RouteControl(network)", "SccpGovernanceSubjectV1::FastHold(network)",
+        "assert!(store::control_messages::is_empty(&*execution.world))",
+        "assert_eq!(leaves::leaf_count_at(&*execution.world, PARLIAMENT_DUE_CERTIFICATE_HEIGHT), 0)",
+        "assert_eq!(original_route.revisions[&1].next_control_nonce, 1)",
+    ):
+        assert re.sub(r"\s+", "", obligation) in closed
+
+
+@pytest.mark.parametrize("mid,name,cause,path", [
+    ("HC400", "registration_requires_both_launch_gates_even_after_native_preconditions",
+     "SCCP registration must require both launch gates after native preconditions pass",
+     "installation_tests"),
+    ("HC401", "enactment_preserves_casting_open_anchor_for_each_pause_part",
+     "SCCP enactment must preserve the authenticated casting-open anchor for the requested pause part",
+     "anchor_tests"),
+])
+def test_sccp_registration_and_anchor_mutations_keep_exact_owners_and_failures(mid, name, cause, path):
+    core = ROOT / "crates/iroha_core/src"
+    owner = "smartcontracts/isi/sccp/governance.rs"
+    control_path = f"crates/iroha_core/src/smartcontracts/isi/sccp/governance/{path}.rs"
+    qualified = f"smartcontracts::isi::sccp::governance::{path}::{name}"
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (qualified,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, control_path),)
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(mid, **family)
+    needle = f'sumeragi_core_mutation = "{mid}"'
+    owners = {p.relative_to(core).as_posix() for p in core.rglob("*.rs") if needle in p.read_text()}
+    assert owners == {owner}
+    source = (core / owner).read_text()
+    assert source.count(needle) == 1
+    assert f'all(test,{needle.replace(" ", "")})' in re.sub(r"\s+", "", source)
+    controls = (ROOT / control_path).read_text()
+    control = named_rust_function(controls, name)
+    assert json.dumps(cause) in control
+    compact_control = re.sub(r"\s+", "", control)
+    if mid == "HC400":
+        registration = named_rust_function(source, "register_route")
+        compact_registration = re.sub(r"\s+", "", registration)
+        assert 'if!(cfg!(all(test,sumeragi_core_mutation="HC400"))||gates.0&&gates.1)' in compact_registration
+        assert registration.index("registration::validate_available(") < registration.index(needle)
+        assert registration.index(needle) < registration.index("store::routes::insert(")
+        assert '#[cfg(test)]letgates=tests::LAUNCH_GATES.with(' in compact_registration
+        assert "forgatesin[(true,false),(false,true)]" in compact_control
+        assert "super::tests::with_launch_gates(gates," in compact_control
+        assert "Some(&before)" in compact_control
+        assert "store::destination_words::is_empty(&*stx.world)" in compact_control
+        assert "stx.world.take_external_events().is_empty()" in compact_control
+        initialize = named_rust_function(controls, "initialize")
+        assert "registration::validate_available(stx, &register)" in initialize
+        closed = named_rust_function(controls, "registration_with_real_launch_gates_fails_closed_without_state_or_events")
+        assert "with_launch_gates" not in closed
+        iface = (core / "smartcontracts/isi/sccp/parliament_iface.rs").read_text()
+        for gate_source, function in ((source, "sccp_reconciliation_available"),
+                                      (iface, "parliament_binding_ballot_available")):
+            assert named_rust_function(gate_source, function).split("{", 1)[1].strip() == "false\n}"
+    else:
+        enact = named_rust_function(source, "enact")
+        compact_enact = re.sub(r"\s+", "", enact)
+        assert '#[cfg(all(test,sumeragi_core_mutation="HC401"))]lets0={let_=s0;GovernanceAnchorV1{height:0,position:0,timestamp_ms:0,}};' in compact_enact
+        assert "apply_action(state_transaction,action,proposal_id,cause,s0)" in compact_enact
+        assert "forpartin[Part::Taira,Part::Destination{revision:1}]" in compact_control
+        for anchor in ("(1,u32::MAX,false)", "(2,4,false)", "(2,5,false)", "(2,6,true)", "(3,0,true)"):
+            assert anchor in compact_control
+        assert "fortimestamp_msin[0,8_000,u64::MAX]" in compact_control
+        assert "enact(&mutstx,CERTIFICATE_ID,EFFECT_HASH,GovernanceAnchorV1{height,position,timestamp_ms,},&proposal,)" in compact_control
+        assert "assert_eq!(control.certificate_id,CERTIFICATE_ID)" in compact_control
+        assert "assert_eq!(control.effect_hash,EFFECT_HASH)" in compact_control
+        assert "control.fast_pause_until_ms,iflifted{0}else{source.until_ms}" in compact_control
+    rows = re.findall(rf"^\| {mid} \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and qualified in rows[0]
 
 
 @pytest.mark.parametrize("mid", ["HC237", "HC238"])
@@ -8803,7 +9012,7 @@ def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
                        "Error::PruneRecoveryRequired", "Error::CanonicalStoragePoisoned", "catch_unwind",
                        "registration.belongs_to(&budget)", "reserved - charge", "unrelated physical release",
                        "receipt.is_from(&kura)", "inventory(&kura)", "source.kind() == ErrorKind::InvalidData",
-                       "FASTPQ artifact storage quota exhausted", "FASTPQ content address contains different bytes",
+                       "Error::FastpqArtifactQuota", "FASTPQ content address contains different bytes",
                        "FASTPQ artifact reference is absent", "FASTPQ artifact content or exact length differs from reference"):
         assert obligation in controls
     assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
@@ -10102,7 +10311,8 @@ def test_lane_wait_retirement_and_debug_mutations_keep_exact_original_owners(
     assert code.count(f'sumeragi_core_mutation = "{identifier}"') == 1
     if identifier == "HC390":
         guard = f'#[cfg(not(all(test, sumeragi_core_mutation = "{identifier}")))]'
-        assert re.search(re.escape(guard) + r"\s*self\s*\.\s*inputs\s*\.\s*stores\s*\.\s*resume_retired_publications\(&lanes,\s*\|key\|\s*!self\.running\.lock\(\)\.contains_key\(key\)\);", code)
+        statement = "self.inputs.stores.resume_retired_publications(&lanes, |key| !self.running.lock().contains_key(key));"
+        assert re.sub(r"\s+", "", guard + statement) in re.sub(r"\s+", "", code)
         assert code.index(guard) < code.index('if cfg!(all(test, sumeragi_core_mutation = "HC349"))')
     else:
         guard = f'#[cfg(all(test, sumeragi_core_mutation = "{identifier}"))]'

@@ -688,6 +688,96 @@ fn det_s51_execute_certified_flag() {
     );
 }
 
+/// MS51: the re-proposal's Q alone certifies B. A newer lock on C remains held, so it cannot
+/// supply B's certified execution flag or result.
+#[test]
+fn det_s51_reproposal_q_certifies_without_matching_lock() {
+    let mut h = H::new(4, pick::set_b(0));
+    assert!(h.round(2).in_set_a(h.my_idx()) && h.leader(2) != h.my_idx());
+    let b = h.block(0, b"B certified only by the re-proposal Q");
+    let q = h.qc_q(VoteKind::Prepare, 0, &b);
+    let c = h.block(1, b"C retained as the newer lock");
+    let lock = h.qc_q(VoteKind::Prepare, 1, &c);
+    assert_ne!(q.block_hash, lock.block_hash);
+    assert_ne!(q.result, lock.result);
+    qc_msg(&mut h, lock.clone());
+    assert_eq!(h.core.high_pqc, Some(lock.clone()));
+    assert!(h.pending_exec.is_empty());
+    let entries: Vec<_> = h
+        .others(h.q(), &[])
+        .into_iter()
+        .map(|signer| (signer, Some(q.clone())))
+        .collect();
+    let tc = h.tc(1, &entries);
+    assert_eq!(tc.high_pqc, Some(q.clone()));
+    prop(&mut h, 2, &b, Some(tc));
+    assert_eq!(
+        h.core.high_pqc,
+        Some(lock),
+        "the proposal Q did not replace the newer unrelated lock"
+    );
+    assert_eq!(h.core.proposal.as_ref().unwrap().expected, Some(q.result));
+    assert_eq!(h.pending_exec.len(), 1);
+    let (bh, req, _) = &h.pending_exec[0];
+    assert_eq!(*bh, q.block_hash);
+    assert_eq!(
+        h.exec_certified.get(req),
+        Some(&true),
+        "the re-proposal Q alone certifies the executed block"
+    );
+    let out = h.exec(q.block_hash, crate::testing::valid_execution(result_of(&b)));
+    let prepared = votes_of(&out, VoteKind::Prepare);
+    assert_eq!(prepared.len(), 1);
+    assert_eq!(prepared[0].block_hash, q.block_hash);
+    assert_eq!(prepared[0].result, q.result);
+    assert!(faults(&h.all).is_empty());
+}
+
+/// MS80: a `PrepareQC` for B at h cannot certify a different fresh B' at h. The original
+/// execution and its `ClockAhead` retry both remain subject to the application clock guard.
+#[test]
+fn det_s80_unrelated_lock_does_not_certify_execution() {
+    let mut h = H::new(4, pick::set_b(0));
+    let b = h.block(0, b"B held lock");
+    let lock = h.qc_q(VoteKind::Prepare, 0, &b);
+    qc_msg(&mut h, lock.clone());
+    let tc = h.tc_q(0);
+    let fresh = h.block(1, b"B prime fresh block at the same height");
+    let fresh_hash = h.bh(&fresh);
+    assert_eq!(fresh.header().height, lock.height);
+    assert_ne!(fresh_hash, lock.block_hash);
+    prop(&mut h, 1, &fresh, Some(tc));
+    assert_eq!(h.core.high_pqc, Some(lock.clone()));
+    assert!(h.core.proposal.as_ref().unwrap().expected.is_none());
+    assert_eq!(h.pending_exec.len(), 1);
+    let (bh, req, _) = h.pending_exec.pop().unwrap();
+    assert_eq!(bh, fresh_hash);
+    assert_eq!(
+        h.exec_certified.get(&req),
+        Some(&false),
+        "a held PrepareQC must certify the executed block, not merely its height"
+    );
+    let out = h.fire(Event::Executed {
+        block_hash: bh,
+        req,
+        outcome: ExecOutcome::Failed("ClockAhead".to_owned()),
+    });
+    assert!(votes(&out).is_empty());
+    assert!(votes_of(&h.all, VoteKind::Prepare).is_empty());
+    h.run_until(h.now + exec_retry_delay(0, h.local.rebroadcast_interval));
+    assert_eq!(h.core.high_pqc, Some(lock));
+    assert_eq!(h.pending_exec.len(), 1);
+    let (retry_hash, retry_req, _) = &h.pending_exec[0];
+    assert_eq!(*retry_hash, fresh_hash);
+    assert!(*retry_req > req);
+    assert_eq!(
+        h.exec_certified.get(retry_req),
+        Some(&false),
+        "an unrelated retained lock cannot exempt the retry either"
+    );
+    assert!(votes_of(&h.all, VoteKind::Prepare).is_empty());
+}
+
 #[test]
 fn det_l18_f_plus_1_distinct_leaders_core() {
     // With D = {L0} at a height anchored at L0's slot, the leaders of views 0 and 1 differ.

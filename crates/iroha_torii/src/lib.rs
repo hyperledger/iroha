@@ -46,8 +46,6 @@ mod native_projection_response;
 mod nft_market;
 mod operator_auth;
 mod operator_signatures;
-#[cfg(feature = "app_api")]
-mod parliament_tle_release;
 pub mod privacy_issuance_api;
 mod private_dataspaces;
 mod private_root_export;
@@ -73,6 +71,7 @@ mod sccp;
 mod sns_lease;
 mod staking_preparation;
 mod stream_control;
+mod stream_read_authorization;
 mod stream_token_custody_proof;
 mod torii_mutation_guard;
 #[cfg(feature = "app_api")]
@@ -1235,9 +1234,8 @@ pub use gov::{
     handle_gov_citizen_status, handle_gov_contract_get, handle_gov_get_locks,
     handle_gov_get_proposal, handle_gov_get_referendum, handle_gov_get_tally,
     handle_gov_parliament_attempt_draft, handle_gov_parliament_attempt_plan,
-    handle_gov_parliament_attempt_read, handle_gov_parliament_tle_release_context_read,
-    handle_gov_parliament_transition_draft, handle_gov_protected_get, handle_gov_protected_set,
-    handle_gov_unlock_stats,
+    handle_gov_parliament_attempt_read, handle_gov_parliament_transition_draft,
+    handle_gov_protected_get, handle_gov_protected_set, handle_gov_unlock_stats,
 };
 // Routing helpers used by integration tests
 #[cfg(any(test, feature = "test-fixtures"))]
@@ -2455,8 +2453,6 @@ struct AppState {
     transaction_batch_max_transactions: usize,
     transaction_batch_max_bytes: usize,
     state: Arc<CoreState>,
-    #[cfg(feature = "app_api")]
-    parliament_tle_release_coordinator: Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
     #[cfg(feature = "app_api")]
     musubi_search: Arc<RwLock<iroha_core::musubi_search::MusubiSearchIndexV1>>,
     bootle_lantern_issuance_runtime:
@@ -8079,159 +8075,6 @@ async fn handler_gov_parliament_attempt_plan(
     )
     .await?;
     crate::gov::handle_gov_parliament_attempt_plan(app.state.clone(), governance_attempt_id).await
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_timed_ovn_casting_context_read(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-) -> Result<
-    JsonBody<iroha_torii_shared::parliament_api::ParliamentTimedOvnCastingContextResponseV1>,
-    Error,
-> {
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-    )
-    .await?;
-    let replay_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let state = app.state.clone();
-    crate::panic_recovery::join_recoverable(crate::panic_recovery::spawn_blocking_recoverable(
-        move || {
-            // Keep heavy replay capacity reserved even if cancellation detaches the
-            // blocking task from its HTTP request future.
-            let _replay_admission = replay_admission;
-            crate::gov::handle_gov_parliament_timed_ovn_casting_context_read(
-                state,
-                ballot_attempt_id,
-            )
-        },
-    ))
-    .await
-    .map_err(|error| Error::AppServiceUnavailable {
-        code: "parliament_timed_ovn_casting_context_worker_unavailable",
-        message: error.to_string(),
-    })?
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_timed_ovn_casting_proof(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-    crate::utils::extractors::NoritoOnly(request): crate::utils::extractors::NoritoOnly<
-        iroha_torii_shared::parliament_api::ParliamentTimedOvnCastingProofRequestV1,
-    >,
-) -> Result<
-    NoritoBody<iroha_torii_shared::parliament_api::ParliamentTimedOvnCastingProofResponseV1>,
-    Error,
-> {
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-    )
-    .await?;
-    let replay_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let state = app.state.clone();
-    let kura = app.kura.clone();
-    crate::panic_recovery::join_recoverable(crate::panic_recovery::spawn_blocking_recoverable(
-        move || {
-            // Keep proof construction capacity reserved after request cancellation.
-            let _replay_admission = replay_admission;
-            crate::gov::handle_gov_parliament_timed_ovn_casting_proof(
-                state,
-                kura,
-                ballot_attempt_id,
-                request,
-            )
-        },
-    ))
-    .await
-    .map_err(|error| Error::AppServiceUnavailable {
-        code: "parliament_timed_ovn_casting_proof_worker_unavailable",
-        message: error.to_string(),
-    })?
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_tle_release_context_read(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-) -> Result<
-    JsonBody<iroha_torii_shared::parliament_api::ParliamentTleReleaseContextResponseV1>,
-    Error,
-> {
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-    )
-    .await?;
-    let replay_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let state = app.state.clone();
-    crate::panic_recovery::join_recoverable(crate::panic_recovery::spawn_blocking_recoverable(
-        move || {
-            // Keep heavy replay capacity reserved even if cancellation detaches the
-            // blocking task from its HTTP request future.
-            let _replay_admission = replay_admission;
-            crate::gov::handle_gov_parliament_tle_release_context_read(state, ballot_attempt_id)
-        },
-    ))
-    .await
-    .map_err(|error| Error::AppServiceUnavailable {
-        code: "parliament_tle_release_context_worker_unavailable",
-        message: error.to_string(),
-    })?
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_tle_partial_release(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-    request: axum::http::Request<Body>,
-) -> Result<JsonBody<iroha_torii_shared::parliament_api::ParliamentTlePartialReleaseShareV1>, Error>
-{
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
-    )
-    .await?;
-    crate::parliament_tle_release::require_empty_body_v1(request.into_body()).await?;
-    let signer_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let share = crate::parliament_tle_release::request_local_partial_release_v1(
-        app.state.clone(),
-        app.parliament_tle_release_coordinator.clone(),
-        ballot_attempt_id,
-        signer_admission,
-    )
-    .await?;
-    Ok(JsonBody(
-        iroha_torii_shared::parliament_api::ParliamentTlePartialReleaseShareV1 {
-            key_session_id: share.key_session_id,
-            identity_digest: share.identity_digest,
-            participant_index: share.participant_index,
-            sigma: share.sigma,
-            proof_x: share.proof_x,
-            proof_y: share.proof_y,
-            z_s: share.z_s,
-            z_r: share.z_r,
-            z_u: share.z_u,
-        },
-    ))
 }
 
 #[cfg(feature = "app_api")]
@@ -15127,7 +14970,9 @@ impl ToriiAccountReadVisibility {
 ///
 /// The visible set is deliberately recomputed from current state instead of
 /// being frozen at connection time, so permission revocation takes effect for
-/// the next emitted item.
+/// the next emitted item. Long-lived streams own a
+/// [`stream_read_authorization::ToriiStreamReadAuthorization`], which reuses
+/// one decision until a block commits or the authorization interval elapses.
 #[derive(Clone)]
 pub(crate) struct ToriiDataspaceReadContext {
     app: SharedAppState,
@@ -15137,60 +14982,57 @@ pub(crate) struct ToriiDataspaceReadContext {
     fixed_visibility: Option<routing::DataspaceReadVisibility>,
 }
 
-/// Event plus the complete authorization scope resolved before any
-/// subscriber-controlled filtering or projection.
-struct ScopedEvent {
-    event: EventBox,
-    scope: ScopedEventScope,
-}
-
-enum ScopedEventScope {
-    /// Block lifecycle notices are public and carry no transaction body.
-    Public,
-    /// Every named dataspace must be visible to the current reader.
-    Dataspaces(BTreeSet<DataSpaceId>),
-    /// Missing, malformed, or intrinsically global provenance is visible only
-    /// to a caller that still holds `CanReadAllLedgerData`.
-    GlobalReaderOnly,
-}
-
-impl ScopedEvent {
-    fn into_visible(self, visibility: &routing::DataspaceReadVisibility) -> Option<EventBox> {
-        let visible = match &self.scope {
-            ScopedEventScope::Public => true,
-            ScopedEventScope::Dataspaces(dataspaces) => dataspaces
-                .iter()
-                .all(|dataspace| visibility.allows_dataspace(*dataspace)),
-            ScopedEventScope::GlobalReaderOnly => visibility.can_read_all(),
-        };
-        visible.then_some(self.event)
-    }
-}
-
 impl ToriiDataspaceReadContext {
     fn caller(&self) -> Option<&AccountId> {
         self.caller.as_ref()
     }
 
     fn current_visibility(&self) -> routing::DataspaceReadVisibility {
-        #[cfg(test)]
-        if let Some(visibility) = &self.fixed_visibility {
-            return visibility.clone();
-        }
-        torii_dataspace_read_visibility(self.app.as_ref(), self.caller())
+        self.visibility_in(&self.app.state.view())
     }
 
     /// Revalidate the exact principal and route scope that admitted a
     /// long-lived stream.
     fn authorization_is_current(&self) -> bool {
-        if let Some(caller) = self.caller() {
-            let state_view = self.app.state.view();
-            if state_view.world().accounts().get(caller).is_none() {
-                return false;
-            }
+        let state_view = self.app.state.view();
+        let visibility = self.visibility_in(&state_view);
+        self.retains_admission_in(&state_view, &visibility)
+    }
+
+    /// Resolve the current visibility, and whether it still retains the
+    /// admitted principal and scope, from one State view whose committed
+    /// height is returned with them.
+    fn current_read_scope(&self) -> (usize, routing::DataspaceReadVisibility, bool) {
+        let state_view = self.app.state.view();
+        let visibility = self.visibility_in(&state_view);
+        let authorized = self.retains_admission_in(&state_view, &visibility);
+        (state_view.height(), visibility, authorized)
+    }
+
+    fn visibility_in(
+        &self,
+        state_view: &iroha_core::state::StateView<'_>,
+    ) -> routing::DataspaceReadVisibility {
+        #[cfg(test)]
+        if let Some(visibility) = &self.fixed_visibility {
+            return visibility.clone();
         }
-        self.current_visibility()
-            .retains_authorized_scope(&self.admitted_visibility)
+        torii_dataspace_read_visibility_in(state_view, self.caller())
+    }
+
+    /// The admitted caller still exists and `visibility` still contains the
+    /// scope that admitted it.
+    fn retains_admission_in(
+        &self,
+        state_view: &iroha_core::state::StateView<'_>,
+        visibility: &routing::DataspaceReadVisibility,
+    ) -> bool {
+        if let Some(caller) = self.caller()
+            && state_view.world().accounts().get(caller).is_none()
+        {
+            return false;
+        }
+        visibility.retains_authorized_scope(&self.admitted_visibility)
     }
 
     #[cfg(test)]
@@ -15201,124 +15043,6 @@ impl ToriiDataspaceReadContext {
             admitted_visibility: routing::DataspaceReadVisibility::all_for_tests(),
             fixed_visibility: Some(routing::DataspaceReadVisibility::all_for_tests()),
         }
-    }
-
-    fn filter_event(
-        &self,
-        kura: &Kura,
-        event: EventBox,
-    ) -> std::result::Result<
-        Option<EventBox>,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let visibility = self.current_visibility();
-        match event {
-            EventBox::PipelineBatch(events) => {
-                let mut visible = Vec::new();
-                for event in events {
-                    if let Some(EventBox::Pipeline(event)) = self
-                        .scope_pipeline_event(kura, event)?
-                        .into_visible(&visibility)
-                    {
-                        visible.push(event);
-                    }
-                }
-                Ok((!visible.is_empty()).then_some(EventBox::PipelineBatch(visible)))
-            }
-            EventBox::Pipeline(event) => Ok(self
-                .scope_pipeline_event(kura, event)?
-                .into_visible(&visibility)),
-            // Data, trigger, and clock events do not yet carry committed route
-            // provenance. The explicit envelope fails them closed to a global
-            // reader instead of guessing scope from payload data.
-            other @ (EventBox::Data(_)
-            | EventBox::Time(_)
-            | EventBox::ExecuteTrigger(_)
-            | EventBox::TriggerCompleted(_)) => Ok(ScopedEvent {
-                event: other,
-                scope: ScopedEventScope::GlobalReaderOnly,
-            }
-            .into_visible(&visibility)),
-        }
-    }
-
-    fn filter_current_event(
-        &self,
-        event: EventBox,
-    ) -> std::result::Result<
-        Option<EventBox>,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        self.filter_event(self.app.kura.as_ref(), event)
-    }
-
-    fn scope_pipeline_event(
-        &self,
-        kura: &Kura,
-        event: PipelineEventBox,
-    ) -> std::result::Result<
-        ScopedEvent,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let scope = match &event {
-            PipelineEventBox::Block(_) => ScopedEventScope::Public,
-            PipelineEventBox::Transaction(transaction) => Self::transaction_event_scope(
-                kura,
-                transaction,
-                &self.app.state.ivm_execution_budget(),
-            )?,
-            PipelineEventBox::Warning(_) | PipelineEventBox::Witness(_) => {
-                ScopedEventScope::GlobalReaderOnly
-            }
-        };
-        Ok(ScopedEvent {
-            event: EventBox::Pipeline(event),
-            scope,
-        })
-    }
-
-    fn transaction_event_scope(
-        kura: &Kura,
-        transaction: &iroha_data_model::events::pipeline::TransactionEvent,
-        execution_budget: &iroha_core::state::AllocationBudget,
-    ) -> std::result::Result<
-        ScopedEventScope,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let Some(height) = transaction.block_height() else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Ok(height) = usize::try_from(height.get()) else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Some(height) = NonZeroUsize::new(height) else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Some(block) = kura.get_block(height, execution_budget)? else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let mut matched = false;
-        let mut dataspaces = BTreeSet::new();
-        for index in 0..block.external_entrypoint_count() {
-            let Some(candidate) = block.external_signed_transaction_ref_at(index) else {
-                return Ok(ScopedEventScope::GlobalReaderOnly);
-            };
-            if candidate.hash() != *transaction.hash() {
-                continue;
-            }
-            matched = true;
-            let Some(entrypoint_dataspaces) =
-                routing::DataspaceReadVisibility::external_entrypoint_dataspaces(&block, index)
-            else {
-                return Ok(ScopedEventScope::GlobalReaderOnly);
-            };
-            dataspaces.extend(entrypoint_dataspaces);
-        }
-        Ok(if !matched || dataspaces.is_empty() {
-            ScopedEventScope::GlobalReaderOnly
-        } else {
-            ScopedEventScope::Dataspaces(dataspaces)
-        })
     }
 }
 #[cfg(feature = "app_api")]
@@ -15413,7 +15137,14 @@ fn torii_visible_account_read_routes(
     app: &AppState,
     caller: Option<&AccountId>,
 ) -> Vec<RoutingDecision> {
-    let state_view = app.state.view();
+    torii_visible_account_read_routes_in(&app.state.view(), caller)
+}
+
+/// Account-read routes visible to `caller`, all resolved from one State view.
+fn torii_visible_account_read_routes_in(
+    state_view: &iroha_core::state::StateView<'_>,
+    caller: Option<&AccountId>,
+) -> Vec<RoutingDecision> {
     let world = state_view.world();
     match iroha_core::sumeragi::lanes::routing::committed_root_scope(world) {
         Some(iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
@@ -15435,7 +15166,7 @@ fn torii_visible_account_read_routes(
             {
                 return Vec::new();
             }
-            return resolve_torii_private_root_account_route(&state_view, dataspace_id)
+            return resolve_torii_private_root_account_route(state_view, dataspace_id)
                 .ok()
                 .into_iter()
                 .collect();
@@ -15443,7 +15174,8 @@ fn torii_visible_account_read_routes(
         Some(iroha_data_model::block::consensus::SumeragiRootScope::Global) => {}
         None => return Vec::new(),
     }
-    let mut visible_dataspaces = torii_public_dataspace_ids(app);
+    let all_routes = torii_all_dataspace_routes_in(state_view);
+    let mut visible_dataspaces = torii_public_dataspace_ids_in(state_view);
     if let Some(caller) = caller
         && let Ok(account) = world.account(caller)
         && let Some(uaid) = account.value().uaid().copied()
@@ -15454,11 +15186,11 @@ fn torii_visible_account_read_routes(
     if let Some(caller) = caller {
         let can_read_all: Permission = CanReadAllLedgerData.into();
         if torii_account_has_permission(world, caller, &can_read_all) {
-            return torii_all_dataspace_routes(app);
+            return all_routes;
         }
         visible_dataspaces.extend(
-            torii_all_dataspace_routes(app)
-                .into_iter()
+            all_routes
+                .iter()
                 .filter(|route| {
                     let permission: Permission = CanReadRestrictedDataspace {
                         dataspace: route.dataspace_id,
@@ -15469,7 +15201,7 @@ fn torii_visible_account_read_routes(
                 .map(|route| route.dataspace_id),
         );
     }
-    torii_all_dataspace_routes(app)
+    all_routes
         .into_iter()
         .filter(|route| visible_dataspaces.contains(&route.dataspace_id))
         .collect()
@@ -15479,12 +15211,19 @@ fn torii_dataspace_read_visibility(
     app: &AppState,
     caller: Option<&AccountId>,
 ) -> routing::DataspaceReadVisibility {
+    torii_dataspace_read_visibility_in(&app.state.view(), caller)
+}
+
+/// The dataspace visibility of `caller`, resolved from one State view.
+fn torii_dataspace_read_visibility_in(
+    state_view: &iroha_core::state::StateView<'_>,
+    caller: Option<&AccountId>,
+) -> routing::DataspaceReadVisibility {
     let can_read_all = caller.is_some_and(|caller| {
         let permission: Permission = CanReadAllLedgerData.into();
-        let state_view = app.state.view();
         torii_account_has_permission(state_view.world(), caller, &permission)
     });
-    let visible_dataspaces = torii_visible_account_read_routes(app, caller)
+    let visible_dataspaces = torii_visible_account_read_routes_in(state_view, caller)
         .into_iter()
         .map(|route| route.dataspace_id)
         .collect();
@@ -15534,12 +15273,18 @@ fn torii_dataspace_read_visibility_for_scope(
     }
 }
 fn torii_public_dataspace_ids(app: &AppState) -> BTreeSet<DataSpaceId> {
-    let state_view = app.state.view();
+    torii_public_dataspace_ids_in(&app.state.view())
+}
+
+/// Dataspaces of the public lanes active at the view's committed height.
+fn torii_public_dataspace_ids_in(
+    state_view: &iroha_core::state::StateView<'_>,
+) -> BTreeSet<DataSpaceId> {
     let nexus = state_view.nexus();
     let mut dataspaces = BTreeSet::new();
     for lane in nexus.lane_catalog.lanes() {
         if lane.visibility == iroha_data_model::nexus::LaneVisibility::Public
-            && torii_lane_active_for_routing(app, lane.id)
+            && state_view.is_lane_active_for_authority(lane.id)
         {
             dataspaces.insert(lane.dataspace_id);
         }
@@ -15652,10 +15397,10 @@ fn torii_global_signed_query_read_routes(
     app: &AppState,
     authority: &AccountId,
 ) -> Vec<RoutingDecision> {
-    let public_dataspaces = torii_public_dataspace_ids(app);
     let state_view = app.state.view();
+    let public_dataspaces = torii_public_dataspace_ids_in(&state_view);
     let world = state_view.world();
-    torii_all_dataspace_routes(app)
+    torii_all_dataspace_routes_in(&state_view)
         .into_iter()
         .filter(|route| {
             public_dataspaces.contains(&route.dataspace_id)
@@ -16129,14 +15874,20 @@ fn torii_account_read_route_scope(
     }
 }
 fn torii_all_dataspace_routes(app: &AppState) -> Vec<RoutingDecision> {
-    let state_view = app.state.view();
+    torii_all_dataspace_routes_in(&app.state.view())
+}
+
+/// The lowest active lane of every dataspace at the view's committed height.
+fn torii_all_dataspace_routes_in(
+    state_view: &iroha_core::state::StateView<'_>,
+) -> Vec<RoutingDecision> {
     let nexus = state_view.nexus();
     let mut routes = BTreeMap::<
         iroha_model_base::topology::DataSpaceId,
         iroha_model_base::topology::LaneId,
     >::new();
     for lane in nexus.lane_catalog.lanes() {
-        if !torii_lane_active_for_routing(app, lane.id) {
+        if !state_view.is_lane_active_for_authority(lane.id) {
             continue;
         }
         routes
@@ -25094,10 +24845,11 @@ async fn handler_blocks_stream_ws(
             let _preauth_guard = preauth_guard;
             let stream = routing::block::handle_blocks_stream(
                 kura,
+                Arc::clone(&app.state),
                 app.state.ivm_execution_budget(),
                 ws,
                 app.ws_message_timeout,
-                move || visibility.authorization_is_current(),
+                stream_read_authorization::ToriiStreamReadAuthorization::new(visibility),
             );
             let result = tokio::select! {
                 () = shutdown.receive() => return,
@@ -35532,9 +35284,6 @@ pub struct Torii {
     address: WithOrigin<SocketAddr>,
     state: Arc<CoreState>,
     #[cfg(feature = "app_api")]
-    parliament_tle_release_coordinator:
-        Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
-    #[cfg(feature = "app_api")]
     musubi_search: Arc<RwLock<iroha_core::musubi_search::MusubiSearchIndexV1>>,
     #[cfg(feature = "app_api")]
     private_settlement_runtime: private_settlement::PrivateSettlementToriiRuntimeV1,
@@ -35723,9 +35472,6 @@ pub struct ToriiRuntimeDeps {
     #[cfg(feature = "app_api")]
     private_settlement_phase_signer:
         Option<Arc<iroha_core::private_settlement::PrivateSettlementPhaseSignerV1>>,
-    #[cfg(feature = "app_api")]
-    parliament_tle_release_coordinator:
-        Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
     bootle_lantern_issuance_provider_registry: Option<
         Arc<dyn privacy_issuance_api::BootleLanternIssuanceRuntimeProviderRegistryV1>,
     >,
@@ -35854,10 +35600,6 @@ impl ToriiRuntimeDeps {
             private_settlement_availability_signer: None,
             #[cfg(feature = "app_api")]
             private_settlement_phase_signer: None,
-            #[cfg(feature = "app_api")]
-            parliament_tle_release_coordinator: Arc::new(
-                iroha_core::tle_release::TleReleaseCoordinatorV1::without_signer(),
-            ),
             bootle_lantern_issuance_provider_registry: None,
             soracloud_runtime: None,
             sorafs_node: None,
@@ -35949,20 +35691,6 @@ impl ToriiRuntimeDeps {
     /// boundary. The normal Strict restart reconstructs and validates them.
     fn into_emergency_fast(self) -> Self {
         Self::new(self.build_identity, self.telemetry)
-    }
-    /// Attach the deployment-owned Parliament TLE partial-release coordinator.
-    ///
-    /// The coordinator retains the runtime signer behind its opaque Core
-    /// boundary. Torii accepts only ballot identifiers and never receives a
-    /// caller-selected release identity, transcript, participant seat, or key.
-    #[cfg(feature = "app_api")]
-    #[must_use]
-    pub fn with_parliament_tle_release_coordinator(
-        mut self,
-        coordinator: Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
-    ) -> Self {
-        self.parliament_tle_release_coordinator = coordinator;
-        self
     }
     /// Attach the node-owned bounded BLS signer for private-settlement DA shares.
     ///
@@ -39174,10 +38902,6 @@ impl Torii {
                 GOV_PARLIAMENT_ATTEMPT_DRAFT => canonical_account_post(handler_gov_parliament_attempt_draft, app_state, runtime_governance_body_limit);
                 GOV_PARLIAMENT_ATTEMPT_READ => canonical_account_get(handler_gov_parliament_attempt_read, app_state, 0);
                 GOV_PARLIAMENT_ATTEMPT_PLAN => canonical_account_get(handler_gov_parliament_attempt_plan, app_state, 0);
-                GOV_PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ => canonical_account_get(handler_gov_parliament_timed_ovn_casting_context_read, app_state, 0);
-                GOV_PARLIAMENT_TIMED_OVN_CASTING_PROOF => canonical_account_post(handler_gov_parliament_timed_ovn_casting_proof, app_state, runtime_governance_body_limit);
-                GOV_PARLIAMENT_TLE_RELEASE_CONTEXT_READ => canonical_account_get(handler_gov_parliament_tle_release_context_read, app_state, 0);
-                GOV_PARLIAMENT_TLE_PARTIAL_RELEASE => canonical_account_post(handler_gov_parliament_tle_partial_release, app_state, 1);
                 GOV_PARLIAMENT_TRANSITION_DRAFT => canonical_account_post(handler_gov_parliament_transition_draft, app_state, runtime_governance_body_limit);
                 VALIDATION_FEE_CURRENT_POLICY_PROOF => canonical_account_post(validation_fee_api::handler_current_policy_proof, app_state, runtime_governance_body_limit);
                 VALIDATION_FEE_RETAIL_QUOTE => canonical_account_post(validation_fee_api::handler_retail_quote, app_state, 256 * 1024);
@@ -39494,9 +39218,6 @@ impl Torii {
         };
         let build_identity = runtime_deps.build_identity;
         let telemetry = runtime_deps.telemetry.clone();
-        #[cfg(feature = "app_api")]
-        let parliament_tle_release_coordinator =
-            runtime_deps.parliament_tle_release_coordinator.clone();
         let pipeline_status_cache = Arc::new(PipelineStatusCache::with_limits(
             queue.current_backpressure().capacity().get(),
             PIPELINE_STATUS_CACHE_TTL,
@@ -40888,8 +40609,6 @@ ingress,
             kura,
             state: state.clone(),
             #[cfg(feature = "app_api")]
-            parliament_tle_release_coordinator,
-            #[cfg(feature = "app_api")]
             musubi_search,
             #[cfg(feature = "app_api")]
             private_settlement_runtime,
@@ -41824,8 +41543,6 @@ ingress,
             transaction_batch_max_transactions: self.transaction_batch_max_transactions,
             transaction_batch_max_bytes: self.transaction_max_content_len,
             state: self.state.clone(),
-            #[cfg(feature = "app_api")]
-            parliament_tle_release_coordinator: self.parliament_tle_release_coordinator.clone(),
             #[cfg(feature = "app_api")]
             musubi_search: self.musubi_search.clone(),
             bootle_lantern_issuance_runtime: self.bootle_lantern_issuance_runtime.clone(),

@@ -188,15 +188,21 @@ final class KagemushaNearbyDiagnostic: NSObject, IrohaPeerNearbyConnectionsTrans
     try trace("native-return", ["nativeStatus": String(call.status),
       "outputSHA256": EnrollmentProbeFiles.digest(call.bytes)])
     try KagemushaNearbyAttemptGate.requireComplete(call.status)
-    let value = try wallet.releasedOutput(requestId: selection.requestID)
+    let original = try retainedOriginal(requestID: selection.requestID, kind: kind, peer: peer)
+    if kind == .send { try gate.sentPayment() }
+    return try wallet.envelope(peer, original: original)
+  }
+  /// Capture the actual retained release only while Native still owns that output.
+  private func retainedOriginal(requestID: Data, kind: KagemushaWalletReleasedOutputV1.Kind,
+                                peer: KagemushaWalletTransportKindV1) throws -> Data {
+    let value = try wallet.releasedOutput(requestId: requestID)
     guard value.kind == kind, value.peerKind == peer, let original = value.peerOriginal else {
       throw EnrollmentProbeFailure.lifecycle
     }
     try files.publish(attemptPath + String(format: "/%04d-released-original.norito", traceSequence), bytes: original)
     try trace("native-durable-released", ["operationID": EnrollmentProbeFiles.digest(value.operationID),
       "outputSHA256": EnrollmentProbeFiles.digest(original)])
-    if kind == .send { try gate.sentPayment() }
-    return try wallet.envelope(peer, original: original)
+    return original
   }
   private func request(_ message: IrohaPeerWireMessageV1) throws {
     guard message.canonicalHash == selection.requestHash else { throw EnrollmentProbeFailure.input }
@@ -238,8 +244,22 @@ final class KagemushaNearbyDiagnostic: NSObject, IrohaPeerNearbyConnectionsTrans
       try files.publishDispatchFence(fencePath, bytes: Data(EnrollmentProbeFiles.digest(original).utf8))
       call = try wallet.receiveFromOffer(requestId: selection.requestID, payment: original, offer: offer)
     }
-    let envelope = try released(call, kind: .receive, peer: .credited)
-    let creditedOriginal = try wallet.original(.credited, envelope: envelope)
+    try trace("native-return", ["nativeStatus": String(call.status),
+      "outputSHA256": EnrollmentProbeFiles.digest(call.bytes)])
+    let creditedOriginal = try KagemushaNearbyAttemptGate.receivedCredit(
+      status: call.status, recovery: selection.recovery, requestID: selection.requestID,
+      retainedOutput: { requestID in
+        _ = try self.retainedOriginal(requestID: requestID, kind: .receive, peer: .credited)
+      },
+      projection: { requestID in
+        let current = try self.wallet.creditProjection(receiveRequestId: requestID)
+        return .init(isReceiver: current.archive == .receiver, isBurned: current.evidence == .burned,
+          original: current.creditedOriginal)
+      })
+    try files.publish(attemptPath + String(format: "/%04d-fresh-credited-original.norito", traceSequence),
+      bytes: creditedOriginal)
+    try trace("native-fresh-received-credit", ["outputSHA256": EnrollmentProbeFiles.digest(creditedOriginal)])
+    let envelope = try wallet.envelope(.credited, original: creditedOriginal)
     try sendMessage(envelope) {
       try self.trace("receiver-ack-delivered", ["latencyQualified": "false",
         "creditedSHA256": EnrollmentProbeFiles.digest(creditedOriginal), "physicalCarrierObserved": "true"])

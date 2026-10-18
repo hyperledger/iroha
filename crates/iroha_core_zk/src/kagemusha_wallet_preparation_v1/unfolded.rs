@@ -1,7 +1,7 @@
-//! Local Load/Archive sigma preparation from the released head, without a fold.
+//! Shared local state projection and Archive sigma preparation without a fold.
 //!
 //! The lineage-shaped private witness in these non-consuming sigma relations
-//! carries committed core values. It is never an Omega, a FoldedState or source
+//! carries committed core values. It is never an Omega, a `FoldedState` or source
 //! of monetary authority. Background A owners independently open the actual
 //! predecessor Omega and derive all adjusted values, including Archive no-op.
 
@@ -43,18 +43,23 @@ pub(super) fn local_state(
 }
 
 impl PreparationV1<'_> {
-    fn unfolded_transition(
+    /// Prepare Archive's local sigma witness before Advance from a released
+    /// head. Both Credited variants use the same fixed sigma class. Native
+    /// Advance authenticates the core removal; A owns evidence verification and
+    /// the separate adjusted removal or no-op. No Payment deletion is authorized.
+    ///
+    /// # Errors
+    /// Wrong operation, source proof/receipt/credential, discontinuous statement,
+    /// or noncanonical successor binding.
+    pub fn archive_sigma_fields(
         &self,
         owner: &AuthenticatedCredentialV1,
         source: &ReleasedStep,
         state: &KagemushaWalletStateV1,
         statement: &KagemushaWalletStatementV1,
         budget: MemoryBudget,
-    ) -> Result<(StateWitness, StateWitness, [Fp; 26]), Error> {
-        if !matches!(
-            statement.effect.kind(),
-            KagemushaWalletOperationKindV1::Load | KagemushaWalletOperationKindV1::ArchiveSent
-        ) {
+    ) -> Result<ArchiveWitness, Error> {
+        if statement.effect.kind() != KagemushaWalletOperationKindV1::ArchiveSent {
             return Err(Error::Authority);
         }
         // The existing source check verifies exact durable completion, its
@@ -80,62 +85,10 @@ impl PreparationV1<'_> {
         {
             return Err(Error::Authority);
         }
-        Ok((before, after, statement_fields))
-    }
-
-    /// Prepare Load's exact local sigma witness before Advance from a released
-    /// head, including an unfolded head. The private core projection carries no
-    /// adjusted-value authority; finalized receipt and recovery-map owners are
-    /// still mandatory when folding this step.
-    ///
-    /// # Errors
-    /// Wrong operation, source proof/receipt/credential, discontinuous statement,
-    /// or noncanonical successor binding.
-    pub fn load_sigma_fields(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        source: &ReleasedStep,
-        state: &KagemushaWalletStateV1,
-        statement: &KagemushaWalletStatementV1,
-        budget: MemoryBudget,
-    ) -> Result<LoadWitness, Error> {
-        if statement.effect.kind() != KagemushaWalletOperationKindV1::Load {
-            return Err(Error::Authority);
-        }
-        let (predecessor, successor, statement) =
-            self.unfolded_transition(owner, source, state, statement, budget)?;
-        Ok(LoadWitness {
-            predecessor,
-            successor,
-            statement,
-        })
-    }
-
-    /// Prepare Archive's local sigma witness before Advance from a released
-    /// head. Both Credited variants use the same fixed sigma class. Native
-    /// Advance authenticates the core removal; A owns evidence verification and
-    /// the separate adjusted removal or no-op. No Payment deletion is authorized.
-    ///
-    /// # Errors
-    /// Wrong operation, source proof/receipt/credential, discontinuous statement,
-    /// or noncanonical successor binding.
-    pub fn archive_sigma_fields(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        source: &ReleasedStep,
-        state: &KagemushaWalletStateV1,
-        statement: &KagemushaWalletStatementV1,
-        budget: MemoryBudget,
-    ) -> Result<ArchiveWitness, Error> {
-        if statement.effect.kind() != KagemushaWalletOperationKindV1::ArchiveSent {
-            return Err(Error::Authority);
-        }
-        let (predecessor, successor, statement) =
-            self.unfolded_transition(owner, source, state, statement, budget)?;
         Ok(ArchiveWitness {
-            predecessor,
-            successor,
-            statement,
+            predecessor: before,
+            successor: after,
+            statement: statement_fields,
         })
     }
 }

@@ -1,26 +1,4 @@
 // Included at crate scope to keep these focused codec regressions out of the parent file.
-mod archive_slice_tests {
-    use super::{ArchiveSlice, core};
-    #[test]
-    fn misaligned_slice_is_realigned() {
-        let align = core::archived_payload_align::<[u64; 2]>();
-        assert!(align > 1);
-        let backing = vec![0u8; align * 2 + 1];
-        let misaligned = &backing[1..1 + align * 2];
-        let slice = ArchiveSlice::new(misaligned, align).expect("allocate slice");
-        assert_eq!(slice.as_slice(), misaligned);
-        assert_eq!(slice.as_slice().as_ptr() as usize % align, 0);
-        assert!(slice.layout.is_some());
-    }
-    #[test]
-    fn unit_alignment_is_noop() {
-        let data = vec![1u8, 2, 3];
-        let slice = ArchiveSlice::new(&data, 1).expect("allocate slice");
-        assert_eq!(slice.as_slice(), &data[..]);
-        assert!(slice.layout.is_none());
-        assert_eq!(slice.ptr as *const u8, data.as_ptr());
-    }
-}
 mod guarded_try_tests {
     use super::{Error, guarded_try_deserialize};
     #[test]

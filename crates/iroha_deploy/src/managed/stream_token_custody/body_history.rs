@@ -1104,6 +1104,8 @@ impl BodyHistory {
     }
 
     fn revalidate_handles(&self) -> Result<()> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::BodyHandleRevalidate);
         // Preserve root, container, body, active graph and nearest-closure order. Only
         // identical complete shared native prefixes use this fresh closed bracket;
         // independently reopened or unrelated handles keep the full native fallback.
@@ -3013,3 +3015,7 @@ mod finish_wallet_tests;
 #[cfg(test)]
 #[path = "body_history/current_active_tests.rs"]
 pub(in crate::managed) mod current_active_tests;
+
+#[cfg(test)]
+#[path = "body_history/metadata_reuse_tests.rs"]
+pub(in crate::managed) mod metadata_reuse_tests;

@@ -734,7 +734,7 @@ mod test {
     fn recoverable_prehash_roundtrip_preserves_key_and_evm_address() {
         let secret = private_key();
         let public = public_key();
-        let prehash = sha2::Sha256::digest(b"iroha:sccp:evm-attestation");
+        let prehash = sha2::Sha256::digest(b"iroha:evm:transaction-recovery");
         let mut digest = [0u8; 32];
         digest.copy_from_slice(&prehash);
         let signature = EcdsaSecp256k1Sha256::sign_prehash_recoverable(&digest, &secret)

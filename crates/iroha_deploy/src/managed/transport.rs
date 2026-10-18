@@ -8,7 +8,8 @@ use std::{
     time::Instant,
 };
 
-const IO_TIMEOUT: Duration = Duration::from_secs(2);
+// Ordinary observation gets one total I/O budget, including connection admission.
+pub(super) const IO_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn remaining_io(deadline: Instant) -> std::io::Result<Duration> {
     deadline
@@ -331,35 +332,29 @@ mod native {
         directory: &PrivateDirectory,
         request: &ControlRequest,
     ) -> std::result::Result<T, RequestFailure> {
-        let deadline =
-            (request.action == "down").then(|| Instant::now() + STOP_OBSERVATION_MAXIMUM);
+        let deadline = Instant::now()
+            + if request.action == "down" {
+                STOP_OBSERVATION_MAXIMUM
+            } else {
+                IO_TIMEOUT
+            };
         request_observed_with_deadline(directory, request, deadline)
     }
 
     pub fn request_observed_with_deadline<T: JsonDeserialize>(
         directory: &PrivateDirectory,
         request: &ControlRequest,
-        deadline: Option<Instant>,
+        deadline: Instant,
     ) -> std::result::Result<T, RequestFailure> {
-        if let Some(deadline) = deadline {
-            remaining_io(deadline)?;
-        }
+        remaining_io(deadline)?;
         let directory = ipc_directory(directory, false)?;
         let mut original = None;
         let result = (|| -> std::result::Result<T, RequestFailure> {
             let before = endpoint_observation(&directory)?;
             original = Some(before);
-            let mut stream = deadline
-                .map_or_else(
-                    || UnixStream::connect(endpoint(&directory)),
-                    |deadline| connect_until(&endpoint(&directory), deadline),
-                )
+            let stream = connect_until(&endpoint(&directory), deadline)
                 .map_err(|error| RequestFailure::stream(error.into()))?;
             authenticate_peer(&stream)?;
-            if deadline.is_none() {
-                stream.set_read_timeout(Some(IO_TIMEOUT))?;
-                stream.set_write_timeout(Some(IO_TIMEOUT))?;
-            }
             if endpoint_observation(&directory)? != before {
                 return Err(Error::Invalid(
                     "managed control endpoint changed during connection".into(),
@@ -367,17 +362,10 @@ mod native {
                 .into());
             }
             let bytes = encode(request)?;
-            let reply = if let Some(deadline) = deadline {
-                let mut stream = DeadlineStream::new(stream, deadline)?;
-                write_frame(&mut stream, &bytes).map_err(RequestFailure::stream)?;
-                read_frame(&mut stream).map_err(RequestFailure::stream)?
-            } else {
-                write_frame(&mut stream, &bytes).map_err(RequestFailure::stream)?;
-                read_frame(&mut stream).map_err(RequestFailure::stream)?
-            };
-            if let Some(deadline) = deadline {
-                remaining_io(deadline)?;
-            }
+            let mut stream = DeadlineStream::new(stream, deadline)?;
+            write_frame(&mut stream, &bytes).map_err(RequestFailure::stream)?;
+            let reply = read_frame(&mut stream).map_err(RequestFailure::stream)?;
+            remaining_io(deadline)?;
             decode(&reply).map_err(Into::into)
         })();
         let result = if matches!(&result, Err(RequestFailure::Unavailable(_))) {
@@ -400,7 +388,7 @@ mod native {
     }
 
     // A queued local connection can wait when the original owner's accept queue is full.
-    // Only the stop observer uses nonblocking admission; ordinary control transport is unchanged.
+    // Every observer uses the same nonblocking admission and its original total I/O deadline.
     fn connect_until(path: &std::path::Path, deadline: Instant) -> std::io::Result<UnixStream> {
         #[cfg(not(target_vendor = "apple"))]
         use rustix::net::SocketFlags;
@@ -755,6 +743,186 @@ mod native {
         }
 
         #[test]
+        fn ordinary_status_connect_full_queue_keeps_total_io_deadline() {
+            let _resources = super::super::super::native_test_guard();
+            let temporary = tempfile::tempdir().unwrap();
+            let directory =
+                PrivateDirectory::open_or_create(temporary.path().join("network")).unwrap();
+            let listener = Listener::bind(&directory).unwrap();
+            rustix::net::listen(&listener.socket, 1).unwrap();
+            let path = endpoint(&listener.directory);
+            let mut queued = Vec::new();
+            let mut full = None;
+            for _ in 0..8 {
+                match connect_until(&path, Instant::now() + Duration::from_millis(50)) {
+                    Ok(stream) => {
+                        authenticate_peer(&stream).unwrap();
+                        queued.push(stream);
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                        full = Some(error.kind());
+                        break;
+                    }
+                    // Darwin may refuse a nonblocking connect immediately when this live
+                    // listener's accept queue is full; no connection deadline has elapsed.
+                    #[cfg(target_os = "macos")]
+                    Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
+                        full = Some(error.kind());
+                        break;
+                    }
+                    Err(error) => panic!("unexpected native queue-fill refusal: {error}"),
+                }
+            }
+            let saturation =
+                full.expect("the actual native accept queue must be full before observation");
+            assert!(
+                !queued.is_empty(),
+                "cannot admit {saturation:?} without an authenticated queued peer"
+            );
+            assert_eq!(
+                validate_endpoint(&listener.directory).unwrap(),
+                listener.identity,
+                "queue saturation must retain the original bound endpoint"
+            );
+            let release = listener.socket.try_clone().unwrap();
+            let watchdog = thread::spawn(move || {
+                // Bound the before-fix failure: a blocking connect is released by this exact
+                // listener after the two-second observation budget, without any process signal.
+                thread::sleep(Duration::from_secs(3));
+                let drain_until = Instant::now() + Duration::from_millis(500);
+                while Instant::now() < drain_until {
+                    match release.accept() {
+                        Ok((stream, _)) => drop(stream),
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(1));
+                        }
+                        Err(error) => panic!("native queue release failed: {error}"),
+                    }
+                }
+            });
+            let started = Instant::now();
+            let result = request_observed_as::<ControlRequest>(
+                &directory,
+                &ControlRequest {
+                    token: "c".repeat(64),
+                    action: "status".into(),
+                },
+            );
+            let elapsed = started.elapsed();
+            watchdog.join().unwrap();
+            assert_eq!(
+                validate_endpoint(&listener.directory).unwrap(),
+                listener.identity,
+                "observation must retain the original bound endpoint"
+            );
+            match result {
+                Err(RequestFailure::Refused(Error::Io(error)))
+                    if error.kind() == io::ErrorKind::TimedOut =>
+                {
+                    assert!(elapsed >= Duration::from_secs(1));
+                }
+                #[cfg(target_os = "macos")]
+                Err(RequestFailure::Unavailable(Error::Io(error)))
+                    if error.kind() == io::ErrorKind::ConnectionRefused =>
+                {
+                    assert_eq!(saturation, io::ErrorKind::ConnectionRefused);
+                }
+                _ => panic!("full native queue must time out or retain Darwin's immediate refusal"),
+            }
+            assert!(elapsed < Duration::from_millis(2800));
+            drop(queued);
+        }
+
+        #[test]
+        fn ordinary_startup_cleanup_reply_has_one_absolute_io_budget() {
+            let _resources = super::super::super::native_test_guard();
+            let temporary = tempfile::tempdir().unwrap();
+            let directory =
+                PrivateDirectory::open_or_create(temporary.path().join("network")).unwrap();
+            let listener = Listener::bind(&directory).unwrap();
+            let server = thread::spawn(move || {
+                let accepted_before = Instant::now() + Duration::from_secs(5);
+                let mut connection = loop {
+                    if let Some(connection) = listener.accept().unwrap() {
+                        break connection;
+                    }
+                    assert!(Instant::now() < accepted_before);
+                    thread::sleep(Duration::from_millis(1));
+                };
+                assert_eq!(connection.receive().unwrap().action, "startup_expired");
+                connection.0.write_all(&4_u32.to_be_bytes()).unwrap();
+                connection.0.write_all(b"a").unwrap();
+                for byte in b"bcd" {
+                    // Every individual read fits IO_TIMEOUT; the complete reply does not.
+                    thread::sleep(Duration::from_secs(1));
+                    if connection.0.write_all(&[*byte]).is_err() {
+                        break;
+                    }
+                }
+            });
+            let started = Instant::now();
+            let result: Result<ControlRequest> = request_as(
+                &directory,
+                &ControlRequest {
+                    token: "c".repeat(64),
+                    action: "startup_expired".into(),
+                },
+            );
+            let elapsed = started.elapsed();
+            server.join().unwrap();
+            assert!(
+                matches!(result, Err(Error::Io(error)) if error.kind() == io::ErrorKind::TimedOut)
+            );
+            assert!(elapsed >= Duration::from_secs(1));
+            assert!(elapsed < Duration::from_millis(2800));
+        }
+
+        #[test]
+        fn foreground_control_replies_keep_the_callers_absolute_deadline() {
+            let _resources = super::super::super::native_test_guard();
+            for action in ["status", "attachment_start", "attachment_status"] {
+                let temporary = tempfile::tempdir().unwrap();
+                let directory =
+                    PrivateDirectory::open_or_create(temporary.path().join("network")).unwrap();
+                let listener = Listener::bind(&directory).unwrap();
+                let server = thread::spawn(move || {
+                    let accepted_before = Instant::now() + Duration::from_secs(5);
+                    let mut connection = loop {
+                        if let Some(connection) = listener.accept().unwrap() {
+                            break connection;
+                        }
+                        assert!(Instant::now() < accepted_before);
+                        thread::sleep(Duration::from_millis(1));
+                    };
+                    assert_eq!(connection.receive().unwrap().action, action);
+                    connection.0.write_all(&4_u32.to_be_bytes()).unwrap();
+                    connection.0.write_all(b"a").unwrap();
+                    for byte in b"bcd" {
+                        thread::sleep(Duration::from_millis(100));
+                        if connection.0.write_all(&[*byte]).is_err() {
+                            break;
+                        }
+                    }
+                });
+                let started = Instant::now();
+                let result: Result<ControlRequest> = super::super::request_as_until(
+                    &directory,
+                    &ControlRequest {
+                        token: "c".repeat(64),
+                        action: action.into(),
+                    },
+                    started + Duration::from_millis(180),
+                );
+                let elapsed = started.elapsed();
+                server.join().unwrap();
+                assert!(
+                    matches!(result, Err(Error::Io(error)) if error.kind() == io::ErrorKind::TimedOut)
+                );
+                assert!(elapsed < Duration::from_secs(1));
+            }
+        }
+
+        #[test]
         fn expired_deadline_refuses_read_write_and_flush_without_io() {
             let (stream, mut other) = UnixStream::pair().unwrap();
             other.set_nonblocking(true).unwrap();
@@ -1092,7 +1260,7 @@ mod native {
     pub(crate) fn request_observed_with_deadline<T: JsonDeserialize>(
         _: &PrivateDirectory,
         _: &ControlRequest,
-        _: Option<Instant>,
+        _: Instant,
     ) -> std::result::Result<T, RequestFailure> {
         Err(Error::Invalid("native IPC unavailable".into()).into())
     }
@@ -1128,13 +1296,28 @@ pub fn request(directory: &PrivateDirectory, request: &ControlRequest) -> Result
     request_as(directory, request)
 }
 
+/// Observe one typed foreground reply within both the caller's remainder and the ordinary
+/// polling budget. This never renews a startup, attachment or signing deadline.
+pub(super) fn request_as_until<T: JsonDeserialize>(
+    directory: &PrivateDirectory,
+    request: &ControlRequest,
+    deadline: Instant,
+) -> Result<T> {
+    native::request_observed_with_deadline(
+        directory,
+        request,
+        deadline.min(Instant::now() + IO_TIMEOUT),
+    )
+    .map_err(RequestFailure::into_error)
+}
+
 pub fn request_observed_until(
     directory: &PrivateDirectory,
     request: &ControlRequest,
     deadline: Instant,
 ) -> std::result::Result<ManagedStatus, RequestFailure> {
     remaining_io(deadline)?;
-    native::request_observed_with_deadline(directory, request, Some(deadline))
+    native::request_observed_with_deadline(directory, request, deadline)
 }
 
 #[cfg(test)]

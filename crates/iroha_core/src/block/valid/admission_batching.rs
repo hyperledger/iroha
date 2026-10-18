@@ -110,7 +110,7 @@ fn validate_admission(
         max_clock_drift: parameters.sumeragi().max_clock_drift(),
         tx_params: parameters.transaction(),
         crypto_cfg: view.crypto(),
-        pipeline_parallelism: crate::state::PipelineParallelism::new(&pipeline),
+        pipeline_parallelism: state.pipeline_parallelism().clone(),
         pipeline_cfg: pipeline,
         aggregate_lane: view.nexus().routing_policy.default_lane,
     };

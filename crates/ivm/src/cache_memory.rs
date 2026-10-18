@@ -589,6 +589,19 @@ impl<T> SharedValue<T> {
         self.0.reservation.try_retain()
     }
 
+    /// Keep the value alive for one synchronous operation of this handle's holder.
+    ///
+    /// Unlike [`Clone::clone`], the returned strong reference registers no
+    /// borrower and therefore takes no process-wide accounting lock. The holder
+    /// keeps its own registered handle for the whole operation, so retention
+    /// classification is unchanged. Drop the transient reference before that
+    /// operation returns; never store, measure or retain it. Should it outlive
+    /// every registered handle anyway, it only keeps the allocation and its
+    /// charge alive until its own final release.
+    pub(crate) fn transient(&self) -> TransientValue<T> {
+        TransientValue(self.0.clone())
+    }
+
     /// Clone one cache-held reference; ordinary clones remain borrower references.
     pub fn cache_clone(&self) -> Self {
         self.0.reservation.add_shared_handle(true);
@@ -609,6 +622,17 @@ impl<T> Clone for SharedValue<T> {
     fn clone(&self) -> Self {
         self.0.reservation.add_shared_handle(false);
         Self(self.0.clone(), false)
+    }
+}
+
+/// Unregistered strong reference returned by [`SharedValue::transient`].
+pub(crate) struct TransientValue<T>(StrongOwner<ValueAllocation<T>>);
+
+impl<T> Deref for TransientValue<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0.value
     }
 }
 
@@ -1309,6 +1333,36 @@ mod tests {
         let stats = budget.stats();
         assert_eq!(stats.measured_resident_bytes(), 0);
         assert_eq!(stats.peak_reserved_bytes, bytes + 7);
+    }
+
+    #[test]
+    fn transient_shared_value_reference_registers_no_borrower_and_keeps_the_charge_alive() {
+        let budget = MemoryBudget::new(4_096);
+        let owner = SharedValue::with_budget(7_u64, Some(0), &budget);
+        let bytes = owner.allocation_bytes().expect("measured value");
+        assert!(owner.try_retain());
+        let cache = owner.into_cache_owner();
+        assert_eq!(budget.stats().shared_reclaimable_bytes, bytes);
+        let transient = cache.transient();
+        // Unlike a registered clone, the classification stays reclaimable.
+        assert_eq!(budget.stats().shared_reclaimable_bytes, bytes);
+        assert_eq!(budget.stats().shared_borrowed_bytes, 0);
+        assert_eq!(
+            cache.0.reservation.shared_handles.load(Ordering::Relaxed),
+            1
+        );
+        assert_eq!(*transient, 7);
+        drop(transient);
+        assert_eq!(budget.stats().shared_reclaimable_bytes, bytes);
+        // A transient outliving every registered handle still holds the charge
+        // until its own final release, without counting as a borrower.
+        let transient = cache.transient();
+        drop(cache);
+        assert_eq!(budget.stats().retained_bytes, bytes);
+        assert_eq!(budget.stats().shared_borrowed_bytes, 0);
+        assert_eq!(*transient, 7);
+        drop(transient);
+        assert_eq!(budget.stats().measured_resident_bytes(), 0);
     }
 
     #[test]

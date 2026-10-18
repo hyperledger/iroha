@@ -1204,13 +1204,13 @@ fn finish_unload(
     let [
         Participant {
             wallet: mut a,
-            device: _device_a,
+            device: device_a,
             fixture: f,
             frames: _frames_a,
         },
         Participant {
             wallet: mut b,
-            device: _device_b,
+            device: device_b,
             fixture: f_b,
             frames: _frames_b,
         },
@@ -1234,6 +1234,13 @@ fn finish_unload(
     } = originals;
     // B has an incoming credit, so its public status also exposes the final
     // pending-outgoing root after folding the independently verified C evidence.
+    let status_snapshots = [
+        a.snapshot().unwrap(),
+        b.snapshot().unwrap(),
+        c.snapshot().unwrap(),
+    ];
+    let status_signatures = [&device_a, &device_b, &device_c]
+        .map(|device| device.platform.with(|state| state.sign_calls));
     let ab: KagemushaWalletPaymentV1 = decode(&payment_ab);
     let b_status = b
         .credit_status(
@@ -1245,6 +1252,32 @@ fn finish_unload(
         b_status.lineage.public.pending_outgoing_root,
         kagemusha_wallet_empty_map_root_v1(),
         "ArchiveStatus removes B's only pending outgoing credit"
+    );
+    assert_eq!(b_status.lineage.public.head.value, status_snapshots[1].head);
+    assert!(
+        !b_status.opening.burned,
+        "this campaign has no burned credit"
+    );
+    let b_final_credit_status = message_census::retain_credit_status(
+        &output,
+        "b-final-credit-status",
+        &sources,
+        &b_status,
+        &request_ab,
+        &payment_ab,
+    );
+    assert_eq!(
+        [
+            a.snapshot().unwrap(),
+            b.snapshot().unwrap(),
+            c.snapshot().unwrap()
+        ],
+        status_snapshots
+    );
+    assert_eq!(
+        [&device_a, &device_b, &device_c]
+            .map(|device| device.platform.with(|state| state.sign_calls)),
+        status_signatures
     );
     let unload = action(
         230,
@@ -1420,6 +1453,7 @@ fn finish_unload(
         "archive_receive_folded": true, "archive_status_folded": true,
         "archive_exact_replay_after_restart": true, "archive_originals": archive_originals,
         "message_envelopes": message_envelopes,
+        "b_final_credit_status": b_final_credit_status,
         "ledger_settlement_executed": false, "physical_device_qualified": false,
         "scope": "Real installed proof source, finalized receipt proof, native host custody, exact replay and local folds; simulated hardware. Exported Unload claim still requires actual ledger execution and replay qualification." });
     publish(

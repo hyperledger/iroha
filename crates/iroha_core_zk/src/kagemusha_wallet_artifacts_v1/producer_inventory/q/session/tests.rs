@@ -24,6 +24,70 @@ fn q_batch_rejects_either_foreign_owner_identity() {
     }
 }
 
+#[test]
+fn lean_catalog_signature_references_cover_current_descriptor_classes() {
+    use iroha_kagemusha_proof::a_relation::schedule::proves_own_step_inline;
+
+    // The actual compiler groups complete monetary descriptors, not dimensions or
+    // logical-route counts. Reconstruct those classes without generating any key.
+    let descriptors: Vec<_> = (2_u8..=6)
+        .map(|selector| {
+            let shape = super::super::super::sigma::monetary_shape(usize::from(selector)).unwrap();
+            (selector, shape.descriptor::<Eq>().unwrap())
+        })
+        .collect();
+    let representative = |selector| {
+        descriptors
+            .iter()
+            .find(|(selected, _)| *selected == selector)
+            .map_or(selector, |(_, descriptor)| {
+                descriptors
+                    .iter()
+                    .find(|(_, candidate)| candidate == descriptor)
+                    .unwrap()
+                    .0
+            })
+    };
+    let mut classes = Vec::new();
+    let routes = compiled_routes();
+    assert_eq!(routes.len(), 22);
+    for route in &routes {
+        let class = (
+            route.variant,
+            representative(route.own),
+            route.incoming.map(representative),
+        );
+        if !classes.contains(&class) {
+            classes.push(class);
+        }
+    }
+    assert_eq!(classes.len(), 16);
+    let root = Affine::GENERATOR;
+    let policy = OwnPolicy::new([1, 2], root).unwrap();
+    let mut schemas = Vec::new();
+    let mut references = 0;
+    let mut sigma_count = 0;
+    for (variant, _, incoming) in classes {
+        let plans = signature_plans(variant, policy, root).unwrap();
+        references += plans.len();
+        sigma_count += usize::from(!proves_own_step_inline(variant) || incoming.is_some());
+        for plan in plans {
+            let slots = plan.slots().to_vec();
+            if !schemas.contains(&slots) {
+                schemas.push(slots);
+            }
+        }
+    }
+    assert_eq!(references, 20);
+    assert_eq!(schemas.len(), 6);
+    assert_eq!(references - schemas.len(), 14);
+    assert_eq!(sigma_count, 9);
+    assert_eq!(references + sigma_count, 29);
+    assert_eq!(routes[0].variant, Variant::Bootstrap);
+    assert!(proves_own_step_inline(routes[0].variant));
+    assert!(routes[0].incoming.is_none());
+}
+
 #[derive(Clone, Copy)]
 enum Fault {
     Changed,
@@ -180,9 +244,9 @@ pub(crate) fn assert_signature_reuse_controls(
             cases += 1;
         }
     }
-    assert_eq!(references, 26);
+    assert_eq!(references, 20);
     assert_eq!(admitted.entries.len(), 6);
-    assert_eq!(hits, 20);
+    assert_eq!(hits, 14);
 
     let member = admitted.entries[0].member;
     let plan = admitted.entries[0].plan.clone();
@@ -368,11 +432,17 @@ pub(crate) fn assert_signature_reuse_controls(
 
     // Existing genuine QSigma authority is not signature-source authority, even
     // when a private-state mutation makes member/original/seal agree with it.
-    let sigma_member = inventory.operations[0].q[0];
+    let sigma_program = programs.iter().position(|q| q.sigma().is_some()).unwrap();
+    assert_eq!(programs[sigma_program].signature_offset(), 1);
+    let sigma_member = inventory.operations[sigma_program].q[0];
+    assert_ne!(
+        sigma_member, member,
+        "foreign Q_sigma must be another source"
+    );
     let saved_key = entry.key.clone();
     let saved_seal = entry.seal.clone();
-    entry.key = programs[0].keys()[0].clone();
-    entry.seal = programs[0].seals[0].clone();
+    entry.key = programs[sigma_program].keys()[0].clone();
+    entry.seal = programs[sigma_program].seals[0].clone();
     let mut observed = Observed {
         source,
         fault: None,
@@ -463,7 +533,7 @@ pub(crate) fn assert_signature_reuse_controls(
     cases
 }
 
-/// Exercise every compiled signature role, including the 20 same-source hits.
+/// Exercise every compiled signature role, including the 14 same-source hits.
 /// All entries originate from the real typed compiled-member importer.
 pub(crate) fn assert_builtin_signature_reuse_controls(
     qualified: &QualifiedWalletSourcesV1,
@@ -530,9 +600,9 @@ pub(crate) fn assert_builtin_signature_reuse_controls(
             cases += 1;
         }
     }
-    assert_eq!(cases, 26);
+    assert_eq!(cases, 20);
     assert_eq!(admitted.entries.len(), 6);
-    assert_eq!(hits, 20);
+    assert_eq!(hits, 14);
 
     let member = admitted.entries[0].member;
     let plan = admitted.entries[0].plan.clone();
@@ -556,7 +626,25 @@ pub(crate) fn assert_builtin_signature_reuse_controls(
         .unwrap();
     let compiled = profile.member(&[2, program, stage]).unwrap();
     assert!(profile.member(&[2, program, u32::MAX]).is_err());
-    let foreign = profile.member(&[2, program, 0]).unwrap();
+    let sigma_program = inventory
+        .routes
+        .iter()
+        .zip(&routes)
+        .find_map(|(program, route)| {
+            qualified
+                .q(*route)
+                .unwrap()
+                .sigma()
+                .is_some()
+                .then_some(*program)
+        })
+        .unwrap();
+    assert_ne!((sigma_program, 0), (program, stage));
+    assert_ne!(
+        inventory.operations[usize::try_from(sigma_program).unwrap()].q[0],
+        member
+    );
+    let foreign = profile.member(&[2, sigma_program, 0]).unwrap();
     for warm in [false, true] {
         let mut empty = SignatureAdmissions::default();
         let cache = if warm { &mut admitted } else { &mut empty };

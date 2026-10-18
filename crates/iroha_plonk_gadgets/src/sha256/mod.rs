@@ -15,8 +15,8 @@
 //! The chip is generic over the Pasta field; the KAGEMUSHA placement is the
 //! `Fq` Q leaf, where `m` (a canonical `Fp` value, `|Fp| < |Fq|`) is one
 //! cell holding the integer `m`. This replaces the degree-9 Table8 chip of
-//! `iroha_core_zk` (`pasta_sha256_table8.rs`) with a degree-5 design that
-//! uses one lookup argument instead of two.
+//! `iroha_core_zk` (`pasta_sha256_table8.rs`) with degree-5 ordinary
+//! arithmetic gates and one lookup argument instead of two.
 //!
 //! # Spread arithmetic
 //!
@@ -119,8 +119,9 @@
 //! ([`DIGEST_CODEC_ROWS`]). A compression of sixteen assigned words uses
 //! 2,062 rows and 23,251 advice cells; [`Sha256Chip::hash_digest`] 2,094
 //! rows ([`HASH_DIGEST_ROWS`]) and 23,347 cells (gate G3.3: at most 2,800
-//! rows and 50,000 cells). The circuit degree is 5 (the lookup, and the
-//! carry range gates); with its own table there is one lookup argument, two
+//! rows and 50,000 cells). Ordinary arithmetic gates have degree 5. With
+//! its own table, the norm lookup has input/table degrees (2, 1), giving
+//! complete degree `2 + 2*2 + 2*1 = 8`; there is one lookup argument, two
 //! fixed columns, three table columns, one complex and seventeen simple
 //! selectors, and five equality-enabled columns (the word columns and the
 //! shared constants column); on the shared table, no argument and no table

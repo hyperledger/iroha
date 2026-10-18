@@ -58,23 +58,30 @@ fn interval_busy_capture_returns_exact_writer_release_without_work_or_refund_und
     let state = chain.state();
     let pool = state.ivm_execution_budget();
     let counter = context();
-    let owner = test_budget(pool.clone());
+    // Response allocations have their actual request owner; persistent checkpoints
+    // and the publisher release registration retain the original State pool.
+    let frames = iroha_allocation::AllocationBudget::new(pool.limit_bytes());
+    let owner = test_budget(frames.clone());
     let mut registration = crate::unit_test_support::release_registration(&pool);
     // The original waiter is fixture-owned; measure request work after its admission.
     let reserved = pool.reserved_bytes();
     chain.kura().reset_canonical_query_reads_for_test();
     let wait = state.with_held_view_publication_for_reader_test(|expected| {
-        let result = state.read_finality_proof_interval(
-            &owner,
-            &limits(chain.height()),
-            &AtomicBool::new(false),
-        );
+        let result = counter.with(|| {
+            state.read_finality_proof_interval(
+                &owner,
+                &limits(chain.height()),
+                &AtomicBool::new(false),
+            )
+        });
         let Err(FinalityProofIntervalReadError::StateView(StateViewError::Busy(original))) = result
         else {
             panic!("finite proof capture must preserve the actual held publisher's Busy release");
         };
         assert_eq!(original, expected);
         assert_eq!(pool.reserved_bytes(), reserved);
+        assert_eq!(frames.reserved_bytes(), 0);
+        assert!(state.finality_prefix_checkpoints.heights().is_empty());
         assert_eq!(counter.consumed_allocated_bytes(), 0);
         assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
         let mut pending = std::pin::pin!(original.clone().wait_for_release(&mut registration));
@@ -97,12 +104,21 @@ fn interval_busy_capture_returns_exact_writer_release_without_work_or_refund_und
         .read_finality_proof_interval(&owner, &limits(chain.height()), &AtomicBool::new(false))
         .unwrap();
     assert!(pool.reserved_bytes() > reserved);
+    assert!(frames.reserved_bytes() > 0);
+    assert_eq!(state.finality_prefix_checkpoints.heights(), [4]);
+    let retained_state_bytes = pool.reserved_bytes();
     assert_eq!(
         retained.proof(2).unwrap().block_header.hash(),
         chain.committed(4).block_hash()
     );
     drop(retained);
-    assert_eq!(pool.reserved_bytes(), reserved);
+    assert_eq!(
+        frames.reserved_bytes(),
+        0,
+        "the response owner physically retires"
+    );
+    assert_eq!(pool.reserved_bytes(), retained_state_bytes);
+    assert_eq!(state.finality_prefix_checkpoints.heights(), [4]);
 }
 
 #[test]

@@ -41,6 +41,28 @@ fn epoch_clone_bytes(epoch: &ValidatorEpochContextV1) -> Result<usize, norito::E
     Ok(bytes)
 }
 
+// The same closed native constructors retain exactly these deep families. Their
+// original request admissions remain unchanged; this independent prepayment is
+// held through the final persistent owner. Parsed points and canonical PoP bytes
+// are inline in the credential Arc layout measured by the crypto owner.
+pub(super) fn authority_retention_bytes(
+    epoch: &ValidatorEpochContextV1,
+) -> Result<usize, ExecutionDeferred> {
+    use crate::sumeragi::crypto::QueryCommitteeError;
+    let crypto = crate::sumeragi::crypto::query_committee_allocation_bytes(&epoch.committee)
+        .map_err(|error| match error {
+            QueryCommitteeError::Resource(original) => original,
+            QueryCommitteeError::Member { .. } => retained_query_authority::invariant(),
+        })?;
+    epoch_clone_bytes(epoch)
+        .ok()
+        .and_then(|epoch_bytes| {
+            core_keys_bytes(epoch.committee.len()).and_then(|keys| epoch_bytes.checked_add(keys))
+        })
+        .and_then(|bytes| bytes.checked_add(crypto))
+        .ok_or_else(|| iroha_allocation::AllocationRefusal::DemandOverflow.into())
+}
+
 pub(super) fn admit_epoch_clone(
     epoch: &ValidatorEpochContextV1,
     height: u64,
@@ -290,7 +312,12 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
                     &mut prefix.validation,
                 )?;
                 progress()?;
-                let prepared = context.prepare_advance_query(prefix, &next, None)?;
+                let prepared = context.prepare_advance_query(
+                    prefix,
+                    &next,
+                    None,
+                    self.query_cache.lock().as_mut(),
+                )?;
                 prefix.tip = next;
                 prefix.schedule = prepared.schedule;
                 prefix.authority = prepared.authority;
@@ -311,7 +338,12 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
                 progress()?;
                 return finish(&verified);
             }
-            let prepared = context.prepare_advance_query(prefix, &committed, None)?;
+            let prepared = context.prepare_advance_query(
+                prefix,
+                &committed,
+                None,
+                self.query_cache.lock().as_mut(),
+            )?;
             let verified = prepared.certificate.into_certified(committed);
             progress()?;
             let result = finish(&verified)?;
@@ -331,8 +363,19 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
         let tip =
             read_frame_with_validation(genesis, GENESIS_HEIGHT, self.root_scope, &mut validation)?;
         admit_epoch_clone(&self.genesis_epoch, GENESIS_HEIGHT)?;
-        let (schedule, authority) =
-            genesis_prefix_authority_query(&tip, self.genesis_epoch.clone(), &mut validation)?;
+        let (schedule, authority) = {
+            let mut cache = self.query_cache.lock();
+            let reservation = cache
+                .as_mut()
+                .and_then(|owner| owner.reserve_authority(&self.genesis_epoch));
+            genesis_prefix_authority_query(
+                &tip,
+                self.genesis_epoch.clone(),
+                &mut validation,
+                cache.as_mut(),
+                reservation,
+            )?
+        };
         let proof_source = self
             .proof_source_genesis
             .filter(|expected| {

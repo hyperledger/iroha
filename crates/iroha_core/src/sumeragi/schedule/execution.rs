@@ -468,21 +468,6 @@ impl StateBlock<'_> {
             }
         }
     }
-
-    /// Move the exact canonical fields and original allocation ledger into execution-result
-    /// custody. The result builder retains this owner across validation, publication and replay.
-    pub(crate) fn take_sumeragi_execution_inputs(
-        &mut self,
-    ) -> Result<RetainedPayload<NativeExecutionInputs>, ScheduleError> {
-        let step = std::mem::take(&mut self.sumeragi_schedule);
-        match step {
-            ScheduleStep::Done(inputs) => Ok(inputs),
-            other => {
-                self.sumeragi_schedule = other;
-                Err(ScheduleError::NotAdvanced)
-            }
-        }
-    }
 }
 
 /// Retain local boundary refusal evidence before projecting deterministic schedule failures.

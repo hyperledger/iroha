@@ -51,13 +51,35 @@ of every source: the `SccpTransferToTaira` and `SccpVoided` logs (Ethereum,
 BSC) and the `sccp_transfer_to_taira` external-out body `BoC` with its minter
 (TON), each with the normalized event Taira derives.
 `crates/iroha_sccp/tests/ethereum_light_client.rs` regenerates it with
-`--ignored regenerate_native_transfer_event_v1` and runs the Ethereum and TON
+`--ignored regenerate_native_transfer_event_v1` and runs the Ethereum, BSC and TON
 vectors through their light clients.
 
-`governance_v1.json` and `ton_boc_v1.json` of the §11 table are added with
-the governance payload and TON message-body code that generate them (`TODO:
-WP-TON-RUST` for `ton_boc_v1.json`, written by
-`crates/iroha_sccp/src/v1/ton_cell.rs`).
+`governance_v1.json`, `fast_pause_v1.json`, `forgery_evidence_v1.json` and
+`liability_v1.json` have independent Python producers in
+`scripts/sccp_reference/vectors_<file-stem-without-v1>.py` and Rust producers
+in Core's SCCP governance, fast-pause certification, forgery and liability
+unit tests. Each Rust producer runs the owning implementation, compares
+canonical JSON byte for byte, and provides an ignored
+`regenerate_<file-stem>` test. Python's `generate.py --check` and
+`test_sccp_reference.py` rebuild and pin every row table.
+
+Governance covers proposal frames, base revisions, ids and fixed-map heads,
+including the automatic `FastHold` subject's encoding and the refusal of an
+extra `FastHold` proposal base. Fast-pause rows supply authenticated
+certificate id, effect hash and casting-open `s0` as component inputs; draw
+order and eligibility masks are explicit DATA. They do not produce Parliament
+authority. The real draw/eligibility boundary remains unavailable and both
+launch gates remain false. Forgery rows cover E0–E4, retained anchors,
+offender deduplication and the self-contained record's original G6 bindings;
+the native-record row projects attribution and custody fields rather than
+reproducing native genesis hashes. Liability rows cover the bounded clock,
+inclusive time/progress/cap legs, L5, both evidence/unbond orders, pruning and P2.
+
+`ton_boc_v1.json` is generated and drift-checked by the Rust wallet's
+`src/pure/ton/golden_tests.rs` (`ton_boc_vectors_match_wallet_encoders` and
+the ignored `regenerate_ton_boc_vectors`). The Python builder checks each
+recorded cell graph and hash before rendering `sccp-boc-vectors.gen.tolk`;
+`sccp-boc.test.tolk` replays the original message bodies and malformed snakes.
 
 ## Reference vectors (revision 5)
 
@@ -97,7 +119,7 @@ The four files:
 | `finality_v1.json` | The §11.2 worked examples (every pinned value is asserted while building); valid headers, and invalid headers each with the first violated check in the order `Length`, X1, X2 or X3, X4, X5, X6, X7 (X6 includes `rotation_at_max_height` and `rotation_at_max_generation`: a rotation at height or generation `2^64 − 1` has no successor start or generation); `result_of_preimage` bounds; signer-bitmap encodings; the §11.3 test keys (`sk_i = KeyGen(SHA-256("sccp-finality-test-ikm" ‖ u8 i))`, i = 0..34) and committees n = 4, 7, 31; full certificates (lowest, highest and scattered q signers including {0, 9, 30} at n = 31; key-change and heartbeat rotations) with `R`, `P`, `m`, `hash_to_G2(m)`, the aggregate key and signature in compressed (TON), 192-byte EVM and EIP-2537 forms, the 768-byte pairing input, the EVM `TairaCertificateV1` calldata and the TON cell contents; negative certificates (kind `0x02`, popcount q ± 1, spare bits, retired QC extension bytes, wrong `I`, network or DST, a signed height mismatch, a tampered `X`, dirty `X` for every invariant, past generation, foreign root, committee-root mismatch, signer `y` with a wrong sign, `y ≥ p` or off curve, key flags, a signer `x ≥ p` and the signer coordinates `(0, 0)` (each pinned under a root that commits to that key), `σ` outside the subgroup, zero, each limb `≥ p`, `c0`/`c1` swapped, off curve, raw-bitmap and MSB-first `signers`, exact lengths, a signer key outside G1 with the genuine signature, and an identity aggregate key), each with its EVM and TON outcome; `flavor_specific_certificates` holds the certificate with two signer keys shifted out of G1 by `T` and `−T`, which EVM accepts because it observes the aggregate only. The invalid headers include one row with two violations for every adjacent pair of the check order, and a certificate row carries `forgery_evidence_id` only when the signed message is the `m` its wire fields give. The popcount and spare-bit rows carry exactly `48q` bytes of `signerYs`, so EVM reaches the step 5 bitmap check instead of the step 1 length check; the TON form splits `QC_FIXED` into `qc_fixed_cell` (all but the last 4 bytes) and `signers`, so a length negative is a malformed cell |
 | `committee_transitions_v1.json` | The §11.1 state-machine rows as scenarios: a deployment and its initial state, then calls with `now_ms`, each with the expected outcome, events and `state_after` (initial pin, checkpoints and `high`, key-change, heartbeat and lowered-validity rotations, a successor already expired, 16 batched rotations and `TooManyCertificates`, K→K′→K, a future-dated certificate replayed across validity periods, forged heights after the genuine end then the V3 latch, old generations refused, V1/V2/V3 with their nearest neighbours, expiry then refusal then `voidFrozen`, a latch inside a batch, inline `LatchRequired` then a latch, a future-dated rotation, finalization with inline and checkpoint proofs, history proofs, supply cap and voids, the TON `next_keys` and checkpoint-eviction rows, a rotation with a sub-second timestamp whose sub-second `untilMs` is probed at the whole seconds on both sides, the mandatory cheap path on both flavours (a stored `X` under a signature that does not verify is accepted without a signature check, and under the identity signature it is refused), a finalization at exactly `deadline_ms` and a `deadline_ms` ending in 999 ms probed at the whole seconds on both sides, and checkpoint use after a rotation on both flavours (a non-handoff checkpoint of a retired generation refused, the installing handoff usable, a checkpoint two generations old refused, for finalize, control and void), `voidFrozen` range failures on a `Live` destination of each flavour, two faults in one call on each flavour (the payload before or after `X`, the deadline before the leaf path), the check orders a single fault cannot show, the step 6 encodings on the cheap path, a reference to the certified block itself with a history index or a history path on each flavour (`BadProof`, next to the unchanged proofs), and the inline entry points on an expired destination of each flavour (`BadSignature` for a certificate that does not verify, `CommitteeNotAccepted` for the genuine one)). Certificates are pooled and referenced by id; `ton_replayable` marks EVM scenarios a TON harness replays unchanged. The file also pins every §5.2.2 selector and event topic (recomputed and asserted) and the §5.2.2 error-name → TON exit-code table that the outcome names key on |
 | `control_v1.json` | The four §3.4 control-leaf examples (asserted) with their 199-byte preimages and TON builders; leaves for every target network, both tracks and both pause values; constraint and recording negatives; the `SccpControlApplied` topic; destination-effect scenarios with full proofs (Parliament and fast pause in both orders, a fast pause delivered after its expiry, stale, equal and gapped nonces, the `MAX_FAST_PAUSE_MS` clamp, local expiry, a fast-pause expiry ending in 001 ms probed at the whole seconds on both sides, resume, a historical control proof, and controls of another network, Taira network, revision or destination, a transfer leaf offered as a control and a recorded leaf violating a constraint). Its Taira blocks are synthetic destination inputs, so control nonces need not follow Taira's dense per-revision sequence |
-| `bls_consensus_v1.json` | RFC 9380 `expand_message_xmd` and hash-to-G2 vectors (imported and reproduced); hash-to-G2 traces under `DST_SIG` with the EIP-2537 `MAP_FP2_TO_G2` inputs and outputs; `KeyGen`, `Sign` and `Verify` with negatives (identity, non-subgroup, non-canonical encodings, wrong DST); `FastAggregateVerify` and `AggregateVerify`; the consensus preimage allowlist with every row one byte short and one byte long, flag and wrong-kind neighbours; the ethereum/bls12-381-tests standard inputs under `DST_SIG`; and a captured Ethereum mainnet sync-committee aggregate (502 signers, from `rpc/eth/`) verified under the same ciphersuite |
+| `bls_consensus_v1.json` | RFC 9380 `expand_message_xmd` and hash-to-G2 vectors (imported and reproduced); hash-to-G2 traces under `DST_SIG` with the EIP-2537 `MAP_FP2_TO_G2` inputs and outputs; `KeyGen`, `Sign` and `Verify` with negatives (identity, non-subgroup, non-canonical encodings, wrong DST); `FastAggregateVerify` and `AggregateVerify`; the consensus preimage allowlist with every row one byte short and one byte long, flag and wrong-kind neighbours; all 98 imported ethereum/bls12-381-tests v0.1.2 rows (13 G1/15 G2 deserialization, 10 sign, 29 verify, 6 aggregate, 12 fast aggregate, 5 aggregate verify, 4 batch verify, 4 hash-to-G2), with unchanged upstream inputs/outputs and explicit stricter consensus outcomes; and a captured Ethereum mainnet sync-committee aggregate (502 signers, from `rpc/eth/`) verified under the same ciphersuite |
 
 Conventions: byte strings are `0x`-prefixed lowercase hex, field elements are
 `0x` hex integers, `u128` amounts and nonces passed to `voidFrozen` are
@@ -191,13 +213,35 @@ know:
 | `finality_rust_v1.json` | Schema `iroha.sccp.finality.rust.v1`: the §11.3 negative certificate whose aggregate is a w3f-transcript signature over the consensus digest, with its expected rejection (`BadSignature` at the pairing check). Generated and drift-checked by `crates/iroha_sccp/tests/v1_reference_finality.rs`; its rows have the shape of the `negative_certificates` rows of `finality_v1.json` |
 | `bls_consensus_rust_v1.json` | Schema `iroha.bls_consensus.rust.v1`: the standard sign, verify and aggregate vectors, the consensus allowlist rows with their signatures and the allowlist rejections, the pinned w3f proofs of possession, and negatives (a w3f-transcript signature over a consensus preimage and over a consensus digest, a `DST_SIG` signature presented to the generic API, a proof of possession used as a signature, malformed keys and signatures, keys that aggregate to the identity). Generated and drift-checked by `iroha_crypto` (`consensus_vectors_match_committed_fixture`, ignored `regenerate_bls_consensus_rust_v1`) |
 
-`TODO:` the remaining ethereum/bls12-381-tests cases, and TON finalize and
-void rows through the bucket round trip (§5.3.4), are not produced by either
-reference; the Acton suite covers those round trips with certificates signed
-in its test VM.
+The [pinned Ethereum import](ethereum-bls12-381-tests/v0.1.2/README.md)
+contains exactly the 98 upstream JSON files consumed by the reference. A pinned
+SHA-256 manifest checks every file and the exact file set before generation.
+Python reproduces every upstream expectation. Rust replays the consensus API
+operations and explicitly distinguishes generic deserialization (which accepts
+canonical infinity) from SCCP nonidentity validation. Ten separately labelled
+SCCP cases add negation, empty/all-zero/all-one encodings and valid prefixes with
+trailing bytes; they are not upstream vectors.
+
+EVM replays all 29 verify and 12 fast-aggregate rows, 24 fixed-length
+deserialization rows through the step-6 checks and EIP-2537, and the four
+upstream hash rows through MAP/G2ADD with their exact expected points. The four
+upstream hash rows use the RFC QUUX domain and UTF-8 text; the production
+hash-to-G2 API uses the fixed POP domain and 32-byte digests, whose four trace
+rows remain end-to-end tests. The EVM skip ledger records four compressed-length
+rows and the off-chain sign, aggregate, aggregate-verify and batch operations.
+TON replays all 28 deserialization rows, all 41 verify/fast-aggregate rows and
+nine published signatures through the opcode wrapper, plus all four complete
+QUUX hash computations in its test-side helper. Generic decode outcomes are
+checked separately with `BLS_G1_INGROUP` and `BLS_G2_INGROUP`: a valid group point
+need not verify the baseline message. It skips signature aggregation,
+distinct-message and batch verification, and the invalid-secret signing row
+which has no signature. TON opcode underflow and valid-prefix behavior are
+explicit outcomes; certificate admission still enforces exact lengths.
+TON finalize and void bucket round trips (§5.3.4) remain covered by certificates
+signed in the Acton test VM.
 
 The Acton suite (`contracts/ton/sccp/tests/unit`) replays the TON rows from
-two generated Tolk files (`scripts/ton_sccp_builder.py vectors`, whose
+three generated Tolk files (`scripts/ton_sccp_builder.py vectors`, whose
 `--check` fails when a fixture here changed and they did not). It installs its
 minter at the placeholder account id `0:35…35`, so the rows that commit to
 that destination word apply unchanged. `sccp-bls.test.tolk` confirms that
@@ -207,10 +251,12 @@ with `x ≥ p` or the coordinates `(0, 0)`, outside G1 and for keys that sum to
 the identity (`error_choices.ton_signer_key_refused_by_the_opcode`). Both
 reference generators now derive `expected.ton = BadSignature` for all six
 shared signer-key rows. `committee_transitions_v1.json` records the actual
-harness coverage and atomic-model boundary under `model_scope`. `TODO:` the
-reference generators still need the TON destination-effect rows in
-`control_v1.json`; the Acton suite currently rebuilds those scenarios for its
-minter at `0:35…35`.
+harness coverage and atomic-model boundary under `model_scope`. Both reference
+generators produce `control_v1.json`'s `ton_destination_effects` and original
+`ton_certificates`; the Acton suite replays those shared rows unchanged at
+`0:35…35`. The generated vectors also carry the contract-visible fast-pause
+controls and exact forgery-certificate bytes from the new shared fixtures;
+the Python launcher checks their source evidence ids before replay.
 
 ## Contract-generated vectors
 
@@ -225,7 +271,7 @@ fails when it differs from the compiled contracts. The Rust
 code references and authenticate the native committee root, canonical BLS key
 order and pinned generation in each vector. The Rust address assertions read
 this golden, and its minter rent constants match the current contract bound
-of 122 000 bits and 260 cells.
+of 790,000 bits and 2,380 cells in `sccp-fees.tolk`.
 
 ## Captured RPC responses
 

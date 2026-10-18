@@ -34,7 +34,10 @@ impl StateBlock<'_> {
             key: SUMERAGI_LANE_STATE_WITNESS_KEY.to_vec(),
             value,
         });
-        self.sumeragi_lane_state_seal = Some(commitment.state_hash());
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .sumeragi_lane_state_seal = Some(commitment.state_hash());
         Ok(())
     }
 

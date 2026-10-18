@@ -4,7 +4,7 @@
 //! generated localnets select only their original provider material; that intent is joined to
 //! fresh native discovery before the storage owner permits any provider request.
 
-use super::{Error, InstalledRuntime, ManagedStore, Result};
+use super::{Error, InstalledRuntime, ManagedStore, PreparedLocalnet, Result};
 use crate::bootstrap::{BootstrapError, ParentFinalityStore};
 use iroha::config::Config;
 use iroha_storage_client::musubi_archive_fetch::{
@@ -16,6 +16,8 @@ use std::{
 };
 
 mod generated_local;
+#[cfg(test)]
+mod tests;
 pub(super) use generated_local::{GeneratedServiceObservation, observe_generated_service};
 
 /// Shared native discovery freshness for registry consumers and managed service observations.
@@ -34,6 +36,9 @@ impl ManagedStore {
     /// Complete cache hits still require this binding and retained discovery custody. A private
     /// parent's retained release is authenticated first; an unavailable retained release may
     /// require a bounded checkpoint fetch. Provider discovery runs only on archive requests.
+    /// The caller supplies the complete captured preparation. Original native directory identity
+    /// and preparation are revalidated before resolution and after every ordinary result,
+    /// including absence and failure. A reset/recreation cannot select a new registry by name.
     /// Each build supplies its own bounded deadline; reopening never reissues original keys,
     /// certificates, admission intervals or signed network releases.
     /// # Errors
@@ -42,11 +47,45 @@ impl ManagedStore {
     pub fn build_registry(
         &self,
         runtime: &InstalledRuntime,
-        name: &str,
+        prepared: &PreparedLocalnet,
         deadline: Instant,
     ) -> Result<Option<(Config, PreparedMusubiArchiveFetchConfigV1)>> {
         super::native_operation::require_deadline(deadline)?;
-        if let Some(context) = super::remote::build_registry_context(self, runtime, name, deadline)?
+        let name = &prepared.context.name;
+        let directory = self.directory(name)?;
+        let generation = directory.open_child(super::generation::DIRECTORY)?;
+        let require_original = || -> Result<()> {
+            directory.revalidate()?;
+            generation.revalidate()?;
+            let current = self.prepared(name);
+            directory.revalidate()?;
+            generation.revalidate()?;
+            if current? != *prepared {
+                return Err(Error::Invalid(
+                    "selected build registry generation changed".into(),
+                ));
+            }
+            Ok(())
+        };
+        require_original()?;
+        let result = self.resolve_build_registry(runtime, prepared, deadline);
+        #[cfg(test)]
+        tests::after_resolution(&result);
+        require_original()?;
+        if result.is_ok() {
+            super::native_operation::require_deadline(deadline)?;
+        }
+        result
+    }
+
+    fn resolve_build_registry(
+        &self,
+        runtime: &InstalledRuntime,
+        prepared: &PreparedLocalnet,
+        deadline: Instant,
+    ) -> Result<Option<(Config, PreparedMusubiArchiveFetchConfigV1)>> {
+        if let Some(context) =
+            super::remote::build_registry_context(self, runtime, prepared, deadline)?
         {
             let finality = ParentFinalityStore::open(&context.finality_path, &context.bootstrap)
                 .map_err(|error| Error::Invalid(error.to_string()))?;
@@ -85,7 +124,7 @@ impl ManagedStore {
             super::native_operation::require_deadline(deadline)?;
             return Ok(Some((config, transport)));
         }
-        generated_local::prepare(&self.prepared(name)?, deadline)
+        generated_local::prepare(prepared, deadline)
     }
 }
 

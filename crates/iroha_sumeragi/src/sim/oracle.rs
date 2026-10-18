@@ -484,10 +484,13 @@ impl World {
                 Action::CommitBlock { block, commit_qc } => self.check_commit(r, block, commit_qc),
                 Action::ReportEvidence(evidence) => self.check_evidence(r, evidence),
                 Action::LocalFault(
-                    LocalFault::ExecutorFailed { .. } | LocalFault::ExecutionMismatch { .. },
+                    fault @ (LocalFault::ExecutorFailed { .. }
+                    | LocalFault::ExecutionMismatch { .. }),
                 ) => {
                     let m = self.replicas[r].machine;
-                    if !self.checks.may_fault.contains(&m) {
+                    let expected_failure = matches!(fault, LocalFault::ExecutorFailed { .. })
+                        && self.checks.may_executor_fail.contains(&m);
+                    if !self.checks.may_fault.contains(&m) && !expected_failure {
                         self.fail(format!(
                             "O-FAULT: honest machine {m} reported {action:?} without an injected fault"
                         ));
@@ -1750,6 +1753,44 @@ fn evidence_name(evidence: &Evidence) -> &'static str {
 mod tests {
     use super::*;
     use crate::sim::{run, scenarios};
+
+    /// A clock-guard refusal permits only its own local fault kind, on the named machine.
+    #[test]
+    fn clock_guard_fault_allowance_keeps_execution_mismatch_oracle_live() {
+        let scenario = || {
+            let mut scenario = crate::sim::scenario::Scenario::base("clock-guard-faults", 0, 4);
+            scenario.clock_guard = Some(crate::sim::scenario::ClockGuard::default());
+            scenario.checks.may_executor_fail = vec![0];
+            scenario
+        };
+        let mut world = World::new(scenario());
+        let replica = world.replica_of(0, 0).expect("guarded machine");
+        world.after_handle(
+            replica,
+            &[Action::LocalFault(LocalFault::ExecutorFailed { height: 1 })],
+        );
+        assert_eq!(world.failure, None, "the guard's Failed answer is expected");
+        world.after_handle(
+            replica,
+            &[Action::LocalFault(LocalFault::ExecutionMismatch {
+                height: 1,
+                view: 0,
+            })],
+        );
+        let report = world
+            .failure
+            .expect("guard cannot excuse a result mismatch");
+        assert!(report.contains("O-FAULT") && report.contains("ExecutionMismatch"));
+
+        let mut world = World::new(scenario());
+        let replica = world.replica_of(1, 0).expect("unexempted machine");
+        world.after_handle(
+            replica,
+            &[Action::LocalFault(LocalFault::ExecutorFailed { height: 1 })],
+        );
+        let report = world.failure.expect("allowance is local to its machine");
+        assert!(report.contains("O-FAULT") && report.contains("ExecutorFailed"));
+    }
 
     fn count_held_certificate_copies(work: impl FnOnce()) -> usize {
         struct Disable;

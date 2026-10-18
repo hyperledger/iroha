@@ -324,12 +324,11 @@ mod doctor_account_tests {
     #[test]
     fn doctor_parliament_warnings_name_every_unverifiable_requirement() {
         let warnings = doctor_accounts::parliament_warnings().unwrap();
-        assert_eq!(warnings.len(), 4);
+        assert_eq!(warnings.len(), 3);
         for name in [
             "parliament_eligible_citizens",
             "parliament_live_profile",
             "parliament_global_beacon_session",
-            "parliament_tle_session",
         ] {
             assert!(
                 warnings
@@ -348,7 +347,7 @@ mod doctor_account_tests {
         assert!(warnings.iter().all(|warning| warning.len() <= 1_024));
         let mut report = norito::json!({"warnings": ["existing"]});
         doctor_accounts::append_parliament_warnings(&mut report).unwrap();
-        assert_eq!(report["warnings"].as_array().unwrap().len(), 5);
+        assert_eq!(report["warnings"].as_array().unwrap().len(), 4);
         assert!(doctor_accounts::append_parliament_warnings(&mut norito::json!({})).is_err());
     }
 }

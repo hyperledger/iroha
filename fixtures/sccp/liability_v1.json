@@ -1,0 +1,416 @@
+{
+  "clock": [
+    {
+      "expected": {
+        "lc": 2000
+      },
+      "input": {
+        "heartbeat_ms": 86400000,
+        "parent_lc": 1000,
+        "parent_time": 1000,
+        "time": 2000
+      },
+      "label": "ordinary_step"
+    },
+    {
+      "expected": {
+        "lc": 2000
+      },
+      "input": {
+        "heartbeat_ms": 86400000,
+        "parent_lc": 2000,
+        "parent_time": 2000,
+        "time": 2000
+      },
+      "label": "halt_no_committed_block"
+    },
+    {
+      "expected": {
+        "lc": 90002000
+      },
+      "input": {
+        "heartbeat_ms": 86400000,
+        "parent_lc": 2000,
+        "parent_time": 2000,
+        "time": 2592002000
+      },
+      "label": "first_block_after_halt"
+    },
+    {
+      "expected": {
+        "lc": 90003000
+      },
+      "input": {
+        "heartbeat_ms": 86400000,
+        "parent_lc": 90002000,
+        "parent_time": 2592002000,
+        "time": 2592003000
+      },
+      "label": "second_resumed_block"
+    },
+    {
+      "expected": {
+        "lc": 18446744073709551615
+      },
+      "input": {
+        "heartbeat_ms": 86400000,
+        "parent_lc": 18446744073709551613,
+        "parent_time": 0,
+        "time": 100
+      },
+      "label": "saturating_clock"
+    }
+  ],
+  "constants": {
+    "grace_ms": 604800000,
+    "heartbeat_ms": 86400000,
+    "lc_slack_ms": 3600000,
+    "liable_until_lc": 1814401000,
+    "progress_cap_ms": 2592000000,
+    "start_lc": 1000,
+    "validity_ms": 1209600000
+  },
+  "conventions": "Times are integer milliseconds; every liability boundary is inclusive. DATA fixtures call production clock, L3, L5, pruning and P2 predicates without opening either route launch gate or manufacturing Parliament authority.",
+  "destination_clearance": [
+    {
+      "expected": {
+        "dest_cleared_lc": null
+      },
+      "input": {
+        "deadline_ms": 1209601000,
+        "lc": 1814401000,
+        "light_client_frozen": false,
+        "light_client_present": false,
+        "source_time_ms": 0
+      },
+      "label": "l5_missing_light_client"
+    },
+    {
+      "expected": {
+        "dest_cleared_lc": null
+      },
+      "input": {
+        "deadline_ms": 1209601000,
+        "lc": 1814401000,
+        "light_client_frozen": false,
+        "light_client_present": true,
+        "source_time_ms": 1209600999
+      },
+      "label": "l5_stalled_light_client"
+    },
+    {
+      "expected": {
+        "dest_cleared_lc": null
+      },
+      "input": {
+        "deadline_ms": 1209601000,
+        "lc": 1814401000,
+        "light_client_frozen": false,
+        "light_client_present": true,
+        "source_time_ms": 1209601000
+      },
+      "label": "l5_at_deadline"
+    },
+    {
+      "expected": {
+        "dest_cleared_lc": 1814401000
+      },
+      "input": {
+        "deadline_ms": 1209601000,
+        "lc": 1814401000,
+        "light_client_frozen": false,
+        "light_client_present": true,
+        "source_time_ms": 1209601001
+      },
+      "label": "l5_past_deadline"
+    },
+    {
+      "expected": {
+        "dest_cleared_lc": null
+      },
+      "input": {
+        "deadline_ms": 1209601000,
+        "lc": 1814401000,
+        "light_client_frozen": true,
+        "light_client_present": true,
+        "source_time_ms": 1209601001
+      },
+      "label": "l5_frozen_light_client"
+    }
+  ],
+  "generator": "two independent generators: python3.11 scripts/sccp_reference/generate.py --write; cargo test -p iroha_core --lib sccp -- --ignored regenerate_liability_v1",
+  "liability": [
+    {
+      "expected": {
+        "liable": true
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": 1000,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 1814400999,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "time_leg_before"
+    },
+    {
+      "expected": {
+        "liable": true
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": 1000,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 1814401000,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "time_leg_inclusive"
+    },
+    {
+      "expected": {
+        "liable": false
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": 1000,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 1814401001,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "time_leg_ended"
+    },
+    {
+      "expected": {
+        "liable": true
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": null,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 1814401001,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "progress_leg"
+    },
+    {
+      "expected": {
+        "liable": true
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": 1814401000,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 2419201000,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "progress_clearance_inclusive"
+    },
+    {
+      "expected": {
+        "liable": false
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": 1814401000,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 2419201001,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "progress_clearance_ended"
+    },
+    {
+      "expected": {
+        "liable": true
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": null,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 4406401000,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "cap_inclusive"
+    },
+    {
+      "expected": {
+        "liable": false
+      },
+      "input": {
+        "current_generation": 8,
+        "dest_cleared_lc": null,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 4406401001,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "cap_ended"
+    },
+    {
+      "expected": {
+        "liable": true
+      },
+      "input": {
+        "current_generation": 7,
+        "dest_cleared_lc": null,
+        "generation": 7,
+        "grace_ms": 604800000,
+        "lc": 18446744073709551615,
+        "liable_until_lc": 1814401000,
+        "progress_cap_ms": 2592000000
+      },
+      "label": "current_generation_never_expires"
+    }
+  ],
+  "pin_margin": [
+    {
+      "expected": {
+        "outcome": "InterveningGenerationExpired",
+        "required_until_ms": 372800000
+      },
+      "input": {
+        "deadlines_ms": [
+          1209601000,
+          372799999
+        ],
+        "heartbeat_ms": 86400000,
+        "now_ms": 200000000,
+        "pin_margin_ms": 86400000
+      },
+      "label": "p2_validity_reduction_refused"
+    },
+    {
+      "expected": {
+        "outcome": "Accepted",
+        "required_until_ms": 372800000
+      },
+      "input": {
+        "deadlines_ms": [
+          1209601000,
+          372800000
+        ],
+        "heartbeat_ms": 86400000,
+        "now_ms": 200000000,
+        "pin_margin_ms": 86400000
+      },
+      "label": "p2_intervening_boundary"
+    },
+    {
+      "expected": {
+        "outcome": "Accepted",
+        "required_until_ms": 372800000
+      },
+      "input": {
+        "deadlines_ms": [
+          1209601000,
+          372800001
+        ],
+        "heartbeat_ms": 86400000,
+        "now_ms": 200000000,
+        "pin_margin_ms": 86400000
+      },
+      "label": "p2_all_generations_live"
+    }
+  ],
+  "pruning": [
+    {
+      "expected": {
+        "pruned_generations": [
+          9
+        ],
+        "retained_generations": [
+          7,
+          20
+        ]
+      },
+      "input": {
+        "current_generation": 20,
+        "lc": 18446744073709551615,
+        "pending_generation": 7,
+        "retained_generations": [
+          7,
+          9,
+          20
+        ]
+      },
+      "label": "pending_generation_is_skipped"
+    },
+    {
+      "expected": {
+        "pruned_generations": [
+          7,
+          9
+        ],
+        "retained_generations": [
+          20
+        ]
+      },
+      "input": {
+        "current_generation": 20,
+        "lc": 18446744073709551615,
+        "pending_generation": null,
+        "retained_generations": [
+          7,
+          9,
+          20
+        ]
+      },
+      "label": "applied_generation_can_retire"
+    }
+  ],
+  "same_block_orders": [
+    {
+      "expected": {
+        "outcomes": [
+          "Pending",
+          "LiabilityActive"
+        ],
+        "penalty_pending": true,
+        "stake_released": false
+      },
+      "input": {
+        "lc": 1814401000,
+        "liable_until_lc": 1814401000,
+        "steps": [
+          "evidence",
+          "unbond"
+        ]
+      },
+      "label": "evidence_then_unbond"
+    },
+    {
+      "expected": {
+        "outcomes": [
+          "LiabilityActive",
+          "Pending"
+        ],
+        "penalty_pending": true,
+        "stake_released": false
+      },
+      "input": {
+        "lc": 1814401000,
+        "liable_until_lc": 1814401000,
+        "steps": [
+          "unbond",
+          "evidence"
+        ]
+      },
+      "label": "unbond_then_evidence"
+    }
+  ],
+  "schema": "iroha.sccp.liability.v1"
+}

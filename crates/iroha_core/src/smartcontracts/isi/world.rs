@@ -89,7 +89,7 @@ pub mod isi {
         str::FromStr,
     };
     #[cfg(test)]
-    pub(crate) use tests::seed_sccp_native_proof_certificate_before_genesis;
+    pub(crate) use tests::seed_sccp_native_proof_control_before_genesis;
     // Governance ISIs
     use iroha_data_model::isi::confidential;
     // Bring runtime upgrade ISIs into scope
@@ -8639,17 +8639,31 @@ pub mod isi {
                         "certified SCCP proposal belongs to a different exact NetworkId".into(),
                     ));
                 }
-                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1::from_parliament_certificate(certificate)?;
-                #[cfg(all(test, sumeragi_core_mutation = "HC237"))]
-                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
-                    proposal_id,
-                    certificate.effect_preimage_hash,
-                );
+                certificate.validate().map_err(|error| {
+                    InstructionExecutionError::InvariantViolation(
+                        format!("certified SCCP Parliament certificate is invalid: {error}").into(),
+                    )
+                })?;
+                let certificate_id =
+                    *iroha_data_model::governance::types::GovernanceCertificateId::derive_v1(
+                        certificate,
+                    )
+                    .as_bytes();
+                // TODO: obtain the source-bound casting-open anchor from the qualified
+                // Parliament ballot. The current certificate/attempt records do not carry
+                // its shared-pass position; certification or enactment times cannot replace s0.
+                let s0 =
+                    None::<iroha_data_model::governance::GovernanceAnchorV1>.ok_or_else(|| {
+                        InstructionExecutionError::InvariantViolation(
+                            "SCCP Policy Jury casting-open source is unavailable".into(),
+                        )
+                    })?;
                 crate::smartcontracts::isi::sccp::governance::enact(
                     state_transaction,
+                    certificate_id,
+                    certificate.effect_preimage_hash,
+                    s0,
                     &payload.proposal,
-                    proposal_id,
-                    cause,
                 )
             }
             ProposalKind::SorafsProviderGovernance(payload) => {
@@ -21664,10 +21678,10 @@ pub mod isi {
                 .expect("completed due-certificate body result height")
         }
 
-        /// Seed only the fixture's pristine World with the existing reducer-produced due
-        /// certificate. This is not a native block, a CommitQC or live ballot qualification.
-        /// The later genuine native H60 block alone executes the scheduled effect.
-        pub(crate) fn seed_sccp_native_proof_certificate_before_genesis(
+        /// Seed a pristine proof-consumer fixture with a component control and its cause.
+        /// The synthetic H60 overlay and casting-open anchor are test DATA, never evidence
+        /// of a Parliament enactment. The later native H60 block certifies the stored leaf.
+        pub(crate) fn seed_sccp_native_proof_control_before_genesis(
             state: &State,
             proposal: &iroha_data_model::sccp::governance::SccpGovernanceProposalV1,
         ) -> GovernanceCertificateV1 {
@@ -21691,6 +21705,18 @@ pub mod isi {
                     &mut transaction,
                     sccp_route_governance_test_kind(proposal),
                 );
+                crate::smartcontracts::isi::sccp::governance::enact(
+                    &mut transaction,
+                    *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes(),
+                    fixture.certificate.effect_preimage_hash,
+                    iroha_data_model::governance::GovernanceAnchorV1 {
+                        height: 1,
+                        position: 0,
+                        timestamp_ms: 1_000,
+                    },
+                    proposal,
+                )
+                .expect("seed isolated control component before native genesis");
                 transaction.apply();
                 fixture
             };
@@ -22276,7 +22302,7 @@ pub mod isi {
         }
 
         #[test]
-        fn parliament_due_certificate_records_exact_native_control_cause() {
+        fn sccp_enactment_component_records_exact_native_control_cause() {
             use crate::smartcontracts::isi::sccp::{store, test_support::sample_route};
             use iroha_data_model::sccp::{
                 governance::{
@@ -22320,20 +22346,39 @@ pub mod isi {
                 seed.apply();
                 fixture
             };
+            let mut execution = state_block.transaction();
+            let proposal = execution
+                .world
+                .governance_proposals
+                .get(&fixture.proposal_id)
+                .unwrap()
+                .clone();
             let mut malformed = fixture.certificate.clone();
             malformed.effect_preimage_hash = [0; 32];
-            crate::smartcontracts::isi::sccp::controls::ControlCauseV1::from_parliament_certificate(
+            let error = apply_parliament_proposal_effect_v1(
+                fixture.proposal_id,
+                &proposal,
                 &malformed,
-            ).expect_err("zero effect is not a native authority");
-            let mut execution = state_block.transaction();
-            assert_eq!(
-                execute_due_parliament_certificate_v1(
-                    fixture.governance_attempt_id,
-                    &mut execution
-                )
-                .expect("execute exact certificate"),
-                DueParliamentCertificateExecutionV1::Applied
-            );
+                &mut execution,
+            )
+            .expect_err("the Parliament adapter rejects zero effect before reaching SCCP");
+            assert!(error.to_string().contains("certificate is invalid"));
+            let ProposalKind::SccpRouteGovernance(payload) = &proposal.kind else {
+                panic!("SCCP component proposal");
+            };
+            crate::smartcontracts::isi::sccp::governance::enact(
+                &mut execution,
+                *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes(),
+                fixture.certificate.effect_preimage_hash,
+                // Explicit component DATA; the legacy adapter never invents this anchor.
+                iroha_data_model::governance::GovernanceAnchorV1 {
+                    height: 1,
+                    position: 0,
+                    timestamp_ms: 1_000,
+                },
+                &payload.proposal,
+            )
+            .expect("enact isolated SCCP component");
             let record = store::control_messages::get(&*execution.world, &(network, 1, 1))
                 .expect("native control");
             assert_eq!(record.track, 1);
@@ -22368,11 +22413,10 @@ pub mod isi {
                 )
                 .expect("native control leaf")
             );
-            assert_automatic_parliament_execution_event(
-                &execution,
-                &fixture,
-                gov::ParliamentAutomaticExecutionOutcomeV1::Enacted,
-            );
+            assert!(execution.world.internal_event_buf.iter().any(
+                |event| matches!(event.as_ref(), DataEvent::Sccp(iroha_data_model::sccp::events::SccpEvent::GovernanceEnacted(event))
+                    if event.proposal_id == fixture.proposal_id)
+            ));
         }
 
         #[test]

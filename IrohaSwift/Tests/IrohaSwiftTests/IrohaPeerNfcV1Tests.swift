@@ -1049,15 +1049,27 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
     }
 
     func testDefaultNfcLimitCarriesExactMaximumWalletIPM() throws {
-        // Bounds DATA only: the maximum-size companion does not establish AccountId authority.
+        // Bounds DATA only: resized stand-in proofs and the maximum-size companion carry no authority.
+        let envelopes = try maximumWalletExchangeEnvelopes()
+        XCTAssertEqual(envelopes.request.count, KagemushaWalletWireV1.messageMaximumBytes)
+        XCTAssertEqual(envelopes.payment.count, KagemushaWalletWireV1.messageMaximumBytes)
+        try KagemushaWalletWireV1.requireExchangeBinding(
+            request: envelopes.request, payment: envelopes.payment)
         let request = try IrohaPeerKagemushaWalletAdapterV1.wrap(
-            irohaPeerWalletExchangeEnvelopeV1(kind: .request, frameBytes: 10_000),
+            envelopes.request,
             destinationAccountOriginal: Data(repeating: 0xbc, count: 4_096))
-        let payment = try IrohaPeerKagemushaWalletAdapterV1.wrap(
-            irohaPeerWalletExchangeEnvelopeV1(kind: .payment, frameBytes: 10_000))
+        let payment = try IrohaPeerKagemushaWalletAdapterV1.wrap(envelopes.payment)
         XCTAssertEqual(request.encoded.count, IrohaPeerNfcV1.maximumMessageBytes)
         XCTAssertEqual(IrohaPeerNfcV1.maximumMessageBytes, 14_196)
         XCTAssertEqual(payment.encoded.count, 10_084)
+
+        // The exact-size fixture must not relax the independent proof-role limit.
+        XCTAssertThrowsError(try IrohaPeerKagemushaWalletAdapterV1.wrap(
+            irohaPeerWalletExchangeEnvelopeV1(kind: .payment,
+                payload: Data(repeating: 0xa5,
+                    count: KagemushaWalletWireV1.paymentSigmaProofCapBytes + 1)))) {
+            XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("payment.sigma_proof"))
+        }
 
         let receiver = try readyReceiver(
             request: request,
@@ -1630,6 +1642,89 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
 
     private var zeroHash: Data {
         Data(repeating: 0, count: IrohaPeerNfcV1.hashBytes)
+    }
+
+    /// Retain the Rust vectors' complete layout and quoted Request while filling each proof role.
+    /// The credential field outside the quoted Request body supplies unadmitted sizing DATA.
+    private func maximumWalletExchangeEnvelopes() throws -> (request: Data, payment: Data) {
+        func record(_ fields: [Data]) -> Data {
+            var bytes = Data()
+            for field in fields {
+                var length = field.count
+                repeat {
+                    let byte = UInt8(length & 0x7f)
+                    length >>= 7
+                    bytes.append(byte | (length == 0 ? 0 : 0x80))
+                } while length != 0
+                bytes.append(field)
+            }
+            return bytes
+        }
+        func fields(_ data: Data, count: Int) throws -> [Data] {
+            let bytes = Array(data)
+            var result: [Data] = []
+            var offset = 0
+            while offset < bytes.count {
+                var length = 0
+                var shift = 0
+                while true {
+                    guard offset < bytes.count, shift < 63 else { throw TestFailure.expected }
+                    let byte = bytes[offset]
+                    offset += 1
+                    length |= Int(byte & 0x7f) << shift
+                    if byte & 0x80 == 0 { break }
+                    shift += 7
+                }
+                guard length <= bytes.count - offset else { throw TestFailure.expected }
+                result.append(Data(bytes[offset..<(offset + length)]))
+                offset += length
+            }
+            guard result.count == count else { throw TestFailure.expected }
+            return result
+        }
+        let vectors = try irohaPeerWalletVectorEnvelopesV1()
+        func message(_ kind: IrohaPeerWireKindV1, count: Int) throws -> [Data] {
+            let vector = try XCTUnwrap(vectors.first { $0.kind == kind })
+            let decoded = try XCTUnwrap(noritoDecodeFrame(vector.frame))
+            let envelope = try fields(decoded.payload, count: 2)
+            let variant = try fields(Data(envelope[1].dropFirst(4)), count: 1)
+            return try fields(variant[0], count: count)
+        }
+        func frame(_ kind: IrohaPeerWireKindV1, _ fields: [Data]) -> Data {
+            let tag = withUnsafeBytes(of: UInt32(kind.rawValue).littleEndian) { Data($0) }
+            return noritoEncode(
+                typeName: KagemushaWalletWireV1.envelopeFrameName,
+                payload: record([Data([1, 0]), tag + record([record(fields)])]),
+                flags: NoritoHeader.compactLen,
+                payloadAlignment: KagemushaWalletWireV1.envelopePayloadAlignment)
+        }
+        func proofVector(_ count: Int) -> Data {
+            withUnsafeBytes(of: UInt64(count).littleEndian) { Data($0) }
+                + Data(repeating: 0xa5, count: count)
+        }
+        var payment = try message(.payment, count: 3)
+        var send = try fields(payment[2], count: 5)
+        XCTAssertEqual(Data(send[2].prefix(4)), Data([1, 0, 0, 0]))
+        let present = try fields(Data(send[2].dropFirst(4)), count: 1)
+        var lineage = try fields(present[0], count: 2)
+        lineage[1] = proofVector(KagemushaWalletWireV1.paymentOmegaProofCapBytes)
+        send[2] = Data([1, 0, 0, 0]) + record([record(lineage)])
+        send[3] = record([proofVector(KagemushaWalletWireV1.paymentSigmaProofCapBytes)])
+        payment[2] = record(send)
+        let paymentFrame = frame(.payment, payment)
+
+        var request = try message(.request, count: 5)
+        for _ in 0..<16 {
+            let requestFrame = frame(.request, request)
+            if requestFrame.count == KagemushaWalletWireV1.messageMaximumBytes {
+                return (requestFrame, paymentFrame)
+            }
+            let count = request[1].count
+                + KagemushaWalletWireV1.messageMaximumBytes - requestFrame.count
+            guard count >= 0 else { throw TestFailure.expected }
+            request[1] = Data(repeating: 0xa5, count: count)
+        }
+        throw TestFailure.expected
     }
 
     private func message(

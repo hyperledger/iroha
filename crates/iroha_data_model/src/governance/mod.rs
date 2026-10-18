@@ -9,6 +9,9 @@ pub mod types {
 }
 /// Block-start anchors of governance transitions, shared by the Parliament ballot and SCCP.
 pub mod anchor;
+/// Anonymous on-chain ballot of the binding Parliament juries: wire types, pinned encodings,
+/// public digests and the closed launch gate.
+pub mod anonymous_ballot;
 /// Exact frozen economics for the existing public standalone conviction ballot.
 pub mod conviction;
 pub use anchor::GovernanceAnchorV1;

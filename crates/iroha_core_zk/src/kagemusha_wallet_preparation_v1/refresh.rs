@@ -383,7 +383,7 @@ fn exact_successor(
 }
 
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
-pub(crate) struct RefreshFoldFieldsV1 {
+pub struct RefreshFoldFieldsV1 {
     pub(crate) state: RefreshWitness,
     pub(crate) sigma: Vec<u8>,
     pub(crate) objects: [Vec<u8>; 5],
@@ -404,33 +404,17 @@ impl RefreshFoldFieldsV1 {
 }
 
 impl PreparationV1<'_> {
-    /// Prepare every Refresh kind from its exact retained original custody.
-    /// Native resolves the complete original through its coordinator/archive
-    /// capability before calling this pure proof converter. Storage errors keep
-    /// their original retry/loss classification outside this proof-only boundary.
-    /// Credential renewal uses distinct owners; the other kinds require identical
-    /// owners. Quota usage is rebuilt only from its retained authenticated predecessor array.
-    /// Original Q proofs remain untrusted until the fixed native plan and all mandatory
-    /// A/W owners verify them. This conversion grants no artifact or wallet-open authority.
+    /// Reconstruct every Refresh source before its independent Q proofs exist.
+    /// Native resolves exact originals through coordinator/archive custody; storage
+    /// failures keep their retry/loss classification outside this proof boundary.
+    /// Renewal uses distinct current/successor owners; other kinds require identical
+    /// owners. Quota usage comes only from its retained authenticated predecessor array.
+    /// The installed native plan and mandatory A/W owners must verify attached Q proofs;
+    /// this conversion grants no artifact or wallet-open authority.
     ///
     /// # Errors
     /// Changed source/owner/effect, missing or duplicate original,
     /// bad issuer role/signature, invalid renewal or changed unrelated state.
-    pub fn refresh_native_inputs(
-        &self,
-        owners: RefreshOwnersV1<'_>,
-        step: &ReleasedStep,
-        predecessor: &FoldedStateV1,
-        public: &KagemushaWalletLineagePublicV1,
-        original_update: &[u8],
-        q: [native::QInput; 3],
-        budget: MemoryBudget,
-    ) -> Result<native::Inputs, Error> {
-        self.refresh_fold_fields(owners, step, predecessor, public, original_update, budget)
-            .map(|fields| fields.with_q(q))
-    }
-
-    /// Reconstruct the exact native source before its independent Q proofs exist.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn refresh_fold_fields(
         &self,

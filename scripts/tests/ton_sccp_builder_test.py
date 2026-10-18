@@ -2,7 +2,7 @@
 
 Covers `scripts/ton_sccp_builder.py` (Acton pinning and resolution,
 Keccak-256, TON cells and the BoC parser and serializer, §3.7 committee roots
-and key chunks, §5.3.1 canonical minter data, the renderers of the two
+and key chunks, §5.3.1 canonical minter data, the renderers of the three
 generated Tolk vector files, the gas report and its 1.1 x comparison, the v1
 contract source set and its SECURITY.md) and
 `scripts/generate_ton_sccp_stateinit_golden.py` (fixture consistency from
@@ -703,6 +703,196 @@ def test_committee_renderer_rejects_stateinit_keys_from_another_committee() -> N
         builder._render_committees(_finality(), stateinit)
 
 
+def test_complete_fixture_replay_counts_and_rendered_ledger() -> None:
+    counts = builder.fixture_coverage_counts()
+    assert counts == {
+        "payload_directions": 2, "payload_rejections": 33,
+        "tree_roots": 18, "tree_paths": 665, "tree_negatives": 6,
+        "history_roots": 40, "history_paths": 820, "history_leaves": 40,
+        "native_transfers": 1, "bls_verifications": 187,
+        "fast_pause_controls": 4, "forgery_evidence": 19,
+    }
+    rendered = builder.render_test_vectors()
+    for name, count in counts.items():
+        assert f"const VEC_ALL_{builder._upper(name)} = {count}\n" in rendered
+
+
+def test_complete_merkle_tables_preserve_every_recorded_path() -> None:
+    import re
+
+    tree = builder.load_fixture("commitment_tree_v1.json")
+    history = builder.load_fixture("history_v1.json")
+    rendered = builder._render_complete_merkle(tree, history)
+    for name, entries, count_key, leaves in (
+        ("Tree", tree["trees"], "count", tree["leaves"]),
+        ("History", history["sizes"], "size", [row["leaf"] for row in history["leaves"]]),
+    ):
+        table = rendered.split(f"fun vecAll{name}PathPage(index: int): cell {{", 1)[1].split("\n}\n", 1)[0]
+        pages = [builder.parse_boc(bytes.fromhex(encoded)) for encoded in re.findall(r'parseCellFromHex\("([0-9a-f]+)"\)', table)]
+        expected = [(entry, index, path) for entry in entries for index, path in enumerate(entry["paths"])]
+        assert len(pages) == (len(expected) + 15) // 16
+        for position, (entry, index, path) in enumerate(expected):
+            page = position // 16
+            cell, offset, remaining = pages[page], position % 16, min(16, len(expected) - page * 16)
+            while remaining > 1:
+                middle = remaining // 2
+                assert cell.bits == "" and len(cell.refs) == 2
+                if offset < middle:
+                    cell, remaining = cell.refs[0], middle
+                else:
+                    cell, offset, remaining = cell.refs[1], offset - middle, remaining - middle
+            bits = cell.bits
+            assert len(bits) == 584 and len(cell.refs) == 1
+            assert int(bits[:32], 2) == entry[count_key]
+            assert int(bits[32:64], 2) == index
+            assert int(bits[64:320], 2) == int(leaves[index], 16)
+            assert int(bits[320:576], 2) == int(entry["root"], 16)
+            assert int(bits[576:], 2) == len(path)
+            sibling_cell, siblings = cell.refs[0], []
+            while True:
+                assert len(sibling_cell.bits) % 256 == 0
+                assert len(sibling_cell.bits) <= 768 and len(sibling_cell.refs) <= 1
+                siblings.extend(int(sibling_cell.bits[i:i + 256], 2) for i in range(0, len(sibling_cell.bits), 256))
+                if not sibling_cell.refs:
+                    break
+                sibling_cell = sibling_cell.refs[0]
+            assert siblings == [int(word, 16) for word in path]
+
+
+@pytest.mark.parametrize("fixture,section", [("commitment_tree_v1.json", "trees"), ("history_v1.json", "sizes")])
+def test_complete_merkle_renderer_refuses_a_missing_position(fixture: str, section: str) -> None:
+    tree = builder.load_fixture("commitment_tree_v1.json")
+    history = builder.load_fixture("history_v1.json")
+    selected = tree if fixture.startswith("commitment") else history
+    selected[section][-1]["paths"].pop()
+    with pytest.raises(builder.TonBuilderError, match="does not have every position"):
+        builder._render_complete_merkle(tree, history)
+
+
+def test_fixture_cell_table_refuses_empty_input() -> None:
+    with pytest.raises(builder.TonBuilderError, match="must contain a row"):
+        builder._fixture_table([])
+
+
+def test_complete_payload_refusals_and_native_event_keep_original_bytes() -> None:
+    payload = builder.load_fixture("payload_v1.json")
+    codes = builder.exit_codes(builder.load_fixture("committee_transitions_v1.json"))
+    rendered = builder._render_payload_rejections(payload, codes)
+    for row in payload["rejected_payloads"]:
+        assert row["label"] in rendered
+        for piece in builder._pieces(row["payload"]):
+            assert piece in rendered
+    for outcome in ("BadPayload", "BadSnake", "BadRecipient"):
+        assert f"exit: {codes[outcome]}" in rendered
+    native = builder.load_fixture("native_transfer_event_v1.json")
+    rendered = builder._render_native_transfers(native)
+    for row in native["transfers"]:
+        if row["source_profile"] == builder.TON_NETWORK:
+            assert f'parseCellFromHex("{builder._hex_body(row["ext_out_body"])}")' in rendered
+            row["sender"]["bytes"] = "0x01"
+            with pytest.raises(builder.TonBuilderError, match="another sender format"):
+                builder._render_native_transfers(native)
+
+
+def test_bls_replay_rows_have_unique_labels_and_explicit_ton_outcomes() -> None:
+    rows = builder.bls_verification_rows()
+    assert len(rows) == len({row["label"] for row in rows}) == 187
+    generic = next(row for row in rows if row["label"] == "rust.negatives.dst_sig_signature_presented_to_generic_api")
+    assert generic["ton_verdict"] == 1
+    for row in rows:
+        assert row["ton_verdict"] in (-9, 0, 1)
+        if row["label"].startswith("rust.negatives.") and row is not generic:
+            assert row["ton_verdict"] == 0, row["label"]
+    for group, count in ((1, 13), (2, 15)):
+        malformed = [row for row in rows if row["label"].startswith(f"ethereum_bls12_381_tests.deserialization_G{group}.")]
+        assert len(malformed) == count
+        assert sum(row["ton_verdict"] == -9 for row in malformed) == 1
+        extra = [row for row in rows if row["label"].startswith(f"sccp_extra_malformed_inputs.g{group}_deserialization.")]
+        assert len(extra) == 5
+        assert sum(row["ton_verdict"] == -9 for row in extra) == 1
+        assert sum(row["ton_verdict"] == 1 for row in extra) == 1
+    for section, count in (("sign", 9), ("verify", 29), ("fast_aggregate_verify", 12)):
+        assert sum(row["label"].startswith(f"ethereum_bls12_381_tests.{section}.") for row in rows) == count
+    rendered = builder._render_bls_verifications()
+    for row in rows:
+        assert row["label"] in rendered
+        assert builder._slice(row["signature"]) in rendered
+
+
+def test_bls_skipped_operations_are_counted_separately_from_verification() -> None:
+    skipped = builder.bls_skipped_rows()
+    assert {row["section"]: row["count"] for row in skipped} == {
+        "sign_verify.keys": 3, "aggregates.aggregate_verify": 3,
+        "ethereum_bls12_381_tests.aggregate": 6,
+        "ethereum_bls12_381_tests.aggregate_verify": 5,
+        "ethereum_bls12_381_tests.batch_verify": 4,
+        "ethereum_bls12_381_tests.sign.null": 1, "consensus_allowlist": 32,
+        "imported_rfc9380.expand_message_xmd.vectors": 10,
+        "imported_rfc9380.hash_to_g2.vectors": 5,
+        "rust.keys": 3, "rust.allowlist": 8, "rust.allowlist_rejections": 34,
+        "rust.standard_vectors.aggregate": 3, "rust.standard_vectors.aggregate_verify": 2,
+    }
+    rendered = builder._render_bls_verifications()
+    for row in skipped:
+        assert row["reason"]
+        assert f"// Skip {row['section']} ({row['count']} rows): {row['reason']}." in rendered
+
+
+def test_upstream_decode_renderer_preserves_every_generic_outcome() -> None:
+    bls = builder.load_fixture("bls_consensus_v1.json")
+    rendered = builder._render_upstream_bls_decode(bls)
+    assert "const VEC_UPSTREAM_BLS_DECODE_COUNT = 28" in rendered
+    for group, count in ((1, 13), (2, 15)):
+        rows = bls["ethereum_bls12_381_tests"]["groups"][f"deserialization_G{group}"]
+        assert len(rows) == count
+        assert sum(row["output"] for row in rows) == 2
+        for row in rows:
+            assert f"G{group}.{row['label']}" in rendered
+            assert builder._slice(row["encoding"]) in rendered
+    # The valid G2 point need not sign the chosen baseline message. Preserve its
+    # successful decode even when the separate baseline verification is false.
+    positive = next(row for row in rows if row["label"] == "deserialization_succeeds_correct_point")
+    assert positive["output"] and not positive["verify"]
+
+
+def test_upstream_hash_renderer_preserves_text_domain_and_all_outputs() -> None:
+    bls = builder.load_fixture("bls_consensus_v1.json")
+    rows = bls["ethereum_bls12_381_tests"]["groups"]["hash_to_G2"]
+    assert len(rows) == 4
+    rendered = builder._render_upstream_hash_to_g2(bls)
+    for row in rows:
+        assert row["label"] in rendered
+        assert builder._slice(row["point"]["compressed"]) in rendered
+        dst = row["dst"].encode("ascii")
+        assert builder._slice("0x" + (dst + bytes([len(dst)])).hex()) in rendered
+        for piece in builder._pieces("0x" + row["input"]["msg"].encode("utf-8").hex()):
+            assert piece in rendered
+    rows[0]["trace"]["uniform_bytes"] = "0x00"
+    with pytest.raises(builder.TonBuilderError, match="eight blocks"):
+        builder._render_upstream_hash_to_g2(bls)
+
+
+def test_bls_renderer_refuses_duplicate_verification_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    bls = builder.load_fixture("bls_consensus_v1.json")
+    bls["sign_verify"]["negatives"].append(bls["sign_verify"]["negatives"][0])
+    load = builder.load_fixture
+    monkeypatch.setattr(builder, "load_fixture", lambda name: bls if name == "bls_consensus_v1.json" else load(name))
+    with pytest.raises(builder.TonBuilderError, match="duplicate BLS verification label"):
+        builder.bls_verification_rows()
+
+
+@pytest.mark.parametrize("fixture,section", [
+    ("commitment_tree_v1.json", "trees"), ("history_v1.json", "sizes"),
+])
+def test_merkle_renderer_refuses_duplicate_sizes(fixture: str, section: str) -> None:
+    tree = builder.load_fixture("commitment_tree_v1.json")
+    history = builder.load_fixture("history_v1.json")
+    selected = tree if fixture.startswith("commitment") else history
+    selected[section].append(selected[section][0])
+    with pytest.raises(builder.TonBuilderError, match="duplicate .* count"):
+        builder._render_complete_merkle(tree, history)
+
+
 def test_cert_vectors_render_certificates_and_scenarios() -> None:
     text = builder.render_cert_vectors()
     finality = _finality()
@@ -1063,3 +1253,48 @@ def test_load_fixture_reads_the_committed_json() -> None:
     assert builder.load_fixture("control_v1.json")["schema"] == "iroha.sccp.control.v1"
     with pytest.raises(FileNotFoundError):
         builder.load_fixture("no_such_fixture.json")
+
+
+def test_fast_pause_renderer_keeps_every_ton_row_and_exact_outcome() -> None:
+    fixture = builder.load_fixture("fast_pause_v1.json")
+    codes = builder.exit_codes(builder.load_fixture("committee_transitions_v1.json"))
+    rendered = builder._render_fast_pause_controls(fixture, codes)
+    rows = [row for row in fixture["controls"] if row["network"] == builder.TON_NETWORK]
+    assert len(rows) == 4
+    for row in rows:
+        assert row["id"] in rendered
+        assert builder._word(row["leaf"]) in rendered
+        assert builder._word(row["expected"]["applied_until_ms"]) in rendered
+        assert builder._slice("0x" + builder._hex_body(row["preimage"])[:250]) in rendered
+        assert builder._slice("0x" + builder._hex_body(row["preimage"])[250:]) in rendered
+    assert f'exit: {builder._exit(codes, "StaleControl")}' in rendered
+
+
+def test_forgery_renderer_preserves_certificate_bytes_and_destination_boundary() -> None:
+    fixture = builder.load_fixture("forgery_evidence_v1.json")
+    codes = builder.exit_codes(builder.load_fixture("committee_transitions_v1.json"))
+    rendered = builder._render_forgery_evidence(fixture, codes)
+    assert len(fixture["rows"]) == 19
+    for row in fixture["rows"]:
+        assert row["label"] in rendered
+        assert builder._word(row["expected"]["evidence_id"]) in rendered
+        assert builder._slice(row["input"]["aggregate_signature"]) in rendered
+        assert builder._slice("0x" + builder._hex_body(row["input"]["qc"])[:-8]) in rendered
+    assert f'inactive_x: Core NotEvidence; TON certificate exit {builder._exit(codes, "BadHeader")}' in rendered
+    assert builder.check_forgery_evidence_ids() == 22
+
+
+@pytest.mark.parametrize("field", ["result", "message", "evidence_id", "deduplication"])
+def test_forgery_id_check_refuses_drift_before_running_ton(field, monkeypatch) -> None:
+    fixture = builder.load_fixture("forgery_evidence_v1.json")
+    if field == "deduplication":
+        fixture["deduplication"][0]["expected"]["evidence_id"] = "0x" + "00" * 32
+    else:
+        fixture["rows"][0]["expected"][field] = "0x" + "00" * 32
+    load = builder.load_fixture
+    monkeypatch.setattr(builder, "load_fixture", lambda name: fixture if name == "forgery_evidence_v1.json" else load(name))
+    calls = []
+    monkeypatch.setattr(builder, "run_acton", lambda *args: calls.append(args))
+    with pytest.raises(builder.TonBuilderError, match="forgery evidence"):
+        builder.command_test(Path("/acton"), [])
+    assert calls == []

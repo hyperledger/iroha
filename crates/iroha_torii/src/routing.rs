@@ -571,28 +571,6 @@ impl DataspaceReadVisibility {
                     .all(|dataspace| self.allows_dataspace(dataspace))
             })
     }
-
-    pub(crate) fn allows_external_entrypoint_hash(
-        &self,
-        block: &SignedBlock,
-        target: HashOf<TransactionEntrypoint>,
-    ) -> bool {
-        let mut matched = false;
-        for index in 0..block.network_entrypoint_count() {
-            let Some(source) = block.network_entrypoint_at(index) else {
-                return false;
-            };
-            let hash = source.hash();
-            if hash != target {
-                continue;
-            }
-            matched = true;
-            if !self.allows_external_entrypoint(block, index) {
-                return false;
-            }
-        }
-        matched
-    }
 }
 use iroha_data_model as dm;
 use iroha_data_model::{
@@ -7389,7 +7367,7 @@ fn bounded_sumeragi_evidence_list_norito_response(
         .expect("build bounded Sumeragi evidence Norito response"))
 }
 fn bounded_sumeragi_evidence_list_json_response(
-    payload: &Value,
+    payload: &(impl norito::json::JsonSerialize + ?Sized),
     max_body_bytes: usize,
 ) -> Result<Response> {
     let body = crate::utils::encode_json_bounded(payload, max_body_bytes)
@@ -7605,12 +7583,12 @@ mod evidence_list_query_contract_tests {
             || evidence_to_json(&record),
         )
         .unwrap_err();
-        assert!(matches!(
-            error,
-            Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded
-            ))
-        ));
+        assert!(matches!(&error, Error::NativeEvidenceDecode(_)));
+        assert!(std::error::Error::source(&error).is_some());
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
         let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
             &record.evidence
         else {
@@ -7756,17 +7734,23 @@ mod evidence_list_query_contract_tests {
         let actual = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX),
             || {
-                recorded_evidence_fields_to_json(
+                let projection = recorded_evidence_fields_to_json(
                     &record.evidence,
                     &record.attribution,
                     record.recorded_at_height,
                     record.recorded_at_view,
                     record.recorded_at_ms,
                     record.penalty_status,
+                )?;
+                crate::utils::encode_json_bounded(
+                    &projection,
+                    SUMERAGI_EVIDENCE_LIST_JSON_RESPONSE_MAX_BYTES,
                 )
+                .map_err(|_| sumeragi_evidence_response_encode_error())
             },
         )
         .unwrap();
+        let actual = norito::json::parse_value(&actual).unwrap();
         assert_eq!(actual, expected);
         assert_eq!(record.encode(), original);
         let RecordedEvidenceV1::SccpForgery(material) = &mut record.evidence else {
@@ -7779,6 +7763,76 @@ mod evidence_list_query_contract_tests {
                 iroha_data_model::query::error::QueryExecutionFail::Conversion(_)
             )))
         ));
+    }
+    routing_test! { async bounded_sccp_evidence_response_preserves_data_under_input_decode_limits
+        use norito::codec::Encode as _;
+
+        for (penalty_status, expected_status_json) in [
+            (
+                EvidencePenaltyStatus::Pending,
+                r#"{"status":"pending","details":null}"#,
+            ),
+            (
+                EvidencePenaltyStatus::Applied { height: 77 },
+                r#"{"status":"applied","details":{"height":77}}"#,
+            ),
+        ] {
+            let mut record = sccp_data_record();
+            record.penalty_status = penalty_status;
+            let original = record.encode();
+            let expected = evidence_to_json(&record).unwrap();
+            assert_eq!(
+                expected["value"]["attribution"],
+                norito::json::to_value(&record.attribution).unwrap()
+            );
+            assert_eq!(
+                expected["value"]["penalty_status"],
+                norito::json::to_value(&penalty_status).unwrap()
+            );
+            assert_eq!(
+                expected["value"]["penalty_status"],
+                norito::json::parse_value(expected_status_json).unwrap()
+            );
+            let (response, exact) = norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX),
+                || -> Result<_> {
+                    let projection = recorded_evidence_fields_to_json(
+                        &record.evidence,
+                        &record.attribution,
+                        record.recorded_at_height,
+                        record.recorded_at_view,
+                        record.recorded_at_ms,
+                        record.penalty_status,
+                    )?;
+                    let payload = SumeragiEvidenceListJsonResponse {
+                        total: 1,
+                        items: vec![projection],
+                    };
+                    let exact = crate::utils::encode_json_bounded(
+                        &payload,
+                        SUMERAGI_EVIDENCE_LIST_JSON_RESPONSE_MAX_BYTES,
+                    )
+                    .map_err(|_| sumeragi_evidence_response_encode_error())?
+                    .len();
+                    let response = bounded_sumeragi_evidence_list_json_response(&payload, exact)?;
+                    let error = bounded_sumeragi_evidence_list_json_response(&payload, exact - 1)
+                        .expect_err("response budget still applies under input decode limits");
+                    assert_safe_evidence_response_encoding_error(error);
+                    Ok((response, exact))
+                },
+            )
+            .expect("retained SCCP DATA must not be decoded during response encoding");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("collect SCCP evidence response");
+            assert_eq!(body.len(), exact);
+            let actual: Value = norito::json::from_slice(&body).unwrap();
+            assert_eq!(actual["total"].as_u64(), Some(1));
+            assert_eq!(actual["items"].as_array().unwrap().len(), 1);
+            assert_eq!(actual["items"][0], expected);
+            assert_eq!(record.encode(), original);
+        }
     }
     fn assert_safe_evidence_response_encoding_error(error: Error) {
         let Error::Query(iroha_data_model::ValidationFail::InternalError(message)) = error else {
@@ -7992,8 +8046,8 @@ pub async fn handle_v1_sumeragi_evidence_list(
             SUMERAGI_EVIDENCE_LIST_NORITO_RESPONSE_MAX_BYTES,
         );
     }
-    // Map to Norito-JSON response
-    let items: Vec<norito::json::Value> = records
+    // Borrow retained state through the bounded Norito-JSON writer.
+    let items = records
         .iter()
         .map(|record| {
             recorded_evidence_fields_to_json(
@@ -8006,7 +8060,7 @@ pub async fn handle_v1_sumeragi_evidence_list(
             )
         })
         .collect::<Result<Vec<_>>>()?;
-    let payload = json_object(vec![json_entry("total", total), json_entry("items", items)]);
+    let payload = SumeragiEvidenceListJsonResponse { total, items };
     bounded_sumeragi_evidence_list_json_response(
         &payload,
         SUMERAGI_EVIDENCE_LIST_JSON_RESPONSE_MAX_BYTES,
@@ -9165,19 +9219,52 @@ where
 {
     hex::encode(hash.as_ref())
 }
-fn evidence_penalty_status_to_json(status: EvidencePenaltyStatus) -> Value {
-    let (status, details) = match status {
-        EvidencePenaltyStatus::Pending => ("pending", Value::Null),
-        EvidencePenaltyStatus::Applied { height } => {
-            let mut details = json::Map::new();
-            details.insert("height".into(), Value::from(height));
-            ("applied", Value::Object(details))
-        }
-    };
-    let mut lifecycle = json::Map::new();
-    lifecycle.insert("status".into(), Value::from(status));
-    lifecycle.insert("details".into(), details);
-    Value::Object(lifecycle)
+// Keep retained SCCP DATA borrowed through the bounded writer. Converting these
+// projections through `json!`/`to_value` would parse their JSON again under the
+// request's input decode limits, which do not describe response fields.
+#[derive(crate::json_macros::JsonSerialize)]
+struct SumeragiEvidenceListJsonResponse<'a> {
+    total: u64,
+    items: Vec<RecordedEvidenceJson<'a>>,
+}
+#[derive(crate::json_macros::JsonSerialize)]
+#[norito(tag = "kind", content = "value")]
+enum RecordedEvidenceJson<'a> {
+    NativeSumeragiEvidence(NativeEvidenceJson<'a>),
+    SccpForgeryEvidence(SccpForgeryEvidenceJson<'a>),
+}
+#[derive(crate::json_macros::JsonSerialize)]
+struct SccpForgeryEvidenceJson<'a> {
+    record: &'a iroha_data_model::sccp::native::SccpForgeryRecordV1,
+    attribution: &'a iroha_data_model::block::consensus::EvidenceAttribution,
+    recorded_height: u64,
+    recorded_view: u64,
+    recorded_ms: u64,
+    consensus_admitted_height: u64,
+    penalty_status: EvidencePenaltyStatus,
+}
+#[derive(crate::json_macros::JsonSerialize)]
+struct NativeEvidenceJson<'a> {
+    scope: &'a iroha_data_model::block::consensus::EvidenceScope,
+    class: &'static str,
+    instance: String,
+    height: u64,
+    epoch: u64,
+    context_id: String,
+    authority_generation: String,
+    offenders: Vec<NativeEvidenceOffenderJson>,
+    safety_violation: bool,
+    native_frame_hash: String,
+    recorded_height: u64,
+    recorded_view: u64,
+    recorded_ms: u64,
+    consensus_admitted_height: u64,
+    penalty_status: EvidencePenaltyStatus,
+}
+#[derive(crate::json_macros::JsonSerialize)]
+struct NativeEvidenceOffenderJson {
+    signer: u32,
+    peer_id: String,
 }
 fn evidence_matches_kind(
     evidence: &iroha_data_model::block::consensus::RecordedEvidenceV1,
@@ -9193,23 +9280,24 @@ fn evidence_matches_kind(
 }
 #[cfg(test)]
 fn evidence_to_json(rec: &iroha_data_model::block::consensus::EvidenceRecord) -> Result<Value> {
-    recorded_evidence_fields_to_json(
+    let projection = recorded_evidence_fields_to_json(
         &rec.evidence,
         &rec.attribution,
         rec.recorded_at_height,
         rec.recorded_at_view,
         rec.recorded_at_ms,
         rec.penalty_status,
-    )
+    )?;
+    norito::json::to_value(&projection).map_err(|error| conversion_error(error.to_string()))
 }
-fn recorded_evidence_fields_to_json(
-    evidence: &iroha_data_model::block::consensus::RecordedEvidenceV1,
-    attribution: &iroha_data_model::block::consensus::EvidenceAttribution,
+fn recorded_evidence_fields_to_json<'a>(
+    evidence: &'a iroha_data_model::block::consensus::RecordedEvidenceV1,
+    attribution: &'a iroha_data_model::block::consensus::EvidenceAttribution,
     recorded_at_height: u64,
     recorded_at_view: u64,
     recorded_at_ms: u64,
     penalty_status: EvidencePenaltyStatus,
-) -> Result<Value> {
+) -> Result<RecordedEvidenceJson<'a>> {
     use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
     match evidence {
         RecordedEvidenceV1::Native(evidence) => evidence_fields_to_json(
@@ -9219,7 +9307,8 @@ fn recorded_evidence_fields_to_json(
             recorded_at_view,
             recorded_at_ms,
             penalty_status,
-        ),
+        )
+        .map(RecordedEvidenceJson::NativeSumeragiEvidence),
         RecordedEvidenceV1::SccpForgery(record) => {
             // Borrow the exact retained DATA. Shape/scope checks are not signature,
             // historical authority, offence deduplication or penalty admission.
@@ -9234,17 +9323,17 @@ fn recorded_evidence_fields_to_json(
             {
                 return Err(conversion_error("SCCP record and scope disagree".into()));
             }
-            Ok(norito::json!({
-                "kind": "SccpForgeryEvidence",
-                "value": {
-                    "record": record, "attribution": attribution,
-                    "recorded_height": recorded_at_height,
-                    "recorded_view": recorded_at_view,
-                    "recorded_ms": recorded_at_ms,
-                    "consensus_admitted_height": recorded_at_height,
-                    "penalty_status": (evidence_penalty_status_to_json(penalty_status))
-                }
-            }))
+            Ok(RecordedEvidenceJson::SccpForgeryEvidence(
+                SccpForgeryEvidenceJson {
+                    record,
+                    attribution,
+                    recorded_height: recorded_at_height,
+                    recorded_view: recorded_at_view,
+                    recorded_ms: recorded_at_ms,
+                    consensus_admitted_height: recorded_at_height,
+                    penalty_status,
+                },
+            ))
         }
     }
 }
@@ -9256,14 +9345,14 @@ fn native_evidence_decode_error(error: iroha_sumeragi::message::CodecError) -> E
         other => conversion_error(format!("stored native evidence is not canonical: {other}")),
     }
 }
-fn evidence_fields_to_json(
+fn evidence_fields_to_json<'a>(
     evidence: &iroha_data_model::block::consensus::Evidence,
-    attribution: &iroha_data_model::block::consensus::EvidenceAttribution,
+    attribution: &'a iroha_data_model::block::consensus::EvidenceAttribution,
     recorded_at_height: u64,
     recorded_at_view: u64,
     recorded_at_ms: u64,
     penalty_status: EvidencePenaltyStatus,
-) -> Result<Value> {
+) -> Result<NativeEvidenceJson<'a>> {
     use iroha_sumeragi::message::Evidence as NativeEvidence;
     if matches!(
         attribution.scope,
@@ -9286,25 +9375,28 @@ fn evidence_fields_to_json(
     let offenders = attribution
         .offenders
         .iter()
-        .map(|offender| {
-            norito::json!({
-                "signer": (offender.signer), "peer_id": (offender.peer_id.to_string())
-            })
+        .map(|offender| NativeEvidenceOffenderJson {
+            signer: offender.signer,
+            peer_id: offender.peer_id.to_string(),
         })
-        .collect::<Vec<_>>();
-    Ok(norito::json!({
-        "kind": "NativeSumeragiEvidence", "value": {
-        "scope": (&attribution.scope), "class": class,
-        "instance": (hex::encode(attribution.instance)), "height": (attribution.height),
-        "epoch": (attribution.epoch), "context_id": (hex::encode(attribution.context_id)),
-        "authority_generation": (hex::encode(attribution.authority_generation)),
-        "offenders": offenders, "safety_violation": (attribution.safety_violation),
-        "native_frame_hash": (hash_to_hex(iroha_crypto::Hash::new(evidence.native_frame()))),
-        "recorded_height": (recorded_at_height), "recorded_view": (recorded_at_view),
-        "recorded_ms": (recorded_at_ms), "consensus_admitted_height": (recorded_at_height),
-        "penalty_status": (evidence_penalty_status_to_json(penalty_status))
-        }
-    }))
+        .collect();
+    Ok(NativeEvidenceJson {
+        scope: &attribution.scope,
+        class,
+        instance: hex::encode(attribution.instance),
+        height: attribution.height,
+        epoch: attribution.epoch,
+        context_id: hex::encode(attribution.context_id),
+        authority_generation: hex::encode(attribution.authority_generation),
+        offenders,
+        safety_violation: attribution.safety_violation,
+        native_frame_hash: hash_to_hex(iroha_crypto::Hash::new(evidence.native_frame())),
+        recorded_height: recorded_at_height,
+        recorded_view: recorded_at_view,
+        recorded_ms: recorded_at_ms,
+        consensus_admitted_height: recorded_at_height,
+        penalty_status,
+    })
 }
 fn reject_direct_multisig_signing(
     state: &CoreState,
@@ -33750,15 +33842,6 @@ impl HistoryVisibilityReads {
         Ok(())
     }
 }
-#[cfg(test)]
-fn committed_transaction_is_visible_in_block(
-    visibility: &DataspaceReadVisibility,
-    transaction: &iroha_data_model::query::CommittedTransaction,
-    block: &SignedBlock,
-) -> bool {
-    visibility.can_read_all()
-        || visibility.allows_external_entrypoint_hash(block, *transaction.entrypoint_hash())
-}
 }
 app_api_items! {
 fn account_history_projection_matches_asset_selector(
@@ -37169,11 +37252,11 @@ mod explorer_lookup_tests {
             ExternalExecutionContext::new(entrypoint_hash, coordinator_lane, visible_dataspace),
         ])));
         assert!(visibility.allows_external_entrypoint(&block, 0));
-        assert!(committed_transaction_is_visible_in_block(
-            &visibility,
-            &transaction,
-            &block,
-        ));
+        assert_eq!(
+            block.network_entrypoint_at(0).map(|entrypoint| entrypoint.hash()),
+            Some(*transaction.entrypoint_hash()),
+            "history rows name the entrypoint whose index the visibility check reads",
+        );
         assert_eq!(
             crate::explorer_history::HistoryBlockRow::from_block(&block, |index| {
                 visibility.allows_external_entrypoint(&block, index)
@@ -37202,11 +37285,6 @@ mod explorer_lookup_tests {
         );
         block.set_execution_context(Some(BlockExecutionContextBundle::new(vec![mixed_context])));
         assert!(!visibility.allows_external_entrypoint(&block, 0));
-        assert!(!committed_transaction_is_visible_in_block(
-            &visibility,
-            &transaction,
-            &block,
-        ));
         assert_eq!(
             crate::explorer_history::HistoryBlockRow::from_block(&block, |index| {
                 visibility.allows_external_entrypoint(&block, index)
@@ -38832,16 +38910,19 @@ struct ContractEventsSseState {
     authorization_interval: tokio::time::Interval,
     last_block_height: Option<u64>,
     terminal: bool,
+    authorization: crate::stream_read_authorization::ToriiStreamReadAuthorization,
 }
 }
 #[cfg(not(test))]
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 #[cfg(test)]
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(25);
+/// Longest time a long-lived stream may serve items under one authorization decision.
 #[cfg(not(test))]
-const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+pub(crate) const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+/// Longest time a long-lived stream may serve items under one authorization decision.
 #[cfg(test)]
-const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_millis(10);
+pub(crate) const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_millis(10);
 app_api_items! {
 #[derive(Debug, crate::json_macros::JsonSerialize)]
 struct StreamErrorEvent {
@@ -38920,17 +39001,20 @@ pub fn handle_v1_contracts_events_sse(
             authorization_interval,
             last_block_height: None,
             terminal: false,
+            authorization: crate::stream_read_authorization::ToriiStreamReadAuthorization::new(
+                visibility,
+            ),
         },
         move |mut state| {
             let query = query.clone();
-            let visibility = visibility.clone();
             async move {
+                use crate::stream_read_authorization::StreamAuthorization as _;
                 use tokio::sync::broadcast::error::RecvError;
                 if state.terminal {
                     return None;
                 }
                 loop {
-                    if !visibility.authorization_is_current() {
+                    if !state.authorization.authorization_is_current() {
                         state.pending.clear();
                         state.terminal = true;
                         return Some((Ok(stream_authorization_revoked_event()), state));
@@ -38985,7 +39069,7 @@ pub fn handle_v1_contracts_events_sse(
                                             );
                                             return Some((Ok(ev), state));
                                         };
-                                        let current_visibility = visibility.current_visibility();
+                                        let current_visibility = state.authorization.visibility().clone();
                                         let visibility_owner = HistoryVisibilityReads::new(Arc::clone(&state.state));
                                         let visibility_reads = &visibility_owner;
                                         let Some(expected_end_hash) = state.state.committed_block_hash_at_height(height) else {
@@ -39046,7 +39130,7 @@ pub fn handle_v1_contracts_events_sse(
                             }
                         }
                         _ = state.authorization_interval.tick() => {
-                            if !visibility.authorization_is_current() {
+                            if !state.authorization.revalidate() {
                                 state.pending.clear();
                                 state.terminal = true;
                                 return Some((Ok(stream_authorization_revoked_event()), state));
@@ -39132,12 +39216,10 @@ pub fn handle_v1_events_sse(
     visibility: ToriiDataspaceReadContext,
     crate::NoritoQuery(params): crate::NoritoQuery<EventsSseParams>,
 ) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error> {
-    let authorization = visibility.clone();
-    handle_v1_events_sse_with_filter(
+    handle_v1_events_sse_with_scope(
         events,
         params,
-        move |event_box| visibility.filter_event(kura.as_ref(), event_box),
-        move || authorization.authorization_is_current(),
+        crate::stream_read_authorization::ScopedEventStream::new(visibility, kura),
     )
 }
 
@@ -39151,9 +39233,52 @@ pub fn handle_v1_events_sse_for_tests(
     events: EventsSender,
     crate::NoritoQuery(params): crate::NoritoQuery<EventsSseParams>,
 ) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error> {
-    handle_v1_events_sse_with_filter(events, params, |event| Ok(Some(event)), || true)
+    handle_v1_events_sse_with_scope(
+        events,
+        params,
+        crate::stream_read_authorization::UnscopedEventStream,
+    )
 }
 
+/// Event scope assembled from closures for stream behavior tests.
+#[cfg(test)]
+struct ClosureEventScope<F, A> {
+    filter_event: F,
+    authorization_is_current: A,
+}
+
+#[cfg(test)]
+impl<F, A> crate::stream_read_authorization::StreamAuthorization for ClosureEventScope<F, A>
+where
+    F: Send + 'static,
+    A: FnMut() -> bool + Send + 'static,
+{
+    fn authorization_is_current(&mut self) -> bool {
+        (self.authorization_is_current)()
+    }
+
+    fn revalidate(&mut self) -> bool {
+        (self.authorization_is_current)()
+    }
+}
+
+#[cfg(test)]
+impl<F, A> crate::stream_read_authorization::EventStreamScope for ClosureEventScope<F, A>
+where
+    F: FnMut(EventBox) -> crate::stream_read_authorization::EventHistoryResult<Option<EventBox>>
+        + Send
+        + 'static,
+    A: FnMut() -> bool + Send + 'static,
+{
+    fn filter_event(
+        &mut self,
+        event: EventBox,
+    ) -> crate::stream_read_authorization::EventHistoryResult<Option<EventBox>> {
+        (self.filter_event)(event)
+    }
+}
+
+#[cfg(test)]
 fn handle_v1_events_sse_with_filter<F, A>(
     events: EventsSender,
     params: EventsSseParams,
@@ -39161,8 +39286,30 @@ fn handle_v1_events_sse_with_filter<F, A>(
     authorization_is_current: A,
 ) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error>
 where
-    F: Fn(EventBox) -> std::result::Result<Option<EventBox>, iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>> + Clone + Send + 'static,
-    A: Fn() -> bool + Clone + Send + 'static,
+    F: FnMut(EventBox) -> crate::stream_read_authorization::EventHistoryResult<Option<EventBox>>
+        + Send
+        + 'static,
+    A: FnMut() -> bool + Send + 'static,
+{
+    handle_v1_events_sse_with_scope(
+        events,
+        params,
+        ClosureEventScope {
+            filter_event,
+            authorization_is_current,
+        },
+    )
+}
+
+/// Serve one event subscription; `scope` owns its authorization and
+/// visibility for the whole stream.
+fn handle_v1_events_sse_with_scope<S>(
+    events: EventsSender,
+    params: EventsSseParams,
+    scope: S,
+) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error>
+where
+    S: crate::stream_read_authorization::EventStreamScope,
 {
     let SseFilterSpec {
         filters,
@@ -39185,21 +39332,20 @@ where
             pending: VecDeque::new(),
             authorization_interval,
             terminal: false,
+            scope,
         },
         move |mut state| {
             let filters = filters.clone();
             let proof_backend = proof_backend.clone();
             let proof_call_hash = proof_call_hash.clone();
             let proof_envelope_hash = proof_envelope_hash.clone();
-            let filter_event = filter_event.clone();
-            let authorization_is_current = authorization_is_current.clone();
             async move {
                 use tokio::sync::broadcast::error::RecvError;
                 if state.terminal {
                     return None;
                 }
                 loop {
-                    if !authorization_is_current() {
+                    if !state.scope.authorization_is_current() {
                         state.pending.clear();
                         state.terminal = true;
                         return Some((Ok(stream_authorization_revoked_event()), state));
@@ -39225,12 +39371,12 @@ where
                         recv = state.rx.recv() => {
                             match recv {
                                 Ok(event_box) => {
-                                    if !authorization_is_current() {
+                                    if !state.scope.authorization_is_current() {
                                         state.pending.clear();
                                         state.terminal = true;
                                         return Some((Ok(stream_authorization_revoked_event()), state));
                                     }
-                                    let event_box = match filter_event(event_box) {
+                                    let event_box = match state.scope.filter_event(event_box) {
                                         Ok(Some(event)) => event,
                                         Ok(None) => continue,
                                         Err(error) => {
@@ -39299,7 +39445,7 @@ where
                             }
                         }
                         _ = state.authorization_interval.tick() => {
-                            if !authorization_is_current() {
+                            if !state.scope.revalidate() {
                                 state.pending.clear();
                                 state.terminal = true;
                                 return Some((Ok(stream_authorization_revoked_event()), state));
@@ -39316,11 +39462,12 @@ where
             .text("heartbeat"),
     ))
 }
-struct EventsSseState {
+struct EventsSseState<S> {
     rx: tokio::sync::broadcast::Receiver<EventBox>,
     pending: VecDeque<EventBox>,
     authorization_interval: tokio::time::Interval,
     terminal: bool,
+    scope: S,
 }
 }
 #[derive(Clone, Copy)]
@@ -42415,16 +42562,10 @@ mod cursor_mode_tests {
 }
 include!("routing/transaction_ingress_overload_tests.rs");
 #[cfg(test)]
-/// Native validation-fee admission fixtures and HTTP ingress regressions.
+/// Native validation-fee fixtures shared by Torii validation-fee tests.
 pub mod validation_fee_torii_ingress_tests {
     use super::*;
-    use iroha_config::parameters::actual::ParliamentTimedOvn;
     use iroha_core::{
-        governance::parliament::{
-            ParliamentAttemptStateV1, ParliamentDecisionModeV1, RequiredParliamentBodyV1,
-        },
-        queue::Queue,
-        smartcontracts::ivm::cache::IvmCache,
         state::{State, World},
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
@@ -42432,61 +42573,23 @@ pub mod validation_fee_torii_ingress_tests {
     use iroha_data_model::{
         account::AccountId,
         asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
-        block::BlockHeader,
-        events::{
-            EventFilterBox,
-            time::{ExecutionTime, TimeEventFilter},
-        },
-        isi::Transfer,
         smart_contract::{
             ContractAddress,
             manifest::{TriggerCallback, TriggerDescriptor},
         },
-        transaction::SignedTransaction,
-        trigger::action::Repeats,
-        validation_fee::{
-            VALIDATION_FEE_DS_SCALE, VALIDATION_FEE_POLICY_SCHEMA_VERSION,
-            VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS, ValidationFeeChargingMode,
-            ValidationFeeParliamentAuthorizationV1, ValidationFeePayoutPolicyEntryV1,
-            ValidationFeePayoutPolicyRegistryV1, ValidationFeePolicyRegistryEntryV1,
-            ValidationFeePolicyRegistryV1, ValidationFeePolicyV1,
-            ValidationFeeTreasuryPayoutBindingV1,
-        },
+        validation_fee::{VALIDATION_FEE_DS_SCALE, ValidationFeeTreasuryPayoutBindingV1},
     };
 
     use iroha_model_base::domain::DomainId;
-    use iroha_model_base::metadata::Metadata;
     use iroha_model_base::topology::DataSpaceId;
-    use iroha_primitives::{
-        json::Json,
-        numeric::{NumericSpec, Quantity},
-    };
+    use iroha_primitives::numeric::{NumericSpec, Quantity};
 
-    use std::{
-        num::{NonZeroU64, NonZeroUsize},
-        sync::Arc,
-        time::Duration,
-    };
     const TEST_VALIDATION_FEE_ASSET_SCALE: u8 = VALIDATION_FEE_DS_SCALE;
-    const TEST_PROPOSAL_CREATED_HEIGHT: u64 = 1;
-    const TEST_POLICY_ENACTMENT_HEIGHT: u64 = 3_601;
-    const TEST_POLICY_EFFECTIVE_HEIGHT: u64 = TEST_POLICY_ENACTMENT_HEIGHT + 100;
-    const TEST_ACTIVE_VALIDATION_HEIGHT: u64 = TEST_POLICY_EFFECTIVE_HEIGHT + 1;
-    const TEST_PARLIAMENT_POLICY_VERSION: u64 = 1;
     fn fixture_key_pair(seed: u8, algorithm: Algorithm, context: &'static str) -> KeyPair {
         checked_routing_fixture_keypair(seed, algorithm, context)
     }
     fn ed25519_key_pair(seed: u8, context: &'static str) -> KeyPair {
         fixture_key_pair(seed, Algorithm::Ed25519, context)
-    }
-    fn block_header(height: u64, timestamp_ms: u64) -> BlockHeader {
-        BlockHeader::new(
-            NonZeroU64::new(height).expect("height"),
-            None,
-            None,
-            timestamp_ms,
-            0,
-        )
     }
     fn account(seed: u8, context: &'static str) -> (AccountId, KeyPair) {
         let key_pair = ed25519_key_pair(seed, context);
@@ -42878,953 +42981,6 @@ pub mod validation_fee_torii_ingress_tests {
         }
         assert_eq!(chain.height(), 3);
         (chain, validator, user, key, recipient, fee_asset)
-    }
-    fn test_state() -> (
-        Arc<State>,
-        AccountId,
-        KeyPair,
-        AccountId,
-        AccountId,
-        AssetDefinitionId,
-    ) {
-        let (chain, _validator, user, user_key_pair, recipient, fee_asset) = native_fee_fixture();
-        let state = Arc::clone(chain.state());
-        let treasury = payout_contract_address(&state, &user).subject_id();
-        (state, user, user_key_pair, recipient, treasury, fee_asset)
-    }
-    fn test_app_state() -> (
-        crate::SharedAppState,
-        AccountId,
-        KeyPair,
-        AccountId,
-        AccountId,
-        AssetDefinitionId,
-    ) {
-        let (chain, validator, user, user_key_pair, recipient, fee_asset) = native_fee_fixture();
-        let state = Arc::clone(chain.state());
-        let treasury = payout_contract_address(&state, &user).subject_id();
-        let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests();
-        let unique = Arc::get_mut(&mut app).expect("exclusive fee ingress app");
-        unique.chain_id = Arc::new(state.chain_id_ref().clone());
-        unique.kura = Arc::clone(chain.kura());
-        unique.state = state;
-        unique.local_peer_id = Some(iroha_model_base::peer::PeerId::new(
-            validator.public_key().clone(),
-        ));
-        unique.torii_proxy_bridge_signer = validator;
-        unique.signed_query_admission = Arc::new(
-            SignedQueryAdmission::new(
-                chain.network_id(),
-                Duration::from_secs(1),
-                Duration::from_secs(120),
-                NonZeroUsize::new(1_024).unwrap(),
-            )
-            .expect("original native fee fixture query admission"),
-        );
-        let view = unique.state.view();
-        unique.queue.reconfigure_nexus(view.nexus(), &view, None);
-        drop(view);
-        (app, user, user_key_pair, recipient, treasury, fee_asset)
-    }
-    fn queue() -> Arc<Queue> {
-        let events: iroha_core::EventsSender = tokio::sync::broadcast::channel(8).0;
-        Arc::new(Queue::from_config(
-            iroha_config::parameters::actual::Queue {
-                capacity: NonZeroUsize::new(32).expect("queue capacity non-zero"),
-                capacity_per_user: NonZeroUsize::new(32).expect("queue per-user capacity non-zero"),
-                transaction_time_to_live: Duration::from_secs(60),
-                ..Default::default()
-            },
-            events,
-        ))
-    }
-    fn validation_fee_policy(
-        state: &Arc<State>,
-        user: &AccountId,
-        fee_asset: AssetDefinitionId,
-        treasury: AccountId,
-    ) -> ValidationFeePolicyV1 {
-        let payout_binding = payout_binding(state, user, &fee_asset);
-        assert_eq!(
-            treasury, payout_binding.treasury_account_id,
-            "policy treasury must be the immutable payout contract subject"
-        );
-        ValidationFeePolicyV1 {
-            retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-            effective_from_ms: 1793451600000,
-            notice_published_at_ms: 1790859600000,
-            schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
-            network_id: *state.network_id_ref(),
-            policy_version: 1,
-            previous_policy_hash: None,
-            ds_asset_id: fee_asset,
-            ds_scale: TEST_VALIDATION_FEE_ASSET_SCALE,
-            fee: iroha_data_model::validation_fee::initial_validation_fee_amount(),
-            treasury_account_id: treasury,
-            charging_mode: ValidationFeeChargingMode::RetailMonthlyAllowance,
-
-            exemption_classes: vec![VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS.to_owned()],
-            reward_custody: payout_binding.custody(),
-        }
-    }
-    fn validation_fee_policy_asset(policy: &ValidationFeePolicyV1) -> AssetDefinitionId {
-        policy.ds_asset_id.clone()
-    }
-
-    fn parliament_test_root(tag: u8) -> [u8; 32] {
-        [tag.max(1); 32]
-    }
-    fn parliament_test_candidates() -> Vec<AccountId> {
-        let mut candidates = (9_u8..=32)
-            .map(|seed| account(seed, "derive validation-fee Parliament candidate").0)
-            .collect::<Vec<_>>();
-        candidates.sort_unstable();
-        candidates
-    }
-    fn validation_fee_parliament_requirements() -> Vec<RequiredParliamentBodyV1> {
-        use iroha_data_model::governance::types::ParliamentBody;
-        [
-            ParliamentBody::RulesCommittee,
-            ParliamentBody::AgendaCouncil,
-            ParliamentBody::InterestPanel,
-            ParliamentBody::ReviewPanel,
-            ParliamentBody::CoordinationCouncil,
-            ParliamentBody::MpcCommittee,
-            ParliamentBody::FmaCommittee,
-            ParliamentBody::OversightCommittee,
-            ParliamentBody::PolicyJury,
-        ]
-        .into_iter()
-        .map(|body| RequiredParliamentBodyV1 {
-            body,
-            decision_mode: if body == ParliamentBody::PolicyJury {
-                ParliamentDecisionModeV1::HiddenBindingBallot
-            } else {
-                ParliamentDecisionModeV1::PublicFinding
-            },
-        })
-        .collect()
-    }
-    fn parliament_test_governance(
-        requirements: &[RequiredParliamentBodyV1],
-    ) -> iroha_config::parameters::actual::Governance {
-        use iroha_data_model::governance::types::ParliamentBody;
-        let mut governance = iroha_config::parameters::actual::Governance {
-            parliament_alternate_size: 0,
-            ..iroha_config::parameters::actual::Governance::default()
-        };
-        for requirement in requirements {
-            match requirement.body {
-                ParliamentBody::RulesCommittee => governance.rules_committee_size = 3,
-                ParliamentBody::AgendaCouncil => governance.agenda_council_size = 3,
-                ParliamentBody::InterestPanel => governance.interest_panel_size = 3,
-                ParliamentBody::ReviewPanel => governance.review_panel_size = 3,
-                ParliamentBody::CoordinationCouncil => governance.coordination_council_size = 3,
-                ParliamentBody::MpcCommittee => governance.mpc_committee_size = 3,
-                ParliamentBody::FmaCommittee => governance.fma_committee_size = 3,
-                ParliamentBody::OversightCommittee => governance.oversight_committee_size = 3,
-                ParliamentBody::PolicyJury => governance.policy_jury_size = 3,
-                ParliamentBody::ConfirmationJury => governance.confirmation_jury_size = 3,
-            }
-        }
-        governance
-    }
-    fn complete_parliament_body_for_authorization(
-        attempt: &mut ParliamentAttemptStateV1,
-        requirement: RequiredParliamentBodyV1,
-        election_attempt_id: iroha_data_model::governance::types::BodyElectionAttemptId,
-        result_tag: u8,
-    ) -> u64 {
-        use iroha_data_model::governance::types::{
-            BallotAttemptId, BeaconPulseId, BeaconSessionId, DeliberationPhaseV1,
-            ParliamentAggregateOutcomeV1, ParliamentAggregateTallyV1, TleKeySessionId,
-            TleSessionId,
-        };
-        let governance_attempt_id = attempt.attempt().id;
-        attempt
-            .begin_invitation_acceptance(governance_attempt_id, election_attempt_id, 20, 1)
-            .expect("open deterministic Parliament invitation window");
-        let members = attempt
-            .election(&election_attempt_id)
-            .expect("drawn Parliament election")
-            .primary_assignments()
-            .iter()
-            .map(|assignment| assignment.member.clone())
-            .collect::<Vec<_>>();
-        for member in &members {
-            attempt
-                .record_invitation_response(
-                    governance_attempt_id,
-                    election_attempt_id,
-                    member,
-                    true,
-                    20,
-                )
-                .expect("accept deterministic Parliament invitation");
-        }
-        let body_instance_id = attempt
-            .seal_body_roster(governance_attempt_id, election_attempt_id, 21)
-            .expect("seal deterministic Parliament roster");
-        let mut phases = vec![
-            DeliberationPhaseV1::Orientation,
-            DeliberationPhaseV1::Evidence,
-            DeliberationPhaseV1::Questions,
-            DeliberationPhaseV1::Responses,
-            DeliberationPhaseV1::Deliberation,
-            DeliberationPhaseV1::Reflection,
-        ];
-        if requirement.decision_mode == ParliamentDecisionModeV1::HiddenBindingBallot {
-            phases.push(DeliberationPhaseV1::Vote);
-        }
-        for phase in phases {
-            attempt
-                .advance_body_phase(governance_attempt_id, body_instance_id, phase, 22, 1)
-                .expect("advance deterministic Parliament deliberation");
-        }
-        match requirement.decision_mode {
-            ParliamentDecisionModeV1::PublicFinding => {
-                let result_root = parliament_test_root(result_tag);
-                let mut finalized = false;
-                for member in &members {
-                    finalized = attempt
-                        .endorse_public_finding(
-                            governance_attempt_id,
-                            body_instance_id,
-                            result_root,
-                            member,
-                            22,
-                        )
-                        .expect("endorse deterministic public finding");
-                    if finalized {
-                        break;
-                    }
-                }
-                assert!(
-                    finalized,
-                    "three seats must reach the two-thirds finding quorum"
-                );
-            }
-            ParliamentDecisionModeV1::HiddenBindingBallot => {
-                let ballot_attempt_id = BallotAttemptId::derive_v1(body_instance_id, 0);
-                let release_beacon_session_id = BeaconSessionId::new(parliament_test_root(0xD0));
-                let tle_key_session_id = TleKeySessionId::new(parliament_test_root(0xD1));
-                let release_height = 165;
-                let tle_session_id = TleSessionId::derive_v1(
-                    ballot_attempt_id,
-                    tle_key_session_id,
-                    release_beacon_session_id,
-                    release_height,
-                );
-                attempt
-                    .register_ballot_attempt(
-                        governance_attempt_id,
-                        body_instance_id,
-                        ballot_attempt_id,
-                        0,
-                        tle_session_id,
-                        tle_key_session_id,
-                        release_beacon_session_id,
-                        30,
-                        ParliamentTimedOvn {
-                            registration_phase_blocks: 65,
-                            survivor_freeze_phase_blocks: 64,
-                            commitment_phase_blocks: 2,
-                            release_delay_blocks: 4,
-                            opening_phase_blocks: 2,
-                            max_ballot_retries: 2,
-                            max_corpus_entries: 64,
-                        },
-                        release_height,
-                    )
-                    .expect("register deterministic binding ballot");
-                let registration_root = parliament_test_root(0xD2);
-                let dropout_root = parliament_test_root(0xD3);
-                let survivor_root = parliament_test_root(0xD4);
-                let no_recovery_root = parliament_test_root(0xD5);
-                let corpus_root = parliament_test_root(0xD6);
-                let timed_commitment_root = parliament_test_root(0xD7);
-                attempt
-                    .close_ballot_registration(
-                        governance_attempt_id,
-                        ballot_attempt_id,
-                        registration_root,
-                        3,
-                        95,
-                    )
-                    .expect("close deterministic ballot registration");
-                attempt
-                    .freeze_ballot_survivors(
-                        governance_attempt_id,
-                        ballot_attempt_id,
-                        dropout_root,
-                        survivor_root,
-                        3,
-                        no_recovery_root,
-                        159,
-                    )
-                    .expect("freeze deterministic ballot survivors");
-                attempt
-                    .freeze_timed_ovn_corpus(
-                        governance_attempt_id,
-                        ballot_attempt_id,
-                        corpus_root,
-                        survivor_root,
-                        3,
-                        timed_commitment_root,
-                        161,
-                    )
-                    .expect("freeze deterministic timed-OVN corpus");
-                attempt
-                    .begin_ballot_opening_batch(
-                        governance_attempt_id,
-                        vec![ballot_attempt_id],
-                        release_beacon_session_id,
-                        release_height,
-                        release_height,
-                        BeaconPulseId::new(parliament_test_root(0xD8)),
-                    )
-                    .expect("open deterministic timed ballot");
-                let outcome = attempt
-                    .finalize_opened_ballot(
-                        governance_attempt_id,
-                        ballot_attempt_id,
-                        corpus_root,
-                        no_recovery_root,
-                        tle_session_id,
-                        parliament_test_root(0xD9),
-                        3,
-                        ParliamentAggregateTallyV1 {
-                            original_seats: 3,
-                            accepted_ballots: 3,
-                            aye: 2,
-                            nay: 1,
-                            abstain: 0,
-                        },
-                        2,
-                        166,
-                    )
-                    .expect("finalize deterministic aggregate ballot");
-                assert_eq!(outcome, ParliamentAggregateOutcomeV1::Approved);
-            }
-        }
-        attempt
-            .body(&body_instance_id)
-            .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::result_height)
-            .expect("completed authorization body result height")
-    }
-    fn validation_fee_test_authorization(
-        state: &State,
-        proposal_kind: &iroha_data_model::governance::types::ProposalKind,
-    ) -> (
-        ValidationFeeParliamentAuthorizationV1,
-        ParliamentAttemptStateV1,
-    ) {
-        use iroha_data_model::governance::types::{
-            BeaconPulseId, BeaconSessionId, BodyElectionAttemptId, GovernanceAttemptId,
-            GovernanceAttemptStatusV1, GovernanceAttemptV1, GovernanceCertificateId,
-            GovernanceExpectedHeadAbsentV1, GovernanceExpectedHeadV1, GovernanceStageV1,
-            ProposalContentId, RiskTierV1, SortitionRequestV1, parliament_candidate_root_v1,
-        };
-        use iroha_data_model::isi::governance::ParliamentSortitionRequestRegistrationV1;
-        let proposal_operator = match proposal_kind {
-            iroha_data_model::governance::types::ProposalKind::ValidationFeePolicy(proposal) => {
-                proposal.proposal_operator.clone()
-            }
-            iroha_data_model::governance::types::ProposalKind::ValidationFeePayoutLifecycle(
-                proposal,
-            ) => proposal.proposal_operator.clone(),
-            _ => panic!("validation-fee fixture requires a validation-fee proposal"),
-        };
-        let proposal_fingerprint = proposal_kind.fingerprint();
-        let proposal_content_id = ProposalContentId::new(proposal_fingerprint);
-        let governance_attempt_id = GovernanceAttemptId::derive_v1(proposal_content_id, 0);
-        let requirements = validation_fee_parliament_requirements();
-        let expected_head = GovernanceExpectedHeadV1::Absent(GovernanceExpectedHeadAbsentV1 {
-            subject_id: proposal_kind
-                .governed_subject_id_v1()
-                .expect("derive exact validation-fee governed subject"),
-        });
-        let mut attempt = ParliamentAttemptStateV1::try_new(
-            GovernanceAttemptV1 {
-                id: governance_attempt_id,
-                proposal_content_id,
-                sequence: 0,
-                risk_tier: RiskTierV1::Constitutional,
-                stage: GovernanceStageV1::Qualification,
-                status: GovernanceAttemptStatusV1::Active,
-            },
-            TEST_PARLIAMENT_POLICY_VERSION,
-            10,
-            // Height 20, the fixture's sortition slot, is the first native pulse height.
-            21,
-            proposal_kind.effect_preimage_hash_v1(),
-            expected_head,
-            requirements.clone(),
-        )
-        .expect("create exact validation-fee Parliament attempt");
-        attempt
-            .complete_qualification(governance_attempt_id)
-            .expect("complete deterministic qualification");
-        let candidates = parliament_test_candidates();
-        let candidate_count = u32::try_from(candidates.len()).expect("candidate count fits u32");
-        let sortition_session = BeaconSessionId::new(parliament_test_root(0xB0));
-        let mut request_ids = Vec::with_capacity(requirements.len());
-        let mut registrations = Vec::with_capacity(requirements.len());
-        for requirement in &requirements {
-            let election_attempt_id =
-                BodyElectionAttemptId::derive_v1(governance_attempt_id, requirement.body, 0);
-            let request = SortitionRequestV1::try_new_canonical(
-                governance_attempt_id,
-                election_attempt_id,
-                requirement.body,
-                parliament_candidate_root_v1(governance_attempt_id, requirement.body, &candidates),
-                candidate_count,
-                3,
-                10,
-                20,
-                sortition_session,
-                None,
-            )
-            .expect("construct deterministic sortition request");
-            request_ids.push(request.id);
-            registrations.push(ParliamentSortitionRequestRegistrationV1 {
-                sequence: 0,
-                request,
-            });
-        }
-        attempt
-            .register_sortition_request_batch(governance_attempt_id, registrations, candidates)
-            .expect("register deterministic sortition request batch");
-        request_ids.sort_unstable();
-        let sortition_pulse_id = BeaconPulseId::new(parliament_test_root(0xB1));
-        attempt
-            .consume_sortition_pulse_batch(
-                governance_attempt_id,
-                request_ids,
-                sortition_session,
-                20,
-                sortition_pulse_id,
-                *sortition_pulse_id.as_bytes(),
-                state.network_id_ref(),
-                &parliament_test_governance(&requirements),
-            )
-            .expect("consume deterministic simultaneous Parliament draw");
-        let mut certified_at_height = 0;
-        for (index, requirement) in requirements.iter().copied().enumerate() {
-            let result_height = complete_parliament_body_for_authorization(
-                &mut attempt,
-                requirement,
-                BodyElectionAttemptId::derive_v1(governance_attempt_id, requirement.body, 0),
-                0xC0_u8
-                    .checked_add(u8::try_from(index).expect("body index fits u8"))
-                    .expect("result tag does not overflow"),
-            );
-            certified_at_height = certified_at_height.max(result_height);
-        }
-        let governance_certificate = attempt
-            .construct_certificate(
-                governance_attempt_id,
-                certified_at_height,
-                TEST_POLICY_ENACTMENT_HEIGHT,
-            )
-            .expect("construct complete validation-fee Parliament certificate");
-        governance_certificate
-            .validate()
-            .expect("validation-fee Parliament certificate validates");
-        attempt
-            .mark_enacted(governance_attempt_id, TEST_POLICY_ENACTMENT_HEIGHT)
-            .expect("mark exact-due validation-fee attempt enacted");
-        attempt
-            .validate_proposal_bindings_v1(proposal_kind)
-            .expect("enacted attempt retains the exact proposal bindings");
-        let authorization = ValidationFeeParliamentAuthorizationV1 {
-            proposal_operator,
-            proposal_fingerprint,
-            governance_certificate_id: GovernanceCertificateId::derive_v1(&governance_certificate),
-            governance_certificate,
-            enacted_at_height: TEST_POLICY_ENACTMENT_HEIGHT,
-        };
-        assert_eq!(authorization.invariant_error(), None);
-        (authorization, attempt)
-    }
-    fn install_validation_fee_policy(
-        state: &Arc<State>,
-        authority: &AccountId,
-        policy: ValidationFeePolicyV1,
-    ) {
-        use iroha_data_model::governance::types::{
-            ProposalKind, ValidationFeePayoutLifecycleProposal, ValidationFeePolicyProposal,
-        };
-        let payout_binding = payout_binding(state, authority, &policy.ds_asset_id);
-        assert_eq!(policy.reward_custody, payout_binding.custody());
-        let payout_lifecycle_kind =
-            ProposalKind::ValidationFeePayoutLifecycle(ValidationFeePayoutLifecycleProposal {
-                proposal_operator: authority.clone(),
-                payout_binding: payout_binding.clone(),
-            });
-        let payout_lifecycle_id = payout_lifecycle_kind.fingerprint();
-        let policy_kind = ProposalKind::ValidationFeePolicy(ValidationFeePolicyProposal {
-            proposal_operator: authority.clone(),
-            policy: policy.clone(),
-        });
-        let policy_proposal_id = policy_kind.fingerprint();
-        let (payout_lifecycle_authorization, payout_lifecycle_attempt) =
-            validation_fee_test_authorization(state, &payout_lifecycle_kind);
-        let (policy_authorization, policy_attempt) =
-            validation_fee_test_authorization(state, &policy_kind);
-        assert_eq!(
-            payout_lifecycle_authorization.invariant_error(),
-            None,
-            "payout lifecycle fixture must retain canonical Parliament authorization"
-        );
-        assert_eq!(
-            policy_authorization.invariant_error(),
-            None,
-            "policy fixture must retain canonical Parliament authorization"
-        );
-        let entry = ValidationFeePolicyRegistryEntryV1::from_enactment(
-            policy,
-            policy_authorization.clone(),
-        )
-        .expect("validation-fee registry entry");
-        let registry = ValidationFeePolicyRegistryV1 {
-            history: None,
-            registered_policies: vec![entry],
-            payout_policies: ValidationFeePayoutPolicyRegistryV1 {
-                entries: vec![ValidationFeePayoutPolicyEntryV1 {
-                    revision: 1,
-                    proposal_id: payout_lifecycle_id,
-                    lifecycle_seal: payout_binding.lifecycle_seal().expect("seal"),
-                    payout_binding: payout_binding.clone(),
-                    parliament_authorization: payout_lifecycle_authorization.clone(),
-                }],
-            },
-        };
-        registry
-            .validate()
-            .expect("Torii validation-fee fixture registry must validate before persistence");
-        let custom_registry = registry
-            .clone()
-            .into_custom_parameter()
-            .expect("Torii validation-fee fixture registry fits the canonical JSON parameter");
-        let decoded_registry =
-            ValidationFeePolicyRegistryV1::from_custom_parameter(&custom_registry)
-                .expect("Torii validation-fee fixture registry must decode after persistence");
-        assert_eq!(
-            decoded_registry, registry,
-            "Torii validation-fee fixture registry must survive exact custom-parameter roundtrip"
-        );
-        decoded_registry
-            .validate()
-            .expect("roundtripped Torii validation-fee fixture registry must validate");
-        let mut block = state.block(block_header(
-            TEST_POLICY_ENACTMENT_HEIGHT,
-            1_700_000_001_000,
-        ));
-        let mut stx = block.transaction();
-        for (address, expected) in [
-            (&payout_binding.contract_address, payout_binding.code_hash),
-            (
-                &payout_binding.pool_contract_address,
-                payout_binding.pool_code_hash,
-            ),
-        ] {
-            assert_eq!(
-                stx.world.contract_instances().get(address).copied(),
-                Some(Hash::prehashed(expected)),
-                "fee custody binds the exact genuinely deployed contract",
-            );
-        }
-        for (proposal_id, kind, attempt) in [
-            (
-                payout_lifecycle_id,
-                payout_lifecycle_kind,
-                payout_lifecycle_attempt,
-            ),
-            (policy_proposal_id, policy_kind, policy_attempt),
-        ] {
-            stx.world.governance_proposals_mut().insert(
-                proposal_id,
-                iroha_core::state::GovernanceProposalRecord {
-                    proposer: authority.clone(),
-                    kind,
-                    created_height: TEST_PROPOSAL_CREATED_HEIGHT,
-                    status: iroha_core::state::GovernanceProposalStatus::Enacted,
-                },
-            );
-            let attempt_id = attempt.attempt().id;
-            stx.world
-                .put_parliament_attempt_for_testing(attempt_id, attempt)
-                .expect("persist exact enacted validation-fee Parliament attempt");
-        }
-        stx.world
-            .parameters_mut_for_testing()
-            .get_mut()
-            .set_parameter(Parameter::Custom(custom_registry))
-            .expect("valid fixture parameters");
-        stx.apply();
-        block
-            .commit_world_overlay_for_testing()
-            .expect("commit validation-fee policy");
-    }
-    fn signed_transfer(
-        state: &Arc<State>,
-        user: &AccountId,
-        user_key_pair: &KeyPair,
-        recipient: &AccountId,
-        fee_asset: &AssetDefinitionId,
-        _policy: &ValidationFeePolicyV1,
-        reviewed: bool,
-    ) -> SignedTransaction {
-        let mut metadata = Metadata::default();
-        if reviewed {
-            let request = iroha_data_model::validation_fee::RetailFeeQuoteRequestV1 {
-                account_id: user.clone(),
-                asset_definition_id: fee_asset.clone(),
-                transfers: vec![iroha_data_model::validation_fee::RetailFeePaymentLegV1 {
-                    destination_account_id: recipient.clone(),
-                    amount_minor_units: 100,
-                }],
-            };
-            let assessment = iroha_core::retail_fee::quote(
-                state.view().world(),
-                TEST_ACTIVE_VALIDATION_HEIGHT,
-                1_793_451_601_000,
-                &request,
-            )
-            .unwrap();
-            metadata.insert(
-                iroha_data_model::validation_fee::RETAIL_FEE_ASSESSMENT_METADATA_KEY
-                    .parse()
-                    .unwrap(),
-                Json::new(assessment),
-            );
-        }
-        TransactionBuilder::new(
-            *state.network_id_ref(),
-            user.clone(),
-            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
-        )
-        .with_instructions([Transfer::asset_quantity(
-            AssetId::new(fee_asset.clone(), user.clone()),
-            1_u32,
-            recipient.clone(),
-        )])
-        .with_metadata(metadata)
-        .sign(user_key_pair.private_key())
-    }
-    async fn submit_via_public_transaction_handler(
-        app: crate::SharedAppState,
-        transaction: SignedTransaction,
-    ) -> axum::response::Response {
-        use axum::{extract::State as AxumState, response::IntoResponse};
-        crate::handler_post_transaction(
-            AxumState(app),
-            axum::http::HeaderMap::new(),
-            None,
-            crate::utils::extractors::JsonOrNoritoVersioned(transaction),
-        )
-        .await
-        .into_response()
-    }
-    async fn submit_via_public_transaction_batch_handler(
-        app: crate::SharedAppState,
-        transactions: Vec<SignedTransaction>,
-    ) -> axum::http::StatusCode {
-        use axum::extract::State as AxumState;
-        let payloads = transactions
-            .iter()
-            .map(iroha_version::codec::EncodeVersioned::encode_versioned)
-            .collect::<Vec<_>>();
-        let body = norito::to_bytes(&payloads).expect("encode transaction batch payloads");
-        crate::handler_post_transactions_batch(
-            AxumState(app),
-            axum::http::HeaderMap::new(),
-            crate::utils::extractors::NoritoBytes(axum::body::Bytes::from(body)),
-        )
-        .await
-        .expect("public transaction batch handler should accept statelessly valid transactions")
-        .status()
-    }
-    async fn submit_via_public_transaction_batch_http(
-        app: crate::SharedAppState,
-        transactions: Vec<SignedTransaction>,
-    ) -> axum::http::StatusCode {
-        use tower::ServiceExt as _;
-        let payloads = transactions
-            .iter()
-            .map(iroha_version::codec::EncodeVersioned::encode_versioned)
-            .collect::<Vec<_>>();
-        let body = norito::to_bytes(&payloads).expect("encode transaction batch payloads");
-        let router = axum::Router::new()
-            .route(
-                iroha_torii_shared::route_catalog::pipeline::TRANSACTIONS_BATCH.path(),
-                axum::routing::post(crate::handler_post_transactions_batch),
-            )
-            .with_state(app);
-        let request = axum::http::Request::builder()
-            .method(axum::http::Method::POST)
-            .uri(iroha_torii_shared::route_catalog::pipeline::TRANSACTIONS_BATCH.path())
-            .header(
-                axum::http::header::CONTENT_TYPE,
-                crate::utils::NORITO_MIME_TYPE,
-            )
-            .body(axum::body::Body::from(body))
-            .expect("HTTP transaction batch request");
-        router
-            .oneshot(request)
-            .await
-            .expect("router response")
-            .status()
-    }
-    fn validate_single_queued_transaction_in_block(
-        state: &Arc<State>,
-        queue: &Arc<Queue>,
-        height: u64,
-    ) -> String {
-        let max_txs_in_block = NonZeroUsize::new(1024).expect("nonzero");
-        let mut accepted = queue
-            .bounded_pending_snapshot_for_testing(&state.view(), max_txs_in_block)
-            .expect("healthy pending inputs");
-        assert_eq!(accepted.len(), 1, "expected one queued transaction");
-        let accepted = accepted.remove(0);
-        let mut block = state.block(block_header(
-            height,
-            1_793_451_601_000 + height.saturating_sub(TEST_ACTIVE_VALIDATION_HEIGHT),
-        ));
-        let mut ivm_cache = IvmCache::new();
-        let result = iroha_core::tx::execute_component_transaction_for_testing(
-            &mut block,
-            accepted,
-            &mut ivm_cache,
-            None,
-        );
-        match result {
-            Ok(_) => "ok".to_string(),
-            Err(error) => format!("{error:?}"),
-        }
-    }
-    routing_test! { async torii_raw_fee_asset_transfer_reaches_validator_fee_admission
-        let _data_dir = crate::test_utils::TestDataDirGuard::new();
-        let (state, user, user_key_pair, recipient, treasury, fee_asset) = test_state();
-        assert_eq!(state.committed_height(), 3, "signed genesis and two deployments");
-        let policy = validation_fee_policy(&state, &user, fee_asset.clone(), treasury);
-        install_validation_fee_policy(&state, &user, policy.clone());
-        let missing_fee_queue = queue();
-        let missing_fee_tx = signed_transfer(
-            &state,
-            &user,
-            &user_key_pair,
-            &recipient,
-            &fee_asset,
-            &policy,
-            false,
-        );
-        handle_transaction(
-            Arc::clone(&missing_fee_queue),
-            Arc::clone(&state),
-            missing_fee_tx,
-        )
-        .await
-        .expect("Torii should enqueue a statelessly valid raw transaction");
-        let missing_fee_error = validate_single_queued_transaction_in_block(
-            &state,
-            &missing_fee_queue,
-            TEST_ACTIVE_VALIDATION_HEIGHT,
-        );
-        let expected_missing_fee = format!(
-            "validation_fee_assessment"
-        );
-        assert!(
-            missing_fee_error.contains(&expected_missing_fee),
-            "unexpected missing-fee rejection: {missing_fee_error}"
-        );
-        let exact_fee_queue = queue();
-        let exact_fee_tx = signed_transfer(
-            &state,
-            &user,
-            &user_key_pair,
-            &recipient,
-            &fee_asset,
-            &policy,
-            true,
-        );
-        handle_transaction(
-            Arc::clone(&exact_fee_queue),
-            Arc::clone(&state),
-            exact_fee_tx,
-        )
-        .await
-        .expect("Torii should enqueue a raw transaction carrying the exact validation fee");
-        let exact_fee_result = validate_single_queued_transaction_in_block(
-            &state,
-            &exact_fee_queue,
-            TEST_ACTIVE_VALIDATION_HEIGHT,
-        );
-        assert_eq!(exact_fee_result, "ok");
-    }
-
-    fn test_app_with_active_policy() -> (
-        crate::SharedAppState,
-        AccountId,
-        KeyPair,
-        AccountId,
-        ValidationFeePolicyV1,
-    ) {
-        let (app, user, user_key_pair, recipient, treasury, fee_asset) = test_app_state();
-        assert_eq!(
-            app.state.committed_height(),
-            3,
-            "signed genesis and two deployments"
-        );
-        let policy = validation_fee_policy(&app.state, &user, fee_asset.clone(), treasury);
-        install_validation_fee_policy(&app.state, &user, policy.clone());
-        (app, user, user_key_pair, recipient, policy)
-    }
-    #[cfg(feature = "connect")]
-    routing_test! { async public_transaction_handler_requires_authenticated_route_authority
-        let _data_dir = crate::test_utils::TestDataDirGuard::new();
-        let (mut app, user, user_key_pair, recipient, policy) = test_app_with_active_policy();
-        // Remove only this genuine peer's ingress identity: a signed transaction
-        // cannot authorize routing when the node lacks its current member binding.
-        Arc::get_mut(&mut app).expect("exclusive route-negative fixture").local_peer_id = None;
-        let exact_fee_tx = signed_transfer(
-            &app.state,
-            &user,
-            &user_key_pair,
-            &recipient,
-            &validation_fee_policy_asset(&policy),
-            &policy,
-            true,
-        );
-        let response = submit_via_public_transaction_handler(Arc::clone(&app), exact_fee_tx).await;
-        assert_eq!(
-            response.status(),
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            "a correctly signed transaction must reach the unavailable route: {:?}",
-            response.headers(),
-        );
-        assert_eq!(
-            app.queue.active_len(),
-            0,
-            "stateless admission must not enqueue without authenticated route authority"
-        );
-        let expected_reject_code = "route_unavailable";
-        assert_eq!(
-            response
-                .headers()
-                .get("x-iroha-reject-code")
-                .and_then(|value| value.to_str().ok()),
-            Some(expected_reject_code)
-        );
-    }
-    routing_test! { async public_batch_raw_fee_transfer_reaches_validation_fee_admission
-        let _data_dir = crate::test_utils::TestDataDirGuard::new();
-        let (missing_fee_app, user, user_key_pair, recipient, policy) =
-            test_app_with_active_policy();
-        let missing_fee_tx = signed_transfer(
-            &missing_fee_app.state,
-            &user,
-            &user_key_pair,
-            &recipient,
-            &validation_fee_policy_asset(&policy),
-            &policy,
-            false,
-        );
-        let missing_fee_status = submit_via_public_transaction_batch_handler(
-            Arc::clone(&missing_fee_app),
-            vec![missing_fee_tx],
-        )
-        .await;
-        assert_eq!(missing_fee_status, axum::http::StatusCode::ACCEPTED);
-        let missing_fee_error = validate_single_queued_transaction_in_block(
-            &missing_fee_app.state,
-            &missing_fee_app.queue,
-            TEST_ACTIVE_VALIDATION_HEIGHT,
-        );
-        let expected_missing_fee = format!(
-            "validation_fee_assessment"
-        );
-        assert!(
-            missing_fee_error.contains(&expected_missing_fee),
-            "unexpected missing-fee rejection: {missing_fee_error}"
-        );
-        let (exact_fee_app, user, user_key_pair, recipient, policy) = test_app_with_active_policy();
-        let exact_fee_tx = signed_transfer(
-            &exact_fee_app.state,
-            &user,
-            &user_key_pair,
-            &recipient,
-            &validation_fee_policy_asset(&policy),
-            &policy,
-            true,
-        );
-        let exact_fee_status = submit_via_public_transaction_batch_handler(
-            Arc::clone(&exact_fee_app),
-            vec![exact_fee_tx],
-        )
-        .await;
-        assert_eq!(exact_fee_status, axum::http::StatusCode::ACCEPTED);
-        let exact_fee_result = validate_single_queued_transaction_in_block(
-            &exact_fee_app.state,
-            &exact_fee_app.queue,
-            TEST_ACTIVE_VALIDATION_HEIGHT,
-        );
-        assert_eq!(exact_fee_result, "ok");
-    }
-    routing_test! { async public_batch_http_raw_fee_transfer_reaches_validation_fee_admission
-        let _data_dir = crate::test_utils::TestDataDirGuard::new();
-        let (missing_fee_app, user, user_key_pair, recipient, policy) =
-            test_app_with_active_policy();
-        let missing_fee_tx = signed_transfer(
-            &missing_fee_app.state,
-            &user,
-            &user_key_pair,
-            &recipient,
-            &validation_fee_policy_asset(&policy),
-            &policy,
-            false,
-        );
-        let missing_fee_status = submit_via_public_transaction_batch_http(
-            Arc::clone(&missing_fee_app),
-            vec![missing_fee_tx],
-        )
-        .await;
-        assert_eq!(missing_fee_status, axum::http::StatusCode::ACCEPTED);
-        let missing_fee_error = validate_single_queued_transaction_in_block(
-            &missing_fee_app.state,
-            &missing_fee_app.queue,
-            TEST_ACTIVE_VALIDATION_HEIGHT,
-        );
-        let expected_missing_fee = format!(
-            "validation_fee_assessment"
-        );
-        assert!(
-            missing_fee_error.contains(&expected_missing_fee),
-            "unexpected missing-fee rejection: {missing_fee_error}"
-        );
-        let (exact_fee_app, user, user_key_pair, recipient, policy) = test_app_with_active_policy();
-        let exact_fee_tx = signed_transfer(
-            &exact_fee_app.state,
-            &user,
-            &user_key_pair,
-            &recipient,
-            &validation_fee_policy_asset(&policy),
-            &policy,
-            true,
-        );
-        let exact_fee_status = submit_via_public_transaction_batch_http(
-            Arc::clone(&exact_fee_app),
-            vec![exact_fee_tx],
-        )
-        .await;
-        assert_eq!(exact_fee_status, axum::http::StatusCode::ACCEPTED);
-        let exact_fee_result = validate_single_queued_transaction_in_block(
-            &exact_fee_app.state,
-            &exact_fee_app.queue,
-            TEST_ACTIVE_VALIDATION_HEIGHT,
-        );
-        assert_eq!(exact_fee_result, "ok");
     }
 }
 #[cfg(all(test, feature = "telemetry"))]
@@ -59054,21 +58210,24 @@ pub mod block {
             }
         }
     }
+    /// Retry delay for a committed height whose body Kura cannot serve yet.
+    const BLOCK_BODY_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
     #[iroha_futures::telemetry_future]
-    pub async fn handle_blocks_stream<F>(
+    pub async fn handle_blocks_stream<A>(
         kura: Arc<Kura>,
+        state: Arc<CoreState>,
         execution_budget: iroha_core::state::AllocationBudget,
         stream: WebSocket,
         ws_message_timeout: std::time::Duration,
-        authorization_is_current: F,
+        mut authorization: A,
     ) -> eyre::Result<()>
     where
-        F: Fn() -> bool + Send + Sync + 'static,
+        A: crate::stream_read_authorization::StreamAuthorization,
     {
         let mut stream = WebSocketNorito::new(stream, ws_message_timeout);
         let init_and_subscribe = async {
             let mut consumer = block::Consumer::new(&mut stream, kura, execution_budget).await?;
-            subscribe_forever(&mut consumer, &authorization_is_current).await
+            subscribe_forever(&mut consumer, &state, &mut authorization).await
         };
         match init_and_subscribe.await {
             Ok(()) => stream.close().await.map_err(Into::into),
@@ -59084,18 +58243,40 @@ pub mod block {
     }
     /// Make endless `consumer` subscription for `blocks`
     ///
+    /// Every block already committed is sent as soon as the stream wakes; the
+    /// stream then sleeps until State publishes the next height. Authorization
+    /// is rechecked before each block and on every authorization tick.
+    ///
     /// Ideally should return `Result<!>` cause it either runs forever or returns error
     async fn subscribe_forever(
         consumer: &mut block::Consumer<'_>,
-        authorization_is_current: &(impl Fn() -> bool + Sync),
+        state: &CoreState,
+        authorization: &mut impl crate::stream_read_authorization::StreamAuthorization,
     ) -> Result<()> {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
         let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
-        let mut authorization_check = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut authorization_check = tokio::time::interval(STREAM_AUTHORIZATION_CHECK_INTERVAL);
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         authorization_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         heartbeat.tick().await;
         loop {
+            loop {
+                ensure_authorized(authorization)?;
+                if !consumer.consume().await? {
+                    break;
+                }
+            }
+            let next = u64::try_from(consumer.next_height().get()).unwrap_or(u64::MAX);
+            // A published height whose body is not readable yet is retried
+            // after a short delay instead of re-polling a completed wait.
+            let published = u64::try_from(state.committed_height()).unwrap_or(u64::MAX) >= next;
+            let wake = async {
+                if published {
+                    tokio::time::sleep(BLOCK_BODY_RETRY_INTERVAL).await;
+                } else {
+                    state.wait_for_committed_height(next).await;
+                }
+            };
+            tokio::pin!(wake);
             tokio::select! {
                 // Wait for stream to be closed by client
                 closed = consumer.stream.closed() => {
@@ -59104,13 +58285,10 @@ pub mod block {
                         Err(err) => return Err(block::Error::from(err).into())
                     }
                 }
-                // This branch sends blocks
-                _ = interval.tick() => {
-                    ensure_authorized(authorization_is_current)?;
-                    consumer.consume().await?;
-                }
+                // The next height is published; the loop above sends it.
+                () = &mut wake => {}
                 _ = authorization_check.tick() => {
-                    ensure_authorized(authorization_is_current)?;
+                    revalidate(authorization)?;
                 }
                 _ = heartbeat.tick() => {
                     consumer.stream.ping().await.map_err(block::Error::from)?;
@@ -59119,8 +58297,20 @@ pub mod block {
         }
     }
 
-    fn ensure_authorized(authorization_is_current: &impl Fn() -> bool) -> Result<()> {
-        if authorization_is_current() {
+    fn ensure_authorized(
+        authorization: &mut impl crate::stream_read_authorization::StreamAuthorization,
+    ) -> Result<()> {
+        if authorization.authorization_is_current() {
+            Ok(())
+        } else {
+            Err(Error::AuthorizationRevoked)
+        }
+    }
+
+    fn revalidate(
+        authorization: &mut impl crate::stream_read_authorization::StreamAuthorization,
+    ) -> Result<()> {
+        if authorization.revalidate() {
             Ok(())
         } else {
             Err(Error::AuthorizationRevoked)
@@ -59160,13 +58350,44 @@ pub mod block {
             assert_eq!(reason, "stream_authorization_revoked");
         }
 
+        /// Fixed authorization that counts how it was consulted.
+        struct Gate {
+            authorized: bool,
+            checks: usize,
+            revalidations: usize,
+        }
+
+        impl crate::stream_read_authorization::StreamAuthorization for Gate {
+            fn authorization_is_current(&mut self) -> bool {
+                self.checks += 1;
+                self.authorized
+            }
+
+            fn revalidate(&mut self) -> bool {
+                self.revalidations += 1;
+                self.authorized
+            }
+        }
+
         #[test]
         fn block_delivery_rechecks_authorization_before_each_item() {
-            assert!(ensure_authorized(&|| true).is_ok());
+            let mut gate = Gate {
+                authorized: true,
+                checks: 0,
+                revalidations: 0,
+            };
+            assert!(ensure_authorized(&mut gate).is_ok());
+            assert!(revalidate(&mut gate).is_ok());
+            gate.authorized = false;
             assert!(matches!(
-                ensure_authorized(&|| false),
+                ensure_authorized(&mut gate),
                 Err(Error::AuthorizationRevoked)
             ));
+            assert!(matches!(
+                revalidate(&mut gate),
+                Err(Error::AuthorizationRevoked)
+            ));
+            assert_eq!((gate.checks, gate.revalidations), (2, 2));
         }
     }
 }
@@ -59304,9 +58525,11 @@ pub mod event {
         visibility: Option<ToriiDataspaceReadContext>,
     ) -> eyre::Result<()> {
         let mut stream = WebSocketNorito::new(stream, ws_message_timeout);
+        let mut authorization =
+            visibility.map(crate::stream_read_authorization::ToriiStreamReadAuthorization::new);
         let init_and_subscribe = async {
             let mut consumer = event::Consumer::new(&mut stream).await?;
-            subscribe_forever(events_rx, &mut consumer, visibility.as_ref()).await
+            subscribe_forever(events_rx, &mut consumer, authorization.as_mut()).await
         };
         match init_and_subscribe.await {
             Ok(()) => stream.close().await.map_err(Into::into),
@@ -59326,8 +58549,11 @@ pub mod event {
     async fn subscribe_forever(
         events: &mut tokio::sync::broadcast::Receiver<iroha_data_model::events::EventBox>,
         consumer: &mut event::Consumer<'_>,
-        visibility: Option<&ToriiDataspaceReadContext>,
+        mut authorization: Option<
+            &mut crate::stream_read_authorization::ToriiStreamReadAuthorization,
+        >,
     ) -> Result<()> {
+        use crate::stream_read_authorization::StreamAuthorization as _;
         let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
         let mut authorization_check = tokio::time::interval(STREAM_AUTHORIZATION_CHECK_INTERVAL);
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -59346,14 +58572,12 @@ pub mod event {
                 event = events.recv() => {
                     match event {
                         Ok(event) => {
-                            if visibility
-                                .is_some_and(|visibility| !visibility.authorization_is_current())
-                            {
-                                return Err(Error::AuthorizationRevoked);
-                            }
-                            let event = match visibility {
-                                Some(visibility) => {
-                                    let Some(event) = visibility.filter_current_event(event).map_err(Error::History)? else {
+                            let event = match authorization.as_deref_mut() {
+                                Some(authorization) => {
+                                    if !authorization.authorization_is_current() {
+                                        return Err(Error::AuthorizationRevoked);
+                                    }
+                                    let Some(event) = authorization.filter_current_event(event).map_err(Error::History)? else {
                                         continue;
                                     };
                                     event
@@ -59370,8 +58594,9 @@ pub mod event {
                     consumer.stream.ping().await.map_err(event::Error::from)?;
                 }
                 _ = authorization_check.tick() => {
-                    if visibility
-                        .is_some_and(|visibility| !visibility.authorization_is_current())
+                    if authorization
+                        .as_deref_mut()
+                        .is_some_and(|authorization| !authorization.revalidate())
                     {
                         return Err(Error::AuthorizationRevoked);
                     }

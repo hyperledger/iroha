@@ -2,30 +2,18 @@
 //! The publication harness imports these helpers without collecting unrelated beacon scenarios.
 
 use std::{
-    collections::BTreeMap,
     num::NonZeroU64,
     time::{Duration, Instant},
 };
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use eyre::{Result, WrapErr as _, eyre};
 use iroha::{
     blocking::Client,
-    client::{
-        ParliamentTimedOvnCastingContextResponseV1, ParliamentTlePartialReleaseShareV1,
-        ParliamentTleReleaseContextResponseV1,
-    },
     crypto::{Algorithm, Hash, KeyPair, Signature},
     data_model::{
         account::AccountId,
         block::SignedBlock,
-        governance::types::{
-            BallotAttemptId, BallotAttemptStatusV1, BeaconPulseId, BeaconSessionId,
-            BodyElectionAttemptId, BodyInstanceId, BodyInstanceStatusV1, DeliberationPhaseV1,
-            GovernanceAttemptId, GovernanceAttemptStatusV1, GovernanceStageV1,
-            ParliamentAggregateOutcomeV1, ParliamentBody, ProposalKind, SortitionRequestV1,
-            TleSessionId, parliament_ballot_participant_hash_v1, parliament_candidate_root_v1,
-        },
+        governance::types::{GovernanceAttemptId, ParliamentBody},
         isi::{
             InstructionBox, Log,
             consensus_keys::{
@@ -33,16 +21,7 @@ use iroha::{
                 ThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleSignatureV1,
             },
             governance::{
-                CreateParliamentGovernanceAttemptV1, ParliamentAdvanceBodyPhaseV1,
-                ParliamentBeginBallotOpeningBatchV1, ParliamentBeginInvitationAcceptanceV1,
-                ParliamentCloseBallotRegistrationV1, ParliamentConsumeSortitionPulseBatchV1,
-                ParliamentEndorsePublicFindingV1, ParliamentFinalizeOpenedBallotV1,
-                ParliamentFreezeBallotSurvivorsV1, ParliamentFreezeTimedOvnCorpusV1,
-                ParliamentInvitationDecisionV1, ParliamentLifecycleTransitionV1,
-                ParliamentRecordInvitationResponseV1, ParliamentRegisterBallotAttemptV1,
-                ParliamentRegisterBallotParticipantV1, ParliamentRegisterSortitionRequestV1,
-                ParliamentSealBodyRosterV1, ParliamentSortitionRequestRegistrationV1,
-                ParliamentTleFinalReleaseSignatureV1, RegisterCitizen,
+                ParliamentLifecycleTransitionV1, RegisterCitizen,
                 SubmitParliamentLifecycleTransitionV1,
             },
         },
@@ -53,35 +32,16 @@ use iroha::{
         prelude::{Account, Level, Register, SetParameter},
     },
 };
-use iroha_core::beacon::GlobalThresholdBeaconSessionBindingV1;
-use iroha_core::beacon::global_threshold_beacon_governance_seed_v1;
+
 use iroha_core::beacon::global_threshold_beacon_npos_successor_seed_v1;
 use iroha_core::beacon::global_threshold_beacon_roster_hash_v1;
-use iroha_core::beacon::parliament_test_network_signer::deterministic_parliament_beacon_key_record_v1;
-use iroha_core::beacon::validate_global_threshold_beacon_session_v1;
-use iroha_core::beacon::verify_finalized_global_threshold_beacon_pulse_v1;
 use iroha_core::governance::parliament::ParliamentAttemptStateV1;
 use iroha_core::state::THRESHOLD_KEY_LIFECYCLE_CERTIFICATE_VERSION_V1;
 use iroha_core::state::threshold_key_lifecycle_certificate_preimage_v1;
 use iroha_core::state::verify_threshold_key_lifecycle_certificate_v1;
-use iroha_core::tle_release::parliament_test_network_signer::deterministic_parliament_tle_key_public_state_v1;
-use iroha_core_timed_ovn::casting::PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1;
-use iroha_core_timed_ovn::casting::ParliamentTimedOvnCastingContextArchiveV1;
-use iroha_core_timed_ovn::casting::ParliamentTimedOvnCastingPhaseV1;
-use iroha_core_timed_ovn::evidence::TimedOvnReleaseIdentityPublicV1;
-use iroha_core_timed_ovn::tle::AuthorizedTleReleaseProjectionV1;
-use iroha_core_timed_ovn::tle::TLE_AUTHORIZED_RELEASE_IDENTITY_PAYLOAD_BYTES_V1;
-use iroha_core_timed_ovn::tle::TLE_AUTHORIZED_RELEASE_PROJECTION_VERSION_V1;
-use iroha_core_timed_ovn::tle::TleAdaptiveDealerCommitmentV1;
-use iroha_core_timed_ovn::tle::TleAdaptivePublicShareV1;
-use iroha_core_timed_ovn::tle::TleKeySessionPublicStateV1;
-use iroha_core_timed_ovn::tle::TlePartialReleaseShareV1;
-use iroha_crypto::timed_ovn::{TimedOvnChoiceV1, TimedOvnRegistrationSecretV1};
-use iroha_data_model::governance::types::PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1 as TIMED_OVN_BALLOT_RECORD_BYTES_V1;
 use iroha_model_base::peer::PeerId;
 use iroha_test_network::{NetworkBuilder, ParliamentBeaconSignerMode, read_on_dedicated_thread};
 use norito::codec::Encode as _;
-use rand::{SeedableRng as _, rngs::StdRng};
 
 pub const VALIDATOR_COUNT: usize = 4;
 pub const CITIZEN_COUNT: usize = 24;
@@ -94,27 +54,15 @@ pub const PARLIAMENT_NETWORK_RAYON_THREADS_PER_PEER: i64 = 2;
 // Six three-seat bodies can draw eighteen distinct invitees. Keep enough native
 // execution heights for separately signed responses and the exact roster seal.
 pub const INVITATION_PHASE_BLOCKS: u64 = 56;
-// The corridor executes three proof-valid registrations and one proof-invalid
-// early close before the exact close, each in its own certified carrier.
-pub const REGISTRATION_PHASE_BLOCKS: u64 = 15;
-pub const SURVIVOR_PHASE_BLOCKS: u64 = 9;
-// A replayed survivor freeze and an early corpus freeze each consume one full
-// native transaction lifecycle before the exact corpus-freeze authority point.
-pub const COMMITMENT_PHASE_BLOCKS: u64 = 9;
-// The replayed corpus freeze and wrong-pulse opening must terminate before the
-// autonomous release pulse reaches its exact height.
-pub const RELEASE_DELAY_BLOCKS: u64 = 7;
-pub const OPENING_PHASE_BLOCKS: u64 = 9;
 pub const MIN_ENACTMENT_DELAY: u64 = 4;
 
 // One signed NPoS epoch length for every converted sortition corridor. A sortition slot
 // is a consensus-native pre-boundary pulse height, so each draw waits for `(h + 1) % L == 0`.
 // The corridors submit at exact heights, one carrier per height, and a native pulse height
 // finalizes without a carrier. `L` therefore has to exceed the longest exact-height run
-// between two draws: the invitation window (40, 56 or 68 blocks), the roster seal, the
-// public-finding phases with their 8 or 20 block deadline, and two private registration
-// windows of 12 blocks with their failure and restore heights. 128 covers each of those
-// runs with margin while the first slot (height 127) stays reachable by plain carriers.
+// between two draws: the invitation window (40, 56 or 68 blocks), the roster seal, and the
+// public-finding phases with their 8 or 20 block deadline. 128 covers each of those runs
+// with margin while the first slot (height 127) stays reachable by plain carriers.
 pub const CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 128;
 
 // Exact-roster certificates bind their containing height. Leave time to sign
@@ -440,28 +388,6 @@ pub async fn assert_transition_rejected_without_state_change(
     Ok(())
 }
 
-pub async fn assert_timed_ovn_casting_context_not_castable(
-    client: &Client,
-    ballot_attempt_id: BallotAttemptId,
-    label: &str,
-) -> Result<()> {
-    const PHASE_NOT_CASTABLE: &str = "Parliament timed-OVN casting context is not authorized: \
-        timed-OVN lifecycle is no longer in a casting phase";
-    let error = read_on_dedicated_thread({
-        let client = client.client().clone();
-        move || client.get_parliament_timed_ovn_casting_context(ballot_attempt_id)
-    })
-    .await
-    .expect_err("a sealed timed-OVN corpus must not return a casting context");
-    let rendered = format!("{error:#}");
-    if !rendered.contains("400 Bad Request") || !rendered.contains(PHASE_NOT_CASTABLE) {
-        return Err(eyre!(
-            "{label}: expected the exact sealed-corpus casting-context rejection, got {rendered}"
-        ));
-    }
-    Ok(())
-}
-
 pub async fn read_attempt(
     client: &Client,
     attempt_id: GovernanceAttemptId,
@@ -578,106 +504,6 @@ pub async fn pulse_at(
         .global_beacon_pulse()
         .copied()
         .ok_or_else(|| eyre!("block {height} does not carry a finalized global beacon pulse"))
-}
-
-pub fn casting_archive(
-    response: &ParliamentTimedOvnCastingContextResponseV1,
-    ballot_attempt_id: BallotAttemptId,
-) -> Result<ParliamentTimedOvnCastingContextArchiveV1> {
-    response
-        .validate_for_ballot(ballot_attempt_id)
-        .map_err(|error| eyre!(error))?;
-    let bytes = BASE64_STANDARD
-        .decode(response.archive_norito_base64.as_bytes())
-        .wrap_err("decode padded canonical casting archive")?;
-    if bytes.len() > PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1 {
-        return Err(eyre!("casting archive exceeds its fixed V1 bound"));
-    }
-    let archive = norito::decode_canonical::<ParliamentTimedOvnCastingContextArchiveV1>(&bytes)
-        .wrap_err("decode canonical casting-context Norito frame")?;
-    archive
-        .validate_v1()
-        .wrap_err("replay-validate public casting archive")?;
-    Ok(archive)
-}
-
-pub fn release_projection(
-    context: &ParliamentTleReleaseContextResponseV1,
-) -> Result<AuthorizedTleReleaseProjectionV1> {
-    context
-        .validate_for_ballot(context.ballot_attempt_id)
-        .map_err(|error| eyre!(error))?;
-    let identity_payload: [u8; TLE_AUTHORIZED_RELEASE_IDENTITY_PAYLOAD_BYTES_V1] =
-        hex::decode(&context.identity_payload_hex)
-            .wrap_err("decode exact release identity payload")?
-            .try_into()
-            .map_err(|_| eyre!("release identity payload has the wrong width"))?;
-    let key_session = &context.tle_key_session;
-    Ok(AuthorizedTleReleaseProjectionV1 {
-        version: TLE_AUTHORIZED_RELEASE_PROJECTION_VERSION_V1,
-        ballot_attempt_id: context.ballot_attempt_id,
-        opening_deadline_height: context.opening_deadline_height,
-        finalized_height: context.current_height,
-        key_session: TleKeySessionPublicStateV1 {
-            version: key_session.version,
-            key_session_id: key_session.key_session_id,
-            network_id: key_session.network_id,
-            roster_hash: key_session.roster_hash,
-            committee_size: key_session.committee_size,
-            threshold: key_session.threshold,
-            generator_h: key_session.generator_h,
-            generator_v: key_session.generator_v,
-            qualified_dealers: key_session.qualified_dealers.clone(),
-            qualified_dealer_commitments: key_session
-                .qualified_dealer_commitments
-                .iter()
-                .map(|dealer| TleAdaptiveDealerCommitmentV1 {
-                    dealer_index: dealer.dealer_index,
-                    coefficient_commitments: dealer.coefficient_commitments.clone(),
-                    constant_pok_commitment: dealer.constant_pok_commitment,
-                    constant_pok_response: dealer.constant_pok_response,
-                })
-                .collect(),
-            dkg_event_hash: key_session.dkg_event_hash,
-            group_public_key: key_session.group_public_key,
-            public_shares: key_session
-                .public_shares
-                .iter()
-                .map(|share| TleAdaptivePublicShareV1 {
-                    index: share.index,
-                    participant_hash: share.participant_hash,
-                    public_key_share: share.public_key_share,
-                })
-                .collect(),
-            transcript_hash: key_session.transcript_hash,
-        },
-        public_release_identity: TimedOvnReleaseIdentityPublicV1 {
-            tle_key_session_id: context.release_identity.tle_key_session_id,
-            governance_attempt_id: *context.release_identity.governance_attempt_id.as_bytes(),
-            body_instance_id: *context.release_identity.body_instance_id.as_bytes(),
-            ballot_attempt_id: *context.release_identity.ballot_attempt_id.as_bytes(),
-            survivor_corpus_root: context.release_identity.survivor_corpus_root,
-            no_recovery_root: context.release_identity.no_recovery_root,
-            target_finalized_height: context.release_identity.target_finalized_height,
-            parameter_hash: context.release_identity.parameter_hash,
-        },
-        identity_payload,
-        identity_digest: context.identity_digest,
-    })
-}
-
-pub fn release_partial(partial: &ParliamentTlePartialReleaseShareV1) -> TlePartialReleaseShareV1 {
-    TlePartialReleaseShareV1 {
-        key_session_id: partial.key_session_id,
-        identity_digest: partial.identity_digest,
-        participant_index: partial.participant_index,
-        sigma: partial.sigma,
-        proof_x: partial.proof_x,
-        proof_y: partial.proof_y,
-        z_s: partial.z_s,
-        z_r: partial.z_r,
-        z_u: partial.z_u,
-    }
 }
 
 pub fn public_finding_root(attempt_id: GovernanceAttemptId, body: ParliamentBody) -> [u8; 32] {

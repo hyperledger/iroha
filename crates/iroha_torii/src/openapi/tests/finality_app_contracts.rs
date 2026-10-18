@@ -129,9 +129,7 @@ fn native_finality_schemas_are_exact_closed_and_bounded() {
     for name in contract_words("BridgeFinalityProof BridgeCommitment SumeragiV2FinalityArtifact SumeragiV2HeightContext SumeragiV2SnapshotBootstrapAnchor SumeragiV2FinalizedNextEpochSnapshot SumeragiV2ValidatorPower SumeragiV2CommitQuorumCertificate SumeragiV2QuorumCertificate") {
         assert!(!schemas.contains_key(name), "retired bridge component {name}");
     }
-    for name in ["GovernanceParliamentTimedOvnCastingProofResponseV1", "ValidationFeeCurrentPolicyProofV1"] {
-        assert_item_ref(contract_property(&schemas, name, "finality_chain"), "#/components/schemas/SumeragiFinalityProof");
-    }
+    assert_item_ref(contract_property(&schemas, "ValidationFeeCurrentPolicyProofV1", "finality_chain"), "#/components/schemas/SumeragiFinalityProof");
 }
 #[cfg(feature = "app_api")]
 #[test]
@@ -160,7 +158,7 @@ fn native_finality_schema_matches_executed_norito_json_and_rejects_retired_field
     }
     let document = generate_spec(); let schemas = component_schemas(&document);
     assert!(schemas.keys().all(|name| !name.starts_with("SumeragiV2")), "retired consensus components must be absent");
-    for name in ["GovernanceParliamentTimedOvnCastingProofResponseV1", "ValidationFeeCurrentPolicyProofV1"] { text_contracts! { property_ref(schemas, name, "evaluated_context_id") => "#/components/schemas/Hash"; } }
+    text_contracts! { property_ref(schemas, "ValidationFeeCurrentPolicyProofV1", "evaluated_context_id") => "#/components/schemas/Hash"; }
     assert_array_bounds(contract_schema(schemas, "Fixed32ByteArray"), 32, 32, None);
     let committee = contract_array(proof_object.get("committee"), "native ordered committee");
     count_contracts! { committee.len() => 4; }

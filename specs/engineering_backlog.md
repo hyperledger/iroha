@@ -8149,8 +8149,8 @@ redistributable schemas, and official trust/revocation bundles.
     `Signature::try_new`, `SignatureOf::try_from_hash`, and
     `TransactionBuilder::try_sign` helpers, with a wrong-key BLS block-signature
     regression covering adversarial verification failure;
-    SCCP BSC, TON, Solana, Ethereum sync committee, Nexus finality, and
-    EVM attestor fixture key families now share checked seed derivation before
+    SCCP BSC, TON, Solana, Ethereum sync committee, and Nexus finality
+    fixture key families now share checked seed derivation before
     source-proof and submission-package regressions consume them; Kagami Kura
     block-store test fixtures now use checked transaction and block signing,
     verify the fixture transaction signature before append, and reject a wrong

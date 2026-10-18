@@ -128,7 +128,7 @@ fn load_recovery(
 /// Verified original field projection; the signature Q proof remains a mandatory
 /// independent input. A proves the Bootstrap transition directly (lean lineage),
 /// so no sigma original is a native input.
-pub(crate) struct BootstrapFoldFieldsV1 {
+pub struct BootstrapFoldFieldsV1 {
     pub(crate) state: BootstrapWitness,
     pub(crate) objects: [Vec<u8>; 3],
 }
@@ -143,7 +143,7 @@ impl BootstrapFoldFieldsV1 {
 }
 
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
-pub(crate) struct LoadFoldFieldsV1 {
+pub struct LoadFoldFieldsV1 {
     pub(crate) state: LoadWitness,
     pub(crate) receipt: [u8; 282],
     pub(crate) objects: [Vec<u8>; 1],
@@ -166,7 +166,7 @@ impl LoadFoldFieldsV1 {
 }
 
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
-pub(crate) struct ConsumingFoldFieldsV1 {
+pub struct ConsumingFoldFieldsV1 {
     pub(crate) state: ConsumingWitness,
     pub(crate) objects: [Vec<u8>; 1],
     /// Native source of the payment key for the own-receipt leaf; not a circuit object.
@@ -187,31 +187,16 @@ impl ConsumingFoldFieldsV1 {
 }
 
 impl PreparationV1<'_> {
-    /// Build complete native Load input from the retained ordinary receipt/finality
-    /// and the capsule's authenticated low-leaf/empty-slot insertion. Original Qs
-    /// and both predecessor claims are moved unchanged into the mandatory native
-    /// plan, which verifies the receipt-bound Advance and both A owners.
+    /// Reconstruct Load's native source before its independent Q proof exists.
+    /// Retained ordinary receipt/finality and the capsule's authenticated insertion
+    /// bind the source; both predecessor claims remain unchanged. The installed
+    /// native plan must still verify the receipt-bound Advance and every A owner.
     /// This method grants no funding or catalog authority by itself.
     ///
     /// # Errors
     /// Changed receipt, anchor, source state, finality originals or recovery root;
     /// missing/reordered paths, occupied insertion slot, or another operation. Local
     /// decoder refusals retain their original cause and permit an unchanged retry.
-    #[allow(clippy::too_many_arguments)]
-    pub fn load_native_inputs(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &ReleasedStep,
-        predecessor: &FoldedStateV1,
-        public: &KagemushaWalletLineagePublicV1,
-        q: [load::QInput; 1],
-        budget: MemoryBudget,
-    ) -> Result<load::Inputs, wallet_state::Error> {
-        self.load_fold_fields(owner, step, predecessor, public, budget)
-            .map(|fields| fields.with_q(q))
-    }
-
-    /// Reconstruct the exact native source before its independent Q proofs exist.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn load_fold_fields(
         &self,
@@ -247,28 +232,14 @@ impl PreparationV1<'_> {
         })
     }
 
-    /// Build Bootstrap's native input from its authenticated released source and
-    /// the exact retained signature Q original, without selecting any proving
-    /// artifact. The installed native `bootstrap::Plan::prepare` and the unsplit
-    /// terminal A must still verify the Q proof and bind all three original
-    /// signed tapes.
+    /// Reconstruct Bootstrap's authenticated released source before its Q proof exists,
+    /// without selecting any proving artifact. The installed native
+    /// `bootstrap::Plan::prepare` and unsplit terminal A must still verify the
+    /// subsequently attached Q proof and bind all three original signed tapes.
     ///
     /// # Errors
     /// Rejects another operation, extraneous map witnesses, invalid retained
     /// evidence, or a changed credential, state or installation.
-    pub fn bootstrap_native_inputs(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &ReleasedStep,
-        public: &KagemushaWalletLineagePublicV1,
-        q: [bootstrap::QInput; 1],
-        budget: MemoryBudget,
-    ) -> Result<bootstrap::Inputs, Error> {
-        self.bootstrap_fold_fields(owner, step, public, budget)
-            .map(|fields| fields.with_q(q))
-    }
-
-    /// Reconstruct the exact native source before its independent Q proof exists.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn bootstrap_fold_fields(
         &self,
@@ -285,29 +256,15 @@ impl PreparationV1<'_> {
         })
     }
 
-    /// Build Unload or Retiring's native input from the exact released source and
-    /// fully verified predecessor. The recovery path is decoded from the capsule,
-    /// never supplied separately, and Q originals are moved without alteration.
-    /// The installed native `consuming::Plan::prepare` and complete A/W chain remain
-    /// mandatory before accepting any result; this method grants no open authority.
+    /// Reconstruct Unload or Retiring's source before its independent Q proof exists,
+    /// from the exact released source and fully verified predecessor. The recovery
+    /// path is decoded from the capsule, never supplied separately. The installed
+    /// native `consuming::Plan::prepare` and complete A/W chain remain mandatory
+    /// before accepting any result; this method grants no open authority.
     ///
     /// # Errors
     /// Rejects another operation, changed source/lineage/credential, wrong path
     /// count or order, a nonempty insertion slot, or either changed recovery root.
-    pub fn consuming_native_inputs(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &ReleasedStep,
-        predecessor: &FoldedStateV1,
-        public: &KagemushaWalletLineagePublicV1,
-        q: [consuming::QInput; 1],
-        budget: MemoryBudget,
-    ) -> Result<consuming::Inputs, Error> {
-        self.consuming_fold_fields(owner, step, predecessor, public, budget)
-            .map(|fields| fields.with_q(q))
-    }
-
-    /// Reconstruct the exact native source before its independent Q proofs exist.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn consuming_fold_fields(
         &self,

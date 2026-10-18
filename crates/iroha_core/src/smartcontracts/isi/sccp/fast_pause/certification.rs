@@ -321,6 +321,20 @@ pub(in crate::smartcontracts::isi::sccp) fn enact<E: std::fmt::Debug>(
     if store::fast_pause_rounds::get(&state.world, &(network, role)) != Some(&original.round) {
         return no_result(state, network, role, cert.panel_id, NoResult::PanelChanged);
     }
+    apply_enactment(state, cert, position)
+}
+
+/// Publish the effect only after the caller has completed every same-pass authority check.
+/// Keeping the effect transaction separate lets component fixtures exercise the real checks and
+/// writes without constructing the unavailable Parliament-owned eligibility capability.
+fn apply_enactment<E: std::fmt::Debug>(
+    state: &mut StateBlock<'_>,
+    cert: SccpFastPauseCertificateV1,
+    position: u32,
+) -> Result<(), StateBlockStartError<E>> {
+    let network = cert.network;
+    let role = cert.panel_role;
+    let time = state._curr_block.creation_time_ms;
     let Some(parameters) = store::parameters::get(&state.world).as_ref() else {
         return no_result(
             state,
@@ -357,6 +371,7 @@ pub(in crate::smartcontracts::isi::sccp) fn enact<E: std::fmt::Debug>(
         Ok(parts) => parts,
         Err(reason) => return no_result(state, network, role, cert.panel_id, reason),
     };
+    let revisions = &revisions[..count];
     let renewal =
         store::fast_pauses::get(&state.world, &network).is_some_and(|pause| time < pause.until_ms);
     let effect = EnactingPause(cert);
@@ -378,13 +393,13 @@ pub(in crate::smartcontracts::isi::sccp) fn enact<E: std::fmt::Debug>(
                 enacted_at_ms: time,
                 until_ms: until,
                 taira: true,
-                revisions: &revisions[..count],
+                revisions,
             },
             tx.sccp_evidence_preparation_budget(),
         )
         .map_err(|error| construction_error(&mut tx, error))?;
         store::fast_pauses::insert(&mut tx, network, next)?;
-        for revision in &revisions[..count] {
+        for revision in revisions {
             super::super::controls::record_control(&mut tx, network, *revision, cause)?;
         }
         store::set_governance_revision(
@@ -414,3 +429,6 @@ pub(in crate::smartcontracts::isi::sccp) fn enact<E: std::fmt::Debug>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reference_fixtures;

@@ -593,8 +593,9 @@ fn f31_amx_two_phase_commit() {
     });
 }
 
-/// F39: the application clock guard under skewed honest wall clocks (§4.5): O-TIME at every
-/// commit, and no block a Byzantine builder post-dated beyond the guard ever commits.
+/// F39: O-TIME checks every commit under skewed honest wall clocks (§4.5). Every run must
+/// make five further commits after convergence or healing, and every honest replica must
+/// observe renewed progress before this short run ends.
 #[test]
 fn f39_clock_guard() {
     sweep("F39", scenarios::f39, |world| {
@@ -602,12 +603,23 @@ fn f39_clock_guard() {
             .clock_guard
             .as_ref()
             .expect("F39 runs the clock guard");
-        let bound = i64::try_from(2 * guard.max_clock_drift_ms).unwrap_or(i64::MAX);
-        assert!(
-            guard.certified.iter().all(|c| c.excess <= bound),
-            "O-TIME holds at every commit"
-        );
         assert!(guard.certified.len() >= 5, "the chain progressed");
+        let recovered_at = if world.seed % 3 == 2 {
+            world.heal_at
+        } else {
+            30_000
+        };
+        assert_eq!(
+            world.checks.windows,
+            vec![(0, recovered_at, world.duration, 5)],
+            "every seed must retain its late progress obligation"
+        );
+        for replica in world.honest() {
+            assert!(
+                world.oracle.reps[replica].last_commit >= recovered_at,
+                "honest replica {replica} did not commit after recovery at {recovered_at}"
+            );
+        }
     });
 }
 

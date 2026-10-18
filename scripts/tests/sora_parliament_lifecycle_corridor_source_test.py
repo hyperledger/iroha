@@ -18,8 +18,6 @@ FAILURE_PATHS = ROOT / "integration_tests/tests/sora_parliament_failure_paths.rs
 ENACTMENT = ROOT / "integration_tests/tests/sora_parliament_enactment.rs"
 SUPPORT = ROOT / "integration_tests/tests/sora_parliament_lifecycle_support.rs"
 NATIVE_FINALITY = ROOT / "integration_tests/tests/sora_parliament_finality.rs"
-PRIVATE_BALLOT_RETRY = ROOT / "integration_tests/tests/sora_parliament_private_ballot_retry.rs"
-PUBLICATION_GOVERNANCE = ROOT / "integration_tests/tests/sorafs_publication_governance.rs"
 USER_CONFIG = ROOT / "crates/iroha_config/src/parameters/user.rs"
 ACTUAL_CONFIG = ROOT / "crates/iroha_config/src/parameters/actual.rs"
 TEST_NETWORK = ROOT / "crates/iroha_test_network/src/lib.rs"
@@ -36,99 +34,18 @@ MANDATORY_NPOS_TEST_NAME = (
 FAIL_CLOSED_NPOS_TEST_NAME = (
     "four_validator_mandatory_npos_beacon_fails_closed_below_threshold"
 )
-PARLIAMENT_LIFECYCLE_TEST_NAME = (
-    "four_validator_policy_jury_uses_future_pulses_and_mandatory_timed_ovn"
-)
 GOVERNANCE_ISOLATION_TEST_NAME = (
     "four_validator_pending_parliament_request_never_blocks_unrelated_work_or_restart"
 )
 NO_RESULT_TEST_NAME = (
     "four_validator_public_finding_no_result_retries_take_later_native_slots"
 )
-PRIVATE_BALLOT_RETRY_TEST_NAME = (
-    "four_validator_private_ballot_deadline_retry_exhaustion_and_restore"
-)
-PUBLICATION_GOVERNANCE_TEST_NAME = (
-    "four_peer_native_publication_repair_and_parliament_revocation"
-)
-# A timed-OVN ballot opens only if its frozen release height coincides with a native pulse.
-# Corridors that need an opened hidden ballot stay ignored, with this exact reason, until the
-# anonymous ballot replaces it. Sortition-only corridors must never carry it.
-HIDDEN_BALLOT_IGNORE_REASON = (
-    "timed-OVN release slot is no longer consensus demand; the hidden ballot is replaced "
-    "by the anonymous ballot (specs/parliament_private_ballot_design.md 12.2 step 4)"
-)
-HIDDEN_BALLOT_IGNORE_ATTRIBUTE = f'#[ignore = "{HIDDEN_BALLOT_IGNORE_REASON}"]'
-HIDDEN_BALLOT_IGNORE = (
-    r"// TODO: [^\n]*\n(?:// [^\n]*\n)*" + re.escape(HIDDEN_BALLOT_IGNORE_ATTRIBUTE) + r"\n"
-)
-HIDDEN_BALLOT_CORRIDOR_TEST_NAMES = (
-    PARLIAMENT_LIFECYCLE_TEST_NAME,
-    "four_validator_certified_effects_record_supersession_and_execution_failure",
-    "four_validator_narrow_policy_aborts_when_confirmation_capacity_is_one",
-)
 SORTITION_ONLY_CORRIDOR_TEST_NAMES = (
     MANDATORY_NPOS_TEST_NAME,
     FAIL_CLOSED_NPOS_TEST_NAME,
     GOVERNANCE_ISOLATION_TEST_NAME,
     NO_RESULT_TEST_NAME,
-    PRIVATE_BALLOT_RETRY_TEST_NAME,
     "four_validator_hidden_capacity_retains_then_releases_citizenship_bond",
-)
-EXACT_SUPERSEDING_HEAD_ASSERTION = '''assert_eq!(
-        superseded.superseding_head(),
-        Some(GovernanceExpectedHeadV1::Present(
-            GovernanceExpectedHeadPresentV1 {
-                subject_id: deploy_subject_id,
-                version: 1,
-                head_root: competing_contract_code_hash.into(),
-            },
-        )),
-        "supersession must bind the exact authoritative contract head",
-    );'''
-DISTINCT_SUPERSEDING_ARTIFACT = '''let (competing_contract_code_hash, competing_abi_hash) = stage_contract_artifact(
-        &client,
-        &minimal_contract_artifact_with_identity(
-            "ParliamentSupersessionCompetitor",
-            "integration-tests-supersession-competitor",
-        ),
-    )
-    .await?;'''
-DISTINCT_SUPERSEDING_ARTIFACT_ASSERTION = '''assert_ne!(
-        competing_contract_code_hash, code_hash,
-        "the supersession fixture must install a genuinely distinct artifact head",
-    );'''
-CERTIFIED_SUPERSEDING_DEPLOYMENT_MARKERS = (
-    "let competing_deploy_proposal = ProposalKind::DeployContract(",
-    "let competing_deploy_create = CreateParliamentGovernanceAttemptV1 {",
-    "let competing_deploy_attempt_id = competing_deploy_create.governance_attempt_id();",
-    '''InstructionBox::from(ProposeDeployContract {
-                contract_address: contract_address.clone(),
-                code_hash: competing_contract_code_hash,
-                abi_hash: competing_abi_hash,
-                abi_version: AbiVersion::new(1),
-                manifest_provenance: None,
-            })''',
-    "InstructionBox::from(competing_deploy_create)",
-    "let competing_deploy_certificate = certify_failure_path_attempt(",
-    "assert!(current_height(&client).await? < competing_deploy_certificate.enact_at_height);",
-    '''assert_eq!(
-        deploy_certificate.expected_head, competing_deploy_certificate.expected_head,
-        "both certified deployments must compare against the same pre-enactment head",
-    );''',
-    "let competing_enacted = read_attempt(&client, competing_deploy_attempt_id).await?;",
-    '''assert_eq!(
-        competing_enacted.attempt().status,
-        GovernanceAttemptStatusV1::Enacted,
-    );''',
-    '''assert_eq!(
-        competing_enacted.certificate(),
-        Some(&competing_deploy_certificate),
-    );''',
-)
-DIRECT_SUPERSESSION_BYPASSES = (
-    "ActivateContractInstance",
-    "CommitContractDeployment",
 )
 NO_RESULT_RESTART_CONTRACT_ABSENCE = '''assert_governed_contract_absent(
         &restart_peer.client(),
@@ -146,86 +63,11 @@ EXACT_INACTIVE_CONTRACT_PROJECTION = '''if object.len() != 3
             .get("dataspace")
             .and_then(norito::json::Value::as_str)
             != Some("universal")'''
-EXACT_ACTIVE_CONTRACT_ENTRYPOINTS = '''let has_exact_entrypoints = object
-        .get("public_entrypoints")
-        .and_then(norito::json::Value::as_array)
-        .is_some_and(|entrypoints| {
-            entrypoints.len() == 1 && entrypoints[0].as_str() == Some("main")
-        });'''
-EXACT_ACTIVE_CONTRACT_PROJECTION = '''if object.len() != 7
-        || object.get("found").and_then(norito::json::Value::as_bool) != Some(true)
-        || object
-            .get("contract_address")
-            .and_then(norito::json::Value::as_str)
-            != Some(contract_address.as_ref())
-        || object
-            .get("contract_subject_account")
-            .and_then(norito::json::Value::as_str)
-            != Some(expected_subject.as_str())
-        || object
-            .get("dataspace")
-            .and_then(norito::json::Value::as_str)
-            != Some("universal")
-        || object
-            .get("code_hash_hex")
-            .and_then(norito::json::Value::as_str)
-            != Some(expected_code_hash.as_str())
-        || object
-            .get("abi_hash_hex")
-            .and_then(norito::json::Value::as_str)
-            != Some(expected_abi_hash.as_str())
-        || !has_exact_entrypoints'''
-EXACT_GOVERNED_CONTRACT_BINDING_CALLS = (
-    '''assert_governed_contract_binding(
-        &client,
-        &contract_address,
-        code_hash,
-        abi_hash,
-        "consensus-owned certificate enactment must bind the staged contract",
-    )
-    .await?;''',
-    '''assert_governed_contract_binding(
-            &peer_client,
-            &contract_address,
-            code_hash,
-            abi_hash,
-            "every validator must expose the consensus-enacted contract",
-        )
-        .await?;''',
-    '''assert_governed_contract_binding(
-        &restart_peer.client(),
-        &contract_address,
-        code_hash,
-        abi_hash,
-        "normal restart must restore the consensus-enacted contract",
-    )
-    .await?;''',
-    '''assert_governed_contract_binding(
-        &client,
-        &contract_address,
-        competing_contract_code_hash,
-        competing_abi_hash,''',
-    '''assert_governed_contract_binding(
-            &peer_client,
-            &contract_address,
-            competing_contract_code_hash,
-            competing_abi_hash,
-            "all validators must retain the competing contract binding",
-        )
-        .await?;''',
-    '''assert_governed_contract_binding(
-        &restored_client,
-        &contract_address,
-        competing_contract_code_hash,
-        competing_abi_hash,
-        "restart must retain the competing contract binding",
-    )
-    .await?;''',
-)
 EXACT_NON_BOUNDARY_PULSE_ABSENCE = '''assert_no_global_beacon_pulse_at(
         &client,
         pulse_height - 1,
         "an unrequested non-boundary height must not emit a global pulse",
+        &network,
     )
     .await?;'''
 EXACT_ABSENCE_CLASSIFICATION_MARKERS = (
@@ -238,7 +80,7 @@ EXACT_ABSENCE_CLASSIFICATION_MARKERS = (
         .wrap_err_with(|| format!("{label}: inactive governed-contract response is not JSON"))?;''',
     EXACT_INACTIVE_CONTRACT_PROJECTION,
     "expected the exact inactive governed-contract projection",
-    "fn assert_asset_not_found(client: &Client, asset_id: &AssetId, label: &str,)",
+    "fn assert_asset_not_found(client: &Client, asset_id: &AssetId, label: &str)",
     "let query = FindAssetById::new(asset_id.clone());",
     "query.asset_id(),",
     '"{label}: bind the exact requested asset"',
@@ -250,42 +92,19 @@ EXACT_ABSENCE_CLASSIFICATION_MARKERS = (
     "Ok(asset) => Err(eyre!(",
     "expected asset `{asset_id}` to be absent, but the query returned `{}`",
     "expected typed absence of exact asset `{asset_id}",
-    "fn assert_timed_ovn_casting_context_not_castable(",
-    '.expect_err("a sealed timed-OVN corpus must not return a casting context");',
-    'rendered.contains("400 Bad Request")',
-    "timed-OVN lifecycle is no longer in a casting phase",
-    '''assert_timed_ovn_casting_context_not_castable(
-        &client,
-        ballot_attempt_id,
-        "a sealed corpus is no longer a cast-capable context",
-    )
-    .await?;''',
-    "fn assert_no_global_beacon_pulse_at(client: &Client, height: u64, label: &str,)",
-    "fn exact_block(client: &Client, height: u64) -> Result<SignedBlock>",
+    "fn assert_no_global_beacon_pulse_at(client: &Client, height: u64, label: &str, network: &iroha_test_network::Network,)",
+    "fn exact_block(client: &Client, height: u64, network: &iroha_test_network::Network,) -> Result<SignedBlock>",
     "NonZeroU64::new(height)",
-    ".get_sumeragi_finality_proof(requested_height)",
+    ".get_sumeragi_finality_proof(requested_height, root_scope)",
     "read finalized block for exact height {height}",
     "decode_framed_signed_block(&proof.block_wire)",
     "if block.header().height() != requested_height",
     "finality proof returned height",
     "if block.header() != proof.block_header",
     "finality proof header differs from its finalized block",
-    "let block = exact_block(client, height)",
+    "let block = exact_block(client, height, network)",
     "if block.global_beacon_pulse().is_some() {",
     EXACT_NON_BOUNDARY_PULSE_ABSENCE,
-)
-EXACT_ACTIVE_BINDING_MARKERS = (
-    "fn assert_governed_contract_binding(",
-    "expected_code_hash: ContractCodeHash",
-    "expected_abi_hash: ContractAbiHash",
-    '.wrap_err_with(|| format!("{label}: active governed-contract lookup failed"))?;',
-    "let expected_subject = contract_address.subject_id().to_string();",
-    "let expected_code_hash = expected_code_hash.to_hex();",
-    "let expected_abi_hash = expected_abi_hash.to_hex();",
-    EXACT_ACTIVE_CONTRACT_ENTRYPOINTS,
-    EXACT_ACTIVE_CONTRACT_PROJECTION,
-    "expected the exact active governed-contract projection",
-    *EXACT_GOVERNED_CONTRACT_BINDING_CALLS,
 )
 CAPACITY_DOMAIN_REGISTRATION = (
     ".with_genesis_instruction(Register::domain(Domain::new(citizenship_domain.clone())))"
@@ -303,28 +122,6 @@ CAPACITY_ACCOUNT_REGISTRATION = (
 CAPACITY_BOND_MINT = ".with_genesis_instruction(Mint::asset_quantity("
 CAPACITY_CITIZEN_REGISTRATION = ".with_genesis_instruction(RegisterCitizen {"
 PARLIAMENT_FAILURE_PATH_MARKERS = {
-    "four_validator_certified_effects_record_supersession_and_execution_failure": (
-        DISTINCT_SUPERSEDING_ARTIFACT,
-        DISTINCT_SUPERSEDING_ARTIFACT_ASSERTION,
-        *CERTIFIED_SUPERSEDING_DEPLOYMENT_MARKERS,
-        "GovernanceAttemptStatusV1::Superseded",
-        "superseded.certificate(), Some(&deploy_certificate)",
-        EXACT_SUPERSEDING_HEAD_ASSERTION,
-        "GovernanceAttemptStatusV1::ExecutionFailed",
-        "parliament_execution_failure_root_v1(",
-        "execution_failed.certificate(), Some(&runtime_certificate)",
-        "assert_runtime_upgrade_registry_empty(&restored_client).await?;",
-    ),
-    "four_validator_narrow_policy_aborts_when_confirmation_capacity_is_one": (
-        "GovernanceAttemptStatusV1::Rejected",
-        "required.body != ParliamentBody::ConfirmationJury",
-        "rejected.certificate().is_none()",
-        "ParliamentBallotFailureKindV1::ConfirmationJuryCapacityUnavailable",
-        "Confirmation-capacity rejection effect isolation",
-        "Confirmation-capacity peer effect isolation",
-        "Confirmation-capacity restart effect isolation",
-        "restart must retain the complete Confirmation-capacity transcript",
-    ),
     "four_validator_hidden_capacity_retains_then_releases_citizenship_bond": (
         'DomainId::try_new("parliament-bond", "universal")?',
         'AssetDefinitionId::derive_from_components(citizenship_domain.clone(), "xor".parse()?)',
@@ -359,23 +156,11 @@ def read_corridor_source() -> str:
             FAILURE_PATHS.read_text(encoding="utf-8"),
             ENACTMENT.read_text(encoding="utf-8"),
             SUPPORT.read_text(encoding="utf-8"),
-            PRIVATE_BALLOT_RETRY.read_text(encoding="utf-8"),
             NATIVE_FINALITY.read_text(encoding="utf-8"),
         )
     )
 
 
-PARLIAMENT_LIFECYCLE_TEST = re.compile(
-    rf"(?ms)^{re.escape(PARLIAMENT_NETWORK_TEST_ATTRIBUTE)}\n"
-    rf"{HIDDEN_BALLOT_IGNORE}"
-    rf"fn {PARLIAMENT_LIFECYCLE_TEST_NAME}\(\) -> Result<\(\)> \{{\n"
-    r".*?^\}\n"
-    rf"\nasync fn {PARLIAMENT_LIFECYCLE_TEST_NAME}_impl\(\)\s*"
-    r"-> Result<\(\)>\s*\{\n"
-    r".*?^\}\n"
-    rf"(?=\n{re.escape(PARLIAMENT_NETWORK_TEST_ATTRIBUTE)}\n"
-    rf"fn {MANDATORY_NPOS_TEST_NAME}\(\))"
-)
 MANDATORY_NPOS_TEST = re.compile(
     rf"(?ms)^{re.escape(PARLIAMENT_NETWORK_TEST_ATTRIBUTE)}\n"
     rf"fn {MANDATORY_NPOS_TEST_NAME}\(\) -> Result<\(\)> \{{\n"
@@ -418,20 +203,11 @@ NO_RESULT_TEST = re.compile(
 )
 # A sortition slot is the first consensus-native pulse height at or after the frozen delay
 # and above every earlier generation slot. The wait for it is governance-local.
-NATIVE_SORTITION_SLOT_DERIVATION = (
-    "expected_sortition_slot(network, &client, attempt_id, request_height, None).await?;"
-)
-NATIVE_SORTITION_PULSE_WAIT = (
-    'await_native_sortition_pulse(network, &client, sortition_pulse_height, "sortition pulse")'
-)
-AFTER_BOUNDARY_SORTITION_CONSUMPTION = (
-    'cross_native_boundary_after_pulse(network, &client, &sortition_pulse, "sortition pulse")'
-)
 SORTITION_SLOT_HELPER_MARKERS = {
     "with_signed_npos_epoch": (
-        "npos.epoch_length_blocks = NonZeroU64::new(epoch_length_blocks)",
-        "npos.evidence_horizon_blocks = epoch_length_blocks * 2;",
-        "npos.slashing_delay_blocks = epoch_length_blocks;",
+        "epoch_length_blocks: NonZeroU64::new(epoch_length_blocks)",
+        "evidence_horizon_blocks: epoch_length_blocks * 2,",
+        "slashing_delay_blocks: epoch_length_blocks,",
         "SumeragiParameter::EpochLengthBlocks(npos.epoch_length_blocks),",
         "SetParameter::new(Parameter::Custom(npos.into_custom_parameter(),))",
     ),
@@ -466,7 +242,7 @@ SORTITION_SLOT_HELPER_MARKERS = {
         "advance_to_autonomous_predecessor(network, client, slot, label).await?;",
         "network.ensure_blocks(slot).await?;",
         "observe_exact_height(client, slot, label).await?;",
-        "pulses.push(pulse_at(&peer.client(), slot).await?);",
+        "pulses.push(pulse_at(&peer.client(), slot, network).await?);",
         "if !pulses.windows(2).all(|pair| pair[0] == pair[1]) {",
         "if pulse.height != slot || pulse.network_id != network.network_id() {",
     ),
@@ -507,7 +283,7 @@ GOVERNANCE_ISOLATION_MARKERS = (
     "network.ensure_blocks(retired_slot).await?;",
     "a pending Parliament request must not stall the chain at its retired mid-epoch slot",
     "pending.sortition_pulse_delay_blocks() + ISOLATION_CARRIERS_PAST_RETIRED_SLOT - 1,",
-    "let tip_hash = exact_block(&client, isolation_tip).await?.hash();",
+    "let tip_hash = exact_block(&client, isolation_tip, &network).await?.hash();",
     "for height in request_height..=isolation_tip {",
     "a pending Parliament request must not create a global beacon pulse",
     "response.state_payload_hex, pending_payload,",
@@ -526,9 +302,9 @@ GOVERNANCE_ISOLATION_MARKERS = (
     "assert_eq!(response.state_payload_hex, pending_payload);",
 )
 GOVERNANCE_ISOLATION_CONSTANTS = (
-    "pub(super) const ISOLATION_CARRIERS_PAST_RETIRED_SLOT: u64 = 12;",
-    "pub(super) const ISOLATION_CARRIERS_AFTER_RESTART: u64 = 3;",
-    "pub(super) const CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 128;",
+    "const ISOLATION_CARRIERS_PAST_RETIRED_SLOT: u64 = 12;",
+    "const ISOLATION_CARRIERS_AFTER_RESTART: u64 = 3;",
+    "pub const CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 128;",
 )
 AUTONOMOUS_PULSE_PROGRESSION = '''network.ensure_blocks(pulse_height).await?;
     assert_eq!(
@@ -585,10 +361,11 @@ NATIVE_FINALITY_MARKERS = (
     "ifvalidators.len()!=VALIDATOR_COUNT{returnErr(eyre!("
     '"Parliamentrequiresexactlyfoursigned-genesisvalidators"));}',
     "letmutverifier=SumeragiFinalityVerifier::new("
-    "genesis.block(),&network.chain_id().to_string(),validators,)?;",
+    "genesis.block(),network.chain_id().as_ref(),validators)?;",
     "fornextin1..=height{",
-    "letproof=client.get_sumeragi_finality_proof(NonZeroU64::new(next).unwrap())?;",
-    "letverified=verifier.verify(&proof)?;",
+    "letproof=client.get_sumeragi_finality_proof("
+    "NonZeroU64::new(next).unwrap(),verifier.root_scope())?;",
+    "letauthenticated=verifier.verify(&proof)?;",
     "ifproof.committee.len()!=VALIDATOR_COUNT||members!=expected_members{returnErr(eyre!("
     '"certifiedParliamentcommitteediffersfromtheindependentfour-validatorroster"));}',
     "ifnext>1{",
@@ -597,7 +374,7 @@ NATIVE_FINALITY_MARKERS = (
     '"Parliamentsuccessorrequiresexactlythreeequalvalidatorvotes"));}',
     "ifInstant::now()>=deadline{returnErr(eyre!("
     '"Parliamentcontiguousfinalityverificationexceededitsdeadline"));}',
-    "visit(&proof,&verified)?;",
+    "visit(&proof,&authenticated)?;",
 )
 POSITIVE_BEACON_MODES = """constPOSITIVE_BEACON_SIGNER_MODES:[ParliamentBeaconSignerMode;VALIDATOR_COUNT]=[ParliamentBeaconSignerMode::Valid,ParliamentBeaconSignerMode::Valid,ParliamentBeaconSignerMode::Absent,ParliamentBeaconSignerMode::Invalid,];"""
 FAIL_CLOSED_BEACON_MODES = """constFAIL_CLOSED_BEACON_SIGNER_MODES:[ParliamentBeaconSignerMode;VALIDATOR_COUNT]=[ParliamentBeaconSignerMode::Valid,ParliamentBeaconSignerMode::Absent,ParliamentBeaconSignerMode::Absent,ParliamentBeaconSignerMode::Invalid,];"""
@@ -719,57 +496,12 @@ def mutate_parliament_workflow(source: str, marker: str) -> str:
     return source[: job.start("body")] + mutated + source[job.end("body") :]
 
 
-def parliament_lifecycle_test(source: str) -> tuple[re.Match[str], str]:
-    """Return the one exact executable Parliament lifecycle test item."""
-
-    matches = list(PARLIAMENT_LIFECYCLE_TEST.finditer(source))
-    require(len(matches) == 1, "Parliament lifecycle corridor is not one exact test item")
-    match = matches[0]
-    prefix = source[:match.start()]
-    # A first test can follow imports or module declarations after helper extraction.
-    # Those semicolon-terminated items are boundaries just like preceding functions.
-    leading = re.split(r"\n\}\n|;\n", prefix)[-1]
-    require(
-        "#[" not in leading,
-        "Parliament lifecycle corridor gained an extra attribute",
-    )
-    test = match.group(0)
-    require('#[path = "sora_parliament_lifecycle_support.rs"]\nmod support;' in source
-            and "use support::*;" in source
-            and '#[path = "sora_parliament_enactment.rs"]\npub(super) mod enactment;' in source,
-            "lifecycle must retain its exact shared enactment owner")
-    require("enactment::builder(" in test and "enactment::enact(" in test,
-            "lifecycle must execute the shared builder and enactment")
-    helpers = []
-    for name in ("builder", "builder_with_signer_modes", "enact"):
-        found = list(re.finditer(rf"(?ms)^pub\(crate\) (?:async )?fn {name}\(.*?^\}}\n", source))
-        require(len(found) == 1, f"shared enactment needs one exact {name} owner")
-        helpers.append(found[0].group(0))
-    return match, test + "\n" + "\n".join(helpers)
-
-
-def mutate_parliament_lifecycle_test(source: str, old: str, new: str = "") -> str:
-    """Apply one exact mutation only inside the Parliament lifecycle test item."""
-
-    match, test = parliament_lifecycle_test(source)
-    require(old in test, f"Parliament lifecycle mutation target is absent: `{old}`")
-    original = match.group(0)
-    if old in original:
-        return source[:match.start()] + original.replace(old, new, 1) + source[match.end():]
-    for name in ("builder", "builder_with_signer_modes", "enact"):
-        helper = re.search(rf"(?ms)^pub\(crate\) (?:async )?fn {name}\(.*?^\}}\n", source)
-        require(helper is not None, f"shared {name} owner must exist")
-        if old in helper.group(0):
-            return source[:helper.start()] + helper.group(0).replace(old, new, 1) + source[helper.end():]
-    raise ContractError("mutation must belong to the actual test or its exact invoked helper")
-
-
 def corridor_helper(source: str, name: str) -> str:
     """Return one exact shared corridor helper by name."""
 
     found = list(
         re.finditer(
-            rf"(?ms)^pub\((?:super|crate)\) (?:async )?fn {re.escape(name)}\(.*?^\}}\n",
+            rf"(?ms)^(?:pub(?:\((?:super|crate)\))? )?(?:async )?fn {re.escape(name)}\(.*?^\}}\n",
             source,
         )
     )
@@ -777,38 +509,9 @@ def corridor_helper(source: str, name: str) -> str:
     return found[0].group(0)
 
 
-def validate_optional_parliament_pulse_progression(source: str) -> None:
-    """Require the governance-local sortition wait on the consensus-native slot.
+def validate_native_sortition_helpers(source: str) -> None:
+    """Require the governance-local sortition wait on the consensus-native slot."""
 
-    The timed-OVN ballot-release pulse is no longer consensus demand, so no autonomous
-    release progression is pinned: the corridors that need it are ignored instead.
-    """
-
-    _, test = parliament_lifecycle_test(source)
-    compacted = compact(test)
-    for marker in (
-        NATIVE_SORTITION_SLOT_DERIVATION,
-        NATIVE_SORTITION_PULSE_WAIT,
-        AFTER_BOUNDARY_SORTITION_CONSUMPTION,
-    ):
-        require(
-            compacted.count(compact(marker)) == 1,
-            f"Parliament lifecycle test lost native sortition step `{marker}`",
-        )
-    positions = [
-        compacted.index(compact(marker))
-        for marker in (
-            NATIVE_SORTITION_SLOT_DERIVATION,
-            "ParliamentLifecycleTransitionV1::RegisterSortitionRequest(",
-            NATIVE_SORTITION_PULSE_WAIT,
-            AFTER_BOUNDARY_SORTITION_CONSUMPTION,
-            "ParliamentLifecycleTransitionV1::ConsumeSortitionPulseBatch(",
-        )
-    ]
-    require(
-        positions == sorted(positions),
-        "sortition must derive its native slot, register, wait, cross the boundary, then consume",
-    )
     for name, markers in SORTITION_SLOT_HELPER_MARKERS.items():
         helper = compact(corridor_helper(source, name))
         for marker in markers:
@@ -821,22 +524,10 @@ def validate_optional_parliament_pulse_progression(source: str) -> None:
             retired not in source,
             f"Parliament corridor regained the retired sortition rule `{retired}`",
         )
-    for retired_tick in (
-        'tick(&client, "finalize the demanded sortition pulse")',
-        'tick(&client, "finalize the demanded ballot-release pulse")',
-    ):
-        require(
-            retired_tick not in test,
-            f"demanded Parliament pulse regained racing tick `{retired_tick}`",
-        )
-    for marker in (
-        "!status.is_halted()",
-        "!restarted_status.is_halted()",
-    ):
-        require(
-            marker in test,
-            f"Parliament lifecycle test lost non-fail-stopped status proof `{marker}`",
-        )
+    require(
+        'tick(&client, "finalize the demanded sortition pulse")' not in source,
+        "demanded Parliament pulse regained a racing tick",
+    )
 
 
 def governance_isolation_test(source: str) -> tuple[re.Match[str], str]:
@@ -913,17 +604,9 @@ def validate_governance_isolation_corridor(source: str) -> None:
     )
 
 
-def validate_hidden_ballot_ignores(source: str, publication: str) -> None:
-    """Require the exact ignore reason on hidden-ballot corridors and on nothing else."""
+def validate_sortition_corridors_execute(source: str) -> None:
+    """Require every Parliament corridor to be an executable test that is never ignored."""
 
-    for name in HIDDEN_BALLOT_CORRIDOR_TEST_NAMES:
-        pattern = re.compile(
-            rf"(?m)^#\[test\]\n{HIDDEN_BALLOT_IGNORE}fn {re.escape(name)}\(\)"
-        )
-        require(
-            len(pattern.findall(source)) == 1,
-            f"hidden-ballot corridor `{name}` must be ignored with the exact reason and a TODO",
-        )
     for name in SORTITION_ONLY_CORRIDOR_TEST_NAMES:
         pattern = re.compile(rf"(?m)^#\[test\]\nfn {re.escape(name)}\(\)")
         require(
@@ -931,19 +614,8 @@ def validate_hidden_ballot_ignores(source: str, publication: str) -> None:
             f"sortition-only corridor `{name}` must stay an executable test",
         )
     require(
-        source.count("#[ignore") == len(HIDDEN_BALLOT_CORRIDOR_TEST_NAMES)
-        and source.count(HIDDEN_BALLOT_IGNORE_ATTRIBUTE)
-        == len(HIDDEN_BALLOT_CORRIDOR_TEST_NAMES),
-        "only the hidden-ballot corridors may be ignored, each with the exact reason",
-    )
-    publication_pattern = re.compile(
-        rf"(?m)^#\[test\]\n{HIDDEN_BALLOT_IGNORE}"
-        rf"fn {PUBLICATION_GOVERNANCE_TEST_NAME}\(\)"
-    )
-    require(
-        len(publication_pattern.findall(publication)) == 1
-        and publication.count("#[ignore") == 1,
-        "the publication corridor enacts through the hidden ballot and must carry the exact ignore",
+        "#[ignore" not in source,
+        "no Parliament corridor may be ignored",
     )
 
 
@@ -1010,30 +682,16 @@ def validate_public_finding_no_result_retries_and_restore(source: str) -> None:
 def validate_exact_absence_classification(source: str) -> None:
     """Require exact positive and negative state projections, not transport success."""
 
-    for marker in (
-        *EXACT_ABSENCE_CLASSIFICATION_MARKERS,
-        *EXACT_ACTIVE_BINDING_MARKERS,
-    ):
+    for marker in EXACT_ABSENCE_CLASSIFICATION_MARKERS:
         require(
             compact(marker) in compact(source),
             f"Parliament state coverage lost exact classifier `{marker}`",
         )
     require(
-        source.count(".get_gov_contract_json(") == 1
-        and source.count(".get_gov_contract_response(") == 1,
-        "governed-contract reads must remain centralized in the exact projection helpers",
+        source.count(".get_gov_contract_response(") == 1,
+        "governed-contract reads must remain centralized in the exact projection helper",
     )
-    require(
-        source.count("assert_governed_contract_absent(") == 9,
-        "all eight inactive-contract checks must use the exact projection helper",
-    )
-    require(
-        source.count("assert_governed_contract_binding(") == 7,
-        "all six active-contract checks must use the exact projection helper",
-    )
-    asset_helper = source.split("fn assert_asset_not_found(", 1)[1].split(
-        "fn assert_timed_ovn_casting_context_not_castable(", 1
-    )[0]
+    asset_helper = corridor_helper(source, "assert_asset_not_found")
     require(
         asset_helper.count("let query = FindAssetById::new(asset_id.clone());") == 1
         and asset_helper.count("query.asset_id(),") == 1
@@ -1048,7 +706,7 @@ def validate_exact_absence_classification(source: str) -> None:
     )
     require(
         source.count(
-            ".get_sumeragi_finality_proof(requested_height)\n"
+            ".get_sumeragi_finality_proof(requested_height, root_scope)\n"
             '                .map_err(|error| eyre!("read finalized block for exact height {height}: {error}"))'
         )
         == 1
@@ -1058,7 +716,7 @@ def validate_exact_absence_classification(source: str) -> None:
         and ".query(FindBlocks)" not in source,
         "exact finalized-block checks must read one finality proof and bind its exact height and header",
     )
-    exact = re.search(r"(?ms)^pub\(super\) async fn exact_block\(.*?^\}\n", source)
+    exact = re.search(r"(?ms)^pub async fn exact_block\(.*?^\}\n", source)
     require(exact is not None, "exact finalized-block lookup lost its invoked owner")
     require(
         "NonZeroU64::new(height)" in exact.group(0),
@@ -1076,9 +734,6 @@ def validate_exact_absence_classification(source: str) -> None:
         "global beacon pulse lookup": (
             r"pulse_at\(\s*&client,\s*pulse_height\s*-\s*1\s*\)\s*\.is_err\(\)"
         ),
-        "sealed timed-OVN casting-context lookup": (
-            r"\.get_parliament_timed_ovn_casting_context\([^)]*\)\s*\.is_err\(\)"
-        ),
     }
     for label, pattern in broad_absence_patterns.items():
         require(
@@ -1091,7 +746,7 @@ def parliament_failure_path_test(source: str, name: str) -> tuple[re.Match[str],
     """Return one exact executable Parliament failure-path test and its async body."""
 
     pattern = re.compile(
-        rf"(?ms)^#\[test\]\n(?:{HIDDEN_BALLOT_IGNORE})?"
+        rf"(?ms)^#\[test\]\n"
         rf"fn {re.escape(name)}\(\) -> Result<\(\)> \{{\n"
         r".*?^\}\n"
         rf"\nasync fn {re.escape(name)}_impl\(\)\s*-> Result<\(\)>\s*\{{\n"
@@ -1104,29 +759,12 @@ def parliament_failure_path_test(source: str, name: str) -> tuple[re.Match[str],
 
 
 def validate_parliament_failure_paths(source: str) -> None:
-    """Pin terminal-state, rollback, capacity-abort, and bond-release coverage."""
+    """Pin capacity-abort and bond-release coverage."""
 
     for name, markers in PARLIAMENT_FAILURE_PATH_MARKERS.items():
         _, test = parliament_failure_path_test(source, name)
         for marker in markers:
             require(marker in test, f"Parliament failure path `{name}` lost `{marker}`")
-        if name == (
-            "four_validator_certified_effects_record_supersession_and_execution_failure"
-        ):
-            certified_positions = [
-                test.index(marker)
-                for marker in CERTIFIED_SUPERSEDING_DEPLOYMENT_MARKERS
-            ]
-            require(
-                certified_positions == sorted(certified_positions),
-                "certified supersession path must propose, certify, and autonomously "
-                "enact the competing deployment in order",
-            )
-            for bypass in DIRECT_SUPERSESSION_BYPASSES:
-                require(
-                    bypass not in test,
-                    f"certified supersession path regained direct `{bypass}` authority",
-                )
 
 
 def capacity_failure_builder(source: str) -> tuple[re.Match[str], str]:
@@ -1134,7 +772,7 @@ def capacity_failure_builder(source: str) -> tuple[re.Match[str], str]:
 
     pattern = re.compile(
         r"(?ms)^fn capacity_failure_builder\(.*?^\}\n"
-        r"(?=\nfn confirmation_capacity_builder\()"
+        r"(?=\n#\[test\]\nfn four_validator_hidden_capacity_retains_then_releases_citizenship_bond\()"
     )
     matches = list(pattern.finditer(source))
     require(len(matches) == 1, "hidden-capacity network builder is not one exact item")
@@ -1251,7 +889,7 @@ def mutate_marker(
     original = source
     if owner is not None:
         function = re.search(
-            rf"(?ms)^(?:pub\((?:super|crate)\) )?(?:async )?fn {re.escape(owner)}\(.*?^\}}\n",
+            rf"(?ms)^(?:pub(?:\((?:super|crate)\))? )?(?:async )?fn {re.escape(owner)}\(.*?^\}}\n",
             source,
         )
         require(function is not None, f"mutation owner is absent: `{owner}`")
@@ -1272,7 +910,7 @@ def validate_required_bounded_soranet_pow(source: str) -> None:
     """Require mandatory, supported-cost SoraNet admission in every corridor."""
 
     tests = (
-        ("Parliament lifecycle", parliament_lifecycle_test(source)[1]),
+        ("shared Parliament builder", corridor_helper(source, "builder_with_signer_modes")),
         ("mandatory NPoS", mandatory_npos_test(source)[1]),
         ("fail-closed NPoS", fail_closed_npos_test(source)[1]),
     )
@@ -1317,10 +955,6 @@ def validate_consensus_sized_test_stacks(source: str) -> None:
         "Parliament network stack size is not one exact 32 MiB constant",
     )
     tests = (
-        (
-            PARLIAMENT_LIFECYCLE_TEST_NAME,
-            parliament_lifecycle_test(source)[1],
-        ),
         (MANDATORY_NPOS_TEST_NAME, mandatory_npos_test(source)[1]),
         (FAIL_CLOSED_NPOS_TEST_NAME, fail_closed_npos_test(source)[1]),
     )
@@ -1410,11 +1044,11 @@ def validate_native_finality_prefix(source: str) -> None:
     """Follow the connected native prefix helper to signed genesis and exact quorum."""
 
     require(
-        '#[path = "sora_parliament_finality.rs"]\npub(super) mod finality;' in source,
+        '#[path = "sora_parliament_finality.rs"]\npub mod finality;' in source,
         "Parliament corridor lost its native finality helper registration",
     )
     helpers = list(re.finditer(
-        r"(?ms)^pub\(crate\) async fn visit_certified_prefix\(.*?^\}\n", source,
+        r"(?ms)^pub async fn visit_certified_prefix\(.*?^\}\n", source,
     ))
     require(len(helpers) == 1, "Parliament native prefix helper must have one owner")
     body = compact(re.sub(r"/\*.*?\*/|//[^\n]*", "", helpers[0].group(0), flags=re.S))
@@ -1458,11 +1092,12 @@ def validate_beacon_mode_profiles(source: str) -> None:
         compacted.count(FAIL_CLOSED_BEACON_MODES) == 1,
         "fail-closed beacon mode profile is not exact valid/absent/absent/invalid",
     )
-    _, parliament = parliament_lifecycle_test(source)
+    builder = corridor_helper(source, "builder")
     require(
-        "builder_with_signer_modes(builder, POSITIVE_BEACON_SIGNER_MODES)," in parliament
-        and ".with_parliament_beacon_signer_modes(signer_modes)" in parliament,
-        "optional Parliament pulses lost the positive fault profile",
+        "builder_with_signer_modes(builder, POSITIVE_BEACON_SIGNER_MODES)," in builder
+        and ".with_parliament_beacon_signer_modes(signer_modes)"
+        in corridor_helper(source, "builder_with_signer_modes"),
+        "shared Parliament corridors lost the positive fault profile",
     )
 
 
@@ -1659,18 +1294,6 @@ def validate_native_beacon_admission_and_fixture_isolation(
 class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
     """Mutation-resistant source checks for the dedicated network corridor."""
 
-    def test_shared_enactment_remains_the_invoked_owner(self) -> None:
-        source = read_corridor_source()
-        parliament_lifecycle_test(source)
-        for original, replacement in (
-            ('#[path = "sora_parliament_enactment.rs"]', '#[path = "other.rs"]'),
-            ("let builder = enactment::builder(", "let builder = other::builder("),
-            ("let enacted_fixture = enactment::enact(", "let enacted_fixture = other::enact("),
-            ("pub(crate) async fn enact(", "pub(crate) async fn disconnected_enact("),
-        ):
-            with self.subTest(original=original), self.assertRaises(ContractError):
-                parliament_lifecycle_test(source.replace(original, replacement, 1))
-
     def test_semantic_mutations_require_and_isolate_the_actual_owner(self) -> None:
         source = "fn other() {\n    check(value);\n}\nfn actual() {\n    check(\n        value\n    );\n}\n"
         mutated = mutate_marker(source, "check(value);", owner="actual")
@@ -1764,8 +1387,8 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
         )
         helper_calls = corridor.count("assert_transition_rejected_without_state_change(")
         require(
-            helper_calls == 12,
-            "corridor must retain the helper plus eleven boundary/replay checks",
+            helper_calls == 3,
+            "corridor must retain the helper plus two boundary/replay checks",
         )
         for retired in (
             "CastPlainBallot",
@@ -1777,7 +1400,7 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
             require(retired not in corridor, f"corridor regained retired `{retired}`")
         validate_required_bounded_soranet_pow(corridor)
         validate_consensus_sized_test_stacks(corridor)
-        validate_optional_parliament_pulse_progression(corridor)
+        validate_native_sortition_helpers(corridor)
         validate_public_finding_no_result_retries_and_restore(corridor)
         validate_exact_absence_classification(corridor)
         validate_parliament_failure_paths(corridor)
@@ -1799,7 +1422,7 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
     def test_required_bounded_soranet_pow_rejects_adversarial_mutations(self) -> None:
         corridor = read_corridor_source()
         mutations = {
-            "lifecycle PoW override introduced": mutate_parliament_lifecycle_test(
+            "shared builder PoW override introduced": mutate_marker(
                 corridor,
                 ".with_config_layer(|layer| {",
                 '''.with_config_layer(|layer| {
@@ -1807,11 +1430,13 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
                 ["network", "soranet_handshake", "pow", "required"],
                 false,
             );''',
+                owner="builder_with_signer_modes",
             ),
-            "lifecycle memory cost raised": mutate_parliament_lifecycle_test(
+            "shared builder memory cost raised": mutate_marker(
                 corridor,
                 "i64::from(iroha_crypto::soranet::puzzle::MIN_MEMORY_KIB)",
                 "64_i64 * 1024",
+                owner="builder_with_signer_modes",
             ),
             "mandatory NPoS time cost raised": mutate_mandatory_npos_test(
                 corridor, '"time_cost"', '"time_cost_mutated"'
@@ -1827,7 +1452,7 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
     def test_consensus_sized_test_stacks_reject_adversarial_mutations(self) -> None:
         corridor = read_corridor_source()
         mutations = {
-            "lifecycle caller stack removed": mutate_parliament_lifecycle_test(
+            "mandatory caller stack removed": mutate_mandatory_npos_test(
                 corridor, ".stack_size(PARLIAMENT_NETWORK_STACK_BYTES)"
             ),
             "mandatory worker stack removed": mutate_mandatory_npos_test(
@@ -1843,40 +1468,18 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
             with self.subTest(label=label), self.assertRaises(ContractError):
                 validate_consensus_sized_test_stacks(mutated)
 
-    def test_optional_pulse_progression_rejects_adversarial_mutations(self) -> None:
+    def test_native_sortition_helpers_reject_adversarial_mutations(self) -> None:
         corridor = read_corridor_source()
-        validate_optional_parliament_pulse_progression(corridor)
+        validate_native_sortition_helpers(corridor)
         mutations = {
-            "retired mid-epoch slot": mutate_parliament_lifecycle_test(
-                corridor,
-                "expected_sortition_slot(network, &client, attempt_id, request_height, None).await?;",
-                "request_height + 4;",
-            ),
-            "missing native slot wait": mutate_marker(
-                corridor, NATIVE_SORTITION_PULSE_WAIT, "pulse_stub()", owner="enact"
-            ),
-            "consumption before the boundary": mutate_marker(
-                corridor, AFTER_BOUNDARY_SORTITION_CONSUMPTION, "ready(Ok(0))", owner="enact"
-            ),
-            "sortition pulse transaction race": mutate_parliament_lifecycle_test(
-                corridor,
-                "assert_eq!(sortition_pulse.height, sortition_pulse_height);",
-                '''assert_eq!(
-        tick(&client, "finalize the demanded sortition pulse")?,
-        sortition_pulse_height,
-    );''',
-            ),
+            "retired mid-epoch slot": corridor + "\n    let slot = request_height + 4;\n",
+            "sortition pulse transaction race": corridor
+            + '\n    tick(&client, "finalize the demanded sortition pulse")?;\n',
             "restored Parliament-demanded pulse wait": corridor.replace(
                 "advance_to_autonomous_predecessor(network, client, slot, label).await?;",
                 "advance_to_autonomous_predecessor(network, client, slot, label).await?;\n"
                 "    network.ensure_blocks(sortition_pulse_height).await?;",
                 1,
-            ),
-            "enacted peer fail-stop status omitted": mutate_parliament_lifecycle_test(
-                corridor, "!status.is_halted()", "true"
-            ),
-            "restarted peer fail-stop status omitted": mutate_parliament_lifecycle_test(
-                corridor, "!restarted_status.is_halted()", "true"
             ),
         }
         for name, markers in SORTITION_SLOT_HELPER_MARKERS.items():
@@ -1886,7 +1489,7 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
                 )
         for label, mutated in mutations.items():
             with self.subTest(label=label), self.assertRaises(ContractError):
-                validate_optional_parliament_pulse_progression(mutated)
+                validate_native_sortition_helpers(mutated)
 
     def test_governance_isolation_corridor_rejects_adversarial_mutations(self) -> None:
         corridor = read_corridor_source()
@@ -1931,57 +1534,24 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
             with self.subTest(label=label), self.assertRaises(ContractError):
                 validate_governance_isolation_corridor(mutated)
 
-    def test_hidden_ballot_ignores_are_exact_and_sortition_corridors_execute(self) -> None:
+    def test_sortition_corridors_are_executable_and_never_ignored(self) -> None:
         corridor = read_corridor_source()
-        publication = PUBLICATION_GOVERNANCE.read_text(encoding="utf-8")
-        validate_hidden_ballot_ignores(corridor, publication)
+        validate_sortition_corridors_execute(corridor)
         runner = RUNNER.read_text(encoding="utf-8")
         self.assertNotIn("--ignored", runner)
         self.assertNotIn("--include-ignored", runner)
         mutations = {}
-        for name in HIDDEN_BALLOT_CORRIDOR_TEST_NAMES:
-            mutations[f"{name} un-ignored"] = (
-                re.sub(
-                    rf"(?m)^#\[test\]\n{HIDDEN_BALLOT_IGNORE}(?=fn {re.escape(name)}\(\))",
-                    "#[test]\n",
-                    corridor,
-                    count=1,
-                ),
-                publication,
-            )
-            mutations[f"{name} bare ignore"] = (
-                re.sub(
-                    rf"(?m)^#\[test\]\n{HIDDEN_BALLOT_IGNORE}(?=fn {re.escape(name)}\(\))",
-                    "#[test]\n#[ignore]\n",
-                    corridor,
-                    count=1,
-                ),
-                publication,
-            )
         for name in SORTITION_ONLY_CORRIDOR_TEST_NAMES:
-            mutations[f"{name} ignored"] = (
-                corridor.replace(
-                    f"#[test]\nfn {name}()",
-                    f"#[test]\n// TODO: later\n{HIDDEN_BALLOT_IGNORE_ATTRIBUTE}\nfn {name}()",
-                    1,
-                ),
-                publication,
+            mutations[f"{name} bare ignore"] = corridor.replace(
+                f"#[test]\nfn {name}()", f"#[test]\n#[ignore]\nfn {name}()", 1
             )
-        mutations["reason reworded"] = (
-            corridor.replace(HIDDEN_BALLOT_IGNORE_REASON, "flaky", 1),
-            publication,
-        )
-        mutations["publication un-ignored"] = (
-            corridor,
-            publication.replace(HIDDEN_BALLOT_IGNORE_ATTRIBUTE + "\n", "", 1),
-        )
-        for label, (mutated, mutated_publication) in mutations.items():
-            self.assertTrue(
-                mutated != corridor or mutated_publication != publication,
-                f"{label}: mutation did not change the source",
+            mutations[f"{name} renamed"] = corridor.replace(
+                f"#[test]\nfn {name}()", f"#[test]\nfn {name}_disabled()", 1
             )
+        for label, mutated in mutations.items():
+            self.assertNotEqual(mutated, corridor, f"{label}: mutation did not change the source")
             with self.subTest(label=label), self.assertRaises(ContractError):
-                validate_hidden_ballot_ignores(mutated, mutated_publication)
+                validate_sortition_corridors_execute(mutated)
 
     def test_public_finding_no_result_retries_and_restore_reject_mutations(self) -> None:
         corridor = read_corridor_source()
@@ -2017,10 +1587,7 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
     def test_exact_absence_classification_rejects_adversarial_mutations(self) -> None:
         corridor = read_corridor_source()
         validate_exact_absence_classification(corridor)
-        for marker in (
-            *EXACT_ABSENCE_CLASSIFICATION_MARKERS,
-            *EXACT_ACTIVE_BINDING_MARKERS,
-        ):
+        for marker in EXACT_ABSENCE_CLASSIFICATION_MARKERS:
             with self.subTest(marker=marker), self.assertRaises(ContractError):
                 owner = {
                     "match read_on_dedicated_thread({": "assert_asset_not_found",
@@ -2038,9 +1605,6 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
             "citizen_asset_id.clone())).is_err();\n",
             "global beacon pulse lookup": corridor
             + "\npulse_at(&client, pulse_height - 1).is_err();\n",
-            "sealed timed-OVN casting-context lookup": corridor
-            + "\nclient.get_parliament_timed_ovn_casting_context(ballot_attempt_id)"
-            ".is_err();\n",
             "asset absence accepts a present exact match": corridor.replace(
                 "Ok(asset) => Err(eyre!(",
                 "Ok(asset) => Ok(eyre!(",
@@ -2082,12 +1646,10 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
                 1,
             ),
             "unbounded block inventory query": corridor.replace(
-                ".get_sumeragi_finality_proof(requested_height)",
+                ".get_sumeragi_finality_proof(requested_height, root_scope)",
                 ".query(FindBlocks)\n        .execute_all()",
                 1,
             ),
-            "bare active-contract transport success": corridor
-            + "\nclient.get_gov_contract_json(&contract_address)?;\n",
             "inactive route still expects HTTP 404": corridor.replace(
                 "response.status() != iroha::http::StatusCode::OK",
                 "response.status() != iroha::http::StatusCode::NOT_FOUND",
@@ -2098,14 +1660,6 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
             ),
             "inactive response permits extra fields": corridor.replace(
                 "object.len() != 3", "object.len() < 3", 1
-            ),
-            "active response permits extra fields": corridor.replace(
-                "object.len() != 7", "object.len() < 7", 1
-            ),
-            "active response accepts any entrypoint": corridor.replace(
-                'entrypoints.len() == 1 && entrypoints[0].as_str() == Some("main")',
-                "!entrypoints.is_empty()",
-                1,
             ),
         }
         for label, mutated in broad_mutations.items():
@@ -2128,23 +1682,6 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
                     validate_parliament_failure_paths(
                         mutate_parliament_failure_path_test(corridor, name, marker)
                     )
-
-        certified_name = (
-            "four_validator_certified_effects_record_supersession_and_execution_failure"
-        )
-        certified_anchor = CERTIFIED_SUPERSEDING_DEPLOYMENT_MARKERS[0]
-        for bypass in DIRECT_SUPERSESSION_BYPASSES:
-            with self.subTest(name=certified_name, bypass=bypass), self.assertRaises(
-                ContractError
-            ):
-                validate_parliament_failure_paths(
-                    mutate_parliament_failure_path_test(
-                        corridor,
-                        certified_name,
-                        certified_anchor,
-                        f"{bypass};\n    {certified_anchor}",
-                    )
-                )
 
     def test_capacity_failure_genesis_rejects_adversarial_mutations(self) -> None:
         corridor = read_corridor_source()
@@ -2283,7 +1820,7 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
                 validate_mandatory_npos_boundary(changed + "\n/* " + marker + " */\n")
         with self.subTest(marker="disconnected module"), self.assertRaises(ContractError):
             validate_mandatory_npos_boundary(corridor.replace(
-                '#[path = "sora_parliament_finality.rs"]\npub(super) mod finality;', "", 1,
+                '#[path = "sora_parliament_finality.rs"]\npub mod finality;', "", 1,
             ))
 
     def test_native_finality_rejects_genesis_only_prefix_and_missing_rejections(self) -> None:
@@ -2320,15 +1857,17 @@ class SoraParliamentLifecycleCorridorSourceTests(unittest.TestCase):
                 "const MUTATED_FAIL_CLOSED_BEACON_SIGNER_MODES",
                 1,
             ),
-            "optional lifecycle returns to all-valid shorthand": mutate_parliament_lifecycle_test(
+            "shared builder returns to all-valid shorthand": mutate_marker(
                 corridor,
                 ".with_parliament_beacon_signer_modes(signer_modes)",
                 ".with_parliament_test_signers()",
+                owner="builder_with_signer_modes",
             ),
-            "optional lifecycle loses the positive profile": mutate_parliament_lifecycle_test(
+            "shared builder loses the positive profile": mutate_marker(
                 corridor,
                 "builder_with_signer_modes(builder, POSITIVE_BEACON_SIGNER_MODES),",
                 "builder_with_signer_modes(builder, FAIL_CLOSED_BEACON_SIGNER_MODES),",
+                owner="builder",
             ),
         }
         for label, mutated in mutations.items():

@@ -519,3 +519,38 @@ fn fresh_standalone_child_stays_unfunded_and_capture_checks_vm_owner() {
     ));
     assert_eq!(foreign.reserved_bytes(), 0);
 }
+
+#[test]
+fn invocation_scope_fixes_collection_while_unscoped_tokens_follow_configuration() {
+    let owner_unavailable = |result: Result<(), VMError>| {
+        matches!(
+            result,
+            Err(VMError::ExecutionDeferred(
+                crate::error::ExecutionDeferral::TraceOwnerUnavailable
+            ))
+        )
+    };
+    let original = AllocationBudget::new(LIMIT);
+    let mut vm = loaded(&original, TraceMode::Off, true);
+
+    // Without a scope, ownership tracks the VM configuration on every check.
+    let unscoped = vm.begin_trace_invocation().unwrap();
+    vm.record_trace_prefetch(&unscoped).unwrap();
+    vm.zk_trace_enabled = false;
+    assert!(owner_unavailable(vm.record_trace_prefetch(&unscoped)));
+    vm.zk_trace_enabled = true;
+    vm.record_trace_prefetch(&unscoped).unwrap();
+    vm.finish_trace_invocation(unscoped);
+
+    // An installed invocation scope fixes the policy the token was admitted under.
+    let _scope = zk::RegLoggerGuard::install(vm.reg_log.clone());
+    let scoped = vm.begin_trace_invocation().unwrap();
+    vm.zk_trace_enabled = false;
+    vm.record_trace_prefetch(&scoped).unwrap();
+    vm.prepare_trace_instruction(&scoped, encode_halt(), |_| Ok(()))
+        .unwrap();
+    vm.zk_trace_enabled = true;
+    vm.set_max_cycles(0);
+    assert!(owner_unavailable(vm.record_trace_prefetch(&scoped)));
+    vm.finish_trace_invocation(scoped);
+}

@@ -1,15 +1,24 @@
 //! Desktop views over Kagami's shared, persistent managed workspace.
 
+mod accounts;
+mod brand;
+mod chrome;
+mod develop;
+mod endpoints;
+mod home;
+mod ledger;
+mod theme;
+mod widgets;
+
 use eframe::egui;
 use mochi_core::{
-    DashboardAccountInput, DashboardSnapshot, InstructionDraft, ManagedBlockStream,
-    ManagedEventStream, StatePage, StateQueryKind, TransactionPreview,
+    ManagedBlockStream, ManagedEventStream, StatePage, StateQueryKind, TransactionPreview,
     developer::{
         ContractInput, DeveloperWorkspace, GeneratedPublishAction, GeneratedPublishOutcome,
         ManagedAttachmentPhase, ManagedAttachmentStatus, ManagedContext, ManagedDataspaceStatus,
         ManagedNetwork, ManagedPhase, ManagedStatus, PreparedLocalnet,
     },
-    drafts_from_json_str, drafts_to_pretty_json, fetch_dashboard_snapshot, run_state_query,
+    run_state_query,
 };
 use std::{
     collections::VecDeque,
@@ -17,13 +26,21 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
     time::{Duration, Instant},
 };
+use widgets::icon;
 
 /// Launch the desktop; the optional argument is a workspace directory, never a configuration file.
 pub fn run(workspace: PathBuf) -> eframe::Result<()> {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Mochi")
+        .with_inner_size([1280.0, 840.0])
+        .with_min_inner_size([920.0, 620.0]);
+    if let Some(icon) = brand::window_icon() {
+        viewport = viewport.with_icon(std::sync::Arc::new(icon));
+    }
     eframe::run_native(
         "Mochi",
         eframe::NativeOptions {
-            viewport: egui::ViewportBuilder::default().with_inner_size([1160.0, 800.0]),
+            viewport,
             ..Default::default()
         },
         Box::new(move |creation| Ok(Box::new(Desktop::new(creation, workspace)))),
@@ -34,30 +51,42 @@ type UiResult<T> = Result<T, String>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum View {
-    Dashboard,
-    State,
+    Home,
+    Accounts,
+    Blocks,
     Activity,
+    State,
     Composer,
     Contracts,
     Packages,
+    Endpoints,
+    Logs,
 }
 impl View {
-    const ALL: [Self; 6] = [
-        Self::Dashboard,
-        Self::State,
+    const ALL: [Self; 10] = [
+        Self::Home,
+        Self::Accounts,
+        Self::Blocks,
         Self::Activity,
+        Self::State,
         Self::Composer,
         Self::Contracts,
         Self::Packages,
+        Self::Endpoints,
+        Self::Logs,
     ];
     fn label(self) -> &'static str {
         match self {
-            Self::Dashboard => "Overview",
-            Self::State => "State",
+            Self::Home => "Home",
+            Self::Accounts => "Accounts",
+            Self::Blocks => "Blocks",
             Self::Activity => "Activity",
-            Self::Composer => "Compose",
+            Self::State => "State",
+            Self::Composer => "Transactions",
             Self::Contracts => "Contracts",
             Self::Packages => "Packages",
+            Self::Endpoints => "Endpoints",
+            Self::Logs => "Logs",
         }
     }
 }
@@ -208,7 +237,7 @@ enum Message {
         names: UiResult<Vec<String>>,
     },
     Reset(UiResult<Vec<String>>),
-    Dashboard(UiResult<DashboardSnapshot>),
+    Ledger(UiResult<accounts::LedgerSnapshot>),
     State(UiResult<StatePage>),
     Logs(UiResult<String>),
     Submitted(UiResult<String>),
@@ -266,37 +295,52 @@ impl LocalnetDialog {
         names: &[String],
         busy: bool,
     ) -> Option<LocalnetDialogAction> {
+        let palette = theme::palette(context);
         let mut action = None;
-        egui::Window::new("New localnet")
-            .collapsible(false)
-            .resizable(false)
-            .show(context, |ui| {
-                ui.label("Create four local validators and a funded account. No configuration files needed.");
-                ui.label("Your current environment stays available. The new localnet becomes selected when ready.");
-                ui.horizontal(|ui| {
-                    ui.label("Name");
-                    ui.text_edit_singleline(&mut self.name);
-                });
-                let name = self.name.trim();
-                let exists = names.iter().any(|existing| existing == name);
-                if exists {
-                    ui.label("This name already exists. Choose it from the environment menu to resume it.");
+        let modal = egui::Modal::new(egui::Id::new("new-localnet")).show(context, |ui| {
+            ui.set_width(440.0);
+            widgets::card_title(ui, icon::NEW, "New localnet");
+            ui.add_space(4.0);
+            widgets::hint(
+                ui,
+                "Create four local validators and a funded account. No configuration files needed.",
+            );
+            widgets::hint(
+                ui,
+                "Your current environment stays available. The new localnet becomes selected when ready.",
+            );
+            ui.add_space(6.0);
+            ui.label(widgets::eyebrow(palette, "Name"));
+            ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(f32::INFINITY));
+            let name = self.name.trim();
+            let exists = names.iter().any(|existing| existing == name);
+            if exists {
+                widgets::banner(
+                    ui,
+                    widgets::Tone::Warning,
+                    "This name already exists. Choose it from the environment menu to resume it.",
+                    false,
+                );
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    action = Some(LocalnetDialogAction::Cancel);
                 }
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
-                        action = Some(LocalnetDialogAction::Cancel);
-                    }
-                    if ui
-                        .add_enabled(
-                            !busy && !name.is_empty() && !exists,
-                            egui::Button::new("Create localnet"),
-                        )
-                        .clicked()
-                    {
-                        action = Some(LocalnetDialogAction::Start(name.to_owned()));
-                    }
-                });
+                if ui
+                    .add_enabled(
+                        !busy && !name.is_empty() && !exists,
+                        widgets::primary_button(palette, "Create localnet"),
+                    )
+                    .clicked()
+                {
+                    action = Some(LocalnetDialogAction::Start(name.to_owned()));
+                }
             });
+        });
+        if action.is_none() && modal.should_close() {
+            action = Some(LocalnetDialogAction::Cancel);
+        }
         action
     }
 }
@@ -350,53 +394,6 @@ impl PublicationForm {
             }
         }
     }
-
-    fn show(&mut self, ui: &mut egui::Ui, available: bool) -> Option<PublicationAction> {
-        let mut action = None;
-        ui.heading("Publish a package");
-        ui.label("Publish to the selected generated localnet. Publish starts a default localnet when none is selected.");
-        ui.label("Publication can register the package namespace and pay transaction fees.");
-        ui.add(
-            egui::TextEdit::singleline(&mut self.manifest)
-                .hint_text("Manifest or workspace path")
-                .desired_width(700.0),
-        );
-        ui.add(
-            egui::TextEdit::singleline(&mut self.package)
-                .hint_text("Package selector (optional)")
-                .desired_width(700.0),
-        );
-        ui.checkbox(&mut self.detach, "Return after durable seed staging");
-        if ui
-            .add_enabled(available, egui::Button::new("Publish package"))
-            .clicked()
-        {
-            action = Some(PublicationAction::Begin);
-        }
-        ui.separator();
-        ui.label("Use the original operation ID from publication output. Resume uses its retained package; Recover package files requires the original workspace.");
-        ui.add(
-            egui::TextEdit::singleline(&mut self.operation_id)
-                .hint_text("Publication operation ID")
-                .desired_width(700.0),
-        );
-        ui.horizontal_wrapped(|ui| {
-            let enabled = available && !self.operation_id.trim().is_empty();
-            if ui
-                .add_enabled(enabled, egui::Button::new("Resume publication"))
-                .clicked()
-            {
-                action = Some(PublicationAction::Resume);
-            }
-            if ui
-                .add_enabled(enabled, egui::Button::new("Recover package files"))
-                .clicked()
-            {
-                action = Some(PublicationAction::Recover);
-            }
-        });
-        action
-    }
 }
 
 // Presentation only. The canonical outcome owns all publication status and diagnostics.
@@ -421,28 +418,6 @@ impl PublicationOutput {
             stderr: String::from_utf8(stderr).map_err(|error| error.to_string())?,
         })
     }
-
-    fn show(&self, ui: &mut egui::Ui) {
-        ui.separator();
-        ui.strong(format!(
-            "Publication output · exit status {}",
-            self.exit_code
-        ));
-        if !self.stdout.is_empty() {
-            ui.label("Output");
-            if ui.button("Copy publication output").clicked() {
-                ui.ctx().copy_text(self.stdout.clone());
-            }
-            ui.add(egui::Label::new(egui::RichText::new(&self.stdout).monospace()).wrap());
-        }
-        if !self.stderr.is_empty() {
-            ui.label("Diagnostics");
-            if ui.button("Copy publication diagnostics").clicked() {
-                ui.ctx().copy_text(self.stderr.clone());
-            }
-            ui.add(egui::Label::new(egui::RichText::new(&self.stderr).monospace()).wrap());
-        }
-    }
 }
 
 /// The native workspace identity is separate from editable display text.
@@ -461,7 +436,7 @@ impl WorkspacePath {
     }
 
     fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        let response = ui.add(egui::TextEdit::singleline(&mut self.text).desired_width(520.0));
+        let response = ui.add(egui::TextEdit::singleline(&mut self.text).desired_width(320.0));
         if response.changed() {
             // A deliberate edit selects the typed path. An untouched display retains the
             // exact original native argument, including bytes Unicode cannot represent.
@@ -477,6 +452,8 @@ struct Desktop {
     receiver: Receiver<(u64, Message)>,
     epoch: u64,
     busy: bool,
+    /// Presentation only: the pending task was started by the developer, not by polling.
+    foreground: bool,
     workspace_path: WorkspacePath,
     workspace: Option<DeveloperWorkspace>,
     names: Vec<String>,
@@ -496,7 +473,23 @@ struct Desktop {
     notice: Option<String>,
     reset_intent: bool,
     last_poll: Instant,
-    dashboard: Option<DashboardSnapshot>,
+    brand: Option<brand::Brand>,
+    /// Structured blocks from the observed validator's canonical stream, newest first.
+    blocks_feed: VecDeque<ledger::BlockRow>,
+    latest_height: Option<u64>,
+    /// Accounts and holdings from the observed validator; cleared with the network.
+    ledger: Option<accounts::LedgerSnapshot>,
+    ledger_error: Option<String>,
+    /// A committed block or submission made the ledger snapshot outdated.
+    ledger_stale: bool,
+    last_ledger_refresh: Instant,
+    accounts_filter: String,
+    quick: accounts::QuickActions,
+    activity_kind: ledger::ActivityKind,
+    activity_filter: String,
+    /// `None` reads the supervisor log.
+    logs_source: Option<usize>,
+    endpoint_peer: usize,
     query: StateQueryKind,
     page: Option<StatePage>,
     filter: String,
@@ -531,12 +524,10 @@ struct Desktop {
 
 impl Desktop {
     fn new(creation: &eframe::CreationContext<'_>, path: PathBuf) -> Self {
-        let mut style = (*creation.egui_ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(10.0, 10.0);
-        style.visuals = egui::Visuals::dark();
-        style.visuals.selection.bg_fill = egui::Color32::from_rgb(72, 87, 167);
-        creation.egui_ctx.set_style(style);
+        theme::install(&creation.egui_ctx);
+        theme::install_fonts(&creation.egui_ctx);
         let mut app = Self::model(path);
+        app.brand = brand::Brand::load(&creation.egui_ctx);
         app.open();
         app
     }
@@ -557,6 +548,7 @@ impl Desktop {
             receiver,
             epoch: 0,
             busy: false,
+            foreground: false,
             workspace_path: WorkspacePath::new(path),
             workspace: None,
             names: Vec::new(),
@@ -571,12 +563,24 @@ impl Desktop {
             attachment_progress: None,
             selected: None,
             peer: 0,
-            view: View::Dashboard,
+            view: View::Home,
             error,
             notice: None,
             reset_intent: false,
             last_poll: Instant::now(),
-            dashboard: None,
+            brand: None,
+            blocks_feed: VecDeque::new(),
+            latest_height: None,
+            ledger: None,
+            ledger_error: None,
+            ledger_stale: false,
+            last_ledger_refresh: Instant::now(),
+            accounts_filter: String::new(),
+            quick: accounts::QuickActions::default(),
+            activity_kind: ledger::ActivityKind::All,
+            activity_filter: String::new(),
+            logs_source: None,
+            endpoint_peer: 0,
             query: StateQueryKind::Accounts,
             page: None,
             filter: String::new(),
@@ -608,10 +612,12 @@ impl Desktop {
         self.error = None;
         self.notice = None;
         self.spawn_task(work);
+        self.foreground = true;
     }
 
     fn spawn_task(&mut self, work: impl FnOnce() -> Message + Send + 'static) {
         self.busy = true;
+        self.foreground = false;
         let sender = self.sender.clone();
         let epoch = self.epoch;
         std::thread::spawn(move || {
@@ -624,10 +630,19 @@ impl Desktop {
         self.peer = 0;
         self.blocks = None;
         self.events = None;
-        self.dashboard = None;
         self.page = None;
         self.logs.clear();
         self.activity.clear();
+        self.blocks_feed.clear();
+        self.latest_height = None;
+        self.ledger = None;
+        self.ledger_error = None;
+        self.ledger_stale = false;
+        // Generated test keys live only as long as the environment they were made for.
+        self.quick.generated = None;
+        self.quick.reveal_key = false;
+        self.logs_source = None;
+        self.endpoint_peer = 0;
         self.preview = None;
         self.submitted_hash = None;
         self.receipt = None;
@@ -909,7 +924,10 @@ impl Desktop {
                     }
                     continue;
                 }
-                _ => self.busy = false,
+                _ => {
+                    self.busy = false;
+                    self.foreground = false;
+                }
             }
             match message {
                 Message::Opened(result) => match result {
@@ -962,9 +980,12 @@ impl Desktop {
                     }
                     Err(error) => self.error = Some(error),
                 },
-                Message::Dashboard(result) => match result {
-                    Ok(snapshot) => self.dashboard = Some(snapshot),
-                    Err(error) => self.error = Some(error),
+                Message::Ledger(result) => match result {
+                    Ok(snapshot) => {
+                        self.ledger = Some(snapshot);
+                        self.ledger_error = None;
+                    }
+                    Err(error) => self.ledger_error = Some(error),
                 },
                 Message::State(result) => match result {
                     Ok(page) => self.page = Some(page),
@@ -975,7 +996,10 @@ impl Desktop {
                     Err(error) => self.error = Some(error),
                 },
                 Message::Submitted(result) => match result {
-                    Ok(message) => self.notice = Some(message),
+                    Ok(message) => {
+                        self.notice = Some(message);
+                        self.ledger_stale = true;
+                    }
                     Err(error) => self.error = Some(error),
                 },
                 Message::Deployed { result, refreshed } => {
@@ -1039,10 +1063,24 @@ impl Desktop {
             }
         }
         if let Some((_, receiver)) = self.blocks.as_mut() {
-            drain_stream(receiver, &mut self.activity, block_activity);
+            let (feed, latest, stale) = (
+                &mut self.blocks_feed,
+                &mut self.latest_height,
+                &mut self.ledger_stale,
+            );
+            drain_stream(receiver, &mut self.activity, block_activity, |event| {
+                if let mochi_core::BlockStreamEvent::Block {
+                    summary, raw_len, ..
+                } = event
+                    && let Some(height) = ledger::record_block(feed, summary, *raw_len)
+                {
+                    *latest = Some(latest.map_or(height, |current| current.max(height)));
+                    *stale = true;
+                }
+            });
         }
         if let Some((_, receiver)) = self.events.as_mut() {
-            drain_stream(receiver, &mut self.activity, event_activity);
+            drain_stream(receiver, &mut self.activity, event_activity, |_| {});
         }
         if self.attaching.is_some()
             && !self.attachment_poll_pending
@@ -1055,278 +1093,85 @@ impl Desktop {
         {
             self.refresh_selection();
         }
-    }
-
-    fn top_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading("Mochi");
-            ui.label("Your Iroha workspace");
-            if self.busy {
-                ui.spinner();
-                ui.label("Working…");
-            }
-        });
-        ui.add_enabled_ui(!self.busy, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Workspace");
-                self.workspace_path.show(ui);
-                if ui.button("Open").clicked() {
-                    self.open();
-                }
-            });
-            ui.horizontal(|ui| {
-                let selected = self
-                    .selected
-                    .as_ref()
-                    .map(|s| s.network.prepared().context.name.clone());
-                let mut chosen = selected.clone();
-                egui::ComboBox::from_id_salt("context")
-                    .selected_text(selected.as_deref().unwrap_or("Choose environment"))
-                    .show_ui(ui, |ui| {
-                        for name in &self.names {
-                            ui.selectable_value(&mut chosen, Some(name.clone()), name);
-                        }
-                    });
-                if chosen != selected
-                    && let Some(name) = chosen
-                {
-                    self.select(name);
-                }
-                if self.selected.is_none() {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.new_name)
-                            .hint_text("Localnet name")
-                            .desired_width(130.0),
-                    );
-                }
-                let phase = self.selected.as_ref().map(|s| s.phase);
-                if ui
-                    .add_enabled(
-                        self.workspace.is_some() && phase != Some(ManagedPhase::Ready),
-                        egui::Button::new(if self.selected.is_some() {
-                            "Start"
-                        } else {
-                            "Start localnet"
-                        }),
-                    )
-                    .clicked()
-                {
-                    self.lifecycle(true);
-                }
-                if ui
-                    .add_enabled(self.workspace.is_some(), egui::Button::new("New localnet…"))
-                    .clicked()
-                {
-                    self.localnet_dialog = Some(LocalnetDialog::new(&self.names));
-                }
-                if ui
-                    .add_enabled(
-                        self.workspace.is_some(),
-                        egui::Button::new("Private dataspace…"),
-                    )
-                    .clicked()
-                {
-                    self.private_dialog = true;
-                }
-                if ui
-                    .add_enabled(
-                        matches!(phase, Some(ManagedPhase::Ready | ManagedPhase::Starting)),
-                        egui::Button::new("Stop"),
-                    )
-                    .clicked()
-                {
-                    self.lifecycle(false);
-                }
-                if ui
-                    .add_enabled(self.selected.is_some(), egui::Button::new("Refresh"))
-                    .clicked()
-                {
-                    self.error = None;
-                    self.refresh_selection();
-                }
-                if ui
-                    .add_enabled(
-                        matches!(phase, Some(ManagedPhase::Stopped | ManagedPhase::Failed)),
-                        egui::Button::new("Reset…"),
-                    )
-                    .clicked()
-                {
-                    self.reset_intent = true;
-                }
-            });
-        });
-        if let Some(selected) = &self.selected {
-            ui.horizontal(|ui| {
-                ui.strong(format!(
-                    "{:?} · {} / 4 validators",
-                    selected.phase, selected.running
-                ));
-                ui.label(&selected.network.prepared().context.chain_id);
-            });
-            if let Some(failure) = &selected.failure {
-                ui.colored_label(egui::Color32::LIGHT_RED, failure);
-            }
-            match &selected.attachment {
-                Ok(Some(status)) => attachment_details(ui, status),
-                Err(error) => {
-                    ui.colored_label(
-                        egui::Color32::LIGHT_RED,
-                        format!("Parent status unavailable: {error}"),
-                    );
-                }
-                Ok(None) => {}
-            }
-        } else if let Some(name) = &self.attaching {
-            ui.label(format!("Setting up private dataspace {name}…"));
-            if let Some(status) = &self.attachment_progress {
-                ui.label(format!(
-                    "{:?} · {} / 4 local validators",
-                    status.local.phase, status.local.running_peers
-                ));
-                attachment_details(ui, &status.attachment);
-            }
-        } else if self.workspace.is_some() {
-            ui.label("Start creates four local validators, a funded account and your client context. No configuration files needed.");
+        // Balances follow committed blocks; idle chains make no blocks and cause no queries.
+        let wanted = self.ledger_stale || (self.ledger.is_none() && self.ledger_error.is_none());
+        if wanted
+            && !self.busy
+            && self.ready()
+            && self.last_ledger_refresh.elapsed() >= Duration::from_secs(2)
+        {
+            self.refresh_ledger();
         }
     }
 
-    fn dashboard(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Your environment");
-        ui.label(
-            "Kagami and Mochi share this network. It stays available when you close the desktop.",
-        );
-        let Some(selected) = self.selected.as_ref() else {
+    fn refresh_ledger(&mut self) {
+        let Some(selected) = &self.selected else {
             return;
         };
-        let context = &selected.network.prepared().context;
-        public_value(ui, "Account", &context.account_id);
-        public_value(ui, "Network", &context.network_id);
-        public_value(ui, "Dataspace", &context.dataspace_alias);
-        ui.separator();
-        for (index, peer) in selected.network.prepared().peers.iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.label(format!("Validator {}", index + 1));
-                ui.monospace(&peer.torii_url);
-                if ui.small_button("Copy URL").clicked() {
-                    ui.ctx().copy_text(peer.torii_url.clone());
-                }
-            });
+        if self.busy || selected.phase != ManagedPhase::Ready {
+            return;
         }
-        if ui
-            .add_enabled(
-                !self.busy && selected.phase == ManagedPhase::Ready,
-                egui::Button::new("Refresh balances and blocks"),
-            )
-            .clicked()
-        {
-            let network = selected.network.clone();
-            let peer = self.peer;
-            if let Some(handle) = self.runtime.as_ref().map(|r| r.handle().clone()) {
-                self.spawn(move || {
-                    Message::Dashboard((|| {
-                        let client = network.observer(peer).map_err(|e| e.to_string())?;
-                        let context = &network.prepared().context;
-                        let snapshot = handle
-                            .block_on(fetch_dashboard_snapshot(
-                                format!("Validator {}", peer + 1),
-                                &client,
-                                vec![DashboardAccountInput {
-                                    label: context.name.clone(),
-                                    account_id: context.account_id.clone(),
-                                }],
-                            ))
-                            .map_err(|e| format!("{e:?}"))?;
-                        network.validate().map_err(|e| e.to_string())?;
-                        Ok(snapshot)
-                    })())
-                });
-            }
-        }
-        if let Some(snapshot) = &self.dashboard {
-            ui.separator();
-            ui.strong("Balances");
-            for account in &snapshot.accounts {
-                for balance in &account.balances {
-                    ui.label(format!("{}  {}", balance.value, balance.definition_id));
-                }
-            }
-            ui.strong("Recent blocks");
-            for block in &snapshot.recent_blocks {
-                ui.label(format!(
-                    "#{} · {} transactions · {} rejected",
-                    block.height, block.transactions_total, block.transactions_rejected
-                ));
-            }
-        }
+        let Some(handle) = self.runtime.as_ref().map(|r| r.handle().clone()) else {
+            return;
+        };
+        let network = selected.network.clone();
+        let peer = self.peer;
+        self.ledger_stale = false;
+        self.last_ledger_refresh = Instant::now();
+        // Background observation: keep the foreground notice, such as a just-applied hash.
+        self.spawn_task(move || Message::Ledger(fetch_ledger(&handle, &network, peer)));
     }
 
-    fn state(&mut self, ui: &mut egui::Ui) {
-        ui.heading("State explorer");
-        ui.horizontal(|ui| {
-            let before = self.query;
-            egui::ComboBox::from_id_salt("state_kind")
-                .selected_text(self.query.label())
-                .show_ui(ui, |ui| {
-                    for kind in StateQueryKind::all() {
-                        ui.selectable_value(&mut self.query, kind, kind.label());
-                    }
-                });
-            if self.query != before {
-                self.page = None;
-            }
-            if ui
-                .add_enabled(!self.busy && self.ready(), egui::Button::new("Query"))
-                .clicked()
-            {
-                self.fetch_state(false);
-            }
-            if ui
-                .add_enabled(
-                    !self.busy && self.page.as_ref().is_some_and(|p| p.cursor.is_some()),
-                    egui::Button::new("Next page"),
-                )
-                .clicked()
-            {
-                self.fetch_state(true);
-            }
-            ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Filter this page"));
-        });
-        if let Some(page) = &self.page {
-            if page.kind != self.query {
-                return;
-            }
-            ui.label(format!(
-                "{} records on this page · {} remaining",
-                page.entries.len(),
-                page.remaining
-            ));
-            let filter = self.filter.to_lowercase();
-            for entry in page
-                .entries
-                .iter()
-                .filter(|e| e.search_blob.contains(&filter))
-            {
-                egui::CollapsingHeader::new(&entry.title)
-                    .id_salt(&entry.title)
-                    .show(ui, |ui| {
-                        ui.label(&entry.subtitle);
-                        ui.label(&entry.detail);
-                        ui.horizontal(|ui| {
-                            if let Some(json) = &entry.json
-                                && ui.button("Copy JSON").clicked()
-                            {
-                                ui.ctx().copy_text(json.clone());
-                            }
-                            if let Some(bytes) = &entry.norito_bytes
-                                && ui.button("Copy Norito hex").clicked()
-                            {
-                                ui.ctx().copy_text(hex::encode(bytes));
-                            }
-                        });
-                        ui.monospace(entry.json.as_deref().unwrap_or(&entry.raw));
-                    });
-            }
+    /// Stream from another validator. Observations bound to the previous one are dropped.
+    fn observe_peer(&mut self, index: usize) {
+        if self.busy || index == self.peer {
+            return;
         }
+        self.peer = index;
+        self.blocks = None;
+        self.events = None;
+        self.page = None;
+        self.blocks_feed.clear();
+        self.latest_height = None;
+        self.ledger = None;
+        self.ledger_error = None;
+        self.connect_streams();
+    }
+
+    /// Accept a contract dropped anywhere on the window as deployment input.
+    fn accept_dropped_files(&mut self, context: &egui::Context) {
+        let dropped = context.input(|input| {
+            input
+                .raw
+                .dropped_files
+                .iter()
+                .filter_map(|file| file.path.clone())
+                .collect::<Vec<_>>()
+        });
+        let Some(path) = dropped.into_iter().next() else {
+            return;
+        };
+        if !develop::is_contract_input(&path) {
+            self.error = Some(format!(
+                "Mochi deploys .ko sources, .to bytecode, Musubi.toml manifests and package directories; {} is none of these.",
+                path.display()
+            ));
+            return;
+        }
+        // A lossy rendering could name a different file, so only exact Unicode paths are taken.
+        let Some(text) = path.to_str() else {
+            self.error = Some(
+                "The dropped path is not valid Unicode; type it into Contract path instead.".into(),
+            );
+            return;
+        };
+        self.contract_path = text.to_owned();
+        self.view = View::Contracts;
+        let name = path.file_name().map_or_else(
+            || text.to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        widgets::notify(context, format!("Ready to deploy {name}"));
     }
 
     fn fetch_state(&mut self, next: bool) {
@@ -1361,230 +1206,6 @@ impl Desktop {
                 result
             })())
         });
-    }
-
-    fn activity(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Activity");
-        ui.label("Canonical block and event streams from the selected validator.");
-        for entry in self.activity.iter().rev().take(100) {
-            ui.monospace(entry);
-        }
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.strong("Validator logs");
-            if ui
-                .add_enabled(
-                    !self.busy && self.selected.is_some(),
-                    egui::Button::new("Read latest logs"),
-                )
-                .clicked()
-                && let (Some(workspace), Some(selected)) =
-                    (self.workspace.clone(), self.selected.as_ref())
-            {
-                let network = selected.network.clone();
-                let peer = self.peer;
-                self.spawn(move || {
-                    Message::Logs(
-                        workspace
-                            .logs(&network, Some(peer), 64 * 1024)
-                            .map_err(|e| e.to_string()),
-                    )
-                });
-            }
-        });
-        ui.add(
-            egui::TextEdit::multiline(&mut self.logs)
-                .font(egui::TextStyle::Monospace)
-                .desired_width(f32::INFINITY)
-                .desired_rows(14)
-                .interactive(false),
-        );
-    }
-
-    fn composer(&mut self, ui: &mut egui::Ui) {
-        let _address_profile = self.selected.as_ref().map(|selected| {
-            iroha_data_model::account::address::ChainDiscriminantGuard::enter(
-                selected.network.address_discriminant(),
-            )
-        });
-        ui.heading("Compose a transaction");
-        ui.label("Build instructions, review the exact signed transaction, then submit it once.");
-        ui.horizontal(|ui| {
-            const ACTIONS: [&str; 4] = ["Mint", "Burn", "Transfer", "Register account"];
-            egui::ComboBox::from_id_salt("instruction")
-                .selected_text(ACTIONS[self.action])
-                .show_ui(ui, |ui| {
-                    for (index, label) in ACTIONS.iter().enumerate() {
-                        ui.selectable_value(&mut self.action, index, *label);
-                    }
-                });
-            ui.add(
-                egui::TextEdit::singleline(&mut self.asset)
-                    .hint_text(if self.action == 3 {
-                        "Account ID"
-                    } else {
-                        "Asset ID"
-                    })
-                    .desired_width(420.0),
-            );
-            if self.action != 3 {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.quantity)
-                        .hint_text("Quantity")
-                        .desired_width(90.0),
-                );
-            }
-        });
-        if self.action == 2 {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.destination)
-                    .hint_text("Destination account ID")
-                    .desired_width(600.0),
-            );
-        }
-        if ui.button("Add instruction").clicked() {
-            let draft = match self.action {
-                0 => InstructionDraft::mint_from_input(&self.asset, &self.quantity),
-                1 => InstructionDraft::burn_from_input(&self.asset, &self.quantity),
-                2 => InstructionDraft::transfer_from_input(
-                    &self.asset,
-                    &self.quantity,
-                    &self.destination,
-                ),
-                _ => InstructionDraft::register_account_from_input(&self.asset),
-            };
-            let result = draft.and_then(|draft| {
-                let mut drafts = drafts_from_json_str(&self.drafts)?;
-                drafts.push(draft);
-                drafts_to_pretty_json(&drafts)
-            });
-            match result {
-                Ok(drafts) => {
-                    self.drafts = drafts;
-                    self.preview = None;
-                }
-                Err(error) => self.error = Some(error.to_string()),
-            }
-        }
-        ui.label("Draft JSON also supports asset definitions, roles, multisig and chain policy instructions.");
-        if ui
-            .add(
-                egui::TextEdit::multiline(&mut self.drafts)
-                    .code_editor()
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(12),
-            )
-            .changed()
-        {
-            self.preview = None;
-        }
-        if ui
-            .add_enabled(
-                !self.busy && self.ready(),
-                egui::Button::new("Review transaction"),
-            )
-            .clicked()
-            && let Some(selected) = &self.selected
-        {
-            match drafts_from_json_str(&self.drafts)
-                .map_err(|e| e.to_string())
-                .and_then(|drafts| selected.network.preview(&drafts).map_err(|e| e.to_string()))
-            {
-                Ok(preview) => {
-                    self.preview = Some(preview);
-                    self.submitted_hash = None;
-                }
-                Err(error) => self.error = Some(error),
-            }
-        }
-        if let Some(preview) = &self.preview {
-            ui.separator();
-            public_value(ui, "Authority", preview.authority());
-            public_value(ui, "Transaction", preview.hash());
-            for instruction in preview.instructions() {
-                ui.label(instruction);
-            }
-            if ui.button("Copy signed Norito hex").clicked() {
-                ui.ctx().copy_text(preview.encoded_hex().to_owned());
-            }
-            if ui
-                .add_enabled(
-                    !self.busy && self.submitted_hash.as_deref() != Some(preview.hash()),
-                    egui::Button::new("Submit reviewed transaction"),
-                )
-                .clicked()
-                && let (Some(selected), Some(handle)) = (
-                    &self.selected,
-                    self.runtime.as_ref().map(|r| r.handle().clone()),
-                )
-            {
-                let network = selected.network.clone();
-                let peer = self.peer;
-                let preview = preview.clone();
-                self.submitted_hash = Some(preview.hash().to_owned());
-                self.spawn(move || Message::Submitted(handle.block_on(network.submit(peer, &preview)).map(|commit| format!("Applied {} in block {}", preview.hash(), commit.block_height))
-                        .map_err(|e| format!("Transaction {}: {e}. Keep this original hash when checking an uncertain outcome.", preview.hash()))));
-            }
-        }
-    }
-
-    fn contracts(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Deploy a smart contract");
-        ui.label("Choose a .ko source, .to artifact, or Musubi package. Compilation, fees and durable recovery use the same service as Kagami.");
-        ui.add(
-            egui::TextEdit::singleline(&mut self.contract_path)
-                .hint_text("Contract path")
-                .desired_width(700.0),
-        );
-        ui.add(
-            egui::TextEdit::singleline(&mut self.contract_alias)
-                .hint_text("Alias (optional; generated in the selected dataspace)")
-                .desired_width(700.0),
-        );
-        egui::CollapsingHeader::new("Package options").show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.package)
-                    .hint_text("Package selector (optional)"),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut self.contract)
-                    .hint_text("Contract target (optional)"),
-            );
-            ui.checkbox(&mut self.locked, "Require unchanged dependency lock");
-        });
-        if ui
-            .add_enabled(
-                !self.busy && self.workspace.is_some() && !self.contract_path.trim().is_empty(),
-                egui::Button::new("Prepare deployment"),
-            )
-            .clicked()
-        {
-            self.deploy(false);
-        }
-        ui.separator();
-        ui.label("Resume an interrupted deployment using its retained journal.");
-        ui.add(
-            egui::TextEdit::singleline(&mut self.journal_path)
-                .hint_text("Journal path")
-                .desired_width(700.0),
-        );
-        if ui
-            .add_enabled(
-                !self.busy && self.workspace.is_some() && !self.journal_path.trim().is_empty(),
-                egui::Button::new("Review and resume"),
-            )
-            .clicked()
-        {
-            self.deploy(true);
-        }
-        if let Some(receipt) = &self.receipt {
-            ui.separator();
-            ui.strong("Verified deployment receipt");
-            if ui.button("Copy receipt").clicked() {
-                ui.ctx().copy_text(receipt.clone());
-            }
-            ui.monospace(receipt);
-        }
     }
 
     fn deploy(&mut self, resume: bool) {
@@ -1664,18 +1285,6 @@ impl Desktop {
         });
     }
 
-    fn packages(&mut self, ui: &mut egui::Ui) {
-        if let Some(action) = self
-            .publication
-            .show(ui, !self.busy && self.workspace.is_some())
-        {
-            self.publish_package(action);
-        }
-        if let Some(output) = &self.publication_output {
-            output.show(ui);
-        }
-    }
-
     fn publish_package(&mut self, action: PublicationAction) {
         if self.busy {
             return;
@@ -1728,23 +1337,40 @@ impl Desktop {
         let Some(review) = &self.review else {
             return;
         };
+        let palette = theme::palette(context);
         let mut decision = None;
         let viewport = context.content_rect();
         let width = (viewport.width() - 48.0).clamp(160.0, 760.0);
-        let evidence_height = (viewport.height() - 200.0).clamp(40.0, 400.0);
+        let evidence_height = (viewport.height() - 220.0).clamp(40.0, 400.0);
+        // Only the explicit buttons decide; clicking outside the dialog withholds approval.
         egui::Modal::new(egui::Id::new("deployment-review")).show(context, |ui| {
             ui.set_width(width);
-            ui.heading("Review deployment");
-            ui.strong("Review the exact deployment and quoted fees");
-            egui::ScrollArea::vertical()
-                .max_height(evidence_height)
+            widgets::card_title(ui, icon::CONTRACTS, "Review deployment");
+            ui.label(
+                egui::RichText::new("Review the exact deployment and quoted fees")
+                    .strong()
+                    .color(palette.text),
+            );
+            egui::Frame::new()
+                .fill(palette.inset)
+                .corner_radius(egui::CornerRadius::same(10))
+                .inner_margin(egui::Margin::same(10))
                 .show(ui, |ui| {
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(&review.evidence).monospace()).wrap(),
-                    );
+                    egui::ScrollArea::vertical()
+                        .max_height(evidence_height)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(&review.evidence).monospace())
+                                    .wrap(),
+                            );
+                        });
                 });
+            ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Deploy with these fees").clicked() {
+                if ui
+                    .add(widgets::primary_button(palette, "Deploy with these fees"))
+                    .clicked()
+                {
                     decision = Some(true);
                 }
                 if ui.button("Cancel").clicked() {
@@ -1763,99 +1389,216 @@ impl Desktop {
         if !self.private_dialog {
             return;
         }
-        egui::Window::new("Private dataspace")
-            .collapsible(false).resizable(false).show(context, |ui| {
-                ui.label("Run four private validators here and connect them to your selected network.");
-                ui.label("Contract data stays on this computer. The parent receives certified commitments.");
-                ui.horizontal(|ui| {
-                    ui.label("Name");
-                    ui.text_edit_singleline(&mut self.private_alias);
-                });
-                let available = match &self.profiles {
-                    Ok(profiles) if !profiles.is_empty() => {
-                        egui::ComboBox::from_id_salt("private-network").selected_text(&self.private_network).show_ui(ui, |ui| {
-                            for name in profiles { ui.selectable_value(&mut self.private_network, name.clone(), name); }
+        let palette = theme::palette(context);
+        let modal = egui::Modal::new(egui::Id::new("private-dataspace")).show(context, |ui| {
+            ui.set_width(460.0);
+            widgets::card_title(ui, icon::PRIVATE, "Private dataspace");
+            ui.add_space(4.0);
+            widgets::hint(
+                ui,
+                "Run four private validators here and connect them to your selected network.",
+            );
+            widgets::hint(
+                ui,
+                "Contract data stays on this computer. The parent receives certified commitments.",
+            );
+            ui.add_space(6.0);
+            ui.label(widgets::eyebrow(palette, "Name"));
+            ui.add(egui::TextEdit::singleline(&mut self.private_alias).desired_width(f32::INFINITY));
+            ui.label(widgets::eyebrow(palette, "Parent network"));
+            let available = match &self.profiles {
+                Ok(profiles) if !profiles.is_empty() => {
+                    egui::ComboBox::from_id_salt("private-network")
+                        .selected_text(&self.private_network)
+                        .show_ui(ui, |ui| {
+                            for name in profiles {
+                                ui.selectable_value(&mut self.private_network, name.clone(), name);
+                            }
                         });
-                        true
-                    }
-                    Ok(_) => { ui.label("This installation has no network profiles. Install a bundle that includes your network."); false }
-                    Err(error) => { ui.label("Installed network profiles are unavailable. Localnets remain available."); ui.colored_label(egui::Color32::LIGHT_RED, bounded_text(error)); false }
-                };
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() { self.private_dialog = false; }
-                    if ui.add_enabled(available && !self.busy && self.workspace.is_some() && !self.private_alias.trim().is_empty(), egui::Button::new("Start private dataspace")).clicked() { self.attach(); }
-                });
+                    true
+                }
+                Ok(_) => {
+                    widgets::banner(
+                        ui,
+                        widgets::Tone::Info,
+                        "This installation has no network profiles. Install a bundle that includes your network.",
+                        false,
+                    );
+                    false
+                }
+                Err(error) => {
+                    widgets::banner(
+                        ui,
+                        widgets::Tone::Warning,
+                        &format!(
+                            "Installed network profiles are unavailable. Localnets remain available.\n{}",
+                            bounded_text(error)
+                        ),
+                        false,
+                    );
+                    false
+                }
+            };
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    self.private_dialog = false;
+                }
+                if ui
+                    .add_enabled(
+                        available
+                            && !self.busy
+                            && self.workspace.is_some()
+                            && !self.private_alias.trim().is_empty(),
+                        widgets::primary_button(palette, "Start private dataspace"),
+                    )
+                    .clicked()
+                {
+                    self.attach();
+                }
             });
+        });
+        if modal.should_close() {
+            self.private_dialog = false;
+        }
+    }
+
+    fn reset_dialog(&mut self, context: &egui::Context) {
+        if !self.reset_intent {
+            return;
+        }
+        let palette = theme::palette(context);
+        let modal = egui::Modal::new(egui::Id::new("reset-environment")).show(context, |ui| {
+            ui.set_width(440.0);
+            widgets::card_title(ui, icon::RESET, "Reset local environment?");
+            ui.add_space(4.0);
+            widgets::banner(
+                ui,
+                widgets::Tone::Warning,
+                "This removes the stopped environment's local keys and ledger. Its old ledger cannot be restored. Remote attachment history remains retained.",
+                false,
+            );
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    self.reset_intent = false;
+                }
+                if ui
+                    .add_enabled(
+                        !self.busy,
+                        widgets::tonal_button("Reset local data", palette.on_sakura, palette.aka),
+                    )
+                    .clicked()
+                {
+                    self.reset_intent = false;
+                    if let (Some(workspace), Some(selected)) =
+                        (self.workspace.clone(), &self.selected)
+                    {
+                        let network = selected.network.clone();
+                        self.spawn(move || {
+                            Message::Reset(
+                                workspace
+                                    .reset(&network)
+                                    .map_err(|e| e.to_string())
+                                    .and_then(|_| {
+                                        workspace
+                                            .contexts()
+                                            .map(|contexts| {
+                                                contexts.into_iter().map(|c| c.name).collect()
+                                            })
+                                            .map_err(|e| e.to_string())
+                                    }),
+                            )
+                        });
+                    }
+                }
+            });
+        });
+        if modal.should_close() {
+            self.reset_intent = false;
+        }
     }
 }
 
 impl Desktop {
     fn show(&mut self, context: &egui::Context) {
-        egui::TopBottomPanel::top("workspace").show(context, |ui| self.top_bar(ui));
+        let palette = theme::palette(context);
+        self.accept_dropped_files(context);
+        egui::TopBottomPanel::top("header")
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.panel)
+                    .inner_margin(egui::Margin::symmetric(16, 8)),
+            )
+            .show(context, |ui| self.header(ui));
+        egui::TopBottomPanel::top("status")
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.panel)
+                    .inner_margin(egui::Margin::symmetric(20, 8)),
+            )
+            .show(context, |ui| self.status_strip(ui));
         egui::SidePanel::left("navigation")
             .resizable(false)
-            .min_width(155.0)
+            .exact_width(200.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.panel)
+                    .inner_margin(egui::Margin::symmetric(10, 8)),
+            )
+            .show(context, |ui| self.navigation(ui));
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(palette.background)
+                    .inner_margin(egui::Margin::symmetric(24, 16)),
+            )
             .show(context, |ui| {
-                ui.add_space(12.0);
-                for view in View::ALL {
-                    ui.selectable_value(&mut self.view, view, view.label());
-                }
-                ui.separator();
-                if let Some(selected) = &self.selected {
-                    ui.label("Observe validator");
-                    let before = self.peer;
-                    ui.add_enabled_ui(!self.busy, |ui| {
-                        for index in 0..selected.network.prepared().peers.len() {
-                            ui.selectable_value(
-                                &mut self.peer,
-                                index,
-                                format!("Validator {}", index + 1),
-                            );
+                self.banners(ui);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        match self.view {
+                            View::Home => self.home(ui),
+                            View::Accounts => self.accounts(ui),
+                            View::Blocks => self.blocks(ui),
+                            View::Activity => self.activity(ui),
+                            View::State => self.state(ui),
+                            View::Composer => self.composer(ui),
+                            View::Contracts => self.contracts(ui),
+                            View::Packages => self.packages(ui),
+                            View::Endpoints => self.endpoints(ui),
+                            View::Logs => self.logs(ui),
                         }
+                        ui.add_space(24.0);
                     });
-                    if self.peer != before {
-                        self.blocks = None;
-                        self.events = None;
-                        self.page = None;
-                        self.dashboard = None;
-                        self.connect_streams();
-                    }
+                if context.input(|input| !input.raw.hovered_files.is_empty()) {
+                    let rect = ui.max_rect();
+                    let painter = context.layer_painter(egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::new("mochi-drop-overlay"),
+                    ));
+                    painter.rect_filled(
+                        rect,
+                        egui::CornerRadius::same(16),
+                        palette.background.gamma_multiply(0.85),
+                    );
+                    painter.rect_stroke(
+                        rect.shrink(10.0),
+                        egui::CornerRadius::same(16),
+                        egui::Stroke::new(2.0, palette.sakura),
+                        egui::StrokeKind::Inside,
+                    );
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        format!("{}  Drop a contract to deploy it", icon::DROP),
+                        egui::FontId::proportional(22.0),
+                        palette.sakura,
+                    );
                 }
             });
-        egui::CentralPanel::default().show(context, |ui| {
-            if let Some(error) = &self.error {
-                ui.colored_label(egui::Color32::LIGHT_RED, error);
-                ui.separator();
-            }
-            if let Some(notice) = &self.notice {
-                ui.colored_label(egui::Color32::LIGHT_GREEN, notice);
-                ui.separator();
-            }
-            egui::ScrollArea::vertical().show(ui, |ui| match self.view {
-                View::Dashboard => self.dashboard(ui),
-                View::State => self.state(ui),
-                View::Activity => self.activity(ui),
-                View::Composer => self.composer(ui),
-                View::Contracts => self.contracts(ui),
-                View::Packages => self.packages(ui),
-            });
-        });
-        if self.reset_intent {
-            egui::Window::new("Reset local environment?").collapsible(false).resizable(false).show(context, |ui| {
-                ui.label("This removes the stopped environment's local keys and ledger. Its old ledger cannot be restored. Remote attachment history remains retained.");
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() { self.reset_intent = false; }
-                    if ui.add_enabled(!self.busy, egui::Button::new("Reset local data")).clicked() {
-                        self.reset_intent = false;
-                        if let (Some(workspace), Some(selected)) = (self.workspace.clone(), &self.selected) {
-                            let network = selected.network.clone();
-                            self.spawn(move || Message::Reset(workspace.reset(&network).map_err(|e| e.to_string())
-                                .and_then(|_| workspace.contexts().map(|contexts| contexts.into_iter().map(|c| c.name).collect()).map_err(|e| e.to_string()))));
-                        }
-                    }
-                });
-            });
-        }
+        self.reset_dialog(context);
         if let Some(dialog) = &mut self.localnet_dialog
             && let Some(action) = dialog.show(context, &self.names, self.busy)
         {
@@ -1866,6 +1609,7 @@ impl Desktop {
         }
         self.private_dataspace_dialog(context);
         self.review_dialog(context);
+        widgets::show_toasts(context);
         context.request_repaint_after(Duration::from_millis(100));
     }
 }
@@ -1949,26 +1693,52 @@ fn attachment_summary(status: &ManagedAttachmentStatus) -> String {
 }
 
 fn attachment_details(ui: &mut egui::Ui, status: &ManagedAttachmentStatus) {
-    ui.label(attachment_summary(status));
+    let palette = theme::palette(ui.ctx());
+    ui.label(egui::RichText::new(attachment_summary(status)).color(palette.text));
     if let Some(cursor) = &status.local_successor {
-        ui.label(format!("Last observed private block #{}", cursor.height));
+        ui.label(
+            egui::RichText::new(format!("Last observed private block #{}", cursor.height))
+                .color(palette.muted),
+        );
     }
     if let Some(wallet) = &status.wallet_status {
-        ui.label(format!("Parent operation: {wallet}"));
+        ui.label(egui::RichText::new(format!("Parent operation: {wallet}")).color(palette.muted));
     }
     if let Some(failure) = &status.failure {
-        ui.colored_label(egui::Color32::LIGHT_RED, failure.to_string());
+        ui.colored_label(palette.aka, failure.to_string());
     }
 }
 
-fn public_value(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.horizontal_wrapped(|ui| {
-        ui.strong(label);
-        ui.monospace(value);
-        if ui.small_button("Copy").clicked() {
-            ui.ctx().copy_text(value.to_owned());
-        }
-    });
+/// Accounts and holdings of the exact captured generation, read through one validator.
+fn fetch_ledger(
+    handle: &tokio::runtime::Handle,
+    network: &ManagedNetwork,
+    peer: usize,
+) -> UiResult<accounts::LedgerSnapshot> {
+    let client = network.observer(peer).map_err(|e| e.to_string())?;
+    let signer = network.signer();
+    let discriminant = network.address_discriminant();
+    let query = |kind, size| {
+        handle
+            .block_on(run_state_query(
+                client.clone(),
+                &signer,
+                discriminant,
+                kind,
+                None,
+                std::num::NonZeroU64::new(size),
+            ))
+            .map_err(|e| e.to_string())
+    };
+    let accounts = query(StateQueryKind::Accounts, 100)?;
+    let holdings = query(StateQueryKind::Assets, 200)?;
+    let definitions = query(StateQueryKind::AssetDefinitions, 100)?;
+    network.validate().map_err(|e| e.to_string())?;
+    Ok(accounts::LedgerSnapshot::new(
+        accounts,
+        holdings,
+        &definitions,
+    ))
 }
 
 fn push_activity(activity: &mut VecDeque<String>, value: String) {
@@ -2029,10 +1799,14 @@ fn drain_stream<T: Clone>(
     receiver: &mut tokio::sync::broadcast::Receiver<T>,
     activity: &mut VecDeque<String>,
     summarize: impl Fn(&T) -> String,
+    mut record: impl FnMut(&T),
 ) {
     for _ in 0..64 {
         match receiver.try_recv() {
-            Ok(event) => push_activity(activity, summarize(&event)),
+            Ok(event) => {
+                record(&event);
+                push_activity(activity, summarize(&event));
+            }
             Err(tokio::sync::broadcast::error::TryRecvError::Lagged(count)) => push_activity(
                 activity,
                 format!(
@@ -2496,7 +2270,7 @@ mod tests {
     fn deployment_review_keeps_decision_buttons_reachable_in_a_small_viewport() {
         let mut desktop = Desktop::model(PathBuf::from("unused"));
         desktop.busy = true;
-        desktop.view = View::Dashboard;
+        desktop.view = View::Home;
         let (decision, answer) = mpsc::channel();
         desktop.review = Some(Review {
             evidence: "a long original signed transaction and exact fee evidence ".repeat(300),
@@ -3131,12 +2905,16 @@ mod tests {
         for view in View::ALL {
             let output = context.run(egui::RawInput::default(), |context| {
                 egui::CentralPanel::default().show(context, |ui| match view {
-                    View::Dashboard => desktop.dashboard(ui),
-                    View::State => desktop.state(ui),
+                    View::Home => desktop.home(ui),
+                    View::Accounts => desktop.accounts(ui),
+                    View::Blocks => desktop.blocks(ui),
                     View::Activity => desktop.activity(ui),
+                    View::State => desktop.state(ui),
                     View::Composer => desktop.composer(ui),
                     View::Contracts => desktop.contracts(ui),
                     View::Packages => desktop.packages(ui),
+                    View::Endpoints => desktop.endpoints(ui),
+                    View::Logs => desktop.logs(ui),
                 });
             });
             assert!(!output.shapes.is_empty());
@@ -3153,9 +2931,116 @@ mod tests {
             sender.send(index).unwrap();
         }
         let mut activity = VecDeque::new();
-        drain_stream(&mut receiver, &mut activity, |event| event.to_string());
+        let mut recorded = Vec::new();
+        drain_stream(
+            &mut receiver,
+            &mut activity,
+            |event| event.to_string(),
+            |event| recorded.push(*event),
+        );
+        assert_eq!(recorded.first(), Some(&8));
         assert!(activity.front().unwrap().contains("skipped"));
         assert_eq!(activity.back().unwrap(), "9");
+    }
+
+    fn drop_file(desktop: &mut Desktop, path: PathBuf) {
+        let context = egui::Context::default();
+        let _ = context.run(
+            egui::RawInput {
+                dropped_files: vec![egui::DroppedFile {
+                    path: Some(path),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            |context| desktop.show(context),
+        );
+    }
+
+    #[test]
+    fn dropped_contracts_become_deployment_input_without_deploying() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.contract_path = "original.ko".into();
+        drop_file(&mut desktop, temporary.path().join("notes.txt"));
+        assert_eq!(desktop.contract_path, "original.ko");
+        assert_eq!(desktop.view, View::Home);
+        assert!(desktop.error.as_deref().unwrap().contains("notes.txt"));
+
+        let contract = temporary.path().join("coffee.ko");
+        drop_file(&mut desktop, contract.clone());
+        assert_eq!(desktop.contract_path, contract.to_str().unwrap());
+        assert_eq!(desktop.view, View::Contracts);
+        assert!(!desktop.busy, "dropping never dispatches a deployment");
+        assert!(desktop.review.is_none());
+    }
+
+    #[test]
+    fn switching_validators_drops_observations_bound_to_the_previous_one() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.blocks_feed.push_back(ledger::BlockRow {
+            height: 3,
+            hash: "aa".into(),
+            transactions: 1,
+            rejected: 0,
+            signatures: 4,
+            created_ms: 0,
+            genesis: false,
+            bytes: 10,
+        });
+        desktop.latest_height = Some(3);
+        desktop.ledger_error = Some("original validator observation".into());
+        desktop.busy = true;
+        desktop.observe_peer(2);
+        assert_eq!(desktop.peer, 0, "busy work keeps the observed validator");
+        desktop.busy = false;
+        desktop.observe_peer(2);
+        assert_eq!(desktop.peer, 2);
+        assert!(desktop.blocks_feed.is_empty());
+        assert!(desktop.latest_height.is_none());
+        assert!(desktop.ledger.is_none());
+        assert!(desktop.ledger_error.is_none());
+    }
+
+    #[test]
+    fn leaving_an_environment_forgets_generated_keys_and_ledger_observations() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.quick.generated = Some(mochi_core::GeneratedAccount::generate());
+        desktop.quick.reveal_key = true;
+        desktop.quick.asset = "kept form input".into();
+        desktop.ledger_stale = true;
+        desktop.latest_height = Some(9);
+        desktop.logs_source = Some(3);
+        desktop.endpoint_peer = 3;
+        desktop.clear_network();
+        assert!(desktop.quick.generated.is_none());
+        assert!(!desktop.quick.reveal_key);
+        assert_eq!(desktop.quick.asset, "kept form input");
+        assert!(!desktop.ledger_stale);
+        assert!(desktop.latest_height.is_none());
+        assert_eq!(desktop.logs_source, None);
+        assert_eq!(desktop.endpoint_peer, 0);
+    }
+
+    #[test]
+    fn submissions_mark_balances_stale_and_background_work_stays_quiet() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.spawn(|| Message::Submitted(Ok("Applied original in block 4".into())));
+        assert!(desktop.busy && desktop.foreground);
+        let completion = desktop
+            .receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        desktop.sender.send(completion).unwrap();
+        desktop.poll();
+        assert!(!desktop.busy && !desktop.foreground);
+        assert!(desktop.ledger_stale);
+        assert_eq!(
+            desktop.notice.as_deref(),
+            Some("Applied original in block 4")
+        );
+        desktop.spawn_task(|| Message::Logs(Ok("background".into())));
+        assert!(desktop.busy && !desktop.foreground);
     }
 }
 
@@ -3166,3 +3051,7 @@ mod publication_tests;
 #[cfg(test)]
 #[path = "gui/attachment_tests.rs"]
 mod attachment_tests;
+
+#[cfg(test)]
+#[path = "gui/preview_tests.rs"]
+mod preview_tests;

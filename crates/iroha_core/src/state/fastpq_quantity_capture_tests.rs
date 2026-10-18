@@ -1,6 +1,8 @@
 //! Actual owner capture, rollback and explicit refusal of incomplete quantity coverage.
 
 use super::*;
+#[path = "fastpq_quantity_capture_tests/registration_tests.rs"]
+mod registration_tests;
 use crate::{kura::Kura, query::store::LiveQueryStore, smartcontracts::Execute};
 use iroha_data_model::{
     account::Account,
@@ -2438,6 +2440,25 @@ fn genuine_wide_decimal_supply_and_transfer_retain_original_values_without_narro
 fn with_sealed_quantity_source_census(
     action: impl FnOnce(&mut StateBlock<'_>, &SignedBlock, &AssetId, &AssetId),
 ) {
+    with_quantity_source_census_before_seal(
+        |_| (),
+        |block, source, alice, bob, ()| {
+            assert_eq!(block.fastpq_quantity_candidate.issue, None);
+            assert!(matches!(
+                block.fastpq_quantity_candidate.source_census,
+                super::source_census::QuantitySourceCensusState::Sealed(_)
+            ));
+            action(block, source, alice, bob);
+        },
+    );
+}
+
+/// Offer optional archive conditions while the exact actual outputs are still mutable.
+/// The ordinary seal remains the sole producer of the complete mandatory source.
+fn with_quantity_source_census_before_seal<T>(
+    before_seal: impl FnOnce(&mut StateBlock<'_>) -> T,
+    action: impl FnOnce(&mut StateBlock<'_>, &SignedBlock, &AssetId, &AssetId, T),
+) {
     use iroha_data_model::{isi::Log, prelude::Level};
     let (state, alice, bob) = fixture();
     let header = quantity_successor_header(&state);
@@ -2482,6 +2503,7 @@ fn with_sealed_quantity_source_census(
     assert!(rows[0].result().is_ok());
     assert!(rows[1].result().is_ok());
     assert!(rows[2].result().is_err());
+    let offered = before_seal(&mut block);
     block
         .seal_execution_outputs(&mut source, |state, source, routes| {
             assert_eq!(routes.len(), 3);
@@ -2498,12 +2520,7 @@ fn with_sealed_quantity_source_census(
         })
         .unwrap();
     block.observe_quantity_block_journals();
-    assert_eq!(block.fastpq_quantity_candidate.issue, None);
-    assert!(matches!(
-        block.fastpq_quantity_candidate.source_census,
-        super::source_census::QuantitySourceCensusState::Sealed(_)
-    ));
-    action(&mut block, &source, &alice, &bob);
+    action(&mut block, &source, &alice, &bob, offered);
 }
 
 #[test]
@@ -2630,15 +2647,13 @@ fn original_quantity_census_reserves_exact_fixed_backing_and_returns_credit_on_r
         assert_eq!(block.fastpq_quantity_candidate.issue, None);
         let original_pool = block.pipeline_ivm_prepared_cache.execution_budget().clone();
         let original_before = original_pool.reserved_bytes();
-        block.reject_quantity_source_census();
-        assert_eq!(
-            original_pool.reserved_bytes() + entry_bytes,
-            original_before
-        );
-        assert_eq!(
-            block.fastpq_quantity_candidate.issue,
-            Some(QuantityCaptureIssue::UnsupportedOwner)
-        );
+        let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            block.reject_quantity_source_census();
+        }));
+        assert!(refused.is_err());
+        assert_eq!(original_pool.reserved_bytes(), original_before);
+        assert_eq!(block.fastpq_quantity_candidate.issue, None);
+        assert!(block.finalized_quantity_source_for_test().is_ok());
     });
 }
 
@@ -2646,128 +2661,137 @@ fn original_quantity_census_reserves_exact_fixed_backing_and_returns_credit_on_r
 fn original_quantity_census_refuses_source_reconstruction_context_change_and_missing_effects() {
     for mutation in 0..5 {
         with_sealed_quantity_source_census(|block, _, _, _| {
-            match mutation {
-                0 => {
-                    let original = block
-                        .fastpq_source_inventory
-                        .as_ref()
-                        .unwrap()
-                        .as_ref()
-                        .unwrap();
-                    block.fastpq_source_inventory = Some(Ok(Arc::new((**original).clone())));
-                }
-                1 => {
-                    let original = block.fastpq_source_context.as_ref().unwrap();
-                    block.fastpq_source_context = Some(Arc::new((**original).clone()));
-                }
-                2 => block._curr_block.creation_time_ms += 1,
-                3 => {
-                    block.fastpq_quantity_candidate.entries =
-                        super::super::fastpq_quantity_archive::QuantityArchiveMap::default()
-                }
-                4 => {
-                    // Completed backing exposes no mutable tape. A separately
-                    // funded replacement cannot recover its original ownership.
-                    let budget = block.pipeline_ivm_prepared_cache.execution_budget();
-                    let mut replacement =
-                        super::super::fastpq_quantity_archive::QuantityArchiveMap::default();
-                    replacement.grow(
-                        super::super::fastpq_quantity_archive::QuantityArchiveMap::reserve(
-                            block.fastpq_quantity_candidate.entries.len(),
-                            budget,
-                        )
-                        .unwrap(),
-                    );
-                    for (hash, entry) in block.fastpq_quantity_candidate.entries.iter() {
-                        let mut tape = QuantityTape::prepare(
-                            entry.context,
-                            &entry.effects,
-                            &[],
-                            Hash::new(b"unused no new effects"),
-                            Hash::new(b"unused no new effects"),
-                            entry.effects.len(),
-                            budget,
-                        )
-                        .unwrap();
-                        tape.substitute_entry_hash_for_test(Hash::new(
-                            b"substituted quantity entry context",
-                        ));
-                        replacement.insert_reserved(
-                            *hash,
-                            QuantityArchivedEntry {
-                                tape,
-                                measurement: entry.measurement,
-                            },
-                        );
+            let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                match mutation {
+                    0 => {
+                        let original = block
+                            .fastpq_source_inventory
+                            .as_ref()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap();
+                        let reconstructed = Arc::new((**original).clone());
+                        assert_eq!(reconstructed.as_ref(), original.as_ref());
+                        assert!(!Arc::ptr_eq(&reconstructed, original));
+                        block.fastpq_source_inventory = Some(Ok(reconstructed));
                     }
-                    block.fastpq_quantity_candidate.entries = replacement;
+                    1 => {
+                        let original = block.fastpq_source_context.as_ref().unwrap();
+                        let reconstructed = Arc::new((**original).clone());
+                        assert_eq!(reconstructed.source, original.source);
+                        assert!(!Arc::ptr_eq(&reconstructed, original));
+                        block.fastpq_source_context = Some(reconstructed);
+                    }
+                    2 => block._curr_block.creation_time_ms += 1,
+                    3 => {
+                        block.fastpq_quantity_candidate.entries =
+                            super::super::fastpq_quantity_archive::QuantityArchiveMap::default()
+                    }
+                    4 => {
+                        // Completed backing exposes no mutable tape. A separately
+                        // funded replacement cannot recover its original ownership.
+                        let budget = block.pipeline_ivm_prepared_cache.execution_budget();
+                        let mut replacement =
+                            super::super::fastpq_quantity_archive::QuantityArchiveMap::default();
+                        replacement.grow(
+                            super::super::fastpq_quantity_archive::QuantityArchiveMap::reserve(
+                                block.fastpq_quantity_candidate.entries.len(),
+                                budget,
+                            )
+                            .unwrap(),
+                        );
+                        for (hash, entry) in block.fastpq_quantity_candidate.entries.iter() {
+                            let mut tape = QuantityTape::prepare(
+                                entry.context,
+                                &entry.effects,
+                                &[],
+                                Hash::new(b"unused no new effects"),
+                                Hash::new(b"unused no new effects"),
+                                entry.effects.len(),
+                                budget,
+                            )
+                            .unwrap();
+                            tape.substitute_entry_hash_for_test(Hash::new(
+                                b"substituted quantity entry context",
+                            ));
+                            replacement.insert_reserved(
+                                *hash,
+                                QuantityArchivedEntry {
+                                    tape,
+                                    measurement: entry.measurement,
+                                },
+                            );
+                        }
+                        let super::source_census::QuantitySourceCensusState::Sealed(census) =
+                            &block.fastpq_quantity_candidate.source_census
+                        else {
+                            panic!("original census");
+                        };
+                        assert!(!replacement.retains_frozen(&census.retained_archive()));
+                        block.fastpq_quantity_candidate.entries = replacement;
+                    }
+                    _ => unreachable!(),
                 }
-                _ => unreachable!(),
-            }
+            }));
+            assert!(refused.is_err());
             block.observe_quantity_block_journals();
-            assert!(block.fastpq_quantity_candidate.issue.is_some());
+            assert_eq!(block.fastpq_quantity_candidate.issue, None);
             assert!(matches!(
                 block.fastpq_quantity_candidate.source_census,
-                super::source_census::QuantitySourceCensusState::Failed
+                super::source_census::QuantitySourceCensusState::Sealed(_)
             ));
-            block.retain_quantity_source_census();
-            assert!(matches!(
-                block.fastpq_quantity_candidate.source_census,
-                super::source_census::QuantitySourceCensusState::Failed
-            ));
-            assert!(block.fastpq_quantity_candidate.require_complete().is_err());
+            assert!(block.finalized_quantity_source_for_test().is_ok());
+            assert_eq!(
+                block.fastpq_quantity_candidate.require_complete(),
+                Err(QuantityCaptureIssue::IncompleteCoverage)
+            );
         });
     }
 }
 
 #[test]
-fn original_quantity_census_keeps_dropped_child_but_refuses_late_apply_and_restored_raw_write() {
+fn original_quantity_census_refuses_late_child_acquisition_and_restored_raw_write() {
     for mutation in 0..3 {
         with_sealed_quantity_source_census(|block, _, alice, _| {
-            match mutation {
-                0 | 1 => {
-                    let mut child = block
-                        .world
-                        .transaction_without_telemetry(LaneConfig::default(), 0);
-                    child.account_mut(&ALICE_ID).unwrap().insert(
-                        "after_census".parse().unwrap(),
-                        iroha_primitives::json::Json::new(true),
-                    );
-                    let mut pending = QuantityCandidateArchive::default();
-                    pending.observe(&child);
-                    if mutation == 0 {
-                        drop(child);
-                        drop(pending);
-                    } else {
-                        child.apply();
-                        block.fastpq_quantity_candidate.apply(pending);
+            let refused =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match mutation {
+                    0 | 1 => {
+                        let mut child = block
+                            .world
+                            .transaction_without_telemetry(LaneConfig::default(), 0);
+                        child.account_mut(&ALICE_ID).unwrap().insert(
+                            "after_census".parse().unwrap(),
+                            iroha_primitives::json::Json::new(true),
+                        );
+                        let mut pending = QuantityCandidateArchive::default();
+                        pending.observe(&child);
+                        if mutation == 0 {
+                            drop(child);
+                            drop(pending);
+                        } else {
+                            child.apply();
+                            block.fastpq_quantity_candidate.apply(pending);
+                        }
                     }
-                }
-                2 => {
-                    let original = block.world.assets.get_mut(alice).unwrap();
-                    **original = Quantity::from(99_u32);
-                    **original = Quantity::from(9_u32);
-                }
-                _ => unreachable!(),
-            }
+                    2 => {
+                        let original = block.world.assets.get_mut(alice).unwrap();
+                        **original = Quantity::from(99_u32);
+                        **original = Quantity::from(9_u32);
+                    }
+                    _ => unreachable!(),
+                }));
+            assert!(refused.is_err());
             block.observe_quantity_block_journals();
             assert_eq!(
                 block.world.assets.get(alice).unwrap().as_ref(),
                 &Quantity::from(9_u32)
             );
-            if mutation == 0 {
-                assert_eq!(block.fastpq_quantity_candidate.issue, None);
-                assert!(matches!(
-                    block.fastpq_quantity_candidate.source_census,
-                    super::source_census::QuantitySourceCensusState::Sealed(_)
-                ));
-            } else {
-                assert!(block.fastpq_quantity_candidate.issue.is_some());
-                assert!(matches!(
-                    block.fastpq_quantity_candidate.source_census,
-                    super::source_census::QuantitySourceCensusState::Failed
-                ));
-            }
+            assert_eq!(block.fastpq_quantity_candidate.issue, None);
+            assert!(matches!(
+                block.fastpq_quantity_candidate.source_census,
+                super::source_census::QuantitySourceCensusState::Sealed(_)
+            ));
+            assert!(block.finalized_quantity_source_for_test().is_ok());
             assert!(block.fastpq_quantity_candidate.require_complete().is_err());
         });
     }
@@ -2775,7 +2799,7 @@ fn original_quantity_census_keeps_dropped_child_but_refuses_late_apply_and_resto
 
 #[test]
 fn original_quantity_census_interrupted_preparation_latch_cannot_reseal_or_recover() {
-    with_sealed_quantity_source_census(|block, _, _, _| {
+    with_signed_quantity_block(|block, _, _, _| {
         // Inject the exact retained state left by a caught unwind after original
         // construction enters Preparing. The separate owner test proves credit Drop.
         block.fastpq_quantity_candidate.source_census =
@@ -2804,6 +2828,16 @@ fn original_quantity_census_interrupted_preparation_latch_cannot_reseal_or_recov
             block.fastpq_quantity_candidate.require_complete(),
             Err(QuantityCaptureIssue::InterruptedScope)
         );
+    });
+    with_sealed_quantity_source_census(|block, _, _, _| {
+        let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            block.fastpq_quantity_candidate.source_census =
+                super::source_census::QuantitySourceCensusState::Preparing;
+        }));
+        assert!(refused.is_err());
+        block.observe_quantity_block_journals();
+        assert_eq!(block.fastpq_quantity_candidate.issue, None);
+        assert!(block.finalized_quantity_source_for_test().is_ok());
     });
 }
 
@@ -4390,17 +4424,40 @@ fn original_quantity_census_binds_final_permission_context_and_rejects_late_role
                     epoch,
                 )
                 .build(&ALICE_ID);
-            block.world.roles.insert(id, role);
-            block.observe_quantity_block_journals();
-            assert_eq!(
-                block.fastpq_quantity_candidate.issue,
-                Some(QuantityCaptureIssue::InvalidFacts)
+            let budget = block.pipeline_ivm_prepared_cache.execution_budget();
+            let layout = crate::fastpq::permission_context::permission_table_backing_layout(
+                block.world.roles.iter(),
+            )
+            .unwrap();
+            let mut reservation = budget.try_reserve_bytes(layout.size()).unwrap();
+            let seal = crate::fastpq::permission_context::prepaid_permission_table_seal(
+                || block.world.roles.iter(),
+                &mut reservation,
+            )
+            .unwrap();
+            assert!(seal.matches(block.world.roles.iter()).unwrap());
+            assert!(
+                !seal
+                    .matches(
+                        block
+                            .world
+                            .roles
+                            .iter()
+                            .chain(std::iter::once((&id, &role)))
+                    )
+                    .unwrap()
             );
+            let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                block.world.roles.insert(id, role);
+            }));
+            assert!(refused.is_err());
+            block.observe_quantity_block_journals();
+            assert_eq!(block.fastpq_quantity_candidate.issue, None);
             assert!(matches!(
                 block.fastpq_quantity_candidate.source_census,
-                super::source_census::QuantitySourceCensusState::Failed
+                super::source_census::QuantitySourceCensusState::Sealed(_)
             ));
-            block.retain_quantity_source_census();
+            assert!(block.finalized_quantity_source_for_test().is_ok());
             assert!(block.fastpq_quantity_candidate.require_complete().is_err());
         });
     }
@@ -4497,12 +4554,27 @@ fn completed_quantity_source_retains_original_tape_graph_and_credit_after_state_
 #[test]
 fn completed_quantity_source_refuses_equal_reconstruction_in_a_fresh_charged_map() {
     with_sealed_quantity_source_census(|block, _, _, _| {
-        let budget = block.pipeline_ivm_prepared_cache.execution_budget();
+        let budget = block.pipeline_ivm_prepared_cache.execution_budget().clone();
+        let super::source_census::QuantitySourceCensusState::Sealed(census) =
+            &block.fastpq_quantity_candidate.source_census
+        else {
+            panic!("original completed census");
+        };
+        let original_owner = census.retained_archive();
+        let original_completion = block.fastpq_quantity_candidate.require_complete();
+        let before = budget.reserved_bytes();
+        assert!(original_owner.belongs_to(&budget));
+        assert!(
+            block
+                .fastpq_quantity_candidate
+                .entries
+                .retains_frozen(&original_owner)
+        );
         let mut replacement = super::super::fastpq_quantity_archive::QuantityArchiveMap::default();
         replacement.grow(
             super::super::fastpq_quantity_archive::QuantityArchiveMap::reserve(
                 block.fastpq_quantity_candidate.entries.len(),
-                budget,
+                &budget,
             )
             .unwrap(),
         );
@@ -4514,7 +4586,7 @@ fn completed_quantity_source_refuses_equal_reconstruction_in_a_fresh_charged_map
                 Hash::new(b"unused empty suffix"),
                 Hash::new(b"unused empty suffix"),
                 entry.effects.len(),
-                budget,
+                &budget,
             )
             .unwrap();
             assert_eq!(tape.wire(), entry.wire());
@@ -4527,13 +4599,50 @@ fn completed_quantity_source_refuses_equal_reconstruction_in_a_fresh_charged_map
                 },
             );
         }
-        block.fastpq_quantity_candidate.entries = replacement;
-        block.observe_quantity_block_journals();
+        // Equal wire values in a fresh allocation do not retain the original
+        // frozen archive. Check that semantic owner predicate before attempting
+        // the completed State mutation, which must refuse without installing it.
+        assert!(!replacement.retains_frozen(&original_owner));
+        assert!(budget.reserved_bytes() > before);
+        let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            block.fastpq_quantity_candidate.entries = replacement;
+        }))
+        .expect_err("completed State must refuse a foreign equal archive");
+        let message = refused
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| refused.downcast_ref::<String>().map(String::as_str));
         assert_eq!(
-            block.fastpq_quantity_candidate.issue,
-            Some(QuantityCaptureIssue::InvalidFacts)
+            message,
+            Some("completed execution retains immutable original State")
         );
-        assert!(block.fastpq_quantity_candidate.require_complete().is_err());
+        assert_eq!(
+            budget.reserved_bytes(),
+            before,
+            "only the foreign reconstruction is refunded"
+        );
+        block.observe_quantity_block_journals();
+        assert_eq!(block.fastpq_quantity_candidate.issue, None);
+        assert_eq!(
+            block.fastpq_quantity_candidate.require_complete(),
+            original_completion
+        );
+        let super::source_census::QuantitySourceCensusState::Sealed(retained) =
+            &block.fastpq_quantity_candidate.source_census
+        else {
+            panic!("original census survives the refused replacement");
+        };
+        assert!(iroha_allocation::ChargedShared::ptr_eq(
+            &original_owner,
+            &retained.retained_archive()
+        ));
+        assert!(
+            block
+                .fastpq_quantity_candidate
+                .entries
+                .retains_frozen(&original_owner)
+        );
+        assert!(block.finalized_quantity_source_for_test().is_ok());
     });
 }
 
@@ -5108,26 +5217,28 @@ fn mandatory_finalized_source_refuses_late_quantity_and_original_journal_mutatio
     for mutation in 0..3 {
         with_sealed_quantity_source_census(|block, _, alice, _| {
             assert!(block.finalized_quantity_source_for_test().is_ok());
-            match mutation {
-                0 => {
-                    let mut transaction = block.transaction();
-                    transaction
-                        .world
-                        .increase_asset_total_amount(alice.definition(), &Quantity::from(1u32))
-                        .unwrap();
-                    transaction.apply();
-                }
-                1 => {
-                    block.fastpq_quantity_candidate.commitments.invalidate();
-                }
-                _ => {
-                    block
-                        .fastpq_quantity_candidate
-                        .commitments
-                        .unsupported(CoverageGap::RawQuantityWrite);
-                }
-            }
-            assert!(block.finalized_quantity_source_for_test().is_err());
+            let refused =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match mutation {
+                    0 => {
+                        let mut transaction = block.transaction();
+                        transaction
+                            .world
+                            .increase_asset_total_amount(alice.definition(), &Quantity::from(1u32))
+                            .unwrap();
+                        transaction.apply();
+                    }
+                    1 => {
+                        block.fastpq_quantity_candidate.commitments.invalidate();
+                    }
+                    _ => {
+                        block
+                            .fastpq_quantity_candidate
+                            .commitments
+                            .unsupported(CoverageGap::RawQuantityWrite);
+                    }
+                }));
+            assert!(refused.is_err());
+            assert!(block.finalized_quantity_source_for_test().is_ok());
         });
     }
 }

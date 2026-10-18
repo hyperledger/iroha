@@ -20,7 +20,7 @@ pub struct NativePreparedLedgerLoadV1 {
     pub amount: u128,
     /// The current producer permits only unquoted Loads, therefore zero.
     pub online_charge: u128,
-    /// Exact canonical KagemushaWalletLedger instruction retained by Native.
+    /// Exact canonical `KagemushaWalletLedger` instruction retained by Native.
     pub instruction_original: Vec<u8>,
 }
 
@@ -251,7 +251,7 @@ mod tests {
                 1 => altered.amount += 1,
                 2 => altered.ordinal += 1,
                 _ => altered.instruction.push(0),
-            };
+            }
             assert!(altered.projection(scope).is_err());
         }
         assert!(selected_load_plan(&mut store, &requests, &ordinals, &[0; 32], scope).is_err());
@@ -294,7 +294,7 @@ mod tests {
                 0 => changed.original_digest[0] ^= 1,
                 1 => changed.height = 1,
                 _ => changed.block_hash = [0; 32],
-            };
+            }
             let altered = confirmations
                 .set(&mut store, transaction, &archive::encode(&changed).unwrap())
                 .unwrap();

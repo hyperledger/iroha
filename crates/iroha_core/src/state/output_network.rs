@@ -63,7 +63,8 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
             {
                 return Err("Network execution is repeated or has already started".into());
             }
-            let sources = self.freeze_network_sources(genesis)?;
+            let signatures_prechecked = self.state.take_network_signatures_prechecked();
+            let sources = self.freeze_network_sources(genesis, signatures_prechecked)?;
             if !self.source_entries.is_empty()
                 || !self.source_routes.is_empty()
                 || sources.sources.len() > self.source_entries.capacity()
@@ -109,6 +110,7 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
     fn freeze_network_sources(
         &self,
         genesis: Option<&crate::block::AuthenticatedGenesisOutputSource>,
+        signatures_prechecked: bool,
     ) -> Result<FrozenNetworkSources<'source>, ExecutionAttemptError<String>> {
         let source = self.source.0;
         let genesis_account = match (source.header().is_genesis(), genesis) {
@@ -137,7 +139,9 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
             let (routing, policy_route) = policy_routes.get(source, index)?;
             // Lane admission does not preserve TTL. Expansion filters invalid
             // merged inputs at this same global time before they enter Network,
-            // and execution repeats normal signature/network/expiry validation.
+            // and execution repeats normal network/expiry validation. It repeats
+            // the signature verification too, unless static validation of this
+            // exact block already verified every input signature.
             let validation_time = now;
             let admission = if let Some(account) = genesis_account {
                 let TransactionEntrypoint::External(signed) = input else {
@@ -160,6 +164,7 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
                     parameters.transaction(),
                     &self.state.crypto,
                     validation_time,
+                    signatures_prechecked,
                 )
                 .map_err(execution_rejection_from_admission_failure)
             };
@@ -370,6 +375,13 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
     }
 }
 
+/// Equality of one borrowed Network input with its projection.
+///
+/// The same reference is trivially equal; only distinct values pay the
+/// structural comparison, which encodes every instruction on both sides.
+fn same_entrypoint(known: &TransactionEntrypoint, input: &TransactionEntrypoint) -> bool {
+    core::ptr::eq(known, input) || known == input
+}
 /// Execute one authenticated source under the shared State/witness/output owner.
 /// The caller owns the complete authenticated input projection and frozen route;
 /// this function never derives invocation authority from a supplied hash.
@@ -390,11 +402,13 @@ fn execute_network_attempt_with_amx<'attempt>(
     cache: &mut IvmCache,
     amx_legs: Option<&'attempt mut crate::sumeragi::amx::NativeAmxLegPreparations>,
 ) -> Result<ExecutionOutputV1, ExecutionAttemptError<String>> {
-    if inputs.input_at(input_index as usize) != Some(input)
+    if !inputs
+        .input_at(input_index as usize)
+        .is_some_and(|known| same_entrypoint(known, input))
         || state._curr_block.height().get() != height
         || admitted
             .as_ref()
-            .is_ok_and(|accepted| accepted.entrypoint() != input)
+            .is_ok_and(|accepted| !same_entrypoint(accepted.entrypoint(), input))
     {
         return Err("Network attempt differs from its exact authenticated projection".into());
     }
@@ -1050,5 +1064,38 @@ pub(super) mod penalty_decode_test_scope {
             probe.deferred = deferred;
         });
         result
+    }
+}
+
+#[cfg(test)]
+mod same_entrypoint_tests {
+    use super::*;
+    use iroha_data_model::{isi::Log, transaction::TransactionBuilder};
+    use iroha_logger::Level;
+
+    fn entrypoint(message: &str) -> TransactionEntrypoint {
+        let (authority, keypair) = iroha_test_samples::gen_account_in("wonderland");
+        let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed(
+                [0x15; iroha_crypto::Hash::LENGTH],
+            )),
+        );
+        TransactionEntrypoint::External(
+            TransactionBuilder::new(
+                network_id,
+                authority,
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_instructions([Log::new(Level::INFO, message.to_owned())])
+            .sign(keypair.private_key()),
+        )
+    }
+
+    #[test]
+    fn identity_short_circuits_and_distinct_values_compare_structurally() {
+        let input = entrypoint("same");
+        assert!(same_entrypoint(&input, &input));
+        assert!(same_entrypoint(&input.clone(), &input));
+        assert!(!same_entrypoint(&entrypoint("other"), &input));
     }
 }

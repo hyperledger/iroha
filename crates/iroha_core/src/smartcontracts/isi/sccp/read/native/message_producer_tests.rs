@@ -383,6 +383,8 @@ fn native_message_binds_real_odd_leaf_path_and_older_history_to_original_x() {
 
 #[test]
 fn native_message_capacity_refusal_keeps_original_wait_and_same_receipt_retry() {
+    // Pin before genesis so retired fixture State generations cannot alter exact refunds.
+    let _fixture_epoch = crossbeam_epoch::pin();
     with_messages(|chain, id, _| {
         let stop = AtomicBool::new(false);
         let view = chain.state().view();

@@ -72,8 +72,8 @@ asset incarnation or old genesis fixture.
    `KAGEMUSHA_EXECUTED_LOAD_CAPTURE` / `_SHA256` and
    `KAGEMUSHA_EXECUTED_LOAD_RECEIPT_SHA256`. It requalifies sources and reopens the SAME
    persisted A custody and original key. It never reenrolls A or reconstructs its Bootstrap.
-   Before Load, it confirms the already committed H4 Activate through the native activation
-   cursor using the exact signed transaction and H1–H4 finality originals. A complete host
+   Before Load, it confirms the already committed Activate through the native activation
+   cursor using the exact signed transaction and complete H1-through-activation finality originals. A complete host
    owner restart must retain this confirmation without another payment signature. The fixture
    first asserts the unconfirmed activation refusal, then retains the strict proof-rejection
    checks for changed receipt, QC and event evidence after confirmation.
@@ -90,6 +90,13 @@ It exports the exact canonical
 Unload claim for separate node execution. Its result explicitly does **not** claim ledger
 settlement, four-validator network qualification, physical attestation or phone gates.
 
+The pending-Send continuation requires B and C's original saved keys, all four
+public frames and selected E5/E6 enrollment custody. It uses the same strict
+reopening path as the completed-Send and Archive continuations. Missing custody
+refuses before enrollment continuation, and reopening must reproduce the exact
+recorded keys, frames and selected enrollment bytes. No deterministic key
+reconstruction or replacement enrollment is available.
+
 The Archive checks use both delivery forms: A accepts B's exact Receive package;
 B accepts C's folded CreditStatus. Each payer verifies the produced Archive
 package, folds the complete outgoing backlog, reopens the same custody, and
@@ -98,6 +105,25 @@ final CreditStatus must expose an empty pending-outgoing root. The four exact
 acknowledgement/Archive originals are retained with their lengths and hashes in
 `archive_originals`; every original must fit 10,000 bytes. Exact current-candidate
 execution, rather than registration of the checks, establishes acceptance.
+
+For retained A Send/Archive custody, the ignored
+`archive_recovery::checkpoint::retain_current_send_checkpoint_once_without_monetary_replay`
+test attempts exactly one checkpoint at the current authenticated cursor with
+payment signing disabled. `KAGEMUSHA_NATIVE_SEND_CHECKPOINT_OUTPUT` receives
+`selection.json`, the actual `fold-outcome.json`, and a structured `receipt.json`
+binding the source, target, session, exact completed Payment and Archive originals,
+native snapshots and reopened cursor. Errors and non-checkpoint outcomes cannot
+admit continuation. The Archive consumer requires this receipt through
+`KAGEMUSHA_NATIVE_SEND_CHECKPOINT_RECEIPT` and `_SHA256`, then independently
+reopens and verifies the same native custody. No historical failure string or
+fixed checkpoint ordinal authorizes recovery.
+
+B's later folded-head status is additionally retained as
+`b-final-credit-status.envelope.norito`, with exact A→B Request/Payment bindings,
+canonical Credited model verification and separate installed lineage verification.
+Its `b_final_credit_status` result is distinct from the ten-frame census below.
+The capture checks unchanged wallet snapshots and signature counts; this case
+has an unburned opening and does not qualify burned-status execution.
 
 The exchange additionally retains the **complete canonical envelopes** for both
 Offers, Requests and Payments, their predecessor Lineage messages, the Receive
@@ -114,11 +140,50 @@ It also records Offer signature/credential/certificate verification and Payment
 model verification against that payer credential and the exact signed Request,
 including the receiver credential, certificates and fee schedule. This does not
 assert that Payment commits to the Offer's session nonce or proposed amount.
-This helper checks CreditStatus's Omega only: it does not independently recheck
-its credit-membership opening, receipt or Request/Payment linkage. The parent
-exchange's Archive owner performs full native admission separately. These ten
+The census separately runs canonical `Credited::verify_for` against the exact
+held Request and retained Payment. It checks the Receive receipt and monetary
+bindings, or the CreditStatus receipt, credit-membership opening and receiver,
+credit and Payment bindings. The separately recorded Sigma/Omega proof decisions
+remain mandatory; model verification cannot substitute for them. The parent
+exchange's Archive owner performs native operation admission separately. These ten
 observed messages cover the zero-fee, controls-off ABC exchange only; they do not
 qualify every fee/control variant, all message types, or physical carriers.
+
+The separate controls producer retains all five carrying-frame roles for every
+executed Send mask 0–3 and its after-expiry exchange: actual Offer, Request,
+Payment, Receive Credited and the Payment's exact predecessor Lineage. The fee
+producer retains those same five roles for its fee-3, amount-97 exchange, plus
+the original Offer in `producer_originals`. Their `complete_exchange_roles`
+inventory requires each named role exactly once, checks its tag and successful
+frame-bound measurement, and keeps the proof/operation verdicts separate. These
+are capture paths; fresh genuine execution is still required to establish each
+variant's measured bounds. They do not qualify CreditStatus for every
+control/fee case or physical carriers.
+
+The renewal continuation retains the same five roles for each of its five
+existing reverse payments, including the daily and monthly boundary cases and
+the renewed-receiver case. Its inventory uses one consistent label per session;
+it also retains the already-signed Offer from the retiring receiver's refused
+Request. No extra payment or signature is created for measurement.
+
+The online-charge producer retains its root-verified certificate set in a
+`PolicyData::Certificates` carrying envelope and preserves the exact certificate
+and five charge quotes before attempting Unload. Quotes, ledger receipts,
+finality and claims retain their own bounded original formats; they are not
+additional peer-message variants. This capture establishes neither carrier
+delivery nor physical issuer enrollment.
+
+The existing charged Unload and later charged Load also stop at Selected with
+the signer unavailable, drop both wallet and host device owners, and restore the
+exact saved key and capsule. Exact Pending retries and conflicting same-ID inputs
+must not sign or derive another operation. Resume must release the selected
+generation and output with one successful signature and no new derivation; a
+second full restart with the signer unavailable must replay those exact bytes.
+Load checks its retained receipt/finality roles; Unload checks its signed quote
+and certificate through the permanent payout custody and reconstructed claim.
+These host checks preserve the existing payout and conservation assertions;
+their registration does not establish genuine execution or physical power-loss
+behavior.
 
 `message_census::remeasure_retained_genuine_exchange_envelopes_without_wallet_mutation`
 rechecks existing public originals without opening wallet custody, reenrolling,
@@ -155,6 +220,10 @@ valid same-payer Offer substitution against the producer pin, missing or changed
 predecessor manifest pins, manifest substitution, Offer/Request frame bounds, and retention of oversized
 Offer and Payment frames. A payload that fits while its complete carrying
 envelope exceeds the bound is still rejected.
+Additional structural regressions check both Credited forms against a distinct
+valid same-receiver Request and altered Payment linkage, exact extraction of
+the Payment's predecessor Lineage, and rejection of missing, duplicated,
+mislabeled or failed-bound roles in each exchange inventory.
 
 No host-census result supplies a physical latency measurement. Device campaigns
 must retain separate monotonic events for payer confirmation, receiver durable
@@ -178,11 +247,12 @@ never a substitute for the native verifier's source capability.
 | Fund A | Core `funding::execute_actual_a_registration_activation_and_load` | Exact target path/pin and `KAGEMUSHA_NATIVE_VERIFIER_PACK`/`_SHA256`. `KAGEMUSHA_EXECUTED_LOAD_OUTPUT` is fresh; it receives `capture.json`, H1–H5 canonical blocks/native proofs and exact `receipt.norito`. The test executes Register/install, Activate and IssueLoad against real StateExecutor, then checks duplicate debit refusal. |
 | Certify Load | `load::export_native_load_finality_from_executed_history` | Seven source pins, catalog/setup/target inputs above, `KAGEMUSHA_EXECUTED_LOAD_CAPTURE`/`_SHA256`, and `KAGEMUSHA_EXECUTED_LOAD_RECEIPT_SHA256`. Fresh `KAGEMUSHA_NATIVE_LOAD_EVIDENCE_OUTPUT` and a separate fresh `KAGEMUSHA_NATIVE_LOAD_ADMISSION_OUTPUT`. |
 | Exchange | `actual_native_a_to_b_to_c_then_unload_with_restart_and_replay` | Exact funded receipt plus native BLS certificate and event inclusion; reopen the same A. Outputs include the claim and retained C custody; no ledger settlement is claimed. |
-| Settle C | Core `funding::settlement::execute_actual_c_unload_with_conservation_and_permanent_replay` | Same target/pack/receipt and `KAGEMUSHA_NATIVE_UNLOAD_CLAIM`/`_SHA256`. Fresh `KAGEMUSHA_EXECUTED_UNLOAD_OUTPUT` receives `settlement.json` and 13 originals, including H6 canonical SignedBlockWire, its exact signed transaction, instruction and claim. |
+| Settle C | Core `funding::settlement::execute_actual_c_unload_with_conservation_and_permanent_replay` | Same target/pack/receipt, `KAGEMUSHA_NATIVE_UNLOAD_CLAIM`/`_SHA256` and `KAGEMUSHA_NATIVE_EXCHANGE_RESULT`/`_SHA256`. Fresh `KAGEMUSHA_EXECUTED_UNLOAD_OUTPUT` receives `settlement.json` and 13 originals, including H6 canonical SignedBlockWire, its exact signed transaction, instruction and claim. |
 | Confirm C | `settlement::actual_c_confirms_executed_unload_after_process_restart` | Same catalog/setup/target/receipt pins; `KAGEMUSHA_NATIVE_EXCHANGE_RESULT`/`_SHA256` and `KAGEMUSHA_EXECUTED_UNLOAD_SETTLEMENT`/`_SHA256`. Fresh `KAGEMUSHA_NATIVE_SETTLEMENT_CONFIRMATION_OUTPUT`; reopen the retained C key and four public originals in place. |
 
 The Load evidence exporter authenticates the installed wallet identity, independently
-pinned signed genesis and every ordinary H1–H5 certificate and counted event opening.
+pinned signed genesis and the complete certified prefix from H1 through the receipt
+height (H5 in the component fixture), including the counted event opening.
 It retains only the receipt-block certificate and counted event path in
 `load-finality.norito`, alongside `receipt.norito` and `generated.json`. Certified
 epoch boundaries are synchronized separately into the native wallet's authenticated
@@ -221,3 +291,20 @@ issuer/platform fixtures and exactly three signed votes from a four-seat fixture
 It is not the later four-validator monetary network gate. A real network harness
 must use its actual emitted genesis/provisioning bundle and assert exact identity
 (or build a new matching catalog); network setup may normalize genesis inputs.
+
+The shared native Load producer derives the consecutive registration, activation
+and Load heights from the canonical receipt, within the existing 64-block history
+bound. It independently verifies the complete native prefix, unique successful
+Register membership and funded Load event. The exchange then authenticates the
+exact target Activate transaction and its successful execution at the derived
+activation height before admitting Load to the retained wallet. Both the local
+StateExecutor fixture (H3/H4/H5) and a four-validator campaign with a later live
+predecessor use this same verifier and original capture format.
+
+The separate network controller additionally requires pinned `registered.json`
+and `funded.json` originals from its retained four-validator owner and joins
+their heights to `setup.live_height`. Those network observations are not inputs
+to the shared native verifier and do not turn a local fixture into network
+evidence. The native target still uses engineering enrollment and simulated
+payment hardware; neither it nor issuer startup qualifies actual issuer-service
+enrollment or a physical device.

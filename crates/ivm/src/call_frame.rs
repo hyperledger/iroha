@@ -148,18 +148,36 @@ impl InitializedRegion {
     }
     fn initialized(&self, range: Region) -> bool {
         self.region.contains(range)
-            && (range.start..range.end).all(|address| {
-                let index = (address - self.region.start) as usize;
-                self.bits[index / 8] & (1 << (index % 8)) != 0
-            })
+            && bitmap_spans(self.offsets(range)).all(|(byte, mask)| self.bits[byte] & mask == mask)
     }
     fn record_write(&mut self, range: Region) {
         debug_assert!(self.region.contains(range));
-        for address in range.start..range.end {
-            let index = (address - self.region.start) as usize;
-            self.bits[index / 8] |= 1 << (index % 8);
+        for (byte, mask) in bitmap_spans(self.offsets(range)) {
+            self.bits[byte] |= mask;
         }
     }
+    /// Bit offsets of a contained range, relative to this region's first byte.
+    fn offsets(&self, range: Region) -> std::ops::Range<usize> {
+        (range.start - self.region.start) as usize..(range.end - self.region.start) as usize
+    }
+}
+
+/// Cover the bit offsets `bits` with one `(byte index, mask)` per touched
+/// bitmap byte, so word-sized accesses test or set whole bytes at once instead
+/// of one bit per guest byte.
+fn bitmap_spans(bits: std::ops::Range<usize>) -> impl Iterator<Item = (usize, u8)> {
+    let mut next = bits.start;
+    std::iter::from_fn(move || {
+        if next >= bits.end {
+            return None;
+        }
+        let shift = next % 8;
+        let width = (8 - shift).min(bits.end - next);
+        let mask = (u8::MAX >> (8 - width)) << shift;
+        let span = (next / 8, mask);
+        next += width;
+        Some(span)
+    })
 }
 
 struct Frame {
@@ -605,13 +623,25 @@ impl CallFrameMemory {
         } else {
             // All other stack bytes, partially overlapping tables, and ancestor tables are
             // inaccessible. Ordinary heap/input/output permissions remain the Memory owner's job.
-            address < Memory::STACK_START
-                && !self.frames.iter().any(|ancestor| {
-                    ancestor.arguments.overlaps(range)
-                        || ancestor.results.region.overlaps(range)
-                        || ancestor.stack.region.overlaps(range)
-                })
-                && range.end <= Memory::STACK_START
+            // Below the stack only the root's tables can lie: every stack frame starts at or
+            // above it, and a nested frame's non-empty tables must lie inside its caller's
+            // stack frame, so no other ancestor needs scanning on this per-access path.
+            let root = &self.frames[0];
+            let permitted = range.end <= Memory::STACK_START
+                && !root.arguments.overlaps(range)
+                && !root.results.region.overlaps(range);
+            debug_assert_eq!(
+                permitted,
+                address < Memory::STACK_START
+                    && !self.frames.iter().any(|ancestor| {
+                        ancestor.arguments.overlaps(range)
+                            || ancestor.results.region.overlaps(range)
+                            || ancestor.stack.region.overlaps(range)
+                    })
+                    && range.end <= Memory::STACK_START,
+                "nested frames and their tables stay inside the caller's stack frame"
+            );
+            permitted
         };
         if permitted {
             Ok(())
@@ -808,6 +838,99 @@ mod tests {
             .unwrap();
         frames
     }
+    #[test]
+    fn byte_mask_initialization_matches_a_per_byte_reference() {
+        let base = Memory::STACK_START + 64;
+        let length = 45_u64;
+        let mut region = InitializedRegion::new(Region::new(base, length).unwrap(), None).unwrap();
+        let mut reference = vec![false; length as usize];
+        let ranges = [
+            (0, 0),
+            (3, 1),
+            (8, 8),
+            (5, 6),
+            (17, 13),
+            (40, 5),
+            (0, 3),
+            (44, 1),
+        ];
+        let probe = |region: &InitializedRegion, reference: &[bool]| {
+            for start in 0..=length {
+                for end in start..=length {
+                    let range = Region::new(base + start, end - start).unwrap();
+                    let expected = reference[start as usize..end as usize]
+                        .iter()
+                        .all(|bit| *bit);
+                    assert_eq!(region.initialized(range), expected, "{start}..{end}");
+                }
+            }
+            // Ranges outside the region are never initialized, even if empty.
+            assert!(!region.initialized(Region::new(base - 1, 1).unwrap()));
+            assert!(!region.initialized(Region::new(base + length, 1).unwrap()));
+        };
+        probe(&region, &reference);
+        for (start, bytes) in ranges {
+            region.record_write(Region::new(base + start, bytes).unwrap());
+            reference[start as usize..(start + bytes) as usize].fill(true);
+            let expected: Vec<u8> = reference
+                .chunks(8)
+                .map(|chunk| {
+                    chunk
+                        .iter()
+                        .enumerate()
+                        .fold(0, |mask, (bit, set)| mask | (u8::from(*set) << bit))
+                })
+                .collect();
+            assert_eq!(&region.bits[..], &expected[..]);
+            probe(&region, &reference);
+        }
+    }
+
+    #[test]
+    fn below_stack_accesses_check_only_the_root_tables_at_any_depth() {
+        let mut frames = root();
+        let mut parent_stack = TOP - 128;
+        for _ in 0..3 {
+            // Each callee's tables sit inside its caller's stack frame.
+            let argument = parent_stack + 32;
+            let result = parent_stack + 48;
+            frames.record_write(argument, 8);
+            frames
+                .enter_child(
+                    parent_stack,
+                    &callable(64),
+                    tables(argument, 1, result, 1),
+                    TOP,
+                )
+                .unwrap();
+            parent_stack -= 64;
+        }
+        assert_eq!(frames.frames.len(), 4);
+        let denied = |frames: &CallFrameMemory, address: u64, bytes: u64, perm: Perm| {
+            matches!(
+                frames.check_access(address, bytes, perm),
+                Err(VMError::MemoryAccessViolation { .. })
+            )
+        };
+        for perm in [Perm::READ, Perm::WRITE, Perm::READ | Perm::WRITE] {
+            // The root's heap tables stay inaccessible from every nested frame.
+            assert!(denied(&frames, ARG, 8, perm));
+            assert!(denied(&frames, RESULT, 8, perm));
+            assert!(denied(&frames, ARG + 4, 8, perm));
+            // Other heap bytes and ranges below the stack are the Memory owner's job.
+            frames
+                .check_access(Memory::HEAP_START + 64, 16, perm)
+                .unwrap();
+            frames
+                .check_access(Memory::STACK_START - 8, 8, perm)
+                .unwrap();
+            // Straddling the stack base, or touching any ancestor frame, is denied.
+            assert!(denied(&frames, Memory::STACK_START - 4, 8, perm));
+            assert!(denied(&frames, TOP - 64, 8, perm));
+            assert!(denied(&frames, TOP - 160, 8, perm));
+        }
+    }
+
     #[test]
     fn only_live_frames_prevent_runtime_baseline_capture() {
         let mut frames = CallFrameMemory::default();

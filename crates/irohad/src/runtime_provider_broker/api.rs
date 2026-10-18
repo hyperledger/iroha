@@ -61,17 +61,6 @@ pub enum GlobalBeaconPartialSignerBrokerBackendErrorV1 {
     Rejected,
 }
 
-/// Payload-free Parliament TLE broker backend failure class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParliamentTlePartialReleaseSignerBrokerBackendErrorV1 {
-    /// The provider transport is temporarily unavailable and a non-mutating
-    /// request may be retried after reconnecting.
-    Unavailable,
-    /// The provider deterministically refused or could not satisfy the exact
-    /// authenticated request; automatic replay is forbidden.
-    Rejected,
-}
-
 /// Authenticated broker-server backend for global beacon partial signatures.
 ///
 /// The broker validates the complete public DKG transcript and either a canonical pulse
@@ -113,52 +102,6 @@ pub trait GlobalBeaconPartialSignerBrokerBackendV1: Send + Sync {
     ) -> Result<
         iroha_data_model::consensus::GlobalThresholdBeaconPartialSignatureV1,
         GlobalBeaconPartialSignerBrokerBackendErrorV1,
-    >;
-}
-
-/// Authenticated broker-server backend for Parliament TLE partial releases.
-///
-/// The server reconstructs and validates the complete public release
-/// projection before calling this trait, then independently verifies the
-/// returned proof-carrying share. Provider diagnostics never cross the wire.
-pub trait ParliamentTlePartialReleaseSignerBrokerBackendV1: Send + Sync {
-    /// Return the production runtime handle.
-    fn handle(&self) -> &str;
-    /// Return the live public qualification.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provider is unavailable or rejects the qualification request.
-    fn qualification(
-        &self,
-    ) -> Result<
-        ConsensusSignerProviderQualificationV1,
-        ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
-    >;
-    /// Attest live custody for one exact validated public session and seat.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provider is unavailable or rejects the validated request.
-    fn attest_partial_release_capability(
-        &self,
-        session: &iroha_core_timed_ovn::tle::ValidatedTleKeySessionV1,
-        expected_participant_index: u16,
-    ) -> Result<
-        iroha_core::tle_release::TlePartialReleaseCapabilityAttestationV1,
-        ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
-    >;
-    /// Sign one exact broker-validated public release projection.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provider is unavailable or rejects the validated request.
-    fn sign_projected_partial_release(
-        &self,
-        projection: &iroha_core_timed_ovn::tle::ValidatedTleReleaseProjectionV1,
-    ) -> Result<
-        iroha_core_timed_ovn::tle::TlePartialReleaseShareV1,
-        ParliamentTlePartialReleaseSignerBrokerBackendErrorV1,
     >;
 }
 
@@ -327,11 +270,7 @@ const fn stock_runtime_provider_slot_is_supported(slot: IrohaRuntimeProviderSlot
     let wire_id = slot.wire_id();
     (wire_id >= IrohaRuntimeProviderSlotV1::ModerationQuarantineKeyWrapper.wire_id()
         && wire_id <= IrohaRuntimeProviderSlotV1::BootleLanternIssuanceProviderRegistry.wire_id())
-        || matches!(
-            slot,
-            IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner
-                | IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner
-        )
+        || matches!(slot, IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner)
 }
 impl IrohaRuntimeProviderRegistryV1 for StockRuntimeProviderBrokerRegistryV1 {
     fn resolve(
@@ -925,8 +864,6 @@ define_runtime_provider_backends_v1! {
         optional soracloud_runtime_mutation_signer: Arc<dyn crate::soracloud_runtime_signer::SoracloudRuntimeMutationSignerV1> => pub fn with_soracloud_runtime_mutation_signer(signer);
         /// Attach the exact-qualified global threshold-beacon partial signer.
         optional global_beacon_partial_signer: Arc<dyn GlobalBeaconPartialSignerBrokerBackendV1> => pub fn with_global_beacon_partial_signer(signer);
-        /// Attach the exact-qualified Parliament TLE partial-release signer.
-        optional parliament_tle_partial_release_signer: Arc<dyn ParliamentTlePartialReleaseSignerBrokerBackendV1> => pub fn with_parliament_tle_partial_release_signer(signer);
     }
 }
 

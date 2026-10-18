@@ -19,7 +19,7 @@ pub(super) fn collect_configured_bindings(
     collect_provider_ingest_bindings(config, bindings)?;
     collect_soracloud_runtime_signer_binding(config, bindings)?;
     collect_musubi_provider_attestation_bindings(config, bindings)?;
-    collect_consensus_governance_signer_bindings(config, bindings)
+    collect_global_beacon_signer_binding(config, bindings)
 }
 
 fn append_optional_consensus_signer_binding(
@@ -51,7 +51,7 @@ fn append_optional_consensus_signer_binding(
     }
 }
 
-fn collect_consensus_governance_signer_bindings(
+fn collect_global_beacon_signer_binding(
     config: &Config,
     bindings: &mut Vec<IrohaRuntimeProviderBindingV1>,
 ) -> Result<(), IrohaRuntimeProviderRegistryErrorV1> {
@@ -68,20 +68,6 @@ fn collect_consensus_governance_signer_bindings(
         config
             .sumeragi
             .global_beacon_partial_signer_provider_policy_digest,
-    )?;
-    append_optional_consensus_signer_binding(
-        bindings,
-        IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
-        config
-            .gov
-            .parliament_tle_partial_release_signer_provider_handle
-            .as_deref(),
-        config
-            .gov
-            .parliament_tle_partial_release_signer_provider_revision,
-        config
-            .gov
-            .parliament_tle_partial_release_signer_provider_policy_digest,
     )
 }
 fn collect_musubi_provider_attestation_bindings(
@@ -938,55 +924,46 @@ mod tests {
 
     #[test]
     fn optional_consensus_signer_binding_is_all_or_nothing_and_inventory_bound() {
-        for (slot, handle) in [
-            (
-                IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner,
-                "software://iroha/global-beacon/primary",
-            ),
-            (
-                IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
-                "software://iroha/parliament-tle/primary",
-            ),
+        let slot = IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner;
+        let handle = "software://iroha/global-beacon/primary";
+        let mut bindings = Vec::new();
+        append_optional_consensus_signer_binding(&mut bindings, slot, None, None, None)
+            .expect("an absent optional signer must remain absent");
+        assert!(bindings.is_empty());
+
+        let inventory_digest = [0xA5; 32];
+        append_optional_consensus_signer_binding(
+            &mut bindings,
+            slot,
+            Some(handle),
+            Some(7),
+            Some(inventory_digest),
+        )
+        .expect("a complete production signer binding must be admitted");
+        let binding = bindings.first().expect("one projected signer binding");
+        assert_eq!(binding.slot(), slot);
+        assert_eq!(binding.handle(), handle);
+        assert_eq!(binding.revision(), Some(7));
+        assert_eq!(binding.policy_digest(), Some(inventory_digest));
+
+        for incomplete in [
+            (None, Some(7), Some(inventory_digest)),
+            (Some(handle), None, Some(inventory_digest)),
+            (Some(handle), Some(7), None),
+            (Some(handle), Some(0), Some(inventory_digest)),
+            (Some(handle), Some(7), Some([0; 32])),
         ] {
-            let mut bindings = Vec::new();
-            append_optional_consensus_signer_binding(&mut bindings, slot, None, None, None)
-                .expect("an absent optional signer must remain absent");
-            assert!(bindings.is_empty());
-
-            let inventory_digest = [0xA5; 32];
-            append_optional_consensus_signer_binding(
-                &mut bindings,
-                slot,
-                Some(handle),
-                Some(7),
-                Some(inventory_digest),
-            )
-            .expect("a complete production signer binding must be admitted");
-            let binding = bindings.first().expect("one projected signer binding");
-            assert_eq!(binding.slot(), slot);
-            assert_eq!(binding.handle(), handle);
-            assert_eq!(binding.revision(), Some(7));
-            assert_eq!(binding.policy_digest(), Some(inventory_digest));
-
-            for incomplete in [
-                (None, Some(7), Some(inventory_digest)),
-                (Some(handle), None, Some(inventory_digest)),
-                (Some(handle), Some(7), None),
-                (Some(handle), Some(0), Some(inventory_digest)),
-                (Some(handle), Some(7), Some([0; 32])),
-            ] {
-                assert!(matches!(
-                    append_optional_consensus_signer_binding(
-                        &mut Vec::new(),
-                        slot,
-                        incomplete.0,
-                        incomplete.1,
-                        incomplete.2,
-                    ),
-                    Err(IrohaRuntimeProviderRegistryErrorV1::InvalidBinding(rejected))
-                        if rejected == slot
-                ));
-            }
+            assert!(matches!(
+                append_optional_consensus_signer_binding(
+                    &mut Vec::new(),
+                    slot,
+                    incomplete.0,
+                    incomplete.1,
+                    incomplete.2,
+                ),
+                Err(IrohaRuntimeProviderRegistryErrorV1::InvalidBinding(rejected))
+                    if rejected == slot
+            ));
         }
     }
 }

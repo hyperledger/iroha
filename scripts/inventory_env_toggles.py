@@ -6,6 +6,11 @@ The script scans `.rs` files under the repository root for common environment
 lookup patterns (`env::var*`, `env!`, `option_env!`) and emits a deterministic
 inventory. Use the JSON output for tooling/CI checks and the Markdown output for
 human review of production vs test/dev usage.
+
+No dependencies or environment settings are required. Scope analysis recognizes
+explicit cfg attributes conservatively; it is not a Rust compiler or a module
+reachability proof. Unknown conditions and unproved helper guards remain in the
+source file's base scope. Only the requested report paths are written.
 """
 
 from __future__ import annotations
@@ -22,8 +27,6 @@ from typing import Dict, Iterable, List, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-CFG_TEST_PATTERN = re.compile(r"cfg!?\s*\([^)]*test[^)]*\)", re.IGNORECASE)
-CFG_DEBUG_PATTERN = re.compile(r"cfg!?\s*\([^)]*debug_assertions[^)]*\)", re.IGNORECASE)
 TEST_PATH_HINTS = {
     "tests",
     "integration_tests",
@@ -68,7 +71,12 @@ ENV_PATTERNS: Sequence[re.Pattern[str]] = (
     re.compile(r"""\benv!\(\s*"([A-Za-z0-9_]+)"""),
     re.compile(r"""\boption_env!\(\s*"([A-Za-z0-9_]+)"""),
 )
-HEURISTIC_LOOKBACK = 200
+RAW_LITERAL = re.compile(r'(?:br|cr|r)(#{0,255})"')
+QUOTED_LITERAL = re.compile(r'(?:b|c)?"')
+CHAR_LITERAL = re.compile(
+    r"(?:b)?'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|.)|[^'\\\n])'"
+)
+RUST_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -123,6 +131,11 @@ def extract_references(path: Path) -> List[EnvReference]:
     except UnicodeDecodeError:
         return refs
 
+    # Most Rust files contain no literal reads. Preserve the inventory's existing
+    # literal-only scope without tokenizing sources that cannot contribute rows.
+    if not any(pattern.search(line) for line in lines for pattern in ENV_PATTERNS):
+        return refs
+
     cfg_masks = compute_cfg_masks(lines)
 
     for idx, line in enumerate(lines, start=1):
@@ -132,12 +145,7 @@ def extract_references(path: Path) -> List[EnvReference]:
         elif is_debug:
             local_scope = "debug"
         else:
-            # Heuristic: env accesses guarded by `dev_env_flag` are debug-only.
-            recent = lines[max(idx - HEURISTIC_LOOKBACK, 0) : idx - 1]
-            if any("dev_env_flag" in candidate for candidate in recent):
-                local_scope = "debug"
-            else:
-                local_scope = scope
+            local_scope = scope
         for pattern in ENV_PATTERNS:
             for match in pattern.finditer(line):
                 name = match.group(1)
@@ -161,41 +169,201 @@ def collect_inventory(root: Path) -> List[EnvReference]:
     return refs
 
 
+def rust_scope_tokens(source: str) -> List[tuple[str, int]]:
+    """Read structural tokens and line numbers without interpreting literal text."""
+
+    tokens: List[tuple[str, int]] = []
+    offset = line = 0
+    while offset < len(source):
+        start = offset
+        if source.startswith("//", offset):
+            end = source.find("\n", offset)
+            offset = len(source) if end < 0 else end
+        elif source.startswith("/*", offset):
+            depth = 1
+            offset += 2
+            while offset < len(source) and depth:
+                if source.startswith("/*", offset):
+                    depth += 1
+                    offset += 2
+                elif source.startswith("*/", offset):
+                    depth -= 1
+                    offset += 2
+                else:
+                    offset += 1
+        elif source[offset].isspace():
+            offset += 1
+        else:
+            raw = RAW_LITERAL.match(source, offset)
+            quoted = QUOTED_LITERAL.match(source, offset)
+            character = CHAR_LITERAL.match(source, offset)
+            if raw:
+                closing = '"' + raw.group(1)
+                end = source.find(closing, raw.end())
+                offset = len(source) if end < 0 else end + len(closing)
+                token = "<literal>"
+            elif quoted:
+                offset = quoted.end()
+                while offset < len(source):
+                    if source[offset] == "\\":
+                        offset = min(offset + 2, len(source))
+                    elif source[offset] == '"':
+                        offset += 1
+                        break
+                    else:
+                        offset += 1
+                token = "<literal>"
+            elif character:
+                offset = character.end()
+                token = "<literal>"
+            else:
+                identifier = RUST_IDENTIFIER.match(source, offset)
+                offset = identifier.end() if identifier else offset + 1
+                token = source[start:offset]
+            tokens.append((token, line))
+        line += source.count("\n", start, offset)
+    return tokens
+
+
+def cfg_arguments(tokens: Sequence[str], name: str) -> List[List[str]] | None:
+    """Split one complete attribute/predicate call; malformed input is unknown."""
+
+    if len(tokens) < 3 or list(tokens[:2]) != [name, "("] or tokens[-1] != ")":
+        return None
+    arguments: List[List[str]] = []
+    current: List[str] = []
+    stack: List[str] = []
+    pairs = {")": "(", "]": "[", "}": "{"}
+    for token in tokens[2:-1]:
+        if token in ("(", "[", "{"):
+            stack.append(token)
+        elif token in pairs:
+            if not stack or stack.pop() != pairs[token]:
+                return None
+        if token == "," and not stack:
+            if not current:
+                return None
+            arguments.append(current)
+            current = []
+        else:
+            current.append(token)
+    if stack:
+        return None
+    if current:
+        arguments.append(current)
+    return arguments
+
+
+def cfg_possible(tokens: Sequence[str], flag: str, depth: int = 0) -> set[bool]:
+    """Overapproximate a predicate with the selected flag false and others unknown."""
+
+    unknown = {False, True}
+    if depth > 64:
+        return unknown
+    if list(tokens) == [flag] or list(tokens) == ["false"]:
+        return {False}
+    if list(tokens) == ["true"]:
+        return {True}
+    for operator in ("all", "any", "not"):
+        arguments = cfg_arguments(tokens, operator)
+        if arguments is None:
+            continue
+        values = [cfg_possible(argument, flag, depth + 1) for argument in arguments]
+        if operator == "not":
+            return {not value for value in values[0]} if len(values) == 1 else unknown
+        result = {operator == "all"}
+        for value in values:
+            result = {
+                (left and right) if operator == "all" else (left or right)
+                for left in result for right in value
+            }
+        return result
+    return unknown
+
+
+def cfg_attribute_possible(tokens: Sequence[str], flag: str, depth: int = 0) -> set[bool]:
+    """Include cfg_attr's unapplied branch; unrelated attributes impose no bound."""
+
+    if depth > 64:
+        return {False, True}
+    arguments = cfg_arguments(tokens, "cfg")
+    if arguments is not None:
+        return cfg_possible(arguments[0], flag) if len(arguments) == 1 else {False, True}
+    arguments = cfg_arguments(tokens, "cfg_attr")
+    if arguments is None or len(arguments) < 2:
+        return {True}
+    condition = cfg_possible(arguments[0], flag)
+    active = {True}
+    for attribute in arguments[1:]:
+        active = {
+            left and right
+            for left in active
+            for right in cfg_attribute_possible(attribute, flag, depth + 1)
+        }
+    return {(not selected) or included for selected in condition for included in active}
+
+
 def compute_cfg_masks(lines: Sequence[str]) -> List[tuple[bool, bool]]:
-    masks: List[tuple[bool, bool]] = []
-    cfg_test_stack: List[bool] = [False]
-    cfg_debug_stack: List[bool] = [False]
-    pending_cfg_test = False
-    pending_cfg_debug = False
+    """Identify only line scopes whose explicit attributes require test or debug.
 
-    for line in lines:
-        stripped = line.strip()
-        if CFG_TEST_PATTERN.search(stripped):
-            pending_cfg_test = True
-        if CFG_DEBUG_PATTERN.search(stripped):
-            pending_cfg_debug = True
+    Mixed scopes on one line remain unclassified. This deliberately does not
+    infer control flow from cfg! expressions, helper names or external modules.
+    """
 
-        current_test = cfg_test_stack[-1] or pending_cfg_test
-        current_debug = cfg_debug_stack[-1] or pending_cfg_debug
-        masks.append((current_test, current_debug))
-
-        opens = stripped.count("{")
-        closes = stripped.count("}")
-
-        for _ in range(opens):
-            cfg_test_stack.append(cfg_test_stack[-1] or pending_cfg_test)
-            cfg_debug_stack.append(cfg_debug_stack[-1] or pending_cfg_debug)
-        if opens and pending_cfg_test:
-            pending_cfg_test = False
-        if opens and pending_cfg_debug:
-            pending_cfg_debug = False
-        for _ in range(closes):
-            if len(cfg_test_stack) > 1:
-                cfg_test_stack.pop()
-            if len(cfg_debug_stack) > 1:
-                cfg_debug_stack.pop()
-
-    return masks
+    tokens = rust_scope_tokens("\n".join(lines))
+    masks: List[tuple[bool, bool] | None] = [None] * len(lines)
+    stack = [(False, False)]
+    pending = (False, False)
+    delimiters: List[str] = []
+    index = 0
+    while index < len(tokens):
+        token, line = tokens[index]
+        start = index + 1
+        inner = start < len(tokens) and tokens[start][0] == "!"
+        if inner:
+            start += 1
+        if token == "#" and start < len(tokens) and tokens[start][0] == "[":
+            end = start + 1
+            nesting = 1
+            while end < len(tokens) and nesting:
+                nesting += (tokens[end][0] == "[") - (tokens[end][0] == "]")
+                end += 1
+            if nesting:
+                break
+            attribute = [value for value, _ in tokens[start + 1:end - 1]]
+            required = tuple(True not in cfg_attribute_possible(attribute, flag)
+                             for flag in ("test", "debug_assertions"))
+            # Attributes within signatures, tuple expressions or array elements
+            # do not constrain the surrounding item. Leave their smaller scopes
+            # unclassified rather than applying them to the following body.
+            if not delimiters:
+                if inner:
+                    stack[-1] = tuple(left or right for left, right in zip(stack[-1], required))
+                else:
+                    pending = tuple(left or right for left, right in zip(pending, required))
+            index = end
+            continue
+        current = tuple(left or right for left, right in zip(stack[-1], pending))
+        previous = masks[line]
+        masks[line] = current if previous is None else tuple(
+            left and right for left, right in zip(previous, current)
+        )
+        if token == "{":
+            stack.append(current)
+            pending = (False, False)
+        elif token == "}":
+            if len(stack) > 1:
+                stack.pop()
+            pending = (False, False)
+        elif token in ("(", "["):
+            delimiters.append(token)
+        elif token in (")", "]"):
+            if delimiters:
+                delimiters.pop()
+        elif token in (";", ",") and not delimiters:
+            pending = (False, False)
+        index += 1
+    return [mask if mask is not None else (False, False) for mask in masks]
 
 
 def build_summary(refs: Sequence[EnvReference]) -> Dict[str, Dict[str, object]]:

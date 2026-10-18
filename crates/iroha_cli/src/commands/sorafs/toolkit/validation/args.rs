@@ -196,25 +196,6 @@ pub struct ReleaseManifestArgs {
     pub(super) development_local_signing: bool,
 }
 
-/// Options for the timed-ovn-release-audit operation.
-#[derive(clap::Args, Debug, Default)]
-pub struct TimedOvnReleaseAuditArgs {
-    #[arg(long, value_parser = parse_path)]
-    pub(super) audit_manifest: Option<PathBuf>,
-    #[arg(long, value_parser = parse_path)]
-    pub(super) implementation_source_archive: Option<PathBuf>,
-    #[arg(long, value_parser = parse_path)]
-    pub(super) release_artifact_manifest: Option<PathBuf>,
-    #[arg(long, value_parser = parse_path)]
-    pub(super) supported_target_inventory: Option<PathBuf>,
-    #[arg(long, value_parser = parse_path)]
-    pub(super) audit_report: Option<PathBuf>,
-    #[arg(long, value_parser = parse_path)]
-    pub(super) audit_evidence_archive: Option<PathBuf>,
-    #[arg(long, value_parser = parse_path)]
-    pub(super) trusted_reviewer_public_key: Option<PathBuf>,
-}
-
 /// Options for the sign operation.
 #[derive(clap::Args, Debug, Default)]
 pub struct SignArgs {
