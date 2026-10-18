@@ -18,15 +18,15 @@ final class NativePrivacyPhysicalDeviceTests: XCTestCase {
       userInfo: [NSLocalizedDescriptionKey: "Select an actual iOS device; simulators are not physical evidence."])
     #else
     XCTAssertTrue(NoritoNativeBridge.shared.isAvailable, "The packaged native bridge must load")
-    XCTAssertEqual(try nativeRevision("connect_norito_bridge_abi_version"), 29)
+    XCTAssertEqual(try nativeRevision("connect_norito_bridge_abi_version"), 30)
     XCTAssertEqual(try nativeRevision("connect_norito_confidential_prover_revision_v1"), 1)
     #endif
   }
 
-  func testLoadedAbi29AndConfidentialRevision() async throws {
+  func testLoadedAbi30AndConfidentialRevision() async throws {
     let abi = try nativeRevision("connect_norito_bridge_abi_version")
     let revision = try nativeRevision("connect_norito_confidential_prover_revision_v1")
-    XCTAssertEqual(abi, 29)
+    XCTAssertEqual(abi, 30)
     XCTAssertEqual(revision, 1)
     let device = await MainActor.run {
       (UIDevice.current.model, UIDevice.current.systemName, UIDevice.current.systemVersion)

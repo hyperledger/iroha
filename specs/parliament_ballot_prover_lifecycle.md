@@ -86,4 +86,6 @@ acceptable cancellation latency or the existing phone limits.
 TODO: independently review randomness, secret-dependent behavior, all erasing
 owners and compiler/native-runtime effects. Preserve explicit failure and
 cleanup semantics without weakening the cryptographic or hardware requirements.
-Production schemas, Core/Torii/SDK integration and activation remain gated.
+Design section 12.2 authorizes schema and Core/Torii/SDK engineering alongside
+qualification. Binding production activation remains disabled until all
+qualification requirements hold.

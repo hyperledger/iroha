@@ -10,7 +10,7 @@ use super::Backend;
 
 /// Sources one pass accumulates in registers before writing its destination once.
 /// Every protocol stripe (at most 16 data rows) needs a single pass per output row.
-pub(super) const GROUP: usize = 16;
+const GROUP: usize = 16;
 
 /// Multiply by `x` modulo x^16 + x^12 + x^3 + x + 1.
 const fn xtime(value: u16) -> u16 {
@@ -103,10 +103,10 @@ impl ByteTables {
     }
 }
 
-/// Write `sum(coefficient * source)` over little-endian GF(2^16) symbols into `destination`,
-/// or XOR it into the existing contents when `accumulate` is set.
+/// Overwrite `destination` with `sum(coefficient * source)` over little-endian GF(2^16)
+/// symbols.
 ///
-/// Zero coefficients are skipped; an empty overwrite zeroes the destination. Terms are
+/// Zero coefficients are skipped and an empty combination zeroes the destination. Terms are
 /// accumulated [`GROUP`] at a time, so the destination is written once per group.
 ///
 /// # Panics
@@ -116,7 +116,6 @@ impl ByteTables {
 pub(super) fn combine<'a>(
     terms: impl IntoIterator<Item = (u16, &'a [u8])>,
     destination: &mut [u8],
-    mut accumulate: bool,
     backend: Backend,
 ) {
     assert!(
@@ -126,6 +125,7 @@ pub(super) fn combine<'a>(
     let mut coefficients = [0u16; GROUP];
     let mut sources: [&[u8]; GROUP] = [&[]; GROUP];
     let mut pending = 0;
+    let mut accumulate = false;
     for (coefficient, source) in terms {
         if coefficient == 0 {
             continue;
@@ -604,7 +604,6 @@ mod tests {
                     combine(
                         terms.iter().map(|(c, source)| (*c, source.as_slice())),
                         &mut destination,
-                        false,
                         backend,
                     );
                     assert!(
@@ -616,22 +615,22 @@ mod tests {
         }
     }
 
-    /// Accumulating combinations (owned-row groups after the first) XOR exactly the reference
-    /// sum into the destination, across group boundaries and with zero coefficients; a group
-    /// and the shared nibble tail agree with it directly.
+    /// Accumulating groups XOR exactly the reference sum into the destination; combinations
+    /// spanning several groups with zero coefficients, and the shared nibble tail, agree.
     #[test]
-    fn accumulating_combinations_match_reference_on_every_backend() {
+    fn accumulating_groups_match_reference_on_every_backend() {
         for symbols in [0usize, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 255, 256, 300] {
             let start = row(77, symbols);
             let terms = COEFFICIENTS
                 .iter()
                 .copied()
                 .chain([0, 0x4321, 0, 7, 0x9000, 1, 0xFFFF, 0x0F0F, 2])
+                .chain(COEFFICIENTS.iter().copied().rev())
                 .enumerate()
                 .map(|(index, coefficient)| (coefficient, row(index as u64 + 5, symbols)))
                 .collect::<Vec<_>>();
-            let want = expected(&terms, Some(&start), symbols);
-            let group = &terms[..GROUP.min(COEFFICIENTS.len())];
+            let want = expected(&terms, None, symbols);
+            let group = &terms[..COEFFICIENTS.len()];
             let group_want = expected(group, Some(&start), symbols);
             let coefficients = group.iter().map(|(c, _)| *c).collect::<Vec<_>>();
             let sources = group.iter().map(|(_, s)| s.as_slice()).collect::<Vec<_>>();
@@ -640,7 +639,6 @@ mod tests {
                 combine(
                     terms.iter().map(|(c, source)| (*c, source.as_slice())),
                     &mut destination,
-                    true,
                     backend,
                 );
                 assert!(destination == want, "{backend:?} symbols {symbols}");
@@ -651,10 +649,11 @@ mod tests {
                     "{backend:?} group symbols {symbols}"
                 );
                 let mut destination = start.clone();
-                let zeros = terms.iter().map(|(_, source)| (0, source.as_slice()));
-                combine(zeros.clone(), &mut destination, true, backend);
-                assert!(destination == start, "{backend:?} empty accumulate");
-                combine(zeros, &mut destination, false, backend);
+                combine(
+                    terms.iter().map(|(_, source)| (0, source.as_slice())),
+                    &mut destination,
+                    backend,
+                );
                 assert!(
                     destination.iter().all(|byte| *byte == 0),
                     "{backend:?} empty"
@@ -674,23 +673,13 @@ mod tests {
     #[should_panic(expected = "RS16 rows share one width")]
     fn combine_rejects_mismatched_row_widths() {
         let mut destination = vec![0; 4];
-        combine(
-            [(1, &[0u8; 2][..])],
-            &mut destination,
-            false,
-            Backend::Scalar,
-        );
+        combine([(1, &[0u8; 2][..])], &mut destination, Backend::Scalar);
     }
 
     #[test]
     #[should_panic(expected = "RS16 rows hold whole symbols")]
     fn combine_rejects_partial_symbols() {
         let mut destination = vec![0; 3];
-        combine(
-            [(1, &[0u8; 3][..])],
-            &mut destination,
-            false,
-            Backend::Scalar,
-        );
+        combine([(1, &[0u8; 3][..])], &mut destination, Backend::Scalar);
     }
 }

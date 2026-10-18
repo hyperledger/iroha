@@ -26,16 +26,14 @@ use iroha_crypto::Hash;
 use iroha_data_model::{
     block::consensus::RecordedEvidenceV1,
     isi::{error::InstructionExecutionError, sccp::SubmitSccpForgeryEvidenceV1},
-    sccp::{
-        events::{
-            SccpEvent, SccpForgeryEvidenceRecordedV1, SccpForgeryOffenderUnslashableV1,
-            SccpRevisionForgeryHeldV1,
-        },
-        native::SccpForgeryOffenderV1,
-    },
     sumeragi_finality::certified_result::SccpFinalityHeaderV1,
 };
 use mv::storage::StorageReadOnly as _;
+
+mod event_graph;
+use event_graph::prepare_events;
+#[cfg(test)]
+use iroha_data_model::sccp::events::SccpEvent;
 
 /// A protocol rejection is distinct from a retained local storage/source refusal.
 #[derive(Clone, Debug, thiserror::Error)]
@@ -65,11 +63,22 @@ impl ForgeryExecutionError {
         self,
         stx: &mut StateTransaction<'_, '_>,
     ) -> InstructionExecutionError {
-        let message = self.to_string();
-        if let Ok(local) = self.into_local_refusal() {
-            stx.arm_local_storage_refusal(local);
+        match self.into_local_refusal() {
+            Ok(local) => {
+                // The original local cause lives outside deterministic instruction errors.
+                // Its sticky owner rejects the carrier before receipts or apply; even a
+                // diagnostic allocation here could fail while reporting allocator refusal.
+                #[cfg(all(test, sumeragi_core_mutation = "HC424"))]
+                let message = local.to_string().into_boxed_str();
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC424")))]
+                let message = Box::<str>::default();
+                stx.arm_local_storage_refusal(local);
+                InstructionExecutionError::InvariantViolation(message)
+            }
+            Err(protocol) => {
+                InstructionExecutionError::InvariantViolation(protocol.to_string().into())
+            }
         }
-        InstructionExecutionError::InvariantViolation(message.into())
     }
 
     /// Only deterministic signed-content/parent verdicts may be dropped by an honest builder.
@@ -120,7 +129,7 @@ struct PreparedExecution {
     keys: [Option<OffenceKey>; 31],
     record: RetainedEvidenceRecord,
     evidence_id: [u8; 32],
-    events: Vec<SccpEvent>,
+    events: event_graph::FundedForgeryEvents,
 }
 
 /// Reverify the exact original parent and atomically publish one pending SCCP record.
@@ -245,6 +254,7 @@ fn prepare_execution(
         header.height(),
         record,
         unslashable,
+        stx.sccp_evidence_preparation_budget(),
     )?;
     let record = prepared.into_record(stx)?;
     Ok(PreparedExecution {
@@ -253,94 +263,6 @@ fn prepare_execution(
         evidence_id,
         events,
     })
-}
-
-fn try_vec<T>(count: usize) -> Result<Vec<T>, EvidencePreparationError> {
-    let requested_bytes = std::alloc::Layout::array::<T>(count)
-        .map_err(|_| {
-            EvidencePreparationError::Admission(iroha_allocation::AllocationRefusal::DemandOverflow)
-        })?
-        .size();
-    let mut value = Vec::new();
-    value
-        .try_reserve_exact(count)
-        .map_err(|_| EvidencePreparationError::Allocator { requested_bytes })?;
-    Ok(value)
-}
-
-fn prepare_events(
-    world: &impl WorldReadOnly,
-    evidence_id: [u8; 32],
-    height: u64,
-    record: &iroha_data_model::sccp::native::SccpForgeryRecordV1,
-    unslashable: u32,
-) -> Result<Vec<SccpEvent>, EvidencePreparationError> {
-    let previous = store::forgery_max_generation(world);
-    let maximum = Some(previous.map_or(record.generation, |g| g.max(record.generation)));
-    let mut count = usize::try_from(unslashable.count_ones())
-        .map_err(|_| EvidencePreparationError::Invariant)?
-        + 1;
-    for (_, route) in store::routes::iter(world) {
-        for revision in route.revisions.values() {
-            if !revision.forgery_held(previous) && revision.forgery_held(maximum) {
-                count = count
-                    .checked_add(1)
-                    .ok_or(EvidencePreparationError::Admission(
-                        iroha_allocation::AllocationRefusal::DemandOverflow,
-                    ))?;
-            }
-        }
-    }
-    let mut events = try_vec(count)?;
-    for signer in 0..31_u32 {
-        if unslashable & (1_u32 << signer) != 0 {
-            events.push(SccpEvent::ForgeryOffenderUnslashable(
-                SccpForgeryOffenderUnslashableV1 {
-                    generation: record.generation,
-                    signer,
-                },
-            ));
-        }
-    }
-    let mut offenders = try_vec(record.offenders.len())?;
-    for offender in &record.offenders {
-        let validator =
-            norito::core::classify_decode_attempt(|| offender.validator.try_clone_for_admission())
-                .map_err(|error| {
-                    error.into_local_refusal().map_or(
-                        EvidencePreparationError::Invariant,
-                        EvidencePreparationError::DecodeResource,
-                    )
-                })?;
-        offenders.push(SccpForgeryOffenderV1 {
-            signer: offender.signer,
-            lane_id: offender.lane_id,
-            validator,
-            activation_height: offender.activation_height,
-        });
-    }
-    events.push(SccpEvent::ForgeryEvidenceRecorded(
-        SccpForgeryEvidenceRecordedV1 {
-            evidence_id,
-            generation: record.generation,
-            height,
-            rule: record.rule,
-            offenders,
-        },
-    ));
-    for (network, route) in store::routes::iter(world) {
-        for (revision, value) in &route.revisions {
-            if !value.forgery_held(previous) && value.forgery_held(maximum) {
-                events.push(SccpEvent::RevisionForgeryHeld(SccpRevisionForgeryHeldV1 {
-                    network: *network,
-                    revision: *revision,
-                    forgery_floor: value.forgery_floor,
-                    generation: maximum.ok_or(EvidencePreparationError::Invariant)?,
-                }));
-            }
-        }
-    }
-    Ok(events)
 }
 
 fn publish(
@@ -381,10 +303,7 @@ fn publish(
         ));
         return Err(ForgeryStorageError::Invalid.into());
     }
-    // Same canonical event owner used by the retained SCCP instructions. Payload graph
-    // allocation happened before writes; the generic World sink retains its existing
-    // Arc/Vec allocation boundary, not a new claim of fully admitted event storage.
-    stx.world.emit_events(events);
+    stx.world.emit_sccp_forgery_events(events.iter());
     Ok(())
 }
 

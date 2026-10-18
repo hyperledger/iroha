@@ -592,6 +592,30 @@ fn composite_children_decode_in_place_without_alignment_copies() {
     }
 }
 #[test]
+fn empty_children_of_over_aligned_types_decode_independently_of_alignment() {
+    reset_decode_state();
+    // An empty child span is borrowed at its own address, so a zero-payload child
+    // decodes the same way whatever its type's in-memory alignment is.
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        let tuple: ([u64; 0], u8) = ([], 9);
+        let mut encoded = Vec::new();
+        serialize_to_buffer(&tuple, &mut encoded).expect("encode tuple");
+        assert_eq!(
+            decode_field_canonical::<([u64; 0], u8)>(&encoded).expect("empty aligned child"),
+            (tuple, encoded.len())
+        );
+        let result: Result<[u128; 0], u8> = Ok([]);
+        let mut encoded = Vec::new();
+        serialize_to_buffer(&result, &mut encoded).expect("encode result");
+        assert_eq!(
+            decode_field_canonical::<Result<[u128; 0], u8>>(&encoded)
+                .expect("empty aligned branch"),
+            (result, encoded.len())
+        );
+    }
+}
+#[test]
 fn decode_vec_from_slice_serial_reports_prefix_used() {
     reset_decode_state();
     let value = vec![3_u16, 5, 8, 13];

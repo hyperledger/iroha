@@ -222,6 +222,7 @@ impl Memory {
         }
     }
 
+    #[inline]
     pub(crate) fn diagnostic_classify_last_access(
         &self,
         addr: u64,
@@ -918,14 +919,27 @@ impl Memory {
 
     /// Record a prepared instruction against the loaded code image without
     /// changing the ordinary prepared path's read set.
+    ///
+    /// Every prepared fetch calls this; only an attached diagnostic recorder
+    /// leaves the inline fast path.
+    #[inline]
     pub(crate) fn diagnostic_record_prepared_fetch(
         &self,
         pc: u64,
         instruction: u32,
     ) -> Result<(), VMError> {
-        let Some(recorder) = &self.diagnostic_access_recorder else {
-            return Ok(());
-        };
+        match &self.diagnostic_access_recorder {
+            None => Ok(()),
+            Some(recorder) => self.diagnostic_record_attached_fetch(recorder, pc, instruction),
+        }
+    }
+
+    fn diagnostic_record_attached_fetch(
+        &self,
+        recorder: &DiagnosticMemoryAccessRecorder,
+        pc: u64,
+        instruction: u32,
+    ) -> Result<(), VMError> {
         let end = pc.checked_add(4).ok_or(VMError::DecodeError)?;
         // The prepared-program owner already authenticates the instruction
         // boundary relative to its admitted executable origin. A variable-size

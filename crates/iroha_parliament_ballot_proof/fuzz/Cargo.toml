@@ -13,7 +13,8 @@ accel = ["iroha_parliament_ballot_proof/accel", "iroha_zkp_vole/accel"]
 
 [dependencies]
 libfuzzer-sys = "=0.4.10"
-iroha_parliament_ballot_proof = { path = ".." }
+# The parsers and replay compare both rows, so the diagnostic comparator row is enabled.
+iroha_parliament_ballot_proof = { path = "..", features = ["diagnostics"] }
 iroha_zkp_vole = { path = "../../iroha_zkp_vole" }
 
 # Isolated test workspace: no fuzzer dependency enters node/release builds.

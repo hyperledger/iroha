@@ -110,7 +110,7 @@ public struct TransactionInstructionFrame: Equatable, Sendable {
             guard let privacyProtocolId, let privacyAdmission, let expectedNetworkId else {
                 throw ExecutableBatchInputError.privacyExact12CapabilityAdmissionRequired
             }
-            // Re-run the ABI29 catalog getter+validator and the exact manifest/
+            // Re-run the ABI30 catalog getter+validator and the exact manifest/
             // envelope tuple comparison at final encoding. A previously issued
             // token cannot turn a missing or stale native artifact into authority.
             try PrivacyExact12CapabilityAdmissionV1.requireForConstruction(

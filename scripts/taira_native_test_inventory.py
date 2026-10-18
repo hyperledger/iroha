@@ -58,7 +58,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'governance_locks_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys',
         'governance_slash_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys',
     )),
-    ('native KAGEMUSHA wallet State and verifier-pack routing', 'kagemusha_wallet_v1/tests.rs', 'kagemusha_wallet_v1/tests/wsv_tests.rs', 'wsv_tests', 'kagemusha_wallet_v1::tests::wsv_tests', ('registration_requires_dedicated_asset_permission_and_reserve_consent', 'registration_rejects_a_foreign_network_before_creating_reserve_rows', 'registered_reserve_rejects_ordinary_transfer_burn_and_teardown', 'native_rejection_and_missing_source_anchor_cannot_activate', 'real_asset_batch_loads_once_and_failed_debit_rolls_back_ordinal', 'committed_reader_requires_an_original_cut_and_finite_limits', 'routing_uses_permanent_scope_and_refuses_missing_wallet_records', 'verifier_pack_routing_requires_the_exact_registered_asset_and_permanent_scope', 'verifier_install_routing_requires_the_registered_authorizing_asset_and_scheme', 'package_quota_charges_exact_native_calls_and_one_operation_at_the_boundary', 'package_quota_refusal_is_atomic_for_sigma_and_lineage_limits_and_overflow', 'lineage_call_quota_refuses_before_native_verifier_or_payout', 'unavailable_production_artifacts_retain_local_deferral_and_no_activation', 'verifier_install_requires_actual_reserve_owner_before_artifact_parsing', 'genuine_verifier_install_is_immutable_exact_retry_and_same_overlay_native_owner', 'verifier_install_rechecks_live_asset_permission_and_registered_scope', 'authorized_install_cannot_turn_missing_originals_into_a_verifier', 'package_quota_refuses_before_native_verifier_and_ledger_activation', 'real_reserve_pays_unload_once_and_online_controls_defer_without_consuming_it', 'real_fee_payout_requires_retained_history_and_never_requires_receive', 'corrupted_reserve_owner_and_mutated_registration_are_rejected', 'snapshot_requires_exact_reserve_indexes_and_reference_counts', 'private_root_load_rejects_before_debit_or_receipt_creation', 'ordinary_load_receipt_is_recovered_after_growth_and_local_qc_loss', 'compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope',)),
+    ('native KAGEMUSHA wallet State and verifier-pack routing', 'kagemusha_wallet_v1/tests.rs', 'kagemusha_wallet_v1/tests/wsv_tests.rs', 'wsv_tests', 'kagemusha_wallet_v1::tests::wsv_tests', ('registration_requires_dedicated_asset_permission_and_reserve_consent', 'registration_rejects_a_foreign_network_before_creating_reserve_rows', 'registered_reserve_rejects_ordinary_transfer_burn_and_teardown', 'native_rejection_and_missing_source_anchor_cannot_activate', 'real_asset_batch_loads_once_and_failed_debit_rolls_back_ordinal', 'committed_reader_requires_an_original_cut_and_finite_limits', 'routing_uses_permanent_scope_and_refuses_missing_wallet_records', 'verifier_pack_routing_requires_the_exact_registered_asset_and_permanent_scope', 'verifier_install_routing_requires_the_registered_authorizing_asset_and_scheme', 'package_quota_charges_exact_native_calls_and_one_operation_at_the_boundary', 'package_quota_refusal_is_atomic_for_sigma_and_lineage_limits_and_overflow', 'lineage_call_quota_refuses_before_native_verifier_or_payout', 'unavailable_production_artifacts_retain_local_deferral_and_no_activation', 'verifier_install_requires_actual_reserve_owner_before_artifact_parsing', 'genuine_verifier_install_is_immutable_exact_retry_and_same_overlay_native_owner', 'verifier_install_rechecks_live_asset_permission_and_registered_scope', 'authorized_install_cannot_turn_missing_originals_into_a_verifier', 'package_quota_refuses_before_native_verifier_and_ledger_activation', 'real_reserve_pays_unload_once_and_online_controls_defer_without_consuming_it', 'real_fee_payout_requires_retained_history_and_never_requires_receive', 'corrupted_reserve_owner_and_mutated_registration_are_rejected', 'snapshot_requires_exact_reserve_indexes_and_reference_counts', 'private_root_load_rejects_before_debit_or_receipt_creation', 'ordinary_load_receipt_is_recovered_after_growth_and_local_qc_loss', 'compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope')),
     ('native State preverify backend and key admission', 'state.rs', 'state/state_preverify_backend_admission_tests.rs', 'state_preverify_backend_admission_tests', 'state::state_preverify_backend_admission_tests', (
         'unsupported_retired_and_claimed_backends_fail_state_admission',
         'stark_fri_profile_labels_require_enveloped_state_preverify_metadata',
@@ -79,6 +79,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions',
         'pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry',
         'pending_payload_admission_exhaustion_refuses_before_input_publication',
+        'pending_payload_lease_accepts_shared_queue_handles_and_their_copies',
     )),
     ('native original Queue resident custody', 'queue.rs', 'queue/resident_owner_tests.rs', 'resident_owner_tests', 'queue::tests::resident_owner_tests', ('removed_pending_owner_retains_original_resident_credit_until_last_reader', 'original_queue_shell_refusal_preserves_graph_and_exact_release_then_retries', 'first_queue_resident_ledger_refusal_keeps_original_input_and_retry_pool', 'every_queue_retirement_defers_original_refund_until_its_mutation_fence_releases', 'equal_limit_foreign_state_cannot_replace_original_queue_resident_pool', 'queue_drop_keeps_original_shell_and_ledger_charges_until_detached_last_owner', 'cold_queue_retirement_holds_original_fence_until_first_admission_can_publish')),
     ('native returned AMX context custody', 'sumeragi/amx/native/tests.rs', 'sumeragi/amx/native/tests/returned_context.rs', 'returned_context', 'sumeragi::amx::native::tests::returned_context', (
@@ -363,6 +364,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_frame_requires_fixed_header_and_exact_block_binding',
         'authenticated_scope_rejects_active_non_global_without_redecoding_result',
         'original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners',
+        'certified_id_streams_exact_preimage_without_heap_allocation',
     )),
     ('native certified history boundaries', 'sumeragi/certified_chain/tests.rs', 'sumeragi/certified_chain/boundary_tests.rs', 'boundaries', 'sumeragi::certified_chain::tests::boundaries', (
         'rotated_away_committee_verifies_from_authenticated_boundaries_with_bounded_authority',
@@ -507,12 +509,12 @@ NATIVE_CORE_TEST_OWNERS = (
     ('native executed genesis registration', 'sumeragi/schedule/execution.rs', 'sumeragi/schedule/execution_tests.rs', 'tests', 'sumeragi::schedule::execution::tests', (
         'executed_genesis_must_retain_every_exact_signed_registration',
         'executed_genesis_rejects_an_extra_voting_registration',
+        'executed_genesis_requires_committed_fee_policy_without_defaults',
         'executed_genesis_fee_scope_decode_refusal_defers_and_retries_same_authority',
         'boundary_capture_attempts_retain_capacity_release_and_deterministic_errors',
         'executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state',
         'sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment',
         'executed_genesis_due_work_policy_cannot_be_bypassed_by_raw_state',
-        'executed_genesis_requires_committed_fee_policy_without_defaults',
     )),
     ('native driver persistence', 'sumeragi/driver/tests/mod.rs', 'sumeragi/driver/tests/file_stores.rs', 'file_stores', 'sumeragi::driver::tests::file_stores', (
         'file_stores_survive_disk_errors',
@@ -628,9 +630,9 @@ NATIVE_CORE_TEST_OWNERS = (
         'proposal_recovery_kernel_routes_exact_body_to_native_worker_without_control_view',
     )),
     ('native original proposal publication admission', 'sumeragi/executor.rs', 'sumeragi/executor/proposal_publication.rs', 'proposal_publication', 'sumeragi::executor::proposal_publication::tests', (
-        'native_original_proposal_rechecks_clock_after_worker_wait_and_restart',
-        'execution_reuses_recovered_proposal_decode_and_keeps_signing_admission',
         'recovery_decode_handoff_retains_refusals_and_requires_exact_source',
+        'execution_reuses_recovered_proposal_decode_and_keeps_signing_admission',
+        'native_original_proposal_rechecks_clock_after_worker_wait_and_restart',
     )),
     ('native original execution clock admission', 'sumeragi/executor.rs', 'sumeragi/executor/clock_tests.rs', 'clock_tests', 'sumeragi::executor::clock_tests', (
         'prepare_withheld_while_block_time_ahead',

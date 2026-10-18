@@ -89,7 +89,7 @@ def test_manifest_or_other_tasks_cannot_substitute_for_a_missing_report(
 ) -> None:
     paths = reports(tmp_path)
     paths[index].unlink()
-    (tmp_path / "native-sdk-abi29.json").write_text('{"status":"verified"}')
+    (tmp_path / "native-sdk-abi30.json").write_text('{"status":"verified"}')
     with pytest.raises(ValueError, match="lacks complete passing"):
         checker.validate_reports(tmp_path)
 

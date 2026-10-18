@@ -55,11 +55,10 @@ fn assert_preaccepted_foreign_domain_rejected(form: usize) {
                 .push_with_lane_with_state(transaction.clone(), &state)
                 .map(|_| ()),
             2 => queue
-                .push_with_gossip_payload_with_state_and_routing_plan(
+                .push_with_lane_with_state_and_routing_plan(
                     transaction.clone(),
                     &state,
                     plan.clone(),
-                    Some(Arc::clone(&bytes)),
                 )
                 .map(|_| ()),
             _ => queue

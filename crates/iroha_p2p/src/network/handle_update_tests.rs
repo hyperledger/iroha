@@ -291,6 +291,8 @@ mod handle_update_tests {
         .expect("small classed geometry must fit");
         assert_eq!(classed.max_sources, 8);
         assert_eq!(classed.max_sources_per_class, 2);
+        assert_eq!(classed.max_items_per_source, RELIABLE_ACTOR_SOURCE_WINDOW);
+        assert_eq!(classed.max_items, 8 * RELIABLE_ACTOR_SOURCE_WINDOW);
         assert_eq!(classed.max_total_bytes, 30);
         assert_eq!(classed.max_waiters_per_source, [65, 65, 65, 65]);
         let budget = NetworkActorProgressBudget::new(10, 1, 1).expect("small progress budget");
@@ -403,7 +405,13 @@ mod handle_update_tests {
             RELIABLE_ACTOR_SOURCE_WINDOW,
             RELIABLE_ACTOR_SOURCE_WINDOW + 1,
         ] {
-            let budget = NetworkActorProgressBudget::new(ceiling, 1, 1).unwrap();
+            let budget = NetworkActorProgressBudget::new_with_window(
+                ceiling,
+                1,
+                1,
+                RELIABLE_ACTOR_SOURCE_WINDOW,
+            )
+            .expect("one source with the production item window");
             let shape = |index: usize| ProgressTicketShape {
                 topic: message::Topic::Consensus,
                 stream_wire_bytes: 1,
@@ -951,13 +959,7 @@ mod handle_update_tests {
                 let ProgressLeaseAttempt::Waiting {
                     ticket: Some(ticket),
                     rank,
-                } = budget.try_reserve_for_source(
-                    bytes,
-                    request_shape,
-                    source.clone(),
-                    None,
-                    None,
-                )
+                } = budget.try_reserve_for_source(bytes, request_shape, source.clone(), None, None)
                 else {
                     panic!("every class must retain its complete independent waiter envelope");
                 };
@@ -1040,7 +1042,10 @@ mod handle_update_tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(state.waiter_count, 0);
         assert_eq!(state.waiters_by_class, [0; ActorProgressClass::COUNT]);
-        assert_eq!(state.retained_sources_by_class, [0; ActorProgressClass::COUNT]);
+        assert_eq!(
+            state.retained_sources_by_class,
+            [0; ActorProgressClass::COUNT]
+        );
     }
     #[test]
     fn progress_ticket_allocation_never_wraps_and_resets_only_when_empty() {
@@ -2642,9 +2647,13 @@ mod handle_update_tests {
                 .expect("small safety-isolation fixture must have a stream charge");
         // Saturate the byte cap with one frame while retaining the production
         // item window; ordinary overflow must not consume this safety reserve.
-        handle.network_actor_progress_budget =
-            NetworkActorProgressBudget::new(stream_wire_bytes, 8, 8)
-                .expect("one-frame safety byte budget");
+        handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+            stream_wire_bytes,
+            8,
+            8,
+            RELIABLE_ACTOR_SOURCE_WINDOW,
+        )
+        .expect("one-frame safety byte budget");
         handle.post(post(RoutedActorDummy::Control));
         handle.post(post(RoutedActorDummy::Control));
         assert_eq!(

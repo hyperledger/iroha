@@ -3,7 +3,8 @@
 //! votes over lists of 3, 500 and 1,000 entries.
 //!
 //! Run in release: `cargo run --release -p iroha_parliament_ballot_proof
-//! --example measure [--features accel]`. The numbers describe the machine the
+//! --example measure --features diagnostics[,accel]` (the comparator row needs the
+//! `diagnostics` feature). The numbers describe the machine the
 //! example runs on and nothing else; no row is selected or qualified. The tapes
 //! are derived from a counter so that runs are reproducible, which is permitted
 //! for measurement and tests only: a real prover takes fresh random bytes.

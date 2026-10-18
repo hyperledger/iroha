@@ -21,12 +21,11 @@ use iroha_data_model::{
     governance::{
         anonymous_ballot::{
             AdmissionNonceV1, AdmissionStampV1, AnonymousBallotAuthorizationV1,
-            AnonymousBallotEnvelopeV1, AnonymousBallotV1, BallotBodyContextV1,
-            BallotCapacityCommitmentV1, BallotChoiceV1, BallotProofBytesV1, BodyDecisionModeV1,
-            CanonicalAnonymousBallotEnvelopeV1, CredentialCommitmentV1, Digest512,
-            FrozenBallotPolicyV1, FrozenLifecyclePolicyV1, FrozenSortitionPolicyV1,
-            ParliamentBallotParametersV1, ParliamentDecisionRuleV1, ProofProfileIdV1,
-            RequiredBodyPolicyV1, SealedCredentialListV1, digests::proposal_digest_v1,
+            AnonymousBallotEnvelopeV1, AnonymousBallotV1, BallotBodyContextV1, BallotChoiceV1,
+            BallotProofBytesV1, CanonicalAnonymousBallotEnvelopeV1, CredentialCommitmentV1,
+            Digest512, FrozenBallotPolicyV1, FrozenParliamentAttemptPolicyV1,
+            ParliamentBallotParametersV1, ParliamentLifecycleParametersV1, ProofProfileIdV1,
+            SealedCredentialListV1, digests::proposal_digest_v1,
         },
         types::{
             AbiVersion, BodyElectionAttemptId, BodyInstanceId, ContractAbiHash, ContractCodeHash,
@@ -111,65 +110,40 @@ pub fn proposal_digest() -> Digest512 {
     proposal_digest_v1(&proposal()).expect("proposal digest")
 }
 
-/// The Policy Jury snapshot of a standard-tier attempt with the default committed budgets
-/// at a 1,000 ms cadence (28-bit stamps, a one-day casting window).
-pub fn policy() -> FrozenBallotPolicyV1 {
-    let required_bodies = [
-        (ParliamentBody::RulesCommittee, 50),
-        (ParliamentBody::AgendaCouncil, 150),
-        (ParliamentBody::InterestPanel, 12),
-        (ParliamentBody::ReviewPanel, 150),
-        (ParliamentBody::CoordinationCouncil, 150),
-        (ParliamentBody::FmaCommittee, 50),
-        (ParliamentBody::OversightCommittee, 50),
-        (ParliamentBody::PolicyJury, 500),
-        (ParliamentBody::ConfirmationJury, 1_000),
+/// The SCCP-route pipeline with its conditional Confirmation Jury.
+pub fn pipeline() -> Vec<ParliamentBody> {
+    vec![
+        ParliamentBody::RulesCommittee,
+        ParliamentBody::AgendaCouncil,
+        ParliamentBody::InterestPanel,
+        ParliamentBody::ReviewPanel,
+        ParliamentBody::CoordinationCouncil,
+        ParliamentBody::FmaCommittee,
+        ParliamentBody::OversightCommittee,
+        ParliamentBody::PolicyJury,
+        ParliamentBody::ConfirmationJury,
     ]
-    .into_iter()
-    .map(|(body, target_seats)| RequiredBodyPolicyV1 {
-        body,
-        decision_mode: if matches!(
-            body,
-            ParliamentBody::PolicyJury | ParliamentBody::ConfirmationJury
-        ) {
-            BodyDecisionModeV1::AnonymousBallot
-        } else {
-            BodyDecisionModeV1::PublicFinding
-        },
-        target_seats,
-        alternate_cap: 21,
-    })
-    .collect();
-    let parameters = ParliamentBallotParametersV1::default();
-    FrozenBallotPolicyV1 {
-        governance_policy_version: 1,
-        risk_tier: RiskTierV1::Standard,
-        body_role: ParliamentBody::PolicyJury,
-        required_bodies,
-        profile_id: ProofProfileIdV1::V1,
-        vote_notice_ms: parameters.vote_notice_ms,
-        casting_window_ms: parameters.casting_window_ms,
-        stamp_difficulty_bits: parameters.stamp_difficulty_bits,
-        minimum_sealed_seats: 3,
-        minimum_turnout: 3,
-        quorum_numerator: 2,
-        quorum_denominator: 3,
-        decision_rule: ParliamentDecisionRuleV1::V1,
-        maximum_seats: 1_000,
-        sortition_policy: FrozenSortitionPolicyV1 {
-            pulse_delay_blocks: 4,
-            pulse_cadence_blocks: 3_600,
-            cross_body_assignment_cap: 1,
-            max_sortition_retries: 16,
-            max_randomness_redraws: 16,
-        },
-        lifecycle_policy: FrozenLifecyclePolicyV1 {
-            invitation_window_ms: 3_600_000,
-            deliberation_window_ms: 3_600_000,
-            enactment_delay_ms: 600_000,
-        },
-        capacity_commitment: BallotCapacityCommitmentV1::from_parameters(&parameters, 1_000),
-    }
+}
+
+/// The attempt snapshot of [`pipeline`] frozen from the default committed lifecycle and
+/// ballot parameters at a 1,000 ms block cadence and the default 3,600-block pulse cadence.
+pub fn attempt_policy() -> FrozenParliamentAttemptPolicyV1 {
+    FrozenParliamentAttemptPolicyV1::freeze_v1(
+        &pipeline(),
+        &ParliamentLifecycleParametersV1::default(),
+        Some(&ParliamentBallotParametersV1::default()),
+        1_000,
+        3_600,
+    )
+    .expect("default attempt policy")
+}
+
+/// The Policy Jury snapshot of a standard-tier [`attempt_policy`] (28-bit stamps, a one-day
+/// casting window).
+pub fn policy() -> FrozenBallotPolicyV1 {
+    attempt_policy()
+        .ballot_policy(RiskTierV1::Standard, ParliamentBody::PolicyJury)
+        .expect("default ballot policy")
 }
 
 /// The credential secret of roster member `member`.
@@ -266,31 +240,31 @@ pub const FIXTURE_BALLOTS: [FixtureBallot; 5] = [
         member: 0,
         vote: BallotChoiceV1::Aye,
         tape: 0x10,
-        nonce: offset_nonce(7_679_395),
+        nonce: offset_nonce(110_609_495),
     },
     FixtureBallot {
         member: 1,
         vote: BallotChoiceV1::Nay,
         tape: 0x11,
-        nonce: offset_nonce(50_651_859),
+        nonce: offset_nonce(400_695_293),
     },
     FixtureBallot {
         member: 2,
         vote: BallotChoiceV1::Aye,
         tape: 0x12,
-        nonce: offset_nonce(23_963_018),
+        nonce: offset_nonce(812_400_381),
     },
     FixtureBallot {
         member: 3,
         vote: BallotChoiceV1::Abstain,
         tape: 0x13,
-        nonce: offset_nonce(517_584_961),
+        nonce: offset_nonce(153_706_119),
     },
     FixtureBallot {
         member: 0,
         vote: BallotChoiceV1::Nay,
         tape: 0x14,
-        nonce: offset_nonce(146_243_166),
+        nonce: offset_nonce(213_200_714),
     },
 ];
 
@@ -298,7 +272,7 @@ pub const FIXTURE_BALLOTS: [FixtureBallot; 5] = [
 pub const FORGED_PROOF_BYTE: usize = 1_000;
 
 /// Pinned 28-bit stamp nonce of the forged ballot.
-pub const FORGED_NONCE: [u8; 32] = offset_nonce(933_383_097);
+pub const FORGED_NONCE: [u8; 32] = offset_nonce(202_597_833);
 
 /// The authorization (every field but the stamp) of fixture ballot `index`, proved once.
 pub fn fixture_authorization(index: usize) -> AnonymousBallotAuthorizationV1 {
@@ -432,7 +406,7 @@ mod tests {
     #[test]
     fn the_pinned_stamps_reach_the_frozen_difficulty() {
         let context = scoped_context();
-        assert_eq!(context.policy().stamp_difficulty_bits, 28);
+        assert_eq!(context.policy().binding.stamp_difficulty_bits, 28);
         for (name, authorization, nonce) in pinned() {
             assert!(
                 verify_stamp_v1(

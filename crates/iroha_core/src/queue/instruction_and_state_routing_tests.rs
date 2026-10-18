@@ -494,7 +494,7 @@ fn precomputed_state_routing_plan_rejects_stale_policy_even_when_old_lane_still_
     let stale_plan = RoutingPlan::single(old_route);
     assert_eq!(stale_plan.coordinator_route(), old_route);
     let err = queue
-        .push_with_gossip_payload_with_state_and_routing_plan(tx, &state, stale_plan, None)
+        .push_with_lane_with_state_and_routing_plan(tx, &state, stale_plan)
         .expect_err("stale precomputed plan should be rejected");
     assert!(
         matches!(

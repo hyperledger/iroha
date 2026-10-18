@@ -476,7 +476,7 @@ def native_manifest_bytes():
     return producer.native.canonical_manifest_bytes({
         "schema": producer.native.SCHEMA, "sdk": "c-jni", "target": "aarch64-apple-darwin",
         "artifact_sha256": contract.identity(b"synthetic native")["sha256"],
-        "artifact_size": len(b"synthetic native"), "bridge_abi_version": 29,
+        "artifact_size": len(b"synthetic native"), "bridge_abi_version": 30,
         "source_commit": "a" * 40, "source_tree_clean": True,
         "workspace_source_manifest_sha256": "b" * 64,
         "required_symbols": list(producer.native.REQUIRED_SYMBOLS["c-jni"]),
@@ -598,7 +598,7 @@ def test_captured_native_manifest_never_reopens_for_parsing(tmp_path, monkeypatc
     members = contract.archive_members(Path(result["artifact"]).read_bytes())
     manifest = json.loads(members["manifest.json"])
     assert parsed == ["a" * 40] and len(checks) == 4
-    assert manifest["source_commit"] == json.loads(members["inputs/native-abi29.json"])["source_commit"] == "a" * 40
+    assert manifest["source_commit"] == json.loads(members["inputs/native-abi30.json"])["source_commit"] == "a" * 40
 
 
 @pytest.mark.parametrize("mutation", ["rotated_origin", "unknown_output", "bad_early_origin", "repeated_report"])

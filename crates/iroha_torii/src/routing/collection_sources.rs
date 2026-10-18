@@ -263,6 +263,39 @@ where
     }
 }
 
+/// Keys of one secondary index set in identity order, strictly after `after`
+/// (before it when `descending`). Exact `id` candidates visit only the keys
+/// the index holds.
+fn seek_index_keys<'a, K: Ord>(
+    keys: Option<&'a BTreeSet<K>>,
+    candidates: Option<BTreeSet<K>>,
+    after: Option<&'a K>,
+    descending: bool,
+) -> Box<dyn Iterator<Item = &'a K> + 'a> {
+    use std::ops::Bound::{Excluded, Unbounded};
+    let Some(keys) = keys else {
+        return Box::new(core::iter::empty());
+    };
+    if let Some(candidates) = candidates {
+        let held: Vec<&'a K> = candidates
+            .iter()
+            .filter_map(|candidate| keys.get(candidate))
+            .filter(|key| entry_after_cursor(*key, after, descending))
+            .collect();
+        return if descending {
+            Box::new(held.into_iter().rev())
+        } else {
+            Box::new(held.into_iter())
+        };
+    }
+    match (after, descending) {
+        (Some(after), false) => Box::new(keys.range((Excluded(after), Unbounded))),
+        (Some(after), true) => Box::new(keys.range((Unbounded, Excluded(after))).rev()),
+        (None, false) => Box::new(keys.iter()),
+        (None, true) => Box::new(keys.iter().rev()),
+    }
+}
+
 /// Whether a storage key follows the cursor in the requested order. Totals
 /// scan earlier entries too, but only later entries can appear in the page.
 fn entry_after_cursor<K: Ord>(key: &K, after: Option<&K>, descending: bool) -> bool {
@@ -648,19 +681,40 @@ async fn execute_prepared_collection_local(
             }
             let world = state.world_view();
             let asset_literal = definition.to_string();
-            let rows = world
-                .asset_entries_by_definition_iter(&definition)
-                .map(|entry| {
-                    visibility.allows_asset(&world, entry.id()).then(|| {
+            // Holder rows are stored by balance partition in the definition's
+            // index; identity-ordered pages seek there from the cursor.
+            let scan = prepared.ordered_scan();
+            let descending = scan.is_some_and(|scan| scan.descending);
+            let after = cursor_key(scan.and_then(|scan| scan.after), |id| {
+                AssetId::parse_literal(id)
+                    .ok()
+                    .filter(|asset| asset.definition() == &definition)
+            })?;
+            let rows = seek_index_keys(
+                world.asset_definition_assets().get(&definition),
+                id_candidates(query, |id| AssetId::parse_literal(id).ok()),
+                after.as_ref().filter(|_| !query.include_total),
+                descending,
+            )
+            .filter_map(|asset_id| world.assets().get_key_value(asset_id))
+            .map(|(asset_id, value)| {
+                (
+                    entry_after_cursor(asset_id, after.as_ref(), descending),
+                    visibility.allows_asset(&world, asset_id).then(|| {
                         asset_holder_row(&live_asset_holder_item(
-                            entry.id(),
-                            entry.value().as_ref(),
+                            asset_id,
+                            value.as_ref(),
                             &asset_literal,
                             asset_alias.as_ref(),
                         ))
-                    })
-                });
-            prepared.execute_entries(rows, limits)
+                    }),
+                )
+            });
+            if scan.is_some() {
+                prepared.execute_ordered(rows, limits)
+            } else {
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
+            }
         }
         CollectionTarget::AccountTransactions(account_literal) => {
             let (account, _) = parse_account_path_segment_with_state(
@@ -1745,6 +1799,7 @@ fn account_asset_row(item: &AccountAssetListItem) -> Map {
 
 fn asset_holder_row(item: &AssetHolderListItem) -> Map {
     let mut row = Map::new();
+    row.insert("id".into(), Value::from(item.partition_id.clone()));
     row.insert("account_id".into(), Value::from(item.canonical_id.clone()));
     row.insert("asset".into(), Value::from(item.asset.clone()));
     row.insert(
@@ -2113,6 +2168,128 @@ mod tests {
         list.iter()
             .map(|name| domain_id(name).to_string())
             .collect()
+    }
+
+    #[test]
+    fn seek_index_keys_streams_identity_order_from_the_cursor() {
+        let keys = BTreeSet::from([2_u32, 4, 6, 8]);
+        let seek = |candidates: Option<BTreeSet<u32>>, after: Option<&u32>, descending| {
+            seek_index_keys(Some(&keys), candidates, after, descending)
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(seek(None, None, false), [2, 4, 6, 8]);
+        assert_eq!(seek(None, Some(&4), false), [6, 8]);
+        assert_eq!(seek(None, Some(&5), true), [4, 2]);
+        assert_eq!(seek(None, None, true), [8, 6, 4, 2]);
+        let candidates = || Some(BTreeSet::from([1, 4, 8]));
+        assert_eq!(seek(candidates(), None, false), [4, 8]);
+        assert_eq!(seek(candidates(), Some(&4), false), [8]);
+        assert_eq!(seek(candidates(), Some(&8), true), [4]);
+        assert!(
+            seek_index_keys::<u32>(None, None, None, false)
+                .next()
+                .is_none()
+        );
+    }
+
+    /// One definition with five holders plus one holder of another definition.
+    fn holder_fixture() -> (Arc<CoreState>, dm::AssetDefinitionId, Vec<dm::AssetId>) {
+        let owner = authority(0xD0);
+        let definition = |name: &str| {
+            dm::AssetDefinitionId::derive_from_components(
+                domain_id("holders"),
+                name.parse().unwrap(),
+            )
+        };
+        let rose = definition("rose");
+        let tulip = definition("tulip");
+        let holders: Vec<dm::AccountId> = (0xD1..=0xD5).map(authority).collect();
+        let accounts = std::iter::once(&owner)
+            .chain(&holders)
+            .map(|account| dm::Account::new(account.account().clone()).build(account))
+            .collect::<Vec<_>>();
+        let definitions = [&rose, &tulip].map(|id| {
+            dm::AssetDefinition::numeric(
+                id.clone(),
+                id.to_string(),
+                iroha_data_model::asset::AssetBalancePolicy::Global,
+                None,
+            )
+            .build(&owner)
+        });
+        let rose_ids: Vec<dm::AssetId> = holders
+            .iter()
+            .map(|holder| dm::AssetId::new(rose.clone(), holder.clone()))
+            .collect();
+        let assets = rose_ids
+            .iter()
+            .chain(std::iter::once(&dm::AssetId::new(tulip, owner.clone())))
+            .map(|id| dm::Asset::new(id.clone(), Quantity::from(3_u32)))
+            .collect::<Vec<_>>();
+        let state = Arc::new(State::new_for_testing(
+            World::with_assets(
+                [dm::Domain::new(domain_id("holders")).build(&owner)],
+                accounts,
+                definitions,
+                assets,
+                [],
+            ),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        ));
+        let mut rose_ids = rose_ids;
+        rose_ids.sort();
+        (state, rose, rose_ids)
+    }
+
+    #[tokio::test]
+    async fn asset_holders_page_in_partition_order_from_the_cursor() {
+        let (state, rose, expected) = holder_fixture();
+        let target = CollectionTarget::AssetHolders(rose.to_string());
+        let expected: Vec<String> = expected.iter().map(ToString::to_string).collect();
+        let query = ListQuery::new().limit(2);
+        let mut seen = Vec::new();
+        let mut current = query.clone();
+        loop {
+            let page = run(&state, &target, current.clone()).await.expect("page");
+            assert!(page.items.len() <= 2);
+            for row in &page.items {
+                assert_eq!(row["asset"].as_str(), Some(rose.to_string().as_str()));
+                assert_eq!(row["scope"].as_str(), Some("global"));
+            }
+            seen.extend(ids(&page));
+            match page.next_cursor {
+                Some(cursor) => current = query.clone().cursor(cursor),
+                None => break,
+            }
+        }
+        assert_eq!(
+            seen, expected,
+            "default order is the stored partition order"
+        );
+        let descending = ListQuery::new().sort_by(SortKey::desc("id"));
+        let page = run(&state, &target, descending).await.expect("descending");
+        let mut reversed = expected.clone();
+        reversed.reverse();
+        assert_eq!(ids(&page), reversed);
+        let total = run(&state, &target, ListQuery::new().limit(1).include_total())
+            .await
+            .expect("total");
+        assert_eq!(
+            total.total,
+            Some(5),
+            "another definition's holder is excluded"
+        );
+        assert_eq!(ids(&total), expected[..1]);
+        let exact = run(
+            &state,
+            &target,
+            ListQuery::new().filter(field("id").eq(expected[3].clone())),
+        )
+        .await
+        .expect("exact partition");
+        assert_eq!(ids(&exact), expected[3..4]);
     }
 
     #[tokio::test]

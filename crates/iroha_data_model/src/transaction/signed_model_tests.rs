@@ -1918,7 +1918,7 @@ fn signed_contract_invocation_arguments_and_code_hash_are_signature_bound() {
     transaction
         .verify_signature()
         .expect("original signature verifies");
-    let Executable::ContractCall(invocation) = &mut transaction.payload.instructions else {
+    let Executable::ContractCall(invocation) = &mut transaction.payload_mut().instructions else {
         panic!("contract call executable");
     };
     invocation
@@ -1930,7 +1930,7 @@ fn signed_contract_invocation_arguments_and_code_hash_are_signature_bound() {
     transaction
         .verify_signature()
         .expect_err("mutating signed arguments must invalidate the signature");
-    let Executable::ContractCall(invocation) = &mut transaction.payload.instructions else {
+    let Executable::ContractCall(invocation) = &mut transaction.payload_mut().instructions else {
         panic!("contract call executable");
     };
     invocation
@@ -1941,7 +1941,7 @@ fn signed_contract_invocation_arguments_and_code_hash_are_signature_bound() {
     transaction
         .verify_signature()
         .expect("restoring signed arguments restores the original signature");
-    let Executable::ContractCall(invocation) = &mut transaction.payload.instructions else {
+    let Executable::ContractCall(invocation) = &mut transaction.payload_mut().instructions else {
         panic!("contract call executable");
     };
     invocation.expected_code_hash = iroha_crypto::Hash::new(b"rebound-contract-code");
@@ -2815,4 +2815,42 @@ fn capture_current_privacy_transaction_intent_kats() {
             hex::encode(digest.as_bytes())
         );
     }
+}
+
+#[test]
+fn entrypoint_identity_is_memoized_without_reaching_wire_or_equality() {
+    let fresh = |tx: &SignedTransaction| {
+        HashOf::<TransactionEntrypoint>::from_untyped_unchecked(Hash::from(HashOf::new(
+            &ExternalEntrypointRef(tx.payload()),
+        )))
+    };
+    let signed = sample_signed_transaction();
+    let wire_before = norito::encode_canonical(&signed).expect("encode signed transaction");
+    let expected = fresh(&signed);
+    assert!(signed.entrypoint_hash.0.get().is_none());
+    assert_eq!(signed.hash_as_entrypoint(), expected);
+    assert_eq!(signed.entrypoint_hash.0.get(), Some(&expected));
+    assert_eq!(signed.try_hash_as_entrypoint().unwrap(), expected);
+    assert_eq!(
+        norito::encode_canonical(&signed).expect("encode memoized transaction"),
+        wire_before,
+        "the memo never reaches the wire"
+    );
+    let decoded: SignedTransaction =
+        norito::decode_canonical(&wire_before).expect("decode signed transaction");
+    assert!(decoded.entrypoint_hash.0.get().is_none());
+    assert_eq!(decoded, signed, "equality ignores the memo");
+    assert_eq!(decoded.hash_as_entrypoint(), expected);
+    assert_eq!(format!("{decoded:?}"), format!("{signed:?}"));
+    let cloned = signed.clone();
+    assert_eq!(cloned.entrypoint_hash.0.get(), Some(&expected));
+    let other = iroha_crypto::KeyPair::try_from_seed(vec![7; 32], iroha_crypto::Algorithm::Ed25519)
+        .expect("fixture key");
+    let reattributed = cloned.with_authority(AccountId::new(other.public_key().clone()));
+    assert!(
+        reattributed.entrypoint_hash.0.get().is_none(),
+        "replacing payload content resets the memo"
+    );
+    assert_eq!(reattributed.hash_as_entrypoint(), fresh(&reattributed));
+    assert_ne!(reattributed.hash_as_entrypoint(), expected);
 }

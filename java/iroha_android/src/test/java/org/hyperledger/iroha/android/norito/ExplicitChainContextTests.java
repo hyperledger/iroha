@@ -247,7 +247,7 @@ public final class ExplicitChainContextTests {
                 feePayment));
 
     if (!NativeSignerBridge.isNativeAvailable()) {
-      throw new AssertionError("connect_norito_bridge ABI 29 is required");
+      throw new AssertionError("connect_norito_bridge ABI 30 is required");
     }
     final NativeSignerBridge.KeypairBytes keypair =
         NativeSignerBridge.keypairFromSeed(SigningAlgorithm.ED25519, fill(0x21, 32));

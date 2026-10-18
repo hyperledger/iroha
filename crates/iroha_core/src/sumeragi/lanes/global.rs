@@ -260,9 +260,10 @@ impl LaneTransactions for QueueLaneTransactions {
             .queue
             .begin_pending_payload_selection(&self.state, generation)
             .ok_or(LaneSelectionError::Changed)?;
+        // Inspect shared queue handles; only the selected inputs are copied below.
         let Some(pending) = self
             .queue
-            .bounded_pending_snapshot(&view, crate::sumeragi::payload::MAX_QUEUE_SCAN)
+            .bounded_pending_inputs(&view, crate::sumeragi::payload::MAX_QUEUE_SCAN)
         else {
             return Ok((Vec::new(), None));
         };
@@ -285,7 +286,7 @@ impl LaneTransactions for QueueLaneTransactions {
                 future = true;
                 continue;
             }
-            if inputs.route(&transaction, height)? != Some(self.lane) {
+            if inputs.route(transaction.as_accepted(), height)? != Some(self.lane) {
                 continue;
             }
             // The lane carries the complete original enum, including a reveal

@@ -48,6 +48,11 @@ pub struct Pool {
     counts: [usize; CLASS_COUNT],
     fallback: [usize; CLASS_COUNT],
     changed: Notify,
+    /// Streams currently waiting for released capacity to grant a request.
+    ///
+    /// Releases wake `changed` only while this is non-zero, so ordinary
+    /// traffic never wakes every peer task on every delivered message.
+    blocked: AtomicUsize,
 }
 
 fn partition(total: usize, index: usize, shares: usize) -> usize {
@@ -204,6 +209,7 @@ impl Pool {
             counts,
             fallback,
             changed: Notify::new(),
+            blocked: AtomicUsize::new(0),
         });
         *existing = Arc::downgrade(&pool);
         Ok(pool)
@@ -386,8 +392,30 @@ pub(super) struct GrantRetention {
 struct ReleaseNotify(Arc<Pool>);
 impl Drop for ReleaseNotify {
     fn drop(&mut self) {
-        // This is the final field: all byte/count subleases are already released.
-        self.0.changed.notify_waiters();
+        // This is the final field: all byte/count subleases are already
+        // released. A waiter registers in `blocked` before it retries its
+        // reservation, so either that retry observes this release or this
+        // load observes the registration (both are `SeqCst` and the budgets
+        // are mutex-ordered between them); no wake-up can be lost.
+        if self.0.blocked.load(Ordering::SeqCst) > 0 {
+            self.0.changed.notify_waiters();
+        }
+    }
+}
+/// Registration of one stream that waits for released receive capacity.
+///
+/// Create it, then enable the `changed` notification, then retry the
+/// reservation; drop it once the stream stops waiting.
+pub(super) struct BlockedOnRelease<'a>(&'a Pool);
+impl<'a> BlockedOnRelease<'a> {
+    pub(super) fn register(pool: &'a Pool) -> Self {
+        pool.blocked.fetch_add(1, Ordering::SeqCst);
+        Self(pool)
+    }
+}
+impl Drop for BlockedOnRelease<'_> {
+    fn drop(&mut self) {
+        self.0.blocked.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -442,6 +470,10 @@ impl Ledger {
             next: [1; CLASS_COUNT],
             cursor: 0,
         }
+    }
+    /// Whether a received request still waits for its grant.
+    fn has_ungranted_request(&self) -> bool {
+        self.requests.iter().any(Option::is_some)
     }
     fn request(&mut self, header: Header) -> Result<(), Error> {
         let i = header.class()?.index();

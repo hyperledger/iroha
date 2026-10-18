@@ -267,8 +267,6 @@ pub fn parity_offset(
         .checked_add(parity_index as u64)?;
     total_size.checked_add(slot.checked_mul(stride)?)
 }
-/// Owned-row parity: data rows are staged as little-endian bytes one kernel group at a time,
-/// so the transient copy is bounded by [`kernel::GROUP`] rows on every host byte order.
 fn encode_parity_with_backend(
     data_symbols: &[Vec<u16>],
     parity_count: usize,
@@ -281,44 +279,81 @@ fn encode_parity_with_backend(
     if data_symbols.iter().any(|row| row.len() != symbol_count) {
         return Err(Rs16Error);
     }
-    let data_count = data_symbols.len();
-    let coefficients = parity_coefficients(data_count, parity_count)?;
-    if symbol_count == 0 {
-        return Ok(vec![Vec::new(); parity_count]);
+    let coefficients = parity_coefficients(data_symbols.len(), parity_count)?;
+    let mut parity = vec![vec![0u16; symbol_count]; parity_count];
+    if symbol_count != 0 {
+        #[cfg(target_endian = "little")]
+        encode_owned_rows(&coefficients, data_symbols, &mut parity, backend);
+        #[cfg(target_endian = "big")]
+        encode_owned_rows_staged(&coefficients, data_symbols, &mut parity, backend);
     }
-    let row_bytes = 2 * symbol_count;
-    let mut parity = vec![0u8; parity_count.checked_mul(row_bytes).ok_or(Rs16Error)?];
-    let mut staged = vec![0u8; data_count.min(kernel::GROUP) * row_bytes];
-    for (group, rows) in data_symbols.chunks(kernel::GROUP).enumerate() {
-        for (bytes, row) in staged.chunks_exact_mut(row_bytes).zip(rows) {
-            for (pair, symbol) in bytes.chunks_exact_mut(2).zip(row) {
-                pair.copy_from_slice(&symbol.to_le_bytes());
-            }
-        }
-        let first = group * kernel::GROUP;
-        for (coefficients, output) in coefficients
-            .chunks_exact(data_count)
-            .zip(parity.chunks_exact_mut(row_bytes))
-        {
-            kernel::combine(
-                coefficients[first..first + rows.len()]
-                    .iter()
-                    .copied()
-                    .zip(staged.chunks_exact(row_bytes)),
-                output,
-                group != 0,
-                backend,
-            );
+    Ok(parity)
+}
+/// Little-endian hosts: `[u16]` rows already hold the RS16 byte layout, so the kernels read
+/// and write them in place and the returned parity is the only allocation.
+#[cfg(target_endian = "little")]
+fn encode_owned_rows(
+    coefficients: &[u16],
+    data: &[Vec<u16>],
+    parity: &mut [Vec<u16>],
+    backend: Backend,
+) {
+    for (coefficients, output) in coefficients.chunks_exact(data.len()).zip(parity) {
+        kernel::combine(
+            coefficients
+                .iter()
+                .copied()
+                .zip(data.iter().map(|row| le_bytes(row))),
+            le_bytes_mut(output),
+            backend,
+        );
+    }
+}
+/// Big-endian hosts stage little-endian copies of the data rows and of one parity row.
+#[cfg(any(target_endian = "big", test))]
+fn encode_owned_rows_staged(
+    coefficients: &[u16],
+    data: &[Vec<u16>],
+    parity: &mut [Vec<u16>],
+    backend: Backend,
+) {
+    let row_bytes = 2 * data[0].len();
+    let staged = data
+        .iter()
+        .flatten()
+        .flat_map(|symbol| symbol.to_le_bytes())
+        .collect::<Vec<_>>();
+    let mut row = vec![0u8; row_bytes];
+    for (coefficients, output) in coefficients.chunks_exact(data.len()).zip(parity) {
+        kernel::combine(
+            coefficients
+                .iter()
+                .copied()
+                .zip(staged.chunks_exact(row_bytes)),
+            &mut row,
+            backend,
+        );
+        for (symbol, pair) in output.iter_mut().zip(row.chunks_exact(2)) {
+            *symbol = u16::from_le_bytes([pair[0], pair[1]]);
         }
     }
-    Ok(parity
-        .chunks_exact(row_bytes)
-        .map(|row| {
-            row.chunks_exact(2)
-                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-                .collect()
-        })
-        .collect())
+}
+/// The little-endian byte layout of a symbol row, borrowed in place.
+#[cfg(target_endian = "little")]
+#[allow(unsafe_code)]
+fn le_bytes(symbols: &[u16]) -> &[u8] {
+    // SAFETY: on a little-endian host each `u16` is stored as its little-endian bytes. The
+    // view covers exactly the `2 * len` initialized bytes of the borrowed allocation, `u8`
+    // has alignment 1, and the shared borrow keeps the row alive and unmodified.
+    unsafe { std::slice::from_raw_parts(symbols.as_ptr().cast::<u8>(), 2 * symbols.len()) }
+}
+/// Mutable little-endian byte layout of a symbol row, borrowed in place.
+#[cfg(target_endian = "little")]
+#[allow(unsafe_code)]
+fn le_bytes_mut(symbols: &mut [u16]) -> &mut [u8] {
+    // SAFETY: as for `le_bytes`; the exclusive borrow prevents aliasing, and every byte
+    // pattern written through the view is a valid `u16`.
+    unsafe { std::slice::from_raw_parts_mut(symbols.as_mut_ptr().cast::<u8>(), 2 * symbols.len()) }
 }
 #[cfg(test)]
 mod tests {
@@ -459,6 +494,36 @@ mod tests {
                     "{backend:?} {k}+{m} symbols {symbols}"
                 );
             }
+        }
+    }
+    /// The in-place little-endian path and the staged path agree, so either host byte order
+    /// produces the pinned parity; the views expose exactly the little-endian symbol bytes.
+    #[test]
+    fn owned_row_staging_matches_in_place_rows() {
+        for &(k, m, symbols, _) in PINNED_PARITY {
+            if symbols == 0 {
+                continue;
+            }
+            let data = pinned_rows(k, m, symbols);
+            let coefficients = parity_coefficients(k, m).expect("coefficients");
+            for backend in host_backends() {
+                let mut in_place = vec![vec![0xA5A5; symbols]; m];
+                let mut staged = vec![vec![0x5A5A; symbols]; m];
+                #[cfg(target_endian = "little")]
+                encode_owned_rows(&coefficients, &data, &mut in_place, backend);
+                #[cfg(target_endian = "big")]
+                encode_owned_rows_staged(&coefficients, &data, &mut in_place, backend);
+                encode_owned_rows_staged(&coefficients, &data, &mut staged, backend);
+                assert_eq!(in_place, staged, "{backend:?} {k}+{m} symbols {symbols}");
+                assert_eq!(in_place, reference::encode_parity(&data, m));
+            }
+        }
+        #[cfg(target_endian = "little")]
+        {
+            let mut row = [0x0201u16, 0xFFFE];
+            assert_eq!(le_bytes(&row), &[0x01, 0x02, 0xFE, 0xFF]);
+            le_bytes_mut(&mut row)[3] = 0x7F;
+            assert_eq!(row, [0x0201, 0x7FFE]);
         }
     }
     #[test]

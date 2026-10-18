@@ -1,11 +1,7 @@
 package org.hyperledger.iroha.sdk.client
 
-import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
-import java.util.Base64
-import org.hyperledger.iroha.sdk.norito.CRC64
 import org.hyperledger.iroha.sdk.norito.NoritoHeader
 
 /** One canonical native instruction returned by a Parliament draft route. */
@@ -65,15 +61,6 @@ data class ParliamentBodyStateProjectionV1(
     val publicFindingDeadlineHeight: String?,
     val noResultKind: String?,
     val noResultHeight: String?,
-    val timedOvnProgress: ParliamentTimedOvnProgressProjectionV1?,
-)
-
-/** Aggregate-only active-ballot state and next contiguous corpus offset. */
-data class ParliamentTimedOvnProgressProjectionV1(
-    val ballotAttemptId: String,
-    val status: String,
-    val frozenSurvivorCount: Int?,
-    val acceptedBallotPrefixCount: Int?,
 )
 
 /** Exact canonical public-finding supporter list carried by a certificate. */
@@ -94,226 +81,6 @@ data class ParliamentPublicFindingCertificateBindingV1(
         31 * (31 * (31 * endorsementRoot.contentHashCode() + endorsingAssignments.hashCode()) +
             endorsements) + quorum
 }
-
-/** Proof-carrying public broadcast for one qualified adaptive TLE dealer. */
-data class ParliamentTleAdaptiveDealerCommitmentV1(
-    val dealerIndex: Int,
-    val coefficientCommitments: List<ByteArray>,
-    val constantPokCommitment: ByteArray,
-    val constantPokResponse: ByteArray,
-)
-
-/** Public composite verification share for one threshold participant. */
-data class ParliamentTleAdaptivePublicShareV1(
-    val index: Int,
-    val participantHash: ByteArray,
-    val publicKeyShare: ByteArray,
-)
-
-/** Complete bounded public transcript required to verify adaptive partial releases. */
-data class ParliamentTleKeySessionPublicStateV1(
-    val keySessionId: String,
-    val networkId: ByteArray,
-    val rosterHash: ByteArray,
-    val committeeSize: Int,
-    val threshold: Int,
-    val generatorH: ByteArray,
-    val generatorV: ByteArray,
-    val qualifiedDealers: List<Int>,
-    val qualifiedDealerCommitments: List<ParliamentTleAdaptiveDealerCommitmentV1>,
-    val dkgEventHash: ByteArray,
-    val groupPublicKey: ByteArray,
-    val publicShares: List<ParliamentTleAdaptivePublicShareV1>,
-    val transcriptHash: ByteArray,
-)
-
-/** Exact frozen public timed-OVN future release identity. */
-data class ParliamentTimedOvnReleaseIdentityProjectionV1(
-    val tleKeySessionId: String,
-    val governanceAttemptId: String,
-    val bodyInstanceId: String,
-    val ballotAttemptId: String,
-    val survivorCorpusRoot: ByteArray,
-    val noRecoveryRoot: ByteArray,
-    val targetFinalizedHeight: String,
-    val parameterHash: ByteArray,
-)
-
-/** Exact cast-capable public timed-OVN phase. */
-enum class ParliamentTimedOvnCastingPhaseV1 {
-    Registered,
-    RegistrationClosed,
-    SurvivorsFrozen,
-}
-
-/** Immutable public timed-OVN wallet-session bindings. */
-data class ParliamentTimedOvnSessionProjectionV1(
-    val networkId: ByteArray,
-    val proposalContentId: String,
-    val governanceAttemptId: String,
-    val bodyInstanceId: String,
-    val ballotAttemptId: String,
-    val parameterHash: ByteArray,
-    val tleKeySessionId: String,
-    val tleKeyTranscriptHash: ByteArray,
-    val tleMasterPublicKey: ByteArray,
-)
-
-/** Replay-validated public context consumed by a secret-local native wallet bridge. */
-data class ParliamentTimedOvnCastingContextResponseV1(
-    val currentHeight: String,
-    val phase: ParliamentTimedOvnCastingPhaseV1,
-    val session: ParliamentTimedOvnSessionProjectionV1,
-    val registrationOpenedAtFinalizedHeight: String,
-    val targetFinalizedHeight: String,
-    val keySession: ParliamentTleKeySessionPublicStateV1,
-    val registrationRecordsHex: List<String>,
-    val survivorParticipantHashes: List<ByteArray>?,
-    val releaseIdentity: ParliamentTimedOvnReleaseIdentityProjectionV1?,
-    val archiveNorito: ByteArray,
-)
-
-/** Canonical bounded checkpoint request for the Parliament timed-OVN casting proof route. */
-class ParliamentTimedOvnCastingProofRequestV1(
-    trustedCheckpointHeight: BigInteger,
-) {
-    @JvmField
-    val trustedCheckpointHeight: BigInteger =
-        ParliamentApiV1.requireTimedOvnCastingCheckpointHeight(trustedCheckpointHeight)
-
-    /** Convenience constructor for positive signed heights. */
-    constructor(trustedCheckpointHeight: Long) : this(BigInteger.valueOf(trustedCheckpointHeight))
-
-    /** Encode the exact uncompressed, zero-padding Norito request frame. */
-    fun toNoritoBytes(): ByteArray =
-        ParliamentApiV1.timedOvnCastingProofRequestNorito(trustedCheckpointHeight)
-}
-
-/**
- * Schema- and checksum-admitted response frame passed unchanged to the native wallet bridge.
- *
- * Framing admission does not establish consensus validity. Wallets must verify the page with the
- * external network, complete canonical checkpoint, and expected ballot before accessing seed material.
- */
-class ParliamentTimedOvnCastingProofResponseV1 internal constructor(
-    canonicalNorito: ByteArray,
-    payload: ByteArray,
-) {
-    private val canonicalNoritoBytes = canonicalNorito.copyOf()
-    private val payloadBytes = payload.copyOf()
-
-    /** Exact canonical response frame, including its Norito header. */
-    fun canonicalNorito(): ByteArray = canonicalNoritoBytes.copyOf()
-
-    /** Exact payload bytes covered by the frame CRC64-XZ checksum. */
-    fun payload(): ByteArray = payloadBytes.copyOf()
-}
-
-/** Native-authenticated promotion carried by one bounded casting-proof page. */
-class ParliamentTimedOvnCastingProofPageVerificationV1(
-    evaluatedBlockHeight: BigInteger,
-    evaluatedContextId: ByteArray,
-    /** Whether another independently fetched and verified page is required. */
-    val moreAvailable: Boolean,
-    promotedCheckpointNorito: ByteArray,
-) {
-    /** Exact positive u64 height authenticated by the native finality verifier. */
-    val evaluatedBlockHeight: BigInteger =
-        ParliamentApiV1.requireTimedOvnCastingCheckpointHeight(evaluatedBlockHeight)
-    private val evaluatedContextIdBytes = evaluatedContextId.copyOf()
-    private val checkpointBytes = promotedCheckpointNorito.copyOf()
-
-    init {
-        require(checkpointBytes.size in 1..(68 * 1024 * 1024)) {
-            "promotedCheckpointNorito must contain a bounded complete canonical checkpoint"
-        }
-        require(evaluatedContextIdBytes.size == 32) {
-            "evaluatedContextId must contain exactly 32 bytes"
-        }
-        require(evaluatedContextIdBytes.any { it != 0.toByte() }) {
-            "evaluatedContextId must be nonzero"
-        }
-    }
-
-    /** Defensive copy of the authenticated `HeightContextId`. */
-    fun evaluatedContextId(): ByteArray = evaluatedContextIdBytes.copyOf()
-
-    /** Defensive copy of the complete native-authenticated checkpoint. */
-    fun promotedCheckpointNorito(): ByteArray = checkpointBytes.copyOf()
-
-    override fun equals(other: Any?): Boolean =
-        other is ParliamentTimedOvnCastingProofPageVerificationV1 &&
-            evaluatedBlockHeight == other.evaluatedBlockHeight &&
-            evaluatedContextIdBytes.contentEquals(other.evaluatedContextIdBytes) &&
-            moreAvailable == other.moreAvailable && checkpointBytes.contentEquals(other.checkpointBytes)
-
-    override fun hashCode(): Int =
-        31 * (31 * evaluatedBlockHeight.hashCode() + evaluatedContextIdBytes.contentHashCode()) +
-            31 * moreAvailable.hashCode() + checkpointBytes.contentHashCode()
-}
-
-/** Native page verifier used by the bounded transport loop. */
-fun interface ParliamentTimedOvnCastingProofPageVerifierV1 {
-    /** Authenticate [response] against the supplied durable checkpoint. */
-    fun verify(
-        response: ParliamentTimedOvnCastingProofResponseV1,
-        trustedCheckpointHeight: BigInteger,
-        trustedCheckpointNorito: ByteArray,
-    ): ParliamentTimedOvnCastingProofPageVerificationV1
-}
-
-/** Durable checkpoint sink; completion must mean the promoted anchor is committed. */
-fun interface ParliamentTimedOvnCastingCheckpointPersisterV1 {
-    /** Persist one native-authenticated promotion before any subsequent page is requested. */
-    fun persist(
-        verification: ParliamentTimedOvnCastingProofPageVerificationV1,
-    ): java.util.concurrent.CompletableFuture<Void>
-}
-
-/** Terminal proof page plus the exact checkpoint against which native code authenticated it. */
-class ParliamentTimedOvnCastingProofTerminalV1 internal constructor(
-    /** Canonical terminal response suitable for a proof-gated native wallet operation. */
-    val response: ParliamentTimedOvnCastingProofResponseV1,
-    /** Checkpoint height supplied while authenticating [response]. */
-    val verificationAnchorHeight: BigInteger,
-    verificationAnchorCheckpointNorito: ByteArray,
-    /** Native-authenticated terminal promotion. */
-    val verification: ParliamentTimedOvnCastingProofPageVerificationV1,
-    /** Total number of independently fetched and verified pages. */
-    val verifiedPageCount: Int,
-) {
-    private val verificationAnchorCheckpointNoritoBytes = verificationAnchorCheckpointNorito.copyOf()
-
-    /** Defensive copy of the complete checkpoint supplied while authenticating [response]. */
-    fun verificationAnchorCheckpointNorito(): ByteArray = verificationAnchorCheckpointNoritoBytes.copyOf()
-}
-
-/** Core-authorized release context available only during the inclusive Opening window. */
-data class ParliamentTleReleaseContextResponseV1(
-    val currentHeight: String,
-    val ballotAttemptId: String,
-    val governanceAttemptId: String,
-    val bodyInstanceId: String,
-    val releaseHeight: String,
-    val openingDeadlineHeight: String,
-    val keySession: ParliamentTleKeySessionPublicStateV1,
-    val releaseIdentity: ParliamentTimedOvnReleaseIdentityProjectionV1,
-    val identityDigest: ByteArray,
-    val identityPayloadHex: String,
-)
-
-/** One independently verifiable public adaptive partial release. */
-data class ParliamentTlePartialReleaseShareV1(
-    val keySessionId: String,
-    val identityDigest: ByteArray,
-    val participantIndex: Int,
-    val sigma: ByteArray,
-    val proofX: ByteArray,
-    val proofY: ByteArray,
-    val zS: ByteArray,
-    val zR: ByteArray,
-    val zU: ByteArray,
-)
 
 /** Stable Norito/JSON/event mapping for one public lifecycle transition. */
 data class ParliamentTransitionLayoutV1(
@@ -343,50 +110,14 @@ object ParliamentApiV1 {
     const val VERSION: Int = 1
     const val ATTEMPT_DRAFT_PATH: String = "/v1/gov/parliament/attempts/draft"
     const val ATTEMPT_READ_PATH: String = "/v1/gov/parliament/attempts/{governance_attempt_id}"
-    const val TIMED_OVN_CASTING_CONTEXT_READ_PATH: String =
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context"
-    const val TIMED_OVN_CASTING_PROOF_PATH: String =
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof"
-    const val TLE_RELEASE_CONTEXT_READ_PATH: String =
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context"
-    const val TLE_PARTIAL_RELEASE_PATH: String =
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release"
     const val TRANSITION_DRAFT_PATH: String = "/v1/gov/parliament/transitions/draft"
     const val ATTEMPT_CREATE_WIRE_ID: String =
         "iroha.governance.parliament.attempt.create.v1"
     const val TRANSITION_SUBMIT_WIRE_ID: String =
         "iroha.governance.parliament.transition.submit.v1"
     const val MAX_STATE_BYTES: Int = 16 * 1024 * 1024
-    const val MAX_TLE_COMMITTEE_SIZE: Int = 31
-    const val MAX_TIMED_OVN_CASTING_ARCHIVE_BYTES: Int = 4 * 1024 * 1024
-    const val MAX_TIMED_OVN_CASTING_PROOF_RESPONSE_BYTES: Int = 8 * 1024 * 1024
-    const val MAX_TIMED_OVN_CASTING_PROOF_FINALITY_PROOFS: Int = 64
-    /** Maximum checkpoint advance authenticated by one checkpoint-inclusive finality page. */
-    const val MAX_TIMED_OVN_CASTING_PROOF_PAGE_HEIGHT_ADVANCE: Int =
-        MAX_TIMED_OVN_CASTING_PROOF_FINALITY_PROOFS - 1
-    /** Deterministic maximum number of pages admitted by one client catch-up operation. */
-    const val MAX_TIMED_OVN_CASTING_PROOF_PAGES: Int = 64
-    /** Deterministic aggregate height advance admitted by one client catch-up operation. */
-    const val MAX_TIMED_OVN_CASTING_PROOF_HEIGHT_ADVANCE: Int =
-        MAX_TIMED_OVN_CASTING_PROOF_PAGE_HEIGHT_ADVANCE * MAX_TIMED_OVN_CASTING_PROOF_PAGES
-    const val TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA: String =
-        "iroha.torii.v1.parliament.timed_ovn_casting_proof.request"
-    const val TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA: String =
-        "iroha.torii.v1.parliament.timed_ovn_casting_proof.response"
-    const val TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX: String =
-        "adccf322a5fcf43040e20bea238f55f3"
-    const val TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX: String =
-        "46d29299272433b1299646bee722bd11"
-    const val TIMED_OVN_CASTING_PROOF_REQUEST_VERSION: Int = 1
-    const val TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS: Int = NoritoHeader.COMPACT_LEN
-    const val TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT: Int = 8
-    const val TIMED_OVN_CASTING_PROOF_REQUEST_PADDING_BYTES: Int = 0
-    const val TIMED_OVN_CASTING_PROOF_REQUEST_BYTES: Int = 52
-    const val TIMED_OVN_REGISTRATION_RECORD_BYTES: Int = 3_624
-    const val TIMED_OVN_BALLOT_RECORD_BYTES: Int = 2_858
-    /** Maximum records appended by one transition; the complete corpus may contain 1,000. */
-    const val TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS: Int = 32
-    const val MAX_TIMED_OVN_CORPUS_ENTRIES: Int = 1_000
+    /** Largest seat count of one body; mirrors Rust `MAX_PARLIAMENT_BODY_TARGET_SEATS_V1`. */
+    const val MAX_BODY_TARGET_SEATS: Int = 1_000
     /** Maximum retry sequence for a whole governance attempt; valid sequences are 0 through 16. */
     const val MAX_GOVERNANCE_ATTEMPT_RETRIES: Int = 16
     private const val GOVERNANCE_POLICY_VERSION: Int = 1
@@ -447,30 +178,21 @@ object ParliamentApiV1 {
         ParliamentTransitionLayoutV1(7, "AdvanceBodyPhase", true, 7),
         ParliamentTransitionLayoutV1(8, "RecordAttemptAbsence", true, 8),
         ParliamentTransitionLayoutV1(9, "EndorsePublicFinding", true, 9),
-        ParliamentTransitionLayoutV1(10, "RegisterBallotAttempt", true, 10),
-        ParliamentTransitionLayoutV1(11, "CloseBallotRegistration", true, 11),
-        ParliamentTransitionLayoutV1(12, "FreezeBallotSurvivors", true, 12),
-        ParliamentTransitionLayoutV1(13, "FreezeTimedOvnCorpus", true, 13),
-        ParliamentTransitionLayoutV1(14, "BeginBallotOpeningBatch", true, 14),
-        ParliamentTransitionLayoutV1(15, "FailBallotNoResult", true, 15),
-        ParliamentTransitionLayoutV1(16, "FinalizeOpenedBallot", true, 16),
-        ParliamentTransitionLayoutV1(17, "RecordInvitationResponse", true, 20),
-        ParliamentTransitionLayoutV1(18, "RegisterBallotParticipant", true, 21),
-        ParliamentTransitionLayoutV1(19, "RecordBallotDropout", true, 22),
-        ParliamentTransitionLayoutV1(20, "FailPublicFindingNoResult", true, 23),
-        ParliamentTransitionLayoutV1(21, "RegisterInitialSortition", false, 24),
+        ParliamentTransitionLayoutV1(10, "RecordInvitationResponse", true, 13),
+        ParliamentTransitionLayoutV1(11, "FailPublicFindingNoResult", true, 14),
+        ParliamentTransitionLayoutV1(12, "RegisterInitialSortition", false, 15),
     )
 
     @JvmField
     val AUTOMATIC_EXECUTION_OUTCOMES: List<ParliamentAutomaticOutcomeLayoutV1> = listOf(
-        ParliamentAutomaticOutcomeLayoutV1(0, "Enacted", false, "MarkEnacted", 17),
-        ParliamentAutomaticOutcomeLayoutV1(1, "Superseded", true, "MarkSuperseded", 18),
+        ParliamentAutomaticOutcomeLayoutV1(0, "Enacted", false, "MarkEnacted", 10),
+        ParliamentAutomaticOutcomeLayoutV1(1, "Superseded", true, "MarkSuperseded", 11),
         ParliamentAutomaticOutcomeLayoutV1(
             2,
             "ExecutionFailed",
             true,
             "MarkExecutionFailed",
-            19,
+            12,
         ),
     )
 
@@ -478,14 +200,9 @@ object ParliamentApiV1 {
     val NO_RESULT_KINDS: List<ParliamentNoResultKindLayoutV1> = listOf(
         ParliamentNoResultKindLayoutV1(0, "PublicFindingQuorumUnreachable"),
         ParliamentNoResultKindLayoutV1(1, "PublicFindingDeadlineExpired"),
-        ParliamentNoResultKindLayoutV1(2, "BallotRegistrationDeadlineExpired"),
-        ParliamentNoResultKindLayoutV1(3, "BallotSurvivorDeadlineExpired"),
-        ParliamentNoResultKindLayoutV1(4, "BallotCommitmentDeadlineExpired"),
-        ParliamentNoResultKindLayoutV1(5, "BallotReleasePulseUnavailable"),
-        ParliamentNoResultKindLayoutV1(6, "BallotOpeningDeadlineExpired"),
-        ParliamentNoResultKindLayoutV1(7, "SortitionRetriesExhausted"),
-        ParliamentNoResultKindLayoutV1(8, "ConfirmationJuryCapacityUnavailable"),
-        ParliamentNoResultKindLayoutV1(9, "RandomnessRedrawBudgetExhausted"),
+        ParliamentNoResultKindLayoutV1(2, "SortitionRetriesExhausted"),
+        ParliamentNoResultKindLayoutV1(3, "ConfirmationJuryCapacityUnavailable"),
+        ParliamentNoResultKindLayoutV1(4, "RandomnessRedrawBudgetExhausted"),
     )
 
     @JvmField
@@ -498,7 +215,6 @@ object ParliamentApiV1 {
         "public_finding_deadline_height",
         "no_result_kind",
         "no_result_height",
-        "timed_ovn_progress",
     )
 
     /** Canonical presentation order for first-release Parliament bodies. */
@@ -521,10 +237,6 @@ object ParliamentApiV1 {
         "public_finding_result_root" to null,
         "public_finding_endorsement_root" to
             "iroha.governance.parliament.public_finding_endorsement.root.v1",
-        "private_ballot_result_root" to
-            "iroha.governance.parliament.ballot_result.root.v1",
-        "private_ballot_failure_root" to
-            "iroha.governance.parliament.ballot_failure.root.v1",
         "execution_failure_root" to
             "iroha.governance.parliament.execution_failure.root.v1",
         "governance_certificate_id" to "iroha.governance.certificate.id.v1",
@@ -570,42 +282,6 @@ object ParliamentApiV1 {
         "body_states", "certificate", "terminal_height", "superseding_head",
         "execution_failure_root", "state_payload_hex",
     )
-    private val TLE_RELEASE_CONTEXT_FIELDS = setOf(
-        "version", "current_height", "ballot_attempt_id", "governance_attempt_id",
-        "body_instance_id", "status", "release_height", "opening_deadline_height",
-        "tle_key_session", "release_identity", "identity_digest", "identity_payload_hex",
-    )
-    private val TIMED_OVN_CASTING_CONTEXT_FIELDS = setOf(
-        "version", "current_height", "phase", "session",
-        "registration_opened_at_finalized_height", "target_finalized_height",
-        "tle_key_session", "registration_records_hex", "survivor_participant_hashes",
-        "release_identity", "archive_norito_base64",
-    )
-    private val TIMED_OVN_SESSION_FIELDS = setOf(
-        "network_id", "proposal_content_id", "governance_attempt_id", "body_instance_id",
-        "ballot_attempt_id", "parameter_hash", "tle_key_session_id",
-        "tle_key_transcript_hash", "tle_master_public_key",
-    )
-    private val TLE_KEY_SESSION_FIELDS = setOf(
-        "version", "key_session_id", "network_id", "roster_hash", "committee_size",
-        "threshold", "generator_h", "generator_v", "qualified_dealers",
-        "qualified_dealer_commitments", "dkg_event_hash", "group_public_key",
-        "public_shares", "transcript_hash",
-    )
-    private val TLE_DEALER_FIELDS = setOf(
-        "dealer_index", "coefficient_commitments", "constant_pok_commitment",
-        "constant_pok_response",
-    )
-    private val TLE_PUBLIC_SHARE_FIELDS = setOf("index", "participant_hash", "public_key_share")
-    private val TLE_RELEASE_IDENTITY_FIELDS = setOf(
-        "tle_key_session_id", "governance_attempt_id", "body_instance_id",
-        "ballot_attempt_id", "survivor_corpus_root", "no_recovery_root",
-        "target_finalized_height", "parameter_hash",
-    )
-    private val TLE_PARTIAL_RELEASE_FIELDS = setOf(
-        "key_session_id", "identity_digest", "participant_index", "sigma", "proof_x",
-        "proof_y", "z_s", "z_r", "z_u",
-    )
     private val ATTEMPT_FIELDS = setOf(
         "id", "proposal_content_id", "sequence", "risk_tier", "stage", "status",
     )
@@ -627,114 +303,6 @@ object ParliamentApiV1 {
     @JvmStatic
     fun attemptReadPath(governanceAttemptId: String): String =
         ATTEMPT_READ_PATH.replace("{governance_attempt_id}", canonicalId(governanceAttemptId))
-
-    /** Replace the casting-context ballot parameter after exact lowercase validation. */
-    @JvmStatic
-    fun timedOvnCastingContextReadPath(ballotAttemptId: String): String =
-        TIMED_OVN_CASTING_CONTEXT_READ_PATH.replace(
-            "{ballot_attempt_id}",
-            canonicalId(ballotAttemptId),
-        )
-
-    /** Replace the proof ballot parameter after exact lowercase validation. */
-    @JvmStatic
-    fun timedOvnCastingProofPath(ballotAttemptId: String): String =
-        TIMED_OVN_CASTING_PROOF_PATH.replace(
-            "{ballot_attempt_id}",
-            canonicalId(ballotAttemptId),
-        )
-
-    /** Encode one positive u64 checkpoint height as the canonical zero-padding request frame. */
-    @JvmStatic
-    fun timedOvnCastingProofRequestNorito(trustedCheckpointHeight: BigInteger): ByteArray {
-        val height = requireTimedOvnCastingCheckpointHeight(trustedCheckpointHeight)
-        val payload = ByteArray(12)
-        // Compact-Norito struct field count, version field, then aligned u64 field.
-        payload[0] = 2
-        payload[1] = TIMED_OVN_CASTING_PROOF_REQUEST_VERSION.toByte()
-        payload[2] = 0
-        payload[3] = TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT.toByte()
-        for (index in 0 until 8) {
-            payload[4 + index] =
-                height.shiftRight(index * 8).and(BigInteger.valueOf(0xffL)).toByte()
-        }
-        val header = NoritoHeader(
-            decodeHex(TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX),
-            payload.size,
-            CRC64.compute(payload),
-            TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS,
-            NoritoHeader.COMPRESSION_NONE,
-        )
-        return (header.encode() + payload).also { frame ->
-            check(frame.size == TIMED_OVN_CASTING_PROOF_REQUEST_BYTES)
-        }
-    }
-
-    /** Convenience overload for positive signed heights. */
-    @JvmStatic
-    fun timedOvnCastingProofRequestNorito(trustedCheckpointHeight: Long): ByteArray =
-        timedOvnCastingProofRequestNorito(BigInteger.valueOf(trustedCheckpointHeight))
-
-    /** Admit one exact, uncompressed, compact-length response frame with no header padding. */
-    @JvmStatic
-    fun parseTimedOvnCastingProofResponse(
-        bytes: ByteArray,
-    ): ParliamentTimedOvnCastingProofResponseV1 {
-        require(bytes.isNotEmpty()) { "Parliament timed-OVN casting proof response is empty" }
-        require(bytes.size <= MAX_TIMED_OVN_CASTING_PROOF_RESPONSE_BYTES) {
-            "Parliament timed-OVN casting proof response exceeds its 8 MiB bound"
-        }
-        val decoded = try {
-            NoritoHeader.decode(
-                bytes,
-                decodeHex(TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX),
-            )
-        } catch (error: RuntimeException) {
-            throw IllegalArgumentException(
-                "Parliament timed-OVN casting proof response is not a valid Norito frame",
-                error,
-            )
-        }
-        require(decoded.header.compression == NoritoHeader.COMPRESSION_NONE) {
-            "Parliament timed-OVN casting proof response must use identity encoding"
-        }
-        require(decoded.header.flags == TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS) {
-            "Parliament timed-OVN casting proof response has non-canonical Norito flags"
-        }
-        require(bytes.size == NoritoHeader.HEADER_LENGTH + decoded.header.payloadLength) {
-            "Parliament timed-OVN casting proof response must not contain header padding"
-        }
-        require(
-            decoded.header.encode().contentEquals(
-                bytes.copyOfRange(0, NoritoHeader.HEADER_LENGTH),
-            ),
-        ) { "Parliament timed-OVN casting proof response header is not canonical" }
-        require(decoded.payload.isNotEmpty()) {
-            "Parliament timed-OVN casting proof response payload is empty"
-        }
-        decoded.header.validateChecksum(decoded.payload)
-        return ParliamentTimedOvnCastingProofResponseV1(bytes, decoded.payload)
-    }
-
-    internal fun requireTimedOvnCastingCheckpointHeight(value: BigInteger): BigInteger {
-        require(value.signum() > 0 && value.bitLength() <= 64) {
-            "trustedCheckpointHeight must be a positive u64"
-        }
-        return value
-    }
-
-    /** Replace the release-context ballot parameter after exact lowercase validation. */
-    @JvmStatic
-    fun tleReleaseContextReadPath(ballotAttemptId: String): String =
-        TLE_RELEASE_CONTEXT_READ_PATH.replace(
-            "{ballot_attempt_id}",
-            canonicalId(ballotAttemptId),
-        )
-
-    /** Replace the local partial-release ballot parameter after exact lowercase validation. */
-    @JvmStatic
-    fun tlePartialReleasePath(ballotAttemptId: String): String =
-        TLE_PARTIAL_RELEASE_PATH.replace("{ballot_attempt_id}", canonicalId(ballotAttemptId))
 
     /** Build the exact V1 attempt-draft JSON envelope without reflection. */
     @JvmStatic
@@ -774,12 +342,6 @@ object ParliamentApiV1 {
                 "unit Parliament transition must not carry a payload"
             }
         }
-        if (layout.jsonPayloadRequired) {
-            validateTransitionPayload(
-                tag,
-                objectValue(transition["payload"], "$tag payload"),
-            )
-        }
         return encode(
             linkedMapOf(
                 "version" to VERSION,
@@ -787,29 +349,6 @@ object ParliamentApiV1 {
                 "transition" to transition,
             ),
         )
-    }
-
-    private fun validateTransitionPayload(tag: String, payload: Map<String, Any?>) {
-        if (tag != "FreezeTimedOvnCorpus") return
-        require(payload.keys == setOf("ballot_attempt_id", "ballot_records")) {
-            "$tag payload contains unknown, aliased, or missing fields"
-        }
-        val ballotAttemptId = payload["ballot_attempt_id"] as? String
-            ?: throw IllegalArgumentException("$tag.ballot_attempt_id must be text")
-        canonicalId(ballotAttemptId)
-        val records = payload["ballot_records"] as? List<*>
-            ?: throw IllegalArgumentException("$tag.ballot_records must be an array")
-        require(records.size in 1..TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS) {
-            "$tag.ballot_records must contain one through $TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS records"
-        }
-        records.forEachIndexed { index, record ->
-            fixedBytes(
-                record,
-                TIMED_OVN_BALLOT_RECORD_BYTES,
-                "$tag.ballot_records[$index]",
-                false,
-            )
-        }
     }
 
     /** Strictly admit one attempt draft and bind it to caller-derived identifiers. */
@@ -952,384 +491,6 @@ object ParliamentApiV1 {
         )
     }
 
-    /** Strictly admit one replay-validated public timed-OVN wallet context. */
-    @JvmStatic
-    fun parseTimedOvnCastingContextResponse(
-        bytes: ByteArray,
-        expectedBallotAttemptId: String,
-    ): ParliamentTimedOvnCastingContextResponseV1 {
-        val root = exactRoot(
-            bytes,
-            TIMED_OVN_CASTING_CONTEXT_FIELDS,
-            "Parliament timed-OVN casting context",
-        )
-        version(root)
-        val currentHeight = unsignedInteger(root["current_height"], "current_height")
-        require(BigInteger(currentHeight) > BigInteger.ZERO) { "current_height must be nonzero" }
-        val phase = try {
-            ParliamentTimedOvnCastingPhaseV1.valueOf(
-                root["phase"] as? String
-                    ?: throw IllegalArgumentException("phase must be text"),
-            )
-        } catch (error: IllegalArgumentException) {
-            throw IllegalArgumentException("unknown cast-capable timed-OVN phase", error)
-        }
-        val sessionRoot = exactObject(root["session"], TIMED_OVN_SESSION_FIELDS, "session")
-        val session = ParliamentTimedOvnSessionProjectionV1(
-            byteArray32(sessionRoot["network_id"], "session.network_id"),
-            id(sessionRoot, "proposal_content_id"),
-            id(sessionRoot, "governance_attempt_id"),
-            id(sessionRoot, "body_instance_id"),
-            id(sessionRoot, "ballot_attempt_id"),
-            byteArray32(sessionRoot["parameter_hash"], "session.parameter_hash"),
-            id(sessionRoot, "tle_key_session_id"),
-            byteArray32(
-                sessionRoot["tle_key_transcript_hash"],
-                "session.tle_key_transcript_hash",
-            ),
-            fixedBytes(
-                sessionRoot["tle_master_public_key"],
-                96,
-                "session.tle_master_public_key",
-                true,
-            ),
-        )
-        require(session.ballotAttemptId == canonicalId(expectedBallotAttemptId)) {
-            "session.ballot_attempt_id differs from the requested canonical id"
-        }
-        val registrationOpened = unsignedInteger(
-            root["registration_opened_at_finalized_height"],
-            "registration_opened_at_finalized_height",
-        )
-        val targetHeight = unsignedInteger(
-            root["target_finalized_height"],
-            "target_finalized_height",
-        )
-        require(BigInteger(registrationOpened) > BigInteger.ZERO &&
-            BigInteger(registrationOpened) <= BigInteger(currentHeight) &&
-            BigInteger(targetHeight) > BigInteger(registrationOpened)) {
-            "casting-context height schedule is inconsistent"
-        }
-        val keySession = parseTleKeySession(root["tle_key_session"])
-        require(session.tleKeySessionId == keySession.keySessionId &&
-            session.tleKeyTranscriptHash.contentEquals(keySession.transcriptHash) &&
-            session.tleMasterPublicKey.contentEquals(keySession.groupPublicKey)) {
-            "timed-OVN session differs from the complete public TLE transcript"
-        }
-        val recordValues = root["registration_records_hex"] as? List<*>
-            ?: throw IllegalArgumentException("registration_records_hex must be an array")
-        require(recordValues.size <= MAX_TIMED_OVN_CORPUS_ENTRIES &&
-            (phase == ParliamentTimedOvnCastingPhaseV1.Registered || recordValues.isNotEmpty())) {
-            "registration corpus violates its casting-phase bound"
-        }
-        val registrationRecords = recordValues.mapIndexed { index, value ->
-            canonicalHex(
-                value,
-                "registration_records_hex[$index]",
-                false,
-            ).also {
-                require(it.length == TIMED_OVN_REGISTRATION_RECORD_BYTES * 2) {
-                    "registration record has the wrong exact width"
-                }
-            }
-        }
-        require(registrationRecords.toSet().size == registrationRecords.size) {
-            "registration records must be unique"
-        }
-        val survivorHashes = (root["survivor_participant_hashes"] as? List<*>)?.mapIndexed {
-                index,
-                value,
-            ->
-            byteArray32(value, "survivor_participant_hashes[$index]")
-        }
-        val releaseIdentity = root["release_identity"]?.let { value ->
-            val identity = exactObject(value, TLE_RELEASE_IDENTITY_FIELDS, "release_identity")
-            ParliamentTimedOvnReleaseIdentityProjectionV1(
-                id(identity, "tle_key_session_id"),
-                id(identity, "governance_attempt_id"),
-                id(identity, "body_instance_id"),
-                id(identity, "ballot_attempt_id"),
-                byteArray32(identity["survivor_corpus_root"], "release_identity.survivor_corpus_root"),
-                byteArray32(identity["no_recovery_root"], "release_identity.no_recovery_root"),
-                unsignedInteger(
-                    identity["target_finalized_height"],
-                    "release_identity.target_finalized_height",
-                ),
-                byteArray32(identity["parameter_hash"], "release_identity.parameter_hash"),
-            )
-        }
-        if (phase == ParliamentTimedOvnCastingPhaseV1.SurvivorsFrozen) {
-            require(survivorHashes != null &&
-                survivorHashes.isNotEmpty() &&
-                survivorHashes.size <= registrationRecords.size &&
-                survivorHashes.map(ByteArray::contentToString).toSet().size == survivorHashes.size &&
-                releaseIdentity != null) {
-                "SurvivorsFrozen requires bounded unique survivors and release identity"
-            }
-            require(releaseIdentity.tleKeySessionId == session.tleKeySessionId &&
-                releaseIdentity.governanceAttemptId == session.governanceAttemptId &&
-                releaseIdentity.bodyInstanceId == session.bodyInstanceId &&
-                releaseIdentity.ballotAttemptId == session.ballotAttemptId &&
-                releaseIdentity.targetFinalizedHeight == targetHeight &&
-                releaseIdentity.parameterHash.contentEquals(session.parameterHash)) {
-                "frozen release identity differs from the timed-OVN session"
-            }
-        } else {
-            require(survivorHashes == null && releaseIdentity == null) {
-                "pre-freeze casting context must not expose frozen state"
-            }
-        }
-        val archiveLiteral = root["archive_norito_base64"] as? String
-            ?: throw IllegalArgumentException("archive_norito_base64 must be text")
-        val archive = try {
-            Base64.getDecoder().decode(archiveLiteral)
-        } catch (error: IllegalArgumentException) {
-            throw IllegalArgumentException("archive_norito_base64 is invalid", error)
-        }
-        require(archive.isNotEmpty() &&
-            archive.size <= MAX_TIMED_OVN_CASTING_ARCHIVE_BYTES &&
-            Base64.getEncoder().encodeToString(archive) == archiveLiteral) {
-            "archive_norito_base64 is oversized or noncanonical"
-        }
-        return ParliamentTimedOvnCastingContextResponseV1(
-            currentHeight,
-            phase,
-            session,
-            registrationOpened,
-            targetHeight,
-            keySession,
-            registrationRecords,
-            survivorHashes,
-            releaseIdentity,
-            archive,
-        )
-    }
-
-    /** Strictly admit one complete public adaptive-TLE transcript and release identity. */
-    @JvmStatic
-    fun parseTleReleaseContextResponse(
-        bytes: ByteArray,
-        expectedBallotAttemptId: String,
-    ): ParliamentTleReleaseContextResponseV1 {
-        val root = exactRoot(bytes, TLE_RELEASE_CONTEXT_FIELDS, "Parliament TLE release context")
-        version(root)
-        val currentHeight = unsignedInteger(root["current_height"], "current_height")
-        val ballotAttemptId = id(root, "ballot_attempt_id")
-        require(ballotAttemptId == canonicalId(expectedBallotAttemptId)) {
-            "ballot_attempt_id differs from the requested canonical id"
-        }
-        val governanceAttemptId = id(root, "governance_attempt_id")
-        val bodyInstanceId = id(root, "body_instance_id")
-        require(taggedUnit(root["status"], "status", "status") == "Opening") {
-            "release context status must be Opening"
-        }
-        val releaseHeight = unsignedInteger(root["release_height"], "release_height")
-        val openingDeadline = unsignedInteger(
-            root["opening_deadline_height"],
-            "opening_deadline_height",
-        )
-        require(BigInteger(currentHeight) >= BigInteger(releaseHeight) &&
-            BigInteger(currentHeight) <= BigInteger(openingDeadline)) {
-            "release context lies outside its inclusive opening window"
-        }
-        val keySession = parseTleKeySession(root["tle_key_session"])
-        val identityRoot = exactObject(
-            root["release_identity"],
-            TLE_RELEASE_IDENTITY_FIELDS,
-            "release_identity",
-        )
-        val releaseIdentity = ParliamentTimedOvnReleaseIdentityProjectionV1(
-            id(identityRoot, "tle_key_session_id"),
-            id(identityRoot, "governance_attempt_id"),
-            id(identityRoot, "body_instance_id"),
-            id(identityRoot, "ballot_attempt_id"),
-            byteArray32(identityRoot["survivor_corpus_root"], "release_identity.survivor_corpus_root"),
-            byteArray32(identityRoot["no_recovery_root"], "release_identity.no_recovery_root"),
-            unsignedInteger(
-                identityRoot["target_finalized_height"],
-                "release_identity.target_finalized_height",
-            ),
-            byteArray32(identityRoot["parameter_hash"], "release_identity.parameter_hash"),
-        )
-        require(releaseIdentity.tleKeySessionId == keySession.keySessionId &&
-            releaseIdentity.governanceAttemptId == governanceAttemptId &&
-            releaseIdentity.bodyInstanceId == bodyInstanceId &&
-            releaseIdentity.ballotAttemptId == ballotAttemptId &&
-            releaseIdentity.targetFinalizedHeight == releaseHeight) {
-            "release_identity differs from the top-level Parliament/TLE bindings"
-        }
-        val payloadHex = canonicalHex(root["identity_payload_hex"], "identity_payload_hex", false)
-        require(payloadHex.length == 486) {
-            "identity_payload_hex must encode the exact 243-byte identity payload"
-        }
-        val payload = decodeHex(payloadHex)
-        validateTleIdentityPayload(payload, governanceAttemptId, bodyInstanceId, ballotAttemptId, releaseIdentity)
-        val identityDigest = byteArray32(root["identity_digest"], "identity_digest")
-        require(identityDigest.contentEquals(tleReleaseMessageDigest(keySession, payload))) {
-            "identity_digest differs from the exact threshold-session-framed release message"
-        }
-        return ParliamentTleReleaseContextResponseV1(
-            currentHeight,
-            ballotAttemptId,
-            governanceAttemptId,
-            bodyInstanceId,
-            releaseHeight,
-            openingDeadline,
-            keySession,
-            releaseIdentity,
-            identityDigest,
-            payloadHex,
-        )
-    }
-
-    /** Strictly bind one public partial release to an already admitted release context. */
-    @JvmStatic
-    fun parseTlePartialReleaseResponse(
-        bytes: ByteArray,
-        expectedKeySessionId: String,
-        expectedIdentityDigest: ByteArray,
-        committeeSize: Int,
-    ): ParliamentTlePartialReleaseShareV1 {
-        require(expectedIdentityDigest.size == 32 && expectedIdentityDigest.any { it.toInt() != 0 }) {
-            "expectedIdentityDigest must contain 32 nonzero bytes"
-        }
-        require(committeeSize in 4..MAX_TLE_COMMITTEE_SIZE && (committeeSize - 1) % 3 == 0) {
-            "committeeSize must be an exact supported 3f+1 size"
-        }
-        val root = exactRoot(bytes, TLE_PARTIAL_RELEASE_FIELDS, "Parliament TLE partial release")
-        val keySessionId = id(root, "key_session_id")
-        require(keySessionId == canonicalId(expectedKeySessionId)) {
-            "partial key_session_id differs from the authorized release context"
-        }
-        val identityDigest = byteArray32(root["identity_digest"], "identity_digest")
-        require(identityDigest.contentEquals(expectedIdentityDigest)) {
-            "partial identity_digest differs from the authorized release context"
-        }
-        val participantIndex = u32Int(root["participant_index"], "participant_index", 1, committeeSize)
-        return ParliamentTlePartialReleaseShareV1(
-            keySessionId,
-            identityDigest,
-            participantIndex,
-            fixedBytes(root["sigma"], 48, "sigma", true),
-            fixedBytes(root["proof_x"], 96, "proof_x", true),
-            fixedBytes(root["proof_y"], 48, "proof_y", true),
-            fixedBytes(root["z_s"], 32, "z_s", false),
-            fixedBytes(root["z_r"], 32, "z_r", false),
-            fixedBytes(root["z_u"], 32, "z_u", false),
-        )
-    }
-
-    private fun parseTleKeySession(value: Any?): ParliamentTleKeySessionPublicStateV1 {
-        val root = exactObject(value, TLE_KEY_SESSION_FIELDS, "tle_key_session")
-        require(unsignedInteger(root["version"], "tle_key_session.version") == VERSION.toString()) {
-            "unsupported TLE public-state version"
-        }
-        val keySessionId = id(root, "key_session_id")
-        val networkId = byteArray32(root["network_id"], "tle_key_session.network_id")
-        val rosterHash = byteArray32(root["roster_hash"], "tle_key_session.roster_hash")
-        val committeeSize = u32Int(
-            root["committee_size"],
-            "tle_key_session.committee_size",
-            4,
-            MAX_TLE_COMMITTEE_SIZE,
-        )
-        val threshold = u32Int(root["threshold"], "tle_key_session.threshold", 2, 11)
-        require((committeeSize - 1) % 3 == 0 && threshold == (committeeSize - 1) / 3 + 1) {
-            "TLE committee_size/threshold is not an exact 3f+1/f+1 binding"
-        }
-        val qualified = root["qualified_dealers"] as? List<*>
-            ?: throw IllegalArgumentException("tle_key_session.qualified_dealers must be an array")
-        val qualifiedDealers = qualified.mapIndexed { index, dealer ->
-            u32Int(
-                dealer,
-                "tle_key_session.qualified_dealers[$index]",
-                1,
-                committeeSize,
-            )
-        }
-        require(qualifiedDealers.size in threshold..committeeSize &&
-            qualifiedDealers.zipWithNext().all { (left, right) -> left < right }) {
-            "qualified dealer indices violate the threshold bound or canonical ordering"
-        }
-        val dealerValues = root["qualified_dealer_commitments"] as? List<*>
-            ?: throw IllegalArgumentException("qualified_dealer_commitments must be an array")
-        require(dealerValues.size == qualifiedDealers.size) {
-            "qualified dealer commitments must align exactly with qualified_dealers"
-        }
-        val dealers = dealerValues.mapIndexed { index, raw ->
-            val dealer = exactObject(raw, TLE_DEALER_FIELDS, "qualified_dealer_commitments[$index]")
-            val dealerIndex = u32Int(
-                dealer["dealer_index"],
-                "qualified_dealer_commitments[$index].dealer_index",
-                1,
-                committeeSize,
-            )
-            require(dealerIndex == qualifiedDealers[index]) {
-                "dealer commitment index differs from the canonical qualified set"
-            }
-            val coefficients = dealer["coefficient_commitments"] as? List<*>
-                ?: throw IllegalArgumentException("coefficient_commitments must be an array")
-            require(coefficients.size == threshold) {
-                "each dealer must carry the exact degree-f coefficient set"
-            }
-            ParliamentTleAdaptiveDealerCommitmentV1(
-                dealerIndex,
-                coefficients.mapIndexed { coefficientIndex, commitment ->
-                    fixedBytes(
-                        commitment,
-                        96,
-                        "qualified_dealer_commitments[$index].coefficient_commitments[$coefficientIndex]",
-                        true,
-                    )
-                },
-                fixedBytes(
-                    dealer["constant_pok_commitment"],
-                    96,
-                    "qualified_dealer_commitments[$index].constant_pok_commitment",
-                    true,
-                ),
-                fixedBytes(
-                    dealer["constant_pok_response"],
-                    32,
-                    "qualified_dealer_commitments[$index].constant_pok_response",
-                    false,
-                ),
-            )
-        }
-        val shareValues = root["public_shares"] as? List<*>
-            ?: throw IllegalArgumentException("tle_key_session.public_shares must be an array")
-        require(shareValues.size == committeeSize) {
-            "public_shares must contain the complete ordered committee"
-        }
-        val shares = shareValues.mapIndexed { offset, raw ->
-            val share = exactObject(raw, TLE_PUBLIC_SHARE_FIELDS, "public_shares[$offset]")
-            val index = u32Int(share["index"], "public_shares[$offset].index", 1, committeeSize)
-            require(index == offset + 1) {
-                "public share indices must be the exact one-based committee sequence"
-            }
-            ParliamentTleAdaptivePublicShareV1(
-                index,
-                byteArray32(share["participant_hash"], "public_shares[$offset].participant_hash"),
-                fixedBytes(share["public_key_share"], 96, "public_shares[$offset].public_key_share", true),
-            )
-        }
-        return ParliamentTleKeySessionPublicStateV1(
-            keySessionId,
-            networkId,
-            rosterHash,
-            committeeSize,
-            threshold,
-            fixedBytes(root["generator_h"], 96, "tle_key_session.generator_h", true),
-            fixedBytes(root["generator_v"], 96, "tle_key_session.generator_v", true),
-            qualifiedDealers,
-            dealers,
-            byteArray32(root["dkg_event_hash"], "tle_key_session.dkg_event_hash"),
-            fixedBytes(root["group_public_key"], 96, "tle_key_session.group_public_key", true),
-            shares,
-            byteArray32(root["transcript_hash"], "tle_key_session.transcript_hash"),
-        )
-    }
-
     private fun validateRequiredBodies(value: Any?): List<String> {
         val entries = value as? List<*>
             ?: throw IllegalArgumentException("required_bodies must be an array")
@@ -1442,12 +603,6 @@ object ParliamentApiV1 {
                     "$context no-result facts do not match its lifecycle and decision protocol"
                 }
             }
-            val timedOvnProgress = entry["timed_ovn_progress"]?.let {
-                validateTimedOvnProgress(it, "$context.timed_ovn_progress")
-            }
-            require(timedOvnProgress == null || (body in PRIVATE_BODIES && bodyInstanceId != null)) {
-                "$context.timed_ovn_progress requires an active private body"
-            }
             ParliamentBodyStateProjectionV1(
                 body,
                 bodyInstanceId,
@@ -1458,73 +613,8 @@ object ParliamentApiV1 {
                 deadline,
                 noResultKind,
                 noResultHeight,
-                timedOvnProgress,
             )
         }
-    }
-
-    private fun validateTimedOvnProgress(
-        value: Any?,
-        context: String,
-    ): ParliamentTimedOvnProgressProjectionV1 {
-        val progress = exactObject(
-            value,
-            setOf(
-                "ballot_attempt_id", "status", "frozen_survivor_count",
-                "accepted_ballot_prefix_count",
-            ),
-            context,
-        )
-        val ballotAttemptId = id(progress, "ballot_attempt_id")
-        val status = taggedUnitIn(
-            progress["status"],
-            "status",
-            setOf(
-                "Registration", "SurvivorFreeze", "TimedCommitment", "AwaitingRelease",
-                "Opening", "Finalized", "NoResult", "Superseded",
-            ),
-            "$context.status",
-        )
-        val survivorsValue = progress["frozen_survivor_count"]
-        val prefixValue = progress["accepted_ballot_prefix_count"]
-        require((survivorsValue == null) == (prefixValue == null)) {
-            "$context survivor and prefix counts must appear together"
-        }
-        var survivors: Int? = null
-        var prefix: Int? = null
-        if (survivorsValue == null) {
-            require(status in setOf("Registration", "SurvivorFreeze", "NoResult", "Superseded")) {
-                "$context must expose counts after survivor freeze"
-            }
-        } else {
-            survivors = u32Int(
-                survivorsValue,
-                "$context.frozen_survivor_count",
-                1,
-                MAX_TIMED_OVN_CORPUS_ENTRIES,
-            )
-            prefix = u32Int(
-                prefixValue,
-                "$context.accepted_ballot_prefix_count",
-                0,
-                survivors,
-            )
-            require(status != "TimedCommitment" || prefix < survivors) {
-                "$context TimedCommitment prefix must remain incomplete"
-            }
-            require(status !in setOf("AwaitingRelease", "Opening", "Finalized") || prefix == survivors) {
-                "$context sealed/released prefix must equal frozen survivors"
-            }
-            require(status !in setOf("Registration", "SurvivorFreeze")) {
-                "$context exposes counts before survivor freeze"
-            }
-        }
-        return ParliamentTimedOvnProgressProjectionV1(
-            ballotAttemptId,
-            status,
-            survivors,
-            prefix,
-        )
     }
 
     private fun validateCertificate(
@@ -1596,15 +686,8 @@ object ParliamentApiV1 {
         val seenBodyInstanceIds = HashSet<String>()
         val seenElectionAttemptIds = HashSet<String>()
         val seenSortitionRequestIds = HashSet<String>()
-        val seenBallotAttemptIds = HashSet<String>()
-        val seenTleSessionIds = HashSet<String>()
-        val seenReleasePulseIds = HashSet<String>()
-        val seenReleaseSlots = HashSet<String>()
-        val sortitionPulseIds = HashSet<String>()
         val findings = ArrayList<ParliamentPublicFindingCertificateBindingV1>()
         var latestBodyResultHeight = BigInteger.ZERO
-        var policyJury: CertificateJuryFacts? = null
-        var confirmationJury: CertificateJuryFacts? = null
         bindings.forEachIndexed { index, raw ->
             val context = "certificate.body_bindings[$index]"
             val binding = exactObject(raw, CERTIFICATE_BODY_BINDING_NORITO_FIELDS.toSet(), context)
@@ -1617,7 +700,7 @@ object ParliamentApiV1 {
                 binding["original_seats"],
                 "$context.original_seats",
                 1,
-                MAX_TIMED_OVN_CORPUS_ENTRIES,
+                MAX_BODY_TARGET_SEATS,
             )
             val bodyInstanceId = id(binding, "body_instance_id")
             require(bodyInstanceId == bodyStates[index].bodyInstanceId) {
@@ -1626,7 +709,7 @@ object ParliamentApiV1 {
             val electionAttemptId = id(binding, "election_attempt_id")
             val sortitionRequestId = id(binding, "sortition_request_id")
             val beaconSessionId = id(binding, "beacon_session_id")
-            val beaconPulseId = id(binding, "beacon_pulse_id")
+            id(binding, "beacon_pulse_id")
             require(seenBodyInstanceIds.add(bodyInstanceId)) {
                 "certificate.body_bindings reuses body_instance_id"
             }
@@ -1636,11 +719,10 @@ object ParliamentApiV1 {
             require(seenSortitionRequestIds.add(sortitionRequestId)) {
                 "certificate.body_bindings reuses sortition_request_id"
             }
-            sortitionPulseIds.add(beaconPulseId)
             for (field in listOf("roster_root", "assignment_root", "result_root")) {
                 byteArray32(binding[field], "$context.$field")
             }
-            val electionAttemptSequence = u32Int(
+            u32Int(
                 binding["election_attempt_sequence"],
                 "$context.election_attempt_sequence",
                 0,
@@ -1650,7 +732,7 @@ object ParliamentApiV1 {
                 unsignedInteger(binding["result_height"], "$context.result_height"),
             )
             latestBodyResultHeight = latestBodyResultHeight.max(resultHeight)
-            val sortition = validateCertificateSortitionRequest(
+            validateCertificateSortitionRequest(
                 binding["sortition_request"],
                 expectedAttemptId,
                 body,
@@ -1663,99 +745,22 @@ object ParliamentApiV1 {
                 "$context.sortition_request",
             )
             if (body in PRIVATE_BODIES) {
-                require(binding["public_finding"] == null && binding["ballot"] != null) {
-                    "$context private jury must carry ballot only"
-                }
-                val ballot = validateCertificateBallot(
-                    binding["ballot"],
-                    seats,
-                    resultHeight,
-                    "$context.ballot",
+                // TODO(parliament anonymous ballot, P4): validate the anonymous body-result binding (BallotClosureRecordV1 + result_root) for private-jury bodies here; until it lands this SDK admits no certificate that contains a private-jury body.
+                throw IllegalArgumentException(
+                    "$context private-jury result binding is not admitted until the " +
+                        "anonymous-ballot result binding is supported",
                 )
-                val progress = bodyStates[index].timedOvnProgress
-                require(progress != null && progress.status == "Finalized" &&
-                    progress.ballotAttemptId == ballot.ballotAttemptId &&
-                    progress.frozenSurvivorCount == ballot.acceptedBallots &&
-                    progress.acceptedBallotPrefixCount == ballot.acceptedBallots) {
-                    "$context.ballot differs from timed_ovn_progress"
-                }
-                require(seenBallotAttemptIds.add(ballot.ballotAttemptId)) {
-                    "certificate.body_bindings reuses ballot_attempt_id"
-                }
-                require(seenTleSessionIds.add(ballot.tleSessionId)) {
-                    "certificate.body_bindings reuses tle_session_id"
-                }
-                require(seenReleasePulseIds.add(ballot.releasePulseId)) {
-                    "certificate.body_bindings reuses release_pulse_id"
-                }
-                require(seenReleaseSlots.add(ballot.releaseSlot)) {
-                    "certificate.body_bindings reuses a TLE release slot"
-                }
-                val jury = CertificateJuryFacts(
-                    electionAttemptSequence,
-                    sortition.requestHeight,
-                    resultHeight,
-                    beaconPulseId,
-                    ballot,
-                )
-                if (body == "policy-jury") {
-                    require(policyJury == null) { "certificate contains more than one policy-jury" }
-                    policyJury = jury
-                } else {
-                    require(confirmationJury == null) {
-                        "certificate contains more than one confirmation-jury"
-                    }
-                    confirmationJury = jury
-                }
-            } else {
-                require(bodyStates[index].timedOvnProgress == null) {
-                    "$context public body exposes timed_ovn_progress"
-                }
-                require(binding["public_finding"] != null && binding["ballot"] == null) {
-                    "$context public body must carry public_finding only"
-                }
-                findings.add(validatePublicFinding(binding["public_finding"], seats, "$context.public_finding"))
             }
-        }
-        require(sortitionPulseIds.intersect(seenReleasePulseIds).isEmpty()) {
-            "certificate reuses a sortition pulse for ballot release"
+            require(binding["public_finding"] != null && binding["ballot"] == null) {
+                "$context public body must carry public_finding only"
+            }
+            findings.add(validatePublicFinding(binding["public_finding"], seats, "$context.public_finding"))
         }
         require(certifiedAtHeight == latestBodyResultHeight) {
             "certificate.certified_at_height must equal the latest body result height"
         }
-        val policy = requireNotNull(policyJury) {
-            "certificate must contain exactly one approving policy-jury ballot"
-        }
-        val decisive = policy.ballot.aye + policy.ballot.nay
-        val requiresConfirmation = decisive.signum() > 0 &&
-            policy.ballot.aye.subtract(policy.ballot.nay).abs() * BigInteger.valueOf(100) <
-            decisive * BigInteger.valueOf(5)
-        require(requiresConfirmation == (confirmationJury != null)) {
-            "certificate confirmation-jury presence differs from the policy margin"
-        }
-        confirmationJury?.let { confirmation ->
-            val validRequestHeight = if (confirmation.electionAttemptSequence == 0) {
-                confirmation.requestHeight == policy.resultHeight
-            } else {
-                confirmation.requestHeight > policy.resultHeight
-            }
-            require(validRequestHeight && confirmation.beaconPulseId != policy.beaconPulseId) {
-                "certificate confirmation-jury request height must match the atomic initial " +
-                    "request or follow it on retry, with a fresh pulse"
-            }
-        }
         return findings
     }
-
-    private data class CertificateSortitionFacts(val requestHeight: BigInteger)
-
-    private data class CertificateJuryFacts(
-        val electionAttemptSequence: Int,
-        val requestHeight: BigInteger,
-        val resultHeight: BigInteger,
-        val beaconPulseId: String,
-        val ballot: CertificateBallotFacts,
-    )
 
     /** Direct bindings are checked here; Norito-derived content identifiers and roots stay opaque. */
     private fun validateCertificateSortitionRequest(
@@ -1769,7 +774,7 @@ object ParliamentApiV1 {
         resultHeight: BigInteger,
         certifiedAtHeight: BigInteger,
         context: String,
-    ): CertificateSortitionFacts {
+    ) {
         val request = exactObject(
             value,
             setOf(
@@ -1793,7 +798,7 @@ object ParliamentApiV1 {
             request["target_seats"],
             "$context.target_seats",
             1,
-            MAX_TIMED_OVN_CORPUS_ENTRIES,
+            MAX_BODY_TARGET_SEATS,
         )
         require(
             originalSeats <= targetSeats &&
@@ -1805,135 +810,6 @@ object ParliamentApiV1 {
             resultHeight > pulseHeight && resultHeight <= certifiedAtHeight) {
             "$context violates the sortition/result lifecycle"
         }
-        return CertificateSortitionFacts(requestHeight)
-    }
-
-    private data class CertificateBallotFacts(
-        val ballotAttemptId: String,
-        val tleSessionId: String,
-        val releasePulseId: String,
-        val releaseSlot: String,
-        val acceptedBallots: Int,
-        val aye: BigInteger,
-        val nay: BigInteger,
-    )
-
-    private fun validateCertificateBallot(
-        value: Any?,
-        originalSeats: Int,
-        resultHeight: BigInteger,
-        context: String,
-    ): CertificateBallotFacts {
-        val ballot = exactObject(
-            value,
-            setOf(
-                "ballot_attempt_id", "ballot_attempt_sequence", "tle_session_id",
-                "tle_key_session_id", "registration_root", "dropout_root", "survivor_root",
-                "corpus_root", "no_recovery_root", "timed_commitment_root",
-                "release_beacon_session_id", "registered_at_height", "registration_close_height",
-                "survivor_freeze_height", "commitment_close_height",
-                "registration_closed_at_height", "survivors_frozen_at_height",
-                "commitment_closed_at_height", "max_ballot_retries", "max_corpus_entries",
-                "release_height", "opening_deadline_height", "release_pulse_id",
-                "opening_height", "opening_root", "tally", "outcome",
-            ),
-            context,
-        )
-        val ballotAttemptId = id(ballot, "ballot_attempt_id")
-        val tleSessionId = id(ballot, "tle_session_id")
-        id(ballot, "tle_key_session_id")
-        val releaseBeaconSessionId = id(ballot, "release_beacon_session_id")
-        val releasePulseId = id(ballot, "release_pulse_id")
-        for (field in listOf(
-            "registration_root", "dropout_root", "survivor_root", "corpus_root",
-            "no_recovery_root", "timed_commitment_root", "opening_root",
-        )) byteArray32(ballot[field], "$context.$field")
-        val sequence = u32Int(ballot["ballot_attempt_sequence"], "$context.ballot_attempt_sequence", 0, 16)
-        val maxRetries = u32Int(ballot["max_ballot_retries"], "$context.max_ballot_retries", 0, 16)
-        require(sequence <= maxRetries) { "$context.ballot_attempt_sequence exceeds max_ballot_retries" }
-        val maxCorpusEntries = u32Int(
-            ballot["max_corpus_entries"],
-            "$context.max_corpus_entries",
-            1,
-            MAX_TIMED_OVN_CORPUS_ENTRIES,
-        )
-        fun height(field: String) = BigInteger(unsignedInteger(ballot[field], "$context.$field"))
-        val registered = height("registered_at_height")
-        val registrationClose = height("registration_close_height")
-        val survivorFreeze = height("survivor_freeze_height")
-        val commitmentClose = height("commitment_close_height")
-        val registrationClosed = height("registration_closed_at_height")
-        val survivorsFrozen = height("survivors_frozen_at_height")
-        val commitmentClosed = height("commitment_closed_at_height")
-        val release = height("release_height")
-        val openingDeadline = height("opening_deadline_height")
-        val opening = height("opening_height")
-        val maxCorpus = BigInteger.valueOf(maxCorpusEntries.toLong())
-        val requiredCommitmentBlocks = BigInteger.valueOf(
-            ((maxCorpusEntries + TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS - 1) /
-                TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS).toLong(),
-        )
-        require(registered.signum() > 0 && registrationClose > registered &&
-            maxCorpusEntries >= originalSeats &&
-            registrationClose - registered >= maxCorpus + BigInteger.ONE &&
-            survivorFreeze > registrationClose && commitmentClose > survivorFreeze &&
-            survivorFreeze - registrationClose >= maxCorpus &&
-            commitmentClose - survivorFreeze >= requiredCommitmentBlocks &&
-            release > commitmentClose && openingDeadline > release &&
-            registrationClosed == registrationClose && survivorsFrozen == survivorFreeze &&
-            commitmentClosed > survivorFreeze && commitmentClosed <= commitmentClose &&
-            opening >= release && opening <= openingDeadline &&
-            resultHeight >= opening && resultHeight <= openingDeadline) {
-            "$context violates the frozen ballot lifecycle"
-        }
-        val tally = exactObject(
-            ballot["tally"],
-            setOf("original_seats", "accepted_ballots", "aye", "nay", "abstain"),
-            "$context.tally",
-        )
-        val tallySeats = u32Int(
-            tally["original_seats"],
-            "$context.tally.original_seats",
-            1,
-            MAX_TIMED_OVN_CORPUS_ENTRIES,
-        )
-        val accepted = u32Int(
-            tally["accepted_ballots"],
-            "$context.tally.accepted_ballots",
-            0,
-            MAX_TIMED_OVN_CORPUS_ENTRIES,
-        )
-        val aye = BigInteger(u32(tally["aye"], "$context.tally.aye"))
-        val nay = BigInteger(u32(tally["nay"], "$context.tally.nay"))
-        val abstain = BigInteger(u32(tally["abstain"], "$context.tally.abstain"))
-        require(tallySeats == originalSeats && accepted <= maxCorpusEntries && accepted <= originalSeats &&
-            aye + nay + abstain == BigInteger.valueOf(accepted.toLong())) {
-            "$context.tally violates immutable bounds or count conservation"
-        }
-        val quorum = (2 * originalSeats + 2) / 3
-        val outcome = taggedUnitIn(
-            ballot["outcome"],
-            "outcome",
-            setOf("Approved", "Rejected", "NoQuorum", "NoResult"),
-            "$context.outcome",
-        )
-        val expectedOutcome = when {
-            accepted < quorum -> "NoQuorum"
-            aye > nay -> "Approved"
-            else -> "Rejected"
-        }
-        require(outcome == expectedOutcome && outcome == "Approved") {
-            "$context must contain the deterministic approving aggregate outcome"
-        }
-        return CertificateBallotFacts(
-            ballotAttemptId,
-            tleSessionId,
-            releasePulseId,
-            "$releaseBeaconSessionId:$release",
-            accepted,
-            aye,
-            nay,
-        )
     }
 
     private fun validateExpectedHead(value: Any?, context: String) {
@@ -1969,7 +845,7 @@ object ParliamentApiV1 {
         val assignments = (finding["endorsing_assignments"] as? List<*>)?.map {
             canonicalId(it as? String ?: throw IllegalArgumentException("$context.endorsing_assignments must be text"))
         } ?: throw IllegalArgumentException("$context.endorsing_assignments must be an array")
-        require(assignments.size in 1..MAX_TIMED_OVN_CORPUS_ENTRIES &&
+        require(assignments.size in 1..MAX_BODY_TARGET_SEATS &&
             assignments.zipWithNext().all { (left, right) -> left < right }) {
             "$context.endorsing_assignments must be strictly increasing and distinct"
         }
@@ -1977,102 +853,19 @@ object ParliamentApiV1 {
             finding["endorsements"],
             "$context.endorsements",
             1,
-            MAX_TIMED_OVN_CORPUS_ENTRIES,
+            MAX_BODY_TARGET_SEATS,
         )
         val quorum = u32Int(
             finding["quorum"],
             "$context.quorum",
             1,
-            MAX_TIMED_OVN_CORPUS_ENTRIES,
+            MAX_BODY_TARGET_SEATS,
         )
         val expectedQuorum = (2 * originalSeats + 2) / 3
         require(assignments.size == endorsements && endorsements == quorum && quorum == expectedQuorum) {
             "$context must contain the exact canonical two-thirds supporter list"
         }
         return ParliamentPublicFindingCertificateBindingV1(root, assignments, endorsements, quorum)
-    }
-
-    private fun validateTleIdentityPayload(
-        payload: ByteArray,
-        governanceAttemptId: String,
-        bodyInstanceId: String,
-        ballotAttemptId: String,
-        identity: ParliamentTimedOvnReleaseIdentityProjectionV1,
-    ) {
-        val domain = "iroha.parliament.tle.identity-payload.v1\u0000"
-            .toByteArray(StandardCharsets.UTF_8)
-        require(payload.size == 243 && payload.copyOfRange(0, domain.size).contentEquals(domain)) {
-            "identity_payload_hex has the wrong domain or canonical width"
-        }
-        var offset = domain.size
-        require(payload.copyOfRange(offset, offset + 2).contentEquals(u16Bytes(1))) {
-            "identity payload version must equal one"
-        }
-        offset += 2
-        for ((expected, field) in listOf(
-            decodeHex(governanceAttemptId) to "governance_attempt_id",
-            decodeHex(bodyInstanceId) to "body_instance_id",
-            decodeHex(ballotAttemptId) to "ballot_attempt_id",
-            identity.survivorCorpusRoot to "survivor_corpus_root",
-            identity.noRecoveryRoot to "no_recovery_root",
-        )) {
-            require(payload.copyOfRange(offset, offset + 32).contentEquals(expected)) {
-                "identity payload $field binding differs"
-            }
-            offset += 32
-        }
-        require(
-            payload.copyOfRange(offset, offset + 8)
-                .contentEquals(u64Bytes(BigInteger(identity.targetFinalizedHeight))),
-        ) { "identity payload release height differs" }
-        offset += 8
-        require(payload.copyOfRange(offset, offset + 32).contentEquals(identity.parameterHash)) {
-            "identity payload parameter_hash binding differs"
-        }
-    }
-
-    private fun tleReleaseMessageDigest(
-        session: ParliamentTleKeySessionPublicStateV1,
-        identityPayload: ByteArray,
-    ): ByteArray {
-        val output = ByteArrayOutputStream()
-        fun append(value: ByteArray) = output.write(value, 0, value.size)
-        append("iroha.threshold-bls.message.v1\u0000".toByteArray(StandardCharsets.UTF_8))
-        append("iroha.threshold-bls.session.v1\u0000".toByteArray(StandardCharsets.UTF_8))
-        append(u16Bytes(1))
-        output.write(2)
-        append(session.networkId)
-        append(decodeHex(session.keySessionId))
-        append(session.rosterHash)
-        append(u16Bytes(session.committeeSize))
-        append(u16Bytes(session.threshold))
-        append(u32Bytes(identityPayload.size))
-        append(identityPayload)
-        return MessageDigest.getInstance("SHA-256").digest(output.toByteArray())
-    }
-
-    private fun u16Bytes(value: Int): ByteArray = byteArrayOf(
-        ((value ushr 8) and 0xff).toByte(),
-        (value and 0xff).toByte(),
-    )
-
-    private fun u32Bytes(value: Int): ByteArray = byteArrayOf(
-        ((value ushr 24) and 0xff).toByte(),
-        ((value ushr 16) and 0xff).toByte(),
-        ((value ushr 8) and 0xff).toByte(),
-        (value and 0xff).toByte(),
-    )
-
-    private fun u64Bytes(value: BigInteger): ByteArray {
-        require(value.signum() >= 0 && value.bitLength() <= 64) { "height is outside u64" }
-        val encoded = value.toByteArray()
-        val unsigned = if (encoded.size == 9 && encoded[0].toInt() == 0) {
-            encoded.copyOfRange(1, encoded.size)
-        } else {
-            encoded
-        }
-        require(unsigned.size <= 8) { "height is outside u64" }
-        return ByteArray(8 - unsigned.size) + unsigned
     }
 
     private fun validateStateFrame(bytes: ByteArray) {

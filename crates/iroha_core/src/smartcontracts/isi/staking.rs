@@ -1,4 +1,10 @@
 //! Public lane staking instruction handlers (NX-9).
+//!
+//! TODO(S8): slash share/validator/asset graphs, remaining numeric results and
+//! instruction rejection diagnostics,
+//! custody storage writes/undo, deferred observations and lifecycle activation,
+//! exit and pruning scratch still need original-pool owners. The funded parent
+//! index and borrowed L3 preflight do not cover those allocations.
 use super::prelude::*;
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use crate::{
@@ -49,6 +55,9 @@ mod custody;
 pub(crate) use custody::{
     prepare_stake_custody_credit, prepare_stake_custody_debit, retained_stake_custody_asset,
 };
+#[cfg(test)]
+#[path = "staking_funded_numeric_tests.rs"]
+mod funded_numeric_tests;
 /// Canonical storage key for one public-lane stake share.
 pub(crate) type PublicLaneStakeShareKey = (LaneId, AccountId, AccountId);
 
@@ -698,17 +707,41 @@ fn finish_index_group(
 }
 
 /// Preserve the charge until every physical aggregate owned by the index drops.
+#[allow(unsafe_code)]
 fn materialize_index_quantity(
     aggregate: QuantityAccumulator,
     reservation: &mut AllocationReservation,
     charges: &mut ChargedBuffer<AllocationCharge>,
 ) -> Result<Quantity, EvidencePreparationError> {
+    use iroha_primitives::numeric::{ChargedQuantity, QuantityBackingError};
+    let budget = reservation.allocation_budget();
+    #[cfg(all(test, sumeragi_core_mutation = "HC402"))]
+    let original_ledger = true;
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC402")))]
+    let original_ledger = charges.belongs_to(&budget);
+    if !original_ledger || charges.as_slice().len() == charges.capacity() {
+        return Err(EvidencePreparationError::Invariant);
+    }
     let layout = aggregate
         .admission_layout()
         .map_err(|_| EvidencePreparationError::Invariant)?;
     let charge = reservation
         .try_split(layout)
         .map_err(|_| EvidencePreparationError::Invariant)?;
+    let value = ChargedQuantity::try_from_accumulator_charge(aggregate, &budget, charge).map_err(
+        |(_charge, error)| match error {
+            QuantityBackingError::Allocation(
+                iroha_allocation::ChargedBufferFromChargeError::Allocator { layout },
+            ) => EvidencePreparationError::Allocator {
+                requested_bytes: layout.size(),
+            },
+            _ => EvidencePreparationError::Invariant,
+        },
+    )?;
+    // SAFETY: the fixed original-pool ledger slot was checked above. The caller
+    // retains that ledger after the index's concrete Quantity fields, and drops
+    // every partially built field before the ledger on refusal or unwind.
+    let (value, charge) = unsafe { value.into_allocation_parts() };
     #[cfg(all(test, feature = "mutation-testing", sumeragi_core_mutation = "HC87"))]
     let charge = {
         // Mutation: release the admitted original while the physical quantity lives.
@@ -717,15 +750,8 @@ fn materialize_index_quantity(
             .try_split(Layout::new::<()>())
             .expect("zero mutation charge")
     };
-    charges
-        .try_push(charge)
-        .map_err(|_| EvidencePreparationError::Invariant)?;
-    aggregate.try_into_quantity().map_err(|error| match error {
-        iroha_primitives::bigint::BigIntAdmissionCloneError::Allocator { requested_bytes } => {
-            EvidencePreparationError::Allocator { requested_bytes }
-        }
-        _ => EvidencePreparationError::Invariant,
-    })
+    charges.push_reserved(charge);
+    Ok(value)
 }
 
 /// Copy one retained account only after every nested layout is split from the
@@ -2409,37 +2435,22 @@ impl Execute for FinalizePublicLaneUnbond {
         ensure_staker_authority(authority, &self.staker, "finalize_public_lane_unbond")?;
         finalize_validator_lifecycle(state_transaction)?;
         let block_timestamp_ms = state_transaction.block_unix_timestamp_ms();
+        // TODO(S8): the shared signed-policy decoder still owns an unfunded
+        // parameter graph; the L3 caller below does not copy that graph again.
+        let retention_policy = read_staking_policy(state_transaction)?;
+        let liability =
+            original_unbond_liability(state_transaction, &self, retention_policy.as_ref())
+                .map_err(|error| retain_staking_attempt(state_transaction, error))?;
+        retain_sccp_release_result(state_transaction, liability.release)?;
+        // TODO(S8): the released path's mutable share/account/asset copies and
+        // World storage updates still need complete original-pool custody. L3
+        // itself now inspects the original graphs before those copies exist.
         let stake_ctx = retained_stake_context(
             &state_transaction.world,
             self.lane_id,
             &self.validator,
             &self.staker,
         )?;
-        let validator_key = validator_storage_key(self.lane_id, &self.validator);
-        let validator_record = state_transaction
-            .world
-            .public_lane_validators
-            .get(&validator_key)
-            .cloned()
-            .ok_or_else(|| Error::InvariantViolation("validator not registered".into()))?;
-        ensure_public_lane_validator_record_matches_key(&validator_key, &validator_record)?;
-        if has_global_committee_obligation(state_transaction, &validator_record)
-            || crate::sumeragi::lanes::custody::retains_registration(
-                &state_transaction.world,
-                &validator_record,
-                state_transaction.block_height(),
-            )
-            .map_err(|error| {
-                retain_staking_attempt(
-                    state_transaction,
-                    error.map_rejection(|message| Error::InvariantViolation(message.into())),
-                )
-            })?
-        {
-            return Err(Error::InvariantViolation(
-                "unbond withdrawal requires authenticated release of current and frozen committee obligations".into(),
-            ));
-        }
         let share_key = stake_key(self.lane_id, &self.validator, &self.staker);
         let mut share = state_transaction
             .world
@@ -2453,12 +2464,6 @@ impl Execute for FinalizePublicLaneUnbond {
             .remove(&self.request_id)
             .ok_or_else(|| Error::InvariantViolation("unbond request not found".into()))?;
         ensure_canonical_pending_unbond(&self.request_id, &pending)?;
-        let sccp_release = sccp_liability_release(
-            state_transaction,
-            &validator_record,
-            Some(pending.slashable_through_height),
-        );
-        retain_sccp_release_result(state_transaction, sccp_release)?;
         let current_height = state_transaction.block_height();
         let current_policy_release_height =
             unbond_liability_release_height(state_transaction, pending.slashable_through_height)?;
@@ -2493,7 +2498,7 @@ impl Execute for FinalizePublicLaneUnbond {
             &stake_ctx.staker_asset,
             &pending.amount,
             &PublicLaneMonetaryPreconditionV1::Unbond(PublicLaneMonetaryUnbondV1 {
-                activation_height: validator_record.activation_height,
+                activation_height: liability.activation_height,
                 request_hash,
             }),
         )
@@ -2657,6 +2662,74 @@ fn prune_zero_custody_exited_validators(
         state_transaction.world.public_lane_validators.remove(key);
     }
     Ok(())
+}
+
+/// Scalar tenure and the unchanged original L3 result; no caller graph copies.
+struct UnbondLiabilityPreflight {
+    activation_height: u64,
+    release: Result<
+        Option<super::sccp::liability::ReleaseBlocker>,
+        crate::state::sccp_forgery_custody::ForgeryStorageError,
+    >,
+}
+
+/// Borrow the exact registration/share/request before materializing withdrawal
+/// scratch. For a well-formed request, the World read cursors allocate no key;
+/// only L3's existing funded offence lookup may allocate. The enclosing
+/// transaction keeps the same source. Rejections use the existing instruction
+/// diagnostics whose funding remains part of the module's S8 obligation.
+fn original_unbond_liability(
+    state: &StateTransaction<'_, '_>,
+    instruction: &FinalizePublicLaneUnbond,
+    retention_policy: Option<&iroha_data_model::parameter::system::SumeragiNposParameters>,
+) -> Result<UnbondLiabilityPreflight, Attempt<Error>> {
+    let (key, record) = state
+        .world
+        .public_lane_validators
+        .iter()
+        .find(|((lane, validator), _)| {
+            *lane == instruction.lane_id && validator == &instruction.validator
+        })
+        .ok_or_else(|| Error::InvariantViolation("validator not registered".into()))?;
+    ensure_public_lane_validator_record_matches_key(key, record)?;
+    if has_global_committee_obligation(state, record)
+        || crate::sumeragi::lanes::custody::retains_registration_with_parameters(
+            &state.world,
+            record,
+            state.block_height(),
+            retention_policy,
+        )
+    {
+        return Err(Error::InvariantViolation(
+            "unbond withdrawal requires authenticated release of current and frozen committee obligations".into(),
+        ).into());
+    }
+    let (key, share) = state
+        .world
+        .public_lane_stake_shares
+        .iter()
+        .find(|((lane, validator, staker), _)| {
+            *lane == instruction.lane_id
+                && validator == &instruction.validator
+                && staker == &instruction.staker
+        })
+        .ok_or_else(|| Error::InvariantViolation("stake position not found".into()))?;
+    ensure_public_lane_stake_share_matches_key(key, share)?;
+    #[cfg(all(test, sumeragi_core_mutation = "HC407"))]
+    let copied_share = share.clone();
+    #[cfg(all(test, sumeragi_core_mutation = "HC407"))]
+    let share = &copied_share;
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC407")))]
+    let share = share;
+    let pending = share
+        .pending_unbonds
+        .get(&instruction.request_id)
+        .ok_or_else(|| Error::InvariantViolation("unbond request not found".into()))?;
+    ensure_canonical_pending_unbond(&instruction.request_id, pending)?;
+    Ok(UnbondLiabilityPreflight {
+        activation_height: record.activation_height,
+        release: sccp_liability_release(state, record, Some(pending.slashable_through_height)),
+    })
 }
 
 /// Read immutable parent generations and this block's S0 clock. The pending record lookup
@@ -3419,25 +3492,34 @@ fn slash_pending_unbond_group(
         if is_self_stake_share_staker(staker, validator, stake_account) != self_stake_group {
             continue;
         }
-        let request_ids = share.pending_unbonds.keys().copied().collect::<Vec<_>>();
-        for request_id in request_ids {
-            if remaining.is_zero() {
-                break;
+        // BTreeMap::retain visits the same canonical key order in place. A
+        // complete request-ID copy is unnecessary, and the first arithmetic or
+        // source failure prevents any later request from being inspected.
+        let mut failure = None;
+        share.pending_unbonds.retain(|request_id, pending| {
+            if remaining.is_zero() || failure.is_some() {
+                return true;
             }
-            let pending = share
-                .pending_unbonds
-                .get_mut(&request_id)
-                .expect("request id was collected from this exact share");
-            ensure_canonical_pending_unbond(&request_id, pending)?;
-            if !pending_unbond_is_slashable_at(pending, offence_height) {
-                continue;
+            let updated = (|| {
+                ensure_canonical_pending_unbond(request_id, pending)?;
+                if !pending_unbond_is_slashable_at(pending, offence_height) {
+                    return Ok(true);
+                }
+                let slash_part = min_quantity(pending.amount.clone(), remaining.clone());
+                pending.amount = quantity_sub(pending.amount.clone(), slash_part.clone())?;
+                remaining = quantity_sub(std::mem::take(&mut remaining), slash_part)?;
+                Ok::<_, Error>(!pending.amount.is_zero())
+            })();
+            match updated {
+                Ok(keep) => keep,
+                Err(error) => {
+                    failure = Some(error);
+                    true
+                }
             }
-            let slash_part = min_quantity(pending.amount.clone(), remaining.clone());
-            pending.amount = quantity_sub(pending.amount.clone(), slash_part.clone())?;
-            remaining = quantity_sub(remaining, slash_part)?;
-            if pending.amount.is_zero() {
-                share.pending_unbonds.remove(&request_id);
-            }
+        });
+        if let Some(error) = failure {
+            return Err(error);
         }
     }
     if !remaining.is_zero() {
@@ -3587,8 +3669,11 @@ fn apply_slash_to_validator_inner(
     let offence_height = liability.and_then(|liability| liability.offence_height());
     let deactivation_height = scheduled_validator_deactivation_height(state_transaction, lane_id)
         .map_err(|error| retain_staking_attempt(state_transaction, error))?;
-    let dataspace_catalog = state_transaction.nexus.dataspace_catalog.clone();
-    let staking_cfg = state_transaction.nexus.staking.clone();
+    let max_slash_bps = state_transaction.nexus.staking.max_slash_bps;
+    let max_stake_shares = state_transaction
+        .nexus
+        .staking
+        .max_stake_shares_per_validator;
     let validator_key = validator_storage_key(lane_id, validator);
     let validator_snapshot = state_transaction
         .world
@@ -3620,8 +3705,8 @@ fn apply_slash_to_validator_inner(
         retained_stake_context(&state_transaction.world, lane_id, validator, &stake_account)?;
     let slash_sink = parse_staking_account_literal(
         &state_transaction.world,
-        &dataspace_catalog,
-        &staking_cfg.slash_sink_account_id,
+        &state_transaction.nexus.dataspace_catalog,
+        &state_transaction.nexus.staking.slash_sink_account_id,
         "slash_sink_account_id",
         now_ms,
     )
@@ -3642,7 +3727,7 @@ fn apply_slash_to_validator_inner(
     let previous_status = validator_snapshot.status.clone();
     if indexed_share_keys.is_some_and(|keys| {
         keys.len()
-            > usize::try_from(staking_cfg.max_stake_shares_per_validator.get())
+            > usize::try_from(max_stake_shares.get())
                 .expect("u32 stake-share cap fits usize on supported targets")
     }) {
         return Err(Error::InvariantViolation(
@@ -3655,13 +3740,13 @@ fn apply_slash_to_validator_inner(
         share_updates.iter().map(|(key, share)| Ok((key, share))),
         offence_height,
     )?;
-    let allowed = slash_within_limit(amount, &slashable_exposure, staking_cfg.max_slash_bps)?;
+    let allowed = slash_within_limit(amount, &slashable_exposure, max_slash_bps)?;
     if !allowed {
         return Err(Error::InvariantViolation(
             "slash exceeds configured maximum ratio".into(),
         ));
     }
-    if slashable_exposure < amount.clone() {
+    if &slashable_exposure < amount {
         return Err(Error::InvariantViolation(
             "slash exceeds stake still held in protocol custody".into(),
         ));

@@ -1,8 +1,8 @@
 # Swift native framework completion goals
 
-The current Swift SDK requires the real ABI-29 NoritoBridge native implementation.
+The current Swift SDK requires the real ABI-30 NoritoBridge native implementation.
 The ABI-25 artifact and test results below are historical component evidence;
-the typed-wallet ABI-29 candidate requires a fresh build and consumer qualification.
+the typed-wallet ABI-30 candidate requires a fresh build and consumer qualification.
 The build and artifact contract is [NoritoBridge release packaging](../../../docs/norito_bridge_release.md).
 
 | Goal | Owner | State | Completion criteria |

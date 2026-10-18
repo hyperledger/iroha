@@ -8790,13 +8790,18 @@ pub mod tests {
         let now = signed.creation_time();
         assert!(accept(&genuine, false, now).is_ok());
         assert!(accept(&genuine, true, now).is_ok());
-        assert!(matches!(
-            accept(&forged, false, now),
-            Err(AcceptTransactionFail::SignatureVerification(_))
-        ));
+        let unverified = accept(&forged, false, now);
         assert!(
-            accept(&forged, true, now).is_ok(),
-            "an attested precheck replaces only the signature verification"
+            matches!(
+                unverified,
+                Err(AcceptTransactionFail::SignatureVerification(_))
+            ),
+            "a forged signature must fail verification: {unverified:?}"
+        );
+        let prechecked = accept(&forged, true, now);
+        assert!(
+            prechecked.is_ok(),
+            "an attested precheck replaces only the signature verification: {prechecked:?}"
         );
         let expired =
             now + signed.time_to_live().expect("builder binds a TTL") + Duration::from_millis(1);

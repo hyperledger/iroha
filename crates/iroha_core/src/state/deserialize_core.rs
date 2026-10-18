@@ -282,7 +282,9 @@ impl<'a> SnapshotJsonField<'a> {
             // Production borrows the original bytes and requires their exact canonical
             // representation. The test-only DOM adapter has already discarded field
             // order, just like decode_canonical's owned path above. Neither path grants
-            // authority to restored claims. Comparison scratch retains its existing TODO.
+            // authority to restored claims.
+            // TODO(S8): fund this canonical comparison and its nested codec scratch
+            // from the original pool before replacing the existing checked semantics.
             if has_original_bytes && json::to_json(&value)?.as_bytes() != raw.as_bytes() {
                 return Err(StateRestoreError::Serialization(json::Error::Message(
                     "snapshot field is not canonically encoded".into(),

@@ -52,15 +52,12 @@ fn the_frame_and_its_digest_equal_the_proof_crate() {
 
 #[test]
 fn the_v1_profile_and_proof_lengths_are_the_compiled_candidate_row() {
+    // Production builds of the proof crate compile only the candidate row; the comparator
+    // row is its test and diagnostics support.
     let candidate = Profile::new(Row::Candidate).expect("embedded tables");
     assert_eq!(
         ProofProfileIdV1::V1.as_bytes(),
         candidate.descriptor_digest().as_bytes()
-    );
-    let comparator = Profile::new(Row::Comparator).expect("embedded tables");
-    assert_ne!(
-        ProofProfileIdV1::V1.as_bytes(),
-        comparator.descriptor_digest().as_bytes()
     );
     assert_eq!(
         BallotProofBytesV1::LENGTH,

@@ -518,8 +518,13 @@ fn set_one_frame_lane_source_budget(
         direct_bytes.min(broadcast_bytes) > source_bytes / 2,
         "the source must fit either exact frame but never two of the smaller frame"
     );
-    handle.network_actor_progress_budget = NetworkActorProgressBudget::new(source_bytes, 8, 8)
-        .expect("one-frame lane byte cap with independent target sources");
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        source_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one-frame lane byte cap with independent target sources");
     assert_eq!(
         handle.network_actor_progress_budget.max_items_per_source,
         RELIABLE_ACTOR_SOURCE_WINDOW,
@@ -2215,8 +2220,13 @@ fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
             message::Topic::Consensus,
         )
         .expect("count the exact reply timeout fixture");
-    handle.network_actor_progress_budget = NetworkActorProgressBudget::new(stream_wire_bytes, 8, 8)
-        .expect("one reply frame per source must fit the timeout fixture");
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        stream_wire_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one reply frame per source must fit the timeout fixture");
     let _first_completion = handle
         .post_reply_recoverable_with_flush_ack_at_attempt(post(90), &route, None, 0)
         .expect("first reply occupies the source lane")
@@ -2313,8 +2323,13 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
             message::Topic::Consensus,
         )
         .expect("count the exact reply identity fixture");
-    handle.network_actor_progress_budget = NetworkActorProgressBudget::new(stream_wire_bytes, 8, 8)
-        .expect("one reply frame per source must fit the identity fixture");
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        stream_wire_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one reply frame per source must fit the identity fixture");
     let first = handle
         .post_reply_recoverable_with_flush_ack(
             Post {
@@ -3224,6 +3239,7 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
         mpsc::channel::<ServiceMessage<WireMessage<T>>>(4);
     let (_network_hi_tx, network_message_high_rx) = net_channel::channel_with_capacity(1);
     let (_network_lo_tx, network_message_low_rx) = net_channel::channel_with_capacity(1);
+    let (reliable_flush_notice_sender, reliable_flush_notice_receiver) = mpsc::unbounded_channel();
     let (online_peers_tx, _online_peers_rx) = watch::channel(HashSet::new());
     let (online_peer_capabilities_tx, _online_peer_capabilities_rx) =
         watch::channel(HashMap::new());
@@ -3284,6 +3300,9 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
             pending_reply_source_authority: PendingReplySourceAuthority::default(),
             pending_configured_hub_source: None,
             network_actor_progress_budget: test_network_actor_progress_budget(),
+            reliable_flush_notice_sender,
+            reliable_flush_notice_receiver,
+            reliable_topology_dirty: true,
             update_topology_receiver: update_topology_rx,
             update_peers_receiver: update_peers_rx,
             update_validator_dial_roster_receiver,
@@ -11064,3 +11083,4 @@ fn pending_connects_drop_outside_topology() {
     );
 }
 include!("link_frame_tests.rs");
+include!("actor_window_tests.rs");

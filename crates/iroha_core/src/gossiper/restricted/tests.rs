@@ -293,7 +293,7 @@ fn sibling_lanes_in_one_dataspace_never_share_a_payload_batch() {
         let routing = RoutingDecision::new(LaneId::new(lane), DataSpaceId::new(9));
         entries.push(GossipBatchEntry {
             payload: super::super::tests::payload_for(&signed),
-            tx,
+            hash: tx.hash_as_entrypoint(),
             routing,
             routing_plan: RoutingPlan::single(routing),
         });

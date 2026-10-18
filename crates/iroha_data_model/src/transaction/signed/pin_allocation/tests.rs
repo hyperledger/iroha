@@ -140,7 +140,7 @@ fn unsupported_graphs_refuse_before_any_pool_allocation_without_reencoding_autho
         assert_eq!(budget.reserved_bytes(), 0);
     }
     let mut signed = paid(&support::signed("advance"));
-    let FeePaymentIntent::Authority(fees) = &mut signed.payload.fee_payment else {
+    let FeePaymentIntent::Authority(fees) = &mut signed.payload_mut().fee_payment else {
         unreachable!()
     };
     fees.gas_limit = std::num::NonZeroU64::new(3);

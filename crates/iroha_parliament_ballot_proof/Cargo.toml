@@ -14,6 +14,12 @@ workspace = true
 default = []
 # Forwards hardware acceleration to the backend; outputs are unchanged.
 accel = ["iroha_zkp_vole/accel"]
+# Test and measurement support only (integration decision 6): compiles the comparator
+# row `profile::Row::Comparator` for the measurement examples, the comparator
+# integration tests, the fuzz crate and the separately built diagnostic drivers.
+# Node, wallet and native-bridge dependencies never enable it; production builds
+# contain the candidate row only.
+diagnostics = []
 
 [dependencies]
 iroha_zkp_vole = { workspace = true }
@@ -29,3 +35,20 @@ norito = { workspace = true, default-features = false, features = ["json"] }
 # cross-checked against. All hashing of the library itself uses the backend's
 # erasing sponge.
 sha3 = { version = "0.10.8", default-features = false, features = ["std"] }
+
+# The measurement and diagnostic tooling compares both rows.
+[[example]]
+name = "measure"
+required-features = ["diagnostics"]
+
+[[example]]
+name = "parliament_ballot_qualify"
+required-features = ["diagnostics"]
+
+[[example]]
+name = "prover_lifecycle"
+required-features = ["diagnostics"]
+
+[[example]]
+name = "resource_contract"
+required-features = ["diagnostics"]

@@ -193,11 +193,32 @@ impl Binding {
 /// payload allocation. Its tag must verify before canonical application decoding
 /// or delivery. Request/Grant ledger mutations require a verified empty-body tag.
 /// A failed tag fences the unique reader; there is no early grant reuse.
+#[cfg(test)]
 pub(in crate::peer) fn seal<E: Enc>(
     crypto: &cryptographer::Cryptographer<E>,
     header: &Header,
     plaintext: &[u8],
 ) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    let record = seal_record(crypto, header, plaintext)?;
+    let header_len = header_len_prefix(&record)?;
+    let ciphertext = record[4 + header_len..].to_vec();
+    let mut encoded = record;
+    encoded.truncate(4 + header_len);
+    encoded.drain(..4);
+    Ok((encoded, ciphertext))
+}
+/// Seal one complete wire record into a single buffer:
+/// `u32 header length || header || nonce || ciphertext || tag`.
+///
+/// The plaintext is copied once into its final position and encrypted in
+/// place, so the writer emits the whole record with one buffer and no further
+/// allocation or copy. The bytes are identical to sending the length prefix,
+/// the header and the sealed envelope separately.
+pub(in crate::peer) fn seal_record<E: Enc>(
+    crypto: &cryptographer::Cryptographer<E>,
+    header: &Header,
+    plaintext: &[u8],
+) -> Result<Vec<u8>, Error> {
     if (header.kind()? == Kind::Data
         && plaintext.len() != usize::try_from(header.plaintext).map_err(|_| Error::Format)?)
         || (header.kind()? != Kind::Data && !plaintext.is_empty())
@@ -205,24 +226,61 @@ pub(in crate::peer) fn seal<E: Enc>(
         return Err(Error::Format);
     }
     let bytes = header.bytes()?;
-    let mut aad = Vec::with_capacity(AAD_DOMAIN.len() + bytes.len());
-    aad.extend_from_slice(AAD_DOMAIN);
-    aad.extend_from_slice(&bytes);
-    let ciphertext = crypto.encryptor.encrypt_easy(aad.as_slice(), plaintext)?;
-    Ok((bytes, ciphertext))
+    let nonce = core::mem::size_of::<aead::Nonce<E>>();
+    let sealed_len = encrypted_len::<E>(plaintext.len())?;
+    let total = 4usize
+        .checked_add(bytes.len())
+        .and_then(|n| n.checked_add(sealed_len))
+        .ok_or(Error::FrameTooLarge)?;
+    let mut record = Vec::with_capacity(total);
+    record.extend_from_slice(
+        &u32::try_from(bytes.len())
+            .map_err(|_| Error::Format)?
+            .to_be_bytes(),
+    );
+    record.extend_from_slice(&bytes);
+    let sealed_start = record.len();
+    record.resize(sealed_start + nonce, 0);
+    record.extend_from_slice(plaintext);
+    record.resize(total, 0);
+    with_aad(&bytes, |aad| {
+        crypto
+            .encryptor
+            .encrypt_easy_in_place(aad, &mut record[sealed_start..])
+    })?;
+    Ok(record)
+}
+/// Length of the header carried by a sealed record.
+#[cfg(test)]
+fn header_len_prefix(record: &[u8]) -> Result<usize, Error> {
+    let prefix: [u8; 4] = record
+        .get(..4)
+        .ok_or(Error::Format)?
+        .try_into()
+        .map_err(|_| Error::Format)?;
+    Ok(u32::from_be_bytes(prefix) as usize)
+}
+/// Run `f` with the record AAD (`domain || header bytes`) on the stack.
+fn with_aad<R>(header_bytes: &[u8], f: impl FnOnce(&[u8]) -> R) -> R {
+    let mut aad = [0_u8; AAD_DOMAIN.len() + HEADER_CAP];
+    let header_bytes = &header_bytes[..header_bytes.len().min(HEADER_CAP)];
+    let len = AAD_DOMAIN.len() + header_bytes.len();
+    aad[..AAD_DOMAIN.len()].copy_from_slice(AAD_DOMAIN);
+    aad[AAD_DOMAIN.len()..len].copy_from_slice(header_bytes);
+    f(&aad[..len])
 }
 pub(in crate::peer) fn open<'a, E: Enc>(
     crypto: &cryptographer::Cryptographer<E>,
     header_bytes: &[u8],
     ciphertext: &'a mut [u8],
 ) -> Result<&'a mut [u8], Error> {
-    let mut aad = Vec::with_capacity(AAD_DOMAIN.len() + header_bytes.len());
-    aad.extend_from_slice(AAD_DOMAIN);
-    aad.extend_from_slice(header_bytes);
-    crypto
-        .encryptor
-        .decrypt_easy_in_place(&aad, ciphertext)
-        .map_err(Into::into)
+    if header_bytes.len() > HEADER_CAP {
+        return Err(Error::Format);
+    }
+    with_aad(header_bytes, |aad| {
+        crypto.encryptor.decrypt_easy_in_place(aad, ciphertext)
+    })
+    .map_err(Into::into)
 }
 pub(in crate::peer) fn encrypted_len<E: Enc>(plaintext: usize) -> Result<usize, Error> {
     plaintext

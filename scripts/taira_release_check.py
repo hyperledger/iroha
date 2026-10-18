@@ -3062,7 +3062,6 @@ def check_shipping_binaries(root: Path, env: dict[str, str], lock_fds: tuple[int
         "iroha_core": "iroha-core-tests",
         "iroha_core_zk": "test-utils",
         "iroha_core_privacy": "test-utils",
-        "iroha_core_timed_ovn": "test-utils",
         "iroha_torii": "test-fixtures",
     }
     command = [env["CARGO"], "--config", str(root / ".cargo/config.toml"), "check", "--keep-going",
@@ -3113,7 +3112,7 @@ def check_shipping_binaries(root: Path, env: dict[str, str], lock_fds: tuple[int
 
 PRODUCTION_LIBRARY_FORBIDDEN_FEATURES = {
     "iroha_core": "iroha-core-tests", "iroha_core_zk": "test-utils",
-    "iroha_core_privacy": "test-utils", "iroha_core_timed_ovn": "test-utils",
+    "iroha_core_privacy": "test-utils",
     "iroha_torii": "test-fixtures",
 }
 

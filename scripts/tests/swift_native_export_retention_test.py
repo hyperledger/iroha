@@ -50,7 +50,7 @@ class SwiftNativeExportRetentionTests(unittest.TestCase):
         self.assertEqual(exports, sorted(set(exports)))
         self.assertEqual(set(exports), named & declared)
         loader = (ROOT / "IrohaSwift/Sources/IrohaSwift/NativeBridge.swift").read_text()
-        required = loader.split("static let parliamentTimedOvnWalletRequiredSymbols", 1)[1]
+        required = loader.split("static let accelerationRequiredSymbols", 1)[1]
         required = required.split("private typealias BridgeAbiVersionFn", 1)[0]
         self.assertTrue(set(re.findall(rf'"({EXPORT_PATTERN})"', required)) <= set(exports))
 

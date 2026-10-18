@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import XCTest
 @testable import IrohaSwift
@@ -12,11 +11,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
     private let attemptID = String(repeating: "ab", count: 32)
     private let proposalID = String(repeating: "cd", count: 32)
     private let root = [UInt8](repeating: 0x55, count: 32)
-
-    override func tearDown() {
-        ParliamentCastingProofStubURLProtocol.handler = nil
-        super.tearDown()
-    }
 
     private func deployProposal() throws -> ToriiParliamentProposalV1 {
         try ToriiParliamentProposalV1(
@@ -43,100 +37,46 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             ToriiParliamentAPIV1.contractLifecycleActions
         )
         XCTAssertEqual(
-            limits["timed_ovn_ballot_chunk_max_records"],
-            ToriiParliamentAPIV1.maximumTimedOvnBallotChunkRecords
+            Set(limits.keys),
+            ["attempt_state_bytes", "governance_attempt_sequence_max"]
         )
         XCTAssertEqual(
-            limits["timed_ovn_corpus_entries"],
-            ToriiParliamentAPIV1.maximumCorpusEntries
+            limits["attempt_state_bytes"],
+            ToriiParliamentAPIV1.maximumAttemptStateBytes
         )
         XCTAssertEqual(
-            limits["timed_ovn_casting_proof_request_bytes"],
-            ToriiParliamentAPIV1.timedOvnCastingProofRequestBytes
+            limits["governance_attempt_sequence_max"],
+            Int(ToriiParliamentAPIV1.maximumGovernanceAttemptRetries)
         )
         XCTAssertEqual(
-            limits["timed_ovn_casting_proof_response_bytes"],
-            ToriiParliamentAPIV1.maximumTimedOvnCastingProofResponseBytes
-        )
-        XCTAssertEqual(
-            limits["timed_ovn_casting_proof_finality_entries"],
-            ToriiParliamentAPIV1.maximumTimedOvnCastingProofFinalityProofs
+            Set(routes.keys),
+            ["attempt_draft", "attempt_read", "transition_draft"]
         )
         XCTAssertEqual(routes["attempt_draft"], ToriiParliamentAPIV1.attemptDraftPath)
         XCTAssertEqual(routes["attempt_read"], ToriiParliamentAPIV1.attemptReadPathTemplate)
-        XCTAssertEqual(
-            routes["timed_ovn_casting_context_read"],
-            ToriiParliamentAPIV1.timedOvnCastingContextReadPathTemplate
-        )
-        XCTAssertEqual(
-            routes["timed_ovn_casting_proof"],
-            ToriiParliamentAPIV1.timedOvnCastingProofPathTemplate
-        )
-        XCTAssertEqual(
-            routes["tle_release_context_read"],
-            ToriiParliamentAPIV1.tleReleaseContextReadPathTemplate
-        )
-        XCTAssertEqual(
-            routes["tle_partial_release"],
-            ToriiParliamentAPIV1.tlePartialReleasePathTemplate
-        )
         XCTAssertEqual(routes["transition_draft"], ToriiParliamentAPIV1.transitionDraftPath)
-        let nativeWallet = try XCTUnwrap(
-            fixture["timed_ovn_native_wallet"] as? [String: Any]
+        let wireIds = try XCTUnwrap(fixture["wire_ids"] as? [String: String])
+        XCTAssertEqual(wireIds["attempt_create"], ToriiParliamentAPIV1.attemptCreateWireId)
+        XCTAssertEqual(wireIds["transition_submit"], ToriiParliamentAPIV1.transitionSubmitWireId)
+        let digestDomains = try XCTUnwrap(fixture["digest_domains"] as? [String: String])
+        XCTAssertEqual(
+            digestDomains["public_transition"],
+            ToriiParliamentAPIV1.publicTransitionDigestDomain
         )
         XCTAssertEqual(
-            nativeWallet["request_norito_schema"] as? String,
-            ToriiParliamentAPIV1.timedOvnCastingProofRequestSchema
-        )
-        XCTAssertEqual(
-            nativeWallet["response_norito_schema"] as? String,
-            ToriiParliamentAPIV1.timedOvnCastingProofResponseSchema
-        )
-        XCTAssertEqual(
-            nativeWallet["casting_proof_request_schema_hash_hex"] as? String,
-            ToriiParliamentAPIV1.timedOvnCastingProofRequestSchemaHashHex
-        )
-        XCTAssertEqual(
-            nativeWallet["casting_proof_response_schema_hash_hex"] as? String,
-            ToriiParliamentAPIV1.timedOvnCastingProofResponseSchemaHashHex
-        )
-        XCTAssertEqual(
-            nativeWallet["casting_proof_request_version"] as? Int,
-            Int(ToriiParliamentAPIV1.timedOvnCastingProofRequestVersion)
-        )
-        XCTAssertEqual(
-            nativeWallet["casting_proof_request_flags"] as? Int,
-            Int(ToriiParliamentAPIV1.timedOvnCastingProofRequestFlags)
-        )
-        XCTAssertEqual(
-            nativeWallet["casting_proof_request_payload_alignment"] as? Int,
-            ToriiParliamentAPIV1.timedOvnCastingProofRequestPayloadAlignment
-        )
-        XCTAssertEqual(
-            nativeWallet["casting_proof_request_padding_bytes"] as? Int,
-            ToriiParliamentAPIV1.timedOvnCastingProofRequestPaddingBytes
-        )
-        let golden = try XCTUnwrap(
-            nativeWallet["casting_proof_request_golden"] as? [String: Any]
-        )
-        XCTAssertEqual(
-            golden["frame_bytes"] as? Int,
-            ToriiParliamentAPIV1.timedOvnCastingProofRequestBytes
-        )
-        XCTAssertEqual(
-            try ToriiParliamentAPIV1.timedOvnCastingProofRequestData(
-                trustedCheckpointHeight: UInt64(
-                    try XCTUnwrap(golden["trusted_checkpoint_height"] as? Int)
-                )
-            ).hexEncodedString(),
-            golden["frame_hex"] as? String
+            digestDomains["automatic_execution_outcome"],
+            ToriiParliamentAPIV1.automaticOutcomeDigestDomain
         )
 
         let transitions = try XCTUnwrap(fixture["public_transitions"] as? [[String: Any]])
-        XCTAssertEqual(transitions.count, 22)
+        XCTAssertEqual(transitions.count, 13)
         XCTAssertEqual(transitions.count, ToriiParliamentAPIV1.publicTransitions.count)
         for (fixtureEntry, sdkEntry) in zip(transitions, ToriiParliamentAPIV1.publicTransitions) {
             XCTAssertEqual(fixtureEntry["norito_index"] as? Int, Int(sdkEntry.noritoIndex))
+            XCTAssertEqual(
+                fixtureEntry["norito_prefix_hex"] as? String,
+                String(format: "%02x", sdkEntry.noritoIndex)
+            )
             XCTAssertEqual(fixtureEntry["json_tag"] as? String, sdkEntry.jsonTag)
             XCTAssertEqual(fixtureEntry["event_kind_index"] as? Int, Int(sdkEntry.eventKindIndex))
             XCTAssertEqual(
@@ -148,8 +88,20 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         let outcomes = try XCTUnwrap(
             fixture["automatic_execution_outcomes"] as? [[String: Any]]
         )
+        XCTAssertEqual(outcomes.count, 3)
         XCTAssertEqual(outcomes.count, ToriiParliamentAPIV1.automaticExecutionOutcomes.count)
+        for (fixtureEntry, sdkEntry) in zip(outcomes, ToriiParliamentAPIV1.automaticExecutionOutcomes) {
+            XCTAssertEqual(fixtureEntry["norito_index"] as? Int, Int(sdkEntry.noritoIndex))
+            XCTAssertEqual(fixtureEntry["json_tag"] as? String, sdkEntry.jsonTag)
+            XCTAssertEqual(fixtureEntry["event_kind"] as? String, sdkEntry.eventKind)
+            XCTAssertEqual(fixtureEntry["event_kind_index"] as? Int, Int(sdkEntry.eventKindIndex))
+            XCTAssertEqual(
+                fixtureEntry["json_payload"] as? String == "required",
+                sdkEntry.jsonPayloadRequired
+            )
+        }
         let reasons = try XCTUnwrap(fixture["no_result_kinds"] as? [[String: Any]])
+        XCTAssertEqual(reasons.count, 5)
         XCTAssertEqual(
             reasons.compactMap { $0["json_tag"] as? String },
             ToriiParliamentAPIV1.noResultKinds.map(\.jsonTag)
@@ -165,6 +117,7 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             bodyState["json_fields"] as? [String],
             ToriiParliamentAPIV1.bodyStateFields
         )
+        XCTAssertEqual(ToriiParliamentAPIV1.bodyStateFields.count, 8)
         XCTAssertEqual(
             fixture["canonical_body_order"] as? [String],
             ToriiParliamentAPIV1.canonicalBodyOrder
@@ -186,18 +139,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             publicBody["public_finding_norito_field_order"] as? [String],
             ToriiParliamentAPIV1.publicFindingCertificateNoritoFields
         )
-        let release = try XCTUnwrap(fixture["tle_release_context"] as? [String: Any])
-        XCTAssertEqual(
-            release["transcript_public_state_fields"] as? [String],
-            [
-                "version", "key_session_id", "network_id", "roster_hash", "committee_size",
-                "threshold", "generator_h", "generator_v", "qualified_dealers",
-                "qualified_dealer_commitments", "dkg_event_hash", "group_public_key",
-                "public_shares", "transcript_hash",
-            ]
-        )
-        let partial = try XCTUnwrap(fixture["tle_partial_release"] as? [String: Any])
-        XCTAssertEqual((partial["response_fields"] as? [String])?.count, 9)
     }
 
     func testRetiredKagemushaProposalKindsCannotEnterAttemptDrafts() throws {
@@ -222,10 +163,10 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
 
     func testInitialSortitionDraftUsesOnlyTheEnclosingAttempt() throws {
         let transition = ToriiParliamentLifecycleTransitionV1.registerInitialSortition
-        XCTAssertEqual(transition.layout.noritoIndex, 21)
+        XCTAssertEqual(transition.layout.noritoIndex, 12)
         XCTAssertEqual(transition.layout.jsonTag, "RegisterInitialSortition")
         XCTAssertFalse(transition.layout.jsonPayloadRequired)
-        XCTAssertEqual(transition.layout.eventKindIndex, 24)
+        XCTAssertEqual(transition.layout.eventKindIndex, 15)
 
         let encoded = try ToriiParliamentAPIV1.transitionDraftRequestData(
             governanceAttemptId: attemptID,
@@ -251,6 +192,89 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         )
     }
 
+    func testEveryPublicTransitionCaseEncodesItsFixtureLayout() throws {
+        let bodyID = identifier(5)
+        let cases: [(ToriiParliamentLifecycleTransitionV1, Int)] = [
+            (.escalateRisk(target: .object(["tier": .string("Constitutional")])), 0),
+            (.completeQualification, 1),
+            (
+                .registerSortitionRequest(requests: [
+                    .init(sequence: 0, request: .object(["body": .string("rules-committee")])),
+                ]),
+                2
+            ),
+            (
+                .consumeSortitionPulseBatch(
+                    requestIds: [identifier(1)],
+                    beaconSessionId: identifier(2),
+                    pulseHeight: 5,
+                    pulseId: identifier(3)
+                ),
+                3
+            ),
+            (.beginInvitationAcceptance(electionAttemptId: identifier(4)), 4),
+            (.failBodyElectionNoRoster(electionAttemptId: identifier(4)), 5),
+            (.sealBodyRoster(electionAttemptId: identifier(4)), 6),
+            (.advanceBodyPhase(bodyInstanceId: bodyID, target: .object(["phase": .string("Evidence")])), 7),
+            (.recordAttemptAbsence(bodyInstanceId: bodyID, assignmentId: identifier(6)), 8),
+            (.endorsePublicFinding(bodyInstanceId: bodyID, resultRoot: root), 9),
+            (
+                .recordInvitationResponse(
+                    electionAttemptId: identifier(4),
+                    body: "rules-committee",
+                    decision: "Accept"
+                ),
+                10
+            ),
+            (.failPublicFindingNoResult(bodyInstanceId: bodyID), 11),
+            (.registerInitialSortition, 12),
+        ]
+        XCTAssertEqual(cases.count, ToriiParliamentAPIV1.publicTransitions.count)
+        XCTAssertEqual(cases.map { $0.1 }, Array(0..<cases.count))
+        for (transition, expectedIndex) in cases {
+            let layout = transition.layout
+            XCTAssertEqual(layout, ToriiParliamentAPIV1.publicTransitions[expectedIndex])
+            XCTAssertEqual(Int(layout.noritoIndex), expectedIndex, layout.jsonTag)
+            let encoded = try ToriiParliamentAPIV1.transitionDraftRequestData(
+                governanceAttemptId: attemptID,
+                transition: transition
+            )
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+            )
+            let tagged = try XCTUnwrap(object["transition"] as? [String: Any])
+            XCTAssertEqual(tagged["transition"] as? String, layout.jsonTag)
+            XCTAssertEqual(tagged["payload"] != nil, layout.jsonPayloadRequired, layout.jsonTag)
+        }
+
+        let response = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: ToriiParliamentAPIV1.transitionDraftRequestData(
+                    governanceAttemptId: attemptID,
+                    transition: .recordInvitationResponse(
+                        electionAttemptId: identifier(4),
+                        body: "rules-committee",
+                        decision: "Decline"
+                    )
+                )
+            ) as? [String: Any]
+        )
+        let tagged = try XCTUnwrap(response["transition"] as? [String: Any])
+        let payload = try XCTUnwrap(tagged["payload"] as? [String: Any])
+        XCTAssertEqual(Set(payload.keys), ["election_attempt_id", "body", "decision"])
+        XCTAssertEqual(payload["decision"] as? [String: String], ["decision": "Decline"])
+        XCTAssertThrowsError(
+            try ToriiParliamentAPIV1.transitionDraftRequestData(
+                governanceAttemptId: attemptID,
+                transition: .recordInvitationResponse(
+                    electionAttemptId: identifier(4),
+                    body: "rules-committee",
+                    decision: "Abstain"
+                )
+            )
+        )
+    }
+
     func testBuildersEmitOnlyCanonicalVersionedFields() throws {
         let attempt = try ToriiParliamentAPIV1.attemptDraftRequestData(
             proposal: deployProposal(),
@@ -263,25 +287,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         XCTAssertEqual(
             try ToriiParliamentAPIV1.attemptReadPath(governanceAttemptId: attemptID),
             "/v1/gov/parliament/attempts/\(attemptID)"
-        )
-        let ballotID = identifier(0x33)
-        XCTAssertEqual(
-            try ToriiParliamentAPIV1.timedOvnCastingContextReadPath(
-                ballotAttemptId: ballotID
-            ),
-            "/v1/gov/parliament/ballots/\(ballotID)/casting-context"
-        )
-        XCTAssertEqual(
-            try ToriiParliamentAPIV1.timedOvnCastingProofPath(ballotAttemptId: ballotID),
-            "/v1/gov/parliament/ballots/\(ballotID)/casting-proof"
-        )
-        XCTAssertEqual(
-            try ToriiParliamentAPIV1.tleReleaseContextReadPath(ballotAttemptId: ballotID),
-            "/v1/gov/parliament/ballots/\(ballotID)/release-context"
-        )
-        XCTAssertEqual(
-            try ToriiParliamentAPIV1.tlePartialReleasePath(ballotAttemptId: ballotID),
-            "/v1/gov/parliament/ballots/\(ballotID)/partial-release"
         )
         XCTAssertThrowsError(
             try ToriiParliamentAPIV1.attemptReadPath(
@@ -320,77 +325,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             try ToriiParliamentAPIV1.attemptDraftRequestData(
                 proposal: deployProposal(),
                 attemptSequence: ToriiParliamentAPIV1.maximumGovernanceAttemptRetries + 1
-            )
-        )
-    }
-
-    func testCastingProofNoritoPinsU64GoldenAndRejectsNoncanonicalResponses() throws {
-        let golden = try XCTUnwrap(
-            Data(
-                hexString:
-                    "4e5254300000adccf322a5fcf43040e20bea238f55f3000c00000000000000" +
-                    "dfab61022cefc29f02020100081100000000000000"
-            )
-        )
-        XCTAssertEqual(
-            try ToriiParliamentAPIV1.timedOvnCastingProofRequestData(
-                trustedCheckpointHeight: 17
-            ),
-            golden
-        )
-        XCTAssertEqual(
-            try ToriiParliamentTimedOvnCastingProofRequestV1(
-                trustedCheckpointHeight: 17
-            ).noritoData(),
-            golden
-        )
-        let maximum = try ToriiParliamentAPIV1.timedOvnCastingProofRequestData(
-            trustedCheckpointHeight: UInt64.max
-        )
-        XCTAssertEqual(maximum.suffix(8), Data(repeating: 0xff, count: 8))
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.timedOvnCastingProofRequestData(
-                trustedCheckpointHeight: 0
-            )
-        )
-
-        let payload = Data([2, 1, 0, 1])
-        let canonical = noritoEncode(
-            typeName: ToriiParliamentAPIV1.timedOvnCastingProofResponseSchema,
-            payload: payload,
-            flags: NoritoHeader.compactLen
-        )
-        let parsed = try ToriiParliamentAPIV1.decodeTimedOvnCastingProofResponse(canonical)
-        XCTAssertEqual(parsed.canonicalNorito, canonical)
-        XCTAssertEqual(parsed.payload, payload)
-
-        let wrongSchema = noritoEncode(
-            typeName: "iroha.torii.v1.parliament.wrong.response",
-            payload: payload,
-            flags: NoritoHeader.compactLen
-        )
-        var badChecksum = canonical
-        badChecksum[badChecksum.index(before: badChecksum.endIndex)] ^= 1
-        var compressed = canonical
-        compressed[22] = 1
-        let padded = Data(canonical.prefix(NoritoHeader.encodedLength))
-            + Data([0]) + payload
-        let wrongFlags = noritoEncode(
-            typeName: ToriiParliamentAPIV1.timedOvnCastingProofResponseSchema,
-            payload: payload,
-            flags: 0
-        )
-        for hostile in [wrongSchema, badChecksum, compressed, padded, wrongFlags] {
-            XCTAssertThrowsError(
-                try ToriiParliamentAPIV1.decodeTimedOvnCastingProofResponse(hostile)
-            )
-        }
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTimedOvnCastingProofResponse(
-                Data(
-                    repeating: 0,
-                    count: ToriiParliamentAPIV1.maximumTimedOvnCastingProofResponseBytes + 1
-                )
             )
         )
     }
@@ -442,186 +376,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         )
     }
 
-    @available(iOS 15.0, macOS 12.0, *)
-    func testCastingProofTransportIsExactAuthenticatedBoundedAndOneShot() async throws {
-        let responsePayload = Data([2, 1, 0, 1])
-        let responseFrame = noritoEncode(
-            typeName: ToriiParliamentAPIV1.timedOvnCastingProofResponseSchema,
-            payload: responsePayload,
-            flags: NoritoHeader.compactLen
-        )
-        var requestCount = 0
-        let ballotID = identifier(0x33)
-        ParliamentCastingProofStubURLProtocol.handler = { request in
-            requestCount += 1
-            XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(
-                request.url?.path,
-                "/v1/gov/parliament/ballots/\(ballotID)/casting-proof"
-            )
-            XCTAssertEqual(
-                request.value(forHTTPHeaderField: "Content-Type"),
-                "application/x-norito"
-            )
-            XCTAssertEqual(
-                request.value(forHTTPHeaderField: "Accept"),
-                "application/x-norito"
-            )
-            XCTAssertEqual(
-                request.value(forHTTPHeaderField: "Accept-Encoding"),
-                "identity"
-            )
-            XCTAssertNotNil(request.value(forHTTPHeaderField: "X-Iroha-Signature"))
-            XCTAssertEqual(
-                toriiClientTestBodyData(from: request),
-                try ToriiParliamentAPIV1.timedOvnCastingProofRequestData(
-                    trustedCheckpointHeight: 17
-                )
-            )
-            let response = try XCTUnwrap(
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: [
-                        "Content-Type": "application/x-norito",
-                        "Content-Length": String(responseFrame.count),
-                    ]
-                )
-            )
-            return (response, responseFrame)
-        }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [ParliamentCastingProofStubURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let seed = Data(repeating: 0x41, count: 32)
-        let auth = ToriiCanonicalRequestAuth(
-            accountId: try Keypair(privateKeyBytes: seed)
-                .accountId(networkPrefix: AccountId.defaultNetworkPrefix),
-            privateKey: seed
-        )
-        let client = ToriiClient(
-            baseURL: URL(string: "https://example.test")!,
-            session: session,
-            localSigningContext: ToriiLocalSigningContext(
-                networkId: TestNetworkIds.canonical
-            )
-        )
-        let response = try await client.getParliamentTimedOvnCastingProofPageV1(
-            ballotAttemptId: ballotID,
-            trustedCheckpointHeight: 17,
-            canonicalAuth: auth
-        )
-        XCTAssertEqual(response.canonicalNorito, responseFrame)
-        XCTAssertEqual(response.payload, responsePayload)
-        XCTAssertEqual(requestCount, 1)
-    }
-
-    @available(iOS 15.0, macOS 12.0, *)
-    func testCastingProofPagingDurablyAdvancesStaleAnchorBeyondSixtyThreeHeights() async throws {
-        let responsePayload = Data([2, 1, 0, 1])
-        let responseFrame = noritoEncode(
-            typeName: ToriiParliamentAPIV1.timedOvnCastingProofResponseSchema,
-            payload: responsePayload,
-            flags: NoritoHeader.compactLen
-        )
-        let recorder = ParliamentCastingProofPagingRecorder()
-        let ballotID = identifier(0x55)
-        ParliamentCastingProofStubURLProtocol.handler = { request in
-            let requestIndex = recorder.recordRequest()
-            let expectedHeight: UInt64 = requestIndex == 0 ? 7 : 70
-            XCTAssertEqual(
-                toriiClientTestBodyData(from: request),
-                try ToriiParliamentAPIV1.timedOvnCastingProofRequestData(
-                    trustedCheckpointHeight: expectedHeight
-                )
-            )
-            if requestIndex == 1 {
-                XCTAssertEqual(recorder.persistedHeights(), [70])
-            }
-            let response = try XCTUnwrap(
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: [
-                        "Content-Type": "application/x-norito",
-                        "Content-Length": String(responseFrame.count),
-                    ]
-                )
-            )
-            return (response, responseFrame)
-        }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [ParliamentCastingProofStubURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let seed = Data(repeating: 0x41, count: 32)
-        let client = ToriiClient(
-            baseURL: URL(string: "https://example.test")!,
-            session: session,
-            localSigningContext: ToriiLocalSigningContext(
-                networkId: TestNetworkIds.canonical
-            )
-        )
-        let initialAnchor = try ParliamentTimedOvnCastingTrustAnchorV1(
-            networkID: Data(repeating: 0x01, count: 32),
-            trustedCheckpointHeight: 7,
-            trustedCheckpointNorito: Data(repeating: 0x11, count: 32),
-            expectedBallotAttemptID: Data(repeating: 0x55, count: 32)
-        )
-        let terminal = try await client.requestParliamentTimedOvnCastingProofUntilTerminalV1(
-            ballotAttemptId: ballotID,
-            initialTrustAnchor: initialAnchor,
-            canonicalAuth: ToriiCanonicalRequestAuth(
-                accountId: try Keypair(privateKeyBytes: seed)
-                    .accountId(networkPrefix: AccountId.defaultNetworkPrefix),
-                privateKey: seed
-            ),
-            verifyPage: { _, anchor in
-                switch recorder.nextVerifierCall() {
-                case 0:
-                    XCTAssertEqual(anchor.trustedCheckpointHeight, 7)
-                    XCTAssertEqual(
-                        anchor.trustedCheckpointNorito,
-                        Data(repeating: 0x11, count: 32)
-                    )
-                    return try ParliamentTimedOvnCastingProofPageVerificationV1(
-                        evaluatedBlockHeight: 70,
-                        evaluatedContextID: Data(repeating: 0x22, count: 32),
-                        moreAvailable: true,
-                promotedCheckpointNorito: Data(repeating: 0x22, count: 32)
-                    )
-                case 1:
-                    XCTAssertEqual(anchor.trustedCheckpointHeight, 70)
-                    XCTAssertEqual(
-                        anchor.trustedCheckpointNorito,
-                        Data(repeating: 0x22, count: 32)
-                    )
-                    return try ParliamentTimedOvnCastingProofPageVerificationV1(
-                        evaluatedBlockHeight: 75,
-                        evaluatedContextID: Data(repeating: 0x33, count: 32),
-                        moreAvailable: false,
-                promotedCheckpointNorito: Data(repeating: 0x33, count: 32)
-                    )
-                default:
-                    XCTFail("unexpected casting-proof page")
-                    throw ToriiClientError.invalidResponse
-                }
-            },
-            persistCheckpoint: { anchor in
-                recorder.recordPersistence(anchor.trustedCheckpointHeight)
-            }
-        )
-
-        XCTAssertEqual(recorder.requestCount(), 2)
-        XCTAssertEqual(recorder.persistedHeights(), [70, 75])
-        XCTAssertEqual(terminal.verifiedPageCount, 2)
-        XCTAssertEqual(terminal.verificationAnchor.trustedCheckpointHeight, 70)
-        XCTAssertEqual(terminal.promotedTrustAnchor.trustedCheckpointHeight, 75)
-        XCTAssertEqual(terminal.verification.evaluatedBlockHeight, 75)
-        XCTAssertFalse(terminal.verification.moreAvailable)
-    }
-
     func testAttemptDraftRejectsRecognizedTagWithArbitraryPayload() {
         XCTAssertThrowsError(
             try ToriiParliamentProposalV1(
@@ -641,35 +395,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         )
     }
 
-    func testTimedOvnCorpusTransitionPreflightsOneThrough32RecordsPerChunk() {
-        let record = [UInt8](
-            repeating: 1,
-            count: ToriiParliamentAPIV1.timedOvnBallotRecordBytes
-        )
-        for count in [1, ToriiParliamentAPIV1.maximumTimedOvnBallotChunkRecords] {
-            XCTAssertNoThrow(
-                try ToriiParliamentAPIV1.transitionDraftRequestData(
-                    governanceAttemptId: attemptID,
-                    transition: .freezeTimedOvnCorpus(
-                        ballotAttemptId: identifier(1),
-                        ballotRecords: Array(repeating: record, count: count)
-                    )
-                )
-            )
-        }
-        for count in [0, ToriiParliamentAPIV1.maximumTimedOvnBallotChunkRecords + 1] {
-            XCTAssertThrowsError(
-                try ToriiParliamentAPIV1.transitionDraftRequestData(
-                    governanceAttemptId: attemptID,
-                    transition: .freezeTimedOvnCorpus(
-                        ballotAttemptId: identifier(1),
-                        ballotRecords: Array(repeating: record, count: count)
-                    )
-                )
-            )
-        }
-    }
-
     func testReadProjectionValidatesScheduleNoResultAndExactSupporters() throws {
         let valid = try jsonData(makeReadResponse())
         let parsed = try ToriiParliamentAPIV1.decodeAttemptReadResponse(
@@ -677,13 +402,19 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             expectedGovernanceAttemptId: attemptID
         )
         XCTAssertEqual(parsed.bodyStates.count, 2)
-        XCTAssertEqual(parsed.requiredBodyOrder, ["rules-committee", "policy-jury"])
+        XCTAssertEqual(parsed.requiredBodyOrder, ["rules-committee", "agenda-council"])
         XCTAssertEqual(parsed.bodyStates[0].body, "rules-committee")
-        XCTAssertEqual(parsed.certificateBodyOrder, ["rules-committee", "policy-jury"])
+        XCTAssertEqual(parsed.certificateBodyOrder, ["rules-committee", "agenda-council"])
         XCTAssertEqual(parsed.bodyStates[0].publicFindingDeadlineHeight, 8)
+        XCTAssertEqual(parsed.bodyStates[1].publicFindingDeadlineHeight, 12)
+        XCTAssertEqual(parsed.publicFindingBindings.count, 2)
         XCTAssertEqual(
             parsed.publicFindingBindings[0].endorsingAssignments,
             [identifier(0x11), identifier(0x12)]
+        )
+        XCTAssertEqual(
+            parsed.publicFindingBindings[1].endorsingAssignments,
+            [identifier(0x21), identifier(0x22)]
         )
 
         var canonicalOrder = makeReadResponse()
@@ -712,7 +443,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
                 "public_finding_deadline_height": NSNull(),
                 "no_result_kind": NSNull(),
                 "no_result_height": NSNull(),
-                "timed_ovn_progress": NSNull(),
             ] as [String: Any]
         }
         let canonicalParsed = try ToriiParliamentAPIV1.decodeAttemptReadResponse(
@@ -782,7 +512,7 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         )
     }
 
-    func testReadProjectionRejectsForgedCertificateBindingsAndBallots() throws {
+    func testReadProjectionRejectsForgedCertificateBindings() throws {
         let forgedResponses = [
             mutateCertificate(makeReadResponse()) { certificate, _, _ in
                 certificate["proposal_content_id"] = identifier(0xee)
@@ -802,6 +532,9 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             mutateCertificate(makeReadResponse()) { certificate, _, _ in
                 certificate["certified_at_height"] = 13
             },
+            mutateCertificate(makeReadResponse()) { certificate, _, _ in
+                certificate["certified_at_height"] = 11
+            },
             mutateCertificate(makeReadResponse()) { _, _, request in
                 request["beacon_session_id"] = identifier(0xee)
             },
@@ -814,6 +547,12 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             mutateCertificate(makeReadResponse()) { _, binding, _ in
                 binding["original_seats"] = 4
             },
+            mutateCertificate(makeReadResponse()) { _, binding, _ in
+                binding["ballot"] = ["unexpected": "payload"]
+            },
+            mutateCertificate(makeReadResponse()) { _, binding, _ in
+                binding["public_finding"] = NSNull()
+            },
         ]
         for forged in forgedResponses {
             XCTAssertThrowsError(
@@ -821,6 +560,27 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
                     jsonData(forged),
                     expectedGovernanceAttemptId: attemptID
                 )
+            )
+        }
+
+        var reusedBodyInstance = makeReadResponse()
+        var reusedCertificate = try XCTUnwrap(reusedBodyInstance["certificate"] as? [String: Any])
+        var reusedBindings = try XCTUnwrap(reusedCertificate["body_bindings"] as? [[String: Any]])
+        reusedBindings[1]["body_instance_id"] = reusedBindings[0]["body_instance_id"]
+        reusedCertificate["body_bindings"] = reusedBindings
+        reusedBodyInstance["certificate"] = reusedCertificate
+        XCTAssertThrowsError(
+            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(reusedBodyInstance),
+                expectedGovernanceAttemptId: attemptID
+            )
+        ) { error in
+            guard case ToriiClientError.invalidPayload(let message) = error else {
+                return XCTFail("expected an invalid-payload rejection")
+            }
+            XCTAssertEqual(
+                message,
+                "certificate.body_bindings reuse an attempt-local identifier."
             )
         }
 
@@ -853,6 +613,25 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             )
         )
 
+        let seatBoundary = mutateCertificate(makeReadResponse()) { _, _, request in
+            request["target_seats"] = ToriiParliamentAPIV1.maximumBodyTargetSeats
+        }
+        XCTAssertNoThrow(
+            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(seatBoundary),
+                expectedGovernanceAttemptId: attemptID
+            )
+        )
+        let seatOverflow = mutateCertificate(makeReadResponse()) { _, _, request in
+            request["target_seats"] = ToriiParliamentAPIV1.maximumBodyTargetSeats + 1
+        }
+        XCTAssertThrowsError(
+            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(seatOverflow),
+                expectedGovernanceAttemptId: attemptID
+            )
+        )
+
         let zeroHeadVersion = mutateCertificate(makeReadResponse()) { certificate, _, _ in
             certificate["expected_head"] = [
                 "state": "Present",
@@ -866,12 +645,13 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             )
         )
 
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(makePublicOnlyReadResponse()),
-                expectedGovernanceAttemptId: attemptID
-            )
+        // A certificate whose required bodies are all public-finding bodies is admitted.
+        let publicOnly = try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+            jsonData(makePublicOnlyReadResponse()),
+            expectedGovernanceAttemptId: attemptID
         )
+        XCTAssertEqual(publicOnly.certificateBodyOrder, ["rules-committee"])
+        XCTAssertEqual(publicOnly.publicFindingBindings.count, 1)
 
         var wrongProjectionPolicy = makeReadResponse()
         wrongProjectionPolicy["policy_version"] = 2
@@ -904,263 +684,197 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
                 expectedGovernanceAttemptId: attemptID
             )
         )
+    }
 
-        XCTAssertNoThrow(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(makeHiddenBallotReadResponse()),
-                expectedGovernanceAttemptId: attemptID
-            )
-        )
-        let ballotMutations: [(inout [String: Any]) -> Void] = [
-            { $0["ballot_attempt_sequence"] = 17 },
-            { $0["max_corpus_entries"] = 2 },
-            {
-                var tally = $0["tally"] as! [String: Any]
-                tally["abstain"] = 1
-                $0["tally"] = tally
-            },
-            { $0["outcome"] = ["outcome": "Rejected"] },
+    func testCertificateWithPrivateJuryBindingIsRejectedUntilAnonymousBallotBindingLands() throws {
+        let expectedMessage =
+            "private-jury result binding is not admitted until the anonymous-ballot result binding is supported"
+        let pipelines: [(bodies: [BodyParts], rejectedIndex: Int, name: String)] = [
+            (
+                [
+                    makePublicBody("rules-committee", seed: 1, openedAt: 1, resultHeight: 8),
+                    makePrivateJuryBody("policy-jury", seed: 0x30, resultHeight: 12),
+                ],
+                1,
+                "policy-jury after a public body"
+            ),
+            (
+                [makePrivateJuryBody("policy-jury", seed: 0x30, resultHeight: 12)],
+                0,
+                "policy-jury alone"
+            ),
+            (
+                [
+                    makePublicBody("agenda-council", seed: 0x10, openedAt: 5, resultHeight: 12),
+                    makePrivateJuryBody("confirmation-jury", seed: 0x40, resultHeight: 12),
+                ],
+                1,
+                "confirmation-jury after a public body"
+            ),
         ]
-        for mutation in ballotMutations {
-            var forged = makeHiddenBallotReadResponse()
-            var certificate = try XCTUnwrap(forged["certificate"] as? [String: Any])
-            var bindings = try XCTUnwrap(certificate["body_bindings"] as? [[String: Any]])
-            var ballot = try XCTUnwrap(bindings[0]["ballot"] as? [String: Any])
-            mutation(&ballot)
-            bindings[0]["ballot"] = ballot
-            certificate["body_bindings"] = bindings
-            forged["certificate"] = certificate
+        for pipeline in pipelines {
+            let latestResultHeight = pipeline.bodies
+                .compactMap { $0.binding["result_height"] as? Int }
+                .max() ?? 0
+            let response = makeAttemptReadResponse(
+                bodies: pipeline.bodies,
+                certifiedAtHeight: latestResultHeight,
+                currentHeight: latestResultHeight + 1
+            )
             XCTAssertThrowsError(
                 try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                    jsonData(forged),
+                    jsonData(response),
                     expectedGovernanceAttemptId: attemptID
-                )
-            )
-        }
-
-        XCTAssertNoThrow(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(makeConfirmationBallotReadResponse()),
-                expectedGovernanceAttemptId: attemptID
-            )
-        )
-        XCTAssertNoThrow(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(
-                    makeConfirmationBallotReadResponse(
-                        electionAttemptSequence: 1,
-                        requestHeight: 49,
-                        pulseHeight: 50
-                    )
                 ),
-                expectedGovernanceAttemptId: attemptID
-            )
-        )
-        assertConfirmationMutationRejected { policy, confirmation in
-            confirmation["beacon_pulse_id"] = policy["beacon_pulse_id"]
-        }
-        assertConfirmationMutationRejected { _, confirmation in
-            confirmation["election_attempt_sequence"] = 0
-            var request = confirmation["sortition_request"] as! [String: Any]
-            request["request_height"] = 49
-            request["pulse_height"] = 50
-            confirmation["sortition_request"] = request
-        }
-        assertConfirmationMutationRejected { _, confirmation in
-            confirmation["election_attempt_sequence"] = 1
-            var request = confirmation["sortition_request"] as! [String: Any]
-            request["request_height"] = 48
-            request["pulse_height"] = 49
-            confirmation["sortition_request"] = request
-        }
-        var missingConfirmation = makeConfirmationBallotReadResponse()
-        var missingCertificate = missingConfirmation["certificate"] as! [String: Any]
-        let missingBindings = missingCertificate["body_bindings"] as! [[String: Any]]
-        missingCertificate["body_bindings"] = [missingBindings[0]]
-        missingCertificate["certified_at_height"] = 48
-        missingCertificate["enact_at_height"] = 50
-        missingConfirmation["certificate"] = missingCertificate
-        missingConfirmation["required_bodies"] = [
-            (missingConfirmation["required_bodies"] as! [[String: Any]])[0],
-        ]
-        missingConfirmation["body_states"] = [
-            (missingConfirmation["body_states"] as! [[String: Any]])[0],
-        ]
-        missingConfirmation["current_height"] = 49
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(missingConfirmation),
-                expectedGovernanceAttemptId: attemptID
-            )
-        )
-        assertConfirmationMutationRejected { policy, _ in
-            var ballot = policy["ballot"] as! [String: Any]
-            var tally = ballot["tally"] as! [String: Any]
-            tally["aye"] = 15
-            tally["nay"] = 6
-            ballot["tally"] = tally
-            policy["ballot"] = ballot
+                pipeline.name
+            ) { error in
+                guard case ToriiClientError.invalidPayload(let message) = error else {
+                    return XCTFail("expected an invalid-payload rejection for \(pipeline.name)")
+                }
+                XCTAssertEqual(
+                    message,
+                    "certificate.body_bindings[\(pipeline.rejectedIndex)] \(expectedMessage)",
+                    pipeline.name
+                )
+            }
         }
     }
 
-    func testTimedOvnProgressIsAggregateOnlyAndCertificateBound() throws {
-        let response = makeHiddenBallotReadResponse()
-        let parsed = try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-            jsonData(response),
-            expectedGovernanceAttemptId: attemptID
-        )
-        let progress = try XCTUnwrap(parsed.bodyStates[0].timedOvnProgress)
-        XCTAssertEqual(progress.ballotAttemptId, identifier(0x21))
-        XCTAssertEqual(progress.status, "Finalized")
-        XCTAssertEqual(progress.frozenSurvivorCount, 3)
-        XCTAssertEqual(progress.acceptedBallotPrefixCount, 3)
-
-        var mismatched = response
-        var states = try XCTUnwrap(mismatched["body_states"] as? [[String: Any]])
-        var progressObject = try XCTUnwrap(
-            states[0]["timed_ovn_progress"] as? [String: Any]
-        )
-        progressObject["accepted_ballot_prefix_count"] = 2
-        states[0]["timed_ovn_progress"] = progressObject
-        mismatched["body_states"] = states
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(mismatched),
+    func testPrivateJuryBodyStatesStayReadableWithoutCertificate() throws {
+        func decodedPrivateState(
+            status: [String: Any],
+            noResultKind: [String: Any]?,
+            noResultHeight: Int?
+        ) throws -> ToriiParliamentAttemptReadResponseV1 {
+            var jury = makePrivateJuryBody("policy-jury", seed: 0x30, resultHeight: 12)
+            jury.state["status"] = status
+            if let noResultKind {
+                jury.state["no_result_kind"] = noResultKind
+            } else {
+                jury.state["no_result_kind"] = NSNull()
+            }
+            if let noResultHeight {
+                jury.state["no_result_height"] = noResultHeight
+            } else {
+                jury.state["no_result_height"] = NSNull()
+            }
+            var response = makeAttemptReadResponse(
+                bodies: [jury],
+                certifiedAtHeight: 12,
+                currentHeight: 9
+            )
+            response["certificate"] = NSNull()
+            var attempt = try XCTUnwrap(response["attempt"] as? [String: Any])
+            attempt["stage"] = ["stage": "PolicyJury"]
+            attempt["status"] = ["status": "Active"]
+            response["attempt"] = attempt
+            return try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(response),
                 expectedGovernanceAttemptId: attemptID
             )
-        )
+        }
 
-        var leaked = response
-        states = try XCTUnwrap(leaked["body_states"] as? [[String: Any]])
-        progressObject = try XCTUnwrap(states[0]["timed_ovn_progress"] as? [String: Any])
-        progressObject["ballot_records"] = []
-        states[0]["timed_ovn_progress"] = progressObject
-        leaked["body_states"] = states
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(leaked),
-                expectedGovernanceAttemptId: attemptID
-            )
+        let balloting = try decodedPrivateState(
+            status: ["status": "Balloting"],
+            noResultKind: nil,
+            noResultHeight: nil
         )
+        XCTAssertEqual(balloting.requiredBodyOrder, ["policy-jury"])
+        XCTAssertEqual(balloting.bodyStates[0].status, "Balloting")
+        XCTAssertEqual(balloting.certificateBodyOrder, [])
+        XCTAssertTrue(balloting.publicFindingBindings.isEmpty)
 
-        var premature = response
-        states = try XCTUnwrap(premature["body_states"] as? [[String: Any]])
-        progressObject = try XCTUnwrap(states[0]["timed_ovn_progress"] as? [String: Any])
-        progressObject["status"] = ["status": "TimedCommitment"]
-        progressObject["accepted_ballot_prefix_count"] = 3
-        states[0]["timed_ovn_progress"] = progressObject
-        premature["body_states"] = states
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(premature),
-                expectedGovernanceAttemptId: attemptID
+        for kind in [
+            "SortitionRetriesExhausted",
+            "ConfirmationJuryCapacityUnavailable",
+            "RandomnessRedrawBudgetExhausted",
+        ] {
+            let noResult = try decodedPrivateState(
+                status: ["status": "NoResult"],
+                noResultKind: ["reason": kind],
+                noResultHeight: 9
             )
-        )
+            XCTAssertEqual(noResult.bodyStates[0].noResultKind, kind)
+            XCTAssertEqual(noResult.bodyStates[0].noResultHeight, 9)
+        }
+        for kind in ["PublicFindingQuorumUnreachable", "PublicFindingDeadlineExpired"] {
+            XCTAssertThrowsError(
+                try decodedPrivateState(
+                    status: ["status": "NoResult"],
+                    noResultKind: ["reason": kind],
+                    noResultHeight: 9
+                ),
+                kind
+            )
+        }
     }
 
-    func testReleaseContextRequiresCompleteTranscriptAndBindsEveryPartial() throws {
-        let ballotID = identifier(0x33)
-        let response = makeTleReleaseContextResponse()
-        let context = try ToriiParliamentAPIV1.decodeTleReleaseContextResponse(
-            jsonData(response),
-            expectedBallotAttemptId: ballotID
+    func testNoResultKindsFollowTheClosedFiveKindInventory() throws {
+        XCTAssertEqual(
+            ToriiParliamentAPIV1.noResultKinds.map(\.jsonTag),
+            [
+                "PublicFindingQuorumUnreachable",
+                "PublicFindingDeadlineExpired",
+                "SortitionRetriesExhausted",
+                "ConfirmationJuryCapacityUnavailable",
+                "RandomnessRedrawBudgetExhausted",
+            ]
         )
-        XCTAssertEqual(context.keySession.publicShares.count, 4)
-        XCTAssertEqual(context.keySession.qualifiedDealerCommitments.count, 2)
-
-        let partial = makeTlePartialReleaseResponse(context: response)
-        let parsedPartial = try ToriiParliamentAPIV1.decodeTlePartialReleaseResponse(
-            jsonData(partial),
-            expectedKeySessionId: context.keySession.keySessionId,
-            expectedIdentityDigest: context.identityDigest,
-            committeeSize: context.keySession.committeeSize
-        )
-        XCTAssertEqual(parsedPartial.participantIndex, 1)
-
-        var missingShare = makeTleReleaseContextResponse()
-        var session = try XCTUnwrap(missingShare["tle_key_session"] as? [String: Any])
-        var shares = try XCTUnwrap(session["public_shares"] as? [[String: Any]])
-        shares.removeLast()
-        session["public_shares"] = shares
-        missingShare["tle_key_session"] = session
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTleReleaseContextResponse(
-                jsonData(missingShare),
-                expectedBallotAttemptId: ballotID
+        func publicNoResult(kind: String) throws -> ToriiParliamentAttemptReadResponseV1 {
+            var response = makePublicOnlyReadResponse()
+            var states = try XCTUnwrap(response["body_states"] as? [[String: Any]])
+            states[0]["status"] = ["status": "NoResult"]
+            states[0]["no_result_kind"] = ["reason": kind]
+            states[0]["no_result_height"] = 9
+            response["body_states"] = states
+            response["certificate"] = NSNull()
+            var attempt = try XCTUnwrap(response["attempt"] as? [String: Any])
+            attempt["status"] = ["status": "Active"]
+            response["attempt"] = attempt
+            return try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(response),
+                expectedGovernanceAttemptId: attemptID
             )
-        )
-
-        var wrongDigest = makeTleReleaseContextResponse()
-        var digest = [UInt8](repeating: 0x88, count: 32)
-        digest[0] = 1
-        wrongDigest["identity_digest"] = digest
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTleReleaseContextResponse(
-                jsonData(wrongDigest),
-                expectedBallotAttemptId: ballotID
-            )
-        )
-
-        var crossBound = makeTlePartialReleaseResponse(context: response)
-        crossBound["key_session_id"] = identifier(0x77)
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTlePartialReleaseResponse(
-                jsonData(crossBound),
-                expectedKeySessionId: context.keySession.keySessionId,
-                expectedIdentityDigest: context.identityDigest,
-                committeeSize: context.keySession.committeeSize
-            )
-        )
+        }
+        for kind in ["PublicFindingQuorumUnreachable", "PublicFindingDeadlineExpired"] {
+            XCTAssertEqual(try publicNoResult(kind: kind).bodyStates[0].noResultKind, kind)
+        }
+        for kind in [
+            "ConfirmationJuryCapacityUnavailable",
+            "RandomnessRedrawBudgetExhausted",
+            "UnknownNoResultKind",
+        ] {
+            XCTAssertThrowsError(try publicNoResult(kind: kind), kind)
+        }
     }
 
-    func testCastingContextRequiresExactPublicCorpusAndCanonicalArchive() throws {
-        let ballotID = identifier(0x33)
-        let response = makeTimedOvnCastingContextResponse()
-        let parsed = try ToriiParliamentAPIV1.decodeTimedOvnCastingContextResponse(
-            jsonData(response),
-            expectedBallotAttemptId: ballotID
+    func testBodyStateProjectionRejectsUnknownAndMissingFields() throws {
+        XCTAssertNoThrow(
+            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(makePublicOnlyReadResponse()),
+                expectedGovernanceAttemptId: attemptID
+            )
         )
-        XCTAssertEqual(parsed.phase, .registered)
-        XCTAssertEqual(parsed.registrationRecordsHex.count, 1)
-        XCTAssertEqual(parsed.archiveNorito, Data("NRT0".utf8))
-
-        var unknown = response
-        unknown["seed"] = [UInt8](repeating: 0x11, count: 32)
+        var withUnknownField = makePublicOnlyReadResponse()
+        var states = try XCTUnwrap(withUnknownField["body_states"] as? [[String: Any]])
+        XCTAssertEqual(Set(states[0].keys), Set(ToriiParliamentAPIV1.bodyStateFields))
+        states[0]["unexpected_field"] = NSNull()
+        withUnknownField["body_states"] = states
         XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTimedOvnCastingContextResponse(
-                jsonData(unknown),
-                expectedBallotAttemptId: ballotID
+            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(withUnknownField),
+                expectedGovernanceAttemptId: attemptID
             )
         )
 
-        var emptyClosed = response
-        emptyClosed["phase"] = "RegistrationClosed"
-        emptyClosed["registration_records_hex"] = []
+        var withMissingField = makePublicOnlyReadResponse()
+        states = try XCTUnwrap(withMissingField["body_states"] as? [[String: Any]])
+        states[0].removeValue(forKey: "no_result_height")
+        withMissingField["body_states"] = states
         XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTimedOvnCastingContextResponse(
-                jsonData(emptyClosed),
-                expectedBallotAttemptId: ballotID
-            )
-        )
-
-        var emptyFrozen = response
-        let release = makeTleReleaseContextResponse()
-        emptyFrozen["phase"] = "SurvivorsFrozen"
-        emptyFrozen["survivor_participant_hashes"] = []
-        emptyFrozen["release_identity"] = release["release_identity"]
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTimedOvnCastingContextResponse(
-                jsonData(emptyFrozen),
-                expectedBallotAttemptId: ballotID
-            )
-        )
-
-        var noncanonicalArchive = response
-        noncanonicalArchive["archive_norito_base64"] = "TlJUMA"
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeTimedOvnCastingContextResponse(
-                jsonData(noncanonicalArchive),
-                expectedBallotAttemptId: ballotID
+            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
+                jsonData(withMissingField),
+                expectedGovernanceAttemptId: attemptID
             )
         )
     }
@@ -1207,36 +921,66 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         return result
     }
 
+    /// One required body: its pipeline entry, body-state projection and certificate binding.
+    private struct BodyParts {
+        var required: [String: Any]
+        var state: [String: Any]
+        var binding: [String: Any]
+    }
+
+    /// Two public-finding bodies certified at height 12.
     private func makeReadResponse(
         supporters: [String]? = nil
     ) -> [String: Any] {
-        var response = makePublicOnlyReadResponse(supporters: supporters)
-        let policyResponse = makeHiddenBallotReadResponse()
-        var requiredBodies = response["required_bodies"] as! [[String: Any]]
-        requiredBodies.append(contentsOf: policyResponse["required_bodies"] as! [[String: Any]])
-        response["required_bodies"] = requiredBodies
-        var bodyStates = response["body_states"] as! [[String: Any]]
-        bodyStates.append(contentsOf: policyResponse["body_states"] as! [[String: Any]])
-        response["body_states"] = bodyStates
-        var certificate = response["certificate"] as! [String: Any]
-        var bindings = certificate["body_bindings"] as! [[String: Any]]
-        let policyCertificate = policyResponse["certificate"] as! [String: Any]
-        bindings.append(contentsOf: policyCertificate["body_bindings"] as! [[String: Any]])
-        certificate["body_bindings"] = bindings
-        certificate["certified_at_height"] = 12
-        certificate["enact_at_height"] = 14
-        response["certificate"] = certificate
-        response["current_height"] = 13
-        return response
+        makeAttemptReadResponse(
+            bodies: [
+                makePublicBody(
+                    "rules-committee",
+                    seed: 1,
+                    supporters: supporters,
+                    openedAt: 1,
+                    resultHeight: 8
+                ),
+                makePublicBody(
+                    "agenda-council",
+                    seed: 0x10,
+                    supporters: [identifier(0x21), identifier(0x22)],
+                    openedAt: 5,
+                    resultHeight: 12
+                ),
+            ],
+            certifiedAtHeight: 12,
+            currentHeight: 13
+        )
     }
 
+    /// One public-finding body certified at height 8.
     private func makePublicOnlyReadResponse(
         supporters: [String]? = nil
     ) -> [String: Any] {
-        let exactSupporters = supporters ?? [identifier(0x11), identifier(0x12)]
-        return [
+        makeAttemptReadResponse(
+            bodies: [
+                makePublicBody(
+                    "rules-committee",
+                    seed: 1,
+                    supporters: supporters,
+                    openedAt: 1,
+                    resultHeight: 8
+                ),
+            ],
+            certifiedAtHeight: 8,
+            currentHeight: 9
+        )
+    }
+
+    private func makeAttemptReadResponse(
+        bodies: [BodyParts],
+        certifiedAtHeight: Int,
+        currentHeight: Int
+    ) -> [String: Any] {
+        [
             "version": 1,
-            "current_height": 9,
+            "current_height": currentHeight,
             "attempt": [
                 "id": attemptID,
                 "proposal_content_id": proposalID,
@@ -1246,64 +990,19 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
                 "status": ["status": "Certified"],
             ],
             "policy_version": 1,
-            "required_bodies": [[
-                "body": "rules-committee",
-                "decision_mode": ["mode": "PublicFinding"],
-            ]],
-            "body_states": [[
-                "body": "rules-committee",
-                "body_instance_id": identifier(1),
-                "status": ["status": "Approved"],
-                "public_finding_opened_at_height": 1,
-                "public_finding_phase_blocks": 7,
-                "public_finding_deadline_height": 8,
-                "no_result_kind": NSNull(),
-                "no_result_height": NSNull(),
-                "timed_ovn_progress": NSNull(),
-            ]],
+            "required_bodies": bodies.map { $0.required },
+            "body_states": bodies.map { $0.state },
             "certificate": [
                 "proposal_content_id": proposalID,
                 "governance_attempt_id": attemptID,
                 "governance_attempt_sequence": 0,
                 "risk_tier": ["tier": "Standard"],
-                "body_bindings": [[
-                    "body_instance_id": identifier(1),
-                    "election_attempt_id": identifier(2),
-                    "election_attempt_sequence": 0,
-                    "sortition_request_id": identifier(3),
-                    "sortition_request": [
-                        "id": identifier(3),
-                        "governance_attempt_id": attemptID,
-                        "body_election_attempt_id": identifier(2),
-                        "body": "rules-committee",
-                        "candidate_root": root,
-                        "candidate_count": 3,
-                        "target_seats": 3,
-                        "request_height": 1,
-                        "pulse_height": 2,
-                        "beacon_session_id": identifier(4),
-                    ],
-                    "body": "rules-committee",
-                    "original_seats": 3,
-                    "beacon_session_id": identifier(4),
-                    "beacon_pulse_id": identifier(5),
-                    "roster_root": root,
-                    "assignment_root": root,
-                    "result_root": root,
-                    "result_height": 8,
-                    "public_finding": [
-                        "endorsement_root": root,
-                        "endorsing_assignments": exactSupporters,
-                        "endorsements": 2,
-                        "quorum": 2,
-                    ],
-                    "ballot": NSNull(),
-                ]],
+                "body_bindings": bodies.map { $0.binding },
                 "policy_version": 1,
                 "effect_preimage_hash": root,
                 "expected_head": ["state": "Absent", "head": ["subject_id": root]],
-                "certified_at_height": 8,
-                "enact_at_height": 10,
+                "certified_at_height": certifiedAtHeight,
+                "enact_at_height": certifiedAtHeight + 2,
             ],
             "terminal_height": NSNull(),
             "execution_failure_root": NSNull(),
@@ -1312,360 +1011,110 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
         ]
     }
 
-    private func assertConfirmationMutationRejected(
-        _ mutation: (inout [String: Any], inout [String: Any]) -> Void
-    ) {
-        var response = makeConfirmationBallotReadResponse()
-        var certificate = response["certificate"] as! [String: Any]
-        var bindings = certificate["body_bindings"] as! [[String: Any]]
-        var policy = bindings[0]
-        var confirmation = bindings[1]
-        mutation(&policy, &confirmation)
-        bindings[0] = policy
-        bindings[1] = confirmation
-        certificate["body_bindings"] = bindings
-        response["certificate"] = certificate
-        XCTAssertThrowsError(
-            try ToriiParliamentAPIV1.decodeAttemptReadResponse(
-                jsonData(response),
-                expectedGovernanceAttemptId: attemptID
+    private func makePublicBody(
+        _ body: String,
+        seed: UInt8,
+        supporters: [String]? = nil,
+        openedAt: Int,
+        resultHeight: Int
+    ) -> BodyParts {
+        let exactSupporters = supporters ?? [identifier(0x11), identifier(0x12)]
+        return BodyParts(
+            required: [
+                "body": body,
+                "decision_mode": ["mode": "PublicFinding"],
+            ],
+            state: [
+                "body": body,
+                "body_instance_id": identifier(seed),
+                "status": ["status": "Approved"],
+                "public_finding_opened_at_height": openedAt,
+                "public_finding_phase_blocks": 7,
+                "public_finding_deadline_height": openedAt + 7,
+                "no_result_kind": NSNull(),
+                "no_result_height": NSNull(),
+            ],
+            binding: makeBodyBinding(
+                body,
+                seed: seed,
+                resultHeight: resultHeight,
+                publicFinding: [
+                    "endorsement_root": root,
+                    "endorsing_assignments": exactSupporters,
+                    "endorsements": 2,
+                    "quorum": 2,
+                ],
+                ballot: NSNull()
             )
         )
     }
 
-    private func makeConfirmationBallotReadResponse(
-        electionAttemptSequence: Int = 0,
-        requestHeight: Int = 48,
-        pulseHeight: Int = 49
-    ) -> [String: Any] {
-        var response = makeHiddenBallotReadResponse()
-        var policyState = (response["body_states"] as! [[String: Any]])[0]
-        policyState["timed_ovn_progress"] = [
-            "ballot_attempt_id": identifier(0x21),
-            "status": ["status": "Finalized"],
-            "frozen_survivor_count": 21,
-            "accepted_ballot_prefix_count": 21,
-        ]
-
-        var certificate = response["certificate"] as! [String: Any]
-        var policy = (certificate["body_bindings"] as! [[String: Any]])[0]
-        policy["original_seats"] = 21
-        policy["result_height"] = 48
-        var policyRequest = policy["sortition_request"] as! [String: Any]
-        policyRequest["candidate_count"] = 21
-        policyRequest["target_seats"] = 21
-        policy["sortition_request"] = policyRequest
-        var policyBallot = policy["ballot"] as! [String: Any]
-        policyBallot["max_corpus_entries"] = 21
-        policyBallot["registration_close_height"] = 23
-        policyBallot["survivor_freeze_height"] = 44
-        policyBallot["commitment_close_height"] = 45
-        policyBallot["registration_closed_at_height"] = 23
-        policyBallot["survivors_frozen_at_height"] = 44
-        policyBallot["commitment_closed_at_height"] = 45
-        policyBallot["release_height"] = 46
-        policyBallot["opening_deadline_height"] = 50
-        policyBallot["opening_height"] = 47
-        policyBallot["tally"] = [
-            "original_seats": 21,
-            "accepted_ballots": 21,
-            "aye": 11,
-            "nay": 10,
-            "abstain": 0,
-        ]
-        policy["ballot"] = policyBallot
-
-        var confirmation = policy
-        confirmation["body_instance_id"] = identifier(0x31)
-        confirmation["election_attempt_id"] = identifier(0x32)
-        confirmation["election_attempt_sequence"] = electionAttemptSequence
-        confirmation["sortition_request_id"] = identifier(0x33)
-        confirmation["body"] = "confirmation-jury"
-        confirmation["beacon_session_id"] = identifier(0x34)
-        confirmation["beacon_pulse_id"] = identifier(0x35)
-        confirmation["result_height"] = 98
-        var confirmationRequest = policyRequest
-        confirmationRequest["id"] = identifier(0x33)
-        confirmationRequest["body_election_attempt_id"] = identifier(0x32)
-        confirmationRequest["body"] = "confirmation-jury"
-        confirmationRequest["request_height"] = requestHeight
-        confirmationRequest["pulse_height"] = pulseHeight
-        confirmationRequest["beacon_session_id"] = identifier(0x34)
-        confirmation["sortition_request"] = confirmationRequest
-        var confirmationBallot = policyBallot
-        confirmationBallot["ballot_attempt_id"] = identifier(0x36)
-        confirmationBallot["tle_session_id"] = identifier(0x37)
-        confirmationBallot["tle_key_session_id"] = identifier(0x38)
-        confirmationBallot["release_beacon_session_id"] = identifier(0x39)
-        confirmationBallot["registered_at_height"] = 50
-        confirmationBallot["registration_close_height"] = 72
-        confirmationBallot["survivor_freeze_height"] = 93
-        confirmationBallot["commitment_close_height"] = 94
-        confirmationBallot["registration_closed_at_height"] = 72
-        confirmationBallot["survivors_frozen_at_height"] = 93
-        confirmationBallot["commitment_closed_at_height"] = 94
-        confirmationBallot["release_height"] = 95
-        confirmationBallot["opening_deadline_height"] = 99
-        confirmationBallot["release_pulse_id"] = identifier(0x3a)
-        confirmationBallot["opening_height"] = 96
-        confirmation["ballot"] = confirmationBallot
-
-        var confirmationState = policyState
-        confirmationState["body"] = "confirmation-jury"
-        confirmationState["body_instance_id"] = identifier(0x31)
-        confirmationState["timed_ovn_progress"] = [
-            "ballot_attempt_id": identifier(0x36),
-            "status": ["status": "Finalized"],
-            "frozen_survivor_count": 21,
-            "accepted_ballot_prefix_count": 21,
-        ]
-        response["required_bodies"] = [
-            ["body": "policy-jury", "decision_mode": ["mode": "HiddenBindingBallot"]],
-            ["body": "confirmation-jury", "decision_mode": ["mode": "HiddenBindingBallot"]],
-        ]
-        response["body_states"] = [policyState, confirmationState]
-        certificate["body_bindings"] = [policy, confirmation]
-        certificate["certified_at_height"] = 98
-        certificate["enact_at_height"] = 100
-        response["certificate"] = certificate
-        response["current_height"] = 99
-        return response
-    }
-
-    private func makeHiddenBallotReadResponse() -> [String: Any] {
-        var response = mutateCertificate(makePublicOnlyReadResponse()) { certificate, binding, request in
-            binding["body"] = "policy-jury"
-            binding["body_instance_id"] = identifier(0x06)
-            binding["election_attempt_id"] = identifier(0x07)
-            binding["sortition_request_id"] = identifier(0x08)
-            binding["beacon_session_id"] = identifier(0x09)
-            binding["beacon_pulse_id"] = identifier(0x0a)
-            request["id"] = identifier(0x08)
-            request["body_election_attempt_id"] = identifier(0x07)
-            request["body"] = "policy-jury"
-            request["beacon_session_id"] = identifier(0x09)
-            binding["public_finding"] = NSNull()
-            binding["ballot"] = [
-                "ballot_attempt_id": identifier(0x21),
-                "ballot_attempt_sequence": 0,
-                "tle_session_id": identifier(0x22),
-                "tle_key_session_id": identifier(0x23),
-                "registration_root": root,
-                "dropout_root": root,
-                "survivor_root": root,
-                "corpus_root": root,
-                "no_recovery_root": root,
-                "timed_commitment_root": root,
-                "release_beacon_session_id": identifier(0x24),
-                "registered_at_height": 1,
-                "registration_close_height": 5,
-                "survivor_freeze_height": 8,
-                "commitment_close_height": 9,
-                "registration_closed_at_height": 5,
-                "survivors_frozen_at_height": 8,
-                "commitment_closed_at_height": 9,
-                "max_ballot_retries": 16,
-                "max_corpus_entries": 3,
-                "release_height": 10,
-                "opening_deadline_height": 13,
-                "release_pulse_id": identifier(0x25),
-                "opening_height": 11,
-                "opening_root": root,
-                "tally": [
-                    "original_seats": 3,
-                    "accepted_ballots": 3,
-                    "aye": 2,
-                    "nay": 1,
-                    "abstain": 0,
-                ],
-                "outcome": ["outcome": "Approved"],
-            ]
-            binding["result_height"] = 12
-            certificate["certified_at_height"] = 12
-            certificate["enact_at_height"] = 14
-        }
-        response["required_bodies"] = [[
-            "body": "policy-jury",
-            "decision_mode": ["mode": "HiddenBindingBallot"],
-        ]]
-        var states = response["body_states"] as! [[String: Any]]
-        states[0]["body"] = "policy-jury"
-        states[0]["body_instance_id"] = identifier(0x06)
-        states[0]["public_finding_opened_at_height"] = NSNull()
-        states[0]["public_finding_phase_blocks"] = NSNull()
-        states[0]["public_finding_deadline_height"] = NSNull()
-        states[0]["timed_ovn_progress"] = [
-            "ballot_attempt_id": identifier(0x21),
-            "status": ["status": "Finalized"],
-            "frozen_survivor_count": 3,
-            "accepted_ballot_prefix_count": 3,
-        ]
-        response["body_states"] = states
-        response["current_height"] = 13
-        return response
-    }
-
-    private func makeTleReleaseContextResponse() -> [String: Any] {
-        let ballotID = identifier(0x33)
-        let bodyID = identifier(0x22)
-        let keySessionID = identifier(0x44)
-        let survivorRoot = [UInt8](repeating: 0x61, count: 32)
-        let noRecoveryRoot = [UInt8](repeating: 0x62, count: 32)
-        let parameterHash = [UInt8](repeating: 0x63, count: 32)
-        var identityPayload = Data("iroha.parliament.tle.identity-payload.v1\0".utf8)
-        identityPayload.append(contentsOf: bigEndian16(1))
-        identityPayload.append(Data(hexString: attemptID)!)
-        identityPayload.append(Data(hexString: bodyID)!)
-        identityPayload.append(Data(hexString: ballotID)!)
-        identityPayload.append(contentsOf: survivorRoot)
-        identityPayload.append(contentsOf: noRecoveryRoot)
-        identityPayload.append(contentsOf: bigEndian64(40))
-        identityPayload.append(contentsOf: parameterHash)
-        XCTAssertEqual(identityPayload.count, 243)
-
-        let networkID = [UInt8](repeating: 0x45, count: 32)
-        let rosterHash = [UInt8](repeating: 0x46, count: 32)
-        var dealers = [[String: Any]]()
-        for dealer in [1, 2] {
-            let entry: [String: Any] = [
-                "dealer_index": dealer,
-                "coefficient_commitments": [
-                    [UInt8](repeating: UInt8(0x50 + dealer), count: 96),
-                    [UInt8](repeating: UInt8(0x60 + dealer), count: 96),
-                ],
-                "constant_pok_commitment": [UInt8](
-                    repeating: UInt8(0x70 + dealer), count: 96
-                ),
-                "constant_pok_response": [UInt8](
-                    repeating: UInt8(0x80 + dealer), count: 32
-                ),
-            ]
-            dealers.append(entry)
-        }
-        var shares = [[String: Any]]()
-        for index in 1...4 {
-            let entry: [String: Any] = [
-                "index": index,
-                "participant_hash": [UInt8](
-                    repeating: UInt8(0x20 + index), count: 32
-                ),
-                "public_key_share": [UInt8](
-                    repeating: UInt8(0x30 + index), count: 96
-                ),
-            ]
-            shares.append(entry)
-        }
-        let keySession: [String: Any] = [
-            "version": 1,
-            "key_session_id": keySessionID,
-            "network_id": networkID,
-            "roster_hash": rosterHash,
-            "committee_size": 4,
-            "threshold": 2,
-            "generator_h": [UInt8](repeating: 0x47, count: 96),
-            "generator_v": [UInt8](repeating: 0x48, count: 96),
-            "qualified_dealers": [1, 2],
-            "qualified_dealer_commitments": dealers,
-            "dkg_event_hash": [UInt8](repeating: 0x49, count: 32),
-            "group_public_key": [UInt8](repeating: 0x4a, count: 96),
-            "public_shares": shares,
-            "transcript_hash": [UInt8](repeating: 0x4b, count: 32),
-        ]
-        var framed = Data("iroha.threshold-bls.message.v1\0".utf8)
-        framed.append(contentsOf: "iroha.threshold-bls.session.v1\0".utf8)
-        framed.append(contentsOf: bigEndian16(1))
-        framed.append(2)
-        framed.append(contentsOf: networkID)
-        framed.append(Data(hexString: keySessionID)!)
-        framed.append(contentsOf: rosterHash)
-        framed.append(contentsOf: bigEndian16(4))
-        framed.append(contentsOf: bigEndian16(2))
-        framed.append(contentsOf: bigEndian32(UInt32(identityPayload.count)))
-        framed.append(identityPayload)
-        return [
-            "version": 1,
-            "current_height": 42,
-            "ballot_attempt_id": ballotID,
-            "governance_attempt_id": attemptID,
-            "body_instance_id": bodyID,
-            "status": ["status": "Opening"],
-            "release_height": 40,
-            "opening_deadline_height": 45,
-            "tle_key_session": keySession,
-            "release_identity": [
-                "tle_key_session_id": keySessionID,
-                "governance_attempt_id": attemptID,
-                "body_instance_id": bodyID,
-                "ballot_attempt_id": ballotID,
-                "survivor_corpus_root": survivorRoot,
-                "no_recovery_root": noRecoveryRoot,
-                "target_finalized_height": 40,
-                "parameter_hash": parameterHash,
+    /// A private-jury body whose binding carries an opaque non-public payload.
+    private func makePrivateJuryBody(
+        _ body: String,
+        seed: UInt8,
+        resultHeight: Int
+    ) -> BodyParts {
+        BodyParts(
+            required: [
+                "body": body,
+                "decision_mode": ["mode": "HiddenBindingBallot"],
             ],
-            "identity_digest": [UInt8](SHA256.hash(data: framed)),
-            "identity_payload_hex": identityPayload.hexEncodedString(),
-        ]
-    }
-
-    private func makeTlePartialReleaseResponse(
-        context: [String: Any]
-    ) -> [String: Any] {
-        let session = context["tle_key_session"] as! [String: Any]
-        return [
-            "key_session_id": session["key_session_id"]!,
-            "identity_digest": context["identity_digest"]!,
-            "participant_index": 1,
-            "sigma": [UInt8](repeating: 0x91, count: 48),
-            "proof_x": [UInt8](repeating: 0x92, count: 96),
-            "proof_y": [UInt8](repeating: 0x93, count: 48),
-            "z_s": [UInt8](repeating: 0x94, count: 32),
-            "z_r": [UInt8](repeating: 0x95, count: 32),
-            "z_u": [UInt8](repeating: 0x96, count: 32),
-        ]
-    }
-
-    private func makeTimedOvnCastingContextResponse() -> [String: Any] {
-        let release = makeTleReleaseContextResponse()
-        let keySession = release["tle_key_session"] as! [String: Any]
-        let identity = release["release_identity"] as! [String: Any]
-        return [
-            "version": 1,
-            "current_height": 30,
-            "phase": "Registered",
-            "session": [
-                "network_id": keySession["network_id"]!,
-                "proposal_content_id": proposalID,
-                "governance_attempt_id": attemptID,
-                "body_instance_id": release["body_instance_id"]!,
-                "ballot_attempt_id": release["ballot_attempt_id"]!,
-                "parameter_hash": identity["parameter_hash"]!,
-                "tle_key_session_id": keySession["key_session_id"]!,
-                "tle_key_transcript_hash": keySession["transcript_hash"]!,
-                "tle_master_public_key": keySession["group_public_key"]!,
+            state: [
+                "body": body,
+                "body_instance_id": identifier(seed),
+                "status": ["status": "Approved"],
+                "public_finding_opened_at_height": NSNull(),
+                "public_finding_phase_blocks": NSNull(),
+                "public_finding_deadline_height": NSNull(),
+                "no_result_kind": NSNull(),
+                "no_result_height": NSNull(),
             ],
-            "registration_opened_at_finalized_height": 20,
-            "target_finalized_height": 40,
-            "tle_key_session": keySession,
-            "registration_records_hex": [String(repeating: "81", count: 3_624)],
-            "survivor_participant_hashes": NSNull(),
-            "release_identity": NSNull(),
-            "archive_norito_base64": Data("NRT0".utf8).base64EncodedString(),
-        ]
+            binding: makeBodyBinding(
+                body,
+                seed: seed,
+                resultHeight: resultHeight,
+                publicFinding: NSNull(),
+                ballot: ["opaque": "payload"]
+            )
+        )
     }
 
-    private func bigEndian16(_ value: UInt16) -> [UInt8] {
-        [UInt8(value >> 8), UInt8(value & 0xff)]
-    }
-
-    private func bigEndian32(_ value: UInt32) -> [UInt8] {
+    private func makeBodyBinding(
+        _ body: String,
+        seed: UInt8,
+        resultHeight: Int,
+        publicFinding: Any,
+        ballot: Any
+    ) -> [String: Any] {
         [
-            UInt8((value >> 24) & 0xff), UInt8((value >> 16) & 0xff),
-            UInt8((value >> 8) & 0xff), UInt8(value & 0xff),
+            "body_instance_id": identifier(seed),
+            "election_attempt_id": identifier(seed + 1),
+            "election_attempt_sequence": 0,
+            "sortition_request_id": identifier(seed + 2),
+            "sortition_request": [
+                "id": identifier(seed + 2),
+                "governance_attempt_id": attemptID,
+                "body_election_attempt_id": identifier(seed + 1),
+                "body": body,
+                "candidate_root": root,
+                "candidate_count": 3,
+                "target_seats": 3,
+                "request_height": 1,
+                "pulse_height": 2,
+                "beacon_session_id": identifier(seed + 3),
+            ],
+            "body": body,
+            "original_seats": 3,
+            "beacon_session_id": identifier(seed + 3),
+            "beacon_pulse_id": identifier(seed + 4),
+            "roster_root": root,
+            "assignment_root": root,
+            "result_root": root,
+            "result_height": resultHeight,
+            "public_finding": publicFinding,
+            "ballot": ballot,
         ]
-    }
-
-    private func bigEndian64(_ value: UInt64) -> [UInt8] {
-        (0 ..< 8).map { offset in UInt8((value >> UInt64(8 * (7 - offset))) & 0xff) }
     }
 
     private func framedHex() -> String {
@@ -1695,75 +1144,4 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
             JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any]
         )
     }
-}
-
-private final class ParliamentCastingProofPagingRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var requests = 0
-    private var verifierCalls = 0
-    private var persisted: [UInt64] = []
-
-    func recordRequest() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        let current = requests
-        requests += 1
-        return current
-    }
-
-    func nextVerifierCall() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        let current = verifierCalls
-        verifierCalls += 1
-        return current
-    }
-
-    func recordPersistence(_ height: UInt64) {
-        lock.lock()
-        persisted.append(height)
-        lock.unlock()
-    }
-
-    func requestCount() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return requests
-    }
-
-    func persistedHeights() -> [UInt64] {
-        lock.lock()
-        defer { lock.unlock() }
-        return persisted
-    }
-}
-
-private final class ParliamentCastingProofStubURLProtocol: URLProtocol {
-    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data?))?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let handler = Self.handler else {
-            client?.urlProtocol(
-                self,
-                didFailWithError: NSError(domain: "ParliamentCastingProofStub", code: -1)
-            )
-            return
-        }
-        do {
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            if let data {
-                client?.urlProtocol(self, didLoad: data)
-            }
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
 }

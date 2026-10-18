@@ -95,11 +95,6 @@ import org.hyperledger.iroha.android.tx.SignedTransactionHasher;
 import org.hyperledger.iroha.android.client.HttpTransportExecutor;
 import org.hyperledger.iroha.android.client.transport.TransportRequest;
 import org.hyperledger.iroha.android.client.transport.TransportResponse;
-import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingCheckpointPersisterV1;
-import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofPageVerificationV1;
-import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofPageVerifierV1;
-import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofResponseV1;
-import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofTerminalV1;
 
 /**
  * HTTP-based client implementation that will forward transactions to an Iroha Torii endpoint.
@@ -958,164 +953,6 @@ public final class HttpClientTransport implements IrohaClient {
                 expectedTransitionKind,
                 expectedTransitionDigest),
         "Parliament transition draft",
-        200);
-  }
-
-  /** Fetches one authenticated pre-seal timed-OVN casting context. */
-  public CompletableFuture<ParliamentApiV1.TimedOvnCastingContextResponse>
-      getParliamentTimedOvnCastingContextV1(
-          final String ballotAttemptId,
-          final ToriiCanonicalRequestAuth canonicalAuth) {
-    return fetchJson(
-        buildVpnRequest(
-            "GET",
-            ParliamentApiV1.timedOvnCastingContextReadPath(ballotAttemptId),
-            null,
-            canonicalAuth,
-            ParliamentApiV1.MAX_STATE_BYTES),
-        response ->
-            ParliamentApiV1.parseTimedOvnCastingContextResponse(
-                response, ballotAttemptId),
-        "Parliament timed-OVN casting context",
-        200);
-  }
-
-  /** Requests one exact, consensus-authenticated timed-OVN casting-proof page. */
-  public CompletableFuture<ParliamentTimedOvnCastingProofResponseV1>
-      requestParliamentTimedOvnCastingProofV1(
-          final String ballotAttemptId,
-          final BigInteger trustedCheckpointHeight,
-          final ToriiCanonicalRequestAuth canonicalAuth) {
-    final byte[] body =
-        ParliamentApiV1.timedOvnCastingProofRequestNorito(trustedCheckpointHeight);
-    final TransportRequest request =
-        buildExactNoritoPostRequest(
-            ParliamentApiV1.timedOvnCastingProofPath(ballotAttemptId),
-            body,
-            ParliamentApiV1.MAX_TIMED_OVN_CASTING_PROOF_RESPONSE_BYTES,
-            canonicalAuth);
-    return fetchExactNoritoBytes(
-            request, "Parliament timed-OVN casting proof", true)
-        .thenApply(org.hyperledger.iroha.sdk.client.ParliamentApiV1::parseTimedOvnCastingProofResponse);
-  }
-
-  /** Convenience overload for positive signed checkpoint heights. */
-  public CompletableFuture<ParliamentTimedOvnCastingProofResponseV1>
-      requestParliamentTimedOvnCastingProofV1(
-          final String ballotAttemptId,
-          final long trustedCheckpointHeight,
-          final ToriiCanonicalRequestAuth canonicalAuth) {
-    return requestParliamentTimedOvnCastingProofV1(
-        ballotAttemptId, BigInteger.valueOf(trustedCheckpointHeight), canonicalAuth);
-  }
-
-  /** Fetches one bounded checkpoint-promotion page for native wallet verification. */
-  public CompletableFuture<ParliamentTimedOvnCastingProofResponseV1>
-      getParliamentTimedOvnCastingProofPageV1(
-          final String ballotAttemptId,
-          final BigInteger trustedCheckpointHeight,
-          final ToriiCanonicalRequestAuth canonicalAuth) {
-    return requestParliamentTimedOvnCastingProofV1(
-        ballotAttemptId, trustedCheckpointHeight, canonicalAuth);
-  }
-
-  /** Convenience overload for positive signed checkpoint heights. */
-  public CompletableFuture<ParliamentTimedOvnCastingProofResponseV1>
-      getParliamentTimedOvnCastingProofPageV1(
-          final String ballotAttemptId,
-          final long trustedCheckpointHeight,
-          final ToriiCanonicalRequestAuth canonicalAuth) {
-    return getParliamentTimedOvnCastingProofPageV1(
-        ballotAttemptId, BigInteger.valueOf(trustedCheckpointHeight), canonicalAuth);
-  }
-
-  /**
-   * Fetches, natively authenticates, and durably promotes bounded proof pages until terminal.
-   *
-   * <p>The authentication must leave timestamp and nonce unpinned so each exact POST receives a
-   * fresh anti-replay tuple. A promoted checkpoint is never used until persistence completes.
-   */
-  public CompletableFuture<ParliamentTimedOvnCastingProofTerminalV1>
-      requestParliamentTimedOvnCastingProofUntilTerminalV1(
-          final String ballotAttemptId,
-          final BigInteger initialTrustedCheckpointHeight,
-          final byte[] initialTrustedCheckpointNorito,
-          final ToriiCanonicalRequestAuth canonicalAuth,
-          final ParliamentTimedOvnCastingProofPageVerifierV1 pageVerifier,
-          final ParliamentTimedOvnCastingCheckpointPersisterV1 checkpointPersister) {
-    Objects.requireNonNull(canonicalAuth, "canonicalAuth");
-    if (canonicalAuth.timestampMs() != null || canonicalAuth.nonce() != null) {
-      throw new IllegalArgumentException(
-          "casting-proof paging requires unpinned canonical authentication");
-    }
-    return org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofPagerV1.synchronize(
-        initialTrustedCheckpointHeight,
-        initialTrustedCheckpointNorito,
-        height -> requestParliamentTimedOvnCastingProofV1(ballotAttemptId, height, canonicalAuth),
-        Objects.requireNonNull(pageVerifier, "pageVerifier"),
-        Objects.requireNonNull(checkpointPersister, "checkpointPersister"));
-  }
-
-  /** Convenience overload for a positive signed initial checkpoint. */
-  public CompletableFuture<ParliamentTimedOvnCastingProofTerminalV1>
-      requestParliamentTimedOvnCastingProofUntilTerminalV1(
-          final String ballotAttemptId,
-          final long initialTrustedCheckpointHeight,
-          final byte[] initialTrustedCheckpointNorito,
-          final ToriiCanonicalRequestAuth canonicalAuth,
-          final ParliamentTimedOvnCastingProofPageVerifierV1 pageVerifier,
-          final ParliamentTimedOvnCastingCheckpointPersisterV1 checkpointPersister) {
-    return requestParliamentTimedOvnCastingProofUntilTerminalV1(
-        ballotAttemptId,
-        BigInteger.valueOf(initialTrustedCheckpointHeight),
-        initialTrustedCheckpointNorito,
-        canonicalAuth,
-        pageVerifier,
-        checkpointPersister);
-  }
-
-  /** Fetches the complete public transcript for one currently authorized TLE release. */
-  public CompletableFuture<ParliamentApiV1.TleReleaseContextResponse>
-      getParliamentTleReleaseContextV1(
-          final String ballotAttemptId,
-          final ToriiCanonicalRequestAuth canonicalAuth) {
-    return fetchJson(
-        buildVpnRequest(
-            "GET",
-            ParliamentApiV1.tleReleaseContextReadPath(ballotAttemptId),
-            null,
-            canonicalAuth,
-            1024L * 1024L),
-        response -> ParliamentApiV1.parseTleReleaseContextResponse(response, ballotAttemptId),
-        "Parliament TLE release context",
-        200);
-  }
-
-  /** Requests one node-local proof-carrying partial bound to an admitted release context. */
-  public CompletableFuture<ParliamentApiV1.TlePartialReleaseShare>
-      requestParliamentTlePartialReleaseV1(
-          final String ballotAttemptId,
-          final ParliamentApiV1.TleReleaseContextResponse context,
-          final ToriiCanonicalRequestAuth canonicalAuth) {
-    Objects.requireNonNull(context, "context");
-    if (!context.ballotAttemptId.equals(ballotAttemptId)) {
-      throw new IllegalArgumentException(
-          "release context ballot id differs from the partial-release request");
-    }
-    return fetchJson(
-        buildVpnRequest(
-            "POST",
-            ParliamentApiV1.tlePartialReleasePath(ballotAttemptId),
-            null,
-            canonicalAuth,
-            16L * 1024L),
-        response ->
-            ParliamentApiV1.parseTlePartialReleaseResponse(
-                response,
-                context.keySession.keySessionId,
-                context.identityDigest,
-                context.keySession.committeeSize),
-        "Parliament TLE partial release",
         200);
   }
 
@@ -2099,62 +1936,6 @@ public final class HttpClientTransport implements IrohaClient {
     return builder.build();
   }
 
-  private TransportRequest buildExactNoritoPostRequest(
-      final String path,
-      final byte[] body,
-      final long maximumResponseBytes,
-      final ToriiCanonicalRequestAuth canonicalAuth) {
-    return buildExactNoritoPostRequest(
-        path, body, maximumResponseBytes, canonicalAuth, false);
-  }
-
-  private TransportRequest buildExactNoritoPostRequest(
-      final String path,
-      final byte[] body,
-      final long maximumResponseBytes,
-      final ToriiCanonicalRequestAuth canonicalAuth,
-      final boolean requestNoStore) {
-    final List<String> managedHeaders =
-        requestNoStore
-            ? Arrays.asList(
-                "Accept", "Content-Type", "Accept-Encoding", "Content-Encoding", "Cache-Control")
-            : Arrays.asList("Accept", "Content-Type", "Accept-Encoding", "Content-Encoding");
-    for (final String candidate : config.defaultHeaders().keySet()) {
-      for (final String managed : managedHeaders) {
-        if (candidate.equalsIgnoreCase(managed)) {
-          throw new IllegalArgumentException(
-              "exact Norito POST headers must not be overridden");
-        }
-      }
-    }
-    requireCanonicalHeadersUnset();
-    final URI target = resolvePath(path);
-    final TransportRequest.Builder builder =
-        TransportRequest.builder()
-            .setUri(target)
-            .setMethod("POST")
-            .setBody(Objects.requireNonNull(body, "body"))
-            .addHeader("Content-Type", APPLICATION_NORITO)
-            .addHeader("Accept", APPLICATION_NORITO)
-            .addHeader("Accept-Encoding", "identity")
-            .setMaximumResponseBytes(Long.valueOf(maximumResponseBytes))
-            .setTimeout(config.requestTimeout());
-    if (requestNoStore) {
-      builder.addHeader("Cache-Control", "no-store");
-    }
-    for (final Map.Entry<String, String> entry : config.defaultHeaders().entrySet()) {
-      builder.addHeader(entry.getKey(), entry.getValue());
-    }
-    final Map<String, String> canonicalHeaders =
-        buildCanonicalHeaders("POST", target, body, canonicalAuth);
-    for (final Map.Entry<String, String> entry : canonicalHeaders.entrySet()) {
-      builder.addHeader(entry.getKey(), entry.getValue());
-    }
-    TransportSecurity.requireHttpRequestAllowed(
-        "HttpClientTransport", config.baseUri(), target, canonicalHeaders, body);
-    return builder.build();
-  }
-
   private void requireCanonicalHeadersUnset() {
     for (final String candidate : config.defaultHeaders().keySet()) {
       if (candidate.equalsIgnoreCase(CanonicalRequestSigner.HEADER_ACCOUNT)
@@ -2572,14 +2353,6 @@ public final class HttpClientTransport implements IrohaClient {
   private CompletableFuture<byte[]> fetchExactNoritoBytes(
       final TransportRequest request, final String errorContext) {
     return fetchExactNoritoBytes(request, errorContext, false, false, false, false, false);
-  }
-
-  private CompletableFuture<byte[]> fetchExactNoritoBytes(
-      final TransportRequest request,
-      final String errorContext,
-      final boolean requireIdentityEncoding) {
-    return fetchExactNoritoBytes(
-        request, errorContext, requireIdentityEncoding, false, false, false, false);
   }
 
   private CompletableFuture<byte[]> fetchExactNoritoBytes(

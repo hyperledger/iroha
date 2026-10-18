@@ -634,14 +634,17 @@ fn a_wrong_length_and_trailing_bytes_are_malformed() {
         registration::verify(ROW, &reg_case.statement, vote_proof),
         length_error(160_148, 233_012)
     );
-    assert_eq!(
-        registration::verify(Row::Comparator, &reg_case.statement, reg_proof),
-        length_error(109_498, 160_148)
-    );
-    assert_eq!(
-        vote::verify(Row::Comparator, &vote_case.statement, vote_proof),
-        length_error(158_074, 233_012)
-    );
+    #[cfg(feature = "diagnostics")]
+    {
+        assert_eq!(
+            registration::verify(Row::Comparator, &reg_case.statement, reg_proof),
+            length_error(109_498, 160_148)
+        );
+        assert_eq!(
+            vote::verify(Row::Comparator, &vote_case.statement, vote_proof),
+            length_error(158_074, 233_012)
+        );
+    }
     // The length is checked before the statement.
     let mut malformed = vote_case.statement.clone();
     malformed.vote = 7;
@@ -676,12 +679,12 @@ fn a_wrong_length_and_trailing_bytes_are_malformed() {
 
 /// At the right length, the role and the row are bound by the prefix: the
 /// backend verifier on the candidate row's geometry rejects a valid proof under
-/// the other role's prefix and under the comparator row's prefix.
+/// the other role's prefix and (with the `diagnostics` feature) under the
+/// comparator row's prefix.
 #[test]
 fn a_valid_proof_is_rejected_under_another_role_or_row_prefix() {
     let (case, proof_bytes) = reg();
     let fast = Profile::new(ROW).expect("tables");
-    let small = Profile::new(Row::Comparator).expect("tables");
     let instance = case.statement.instance(&fast).expect("valid");
     let verify_under = |prefix: &[u8; 77]| {
         let context = ProofContext::extended(Namespace::new(prefix).expect("77 bytes"), ROW.vole())
@@ -701,23 +704,26 @@ fn a_valid_proof_is_rejected_under_another_role_or_row_prefix() {
         verify_under(fast.prefix(Role::Vote)),
         Err(ProofError::ChallengeMismatch)
     );
-    assert_eq!(
-        verify_under(small.prefix(Role::Registration)),
-        Err(ProofError::ChallengeMismatch)
-    );
-    // A statement of the comparator row (another D, hence another D_reg, auth
-    // and mu) does not verify the candidate row's proof either.
-    let other = small_statement(case);
-    assert!(is_rejected(registration::verify(ROW, &other, proof_bytes)));
+    #[cfg(feature = "diagnostics")]
+    {
+        let small = Profile::new(Row::Comparator).expect("tables");
+        assert_eq!(
+            verify_under(small.prefix(Role::Registration)),
+            Err(ProofError::ChallengeMismatch)
+        );
+        // A statement of the comparator row (another D, hence another D_reg, auth
+        // and mu) does not verify the candidate row's proof either.
+        let other = small_statement(case);
+        assert!(is_rejected(registration::verify(ROW, &other, proof_bytes)));
+    }
 }
 
 /// The same for the vote proof: it is not a proof under the registration prefix
-/// or under the comparator row's vote prefix.
+/// or (with the `diagnostics` feature) under the comparator row's vote prefix.
 #[test]
 fn a_valid_vote_proof_is_rejected_under_another_role_or_row_prefix() {
     let (case, proof_bytes) = vote3();
     let fast = Profile::new(ROW).expect("tables");
-    let small = Profile::new(Row::Comparator).expect("tables");
     let instance = case.statement.instance(&fast).expect("valid");
     let verify_under = |prefix: &[u8; 77]| {
         let context = ProofContext::extended(Namespace::new(prefix).expect("77 bytes"), ROW.vole())
@@ -735,13 +741,18 @@ fn a_valid_vote_proof_is_rejected_under_another_role_or_row_prefix() {
         verify_under(fast.prefix(Role::Registration)),
         Err(ProofError::ChallengeMismatch)
     );
-    assert_eq!(
-        verify_under(small.prefix(Role::Vote)),
-        Err(ProofError::ChallengeMismatch)
-    );
+    #[cfg(feature = "diagnostics")]
+    {
+        let small = Profile::new(Row::Comparator).expect("tables");
+        assert_eq!(
+            verify_under(small.prefix(Role::Vote)),
+            Err(ProofError::ChallengeMismatch)
+        );
+    }
 }
 
 /// The registration statement of the same secret on the comparator row.
+#[cfg(feature = "diagnostics")]
 fn small_statement(case: &RegCase) -> RegistrationStatement {
     let small = Profile::new(Row::Comparator).expect("tables");
     RegistrationStatement::for_secret(

@@ -256,7 +256,16 @@ impl DecodeField<0, Vec<u8>> for BitmapFields<'_, '_> {
             let (raw, used) = <&[u8] as DecodeFromSlice>::decode_from_slice(bytes)?;
             // Same nominal u8 backing work as the owning raw Vec specialization.
             norito::core::reserve_decode_allocation(raw.len())?;
-            if !self.0.bitmap.initialized {
+            if self.0.bitmap.initialized {
+                if self.0.payload.signers.as_bytes().len() != raw.len() {
+                    return Err(DecodeIntoError::Destination(QcFieldError::Geometry));
+                }
+                self.0
+                    .payload
+                    .signers
+                    .original_bytes_mut()
+                    .copy_from_slice(raw);
+            } else {
                 if self.0.ledger.as_slice().len() >= self.0.ledger.capacity() {
                     return Err(DecodeIntoError::Destination(QcFieldError::Geometry));
                 }
@@ -306,15 +315,6 @@ impl DecodeField<0, Vec<u8>> for BitmapFields<'_, '_> {
                 self.0.payload.signers = Bitmap::from_bytes(values);
                 self.0.ledger.push_reserved(charge);
                 self.0.bitmap.initialized = true;
-            } else {
-                if self.0.payload.signers.as_bytes().len() != raw.len() {
-                    return Err(DecodeIntoError::Destination(QcFieldError::Geometry));
-                }
-                self.0
-                    .payload
-                    .signers
-                    .original_bytes_mut()
-                    .copy_from_slice(raw);
             }
             // Original owning raw Vec storage is accounted and constructed
             // before its containing field rejects trailing bytes. Preserve the
@@ -537,6 +537,10 @@ impl<'source> PreparedQc<'source> {
     /// # Errors
     /// Incomplete authentication or foreign charge ledger; no new allocation is made.
     #[allow(unsafe_code)]
+    #[allow(
+        clippy::result_large_err,
+        reason = "return the original custody owner with its charges on refusal"
+    )]
     pub fn finish(self) -> Result<NativeQc<'source>, (Self, QcCustodyError)> {
         if !self.authenticated {
             return Err((self, QcCustodyError::Incomplete));

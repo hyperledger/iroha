@@ -13,11 +13,15 @@
 //!   [`NullifierV1`], ...) and the exact-length proofs ([`BallotProofBytesV1`],
 //!   [`RegistrationProofBytesV1`]);
 //! - the ballot and its envelope ([`AnonymousBallotV1`], [`AnonymousBallotEnvelopeV1`],
-//!   [`CanonicalAnonymousBallotEnvelopeV1`]), the stamp preimages and the compact corpus
-//!   entry;
+//!   [`CanonicalAnonymousBallotEnvelopeV1`]), the stamp preimages (with the once-per-scope
+//!   [`EncodedBallotContextV1`]) and the compact corpus entry;
 //! - the sealed list, registration mapping, roster preimage and authenticated context;
-//! - the frozen ballot policy, the closure record with its checked outcome arithmetic,
-//!   and the committed block-start outputs;
+//! - the attempt policy frozen at admission from `gov.parliament_lifecycle` and
+//!   `gov.parliament_ballot` ([`FrozenParliamentAttemptPolicyV1`]) and the binding-body
+//!   ballot policies derived from it at the risk lock ([`FrozenBallotPolicyV1`]);
+//! - the closure record with its checked outcome arithmetic, the committed governance
+//!   block-start outputs with their anchors and the output partition, and the pass's
+//!   height-progress ticket ([`AdvanceToNativeSlotV1`]);
 //! - the qualification record and the release-controlled gate constant.
 //!
 //! [`framing`] implements `Frame`, SHA3-512 and the pinned `Enc`; [`digests`] implements
@@ -28,8 +32,9 @@
 //!
 //! **Nothing here is qualified.** [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] is `None`, so
 //! binding production use stays disabled until the owner records qualification. Core
-//! wiring (the transaction entrypoint, the rejection reason, block-start outputs, chain
-//! parameters, state tables and the gate) is a separate integration phase.
+//! wiring (the transaction entrypoint, the rejection reason, block-start outputs and their
+//! partition, chain parameters, the governance block-start pass, state tables and the gate)
+//! is a separate integration phase.
 
 mod ballot;
 mod bytes;
@@ -40,8 +45,10 @@ pub mod framing;
 mod outcome;
 mod output;
 mod policy;
+mod progress;
 mod qualification;
 
+pub(crate) use self::policy::check_body_size;
 pub use self::{
     ballot::{
         AdmissionStampV1, AnonymousBallotAuthorizationV1, AnonymousBallotCorpusEntryV1,
@@ -60,31 +67,53 @@ pub use self::{
         CredentialRegistrationV1, SealedCredentialListBytesV1, SealedCredentialListV1,
         SealedRegistrationPairV1,
     },
-    digests::AnonymousBallotCorpusErrorV1,
+    digests::{AnonymousBallotCorpusErrorV1, EncodedBallotContextV1},
     framing::AnonymousBallotCodecErrorV1,
     outcome::{BallotDecisionV1, BallotOutcomeV1, BallotTallyErrorV1, ParliamentDecisionRuleV1},
     output::{
-        CastingClockEstablishedV1, CastingOpenedV1, GovernanceBlockStartEventV1,
-        GovernanceBlockStartOutputV1, SealedCredentialListPublishedV1,
+        CASTING_CLOCK_ROW_MAX_BYTES_V1, CastingClockEstablishedV1, CastingOpenedV1,
+        GOVERNANCE_START_OUTPUT_BYTES_V1, GOVERNANCE_START_OUTPUT_ROWS_V1,
+        GOVERNANCE_START_ROW_MAX_BYTES_V1, GOVERNANCE_START_ROWS_PER_ITEM_V1,
+        GovernanceBlockStartEventV1, GovernanceBlockStartOutputErrorV1,
+        GovernanceBlockStartOutputV1, GovernanceOutputAnchorV1, LIFECYCLE_RECEIPT_ROW_MAX_BYTES_V1,
+        SealedCredentialListPublishedV1,
     },
     policy::{
         BallotCapacityCommitmentV1, BodyDecisionModeV1, FrozenBallotPolicyErrorV1,
-        FrozenBallotPolicyV1, FrozenLifecyclePolicyV1, FrozenSortitionPolicyV1,
-        RequiredBodyPolicyV1,
+        FrozenBallotPolicyV1, FrozenBindingAttemptPolicyV1, FrozenLifecyclePolicyV1,
+        FrozenParliamentAttemptPolicyV1, FrozenSortitionPolicyV1, RequiredBodyPolicyV1,
     },
+    progress::{AdvanceToNativeSlotErrorV1, AdvanceToNativeSlotV1},
     qualification::{
-        BallotQualificationRecordV1, BallotSecurityContractV1, BallotServiceContractV1,
-        PARLIAMENT_BALLOT_QUALIFICATION_V1, QualifiedBallotParameterBoundsV1,
-        parliament_ballot_qualified_v1,
+        BallotQualificationRecordV1, BallotSecurityContractV1, BallotSecurityTupleV1,
+        BallotServiceContractV1, PARLIAMENT_BALLOT_QUALIFICATION_V1,
+        QualifiedBallotParameterBoundsV1, parliament_ballot_qualified_v1,
     },
 };
-pub use crate::parameter::parliament_ballot::{
-    BallotCastingCapacityV1, ParliamentBallotParameterErrorV1, ParliamentBallotParametersV1,
-    parliament_ballot_capacity_v1,
+pub use crate::parameter::{
+    parliament_ballot::{
+        BallotCastingCapacityV1, ParliamentBallotParameterErrorV1, ParliamentBallotParametersV1,
+        parliament_ballot_capacity_v1, reserved_ballot_slots_v1, reserved_ballot_wire_bytes_v1,
+    },
+    parliament_lifecycle::{
+        MAX_PARLIAMENT_BODY_ALTERNATES_V1, MAX_PARLIAMENT_CROSS_BODY_ASSIGNMENT_CAP_V1,
+        MAX_PARLIAMENT_RANDOMNESS_REDRAWS_V1, MIN_PUBLIC_BODY_TARGET_SEATS_V1,
+        ParliamentBodySizingV1, ParliamentLifecycleParameterErrorV1,
+        ParliamentLifecycleParametersV1, ParliamentSortitionParametersV1,
+    },
 };
 
 /// Largest canonical anonymous-ballot envelope frame, `E_max` (integration decision 1).
 pub const ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1: usize = 262_144;
+
+/// `E_wire`: the largest complete canonical anonymous-ballot transaction entrypoint, its
+/// per-input framing included (lifecycle decision K4); the wire bytes the honest proposer
+/// reserves per anonymous input. The inner envelope keeps its own
+/// [`ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1`] cap.
+///
+/// TODO: the Core integration enforces this cap on the `TransactionEntrypoint::AnonymousBallot`
+/// input frame when it adds the entrypoint.
+pub const ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1: usize = 263_168;
 
 /// Largest canonical authenticated ballot context, `C_max`, which also bounds the
 /// sealed-list object it contains (design §3.3, integration decision 5).
@@ -192,65 +221,39 @@ pub(crate) mod test_fixtures {
         AssignmentId::new([tag; 32])
     }
 
-    /// The Policy Jury snapshot of a standard-tier attempt with the SCCP-route pipeline
-    /// and the default committed budgets at a 1,000 ms cadence.
-    pub fn policy() -> FrozenBallotPolicyV1 {
-        let required_bodies = [
-            (ParliamentBody::RulesCommittee, 50),
-            (ParliamentBody::AgendaCouncil, 150),
-            (ParliamentBody::InterestPanel, 12),
-            (ParliamentBody::ReviewPanel, 150),
-            (ParliamentBody::CoordinationCouncil, 150),
-            (ParliamentBody::FmaCommittee, 50),
-            (ParliamentBody::OversightCommittee, 50),
-            (ParliamentBody::PolicyJury, 500),
-            (ParliamentBody::ConfirmationJury, 1_000),
+    /// The SCCP-route pipeline with its conditional Confirmation Jury.
+    pub fn pipeline() -> Vec<ParliamentBody> {
+        vec![
+            ParliamentBody::RulesCommittee,
+            ParliamentBody::AgendaCouncil,
+            ParliamentBody::InterestPanel,
+            ParliamentBody::ReviewPanel,
+            ParliamentBody::CoordinationCouncil,
+            ParliamentBody::FmaCommittee,
+            ParliamentBody::OversightCommittee,
+            ParliamentBody::PolicyJury,
+            ParliamentBody::ConfirmationJury,
         ]
-        .into_iter()
-        .map(|(body, target_seats)| RequiredBodyPolicyV1 {
-            body,
-            decision_mode: if matches!(
-                body,
-                ParliamentBody::PolicyJury | ParliamentBody::ConfirmationJury
-            ) {
-                BodyDecisionModeV1::AnonymousBallot
-            } else {
-                BodyDecisionModeV1::PublicFinding
-            },
-            target_seats,
-            alternate_cap: 21,
-        })
-        .collect();
-        let parameters = ParliamentBallotParametersV1::default();
-        FrozenBallotPolicyV1 {
-            governance_policy_version: 1,
-            risk_tier: RiskTierV1::Standard,
-            body_role: ParliamentBody::PolicyJury,
-            required_bodies,
-            profile_id: ProofProfileIdV1::V1,
-            vote_notice_ms: parameters.vote_notice_ms,
-            casting_window_ms: parameters.casting_window_ms,
-            stamp_difficulty_bits: parameters.stamp_difficulty_bits,
-            minimum_sealed_seats: 3,
-            minimum_turnout: 3,
-            quorum_numerator: 2,
-            quorum_denominator: 3,
-            decision_rule: ParliamentDecisionRuleV1::V1,
-            maximum_seats: 1_000,
-            sortition_policy: FrozenSortitionPolicyV1 {
-                pulse_delay_blocks: 4,
-                pulse_cadence_blocks: 3_600,
-                cross_body_assignment_cap: 1,
-                max_sortition_retries: 16,
-                max_randomness_redraws: 16,
-            },
-            lifecycle_policy: FrozenLifecyclePolicyV1 {
-                invitation_window_ms: 3_600_000,
-                deliberation_window_ms: 3_600_000,
-                enactment_delay_ms: 600_000,
-            },
-            capacity_commitment: BallotCapacityCommitmentV1::from_parameters(&parameters, 1_000),
-        }
+    }
+
+    /// The attempt snapshot of [`pipeline`] frozen from the default committed parameters at
+    /// a 1,000 ms block cadence and the default 3,600-block pulse cadence.
+    pub fn attempt_policy() -> FrozenParliamentAttemptPolicyV1 {
+        FrozenParliamentAttemptPolicyV1::freeze_v1(
+            &pipeline(),
+            &ParliamentLifecycleParametersV1::default(),
+            Some(&ParliamentBallotParametersV1::default()),
+            1_000,
+            3_600,
+        )
+        .expect("default attempt policy")
+    }
+
+    /// The Policy Jury snapshot of a standard-tier [`attempt_policy`].
+    pub fn policy() -> FrozenBallotPolicyV1 {
+        attempt_policy()
+            .ballot_policy(RiskTierV1::Standard, ParliamentBody::PolicyJury)
+            .expect("default ballot policy")
     }
 
     pub fn proof() -> BallotProofBytesV1 {
@@ -378,5 +381,34 @@ mod tests {
             MIN_PARLIAMENT_HIDDEN_BALLOT_ANONYMITY_V1
         );
         assert_eq!(MIN_TURNOUT_V1, MIN_SEALED_SEATS_V1);
+        // E_wire leaves 1,024 bytes of entrypoint framing around the largest envelope.
+        assert_eq!(ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1, 263_168);
+        assert_eq!(
+            ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1 - ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1,
+            1_024
+        );
+    }
+
+    #[test]
+    fn a_canonical_envelope_carrier_fits_the_entrypoint_wire_reservation() {
+        use norito::codec::Encode as _;
+        // The bare carrier of the envelope frame: its length prefix and the exact frame
+        // bytes, as the entrypoint will carry it.
+        let carrier = CanonicalAnonymousBallotEnvelopeV1::from_envelope(&test_fixtures::envelope(
+            BallotChoiceV1::Aye,
+            1,
+        ))
+        .expect("frame");
+        let carried = carrier.encode().len();
+        assert!(carried > carrier.as_bytes().len());
+        assert!(
+            carried + 64 <= ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1,
+            "{carried}"
+        );
+        // The cap holds for an envelope at its own cap, framing included.
+        assert!(
+            ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1 + (carried - carrier.as_bytes().len()) + 64
+                <= ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1
+        );
     }
 }

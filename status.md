@@ -551,9 +551,11 @@ passes.
   complete proven bound
   below 1/2 at 2^64 quantum queries plus an independently assessed attack
   cost of at least 2^128 gates, which weakens the earlier 2^128-query floor
-  and is not shown to be met. Until selection only standalone
-  implementation, measurement and proof work proceeds; schemas, Core
-  integration and timed-OVN retirement have not started. The epoch-seated
+  and is not shown to be met. The owner's 2026-10-18 authorization in design
+  section 12.2 permits schemas, Core integration, Torii/CLI/SDK paths,
+  coordinated timed-OVN retirement and automatable qualification work alongside
+  B6. Binding production use remains disabled until qualification; engineering
+  completion cannot establish it. The epoch-seated
   fast pause
   panel is specified, not implemented. Availability isolation (ballot design
   section 9) is implemented in `iroha_core` and `irohad`: no Parliament state

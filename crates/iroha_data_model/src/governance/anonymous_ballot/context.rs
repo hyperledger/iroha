@@ -92,6 +92,14 @@ pub enum BallotContextErrorV1 {
         /// The disagreeing field.
         field: &'static str,
     },
+    /// The sealed seats exceed the frozen seat target of the body, which is a cap.
+    #[error("{seats} sealed seats exceed the frozen target of {target_seats}")]
+    SeatsAboveTarget {
+        /// Sealed seats `S`.
+        seats: u16,
+        /// The body's frozen target seats.
+        target_seats: u16,
+    },
     /// The frozen policy is invalid.
     #[error(transparent)]
     Policy(#[from] FrozenBallotPolicyErrorV1),
@@ -618,7 +626,9 @@ impl AuthenticatedBallotContextV1 {
     /// Kind named in size errors.
     const KIND: &'static str = "authenticated ballot context";
 
-    /// Check the structure, the frozen policy, their agreement and the encoded size.
+    /// Check the structure, the frozen policy, their agreement and the encoded size: `S` is
+    /// the number of commitments and at least 3, and it does not exceed the frozen seat
+    /// target of the body's role in the policy's `required_bodies` (a cap, not a minimum).
     ///
     /// # Errors
     /// The first violated rule as a [`BallotContextErrorV1`].
@@ -632,9 +642,21 @@ impl AuthenticatedBallotContextV1 {
         if self.policy.body_role != self.body_context.body_role {
             return Err(BallotContextErrorV1::ContextMismatch { field: "body_role" });
         }
-        if self.policy.profile_id != self.profile_id {
+        if self.policy.binding.profile_id != self.profile_id {
             return Err(BallotContextErrorV1::ContextMismatch {
                 field: "profile_id",
+            });
+        }
+        let target_seats =
+            self.policy
+                .body_target_seats()
+                .ok_or(BallotContextErrorV1::ContextMismatch {
+                    field: "required_bodies",
+                })?;
+        if self.seats > target_seats {
+            return Err(BallotContextErrorV1::SeatsAboveTarget {
+                seats: self.seats,
+                target_seats,
             });
         }
         let actual = norito::canonical_frame_len(self)
@@ -674,10 +696,11 @@ mod tests {
     use crate::governance::anonymous_ballot::{
         framing::{decode_enc, enc},
         test_fixtures::{
-            account, assignment, body_context, commitment, commitments, context, policy,
-            sealed_list,
+            account, assignment, attempt_policy, body_context, commitment, commitments, context,
+            policy, sealed_list,
         },
     };
+    use crate::governance::types::RiskTierV1;
 
     #[test]
     fn body_contexts_are_binding_juries() {
@@ -1023,10 +1046,15 @@ mod tests {
             norito::json::from_str::<AuthenticatedBallotContextV1>(&json).expect("json"),
             context
         );
-        // The largest list with the complete context still fits `C_max`.
+        // The largest list with the complete context still fits `C_max`: a Confirmation
+        // Jury, whose frozen target is 1,000 seats.
         let mut largest = context.clone();
         largest.commitments = commitments(1_000);
         largest.seats = 1_000;
+        largest.body_context.body_role = ParliamentBody::ConfirmationJury;
+        largest.policy = attempt_policy()
+            .ballot_policy(RiskTierV1::Standard, ParliamentBody::ConfirmationJury)
+            .expect("policy");
         assert_eq!(largest.validate(), Ok(()));
         let size = enc(&largest).expect("enc").len();
         assert!(size <= BALLOT_CONTEXT_MAX_BYTES_V1, "{size}");
@@ -1062,5 +1090,46 @@ mod tests {
             bad_policy.validate(),
             Err(BallotContextErrorV1::Policy(_))
         ));
+    }
+
+    #[test]
+    fn the_sealed_seats_are_capped_by_the_frozen_target_and_at_least_three() {
+        // The fixture Policy Jury's frozen target is 500 seats.
+        let mut context = context();
+        assert_eq!(context.policy.body_target_seats(), Some(500));
+        for (seats, expected) in [
+            (3_u16, Ok(())),
+            (500, Ok(())),
+            (
+                501,
+                Err(BallotContextErrorV1::SeatsAboveTarget {
+                    seats: 501,
+                    target_seats: 500,
+                }),
+            ),
+            (2, Err(BallotContextErrorV1::ListSize { actual: 2 })),
+        ] {
+            context.commitments = commitments(seats);
+            context.seats = seats;
+            assert_eq!(context.validate(), expected, "{seats}");
+        }
+        // A smaller frozen target caps the roster lower, and the cap is never a minimum.
+        let mut small = self::context();
+        let policy_jury = small
+            .policy
+            .required_bodies
+            .iter()
+            .position(|required| required.body == ParliamentBody::PolicyJury)
+            .expect("Policy Jury");
+        small.policy.required_bodies[policy_jury].target_seats = 4;
+        assert_eq!(
+            small.validate(),
+            Err(BallotContextErrorV1::SeatsAboveTarget {
+                seats: 5,
+                target_seats: 4
+            })
+        );
+        small.policy.required_bodies[policy_jury].target_seats = 1_000;
+        assert_eq!(small.validate(), Ok(()));
     }
 }

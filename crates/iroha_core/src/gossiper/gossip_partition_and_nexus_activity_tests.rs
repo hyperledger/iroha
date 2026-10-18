@@ -32,13 +32,13 @@ fn partition_respects_frame_cap() {
         GossipPlane::Public,
         vec![
             GossipBatchEntry {
-                tx: small_accepted,
+                hash: small_accepted.hash_as_entrypoint(),
                 routing: RoutingDecision::default(),
                 routing_plan: default_plan(),
                 payload: payload_for(&small_signed),
             },
             GossipBatchEntry {
-                tx: large_accepted,
+                hash: large_accepted.hash_as_entrypoint(),
                 routing: RoutingDecision::default(),
                 routing_plan: default_plan(),
                 payload: payload_for(&large_signed),
@@ -189,7 +189,11 @@ fn gossip_roundtrip_preserves_sealed_commitment_entrypoint() {
             .0,
         TransactionEntrypoint::SealedCommitment(_)
     ));
-    assert_eq!(decoded.txs[0].hash(), expected_hash);
+    assert_eq!(
+        decoded.txs[0].hash(),
+        None,
+        "a peer frame is identified only by its canonical decode"
+    );
     assert_eq!(
         decoded.txs[0]
             .clone()
@@ -211,7 +215,7 @@ fn partition_gossip_batch_keeps_sealed_commitments() {
         usize::MAX,
         GossipPlane::Public,
         vec![GossipBatchEntry {
-            tx: accepted,
+            hash: accepted.hash_as_entrypoint(),
             routing: RoutingDecision::default(),
             routing_plan: default_plan(),
             payload,
@@ -471,7 +475,7 @@ fn partition_yields_empty_when_cap_too_small() {
         cap,
         GossipPlane::Public,
         vec![GossipBatchEntry {
-            tx: accepted,
+            hash: accepted.hash_as_entrypoint(),
             routing: RoutingDecision::default(),
             routing_plan: default_plan(),
             payload: payload_for(&signed),
@@ -511,13 +515,13 @@ fn partition_respects_max_count() {
         GossipPlane::Public,
         vec![
             GossipBatchEntry {
-                tx: tx_a_accepted,
+                hash: tx_a_accepted.hash_as_entrypoint(),
                 routing: RoutingDecision::default(),
                 routing_plan: default_plan(),
                 payload: payload_for(&tx_a_signed),
             },
             GossipBatchEntry {
-                tx: tx_b_accepted,
+                hash: tx_b_accepted.hash_as_entrypoint(),
                 routing: RoutingDecision::default(),
                 routing_plan: default_plan(),
                 payload: payload_for(&tx_b_signed),

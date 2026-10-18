@@ -221,7 +221,7 @@ SPEC.loader.exec_module(gate)
 def production_library_events():
     return [{"reason": "compiler-artifact", "target": {"name": name, "kind": ["lib"]},
              "profile": {"test": False}, "features": ["default"]}
-            for name in ("iroha_core", "iroha_core_zk", "iroha_core_privacy", "iroha_core_timed_ovn", "iroha_torii")]
+            for name in ("iroha_core", "iroha_core_zk", "iroha_core_privacy", "iroha_torii")]
 
 
 def isolate_shipping_fixture(case, *, keep_network_prerequisites=False):
@@ -5531,7 +5531,7 @@ class ShippingMetadataCheckTests(unittest.TestCase):
         self.assertNotIn("[taira-check] PASS:", output.getvalue())
 
     def test_shipping_metadata_refuses_core_and_torii_fixture_feature_leaks(self):
-        for library, feature in (("iroha_core", "iroha-core-tests"), ("iroha_core_zk", "test-utils"), ("iroha_core_privacy", "test-utils"), ("iroha_core_timed_ovn", "test-utils"),
+        for library, feature in (("iroha_core", "iroha-core-tests"), ("iroha_core_zk", "test-utils"), ("iroha_core_privacy", "test-utils"),
                                  ("iroha_torii", "test-fixtures")):
             event = {"reason": "compiler-artifact", "package_id": "opaque-cargo-package-identity",
                      "target": {"name": library, "kind": ["lib"]}, "profile": {"test": False},
@@ -5553,7 +5553,6 @@ class ShippingMetadataCheckTests(unittest.TestCase):
                       ("iroha_core", "lib", ["default", "json"]),
                       ("iroha_core_zk", "lib", ["default"]),
                       ("iroha_core_privacy", "lib", ["default"]),
-                      ("iroha_core_timed_ovn", "lib", ["default"]),
                       ("iroha_torii", "lib", ["default", "app_api"]),
                       ("another_library", "lib", ["test-fixtures", "iroha-core-tests"]),
                       ("iroha_torii", "bin", ["test-fixtures"]),

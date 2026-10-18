@@ -25774,6 +25774,24 @@ impl WorldTransaction<'_, '_> {
             .extend(shared_events.iter().cloned().map(EventBox::Data));
         self.internal_event_buf.extend(shared_events);
     }
+    /// Publish the already funded forgery graph without copying accounts or shared shells.
+    /// SCCP events have no account/directory projection side effects.
+    pub(crate) fn emit_sccp_forgery_events(
+        &mut self,
+        events: impl ExactSizeIterator<Item = SharedDataEvent>,
+    ) {
+        // TODO(S8): original-pool custody for the transaction/block output vector
+        // backing must follow those buffers through apply, take and last-reader drop.
+        for event in events {
+            debug_assert!(matches!(event.as_ref(), DataEvent::Sccp(_)));
+            #[cfg(feature = "telemetry")]
+            if let Some(telemetry) = self.telemetry {
+                telemetry.ingest_data_event(&event);
+            }
+            self.external_event_buf.push(EventBox::Data(event.clone()));
+            self.internal_event_buf.push(event);
+        }
+    }
     /// Publish data events to native trigger processing without exposing them
     /// through the externally retained event buffer.
     ///
@@ -35978,7 +35996,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     fn axt_execution_policy_snapshot(&self) -> Option<AxtPolicySnapshot> {
         None
     }
-    /// Cached snapshot of all account identifiers currently known to the state view.
+    /// Cached canonical-order prefix of the account identifiers known to the state view.
+    ///
+    /// It holds at most
+    /// [`CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS`](crate::smartcontracts::ivm::host::CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
+    /// entries: the only consumer, `CREATE_NFTS_FOR_ALL_USERS`, observes no later account.
     fn accounts_snapshot(&self) -> Arc<Vec<AccountId>>;
     /// Resolve the exact canonical `3f+1` committee for a lane/dataspace route
     /// at an explicit consensus height.
@@ -36251,11 +36273,8 @@ macro_rules! impl_state_ro {
             }
             fn accounts_snapshot(&self) -> Arc<Vec<AccountId>> {
                 Arc::clone(self.accounts_snapshot_cache.get_or_init(|| {
-                    Arc::new(
-                        self.world
-                            .accounts_iter()
-                            .map(|entry| entry.id().clone())
-                            .collect(),
+                    crate::smartcontracts::ivm::host::create_nfts_for_all_recipient_snapshot(
+                        &self.world,
                     )
                 }))
             }
@@ -43372,15 +43391,10 @@ impl StateTransaction<'_, '_> {
         self.last_tx_gas_used = self.last_tx_gas_used.saturating_add(gas);
         Ok(())
     }
-    /// Build or fetch the cached snapshot of accounts available for trigger execution.
+    /// Build or fetch the cached bounded account prefix available for trigger execution.
     fn trigger_accounts_snapshot(&mut self) -> Arc<Vec<AccountId>> {
         Arc::clone(self.accounts_snapshot_cache.get_or_init(|| {
-            Arc::new(
-                self.world
-                    .accounts_iter()
-                    .map(|entry| entry.id().clone())
-                    .collect(),
-            )
+            crate::smartcontracts::ivm::host::create_nfts_for_all_recipient_snapshot(&self.world)
         }))
     }
     fn trigger_args_from_event(
@@ -43657,12 +43671,15 @@ impl StateTransaction<'_, '_> {
             host.set_zk_config(&self.zk);
             host.set_chain_id(self.chain_id());
             host.set_public_inputs_from_parameters(self.world.parameters.get());
-            host.set_vrf_epoch_seeds_from_state(self).map_err(|error| {
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                self,
+            )
+            .map_err(|error| {
                 self.attempt_error_to_validation_fail(
                     error.map_rejection(ValidationFail::InternalError),
                 )
             })?;
-            host.set_query_state(self);
+            host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
             host.set_bound_contract_records_by_subject_snapshot(bound_contract_records);
             crate::pipeline::overlay::apply_streaming_metadata(&mut host, streaming_metadata);
             host.set_zk_snapshots_from_world(&self.world, &self.zk)
@@ -44187,12 +44204,15 @@ impl StateTransaction<'_, '_> {
                 host.set_zk_config(&self.zk);
                 host.set_chain_id(self.chain_id());
                 host.set_public_inputs_from_parameters(self.world.parameters.get());
-                host.set_vrf_epoch_seeds_from_state(self).map_err(|error| {
-                    self.attempt_error_to_validation_fail(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-                host.set_query_state(self);
+                let vrf_epoch_length =
+                    crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(self).map_err(
+                        |error| {
+                            self.attempt_error_to_validation_fail(
+                                error.map_rejection(ValidationFail::InternalError),
+                            )
+                        },
+                    )?;
+                host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
                 host.set_contract_runtime_context(contract_runtime_context.clone());
                 host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
                 host.set_zk_snapshots_from_world(&self.world, &self.zk)
@@ -44480,12 +44500,14 @@ impl StateTransaction<'_, '_> {
                             host.set_zk_config(&self.zk);
                             host.set_chain_id(self.chain_id());
                             host.set_public_inputs_from_parameters(self.world.parameters.get());
-                            host.set_vrf_epoch_seeds_from_state(self).map_err(|error| {
-                                self.attempt_error_to_validation_fail(
-                                    error.map_rejection(ValidationFail::InternalError),
-                                )
-                            })?;
-                            host.set_query_state(self);
+                            let vrf_epoch_length =
+                                crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(self)
+                                    .map_err(|error| {
+                                        self.attempt_error_to_validation_fail(
+                                            error.map_rejection(ValidationFail::InternalError),
+                                        )
+                                    })?;
+                            host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
                             host.set_contract_runtime_context(contract_runtime_context.clone());
                             host.set_contract_entrypoint_authorization(Some(
                                 entrypoint_authorization,

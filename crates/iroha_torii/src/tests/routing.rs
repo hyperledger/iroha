@@ -633,6 +633,73 @@ mod tests {
     }
     #[cfg(feature = "app_api")]
     #[test]
+    fn explorer_block_times_are_keyed_by_hash_and_bounded() {
+        let hash = |index: usize| {
+            let mut bytes = [0xA5; iroha_crypto::Hash::LENGTH];
+            bytes[..8].copy_from_slice(&(index as u64).to_be_bytes());
+            iroha_crypto::HashOf::<BlockHeader>::from_untyped_unchecked(
+                iroha_crypto::Hash::prehashed(bytes),
+            )
+        };
+        let mut times = super::ExplorerBlockTimes::new();
+        times.remember(hash(0), std::time::Duration::from_millis(7));
+        times.remember(hash(0), std::time::Duration::from_millis(9));
+        assert_eq!(
+            times.get(hash(0)),
+            Some(std::time::Duration::from_millis(7)),
+            "a block hash fixes its creation time"
+        );
+        assert_eq!(times.get(hash(1)), None);
+        for index in 1..=super::ExplorerBlockTimes::CAPACITY {
+            times.remember(hash(index), std::time::Duration::from_millis(index as u64));
+        }
+        assert_eq!(times.get(hash(0)), None, "the oldest entry is evicted");
+        assert_eq!(
+            times.get(hash(super::ExplorerBlockTimes::CAPACITY)),
+            Some(std::time::Duration::from_millis(
+                super::ExplorerBlockTimes::CAPACITY as u64
+            ))
+        );
+        assert_eq!(times.entries.len(), super::ExplorerBlockTimes::CAPACITY);
+    }
+    #[cfg(feature = "app_api")]
+    #[test]
+    fn average_block_time_reuses_remembered_block_times() {
+        use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+        let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 1))
+            .expect("original signed genesis");
+        chain.commit(Vec::new());
+        chain.commit(Vec::new());
+        let state = Arc::clone(chain.state());
+        let height = state.committed_height();
+        assert_eq!(height, 3);
+        let owner = crate::history_producer::HistoryProducerOwner::for_test();
+        let budget = owner.canonical_history_budget();
+        let average = super::average_block_time_ms(&state, height as u64, 20, &budget)
+            .expect("funded history reads");
+        // Every time of the window is now remembered by its committed hash.
+        // Drop the resident head body and exhaust the cold read pool, so any
+        // body read must fail.
+        chain
+            .kura()
+            .forget_cached_block_for_testing(std::num::NonZeroUsize::new(height).unwrap())
+            .expect("drop the resident head body");
+        let cold = owner.cold_frames();
+        let _occupied = cold
+            .try_reserve_bytes(cold.limit_bytes() - cold.reserved_bytes())
+            .expect("occupy the cold frame pool");
+        assert!(
+            super::latest_block_created_at(&state, height as u64, &budget).is_err(),
+            "the head block time is always read from its body"
+        );
+        assert_eq!(
+            super::average_block_time_ms(&state, height as u64, 20, &budget)
+                .expect("remembered times need no body read"),
+            average
+        );
+    }
+    #[cfg(feature = "app_api")]
+    #[test]
     fn latest_block_created_at_missing_when_height_zero() {
         let state = CoreState::new_for_testing(
             World::default(),

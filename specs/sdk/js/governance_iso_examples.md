@@ -245,8 +245,7 @@ await torii.governanceSubmitZkBallotV1({
 
 `governanceSubmitPlainBallot` and `governanceSubmitZkBallotV1` target the
 standalone referendum subsystem. Parliament proposals use the attempt lifecycle
-and mandatory private timed-OVN ballots instead; the two paths are not
-interchangeable.
+instead; the two paths are not interchangeable.
 
 ### Parliament lifecycle and automatic execution
 

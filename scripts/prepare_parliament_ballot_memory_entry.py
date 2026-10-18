@@ -110,6 +110,9 @@ path = "driver.rs"
 '''
     for name in ("iroha_parliament_ballot_proof", "iroha_zkp_vole", "norito"):
         options = ', features = ["json"], default-features = false' if name == "norito" else ""
+        # The driver selects either row, so it needs the diagnostic comparator row.
+        if name == "iroha_parliament_ballot_proof":
+            options = ', features = ["diagnostics"]'
         text += f'{name} = {{ path = {json.dumps(str(root / "crates" / name))}{options} }}\n'
     text += 'libc = "0.2.177"\nthiserror = "2.0"\nsha3 = { version = "0.10.8", default-features = false, features = ["std"] }\n\n[patch.crates-io]\n'
     for name, value in tomllib.loads((root / "Cargo.toml").read_text())["patch"]["crates-io"].items():

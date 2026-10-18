@@ -10,15 +10,32 @@
 //! not milliseconds, gas or an operation count. Cache hits are charged identically and an
 //! admitted reservation is never refunded.
 //!
+//! The capacity rule includes the honest proposer's ballot reservations, derived from the
+//! budgets (lifecycle decision K4): `b0 = min(B_work, floor(B_bytes / 425,984))` anonymous
+//! inputs and `b0 × 263,168` complete entrypoint wire bytes per block. Registration and SCCP
+//! reservations are separate.
+//!
 //! TODO: the Core integration reads this custom parameter, validates updates against the
-//! committed block cadence and every outstanding capacity commitment, and adds the honest
-//! proposer's reserved ballot transaction slots and wire capacity to the capacity rule.
+//! committed block cadence and every outstanding capacity commitment (an update may not
+//! reduce `K` below the reservations held, and an increase of `K` revalidates outstanding
+//! windows), and wires the reservations into the effective input-count, input-wire, output
+//! and complete executed-wire limits (`block.max_transactions`, the FASTPQ input capacity and
+//! the block-wire limit) with cross-limit validation that they fit.
+
+use iroha_primitives::json::Json;
 
 use super::{CustomParameter, CustomParameterId};
+use crate::governance::anonymous_ballot::{
+    ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1, BallotCapacityCommitmentV1,
+};
 
 /// Largest canonical ballot envelope `E_max` plus authenticated context `C_max`: the
 /// verifier-input bytes one verification call can be charged.
 const VERIFIER_INPUT_BYTES_PER_CALL: u64 = 425_984;
+
+/// `E_wire`: the reserved wire bytes of one complete canonical anonymous-ballot entrypoint,
+/// per-input framing included.
+const ENTRYPOINT_WIRE_BYTES: u64 = ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1 as u64;
 
 /// Ballots each attempt must be able to cast: the largest sealed list.
 const BALLOTS_PER_ATTEMPT: u128 = 1_000;
@@ -60,7 +77,12 @@ pub enum ParliamentBallotParameterErrorV1 {
         /// Ballots required: `1,000 × K`.
         required: u128,
     },
-    /// The custom parameter has another identity, is oversized or is malformed.
+    /// A capacity commitment's reserved ballot slots or wire bytes are not the values
+    /// derived from its budgets.
+    #[error("the reserved ballot capacity is not the value derived from the budgets")]
+    ReservationMismatch,
+    /// The custom parameter has another identity, is oversized or malformed, or its payload is
+    /// not the canonical JSON of its value.
     #[error("invalid Parliament ballot parameter: {0}")]
     CustomParameter(&'static str),
 }
@@ -68,7 +90,8 @@ pub enum ParliamentBallotParameterErrorV1 {
 /// The ballot-packing figures of the capacity rule for one casting window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BallotCastingCapacityV1 {
-    /// `b = min(B_work, floor(B_bytes / 425,984))`: ballot verifications per block.
+    /// `b = min(B_work, floor(B_bytes / 425,984), reserved_ballot_slots_per_block,
+    /// floor(reserved_ballot_wire_bytes_per_block / 263,168))`: ballots per block.
     pub ballots_per_block: u64,
     /// `floor(casting_window_ms / cadence_ms) − 1`: blocks after the casting clock.
     pub opportunities: u64,
@@ -78,26 +101,50 @@ pub struct BallotCastingCapacityV1 {
     pub required: u128,
 }
 
-/// The capacity rule of integration decision 5 with checked wide arithmetic:
+/// The reserved anonymous-ballot input slots per block derived from the budgets:
+/// `b0 = min(B_work, floor(B_bytes / 425,984))`.
+#[must_use]
+pub fn reserved_ballot_slots_v1(
+    max_verification_reservations_per_block: u32,
+    max_verifier_input_bytes_per_block: u64,
+) -> u32 {
+    u32::try_from(max_verifier_input_bytes_per_block / VERIFIER_INPUT_BYTES_PER_CALL)
+        .map_or(max_verification_reservations_per_block, |calls| {
+            calls.min(max_verification_reservations_per_block)
+        })
+}
+
+/// The reserved complete anonymous-entrypoint wire bytes per block for `slots` reserved
+/// inputs: `slots × 263,168`.
+#[must_use]
+pub fn reserved_ballot_wire_bytes_v1(slots: u32) -> u64 {
+    u64::from(slots) * ENTRYPOINT_WIRE_BYTES
+}
+
+/// The capacity rule of integration decision 5 and lifecycle decision K4 with checked wide
+/// arithmetic, under the admission `commitment`:
 ///
 /// ```text
-/// b             = min(B_work, floor(B_bytes / 425,984))
+/// b             = min(B_work,
+///                     floor(B_bytes / 425,984),
+///                     reserved_ballot_slots_per_block,
+///                     floor(reserved_ballot_wire_bytes_per_block / 263,168))
 /// opportunities = floor(casting_window_ms / cadence_ms) - 1
 /// require b >= 1 and opportunities * b >= 1,000 * K
 /// ```
 ///
-/// This is a necessary packing condition, not an inclusion guarantee.
+/// This is a necessary packing condition, not an inclusion guarantee, and not complete
+/// parameter validation: the reservations must also fit the effective block limits, which
+/// Core checks.
 ///
 /// # Errors
 /// [`ParliamentBallotParameterErrorV1`] for a zero cadence, a window shorter than one
-/// cadence, a zero per-block budget or insufficient capacity.
+/// cadence, a zero per-block ballot budget or insufficient capacity.
 pub fn parliament_ballot_capacity_v1(
     casting_window_ms: u64,
-    block_cadence_ms: u64,
-    max_nonterminal_attempts: u16,
-    max_verification_reservations_per_block: u32,
-    max_verifier_input_bytes_per_block: u64,
+    commitment: &BallotCapacityCommitmentV1,
 ) -> Result<BallotCastingCapacityV1, ParliamentBallotParameterErrorV1> {
+    let block_cadence_ms = commitment.block_cadence_ms;
     if block_cadence_ms == 0 {
         return Err(ParliamentBallotParameterErrorV1::ZeroCadence);
     }
@@ -107,10 +154,12 @@ pub fn parliament_ballot_capacity_v1(
             casting_window_ms,
             block_cadence_ms,
         })?;
-    let ballots_per_block = u64::from(max_verification_reservations_per_block)
-        .min(max_verifier_input_bytes_per_block / VERIFIER_INPUT_BYTES_PER_CALL);
+    let ballots_per_block = u64::from(commitment.max_verification_reservations_per_block)
+        .min(commitment.max_verifier_input_bytes_per_block / VERIFIER_INPUT_BYTES_PER_CALL)
+        .min(u64::from(commitment.reserved_ballot_slots_per_block))
+        .min(commitment.reserved_ballot_wire_bytes_per_block / ENTRYPOINT_WIRE_BYTES);
     let capacity = u128::from(opportunities) * u128::from(ballots_per_block);
-    let required = BALLOTS_PER_ATTEMPT * u128::from(max_nonterminal_attempts);
+    let required = BALLOTS_PER_ATTEMPT * u128::from(commitment.max_nonterminal_attempts);
     if ballots_per_block == 0 || capacity < required {
         return Err(ParliamentBallotParameterErrorV1::InsufficientCapacity { capacity, required });
     }
@@ -301,7 +350,8 @@ impl ParliamentBallotParametersV1 {
         )
     }
 
-    /// The capacity rule for these parameters at the committed `block_cadence_ms`.
+    /// The capacity rule for these parameters at the committed `block_cadence_ms`, with the
+    /// reservations derived from the budgets.
     ///
     /// # Errors
     /// As [`parliament_ballot_capacity_v1`].
@@ -311,10 +361,7 @@ impl ParliamentBallotParametersV1 {
     ) -> Result<BallotCastingCapacityV1, ParliamentBallotParameterErrorV1> {
         parliament_ballot_capacity_v1(
             self.casting_window_ms,
-            block_cadence_ms,
-            self.max_nonterminal_attempts,
-            self.max_verification_reservations_per_block,
-            self.max_verifier_input_bytes_per_block,
+            &BallotCapacityCommitmentV1::from_parameters(self, block_cadence_ms),
         )
     }
 
@@ -330,11 +377,14 @@ impl ParliamentBallotParametersV1 {
         self.capacity(block_cadence_ms)
     }
 
-    /// Decode the exact committed parameter without substituting defaults on failure.
+    /// Decode the exact committed parameter without substituting defaults on failure. The
+    /// payload must be the canonical key-ordered JSON of its value. Range and capacity
+    /// validation is [`Self::validate`], which needs the committed block cadence.
     ///
     /// # Errors
     /// [`ParliamentBallotParameterErrorV1::CustomParameter`] for another identity, more
-    /// than 512 bytes of JSON or a malformed payload.
+    /// than 512 bytes of JSON, a malformed payload (including a missing or unknown field) or
+    /// a payload that is not the canonical JSON of its value.
     pub fn from_custom_parameter(
         parameter: &CustomParameter,
     ) -> Result<Self, ParliamentBallotParameterErrorV1> {
@@ -343,13 +393,35 @@ impl ParliamentBallotParametersV1 {
                 "another parameter identity",
             ));
         }
-        if parameter.payload().get().len() > 512 {
+        let payload = parameter.payload();
+        if payload.get().len() > 512 {
             return Err(ParliamentBallotParameterErrorV1::CustomParameter(
                 "payload exceeds 512 bytes",
             ));
         }
-        norito::json::from_str(parameter.payload().get())
-            .map_err(|_| ParliamentBallotParameterErrorV1::CustomParameter("malformed payload"))
+        let value: Self = norito::json::from_str(payload.get())
+            .map_err(|_| ParliamentBallotParameterErrorV1::CustomParameter("malformed payload"))?;
+        if Json::try_new(value).ok().as_ref() != Some(payload) {
+            return Err(ParliamentBallotParameterErrorV1::CustomParameter(
+                "payload is not the canonical JSON of its value",
+            ));
+        }
+        Ok(value)
+    }
+
+    /// The committed custom parameter of structurally valid parameters, with their canonical
+    /// key-ordered JSON payload.
+    ///
+    /// # Errors
+    /// [`ParliamentBallotParameterErrorV1::OutOfRange`] as [`Self::validate_structure`], and
+    /// [`ParliamentBallotParameterErrorV1::CustomParameter`] if the payload cannot be
+    /// produced.
+    pub fn to_custom_parameter(&self) -> Result<CustomParameter, ParliamentBallotParameterErrorV1> {
+        self.validate_structure()?;
+        let payload = Json::try_new(*self).map_err(|_| {
+            ParliamentBallotParameterErrorV1::CustomParameter("payload cannot be serialized")
+        })?;
+        Ok(CustomParameter::new(Self::parameter_id().clone(), payload))
     }
 }
 
@@ -453,22 +525,50 @@ mod tests {
         }
     }
 
+    /// The commitment of the budgets `(K, B_work, B_bytes)` at `cadence`, with the derived
+    /// reservations.
+    fn commitment(
+        cadence: u64,
+        attempts: u16,
+        work: u32,
+        bytes: u64,
+    ) -> BallotCapacityCommitmentV1 {
+        BallotCapacityCommitmentV1::from_parameters(
+            &ParliamentBallotParametersV1 {
+                max_nonterminal_attempts: attempts,
+                max_verification_reservations_per_block: work,
+                max_verifier_input_bytes_per_block: bytes,
+                ..ParliamentBallotParametersV1::default()
+            },
+            cadence,
+        )
+    }
+
+    /// The capacity rule of `window` under [`commitment`].
+    fn capacity(
+        window: u64,
+        cadence: u64,
+        attempts: u16,
+        work: u32,
+        bytes: u64,
+    ) -> Result<BallotCastingCapacityV1, ParliamentBallotParameterErrorV1> {
+        parliament_ballot_capacity_v1(window, &commitment(cadence, attempts, work, bytes))
+    }
+
     #[test]
     fn the_capacity_rule_uses_checked_arithmetic() {
         // b is bounded by both budgets.
         assert_eq!(
-            parliament_ballot_capacity_v1(86_400_000, 1_000, 1, 8, 425_984)
-                .map(|capacity| capacity.ballots_per_block),
+            capacity(86_400_000, 1_000, 1, 8, 425_984).map(|capacity| capacity.ballots_per_block),
             Ok(1)
         );
         assert_eq!(
-            parliament_ballot_capacity_v1(86_400_000, 1_000, 1, 1, 3_407_872)
-                .map(|capacity| capacity.ballots_per_block),
+            capacity(86_400_000, 1_000, 1, 1, 3_407_872).map(|capacity| capacity.ballots_per_block),
             Ok(1)
         );
         // The smallest window holds only a small K at the largest budget.
         assert_eq!(
-            parliament_ballot_capacity_v1(126_000, 1_000, 1, 8, 3_407_872),
+            capacity(126_000, 1_000, 1, 8, 3_407_872),
             Ok(BallotCastingCapacityV1 {
                 ballots_per_block: 8,
                 opportunities: 125,
@@ -477,25 +577,25 @@ mod tests {
             })
         );
         assert_eq!(
-            parliament_ballot_capacity_v1(125_999, 1_000, 1, 8, 3_407_872),
+            capacity(125_999, 1_000, 1, 8, 3_407_872),
             Err(ParliamentBallotParameterErrorV1::InsufficientCapacity {
                 capacity: 992,
                 required: 1_000
             })
         );
         assert_eq!(
-            parliament_ballot_capacity_v1(60_000, 1_000, 16, 1, 425_984),
+            capacity(60_000, 1_000, 16, 1, 425_984),
             Err(ParliamentBallotParameterErrorV1::InsufficientCapacity {
                 capacity: 59,
                 required: 16_000
             })
         );
         assert_eq!(
-            parliament_ballot_capacity_v1(86_400_000, 0, 4, 2, 851_968),
+            capacity(86_400_000, 0, 4, 2, 851_968),
             Err(ParliamentBallotParameterErrorV1::ZeroCadence)
         );
         assert_eq!(
-            parliament_ballot_capacity_v1(999, 1_000, 4, 2, 851_968),
+            capacity(999, 1_000, 4, 2, 851_968),
             Err(ParliamentBallotParameterErrorV1::WindowShorterThanCadence {
                 casting_window_ms: 999,
                 block_cadence_ms: 1_000
@@ -503,20 +603,86 @@ mod tests {
         );
         // One cadence leaves no successor opportunity.
         assert!(matches!(
-            parliament_ballot_capacity_v1(1_000, 1_000, 1, 8, 3_407_872),
+            capacity(1_000, 1_000, 1, 8, 3_407_872),
             Err(ParliamentBallotParameterErrorV1::InsufficientCapacity { capacity: 0, .. })
         ));
         // A zero per-block budget never passes, whatever the window.
         assert!(matches!(
-            parliament_ballot_capacity_v1(u64::MAX, 1, 0, 0, 0),
+            capacity(u64::MAX, 1, 0, 0, 0),
             Err(ParliamentBallotParameterErrorV1::InsufficientCapacity { .. })
         ));
         // Extreme inputs cannot overflow the wide products.
-        assert!(parliament_ballot_capacity_v1(u64::MAX, 1, u16::MAX, u32::MAX, u64::MAX).is_ok());
+        assert!(capacity(u64::MAX, 1, u16::MAX, u32::MAX, u64::MAX).is_ok());
         // A slower cadence can fail the same parameters.
         let defaults = ParliamentBallotParametersV1::default();
         assert!(defaults.capacity(1_000).is_ok());
         assert!(defaults.capacity(43_200).is_err());
+        // The Parliament-only short fixture of the lifecycle decisions: K = 1, B_work = 8,
+        // B_bytes = 3,407,872, a 100 ms cadence and a 60,000 ms window.
+        assert_eq!(
+            capacity(60_000, 100, 1, 8, 3_407_872),
+            Ok(BallotCastingCapacityV1 {
+                ballots_per_block: 8,
+                opportunities: 599,
+                capacity: 4_792,
+                required: 1_000,
+            })
+        );
+    }
+
+    #[test]
+    fn the_reservations_are_derived_and_bound_the_capacity() {
+        // At the defaults: two slots and 526,336 wire bytes.
+        let defaults = commitment(1_000, 4, 2, 851_968);
+        assert_eq!(defaults.reserved_ballot_slots_per_block, 2);
+        assert_eq!(defaults.reserved_ballot_wire_bytes_per_block, 526_336);
+        assert_eq!(reserved_ballot_slots_v1(2, 851_968), 2);
+        assert_eq!(reserved_ballot_slots_v1(8, 851_967), 1);
+        assert_eq!(reserved_ballot_slots_v1(1, 3_407_872), 1);
+        assert_eq!(reserved_ballot_slots_v1(u32::MAX, u64::MAX), u32::MAX);
+        assert_eq!(reserved_ballot_wire_bytes_v1(3), 3 * 263_168);
+        assert_eq!(
+            ENTRYPOINT_WIRE_BYTES,
+            u64::try_from(ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1).expect("small")
+        );
+        // Smaller reservations bound b in both of their terms.
+        let mut fewer_slots = defaults;
+        fewer_slots.reserved_ballot_slots_per_block = 1;
+        assert_eq!(
+            parliament_ballot_capacity_v1(86_400_000, &fewer_slots)
+                .map(|capacity| capacity.ballots_per_block),
+            Ok(1)
+        );
+        let mut less_wire = defaults;
+        less_wire.reserved_ballot_wire_bytes_per_block = 2 * 263_168 - 1;
+        assert_eq!(
+            parliament_ballot_capacity_v1(86_400_000, &less_wire)
+                .map(|capacity| capacity.ballots_per_block),
+            Ok(1)
+        );
+        less_wire.reserved_ballot_wire_bytes_per_block = 263_167;
+        assert!(matches!(
+            parliament_ballot_capacity_v1(86_400_000, &less_wire),
+            Err(ParliamentBallotParameterErrorV1::InsufficientCapacity { capacity: 0, .. })
+        ));
+        let mut no_slots = defaults;
+        no_slots.reserved_ballot_slots_per_block = 0;
+        assert!(parliament_ballot_capacity_v1(u64::MAX, &no_slots).is_err());
+        // Larger reservations than the budgets allow do not raise b...
+        let mut more = defaults;
+        more.reserved_ballot_slots_per_block = 8;
+        more.reserved_ballot_wire_bytes_per_block = 8 * 263_168;
+        assert_eq!(
+            parliament_ballot_capacity_v1(86_400_000, &more)
+                .map(|capacity| capacity.ballots_per_block),
+            Ok(2)
+        );
+        // ...and a commitment that records them is refused as not derived.
+        assert_eq!(
+            more.validate(86_400_000),
+            Err(ParliamentBallotParameterErrorV1::ReservationMismatch)
+        );
+        assert!(defaults.validate(86_400_000).is_ok());
     }
 
     #[test]
@@ -544,6 +710,7 @@ mod tests {
             ParliamentBallotParametersV1::from_custom_parameter(&parameter),
             Ok(parameters)
         );
+        assert_eq!(parameters.to_custom_parameter(), Ok(parameter.clone()));
         let foreign =
             CustomParameter::new("other".parse().expect("name"), parameter.payload().clone());
         assert_eq!(
@@ -566,5 +733,34 @@ mod tests {
             ParliamentBallotParametersV1::parameter_id().to_string(),
             "parliament_ballot_v1"
         );
+        // Unknown fields are refused, and a structurally invalid value is not written.
+        let unknown = parameter.payload().get().replacen(
+            r#"{"casting_window_ms""#,
+            r#"{"a":0,"casting_window_ms""#,
+            1,
+        );
+        let unknown = CustomParameter::new(
+            ParliamentBallotParametersV1::parameter_id().clone(),
+            unknown
+                .parse::<iroha_primitives::json::Json>()
+                .expect("json"),
+        );
+        assert_eq!(
+            ParliamentBallotParametersV1::from_custom_parameter(&unknown),
+            Err(ParliamentBallotParameterErrorV1::CustomParameter(
+                "malformed payload"
+            ))
+        );
+        let invalid = ParliamentBallotParametersV1 {
+            stamp_difficulty_bits: 27,
+            ..parameters
+        };
+        assert!(matches!(
+            invalid.to_custom_parameter(),
+            Err(ParliamentBallotParameterErrorV1::OutOfRange {
+                field: "stamp_difficulty_bits",
+                ..
+            })
+        ));
     }
 }

@@ -761,7 +761,6 @@ fn deferred_includable_assessment_defers_queue_admission_without_custody() {
             CheckedTransaction::new_unchecked(transaction.clone()),
             plan,
             &mut DeferredInclusionAccess(Some(original.into())),
-            None,
             #[cfg(feature = "telemetry")]
             view.telemetry,
         ) else {

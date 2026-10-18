@@ -37,7 +37,6 @@ class ShippingCodegenEvidenceTests(unittest.TestCase):
         return [self.library("iroha_core", ["default", "json"]),
                 self.library("iroha_core_zk", ["proofs-halo2", "zk-stark"]),
                 self.library("iroha_core_privacy", ["default"]),
-                self.library("iroha_core_timed_ovn", ["default"]),
                 self.library("iroha_torii", ["default", "app_api"]),
                 *(self.binary(name) for name in self.binaries)]
 
