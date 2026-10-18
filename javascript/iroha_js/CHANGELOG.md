@@ -4,6 +4,87 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 
 ## [Unreleased]
 
+- Added `buildRetireBondTreasuryUnitsInstruction({ bondId, quantity })`
+  (`Bond.RetireTreasuryUnits`: the issuer burns units of its own balance) with
+  its review row; bond records carry `state.retired_units`, which
+  `getBond`/`listBonds` require.
+- Bond servicing follows the revised kernel: terms require `paymentGraceMs`
+  and a regular coupon schedule (`validateBondTerms` refuses irregular coupon
+  dates or counts with Core's messages); `buildReplaceBondPayingAgentInstruction`
+  is new; `listBonds` now pages `GET /v1/bonds` (`{ items, nextCursor }`) and
+  `getBondEntitlements` pages `GET /v1/bonds/{bond_id}/entitlements`; records
+  carry entitlement totals instead of snapshots; `reviewTransactionPayload`
+  takes `expected.bonds: [{ record, entitlements }]` (the
+  `paymentAssetScale` option is removed). `BOND_MAX_SNAPSHOT_HOLDERS` is
+  replaced by `BOND_RECORDING_PAGE_ENTRIES`.
+- Added native bond servicing: `buildRegisterBondInstruction`,
+  `buildRecordBondCashflowInstruction`, `buildFundBondCashflowInstruction`,
+  `buildClaimBondCashflowInstruction`, `buildCloseBondCashflowInstruction`,
+  `buildCallBondInstruction` and `buildDeclareBondDefaultInstruction` (closed
+  `{"Bond": {...}}` envelopes of `BondInstructionBox`); the exact-decimal
+  fixed-rate bullet schedule helper `buildBondSchedule`, `validateBondTerms`
+  (Core's `BondTerms::validate` rules and messages), `bondHolderPayment` and
+  the native `bondVaultAccountId`; `getBond` and `listBonds` on `ToriiClient`
+  and `ToriiBrowserClient`; and bond rows in `reviewTransactionPayload`, with
+  optional `expected.bonds` record context. The native host exports
+  `bondVaultAccountId`. Shared vectors are generated from the Rust data model.
+- Added opt-in `captureRejection` for Node.js `submitTransactionAndWait`,
+  opening SSE before submission and attaching observed rejection code, reason
+  and block height to `TransactionStatusError`, enriched with the exact-hash
+  explorer rejection message, without weakening state finality.
+- Added `feeLimitMarginBps` to `quoteAndSignTransaction` for rounded-up
+  headroom using the same quote-limit conversion as external wallet signing.
+
+- Settlement ids are owner-qualified `{ owner, reference }` objects, matching
+  the native `SettlementId`: `buildSettleAtomicInstruction` and
+  `buildGrantSettlementConsentInstruction` take `settlementId: { owner, reference }`,
+  `newSettlementId(owner, seed?)` returns one, and `repoIntentHashes` also
+  returns the repo consent `settlementId` (`{ owner: initiator, reference: agreementId }`).
+  An atomic settlement needs at least one movement or escrow leg, and its
+  settlement id owner must debit one of them. Bare references are refused.
+- Added settlement, conditional-escrow, repo and domain-lease helpers:
+  `generateAssetDefinitionId`, `assetDefinitionIdFromSeed` (native
+  `derive_from_components` rule), `newEscrowId`, `newSettlementId`,
+  `newRepoAgreementId`; builders `buildGrantSettlementConsentInstruction`,
+  `buildGrantAssetDefinitionAliasScopeInstruction`,
+  `buildSetAssetDefinitionKeyValueInstruction`,
+  `buildOpenConditionalEscrowInstruction`,
+  `buildAttestEscrowConditionInstruction`,
+  `buildExpireConditionalEscrowInstruction`, `buildSettleAtomicInstruction`
+  (native movement and escrow-leg ordering, escrow legs bound into the intent),
+  `canonicalSettleAtomicInstruction`, `buildRepoInitiateInstruction` (with
+  `allowEarlyRepayment`) and `buildRepoReverseInstruction`; native consent
+  hashes `settleAtomicIntentHash` and `repoIntentHashes` (computed by the model
+  methods Core checks). The native codec also admits the strict `EnsureAlias`
+  and `SetKeyValue.AssetDefinition` JSON envelopes.
+- Added `ToriiClient.planAliasSetup` and `planDomainLease`, which plans a paid
+  SNS domain lease and returns natively verified `EnsureAlias` instructions.
+- Added the Node.js `claimFaucet` V1 proof-of-work faucet flow; prepared
+  envelopes are authenticated natively against the faucet policy before
+  submission.
+- Added `transactionPayloadSigningHash`, `finalizeSignedTransaction` and
+  `prepareExternalSignerTransactionPayload` for external Ed25519 wallet signers.
+- Added `feePaymentFromQuote`, `reviewTransactionPayload` with
+  `sanitizeReviewText`, `TRANSACTION_REVIEW_SCHEMA` and
+  `TRANSACTION_REVIEW_MAX_INSTRUCTIONS`, `discoverNetworkIdentity` with
+  `NetworkIdentityMismatchError`, and the faucet primitives
+  `faucetPowChallenge` and `faucetPowDigest` (puzzles beyond the native work
+  budget are refused). The native host exports `decodeTransactionPayloadJson`.
+- Changed: `submitTransactionAndWait` continues with the finality wait after an
+  HTTP 409 `already_committed` or `already_enqueued` resubmission rejection.
+- Fixed: `getBlock` and other explorer block records accept the
+  `hash:<HEX>#<CRC>` literals Torii renders instead of rejecting every block.
+- Fixed: Connect app sessions encode and strictly decode plain frames in the
+  native relay layout (`[u8; 32]` sid and X25519 keys element-framed;
+  `sig_wallet` as a u32 algorithm plus an element-framed signature), pinned by
+  live TAIRA relay frames in `fixtures/connect/relay_frames_v1.json`. The
+  previous raw-array layout was closed by the relay and is now rejected.
+  `CONNECT_SIGN_REQUEST_TX_FRAME_OVERHEAD_V1` is now 472 bytes.
+- Fixed: SNS suffix policies decode the native tagged `status` and
+  `auction_kind` values (`{"status": ..., "detail": null}`), and a Connect app
+  session whose socket fails before `waitForApproval()` no longer raises an
+  unhandled rejection.
+
 - Removed the retired KAGEMUSHA surface: the `Kagemusha` namespace, the
   `./kagemusha` subpath and `kagemusha.d.ts`; the Node and browser
   `getKagemushaReadiness`, `submitKagemushaTopUp`, `submitKagemushaRedemption`

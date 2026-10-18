@@ -29,8 +29,8 @@ from iroha_torii_client import (  # noqa: E402  (import depends on sys.path muta
     ToriiClient,
     ToriiOperatorSigningContext,
 )
-from iroha_torii_client.client import StatusPayload  # noqa: E402
 from iroha_torii_client._account_id import decode_canonical_i105_account_id  # noqa: E402
+from iroha_torii_client.client import StatusPayload  # noqa: E402
 from iroha_torii_client.mock import _MockState  # noqa: E402
 
 

@@ -9,9 +9,8 @@ Features:
 - transactional properties of transactions and blocks (rollback changes on drop or explicitly commit)
 - ability to revert changes created in the latest block
 
-The storage layer uses concread's B-tree maps and epoch cells. Its dependency
-enables `maps`, `ebr`, and the existing `foldhash` backend explicitly; unused
-async and adaptive-cache defaults are disabled. Finite credits, charged buffers,
+The storage layer uses concread's synchronous B+tree maps and epoch cells. Its
+dependency enables `maps` and `ebr` explicitly. Finite credits, charged buffers,
 generic shared shells and release observations belong to the std-only sibling
 [`iroha_allocation`](../iroha_allocation/README.md). `mv::allocation::map` retains
 only the adapters that bind those credits to real storage-engine allocations.

@@ -44,7 +44,7 @@ fn input(capsule: &KagemushaWalletRecoveryCapsuleV1) -> CapsuleFields<'_> {
 fn private_receive_assembly_preserves_all_originals_and_derives_identity_and_output() {
     let original = capsule();
     let frozen = assemble(
-        credential(&original),
+        &credential(&original),
         input(&original),
         original.body().step_proof.clone(),
     )
@@ -67,16 +67,16 @@ fn private_assembly_rejects_missing_role_and_wrong_payment_source_or_credential(
     let owner = credential(&original);
     let mut fields = input(&original);
     fields.retained.clear();
-    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
+    assert!(assemble(&owner, fields, original.body().step_proof.clone()).is_err());
     let mut fields = input(&original);
     fields.payment = [0; 32];
-    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
+    assert!(assemble(&owner, fields, original.body().step_proof.clone()).is_err());
     let mut fields = input(&original);
     fields.source = [0; 32];
-    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
+    assert!(assemble(&owner, fields, original.body().step_proof.clone()).is_err());
     let mut wrong = owner;
     wrong.body.wallet_id[0] ^= 1;
-    assert!(assemble(wrong, input(&original), original.body().step_proof.clone()).is_err());
+    assert!(assemble(&wrong, input(&original), original.body().step_proof.clone()).is_err());
 }
 #[test]
 fn prepared_native_insertions_retain_exact_low_and_intermediate_empty_openings() {
@@ -101,133 +101,85 @@ fn prepared_native_insertions_retain_exact_low_and_intermediate_empty_openings()
 }
 
 #[test]
-fn opening_sampler_accepts_zero_and_canonical_field_edge_without_reduction() {
-    let zero = sample_opening(|out| {
-        *out = [0; 32];
-        Ok(())
-    })
-    .unwrap();
-    assert_eq!(*zero, [0; 32]);
-    let mut high_zero = [0; 32];
-    high_zero[31] = 0x80;
-    assert_eq!(
-        *sample_opening(|out| {
-            *out = high_zero;
-            Ok(())
-        })
-        .unwrap(),
-        [0; 32]
-    );
-    let lower = Fp::from(19).to_repr();
-    let mut high = lower;
-    high[31] |= 0x80;
-    assert_eq!(
-        *sample_opening(|out| {
-            *out = high;
-            Ok(())
-        })
-        .unwrap(),
-        lower
-    );
-    let edge = (-Fp::from(1)).to_repr();
-    assert_eq!(
-        *sample_opening(|out| {
-            *out = edge;
-            Ok(())
-        })
-        .unwrap(),
-        edge
-    );
-}
-
-#[test]
-fn opening_sampler_rejects_noncanonical_candidates_and_stops_at128_or_first_error() {
-    let mut modulus = (-Fp::from(1)).to_repr();
-    let mut carry = true;
-    for byte in &mut modulus {
-        let (sum, overflow) = byte.overflowing_add(u8::from(carry));
-        *byte = sum;
-        carry = overflow;
-    }
-    assert!(!carry);
-    let mut above = modulus;
-    above[0] += 1;
-    for rejected in [modulus, above, [255; 32]] {
-        let mut fills = 0;
-        let actual = sample_opening(|out| {
-            fills += 1;
-            *out = if fills == 1 { rejected } else { [0; 32] };
-            Ok(())
-        })
+fn zero_send_fee_noop_preserves_exact_canonical_body_bytes() {
+    // Codec projection only; the vector's fixture proof never reaches admission.
+    // Preserve every body field while comparing the exact map_openings generated
+    // by a pending-only Send before and after adding the transient fold witness.
+    let mut pending_tree = KagemushaWalletIndexedTreeV1::new();
+    let pending = pending_tree
+        .insert(Fp::from(211).to_repr(), Fp::from(223).to_repr())
         .unwrap();
+    let pending_originals = vec![
+        pending.low_opening.leaf_transcript(&pending.low),
+        pending.slot_opening.empty_transcript(),
+    ];
+    let original = capsule();
+    let mut original_body = original.body().clone();
+    original_body.map_openings = pending_originals.clone();
+    let original_bytes = norito::encode_canonical(&original_body).unwrap();
+    for populated in [false, true] {
+        let mut fee_tree = KagemushaWalletIndexedTreeV1::new();
+        if populated {
+            fee_tree
+                .insert(Fp::from(3).to_repr(), Fp::from(5).to_repr())
+                .unwrap();
+        }
+        let root = fee_tree.root();
+        let fee = KagemushaWalletFeeClaimLeafV1 {
+            credit_id: Fp::from(233).to_repr(),
+            fee: 0,
+            fee_schedule_digest: Fp::from(19).to_repr(),
+        };
+        let slot = u32::from(populated);
+        let leaf = fee_tree.leaf_at(slot).unwrap();
+        let opening = fee_tree.opening(slot);
+        let (_, transient) =
+            monetary::send_fee_map(&root, fee, &SendFeeMapV1::Preserve { leaf, opening }).unwrap();
+        let insertions = monetary::send_insertions(&pending, fee.fee, &transient).unwrap();
+        assert_eq!(insertions.len(), 1);
+        let mut regenerated = original_body.clone();
+        regenerated.map_openings = map_openings(&insertions);
+        assert_eq!(regenerated.map_openings, pending_originals);
         assert_eq!(
-            fills, 2,
-            "noncanonical candidate must be rejected, not reduced"
+            norito::encode_canonical(&regenerated).unwrap(),
+            original_bytes
         );
-        assert_eq!(*actual, [0; 32]);
+        // Pin the actual defect: adding a no-op as a second canonical insertion
+        // changes complete body bytes even though the fee root did not change.
+        let mut wrong = original_body.clone();
+        wrong.map_openings = map_openings(&[insertions[0], transient]);
+        assert_ne!(norito::encode_canonical(&wrong).unwrap(), original_bytes);
+        assert_eq!(fee_tree.root(), root);
     }
-    let mut calls = 0;
-    assert!(matches!(
-        sample_opening(|out| {
-            calls += 1;
-            *out = [255; 32];
-            Ok(())
-        }),
-        Err(Error::Entropy)
-    ));
-    assert_eq!(calls, 128);
-    calls = 0;
-    assert!(matches!(
-        sample_opening(|_| {
-            calls += 1;
-            Err(Error::Entropy)
-        }),
-        Err(Error::Entropy)
-    ));
-    assert_eq!(calls, 1);
-    calls = 0;
-    let actual = sample_opening(|out| {
-        calls += 1;
-        *out = if calls == 1 { [255; 32] } else { [0; 32] };
-        Ok(())
-    })
-    .unwrap();
-    assert_eq!(calls, 2);
-    assert_eq!(*actual, [0; 32]);
 }
 
 #[test]
-fn retained_verification_reconstructs_only_body_and_preserves_exact_wrapper() {
-    let original = capsule();
-    let body = assemble(
-        credential(&original),
-        input(&original),
-        original.body().step_proof.clone(),
-    )
-    .unwrap();
-    let held = FrozenTransition {
-        credential: credential(&original),
-        capsule: original.clone(),
+fn positive_send_fee_retains_both_exact_canonical_insertions() {
+    let mut pending_tree = KagemushaWalletIndexedTreeV1::new();
+    let pending = pending_tree
+        .insert(Fp::from(211).to_repr(), Fp::from(223).to_repr())
+        .unwrap();
+    let mut fee_tree = KagemushaWalletIndexedTreeV1::new();
+    let root = fee_tree.root();
+    let fee = KagemushaWalletFeeClaimLeafV1 {
+        credit_id: Fp::from(233).to_repr(),
+        fee: 11,
+        fee_schedule_digest: Fp::from(19).to_repr(),
     };
-    let exact = held.capsule.to_canonical_bytes();
-    for _ in 0..2 {
-        body.require_matches(&held).unwrap();
-    }
-    assert_eq!(held.capsule.to_canonical_bytes(), exact);
-    assert_eq!(held.capsule.custody_digest(), original.custody_digest());
+    let inserted = fee_tree
+        .insert(fee.key(), fee.leaf_value().unwrap())
+        .unwrap();
+    let (_, witness) = monetary::send_fee_map(&root, fee, &SendFeeMapV1::Insert(inserted)).unwrap();
+    let actual = map_openings(&monetary::send_insertions(&pending, fee.fee, &witness).unwrap());
+    let expected = vec![
+        pending.low_opening.leaf_transcript(&pending.low),
+        pending.slot_opening.empty_transcript(),
+        inserted.low_opening.leaf_transcript(&inserted.low),
+        inserted.slot_opening.empty_transcript(),
+    ];
+    assert_eq!(actual, expected);
     assert_eq!(
-        held.capsule.receipt_commitment(),
-        original.receipt_commitment()
+        norito::encode_canonical(&actual).unwrap(),
+        norito::encode_canonical(&expected).unwrap()
     );
-    let mut other = held;
-    let mut wrong = other.capsule.body().clone();
-    wrong.step_proof.bytes.push(1);
-    wrong.output = KagemushaWalletOutputDescriptorV1::for_transition(
-        &wrong.statement,
-        &wrong.proof_digest().unwrap(),
-        &wrong.payment_digest,
-    )
-    .unwrap();
-    other.capsule = wrong.freeze().unwrap().seal([0; 32]).unwrap();
-    assert!(body.require_matches(&other).is_err());
 }

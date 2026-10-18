@@ -3,6 +3,13 @@ export type * from "./index.js";
 
 export {
   NetworkId,
+  inspectAccountViaNativeTransport,
+  inspectToriiAccountIdentityViaNativeTransport,
+  requestNativeMultisigViaTransport,
+  inspectNativeMultisigPrepareViaTransport,
+  inspectNativeMultisigSignedViaTransport,
+  queryNativeMultisigFinalityViaTransport,
+  queryNativeMultisigProposalFinalityViaTransport,
   AccountAddress,
   AccountAddressError,
   AccountAddressErrorCode,
@@ -68,9 +75,6 @@ export {
   noritoDecodeInstruction,
   inspectSubscriptionTriggerAction,
   noritoEncodeInstruction,
-  noritoEncodeMultisigContractCallApproveRequest,
-  noritoEncodeMultisigContractCallProposeRequest,
-  noritoEncodeMultisigProposeRequest,
   encodeRetailFeeQuoteRequestV1,
   retailFeePaymentIntentHash,
   encodeRetailFeeAssessmentV1,

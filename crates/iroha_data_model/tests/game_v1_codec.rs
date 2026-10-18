@@ -210,15 +210,6 @@ fn browser_game_v1_wire_and_gameplay_hash_vectors_match_native() {
 
 #[test]
 fn every_generic_game_instruction_roundtrips_through_the_native_registry() {
-    use iroha_crypto::Signature;
-    use iroha_data_model::{
-        game::{GameCommitmentSetV1, GameInputCommitmentV1},
-        isi::{InstructionBox, game::*},
-    };
-    let fixtures: Fixtures = json::from_str(include_str!(
-        "../../../javascript/iroha_js/test/fixtures/game-v1-codec.json"
-    ))
-    .unwrap();
     fn value<T: JsonDeserialize>(fixtures: &Fixtures, name: &str) -> T {
         json::from_value(
             fixtures
@@ -231,6 +222,15 @@ fn every_generic_game_instruction_roundtrips_through_the_native_registry() {
         )
         .expect(name)
     }
+    use iroha_crypto::Signature;
+    use iroha_data_model::{
+        game::{GameCommitmentSetV1, GameInputCommitmentV1},
+        isi::{InstructionBox, game::*},
+    };
+    let fixtures: Fixtures = json::from_str(include_str!(
+        "../../../javascript/iroha_js/test/fixtures/game-v1-codec.json"
+    ))
+    .unwrap();
     let open: OpenGameSessionV1 = value(&fixtures, "OpenGameSessionV1");
     let session_id = *open.session_id();
     let profile_id = open.manifest().profile_id;
@@ -364,6 +364,18 @@ fn every_generic_game_instruction_roundtrips_through_the_native_registry() {
 
 #[test]
 fn join_requires_explicit_resources_and_signed_terms_and_rejects_obsolete_payloads() {
+    // An obsolete seven-field body may carry exact debit terms, but has no typed
+    // equipment authorization. The sole first-release decoder must reject it.
+    #[derive(Encode)]
+    struct MissingResources {
+        session_id: Hash,
+        input_key: PublicKey,
+        application_data: Vec<u8>,
+        invitation: Option<iroha_crypto::Signature>,
+        expected_manifest_hash: Hash,
+        expected_asset_definition: iroha_data_model::asset::AssetDefinitionId,
+        expected_stake: iroha_primitives::numeric::Quantity,
+    }
     use norito::codec::Decode;
     let fixtures: Fixtures = json::from_str(include_str!(
         "../../../javascript/iroha_js/test/fixtures/game-v1-codec.json"
@@ -419,18 +431,6 @@ fn join_requires_explicit_resources_and_signed_terms_and_rejects_obsolete_payloa
         encoded
     );
 
-    // An obsolete seven-field body may carry exact debit terms, but has no typed
-    // equipment authorization. The sole first-release decoder must reject it.
-    #[derive(Encode)]
-    struct MissingResources {
-        session_id: Hash,
-        input_key: PublicKey,
-        application_data: Vec<u8>,
-        invitation: Option<iroha_crypto::Signature>,
-        expected_manifest_hash: Hash,
-        expected_asset_definition: iroha_data_model::asset::AssetDefinitionId,
-        expected_stake: iroha_primitives::numeric::Quantity,
-    }
     let obsolete = MissingResources {
         session_id: *join.session_id(),
         input_key: join.input_key().clone(),
@@ -474,6 +474,7 @@ mod full_race_payload_codec;
 #[ignore = "explicit native fixture export: set SORA_CARS_GAME_FIXTURE_SEED and SORA_CARS_GAME_FIXTURE_OUTPUT"]
 fn export_canonical_game_wire_fixtures_from_semantic_seed() {
     use iroha_data_model::game_resources::*;
+    use std::io::Write as _;
     struct NativeParts {
         value: Value,
         bare: Vec<u8>,
@@ -608,7 +609,6 @@ fn export_canonical_game_wire_fixtures_from_semantic_seed() {
     let output = norito::json!({"version": 1, "network_id": network, "vectors": rows});
     let bytes = json::to_vec(&output).expect("native fixture JSON");
     // A mistaken path must not silently replace retained evidence or live fixtures.
-    use std::io::Write as _;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

@@ -31,6 +31,7 @@ class ToriiEventStreamSubscription private constructor(builder: Builder) : AutoC
     private val closed = AtomicBoolean(false)
     private val nextBackoffMs = AtomicLong(builder.initialBackoffMs)
     private val lastRetryHintMs = AtomicLong(-1)
+    private val connectedAtMs = AtomicLong(-1)
     private val streamGeneration = AtomicLong(0)
     private val currentStream = AtomicReference<ToriiEventStream?>(null)
     private val scheduledTask = AtomicReference<ScheduledFuture<*>?>(null)
@@ -75,13 +76,15 @@ class ToriiEventStreamSubscription private constructor(builder: Builder) : AutoC
     private fun notifyStreamFailure(error: Throwable) { for (observer in observers) observer.onStreamFailure(error) }
 
     private fun openStream() {
+        // This task is running now; a failure reported while it opens must schedule the next one.
+        scheduledTask.set(null)
         if (closed.get()) return
+        connectedAtMs.set(-1)
         val generation = streamGeneration.incrementAndGet()
         val listener = ManagedListener(generation)
         try {
             val stream = opener.open(listener)
             currentStream.set(stream)
-            nextBackoffMs.set(initialBackoffMs)
             notifyStreamOpened()
         } catch (ex: RuntimeException) {
             handleFailure(generation, ex)
@@ -91,11 +94,20 @@ class ToriiEventStreamSubscription private constructor(builder: Builder) : AutoC
     private fun handleFailure(generation: Long, error: Throwable) {
         if (closed.get()) return
         if (generation != streamGeneration.get()) return
+        resetBackoffAfterStableConnection()
         delegate.onError(error)
         notifyStreamFailure(error)
         val retryHint = lastRetryHintMs.getAndSet(-1)
         val delay = if (retryHint >= 0) retryHint else nextBackoffMs.getAndUpdate(::computeNextBackoff)
         scheduleReconnect(delay, ToriiEventStreamObserver.ReconnectReason.STREAM_FAILURE)
+    }
+
+    /** A connection that stayed open [STABLE_CONNECTION_MS] restarts the backoff schedule. */
+    private fun resetBackoffAfterStableConnection() {
+        val connectedAt = connectedAtMs.getAndSet(-1)
+        if (connectedAt >= 0 && System.currentTimeMillis() - connectedAt >= STABLE_CONNECTION_MS) {
+            nextBackoffMs.set(initialBackoffMs)
+        }
     }
 
     private fun computeNextBackoff(current: Long): Long {
@@ -112,7 +124,11 @@ class ToriiEventStreamSubscription private constructor(builder: Builder) : AutoC
     private inner class ManagedListener(private val generation: Long) : ToriiEventStreamListener {
         private fun isCurrent(): Boolean = generation == streamGeneration.get()
 
-        override fun onOpen() { if (isCurrent()) delegate.onOpen() }
+        override fun onOpen() {
+            if (!isCurrent()) return
+            connectedAtMs.set(System.currentTimeMillis())
+            delegate.onOpen()
+        }
         override fun onEvent(event: ServerSentEvent) { if (isCurrent()) delegate.onEvent(event) }
         override fun onRetryHint(duration: Duration) {
             if (!isCurrent()) return
@@ -121,6 +137,7 @@ class ToriiEventStreamSubscription private constructor(builder: Builder) : AutoC
         }
         override fun onClosed() {
             if (!isCurrent()) return
+            resetBackoffAfterStableConnection()
             delegate.onClosed()
             notifyStreamClosed()
             scheduleReconnect(pickBackoffDelay(), ToriiEventStreamObserver.ReconnectReason.STREAM_CLOSED)
@@ -180,6 +197,9 @@ class ToriiEventStreamSubscription private constructor(builder: Builder) : AutoC
     }
 
     companion object {
+        /** How long a connection must stay open before a later failure restarts the backoff. */
+        const val STABLE_CONNECTION_MS: Long = 30_000
+
         /** Returns a builder that opens streams via the provided client/path/options triple. */
         @JvmStatic
         fun builder(

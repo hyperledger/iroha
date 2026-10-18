@@ -1,0 +1,77 @@
+# Fixed-shape content-invalid controllers
+
+These new pieces consume the already computed canonical P0 output and generated
+transcript. They do not create P0 or establish the enclosing request protocol.
+The intended invalid-content family is VOTE with fixed list count3..1000 and
+valid bounded field lengths. Arbitrary role/row/length dispatch remains open.
+REG can keep the ordinary always-valid route; this introduces no new REG error.
+
+P0 output is exactly60bits: valid1, error_code3, order_index16, actual_count16,
+declared_count16 and vote_value8. Its source first-error order is retained by
+copying the existing error payload, not recomputing validation in the wrapper.
+The field-copy tests include every code payload. The size-error variant is not
+reachable for the intended count3..1000 family; testing its copy is not evidence
+that out-of-range shape dispatch has been implemented.
+
+`ValidatedWrites` takes the ordinary ProgrammedWrites inputs plus one borrowed
+valid bit. It keeps the original source field offsets; log and workspace shift
+by one. The first two enable computations are valid; the primary ones are valid
+AND source S0flag. All M+2 framed record scans, including inactive primary slots,
+still run. Domain bytes, actual trial counter, padded staging, chronological
+slot order and append inverse are unchanged. Scatter is undone around each
+append. There are no added oracle calls or work bits: the valid bit is an input.
+
+Relative to the ordinary W cost its exact change is
+
+```
+X: -4
+CNOT: +4-2M
+Toffoli: +2M.
+```
+
+When valid is zero, every append enable is zero and the entire log and counter
+are identity, even for a full canonical log and arbitrary supplied primary
+flags. When valid is one, the original S0/capacity premises apply. Inverse
+traversal reverses primary entries and then challenge2/challenge1, using the
+append's actual decrement-before-reversal circuit.
+
+`ValidatedReturn` receives P0[60] followed by ReturnProjection's exhaustion bit
+and field inputs. It computes the clean E map into a fresh temporary output,
+forms !valid in one clean bit, and copies E's complete output conditioned on
+valid. E's exhaustion bit is the low result-tag bit; !valid is the high bit.
+The tag is0 for proof,1 for exhaustion and2 for a P0 error. A separate59-bit
+payload copies P0's error fields conditioned on !valid. Last32, length64 and
+proof remain in E's source order. The result is a mathematical sum-type
+register, not Rust enum memory or a new serialized wire protocol.
+
+The same E map then clears its temporary output; the invalid flag is cleared.
+For arbitrary caller targets this is an XOR map. Therefore a zero contribution
+on rejection preserves a nonzero caller target; on zero initialized result
+registers it produces canonical zero proof, length and exhaustion-last fields.
+All source basis labels are unchanged, while their reduced state may be
+entangled with outputs as for other clean maps.
+
+If E has cost C, output width o and one clean work bit, the wrapper has
+
+```
+cost = 2C + (o+59) Toffoli + 2 X + 3 CNOT
+clean work = o+2
+input bits = E.inputs+60
+output bits = E.outputs+60.
+```
+
+This includes all temp preparation and cleanup; it makes no F call. The
+arbitrary intermediate generator work on rejection may be discarded only by
+actually running the matching inverse with unchanged input registers and the
+same immutable F. No adversary may interleave inside the atomic request.
+Programmed writes are disabled on rejection, so after copying only the P0
+error the generator's net action cancels jointly with the oracle and reference
+registers. This argument needs the actual totalized generator/controller join;
+these helpers alone do not establish it or claim complete resources.
+
+The39 focused controls cover valid chronology/inverse, invalid full-log identity,
+exact census in both directions, each P0 payload and both exhaustion values,
+arbitrary caller targets, clean temporary state, missing-uncompute/wrong-enable
+negative controls, strict API refusals, and static actual-row/role accounting.
+No production elementary circuit, Rust build, physical workspace or hardware
+qualification was executed. All complete and qualification flags remain false.

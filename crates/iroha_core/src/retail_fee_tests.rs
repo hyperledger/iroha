@@ -857,8 +857,17 @@ fn deferred_marker_is_consumed_once_and_preserves_atomic_free_and_paid_payments(
                 marker.clone().execute(&owner, stx).is_err(),
                 "not inside authenticated deferred execution"
             );
-            stx.multisig_deferred_execution_stack
-                .push((owner.clone(), HashOf::new(&instructions)));
+            stx.multisig_deferred_execution_stack.push((
+                owner.clone(),
+                iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+                    &stx.network_id,
+                    &owner,
+                    &iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new(
+                        [0x61; 32],
+                    )
+                    .unwrap(),
+                ),
+            ));
             admit_deferred(&[], stx).unwrap();
             stx.world.retail_fee_source_transaction_hash =
                 Some(*Hash::new([u8::try_from(used).expect("fixture value fits u8")]).as_ref());
@@ -1162,4 +1171,492 @@ fn idle_cursor_local_decode_refusal_returns_before_child_drop_and_retries_origin
             .is_none(),
         "disposable block-local state never became durable"
     );
+}
+
+#[test]
+fn original_idle_sweep_admits_exact_native_receipts_before_carrier_execution() {
+    fixture_block(START + 30 * 86_400_000, |block, policy| {
+        let owner = account(3);
+        {
+            let mut setup = block.transaction();
+            seed(&mut setup, &policy, &owner, 1_000, 0, START);
+            setup.apply();
+        }
+        let (ordinary, mandatory) = block.fastpq_source_usage_for_testing();
+        let native_before = block.native_maintenance_usage_for_testing();
+        let fragments = block.committed_fragment_count();
+        process_idle_accounts(block).unwrap();
+        let rows = receipts(&block.world, &owner, None, 10).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "original idle sweep must admit its own receipt purpose"
+        );
+        let receipt = &rows[0];
+        assert_eq!((receipt.collected_minor, receipt.waived_minor), (100, 0));
+        assert_eq!(receipt.kind, RetailFeeReceiptKindV1::Maintenance);
+        assert_eq!(receipt.source_transaction_hash, None);
+        assert_eq!(
+            account_state(&block.world, &owner)
+                .unwrap()
+                .unwrap()
+                .balance_minor,
+            900
+        );
+        assert_eq!(
+            block.fastpq_source_usage_for_testing(),
+            (ordinary, mandatory)
+        );
+        let native = block.native_maintenance_usage_for_testing();
+        assert_eq!(native.executed_entries, native_before.executed_entries + 1);
+        assert_eq!(native.transcripts, native_before.transcripts + 1);
+        assert_eq!(native.deltas, native_before.deltas + 1);
+        assert!(native.input_transcript_bytes > native_before.input_transcript_bytes);
+        assert!(native.total_statement_bytes > native_before.total_statement_bytes);
+        assert_eq!(block.committed_fragment_count(), fragments + 1);
+        // A second original sweep cannot debit the same receipt or poison a later sibling.
+        process_idle_accounts(block).unwrap();
+        assert_eq!(receipts(&block.world, &owner, None, 10).unwrap(), rows);
+        assert_eq!(block.native_maintenance_usage_for_testing(), native);
+        let marker: StatePath = "retail_native_carrier_sibling_TESTDATA".parse().unwrap();
+        let mut sibling = block.transaction();
+        sibling
+            .world
+            .smart_contract_state
+            .insert(marker.clone(), vec![31]);
+        sibling.apply();
+        assert_eq!(
+            block.world.smart_contract_state.get(&marker),
+            Some(&vec![31])
+        );
+    });
+}
+
+pub(crate) fn with_original_due_idle_wallet(
+    test: impl FnOnce(&mut crate::state::StateBlock<'_>, ValidationFeePolicyV1, AccountId),
+) {
+    fixture_block(START + 30 * 86_400_000, |block, policy| {
+        let owner = account(3);
+        let mut setup = block.transaction();
+        seed(&mut setup, &policy, &owner, 1_000, 0, START);
+        setup.apply();
+        test(block, policy, owner);
+    });
+}
+
+#[test]
+fn original_idle_sweep_keeps_bounded_month_prefix_and_fair_native_share() {
+    let mut now = START;
+    for _ in 0..24 {
+        now = honiara_month_bounds(now).unwrap().1;
+    }
+    fixture_block(now + 1_000, |block, policy| {
+        let owners: Vec<_> = (2..=9).map(account).collect();
+        let mut setup = block.transaction();
+        for owner in &owners {
+            seed(&mut setup, &policy, owner, 10_000, 0, START);
+        }
+        setup.apply();
+        let ordinary = block.fastpq_source_usage_for_testing();
+        process_idle_accounts(block).unwrap();
+        let mut count = 0;
+        let mut visited = Vec::new();
+        for owner in &owners {
+            let rows = receipts(&block.world, owner, None, 100).unwrap();
+            assert!(rows.len() <= 12, "original per-wallet twelve-month bound");
+            if !rows.is_empty() {
+                visited.push((
+                    format!(
+                        "retail_fee_v1/{}",
+                        hex::encode(Hash::new(owner.to_string().as_bytes()).as_ref())
+                    )
+                    .parse::<StatePath>()
+                    .unwrap(),
+                    rows.len(),
+                ));
+            }
+            count += rows.len();
+            let record = account_state(&block.world, owner).unwrap().unwrap();
+            assert_eq!(
+                record.balance_minor,
+                10_000 - u64::try_from(rows.len()).unwrap() * 100
+            );
+            assert!(
+                record.billing_month_start_ms < now,
+                "unsettled months never fast-forward"
+            );
+            assert!(
+                rows.iter()
+                    .all(|receipt| receipt.collected_minor == 100 && receipt.waived_minor == 0)
+            );
+        }
+        assert_eq!(
+            count, 32,
+            "original native pool must admit a fair exact retail prefix"
+        );
+        visited.sort();
+        assert_eq!(
+            visited.iter().map(|(_, count)| *count).collect::<Vec<_>>(),
+            vec![12, 12, 8]
+        );
+        let cursor: StatePath = norito::decode_from_bytes(
+            block
+                .world
+                .smart_contract_state
+                .get(
+                    &"retail_fee_control_v1/sweep_cursor"
+                        .parse::<StatePath>()
+                        .unwrap(),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            cursor,
+            visited.last().unwrap().0,
+            "cursor advances only through settled wallets"
+        );
+        let native = block.native_maintenance_usage_for_testing();
+        assert_eq!(native.executed_entries, 32);
+        assert_eq!((native.transcripts, native.deltas), (32, 32));
+        assert_eq!(block.fastpq_source_usage_for_testing(), ordinary);
+        let fragments = block.committed_fragment_count();
+        process_idle_accounts(block).unwrap();
+        assert_eq!(block.native_maintenance_usage_for_testing(), native);
+        assert_eq!(block.committed_fragment_count(), fragments);
+        assert_eq!(
+            block.world.smart_contract_state.get(
+                &"retail_fee_control_v1/sweep_cursor"
+                    .parse::<StatePath>()
+                    .unwrap()
+            ),
+            Some(&norito::to_bytes(&cursor).unwrap())
+        );
+    });
+}
+
+#[test]
+fn original_one_entry_native_policy_alternates_retail_and_sns_admission() {
+    let mut now = START;
+    for _ in 0..3 {
+        now = honiara_month_bounds(now).unwrap().1;
+    }
+    for height in [200_000, 200_001] {
+        crate::validation_fee::tests::with_retail_native_capacity_block(
+            height,
+            now + 1_000,
+            1,
+            |block, deployer, code, hash| {
+                let mut setup = block.transaction();
+                let policy = install_retail_policy_fixture(&mut setup, deployer, code, hash);
+                let owner = account(3);
+                seed(&mut setup, &policy, &owner, 1_000, 0, START);
+                setup.apply();
+                process_idle_accounts(block).unwrap();
+                let rows = receipts(&block.world, &owner, None, 10).unwrap();
+                let expected = usize::from(height.is_multiple_of(2));
+                assert_eq!(
+                    rows.len(),
+                    expected,
+                    "one finite native slot alternates by height"
+                );
+                let native = block.native_maintenance_usage_for_testing();
+                assert_eq!(native.executed_entries, u64::try_from(expected).unwrap());
+                assert_eq!(
+                    account_state(&block.world, &owner)
+                        .unwrap()
+                        .unwrap()
+                        .balance_minor,
+                    1_000 - u64::try_from(expected).unwrap() * 100
+                );
+                assert!(
+                    account_state(&block.world, &owner)
+                        .unwrap()
+                        .unwrap()
+                        .billing_month_end_ms
+                        <= now + 1_000,
+                    "next uncollected month is retained even with a one-entry policy"
+                );
+                process_idle_accounts(block).unwrap();
+                assert_eq!(receipts(&block.world, &owner, None, 10).unwrap(), rows);
+                assert_eq!(block.native_maintenance_usage_for_testing(), native);
+            },
+        );
+    }
+}
+
+#[test]
+fn original_idle_waived_receipts_keep_exact_history_without_native_entries() {
+    let mut now = START;
+    for _ in 0..36 {
+        now = honiara_month_bounds(now).unwrap().1;
+    }
+    fixture_block(now, |block, policy| {
+        let owner = account(3);
+        let mut setup = block.transaction();
+        seed(&mut setup, &policy, &owner, 0, 0, START);
+        setup.apply();
+        process_idle_accounts(block).unwrap();
+        let rows = receipts(&block.world, &owner, None, 100).unwrap();
+        assert_eq!(rows.len(), 12);
+        assert!(
+            rows.iter()
+                .all(|row| row.collected_minor == 0 && row.waived_minor == 100)
+        );
+        assert_eq!(
+            block.native_maintenance_usage_for_testing(),
+            crate::fastpq::source_reservation::SourceUsage::ZERO
+        );
+        let record = account_state(&block.world, &owner).unwrap().unwrap();
+        assert_eq!(record.balance_minor, 0);
+        assert!(record.billing_month_start_ms < now);
+        // The receipt page is ordered by hash; the wallet journal owns chronology.
+        let sequence = receipt_sequence(&block.world, &owner, 0, 100).unwrap();
+        assert_eq!(sequence.len(), rows.len());
+        let mut page = sequence.clone();
+        page.sort_by_key(|receipt| receipt.receipt_id);
+        assert_eq!(page, rows);
+        let mut boundary = honiara_month_bounds(START).unwrap().0;
+        for (index, receipt) in sequence.iter().enumerate() {
+            assert_eq!(receipt.sequence, u64::try_from(index).unwrap() + 1);
+            assert_eq!(receipt.billing_month_start_ms, boundary);
+            boundary = honiara_month_bounds(boundary).unwrap().1;
+            assert_eq!(receipt.effective_at_ms, Some(boundary));
+        }
+        assert_eq!(record.billing_month_start_ms, boundary);
+        assert_eq!(
+            record.billing_month_start_ms,
+            sequence.last().unwrap().effective_at_ms.unwrap()
+        );
+    });
+}
+
+fn seed_due_native_renewals(
+    transaction: &mut StateTransaction<'_, '_>,
+    now: u64,
+    count: usize,
+) -> Vec<(
+    StatePath,
+    iroha_data_model::alias_setup::AliasAutoRenewStateV1,
+)> {
+    use iroha_data_model::{
+        alias_setup::{
+            AliasAutoRenewConfigV1, AliasAutoRenewStateV1, AliasTargetV1, ResolvedDomainV1,
+        },
+        sns::{DOMAIN_NAME_SUFFIX_ID, NameControllerV1, NameRecordV1},
+    };
+    let owner = account(13);
+    let collector = account(14);
+    let mut policy = crate::sns::policy_by_id(&transaction.world, DOMAIN_NAME_SUFFIX_ID)
+        .unwrap()
+        .unwrap();
+    let asset = iroha_data_model::sns::pricing::payment_asset_definition_id(&policy).unwrap();
+    policy.fund_splitter_account = collector;
+    transaction.world.smart_contract_state.insert(
+        crate::sns::policy_storage_key(DOMAIN_NAME_SUFFIX_ID),
+        norito::to_bytes(&policy).unwrap(),
+    );
+    **transaction
+        .world
+        .asset_or_insert_exact(
+            &AssetId::new(asset.clone(), owner.clone()),
+            Quantity::zero(),
+        )
+        .unwrap() = Quantity::from(1_000_u32);
+    let mut rows = Vec::new();
+    for index in 0..count {
+        let domain = DomainId::try_new(format!("nativerenew{index}"), "universal").unwrap();
+        transaction
+            .world
+            .domains
+            .insert(domain.clone(), Domain::new(domain.clone()).build(&owner));
+        let selector = crate::sns::selector_for_domain(&domain).unwrap();
+        let expiry = now + 86_400_000;
+        let record = NameRecordV1::new(
+            selector.clone(),
+            owner.clone(),
+            vec![NameControllerV1::account(
+                &AccountAddress::from_account_id(&owner).unwrap(),
+            )],
+            0,
+            now - 86_400_000,
+            expiry,
+            expiry + 30 * 86_400_000,
+            expiry + 90 * 86_400_000,
+            Metadata::default(),
+        );
+        transaction.world.smart_contract_state.insert(
+            crate::sns::record_storage_key(&selector),
+            norito::to_bytes(&record).unwrap(),
+        );
+        let target = AliasTargetV1::Domain(ResolvedDomainV1::new(
+            domain,
+            iroha_model_base::topology::DataSpaceId::UNIVERSAL,
+        ));
+        let renewal = AliasAutoRenewStateV1::new(
+            target,
+            owner.clone(),
+            1,
+            Some(AliasAutoRenewConfigV1 {
+                term_years: 1,
+                policy_version: policy.policy_version,
+                payment_asset: asset.clone(),
+                max_amount: Quantity::one(),
+                renew_before_expiry_ms: 86_400_000,
+                retry_backoff_ms: 100,
+                max_failures: 3,
+            }),
+        );
+        let key = crate::sns::alias_auto_renew_storage_key(&renewal.target).unwrap();
+        crate::sns::persist_alias_auto_renew_state(transaction, &renewal).unwrap();
+        rows.push((key, renewal));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    rows
+}
+
+#[test]
+fn original_time_sns_sweep_uses_only_capacity_left_by_exact_retail_prefix() {
+    use iroha_data_model::block::{BlockHeader, builder::BlockBuilder};
+    let mut now = START;
+    for _ in 0..24 {
+        now = honiara_month_bounds(now).unwrap().1;
+    }
+    now += 1_000;
+    // The fixture's Parliament fee and payout policies must already be active.
+    // Preserve both height parities when the native pool has only one entry.
+    for (total, height, retail_count, sns_count) in [
+        (64_u32, 200_000, 32_usize, 32_usize),
+        (1, 200_000, 1, 0),
+        (1, 200_001, 0, 1),
+    ] {
+        crate::validation_fee::tests::with_retail_native_capacity_state(
+            total,
+            |state, deployer, code, hash| {
+                let header = BlockHeader::new(
+                    std::num::NonZeroU64::new(height).unwrap(),
+                    state.view().latest_block_hash(),
+                    None,
+                    now,
+                    0,
+                );
+                let source = BlockBuilder::new(header)
+                    .build_with_signature(0, iroha_test_samples::ALICE_KEYPAIR.private_key());
+                let (mut block, _recording) =
+                    crate::block::ValidBlock::start_component_execution(&source, state).unwrap();
+                let policy;
+                let renewal_rows;
+                {
+                    let mut setup = block.transaction();
+                    policy = install_retail_policy_fixture(&mut setup, deployer, code, hash);
+                    assert_eq!(
+                        policy_at(&setup.world, height, now).unwrap(),
+                        Some(policy.clone()),
+                        "retail collection starts after the exact fee-policy activation"
+                    );
+                    let payout =
+                        crate::validation_fee::active_payout_binding_at_height(&setup, height)
+                            .unwrap()
+                            .expect("retail collection requires its finalized payout policy");
+                    assert_eq!(payout.custody(), policy.reward_custody);
+                    for owner in (2..=9).map(account) {
+                        seed(&mut setup, &policy, &owner, 10_000, 0, START);
+                    }
+                    renewal_rows = seed_due_native_renewals(
+                        &mut setup,
+                        now,
+                        usize::try_from(total).unwrap() + 1,
+                    );
+                    setup.apply();
+                }
+                assert_eq!(
+                    block
+                        .native_maintenance_usage_for_testing()
+                        .executed_entries,
+                    0
+                );
+                process_idle_accounts(&mut block).unwrap();
+                assert_eq!(
+                    block
+                        .native_maintenance_usage_for_testing()
+                        .executed_entries,
+                    u64::try_from(retail_count).unwrap()
+                );
+                let retail_receipts: usize = (2..=9)
+                    .map(account)
+                    .map(|owner| receipts(&block.world, &owner, None, 100).unwrap().len())
+                    .sum();
+                assert_eq!(retail_receipts, retail_count);
+                let cursor_key: StatePath = "sns/auto_renew_cursor/v1".parse().unwrap();
+                let cursor_before = block.world.smart_contract_state.get(&cursor_key).cloned();
+                let witness_before =
+                    crate::exec_witness::snapshot_exec_witness().fastpq_transcripts;
+                block.reserve_ordinary_execution_outputs(&source).unwrap();
+                block.execute_ordinary_output_plan(&source, None).unwrap();
+                for (index, (_, original)) in renewal_rows.iter().enumerate() {
+                    let current =
+                        crate::sns::alias_auto_renew_state(&block.world, &original.target)
+                            .unwrap()
+                            .unwrap();
+                    if index < sns_count {
+                        assert_eq!(current.revision, original.revision + 1);
+                        assert_eq!(current.failure_count, 0);
+                        assert_eq!(current.next_retry_at_ms, None);
+                        assert_eq!(current.suspended_reason, None);
+                    } else {
+                        assert_eq!(
+                            current, *original,
+                            "native capacity deferral must preserve the exact unselected renewal"
+                        );
+                    }
+                }
+                assert_eq!(
+                    block
+                        .native_maintenance_usage_for_testing()
+                        .executed_entries,
+                    u64::from(total)
+                );
+                let witness_after = crate::exec_witness::snapshot_exec_witness().fastpq_transcripts;
+                assert_eq!(witness_after.len(), retail_count + sns_count);
+                if sns_count == 0 {
+                    assert_eq!(
+                        block.world.smart_contract_state.get(&cursor_key),
+                        cursor_before.as_ref()
+                    );
+                    assert_eq!(
+                        witness_after, witness_before,
+                        "zero SNS capacity cannot publish a renewal witness"
+                    );
+                } else {
+                    assert_eq!(
+                        crate::sns::alias_auto_renew_cursor_for_testing(&block.world)
+                            .unwrap()
+                            .as_ref(),
+                        Some(&renewal_rows[sns_count - 1].0)
+                    );
+                }
+                let sns_asset = iroha_data_model::sns::pricing::payment_asset_definition_id(
+                    &crate::sns::policy_by_id(
+                        &block.world,
+                        iroha_data_model::sns::DOMAIN_NAME_SUFFIX_ID,
+                    )
+                    .unwrap()
+                    .unwrap(),
+                )
+                .unwrap();
+                let remaining_minor = 100_000 - u64::try_from(sns_count).unwrap() * 50;
+                assert_eq!(
+                    block
+                        .world
+                        .assets
+                        .get(&AssetId::new(sns_asset, account(13)))
+                        .unwrap()
+                        .as_ref(),
+                    &format!("{}.{:02}", remaining_minor / 100, remaining_minor % 100)
+                        .parse::<Quantity>()
+                        .unwrap()
+                );
+            },
+        );
+    }
 }

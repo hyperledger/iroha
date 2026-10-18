@@ -562,7 +562,7 @@ def test_retired_policy_payout_and_proposal_shapes_are_rejected() -> None:
     (("effective_from_ms",), 1798722000001),
     (("notice_published_at_ms",), 1798722000000),
     (("reward_custody", "ds_asset_id"), _TESTDATA_OTHER_ASSET_ID),
-    (("reward_custody", "treasury_account_id"), OTHER_PROPOSER),
+    (("reward_custody", "treasury_account_id"), _providers()[0]),
 ])
 def test_current_fee_policy_rejects_malformed_tariff_activation_or_custody(path: tuple[str, ...], value: object) -> None:
     policy = _policy()

@@ -20,6 +20,9 @@
 //!   same-content-rewrite and removal primitives, its `std::fs` backend, and (tests and
 //!   `test-utils`) a simulator with fault injection at every step and crash, restart and
 //!   power-loss simulation.
+//! - `counters`: per-thread, in-memory counts of storage work (store calls, sync classes and
+//!   their time, protected-storage probes, reconciliations, archive and index accesses) for
+//!   on-device measurement ([`KagemushaWalletStorageCountersV1`]). They only observe.
 //! - `layout`: custody root layout, strict names and directory preparation.
 //! - `marker`: marker generations (Enrollment, Selected head, Released head bound to its
 //!   completion digest, Terminal), generation ordering, selection of the highest generation,
@@ -65,8 +68,8 @@
 //! missing record is `CompletionLost`, never a second signature. The highest durable marker
 //! alone selects the head: staging without a marker is discarded, and a payment key or journal
 //! without any marker is lost custody. Every marker carries the slot's anchor kind, so the iOS
-//! rollback anchor is checked whenever the slot was enrolled with one; on iPhone that
-//! passcode-bound keychain anchor refuses restored older custody files as rollbacks.
+//! rollback anchor is checked whenever the slot was enrolled with one; on iPhone a surviving
+//! newer passcode-bound keychain anchor refuses restored older custody files as rollbacks.
 //!
 //! # Public surface
 //!
@@ -88,6 +91,23 @@
 //! `CompletionLost`, never a reason to sign again. Once a Selected marker is durable, the
 //! operation is reported as performed (released or pending), never as failed.
 //!
+//! For iOS the durable Selected marker receives an acknowledged exact Keychain mutation
+//! before receipt signing (A6); the durable Released marker receives another before Payment
+//! release (A10). A matching read after an uncertain mutation never acknowledges it. A fresh
+//! full reconciliation likewise requires an exact mutation acknowledgement before returning
+//! a Released head, even if the anchor already matches. Cached Selected heads retry this
+//! check before signing. These rules close the simulator's loss-of-final-anchor-write case;
+//! they do not bound the number of writes that physical power loss can discard.
+//!
+//! Apple's [Keychain data protection](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web)
+//! documents backup, sync and escrow exclusion for this passcode class. Its
+//! [SecItemUpdate reference](https://developer.apple.com/documentation/security/secitemupdate(_:_:))
+//! and [update guide](https://developer.apple.com/documentation/security/updating-and-deleting-keychain-items)
+//! describe the mutation status, without specifying a power-loss persistence fence. The
+//! implementation therefore does not claim that acknowledgement or readback establishes
+//! physical-device rollback closure. Losing both post-selection anchor values while restoring
+//! older custody files and retaining the payment key remains a simulator counterexample.
+//!
 //! # Present scope
 //!
 //! Stages G2-A and G2-B: platform interface, store, layout, markers, capsules, completions,
@@ -108,9 +128,13 @@ mod anchor;
 mod archive;
 mod capsule;
 mod completion;
+pub(crate) mod counters;
+pub use counters::KagemushaWalletStorageCountersV1;
 mod enrollment;
 mod enrollment_phase;
 mod layout;
+mod live_enrollment_clock;
+pub(crate) use live_enrollment_clock::LiveEnrollmentReadingV1;
 mod marker;
 mod platform;
 mod prekey_custody;
@@ -316,7 +340,7 @@ where
 }
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod crash_matrix_tests;

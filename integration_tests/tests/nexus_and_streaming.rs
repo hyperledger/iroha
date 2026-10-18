@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Grouped integration harness for Nexus, streaming, and Sora/SoraFS flows.
 #[path = "kotodama_examples.rs"]
 mod kotodama_examples;

@@ -34,7 +34,7 @@ impl OfflineCompilerV1<'_> {
             return Err(CompilationErrorV1::Closure);
         }
         let mut originals = Vec::new();
-        let mut sigma = [0; 16];
+        let mut sigma = [0; 11];
         for (out, key) in sigma.iter_mut().zip(sigmas.keys()) {
             *out = intern(&mut originals, key.original)?;
         }

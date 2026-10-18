@@ -1,0 +1,37 @@
+{
+  "status": "PASS",
+  "tool_path": "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/llvm-dwarfdump",
+  "tool_before": "4aa5dcbab821ed16cbc51c0f291a7cc17d3de12b228fb8dd8d7c23999976deaa",
+  "tool_after": "4aa5dcbab821ed16cbc51c0f291a7cc17d3de12b228fb8dd8d7c23999976deaa",
+  "commands": [
+    {
+      "mode": "portable",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/llvm-dwarfdump",
+        "--eh-frame",
+        "/private/tmp/parliament-current-candidate-20261013-v1/binaries-v2/worker-portable"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.020021292148157954,
+      "binary_before": "3f658228a903c50c9a549baedd0b822e14fca03f654659720cb434b83d9bb9dc",
+      "binary_after": "3f658228a903c50c9a549baedd0b822e14fca03f654659720cb434b83d9bb9dc",
+      "stdout_sha256": "7f56ed03be719fe109249ae70c809c0aa4e38df10550334e288cc46a68c955a7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "mode": "accel",
+      "command": [
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/llvm-dwarfdump",
+        "--eh-frame",
+        "/private/tmp/parliament-current-candidate-20261013-v1/binaries-v2/worker-accel"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.013711584033444524,
+      "binary_before": "40219e559636f092c3b4197f6e65eb1ab083f25444fcafd2b635221b4f7e18e7",
+      "binary_after": "40219e559636f092c3b4197f6e65eb1ab083f25444fcafd2b635221b4f7e18e7",
+      "stdout_sha256": "32d879eaf51485f4f58b49851134ecdd9b80cd4671022ece40ce19495a1470d5",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "scope": "Independent LLVM metadata decode, not native unwind execution or stack certificate"
+}

@@ -46,6 +46,7 @@ import org.hyperledger.iroha.sdk.client.stream.ToriiEventStreamClient
 import org.hyperledger.iroha.sdk.tx.SignedTransaction
 import org.hyperledger.iroha.sdk.tx.SignedTransactionHasher
 import org.hyperledger.iroha.sdk.client.transport.TransportRequest
+import org.hyperledger.iroha.sdk.client.transport.TransportRequestNotDispatchedException
 import org.hyperledger.iroha.sdk.client.transport.TransportResponse
 import org.hyperledger.iroha.sdk.core.model.zk.VerifyingKeyBackendTag
 import org.hyperledger.iroha.sdk.core.model.FeePaymentIntent
@@ -155,7 +156,7 @@ class HttpClientTransport private constructor(
             config.allowPlaintextLoopback(),
         )
         return ensureTransactionSubmissionCompatibility()
-            .thenCompose { executeAccepted(request, "transaction JSON submit", 202) }
+            .thenCompose { executeAccepted(request, "transaction JSON submit", 202, preserveUndispatchedFailure = true) }
     }
 
     override fun submitTransactionEntrypoint(encodedVersionedEntrypoint: ByteArray): CompletableFuture<ClientResponse> {
@@ -171,7 +172,8 @@ class HttpClientTransport private constructor(
             notifyRequest(request)
             executor.execute(request).handle { response, throwable ->
                 if (throwable != null) {
-                    val cause = unwrapCompletion(throwable)
+                    val failure = unwrapCompletion(throwable)
+                    val cause = if (failure is TransportRequestNotDispatchedException) failure.originalFailure else failure
                     notifyFailure(request, cause)
                     val failed = CompletableFuture<ClientResponse>()
                     failed.completeExceptionally(cause)
@@ -298,7 +300,7 @@ class HttpClientTransport private constructor(
             config.allowPlaintextLoopback(),
         )
         return ensureTransactionSubmissionCompatibility()
-            .thenCompose { executeAccepted(request, "transaction entrypoint JSON submit", 202) }
+            .thenCompose { executeAccepted(request, "transaction entrypoint JSON submit", 202, preserveUndispatchedFailure = true) }
     }
 
     override fun waitForTransactionStatus(hashHex: String, options: PipelineStatusOptions?): CompletableFuture<Map<String, Any>> {
@@ -673,6 +675,14 @@ class HttpClientTransport private constructor(
         selection: ToriiKagemushaWalletLoadSelectionV1,
         canonicalAuth: ToriiCanonicalRequestAuth,
         requireCurrentOwner: Runnable,
+    ): CompletableFuture<ToriiKagemushaWalletLoadIssuanceOriginalV1> =
+        readKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth, requireCurrentOwner) { it }
+
+    private fun readKagemushaWalletLoadIssuanceOriginalV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+        httpFailure: (ToriiApiException) -> Throwable,
     ): CompletableFuture<ToriiKagemushaWalletLoadIssuanceOriginalV1> {
         requireCurrentOwner.run()
         val expectedNetwork = config.requireLocalSigningContext().networkId()
@@ -709,9 +719,9 @@ class HttpClientTransport private constructor(
                 }
                 requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA load issuance")
                 if (response.statusCode != 200) {
-                    throw ToriiApiException.fromResponse(
+                    throw httpFailure(ToriiApiException.fromResponse(
                         response.statusCode, response.headers, body, "KAGEMUSHA load issuance",
-                    )
+                    ))
                 }
                 requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA load issuance")
                 requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA load issuance")
@@ -844,17 +854,66 @@ class HttpClientTransport private constructor(
         return request
     }
 
+    /** Read the independent issuance and compact finality routes concurrently for one exact
+     * selection. Both requests retain their ordinary signatures, bounds and owner checks. A
+     * failure or cancellation cancels the other read; no half-result is delivered or retained.
+     * The returned originals remain DATA for the canonical decoder and Native verifier. */
+    fun getKagemushaWalletLoadOriginalsV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ToriiKagemushaWalletLoadOriginalsV1> {
+        val issuance = readKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth, requireCurrentOwner) {
+            ToriiKagemushaWalletLoadReadExceptionV1(ToriiKagemushaWalletLoadReadExceptionV1.Stage.ISSUANCE, it)
+        }
+        val finality = try {
+            readKagemushaWalletLoadFinalityOriginalV1(selection, canonicalAuth, requireCurrentOwner) {
+                ToriiKagemushaWalletLoadReadExceptionV1(ToriiKagemushaWalletLoadReadExceptionV1.Stage.FINALITY, it)
+            }
+        } catch (failure: Throwable) {
+            issuance.cancel(false)
+            throw failure
+        }
+        val result = CompletableFuture<ToriiKagemushaWalletLoadOriginalsV1>()
+        result.whenComplete { _, failure ->
+            if (failure != null) { issuance.cancel(false); finality.cancel(false) }
+        }
+        // thenCombine alone waits for both failures/completions; stop a failing pair immediately.
+        issuance.whenComplete { _, failure ->
+            if (failure != null) result.completeExceptionally(unwrapCompletion(failure))
+        }
+        finality.whenComplete { _, failure ->
+            if (failure != null) result.completeExceptionally(unwrapCompletion(failure))
+        }
+        issuance.thenCombine(finality) { receipt, proof ->
+            requireCurrentOwner.run()
+            ToriiKagemushaWalletLoadOriginalsV1(receipt, proof)
+        }.whenComplete { originals, failure ->
+            if (failure == null) result.complete(originals)
+            else result.completeExceptionally(unwrapCompletion(failure))
+        }
+        return result
+    }
+
     /** One native BLS certificate and exact Load event inclusion. The response remains DATA
      * until Native verifies the signed genesis, epoch transitions and receipt binding. */
     fun getKagemushaWalletLoadFinalityOriginalV1(
         selection: ToriiKagemushaWalletLoadSelectionV1,
         canonicalAuth: ToriiCanonicalRequestAuth,
         requireCurrentOwner: Runnable,
+    ): CompletableFuture<ByteArray> =
+        readKagemushaWalletLoadFinalityOriginalV1(selection, canonicalAuth, requireCurrentOwner) { it }
+
+    private fun readKagemushaWalletLoadFinalityOriginalV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+        httpFailure: (ToriiApiException) -> Throwable,
     ): CompletableFuture<ByteArray> {
         requireCurrentOwner.run()
         config.requireLocalSigningContext()
         val request = buildKagemushaWalletLedgerOriginalRequestV1(selection.path + "/finality", 256 * 1024, canonicalAuth)
-        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner)
+        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner, httpFailure)
     }
 
     /** One boundary selected by Native's authenticated epoch progress. Only Native's
@@ -888,7 +947,8 @@ class HttpClientTransport private constructor(
     }
 
     private fun readKagemushaWalletLedgerOriginalV1(request: TransportRequest,
-        requireCurrentOwner: Runnable): CompletableFuture<ByteArray> {
+        requireCurrentOwner: Runnable,
+        httpFailure: (ToriiApiException) -> Throwable = { it }): CompletableFuture<ByteArray> {
         val result = CompletableFuture<ByteArray>()
         val upstream = try {
             requireCurrentOwner.run()
@@ -910,8 +970,8 @@ class HttpClientTransport private constructor(
                 val body = response.body
                 require(body.isNotEmpty() && body.size.toLong() <= requireNotNull(request.maximumResponseBytes))
                 requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA ledger original")
-                if (response.statusCode != 200) throw ToriiApiException.fromResponse(
-                    response.statusCode, response.headers, body, "KAGEMUSHA ledger original")
+                if (response.statusCode != 200) throw httpFailure(ToriiApiException.fromResponse(
+                    response.statusCode, response.headers, body, "KAGEMUSHA ledger original"))
                 requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA ledger original")
                 requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA ledger original")
                 notifyResponse(request, ClientResponse(response.statusCode, body, response.message))
@@ -1757,9 +1817,7 @@ class HttpClientTransport private constructor(
             requestPayload.getValue("signer_account_id") as String,
             "signerAccountId",
         )
-        (requestPayload["multisig_account_id"] as? String)?.let {
-            requireCanonicalI105Address(it, "multisigAccountId")
-        }
+        requireCanonicalI105Address(requestSnapshot.multisigAccountId, "multisigAccountId")
         val proposalInstructions =
             NoritoJavaCodecAdapter.canonicalMultisigProposalInstructionBoxes(requestSnapshot)
         val expectedMetadata = canonicalMultisigMetadata(requestPayload)
@@ -2081,13 +2139,17 @@ class HttpClientTransport private constructor(
             executor.execute(request).handle { response, throwable ->
                 if (throwable != null) {
                     val cause = unwrapCompletion(throwable)
-                    val error = AmbiguousTransactionSubmissionException(
-                        hashHex,
-                        null,
-                        null,
-                        null,
-                        cause,
-                    )
+                    val error = if (cause is TransportRequestNotDispatchedException) {
+                        cause.originalFailure
+                    } else {
+                        AmbiguousTransactionSubmissionException(
+                            hashHex,
+                            null,
+                            null,
+                            null,
+                            cause,
+                        )
+                    }
                     notifyFailure(request, error)
                     return@handle CompletableFuture<ClientResponse>().also {
                         it.completeExceptionally(error)
@@ -2581,6 +2643,7 @@ class HttpClientTransport private constructor(
     private fun <T> executeResponse(
         request: TransportRequest,
         errorContext: String,
+        preserveUndispatchedFailure: Boolean = false,
         consume: (TransportResponse) -> T,
     ): CompletableFuture<T> = CompletableFuture.completedFuture(Unit).thenCompose {
         notifyRequest(request)
@@ -2588,7 +2651,11 @@ class HttpClientTransport private constructor(
     }.handle { response, failure ->
         try {
             if (failure != null) {
-                throw RuntimeException("$errorContext request failed", unwrapCompletion(failure))
+                val cause = unwrapCompletion(failure)
+                if (preserveUndispatchedFailure && cause is TransportRequestNotDispatchedException) {
+                    throw cause.originalFailure
+                }
+                throw RuntimeException("$errorContext request failed", cause)
             }
             consume(response)
         } catch (error: Throwable) {
@@ -2941,8 +3008,13 @@ class HttpClientTransport private constructor(
         }
     }
 
-    private fun executeAccepted(request: TransportRequest, errorContext: String, acceptedStatus: Int): CompletableFuture<ClientResponse> {
-        return executeResponse(request, errorContext) { response ->
+    private fun executeAccepted(
+        request: TransportRequest,
+        errorContext: String,
+        acceptedStatus: Int,
+        preserveUndispatchedFailure: Boolean = false,
+    ): CompletableFuture<ClientResponse> {
+        return executeResponse(request, errorContext, preserveUndispatchedFailure) { response ->
             val clientResponse = ClientResponse(response.statusCode, response.body, response.message, null, extractRejectCode(response))
             if (response.statusCode != acceptedStatus) {
                 throw ToriiApiException.fromResponse(response.statusCode, response.headers, response.body, errorContext)
@@ -3415,20 +3487,11 @@ class HttpClientTransport private constructor(
         }
 
         @JvmStatic internal fun buildMultisigProposePayload(request: MultisigProposeRequest): Map<String, Any> {
-            val hasAccountId = request.multisigAccountId != null
-            val hasAlias = request.multisigAccountAlias != null
-            require(hasAccountId != hasAlias) { "Exactly one of multisigAccountId or multisigAccountAlias must be provided" }
             require(request.instructions.isNotEmpty()) { "instructions must not be empty" }
-
             val payload = LinkedHashMap<String, Any>()
-            val accountId = request.multisigAccountId
-            val accountAlias = request.multisigAccountAlias
-            if (accountId != null) {
-                payload["multisig_account_id"] = normalizeNonBlank(accountId, "multisigAccountId")
-            } else {
-                payload["multisig_account_alias"] = normalizeNonBlank(accountAlias!!, "multisigAccountAlias")
-            }
+            payload["multisig_account_id"] = requireCanonicalI105Address(request.multisigAccountId, "multisigAccountId")
             payload["signer_account_id"] = normalizeNonBlank(request.signerAccountId, "signerAccountId")
+            payload["proposal_nonce"] = request.proposalNonce
             if (request.publicKeyHex != null) {
                 payload["public_key_hex"] =
                     normalizeEd25519PublicKeyHex(request.publicKeyHex, "publicKeyHex")
@@ -3476,18 +3539,16 @@ class HttpClientTransport private constructor(
                 NoritoJavaCodecAdapter.hashCanonicalInstructionBoxes(proposalInstructions),
             )
             check(
-                response.proposalId == expectedProposalHash &&
-                    response.instructionsHash == expectedProposalHash,
+                response.instructionsHash == expectedProposalHash,
             ) {
                 "multisig response proposal hash does not match the exact requested instructions"
             }
-            val requestedMultisigAccount = requestPayload["multisig_account_id"] as? String
-                ?: throw IllegalStateException(
-                    "multisig aliases require a caller-trusted resolved account",
-                )
+            val requestedMultisigAccount = request.multisigAccountId
             check(response.resolvedMultisigAccountId == requestedMultisigAccount) {
                 "multisig response resolved account does not match the requested account"
             }
+            val expectedProposalId = org.hyperledger.iroha.sdk.crypto.NativeSignerBridge.deriveMultisigProposalId(expectedNetworkId, requestedMultisigAccount, request.proposalNonce)
+            check(response.proposalId == expectedProposalId) { "multisig response changed occurrence identity" }
             if (response.submitted) return response
             val transactionBytes = Base64.getDecoder().decode(
                 checkNotNull(response.transactionPayloadB64) {
@@ -3529,6 +3590,8 @@ class HttpClientTransport private constructor(
             val executableHash = NoritoJavaCodecAdapter.verifyCanonicalMultisigProposeExecutable(
                 decoded,
                 requestedMultisigAccount,
+                request.proposalNonce,
+                expectedProposalId,
                 proposalInstructions,
             )
             check(hexLower(executableHash) == expectedProposalHash) {

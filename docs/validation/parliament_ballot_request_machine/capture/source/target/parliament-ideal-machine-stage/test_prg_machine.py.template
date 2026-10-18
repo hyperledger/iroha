@@ -1,0 +1,156 @@
+"""Independent fixed-heap traversal and PRG-frame controls, using a toy cipher.
+
+The toy does not certify AES: it isolates routing and little-endian frame errors
+without invoking the pending concrete AES integration.
+"""
+from collections import Counter
+import random
+import unittest
+
+from bit_ir import Builder, Cost, apply_gates, bits, unpack
+from prg_machine import TreeExpansion, add_words, expansion_block
+
+
+class ToyCipher:
+    """Full-width reversible response-XOR circuit with asymmetric key mixing."""
+    name, inputs, outputs, work = "test-public-cipher", 384, 128, 0
+    cost = Cost(cx=384)
+
+    def evaluate(self, inputs):
+        return tuple(inputs[i] ^ inputs[128 + (i + 13) % 128] ^ inputs[256 + i]
+                     for i in range(128))
+
+    def emit(self, inputs, outputs, work):
+        if len(work) != 0 or len(set(inputs + outputs)) != 512:
+            raise ValueError("toy cipher wiring")
+        for i in range(128):
+            for source in (inputs[i], inputs[128 + (i + 13) % 128], inputs[256 + i]):
+                yield ("cx", source, outputs[i])
+
+
+def reference_cipher(key, plaintext):
+    """Independent whole-word form of the toy primitive, avoiding circuit IR."""
+    mask = (1 << 128) - 1
+    upper = key >> 128
+    rotated = ((upper >> 13) | (upper << 115)) & mask
+    return (key & mask) ^ rotated ^ plaintext
+
+
+def reference_expand(keys, marks, iv):
+    """Mutable source-style ascending heap implementation, skipping marked nodes."""
+    out = list(keys)
+    leaves = (len(keys) + 1) // 2
+    iv_bytes = iv.to_bytes(16, "little")
+    for parent in range(leaves - 1):
+        if marks[parent]:
+            continue
+        raw = b""
+        for counter in range(4):
+            low = (int.from_bytes(iv_bytes[:4], "little") + counter) & 0xffffffff
+            high = (int.from_bytes(iv_bytes[12:], "little") + parent) & 0xffffffff
+            message = low.to_bytes(4, "little") + iv_bytes[4:12] + high.to_bytes(4, "little")
+            raw += reference_cipher(out[parent], int.from_bytes(message, "little")).to_bytes(16, "little")
+        out[2 * parent + 1] = int.from_bytes(raw[:32], "little")
+        out[2 * parent + 2] = int.from_bytes(raw[32:], "little")
+    return out, leaves - 1
+
+
+class PrgMachineTests(unittest.TestCase):
+    def test_all_small_word_additions_and_aliases(self):
+        for width in range(1, 7):
+            b = Builder(2 * width)
+            c = b.finish(add_words(b, tuple(range(width)), tuple(range(width, 2 * width))))
+            for x in range(1 << width):
+                for y in range(1 << width):
+                    self.assertEqual(unpack(c.evaluate(bits(x, width) + bits(y, width))),
+                                     (x + y) % (1 << width))
+            b = Builder(width)
+            c = b.finish(add_words(b, tuple(range(width)), tuple(range(width))))
+            for x in range(1 << width):
+                self.assertEqual(unpack(c.evaluate(bits(x, width))), 2 * x % (1 << width))
+        with self.assertRaises(ValueError):
+            add_words(Builder(1), (), ())
+        with self.assertRaises(ValueError):
+            add_words(Builder(1), (0,), (1,))
+
+    def test_actual_word_boundaries_do_not_carry_into_middle(self):
+        c = expansion_block(ToyCipher())
+        key = (1 << 255) | (1 << 127) | 13
+        middle = 0x1122334455667788
+        for low in (0, 0xfffffffd, 0xffffffff):
+            for high in (0, 0xfffffffe, 0xffffffff):
+                iv = low | (middle << 32) | (high << 96)
+                for tweak in (0, 1, 61438, 0xffffffff):
+                    out = c.evaluate(bits(key, 256) + bits(iv, 128) + bits(tweak, 32)
+                                     + (0,) + (0,) * 512)
+                    self.assertEqual(unpack(out[:32]), (tweak + 1) & 0xffffffff)
+                    for counter in range(4):
+                        plaintext = ((low + counter) & 0xffffffff) | (middle << 32) | (((high + tweak) & 0xffffffff) << 96)
+                        got = unpack(out[32 + 128 * counter:32 + 128 * (counter + 1)])
+                        self.assertEqual(got, reference_cipher(key, plaintext))
+
+    def test_source_mutable_heap_matches_static_wiring_with_zero_keys(self):
+        rng = random.Random(913)
+        for leaves in (4, 8, 12, 16):
+            tree = TreeExpansion(leaves, ToyCipher())
+            for _ in range(8):
+                marks = [rng.randrange(2) for _ in range(2 * leaves - 1)]
+                keys = [0 if i % 3 == 0 else rng.getrandbits(256) for i in range(2 * leaves - 1)]
+                iv = rng.getrandbits(128)
+                self.assertEqual(tree.evaluate(marks, keys, iv), reference_expand(keys, marks, iv))
+
+    def test_clean_stream_counts_joint_input_output_and_inverse(self):
+        tree = TreeExpansion(4, ToyCipher())
+        p = tree.layout()
+        gates = tuple(tree.emit_clean())
+        actual = Counter(gate[0] for gate in gates)
+        expected = tree.resources()["clean_gates"]
+        for name in ("x", "cx", "ccx"):
+            self.assertEqual(actual[name], expected[name])
+        keys = [0, 0, 11, 13, 0, 13, (1 << 255)]
+        iv = (0xffffffff << 96) | (0x1234567890abcdef << 32) | 0xfffffffe
+        for marked in (0, 1, 3, 5, 7):
+            marks = list(bits(marked, 7))
+            final, count = reference_expand(keys, marks, iv)
+            inputs = tuple(marks) + tuple(bit for key in keys for bit in bits(key, 256)) + bits(iv, 128)
+            wanted = tuple(bit for key in final for bit in bits(key, 256)) + bits(count, 32)
+            z = tuple((i + i // 7) % 2 for i in range(tree.output_bits))
+            state = list(inputs + (0,) * (p["output_start"] - len(inputs)) + z)
+            before = list(state)
+            apply_gates(state, gates)
+            self.assertEqual(state[:len(inputs)], list(inputs))
+            self.assertEqual(state[len(inputs):p["output_start"]], [0] * (p["output_start"] - len(inputs)))
+            self.assertEqual(tuple(state[p["output_start"]:]), tuple(a ^ b for a, b in zip(wanted, z)))
+            apply_gates(state, reversed(gates))
+            self.assertEqual(state, before)
+
+    def test_actual_size_frame_mapping_is_lazy(self):
+        for leaves in (6400, 61440):
+            tree = TreeExpansion(leaves, ToyCipher())
+            p = tree.layout()
+            self.assertNotIn("frames", p)
+            for parent in (0, 1, 2, leaves // 2, leaves - 2):
+                inputs, start = tree.frame(p, parent)
+                self.assertEqual(len(set(inputs)), 929)
+                self.assertLess(max(inputs), start)
+                self.assertEqual(inputs[:256], tree.final_key(p, parent))
+                self.assertEqual(inputs[416], parent)
+            self.assertFalse(tree.resources()["complete_B1_coverage"])
+            self.assertEqual(tree.resources()["clean_concrete_aes_calls"], 8 * (leaves - 1))
+            self.assertEqual(next(tree.emit_clean())[0], "cx")
+
+    def test_invalid_kernel_shape_or_external_oracle_refused(self):
+        class Wrong(ToyCipher):
+            inputs = 383
+        class Oracle(ToyCipher):
+            cost = Cost(base_calls=1)
+        for kernel in (Wrong(), Oracle()):
+            with self.assertRaises(ValueError):
+                TreeExpansion(4, kernel)
+        for leaves in (True, 3, 61441):
+            with self.assertRaises(ValueError):
+                TreeExpansion(leaves, ToyCipher())
+
+
+if __name__ == "__main__":
+    unittest.main()

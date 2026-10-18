@@ -150,12 +150,12 @@ impl KagemushaWalletMarkerRecordV1 {
     /// envelope.
     pub(super) fn new(
         slot: KagemushaWalletSlotIdV1,
-        marker: KagemushaWalletMarkerV1,
+        marker: &KagemushaWalletMarkerV1,
         anchor: KagemushaWalletAnchorPolicyV1,
         completion_digest: Option<[u8; 32]>,
         written_boot_id: [u8; 32],
     ) -> Result<Self, KagemushaWalletProviderErrorV1> {
-        let phase = phase_of(&marker, completion_digest)?;
+        let phase = phase_of(marker, completion_digest)?;
         let selected_generation = match phase {
             KagemushaWalletMarkerPhaseV1::Selected => marker.generation,
             KagemushaWalletMarkerPhaseV1::Released => marker
@@ -177,7 +177,7 @@ impl KagemushaWalletMarkerRecordV1 {
 
     fn new_bound(
         slot: KagemushaWalletSlotIdV1,
-        marker: KagemushaWalletMarkerV1,
+        marker: &KagemushaWalletMarkerV1,
         anchor: KagemushaWalletAnchorPolicyV1,
         completion_digest: Option<[u8; 32]>,
         written_boot_id: [u8; 32],
@@ -187,7 +187,7 @@ impl KagemushaWalletMarkerRecordV1 {
         if completion_digest == Some([0; 32]) {
             return Err(invalid("marker.completion_digest"));
         }
-        let phase = phase_of(&marker, completion_digest)?;
+        let phase = phase_of(marker, completion_digest)?;
         let valid_selected = match phase {
             KagemushaWalletMarkerPhaseV1::Selected => selected_generation == marker.generation,
             KagemushaWalletMarkerPhaseV1::Released => {
@@ -217,7 +217,7 @@ impl KagemushaWalletMarkerRecordV1 {
         let file_bytes = encode_envelope_v1(&file, KAGEMUSHA_WALLET_MARKER_FILE_MAX_BYTES_V1)?;
         Ok(Self {
             slot,
-            marker,
+            marker: *marker,
             anchor,
             phase,
             completion_digest,
@@ -260,7 +260,7 @@ impl KagemushaWalletMarkerRecordV1 {
             (file.completion_digest != [0; 32]).then_some(file.completion_digest);
         let record = Self::new_bound(
             *slot,
-            marker,
+            &marker,
             anchor,
             completion_digest,
             file.written_boot_id,
@@ -298,7 +298,7 @@ impl KagemushaWalletMarkerRecordV1 {
             .map_err(|_| invalid("marker.state"))?;
         let next = Self::new_bound(
             self.slot,
-            marker,
+            &marker,
             self.anchor,
             None,
             written_boot_id,
@@ -333,7 +333,7 @@ impl KagemushaWalletMarkerRecordV1 {
         };
         let next = Self::new_bound(
             self.slot,
-            marker,
+            &marker,
             self.anchor,
             Some(completion_digest),
             written_boot_id,
@@ -363,7 +363,7 @@ impl KagemushaWalletMarkerRecordV1 {
         };
         let next = Self::new_bound(
             self.slot,
-            marker,
+            &marker,
             self.anchor,
             self.completion_digest,
             written_boot_id,
@@ -396,7 +396,7 @@ impl KagemushaWalletMarkerRecordV1 {
                 last_capsule_digest,
             })
             .map_err(|_| invalid("marker.state"))?;
-        let next = Self::new(self.slot, marker, self.anchor, None, written_boot_id)?;
+        let next = Self::new(self.slot, &marker, self.anchor, None, written_boot_id)?;
         next.validate_successor_of(self)?;
         Ok(next)
     }
@@ -424,7 +424,7 @@ impl KagemushaWalletMarkerRecordV1 {
             return Err(invalid("marker.anchor_kind"));
         }
         match (previous.phase, self.phase) {
-            (Phase::Selected, Phase::Released) | (Phase::Released, Phase::Released) => {
+            (Phase::Selected | Phase::Released, Phase::Released) => {
                 let generation = previous
                     .marker
                     .generation

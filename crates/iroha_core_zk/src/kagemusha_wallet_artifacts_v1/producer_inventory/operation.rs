@@ -4,6 +4,14 @@
 //! capability follows until that very key is independently reconstructed from the
 //! complete source-qualified terminal catalog by the canonical Omega owner.
 
+use std::sync::Arc;
+
+#[path = "operation/session.rs"]
+mod session;
+pub use session::OperationQualificationProgressV1;
+#[cfg(test)]
+pub(crate) use session::{assert_builtin_receive_alias_controls, assert_receive_alias_controls};
+
 use iroha_kagemusha_proof::a_relation::{
     AProofPlan, QProofPlan,
     context::ContextPlan,
@@ -49,8 +57,10 @@ pub enum QualifiedOperationOwnerV1 {
     Load(Box<load::Prover>),
     /// One exact Send control mask.
     Send(Box<send::Prover>),
-    /// Ordinary or renewed Receive under exact own/incoming sigma classes.
-    Receive(Box<receive::Prover>),
+    /// Ordinary or renewed Receive under its exact incoming sigma class.
+    /// Same-program aliases share this immutable source owner only within one
+    /// authenticated batch, after each alias revalidates its exact originals.
+    Receive(Arc<receive::Prover>),
     /// Receive-evidence or Status-evidence Archive.
     Archive(Box<archive::Prover>),
     /// Unload or Retiring.
@@ -62,6 +72,8 @@ pub enum QualifiedOperationOwnerV1 {
 /// One authenticated logical route and its source-qualified A/W metadata.
 /// It retains no proving keys. Every logical route must be qualified before
 /// terminal deduplication, followed by exact canonical Omega source qualification.
+/// A batch may reuse its own fully admitted Receive program across selector aliases
+/// only after all originals and the same source/member bindings are revalidated.
 pub struct QualifiedOperationRouteV1 {
     installation: ([u8; 32], [u8; 32]),
     route: u32,
@@ -101,9 +113,9 @@ fn source<T, E>(result: Result<T, E>) -> Result<T, OperationQualificationErrorV1
     result.map_err(|_| OperationQualificationErrorV1::Source)
 }
 fn metadata<C: PastaCurve>(
-    original: ArtifactOriginalV1,
+    original: DecodedVerifierOriginal,
 ) -> Result<KeyArtifact<C>, OperationQualificationErrorV1> {
-    let binding = source(DescriptorBinding::decode_v2(&original.descriptor))?;
+    let binding = source(original.binding)?;
     let key = source(VerifyingKey::read(&original.verifying_key, &binding))?;
     source(KeyArtifact::new(binding, key))
 }
@@ -169,11 +181,12 @@ impl Plan {
             Self::Send(p) => QualifiedOperationOwnerV1::Send(Box::new(source(
                 send::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
             )?)),
-            Self::Receive(p) => QualifiedOperationOwnerV1::Receive(Box::new(source(
+            Self::Receive(p) => QualifiedOperationOwnerV1::Receive(Arc::new(source(
                 receive::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
             )?)),
+            // Archive's stage count follows its evidence variant (nine or eight A stages).
             Self::Archive(p) => QualifiedOperationOwnerV1::Archive(Box::new(source(
-                archive::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
+                archive::Prover::from_artifacts(p, a, w),
             )?)),
             Self::Consuming(p) => QualifiedOperationOwnerV1::Consuming(Box::new(source(
                 consuming::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
@@ -185,31 +198,35 @@ impl Plan {
     }
 }
 
+#[cfg(test)]
 pub(super) fn plan(
     route: OperationRoute,
     scope: SourceScopeV1,
     recipe: &QProgramRecipeV1,
     omega: &KeyArtifact<Ep>,
 ) -> Result<Plan, OperationQualificationErrorV1> {
-    let policy = source(scope.own())?;
     let pallas = source(PinnedParams::derive(16))?;
     let vesta = source(PinnedParams::derive(16))?;
-    let keys = recipe
-        .keys()
-        .iter()
-        .map(|key| {
-            let verifier = source(VerifierPlan::new(key.binding().clone(), pallas.clone()))?;
-            source(QProofPlan::new(verifier, key.key().clone()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let predecessor = source(VerifierPlan::new(omega.binding().clone(), pallas.clone()))?;
-    let operation = source(AProofPlan::new(
-        route.variant,
-        recipe.sigma().clone(),
-        keys,
-        Some(predecessor),
-        &pallas,
-    ))?;
+    plan_with_parameters(route, scope, recipe, omega, pallas, vesta)
+}
+
+pub(super) fn plan_with_parameters(
+    route: OperationRoute,
+    scope: SourceScopeV1,
+    recipe: &QProgramRecipeV1,
+    omega: &KeyArtifact<Ep>,
+    pallas: PinnedParams<Ep>,
+    vesta: PinnedParams<Eq>,
+) -> Result<Plan, OperationQualificationErrorV1> {
+    if pallas.k() != 16 || vesta.k() != 16 {
+        return Err(OperationQualificationErrorV1::Source);
+    }
+    if matches!(route.variant, Variant::Receive | Variant::ReceiveRenewed) {
+        return receive_plan_with_parameters(route.variant, scope, recipe, omega, pallas, vesta)
+            .map(Plan::Receive);
+    }
+    let policy = source(scope.own())?;
+    let operation = a_plan_with_parameters(route.variant, recipe, omega, &pallas)?;
     let key = omega.key().clone();
     Ok(match route.variant {
         Variant::Bootstrap => return Err(OperationQualificationErrorV1::Source),
@@ -233,9 +250,7 @@ pub(super) fn plan(
                 operation, mask, policy, signatures, key, pallas, vesta,
             ))?)
         }
-        Variant::Receive | Variant::ReceiveRenewed => Plan::Receive(source(receive::Plan::new(
-            operation, policy, key, pallas, vesta,
-        ))?),
+        Variant::Receive | Variant::ReceiveRenewed => unreachable!("typed Receive source above"),
         Variant::ArchiveReceive | Variant::ArchiveStatus => Plan::Archive(source(
             archive::Plan::new(operation, policy, key, pallas, vesta),
         )?),
@@ -251,12 +266,75 @@ pub(super) fn plan(
         }
         Variant::RefreshCredential
         | Variant::RefreshSchemePolicy
-        | Variant::RefreshBlacklist
         | Variant::RefreshTimeAnchor
         | Variant::RefreshQuotaShare => Plan::Refresh(source(refresh::Plan::new(
             operation, policy, key, pallas, vesta,
         ))?),
     })
+}
+
+// No individual own/incoming selector enters a Receive source constructor. The
+// qualified Q recipe contains the complete signed classes, and variant remains
+// distinct between ordinary and renewed Receive. This boundary justifies local
+// same-program reuse; Send's route-specific mask never enters it.
+fn receive_plan_with_parameters(
+    variant: Variant,
+    scope: SourceScopeV1,
+    recipe: &QProgramRecipeV1,
+    omega: &KeyArtifact<Ep>,
+    pallas: PinnedParams<Ep>,
+    vesta: PinnedParams<Eq>,
+) -> Result<receive::Plan, OperationQualificationErrorV1> {
+    if !matches!(variant, Variant::Receive | Variant::ReceiveRenewed)
+        || pallas.k() != 16
+        || vesta.k() != 16
+    {
+        return Err(OperationQualificationErrorV1::Source);
+    }
+    let operation = a_plan_with_parameters(variant, recipe, omega, &pallas)?;
+    source(receive::Plan::new(
+        operation,
+        source(scope.own())?,
+        omega.key().clone(),
+        pallas,
+        vesta,
+    ))
+}
+
+fn a_plan_with_parameters(
+    variant: Variant,
+    recipe: &QProgramRecipeV1,
+    omega: &KeyArtifact<Ep>,
+    pallas: &PinnedParams<Ep>,
+) -> Result<AProofPlan, OperationQualificationErrorV1> {
+    let keys = recipe
+        .keys()
+        .iter()
+        .map(|key| {
+            let verifier = source(VerifierPlan::new(key.binding().clone(), pallas.clone()))?;
+            source(QProofPlan::new(verifier, key.key().clone()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let predecessor = source(VerifierPlan::new(omega.binding().clone(), pallas.clone()))?;
+    match recipe.sigma() {
+        Some(sigma) if sigma.has_own() => source(AProofPlan::new(
+            variant,
+            sigma.clone(),
+            keys,
+            Some(predecessor),
+            pallas,
+        )),
+        // A proves the own step directly (lean lineage); a route that consumes an
+        // incoming sigma keeps an incoming-only Q_sigma.
+        Some(sigma) => source(AProofPlan::inline_with_incoming(
+            variant,
+            sigma.clone(),
+            keys,
+            Some(predecessor),
+            pallas,
+        )),
+        None => source(AProofPlan::inline(variant, keys, Some(predecessor), pallas)),
+    }
 }
 
 fn import_error(
@@ -271,6 +349,81 @@ fn import_error(
 }
 
 impl QualifiedOperationOwnerV1 {
+    fn import_a_builtin(
+        &self,
+        stage: usize,
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<iroha_plonk::keys::SourceAdmissionSealV2<Eq>, OperationQualificationErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)
+            .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
+        match self {
+            // Bootstrap is one unsplit terminal A: stage 0 is its only stage.
+            Self::Bootstrap(p) => match stage {
+                0 => p.prover().import_terminal_builtin_cancellable(
+                    original,
+                    config,
+                    member,
+                    cancellation,
+                ),
+                _ => return Err(OperationQualificationErrorV1::A(stage)),
+            }
+            .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Load(p) => p
+                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Send(p) => p
+                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Receive(p) => p
+                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Archive(p) => p
+                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Consuming(p) => p
+                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+            Self::Refresh(p) => p
+                .import_a_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::A(stage))),
+        }
+    }
+    fn import_w_builtin(
+        &self,
+        stage: usize,
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<iroha_plonk::keys::SourceAdmissionSealV2<Ep>, OperationQualificationErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)
+            .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
+        match self {
+            // Bootstrap is one unsplit terminal A: it has no W stage.
+            Self::Bootstrap(_) => Err(OperationQualificationErrorV1::W(stage)),
+            Self::Load(p) => p
+                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            Self::Send(p) => p
+                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            Self::Receive(p) => p
+                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            Self::Archive(p) => p
+                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            Self::Consuming(p) => p
+                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+            Self::Refresh(p) => p
+                .import_w_builtin_cancellable(stage, original, config, member, cancellation)
+                .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
+        }
+    }
     pub(super) fn import_a(
         &self,
         stage: usize,
@@ -281,11 +434,9 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
+            // Bootstrap is one unsplit terminal A: stage 0 is its only stage.
             Self::Bootstrap(p) => match stage {
                 0 => p
-                    .prover()
-                    .import_first_cancellable(original, config, cancellation),
-                1 => p
                     .prover()
                     .import_terminal_cancellable(original, config, cancellation),
                 _ => return Err(OperationQualificationErrorV1::A(stage)),
@@ -321,14 +472,8 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
-            Self::Bootstrap(p) => {
-                if stage != 0 {
-                    return Err(OperationQualificationErrorV1::W(stage));
-                }
-                p.prover()
-                    .import_wrapper_cancellable(original, config, cancellation)
-                    .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage)))
-            }
+            // Bootstrap is one unsplit terminal A: it has no W stage.
+            Self::Bootstrap(_) => Err(OperationQualificationErrorV1::W(stage)),
             Self::Load(p) => p
                 .import_w_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
@@ -367,6 +512,29 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
     ) -> Result<QualifiedOperationRouteV1, OperationQualificationErrorV1> {
+        self.qualify_operation_route_with_admission(
+            installed,
+            qualified_q,
+            route_index,
+            originals,
+            config,
+            super::builtin::Admission::Strict,
+            &DescriptorMemo::default(),
+        )
+    }
+
+    // `descriptors` belongs to the calling qualification and is dropped with it.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn qualify_operation_route_with_admission(
+        &self,
+        installed: &InstalledVerifierPackV1,
+        qualified_q: &QualifiedQProgramV1,
+        route_index: u32,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+        admission: super::builtin::Admission<'_>,
+        descriptors: &DescriptorMemo,
+    ) -> Result<QualifiedOperationRouteV1, OperationQualificationErrorV1> {
         let identity = (
             installed.verifier().scheme().scheme_id(),
             installed.verifier().manifest_digest(),
@@ -384,11 +552,21 @@ impl AuthenticatedProducerInventoryV1 {
             .ok_or(Error::Inventory)?;
         require_route(record, route)?;
         if route.variant == Variant::Bootstrap {
-            let owner =
-                self.qualify_bootstrap_program(installed, qualified_q, program, originals, config)?;
-            let terminal = metadata(
-                self.read_verifier_original(*record.a.last().ok_or(Error::Inventory)?, originals)?,
+            let owner = self.qualify_bootstrap_program_with_admission(
+                installed,
+                qualified_q,
+                program,
+                originals,
+                config,
+                route_index,
+                admission,
+                descriptors,
             )?;
+            let terminal = metadata(self.read_verifier_metadata(
+                *record.a.last().ok_or(Error::Inventory)?,
+                originals,
+                descriptors,
+            )?)?;
             let stage_memory = owner.stage_memory_bytes();
             return Ok(QualifiedOperationRouteV1 {
                 installation: identity,
@@ -402,12 +580,15 @@ impl AuthenticatedProducerInventoryV1 {
                 stage_memory,
             });
         }
-        let omega = metadata(self.read_verifier_original(self.inventory.omega, originals)?)?;
-        let plan = plan(
+        let omega =
+            metadata(self.read_verifier_metadata(self.inventory.omega, originals, descriptors)?)?;
+        let plan = plan_with_parameters(
             route,
             SourceScopeV1::from_scheme(installed.verifier().scheme())?,
             qualified_q.recipe(),
             &omega,
+            installed.verifier().pallas_parameters().as_ref().clone(),
+            installed.verifier().vesta_parameters(16)?.as_ref().clone(),
         )?;
         let schema: Vec<_> = plan
             .context()
@@ -424,12 +605,12 @@ impl AuthenticatedProducerInventoryV1 {
         let a = record
             .a
             .iter()
-            .map(|index| metadata(self.read_verifier_original(*index, originals)?))
+            .map(|index| metadata(self.read_verifier_metadata(*index, originals, descriptors)?))
             .collect::<Result<Vec<_>, OperationQualificationErrorV1>>()?;
         let w = record
             .w
             .iter()
-            .map(|index| metadata(self.read_verifier_original(*index, originals)?))
+            .map(|index| metadata(self.read_verifier_metadata(*index, originals, descriptors)?))
             .collect::<Result<Vec<_>, OperationQualificationErrorV1>>()?;
         let terminal = a.last().ok_or(Error::Inventory)?.clone();
         let stage_memory = peak_proving_memory(&a)?.max(peak_proving_memory(&w)?);
@@ -438,12 +619,34 @@ impl AuthenticatedProducerInventoryV1 {
         let mut w_seals = Vec::with_capacity(record.w.len());
         for stage in 0..record.a.len() {
             let original = self.read_original(record.a[stage], originals, config.maximum_bytes)?;
-            let seal = owner.import_a(stage, &original.proving_key, config, None)?;
+            let seal = match admission.member(&[
+                3,
+                route_index,
+                u32::try_from(stage).map_err(|_| Error::Inventory)?,
+            ])? {
+                Some(member) => {
+                    owner.import_a_builtin(stage, &original.proving_key, config, member, None)?
+                }
+                None => owner.import_a(stage, &original.proving_key, config, None)?,
+            };
             a_seals.push(InstalledSourceSealV1::new(record.a[stage], seal));
             drop(original);
             if let Some(index) = record.w.get(stage) {
                 let original = self.read_original(*index, originals, config.maximum_bytes)?;
-                let seal = owner.import_w(stage, &original.proving_key, config, None)?;
+                let seal = match admission.member(&[
+                    4,
+                    route_index,
+                    u32::try_from(stage).map_err(|_| Error::Inventory)?,
+                ])? {
+                    Some(member) => owner.import_w_builtin(
+                        stage,
+                        &original.proving_key,
+                        config,
+                        member,
+                        None,
+                    )?,
+                    None => owner.import_w(stage, &original.proving_key, config, None)?,
+                };
                 w_seals.push(InstalledSourceSealV1::new(*index, seal));
                 drop(original);
             }
@@ -511,10 +714,9 @@ impl QualifiedOperationRouteV1 {
     ) -> Result<iroha_plonk::keys::SourceBoundViewV2<'_, Ep>, OperationQualificationErrorV1> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
-        if let QualifiedOperationOwnerV1::Bootstrap(p) = &self.owner {
-            return p
-                .bind_w(stage, expected_member, cancellation)
-                .map_err(Into::into);
+        // Bootstrap is one unsplit terminal A: it has no W stage.
+        if let QualifiedOperationOwnerV1::Bootstrap(_) = &self.owner {
+            return Err(OperationQualificationErrorV1::W(stage));
         }
         let seal = self
             .w_seals
@@ -573,7 +775,7 @@ mod tests {
             let mut changed = record.clone();
             changed.own_class.clear();
             assert!(require_route(&changed, route).is_err());
-            for selector in 0..16 {
+            for selector in 0..11 {
                 if !compiled_routes()
                     .iter()
                     .any(|r| r.variant == route.variant && r.own == selector)

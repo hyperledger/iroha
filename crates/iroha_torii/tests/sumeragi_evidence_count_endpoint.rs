@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Router-level test for GET /v1/sumeragi/evidence/count
 #![cfg(feature = "telemetry")]
 use super::sumeragi_evidence::{make_phase_vote_attribution, make_phase_vote_evidence};

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests that Torii fails to bind to an occupied port and exits with a non-zero status.
 use integration_tests::sandbox;
 use iroha_primitives::addr::socket_addr;

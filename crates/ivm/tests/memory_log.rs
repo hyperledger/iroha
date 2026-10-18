@@ -1,6 +1,6 @@
-use ivm::{IVM, encoding, instruction};
-mod common;
+use crate::common;
 use common::assemble_zk;
+use ivm::{IVM, encoding, instruction};
 #[test]
 fn test_memory_events_logged() {
     // Program: store 0x11 at heap, load it back, halt

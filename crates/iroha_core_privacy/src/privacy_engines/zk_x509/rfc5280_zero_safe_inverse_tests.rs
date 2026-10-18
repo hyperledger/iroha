@@ -47,7 +47,9 @@ fn zero_safe_fixed_work_matches_integer_arithmetic_for_every_gate_class() {
     let mut words = vec![0, 1, 2, 255, 256, 65535, 65536, GOLDILOCKS_MODULUS_V1 - 1];
     let mut random = 0x689f_123c_a755_7291_u64;
     for _ in 0..256 {
-        random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+        random = random
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
         words.push(random % GOLDILOCKS_MODULUS_V1);
     }
     for gate in gates {

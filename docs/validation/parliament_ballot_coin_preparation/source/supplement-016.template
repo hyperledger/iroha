@@ -1,0 +1,300 @@
+"""Finite classical sequence of existing reversible request and lookup maps.
+
+TODO: authenticate descriptors and source closure, implement adaptive selection
+and preparation, and prove the complete experiment/resource theorem. This binder
+does not discharge those obligations or interpret its request count as theorem T.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost, require
+from content_request import ContentRequest
+from l0_machine import OverlayLookup
+from request_family import ContentFamily, RejectedVoteFamily
+from request_transition import RequestTransition
+
+
+def natural(value, name, minimum=0):
+    require(type(value) is int and value >= minimum, 'invalid '+name)
+    return value
+
+
+@dataclass(frozen=True)
+class Geometry:
+    """Explicit shared-log geometry; names assert one supplied F/completion."""
+    capacity: int
+    length_bits: int
+    key_bytes: int
+    value_bits: int
+    oracle: str
+    completion: str
+
+    def __post_init__(self):
+        for name in ('capacity', 'length_bits', 'key_bytes', 'value_bits'):
+            natural(getattr(self, name), name, 0 if name == 'capacity' else 1)
+        require(self.capacity <= (1 << 64)*((1 << 20)+2), 'capacity bound')
+        require(self.length_bits <= 4096 and self.key_bytes <= 215150
+                and self.value_bits <= 2112, 'geometry bounds')
+        require(self.key_bytes < 1 << self.length_bits, 'encoded key capacity')
+        for name in ('oracle', 'completion'):
+            value = getattr(self, name)
+            require(type(value) is str and 0 < len(value) <= 256, 'named '+name)
+
+    @property
+    def record_bits(self):
+        return 1+self.length_bits+8*self.key_bytes+self.value_bits
+
+    @property
+    def log_bits(self):
+        return self.capacity*self.record_bits
+
+    @property
+    def counter_bits(self):
+        return max(2, self.capacity.bit_length())
+
+
+@dataclass(frozen=True)
+class Call:
+    """A component object, not an unauthenticated resource report or callback."""
+    name: str
+    machine: object
+
+    def __post_init__(self):
+        require(type(self.name) is str and 0 < len(self.name) <= 128, 'call name')
+        require(type(self.machine) in (RequestTransition, ContentRequest, ContentFamily,
+                                      RejectedVoteFamily, OverlayLookup), 'component type')
+
+
+@dataclass(frozen=True)
+class Segment:
+    """One contiguous local interval injected into the global wire space."""
+    local: int
+    bits: int
+    global_start: int
+
+    def __post_init__(self):
+        natural(self.local, 'local start')
+        natural(self.bits, 'segment width', 1)
+        natural(self.global_start, 'global start')
+
+
+@dataclass(frozen=True)
+class Relocation:
+    """A partition of all local wires with pairwise disjoint image intervals."""
+    size: int
+    segments: tuple
+
+    def __post_init__(self):
+        natural(self.size, 'component size', 1)
+        require(type(self.segments) is tuple and self.segments
+                and all(type(s) is Segment for s in self.segments), 'typed segments')
+        cursor = 0
+        for part in sorted(self.segments, key=lambda s: s.local):
+            require(part.local == cursor, 'local partition gap or overlap')
+            cursor += part.bits
+        require(cursor == self.size, 'complete local partition')
+        by_global = sorted(self.segments, key=lambda s: s.global_start)
+        for left, right in zip(by_global, by_global[1:]):
+            require(left.global_start+left.bits <= right.global_start, 'global image aliases')
+
+    def span(self, start, width):
+        """Reject an interval crossing a split, even if its endpoints are valid."""
+        natural(start, 'interval start')
+        natural(width, 'interval width', 1)
+        require(start+width <= self.size, 'interval exceeds component')
+        for part in self.segments:
+            if part.local <= start and start+width <= part.local+part.bits:
+                return part.global_start+start-part.local
+        raise ValueError('interval crosses relocation boundary')
+
+    def gate(self, gate):
+        """Relocate wires only; F:variable widths/capacities are integers, not wires."""
+        require(type(gate) is tuple and gate and type(gate[0]) is str, 'gate tuple')
+        opcode = gate[0]
+        if opcode == 'F:variable':
+            require(len(gate) == 7, 'variable F arity')
+            _, length, bits, message, capacity, response, values = gate
+            for value, label in ((bits, 'length bits'), (capacity, 'message bytes'),
+                                 (values, 'response bits')):
+                natural(value, label, 1)
+            require(bits <= 4096 and capacity < 1 << bits and values <= 2112,
+                    'variable F geometry')
+            for value in (length, message, response):
+                natural(value, 'variable F wire start')
+            spans = ((length, bits), (message, 8*capacity), (response, values))
+            ordered = sorted(spans)
+            require(all(a+n <= b for (a, n), (b, _) in zip(ordered, ordered[1:])),
+                    'variable F register aliases')
+            mapped = tuple(self.span(start, width) for start, width in spans)
+            return (opcode, mapped[0], bits, mapped[1], capacity, mapped[2], values)
+        arities = {'x': 1, 'cx': 2, 'ccx': 3}
+        if opcode in arities:
+            require(len(gate) == arities[opcode]+1, 'elementary gate arity')
+        else:
+            require(opcode.startswith('F:') and opcode[2:].isascii()
+                    and opcode[2:].isdecimal(), 'unknown opcode')
+            count = int(opcode[2:])
+            require(opcode == 'F:'+str(count), 'canonical fixed F opcode')
+            require(len(gate) == 1+8*count+2112, 'fixed F arity')
+        for wire in gate[1:]:
+            natural(wire, 'gate wire')
+        require(len(set(gate[1:])) == len(gate)-1, 'gate register aliases')
+        return (opcode, *(self.span(wire, 1) for wire in gate[1:]))
+
+
+@dataclass(frozen=True)
+class Description:
+    """Immutable geometry and cost extracted from one component."""
+    name: str
+    kind: str
+    size: int
+    regions: tuple
+    reservation: int
+    coin_bits: int
+    gates: Cost
+
+
+def describe(call, geometry):
+    """Extract geometry and complete interval partitions from the real classes."""
+    machine = call.machine
+    p = machine.layout()
+    if type(machine) is OverlayLookup:
+        require((machine.capacity, machine.length_bits, machine.key_bytes, machine.value_bits)
+                == (geometry.capacity, geometry.length_bits, geometry.key_bytes, geometry.value_bits),
+                'lookup/log geometry mismatch')
+        regions = (('persistent.log', 0, p['log_bits']),
+                   ('query', p['query'], machine.length_bits+8*machine.message_bytes),
+                   ('enable', p['enable'], 1), ('output', p['output'], machine.value_bits),
+                   ('reusable.clean', p['work'], p['size']-p['work']))
+        reserve = coins = 0
+        kind = 'lookup'
+    elif type(machine) is RejectedVoteFamily:
+        regions = (('input', 0, p['input_bits']),
+                   ('reusable.clean', p['input_bits'], p['output']-p['input_bits']),
+                   ('output', p['output'], p['output_bits']))
+        reserve = coins = 0
+        kind = 'rejected_size_vote'
+    else:
+        core = machine.request if type(machine) is ContentFamily else machine
+        writes = core.base.writes if type(core) is ContentRequest else core.writes
+        require((writes.capacity, writes.length_bits, writes.key_capacity, 8*writes.value_capacity)
+                == (geometry.capacity, geometry.length_bits, geometry.key_bytes, geometry.value_bits),
+                'request/log geometry mismatch')
+        require(p['log_bits'] == geometry.log_bits and p['counter_bits'] == geometry.counter_bits,
+                'request persistent geometry')
+        regions = (('input', 0, p['original_input_bits']),
+                   ('persistent.log', p['log'], p['log_bits']),
+                   ('persistent.counter', p['counter'], p['counter_bits']),
+                   ('output', p['output'], p['output_bits']),
+                   ('reusable.clean', p['retained'], p['size']-p['retained']))
+        reserve = writes.trials+2
+        coins = core.generator.original_private_coin_bits
+        natural(coins, 'original private coin bits')
+        require(coins <= p['original_input_bits'], 'coins exceed retained original inputs')
+        kind = 'content_vote' if type(core) is ContentRequest else 'accepted_request'
+    resource = machine.resources()
+    g = resource['gates']
+    gates = Cost(g['x'], g['cx'], g['ccx'], g['base_xor_oracle_calls'])
+    require(gates.as_dict() == g, 'component gate convention')
+    # A smaller response width is exclusively a synthetic-oracle contract.
+    if geometry.value_bits != 2112 and kind != 'lookup':
+        require(gates.base_calls == 0, 'fixed F requires full2112-bit response')
+    return Description(call.name, kind, p['size'],
+        tuple((name, start, width) for name, start, width in regions if width), reserve, coins, gates)
+
+
+@dataclass(frozen=True)
+class Sequence:
+    """Compile one immutable, classically chosen list of atomic component calls.
+
+    Slots hold caller-prepared inputs and XOR targets. Only the boundary-clean
+    scratch region is reused. Source component contracts, typed descriptors,
+    canonical full-support inputs, fresh coins and immutable F remain premises.
+    """
+    geometry: Geometry
+    calls: tuple
+    descriptions: tuple
+    allocations: tuple
+    mappings: tuple
+    size: int
+
+    def __init__(self, geometry, calls):
+        require(type(geometry) is Geometry, 'typed geometry')
+        require(type(calls) is tuple and all(type(c) is Call for c in calls), 'immutable calls')
+        require(len({c.name for c in calls}) == len(calls), 'duplicate call name')
+        descriptions = tuple(describe(c, geometry) for c in calls)
+        reserve = 0
+        for description in descriptions:
+            reserve += description.reservation
+            require(reserve <= geometry.capacity, 'prefix append reservation exceeds capacity')
+        allocations = []
+        cursor = 0
+        def allocate(name, width):
+            nonlocal cursor
+            if width:
+                allocations.append((name, cursor, width))
+                cursor += width
+        allocate('persistent.log', geometry.log_bits)
+        allocate('persistent.counter', geometry.counter_bits)
+        work = 0
+        for description in descriptions:
+            for name, _, width in description.regions:
+                if name == 'reusable.clean':
+                    work = max(work, width)
+                elif not name.startswith('persistent.'):
+                    allocate('event.'+description.name+'.'+name, width)
+        allocate('reusable.clean', work)
+        starts = {name: start for name, start, _ in allocations}
+        mappings = []
+        for description in descriptions:
+            mappings.append(Relocation(description.size, tuple(
+                Segment(local, width, starts[name if name.startswith('persistent.') or
+                        name == 'reusable.clean' else 'event.'+description.name+'.'+name])
+                for name, local, width in description.regions)))
+        for name, value in (('geometry', geometry), ('calls', calls), ('descriptions', descriptions),
+                ('allocations', tuple(allocations)), ('mappings', tuple(mappings)), ('size', cursor)):
+            object.__setattr__(self, name, value)
+
+    def emit_call(self, index, *, inverse=False):
+        """Emit the concrete relocated stream of exactly one atomic component."""
+        natural(index, 'call index')
+        require(index < len(self.calls) and type(inverse) is bool, 'call index or inverse')
+        machine = self.calls[index].machine
+        # A clean XOR lookup is self-inverse on its clean-workspace subspace.
+        # Requests instead require their actual log inverse, never a second forward.
+        stream = machine.emit_clean() if type(machine) is OverlayLookup else machine.emit(inverse=inverse)
+        for gate in stream:
+            yield self.mappings[index].gate(gate)
+
+    def emit(self, *, inverse=False):
+        """The whole inverse reverses event order AND uses each true inverse."""
+        require(type(inverse) is bool, 'sequence inverse flag')
+        order = range(len(self.calls)-1, -1, -1) if inverse else range(len(self.calls))
+        for index in order:
+            yield from self.emit_call(index, inverse=inverse)
+
+    def resources(self):
+        total = Cost()
+        for description in self.descriptions:
+            total += description.gates
+        return dict(scope='fixed classical sequence of conditional component circuits',
+            gates=total.as_dict(), logical_bits=self.size, allocations=self.allocations,
+            request_calls=sum(d.kind != 'lookup' for d in self.descriptions),
+            lookup_calls=sum(d.kind == 'lookup' for d in self.descriptions),
+            retained_coin_bits=sum(d.coin_bits for d in self.descriptions),
+            reserved_append_slots=sum(d.reservation for d in self.descriptions),
+            actual_log_occupancy=None, reservations_are_not_actual_appends=True,
+            all_original_interfaces_retained=True, shared_boundary_clean_work_only=True,
+            oracle_identity_is_caller_assertion=True, source_dependency_closure_authenticated=False,
+            initial_log_and_counter_zero_required=True, descriptor_and_coin_preparation_supplied=True,
+            full_support_canonical_inputs_and_same_immutable_F_required=True,
+            request_count_is_not_theorem_valid_request_T=True,
+            body_stream_emitter_implemented=True, full_cap_stream_executed=False,
+            full_adaptive_driver_implemented=False, full_joint_quantum_theorem_proved=False,
+            complete_resource_vector=False, physical_workspace_bound=False,
+            primitive_entry_bridge_proved=False, independent_review=False,
+            profile_qualified=False, production_gate_changed=False,
+            unknown_terms=('input_preparation', 'coin_preparation_and_environment',
+                'adaptive_controller_and_routing', 'descriptor_and_witness_validation',
+                'application_context_and_unpriced_verification_calls', 'adversary_work_and_state',
+                'base_oracle_implementation_and_state', 'uniform_family_envelope',
+                'primitive_entry_and_advantages'))

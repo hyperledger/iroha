@@ -1,7 +1,7 @@
 //! Regression coverage for the immutable IVM ABI V1 guest-stack policy.
-use ivm::{IVM, IvmStackPolicy, Memory, VMError, encoding, instruction, runtime::IvmConfig};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, IvmStackPolicy, Memory, VMError, encoding, instruction, runtime::IvmConfig};
 const GAS_LIMIT: u64 = 100_000;
 fn assemble_words(words: &[u32]) -> Vec<u8> {
     let mut code = Vec::with_capacity(words.len() * 4);

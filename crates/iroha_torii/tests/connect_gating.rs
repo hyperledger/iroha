@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Verify that Connect routes are stable while runtime configuration controls availability.
 use axum::http::{Request, StatusCode, Uri};
 use iroha_config::{base::WithOrigin, parameters::actual as A};

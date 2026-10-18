@@ -1,12 +1,12 @@
 //! Actual VM controls for dead host operands, opposite-register cycles and live source custody.
 
+use crate::common;
 use ivm::{
     CoreHost, IVM, encoding,
     host::{DefaultHost, IVMHost},
     instruction,
 };
 use kotodama_lang::compiler::Compiler;
-mod common;
 
 fn compile(source: &str) -> Vec<u8> {
     Compiler::new()

@@ -468,6 +468,13 @@ impl FakeExecutor {
 }
 
 impl Executor for FakeExecutor {
+    fn recover_proposal_admission(
+        &mut self,
+        body: &AvailableBody,
+    ) -> Result<iroha_sumeragi::proposal_admission::ProposalAdmission, PublicationError> {
+        Ok(iroha_sumeragi::testing::built_payload(body.payload().clone()).admission)
+    }
+
     fn build_control_witness(
         &mut self,
         _: &iroha_sumeragi::api::ControlWitnessContext,
@@ -580,7 +587,7 @@ impl Executor for FakeExecutor {
         _view: u64,
         max_bytes: u32,
         _exec_budget_ms: u32,
-    ) -> Result<Option<iroha_sumeragi::availability::PayloadBytes>, PublicationError> {
+    ) -> Result<Option<iroha_sumeragi::proposal_admission::BuiltPayload>, PublicationError> {
         self.wait_open();
         let state = self.state.lock();
         let mut payload = Vec::new();
@@ -598,7 +605,7 @@ impl Executor for FakeExecutor {
         payload
             .admit(&self.budget)
             .map_err(|error| PublicationError::Retryable(error.to_string()))?;
-        Ok(Some(payload))
+        Ok(Some(iroha_sumeragi::testing::built_payload(payload)))
     }
 
     fn reject(&mut self, _height: u64, _view: u64, block_hash: &Hash32) {

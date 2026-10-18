@@ -16,7 +16,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       "ok": true,
       "resolved_multisig_account_id": account,
       "submitted": false,
-      "proposal_id": hash,
+      "proposal_id": String(repeating: "b", count: 64),
       "instructions_hash": hash,
       "creation_time_ms": 123,
       "fee_payment": authorityFeePaymentObject(),
@@ -61,7 +61,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       "ok": true,
       "resolved_multisig_account_id": account,
       "submitted": true,
-      "proposal_id": hash,
+      "proposal_id": String(repeating: "b", count: 64),
       "instructions_hash": hash,
       "tx_hash_hex": hash,
       "fee_payment": authorityFeePaymentObject(),
@@ -104,6 +104,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
     let intent = try ToriiMultisigUnsignedTransactionIntent(
       networkId: TestNetworkIds.canonical,
       resolvedMultisigAccountId: multisigAccount,
+      proposalId: String(repeating: "b", count: 64),
       instructionsHash: hash,
       executable: executable,
       metadata: [:]
@@ -112,7 +113,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       "ok": true,
       "resolved_multisig_account_id": multisigAccount,
       "submitted": false,
-      "proposal_id": hash,
+      "proposal_id": String(repeating: "b", count: 64),
       "instructions_hash": hash,
       "creation_time_ms": 123,
       "fee_payment": authorityFeePaymentObject(),
@@ -124,7 +125,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       try response.validatingRequestBindings(
         signerAccountId: signerAccount,
         selector: ToriiMultisigAccountSelector(multisigAccountId: multisigAccount),
-        requiresProposalId: true,
+        requestedProposalId: String(repeating: "b", count: 64),
         requestedFeePayment: .authority(chargeLimits: [], gasLimit: nil),
         requestedCreationTimeMs: 123,
         unsignedTransactionIntent: intent,
@@ -135,7 +136,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       try response.validatingRequestBindings(
         signerAccountId: multisigAccount,
         selector: ToriiMultisigAccountSelector(multisigAccountId: multisigAccount),
-        requiresProposalId: true,
+        requestedProposalId: String(repeating: "b", count: 64),
         requestedFeePayment: .authority(chargeLimits: [], gasLimit: nil),
         requestedCreationTimeMs: 123,
         unsignedTransactionIntent: intent,
@@ -154,6 +155,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
     let intent = try ToriiMultisigUnsignedTransactionIntent(
       networkId: TestNetworkIds.canonical,
       resolvedMultisigAccountId: multisigAccount,
+      proposalId: String(repeating: "b", count: 64),
       instructionsHash: hash,
       executable: executable,
       metadata: metadata
@@ -188,7 +190,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
         "ok": true,
         "resolved_multisig_account_id": multisigAccount,
         "submitted": false,
-        "proposal_id": responseInstructionsHash,
+        "proposal_id": String(repeating: "b", count: 64),
         "instructions_hash": responseInstructionsHash,
         "creation_time_ms": 123,
         "fee_payment": try feePaymentObject(responseFeePayment),
@@ -201,7 +203,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       _ = try response.validatingRequestBindings(
         signerAccountId: signerAccount,
         selector: selector,
-        requiresProposalId: true,
+        requestedProposalId: String(repeating: "b", count: 64),
         requestedFeePayment: feePayment,
         requestedCreationTimeMs: 123,
         unsignedTransactionIntent: intent,
@@ -247,7 +249,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       try response().validatingRequestBindings(
         signerAccountId: signerAccount,
         selector: selector,
-        requiresProposalId: true,
+        requestedProposalId: String(repeating: "b", count: 64),
         requestedFeePayment: feePayment,
         requestedCreationTimeMs: 123,
         unsignedTransactionIntent: nil,
@@ -258,7 +260,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       try response().validatingRequestBindings(
         signerAccountId: signerAccount,
         selector: selector,
-        requiresProposalId: true,
+        requestedProposalId: String(repeating: "b", count: 64),
         requestedFeePayment: feePayment,
         requestedCreationTimeMs: 123,
         unsignedTransactionIntent: intent,
@@ -269,7 +271,7 @@ final class ToriiUnsignedResponseHardCutTests: XCTestCase {
       try response().validatingRequestBindings(
         signerAccountId: signerAccount,
         selector: selector,
-        requiresProposalId: true,
+        requestedProposalId: String(repeating: "b", count: 64),
         requestedFeePayment: feePayment,
         requestedCreationTimeMs: 123,
         unsignedTransactionIntent: intent,

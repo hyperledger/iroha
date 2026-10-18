@@ -26,7 +26,12 @@ fn maximum_segment(out_of_gas: bool) -> (ScalarSegment, Vec<DiagnosticStepRecord
     let (segment, records) = attempted(
         &body,
         MAX_STEPS,
-        &[(2, 7), (6, i64::MIN as u64), (7, 7), (255, u64::MAX)],
+        &[
+            (2, 7),
+            (6, i64::cast_unsigned(i64::MIN)),
+            (7, 7),
+            (255, u64::MAX),
+        ],
         cost + if out_of_gas { 9 } else { 10 },
     );
     assert_eq!(segment.words.len(), MAX_WORDS);

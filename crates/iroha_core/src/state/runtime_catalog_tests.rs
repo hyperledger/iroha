@@ -38,11 +38,13 @@ fn lifecycle_rebind_requires_materialized_manifest_source() {
 fn materialized_manifest_install_rejects_status_only_without_publication() {
     run_catalog_test(|| {
         // Match production's unbound constructor before the first policy installation.
+        let constructor_world = World::new();
         let state = State::try_new(
-            AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
-            World::new(),
+            constructor_world
+                .sccp_committee_generations
+                .allocation_budget()
+                .clone(),
+            constructor_world,
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]

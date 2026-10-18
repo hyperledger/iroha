@@ -100,8 +100,9 @@ class KagemushaWalletV1Test {
         assertEquals(-4, KagemushaWalletExceptionV1.ARTIFACTS_UNAVAILABLE)
     }
     @Test fun `typed lifecycle inputs bound originals and preserve unsigned scalar bits`() {
-        val id = ByteArray(32) { 1 }
         for (selector in (0..10).filter { it != 1 && it != 8 }) {
+            // Only the local list install (selector 5) has no retry identity.
+            val id = ByteArray(32) { if (selector == 5) 0 else 1 }
             val limits = when (selector) {
                 0 -> intArrayOf(512, 256 * 1024, 0)
                 2 -> intArrayOf(10_000, 1_024, 10_000)
@@ -134,14 +135,20 @@ class KagemushaWalletV1Test {
             if (limits[1] != 0) assertContentEquals(byteArrayOf(7), input.second())
             if (limits[2] != 0) assertContentEquals(byteArrayOf(7), input.third())
         }
+        val id = ByteArray(32) { 1 }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletOperationInputV1(ByteArray(32), 9) }
+        assertFailsWith<IllegalArgumentException> {
+            KagemushaWalletOperationInputV1(id, 5, first = byteArrayOf(1), second = byteArrayOf(1))
+        }
+        assertEquals(-15, KagemushaWalletExceptionV1.BLOCKED)
         assertFailsWith<IllegalArgumentException> { KagemushaWalletOperationInputV1(id, 10) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletOperationInputV1(id, 11) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletOperationInputV1(id, 8) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletOperationInputV1(id, 8, KagemushaWalletUInt128V1(1, 0), byteArrayOf(1)) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletOperationInputV1(id, 8, KagemushaWalletUInt128V1(1, 0)) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletOperationInputV1(id, 1, first = byteArrayOf(1)) }
-        assertEquals(listOf(3, 4, 5, 6, 7), KagemushaWalletRefreshKindV1.values().map { it.selector })
+        // Selector 5 is the local blacklist install (installBlacklist), not a policy refresh.
+        assertEquals(listOf(3, 4, 6, 7), KagemushaWalletRefreshKindV1.values().map { it.selector })
     }
 
     @Test fun `receive from Offer bounds both exact originals and never accepts foreign fields`() {

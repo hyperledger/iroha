@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Validates that an exact genesis-network mismatch causes transaction rejection.
 use integration_tests::sandbox;
 use iroha::crypto::{Hash, HashOf};

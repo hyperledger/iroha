@@ -1,0 +1,86 @@
+"""Capture the conditional ledger; all outputs stay in this ignored stage."""
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+OUT=HERE/'capture'
+OWN=('ledger.py','test_ledger.py','design.md','README.md','example.json','capture.py')
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(condition,why):
+    if not condition:raise RuntimeError(why)
+def dump(path,value):path.write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+
+require(not OUT.exists(),'capture destination must be absent')
+OUT.mkdir()
+# Explicit source import, no bytecode writer; interpreter/cache coherence trusted.
+spec=importlib.util.spec_from_file_location('ledger',HERE/'ledger.py')
+ledger=importlib.util.module_from_spec(spec);sys.modules[spec.name]=ledger;spec.loader.exec_module(ledger)
+catalog=ledger.Catalog(ROOT)
+pins=dict(catalog.pins)
+for name in OWN:
+    path=(HERE/name).relative_to(ROOT).as_posix()
+    pins[path]=sha((ROOT/path).read_bytes())
+# Retain exactly the bytes whose identities are checked, not a second copy read.
+snapshots={}
+for path,expected in pins.items():
+    data=(ROOT/path).read_bytes();require(sha(data)==expected,'capture input drift: '+path)
+    destination=OUT/'source-snapshots'/(path+'.template')
+    destination.parent.mkdir(parents=True,exist_ok=True);destination.write_bytes(data)
+    snapshots[path]=dict(sha256=expected,snapshot=destination.relative_to(OUT).as_posix())
+env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTEST_ADDOPTS='',PYTEST_PLUGINS='')
+commands=[]
+def run(name,cmd,expected):
+    result=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True)
+    (OUT/(name+'.stdout')).write_bytes(result.stdout);(OUT/(name+'.stderr')).write_bytes(result.stderr)
+    commands.append(dict(name=name,command=cmd,exit_code=result.returncode,expected_exit=expected))
+    require(result.returncode==expected,'unexpected command exit: '+name)
+    return result.stdout
+
+test_cmd=['/opt/homebrew/bin/pytest','-q','-c','/dev/null','--noconftest','-p','no:cacheprovider',
+    '-k','','-m','','--maxfail=0','--basetemp',str(OUT/'test-temp'),
+    '--junitxml',str(OUT/'tests.xml'),str(HERE/'test_ledger.py')]
+run('tests',test_cmd,0)
+xml=ET.parse(OUT/'tests.xml').getroot();cases=xml.findall('.//testcase')
+require(len(cases)==68,'exact owned test count')
+require(not any(x.tag in ('failure','error','skipped') for x in xml.iter()),'all owned tests must pass')
+cmd=[sys.executable,'-B',str(HERE/'ledger.py'),'--root',str(ROOT),'--events',str(HERE/'example.json')]
+ordinary=run('example',cmd,0)
+refusal=run('require-qualified',cmd+['--require-qualified'],2)
+require(ordinary==refusal,'qualification refusal stdout differs')
+report=json.loads(ordinary);require(report['source_sha256']==dict(catalog.pins),'report source membership')
+for name in ('full_quantum_joint_state_theorem_proved','full_adaptive_driver_executed',
+             'family_wide_resource_maximum_proved','complete_resource_vector','actual_input_primitive_bridge',
+             'independent_cryptographic_review','physical_workspace_bound','current_candidate_qualified',
+             'profile_qualified','production_gate_changed'):
+    require(report[name] is False,'scope flag must stay false: '+name)
+require(all(x is None for x in report['unknown_external_terms'].values()),'unknown external terms')
+after={path:sha((ROOT/path).read_bytes()) for path in pins}
+require(after==pins,'inputs changed during capture')
+for item in snapshots.values():
+    require(sha((OUT/item['snapshot']).read_bytes())==item['sha256'],'snapshot changed')
+outputs={p.relative_to(OUT).as_posix():sha(p.read_bytes()) for p in sorted(OUT.iterdir()) if p.is_file()}
+receipt=dict(scope='conditional metadata ledger only; no adaptive or native execution',
+    source_pin_count=len(catalog.pins),execution_input_count=len(OWN),
+    source_sha256_before=pins,source_sha256_after=after,snapshots=snapshots,
+    commands=commands,test_cases=68,test_failures=0,test_errors=0,test_skips=0,
+    qualification_refusal_stdout_identical=True,output_sha256=outputs,
+    python_executable=sys.executable,python_version=sys.version,
+    effective_environment={key:env[key] for key in ('PYTHONDONTWRITEBYTECODE','PYTEST_DISABLE_PLUGIN_AUTOLOAD','PYTEST_ADDOPTS','PYTEST_PLUGINS')},
+    trusted_runtime_premises=['Python interpreter and bytecode-cache coherence','installed pytest and stdlib','selected before/after identity checks are not atomic filesystem attestation'],
+    full_adaptive_driver_executed=False,complete_resource_vector=False,
+    independent_cryptographic_review=False,profile_qualified=False,production_gate_changed=False)
+dump(OUT/'receipt.json',receipt)
+# Ignore transient pytest temp files; they are not evidence or replay inputs.
+files=sorted(p for p in OUT.rglob('*') if p.is_file() and 'test-temp' not in p.relative_to(OUT).parts)
+(OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+print(json.dumps(dict(passed=True,tests=68,source_pins=len(catalog.pins),execution_inputs=len(OWN),
+    manifest_entries=len(files),manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()),
+    receipt_sha256=sha((OUT/'receipt.json').read_bytes()))))

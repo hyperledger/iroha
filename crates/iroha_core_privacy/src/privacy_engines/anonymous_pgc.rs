@@ -894,24 +894,22 @@ where
         return Err(AnonymousPgcError::SecretKeyMismatch);
     }
     let mut checked_rng = health_checked_p256_rng_v1(rng)?;
-    for _ in 0..MAX_PROVER_RESTARTS {
-        let mask = random_nonzero_scalar(&mut checked_rng)?;
-        let announcement = CompressedPointV1::from_projective(parameters.g * mask)?;
-        let mut transcript = key_possession_transcript(statement, &announcement)?;
-        let challenge = transcript
-            .challenge_nonzero_scalar(b"challenge", 0)?
-            .to_scalar()?;
-        let proof = PgcKeyPossessionProofV1 {
-            version: PGC_BUILDING_BLOCK_PROOF_VERSION_V1,
-            announcement,
-            response: CanonicalScalarV1::from_scalar(mask + challenge * secret.expose_scalar()),
-        };
-        proof.validate()?;
-        verify_key_possession(statement, &proof)
-            .map_err(|_| AnonymousPgcError::ProverSelfCheckFailed)?;
-        return Ok(proof);
-    }
-    Err(AnonymousPgcError::ProverRestartExhausted)
+    // Scalar and challenge rejection sampling already enforce their fixed bounds.
+    let mask = random_nonzero_scalar(&mut checked_rng)?;
+    let announcement = CompressedPointV1::from_projective(parameters.g * mask)?;
+    let mut transcript = key_possession_transcript(statement, &announcement)?;
+    let challenge = transcript
+        .challenge_nonzero_scalar(b"challenge", 0)?
+        .to_scalar()?;
+    let proof = PgcKeyPossessionProofV1 {
+        version: PGC_BUILDING_BLOCK_PROOF_VERSION_V1,
+        announcement,
+        response: CanonicalScalarV1::from_scalar(mask + challenge * secret.expose_scalar()),
+    };
+    proof.validate()?;
+    verify_key_possession(statement, &proof)
+        .map_err(|_| AnonymousPgcError::ProverSelfCheckFailed)?;
+    Ok(proof)
 }
 #[cfg(test)]
 /// Verify a public-key possession proof.

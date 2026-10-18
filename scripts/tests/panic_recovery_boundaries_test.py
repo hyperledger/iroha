@@ -78,6 +78,8 @@ def test_daemon_recoverable_workers_have_no_bare_blocking(relative: str) -> None
         "crates/iroha_core/src/executor_fastpq_rejection_tail/sponsored_alias_tests.rs",
         "crates/iroha_core/src/executor/resource_return_tests.rs",
         "crates/iroha_core/src/executor_asset_lock_admission_tests.rs",
+        "crates/iroha_core/src/executor_conditional_escrow_repo_admission_tests.rs",
+        "crates/iroha_core/src/executor_bond_admission_tests.rs",
         "crates/iroha_core/src/executor/root_scope.rs",
         "crates/iroha_core/src/executor/root_scope/tests.rs",
         "crates/iroha_core/src/executor_dpn_domain_enrollment_tests.rs",
@@ -1911,22 +1913,25 @@ def test_reviewed_native_sns_attempt_include_seals_full_raw_caller(tmp_path: Pat
     assert any("source inventory drifted" in error for error in failures), failures
 
 
-def test_nested_amx_support_resolves_from_original_tests_module_directory(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ("amx_approvals", "amx_roles", "role_removal"))
+def test_nested_amx_support_resolves_from_original_tests_module_directory(
+    tmp_path: Path, name: str
+) -> None:
     module = load_guard_module()
     parent = tmp_path / "crates/iroha_core/src"
     scope = parent / "executor/root_scope.rs"
     tests = parent / "executor/root_scope/tests.rs"
-    actual = parent / "executor/root_scope/tests/amx_roles.rs"
+    actual = parent / f"executor/root_scope/tests/{name}.rs"
     actual.parent.mkdir(parents=True)
     (parent / "executor.rs").write_text("pub(crate) mod root_scope;\n", encoding="utf-8")
     scope.write_text("#[cfg(test)] mod tests;\n", encoding="utf-8")
-    tests.write_text("#[cfg(test)] mod amx_roles;\n", encoding="utf-8")
+    tests.write_text(f"#[cfg(test)] mod {name};\n", encoding="utf-8")
     actual.write_text("fn original_amx_role() { permission_matrix(); }\n", encoding="utf-8")
     sources, failures = module.torii_rust_source_closure(tmp_path)
     assert failures == []
     assert {scope.resolve(), tests.resolve(), actual.resolve()} <= set(sources)
-    assert Path("crates/iroha_core/src/executor/root_scope/tests/amx_roles.rs") in module.CORE_RECOVERY_SUPPORT_PATHS
-    assert Path("crates/iroha_core/src/executor/root_scope/amx_roles.rs") not in module.CORE_RECOVERY_SUPPORT_PATHS
+    assert Path(f"crates/iroha_core/src/executor/root_scope/tests/{name}.rs") in module.CORE_RECOVERY_SUPPORT_PATHS
+    assert Path(f"crates/iroha_core/src/executor/root_scope/{name}.rs") not in module.CORE_RECOVERY_SUPPORT_PATHS
     records, _, counts = module.torii_boundary_inventory(tmp_path, sources)
     actual.write_text("fn original_amx_role() { substituted_permission_matrix(); }\n", encoding="utf-8")
     observed = module.torii_boundary_inventory(tmp_path)
@@ -1935,16 +1940,19 @@ def test_nested_amx_support_resolves_from_original_tests_module_directory(tmp_pa
     assert any("source inventory drifted" in error for error in failures), failures
 
 
-def test_nested_amx_support_refuses_missing_original_even_with_guessed_sibling(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ("amx_approvals", "amx_roles", "role_removal"))
+def test_nested_amx_support_refuses_missing_original_even_with_guessed_sibling(
+    tmp_path: Path, name: str
+) -> None:
     module = load_guard_module()
     parent = tmp_path / "crates/iroha_core/src"
     scope = parent / "executor/root_scope.rs"
     tests = parent / "executor/root_scope/tests.rs"
-    guessed = parent / "executor/root_scope/amx_roles.rs"
+    guessed = parent / f"executor/root_scope/{name}.rs"
     tests.parent.mkdir(parents=True)
     (parent / "executor.rs").write_text("pub(crate) mod root_scope;\n", encoding="utf-8")
     scope.write_text("#[cfg(test)] mod tests;\n", encoding="utf-8")
-    tests.write_text("#[cfg(test)] mod amx_roles;\n", encoding="utf-8")
+    tests.write_text(f"#[cfg(test)] mod {name};\n", encoding="utf-8")
     guessed.write_text("fn guessed_unreviewed_role() {}\n", encoding="utf-8")
     sources, failures = module.torii_rust_source_closure(tmp_path)
     assert guessed.resolve() not in sources

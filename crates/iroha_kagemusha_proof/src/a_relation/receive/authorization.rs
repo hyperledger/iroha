@@ -1,17 +1,25 @@
 //! Receive's mandatory own authorization and total incoming signature result.
+//!
+//! Both read the one merged signature leaf Q1: slot 0 is the own receipt, hard
+//! under the predecessor payment key; the Send receipt, the Request and, when
+//! renewed, the quoted credential and its fixed-root certificate follow as soft
+//! slots. The current credential and its certificate are carried by continuity
+//! from Bootstrap and `RefreshCredential` (lean lineage), not re-verified here.
 
 use ff::Field;
 use iroha_pasta::{Ep, Fp};
 use iroha_plonk::frontend::{Error, Region, Value};
-use iroha_plonk_gadgets::{Bit, GlueChip, UintChip, bytes::tape::BytesChip, p256::VerifyMode};
+use iroha_plonk_gadgets::{
+    Bit, GlueChip, UintChip, Word, bytes::tape::BytesChip, p256::VerifyMode,
+};
 use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierChip};
 
-use super::{ReceiveSignedObjects, maps::require_task};
+use super::{ReceiveSignedObjects, ReceiveStagePlan, maps::require_task};
 use crate::{
     a_relation::{
-        SigmaBindingCells, SignatureQCells, bounded_word,
+        SignatureQCells,
         context::{ContextInputs, ContextObjectCells, ContextObjectSpec, ContextPlan},
-        own::{CurrentAuthorization, OwnPolicy, authenticate_current},
+        own::OwnPolicy,
         results::ReceiveResultTag,
         schedule::OperationTask,
     },
@@ -26,18 +34,15 @@ use crate::{
         },
     },
     q_signature::{QSignaturePlan, SignatureKey},
+    witness::core_index,
 };
 
 #[cfg(test)]
 mod tests;
 
-/// Original own objects and the exact pair carried by the incoming Request.
+/// The original own receipt and the exact pair carried by the incoming Request.
 #[derive(Clone, Copy)]
 pub struct ReceiveAuthorizationSources<'a> {
-    /// Current credential body and signature.
-    pub current: &'a [Value<u8>],
-    /// Current direct Enrollment certificate body and signature.
-    pub certificate: &'a [Value<u8>],
     /// Own Receive receipt body and signature.
     pub receipt: &'a [Value<u8>],
     /// Original quoted credential and its certificate, even when signatures deduplicate.
@@ -74,17 +79,18 @@ pub(crate) struct ReceiveSignaturePredicateInputs<'a> {
     pub slots: &'a [crate::a_relation::SignatureProofCells],
 }
 
-/// Exact context-bound incoming Q2 exports. Q2 remains a separately verified
-/// and folded hard obligation at its unique preceding (or same) fixed stage.
+/// Exact context-bound exports of the merged signature leaf Q1. Q1 remains a
+/// separately verified and folded hard obligation at its unique preceding (or
+/// same) fixed stage; this projection reads its incoming soft slots.
 #[derive(Clone, Debug)]
 pub struct ReceiveSignatureQProjection {
     projection: crate::a_relation::signature::SignatureQProjection,
 }
 impl ReceiveSignatureQProjection {
-    /// Extract only the fixed Q2 schema and public cells of this Signatures owner.
-    /// This does not verify Q2 or create a replacement deferred opening.
+    /// Extract only the fixed Q1 schema and public cells of this Signatures owner.
+    /// This does not verify Q1 or create a replacement deferred opening.
     /// # Errors
-    /// Wrong owner, missing/future Q2 verification, wrong fixed schema or public shape.
+    /// Wrong owner, missing/future Q1 verification, wrong fixed schema or public shape.
     pub fn from_context(
         chip: &mut VerifierChip<Ep>,
         region: &mut Region<'_, Fp>,
@@ -94,22 +100,23 @@ impl ReceiveSignatureQProjection {
         input: &ContextInputs<'_>,
     ) -> Result<Self, Error> {
         require_task(plan, stage, OperationTask::ReceiveSignatures)?;
+        let index = ReceiveStagePlan::SIGNATURE_Q;
         let owner = (0..plan.stage_count())
-            .find(|i| plan.q_partition(*i).is_some_and(|q| q.contains(&2)))
+            .find(|i| plan.q_partition(*i).is_some_and(|q| q.contains(&index)))
             .ok_or(Error::Synthesis)?;
         if owner > usize::try_from(stage).map_err(|_| Error::BoundsFailure)? {
             return Err(Error::Synthesis);
         }
-        let schemas =
-            super::ReceiveStagePlan::signature_schemas(plan.operation().frame().variant(), policy)?;
+        let schema =
+            ReceiveStagePlan::signature_schema_for(plan.operation().frame().variant(), policy)?;
         Ok(Self {
             projection: crate::a_relation::signature::project_signature_q(
                 chip,
                 region,
                 plan.operation(),
-                2,
-                &schemas[1],
-                input.q_instances.get(2).ok_or(Error::Synthesis)?,
+                index,
+                &schema,
+                input.q_instances.get(index).ok_or(Error::Synthesis)?,
             )?,
         })
     }
@@ -124,14 +131,22 @@ impl ReceiveSignatureQProjection {
     ) -> Result<Self, Error> {
         Ok(Self {
             projection: crate::a_relation::signature::project_signature_q(
-                chip, region, operation, 2, schema, instances,
+                chip,
+                region,
+                operation,
+                ReceiveStagePlan::SIGNATURE_Q,
+                schema,
+                instances,
             )?,
         })
     }
 
-    /// Original raw message, key/signature and exact soft verdict exports.
+    /// The incoming soft slots, after the hard own receipt in slot 0: the Send
+    /// receipt and the Request, then the quoted credential and its fixed-root
+    /// certificate in the renewed variant. Raw message, key/signature and exact
+    /// soft verdict exports.
     pub fn slots(&self) -> &[crate::a_relation::SignatureProofCells] {
-        self.projection.slots()
+        self.projection.slots().get(1..).unwrap_or_default()
     }
     fn bind_context(
         &self,
@@ -144,8 +159,11 @@ impl ReceiveSignatureQProjection {
         self.projection.bind_context(
             region,
             plan.operation(),
-            2,
-            input.q_instances.get(2).ok_or(Error::Synthesis)?,
+            ReceiveStagePlan::SIGNATURE_Q,
+            input
+                .q_instances
+                .get(ReceiveStagePlan::SIGNATURE_Q)
+                .ok_or(Error::Synthesis)?,
         )
     }
 }
@@ -154,13 +172,11 @@ fn kinds(variant: Variant) -> Result<Vec<ObjectKind>, Error> {
     if !matches!(variant, Variant::Receive | Variant::ReceiveRenewed) {
         return Err(Error::Synthesis);
     }
-    let mut out = vec![
+    Ok(vec![
+        ObjectKind::Receipt,
         ObjectKind::Credential,
         ObjectKind::Certificate,
-        ObjectKind::Receipt,
-    ];
-    out.extend([ObjectKind::Credential, ObjectKind::Certificate]);
-    Ok(out)
+    ])
 }
 
 fn bind_bundle(
@@ -187,19 +203,25 @@ fn bind_bundle(
 }
 
 impl ReceiveAuthorizationObjects {
+    // `current` is the receiver's current credential digest from its
+    // authenticated predecessor state.
     fn bind_quoted_sources(
         &self,
         uint: &mut UintChip<'_, Fp>,
         region: &mut Region<'_, Fp>,
         request: &RequestCells,
+        current: &Word<Fp>,
     ) -> Result<(), Error> {
         // Payment omits these tapes; bind their content addresses before any
         // soft semantic or signature verdict can participate in a burn.
-        GlueChip::assert_equal(region, request.object().word(8)?, self.objects[3].digest())?;
-        GlueChip::assert_equal(region, self.objects[3].word(28)?, self.objects[4].digest())?;
-        let same_current =
-            uint.glue()
-                .is_equal(region, self.objects[3].digest(), self.objects[0].digest())?;
+        GlueChip::assert_equal(region, request.object().word(8)?, self.objects[1].digest())?;
+        GlueChip::assert_equal(region, self.objects[1].word(28)?, self.objects[2].digest())?;
+        // Ordinary Receive quotes exactly the receiver's current credential,
+        // whose digest the authenticated state carries; its certificate is then
+        // the one that credential names. Renewed Receive quotes another one.
+        let same_current = uint
+            .glue()
+            .is_equal(region, self.objects[1].digest(), current)?;
         GlueChip::assert_constant(
             region,
             same_current.word(),
@@ -208,14 +230,10 @@ impl ReceiveAuthorizationObjects {
             } else {
                 Fp::ZERO
             },
-        )?;
-        if self.variant == Variant::Receive {
-            GlueChip::assert_equal(region, self.objects[4].digest(), self.objects[1].digest())?;
-        }
-        Ok(())
+        )
     }
 
-    /// Fixed tags7..11: own current/certificate/receipt and original quoted pair.
+    /// Fixed tags7..9: own receipt and the original quoted pair.
     /// # Errors
     /// Non-Receive variant or impossible fixed size conversion.
     pub fn context_specs(variant: Variant) -> Result<Vec<ContextObjectSpec>, Error> {
@@ -232,9 +250,9 @@ impl ReceiveAuthorizationObjects {
             .collect()
     }
 
-    /// Decode hard own tapes and total soft quoted tapes from their exact bytes.
+    /// Decode the hard own receipt and total soft quoted tapes from their exact bytes.
     /// # Errors
-    /// Wrong fixed variant/shape or layout error; malformed own tapes fail hard.
+    /// Wrong fixed variant/shape or layout error; a malformed own receipt fails hard.
     pub fn decode(
         chip: &mut VerifierChip<Ep>,
         bytes: &mut BytesChip<Fp>,
@@ -242,7 +260,7 @@ impl ReceiveAuthorizationObjects {
         variant: Variant,
         source: ReceiveAuthorizationSources<'_>,
     ) -> Result<Self, Error> {
-        let mut sources = vec![source.current, source.certificate, source.receipt];
+        let mut sources = vec![source.receipt];
         sources.extend(source.quoted);
         let mut objects = Vec::new();
         let mut context = Vec::new();
@@ -260,7 +278,7 @@ impl ReceiveAuthorizationObjects {
             )?;
             let lanes = chip.operation_lanes()?;
             let mut uint = UintChip::new(lanes.glue, lanes.range);
-            let object = if index < 3 {
+            let object = if index == 0 {
                 SignedObjectCells::from_run(&mut uint, lanes.hash, region, kind, &run)?
             } else {
                 SignedObjectCells::decode_soft(&mut uint, lanes.hash, region, kind, &run)?.0
@@ -312,52 +330,14 @@ impl ReceiveAuthorizationObjects {
         Ok(())
     }
 
-    /// Bind the own receipt's proof digest to its exact Q-exported sigma tape.
+    /// Hard-verify the own receipt from the same context and the merged Q bundle.
+    /// Slot 0 is the own receipt under the predecessor payment key; the soft
+    /// incoming slots after it belong to the Signatures owner. Its proof digest
+    /// is the receipt's own field: A proves the step inline (lean lineage).
     /// # Errors
-    /// Wrong owner/schema, absent same-tape digest or unsatisfied byte/input binding.
-    pub fn constrain_own_proof(
-        &self,
-        chip: &mut VerifierChip<Ep>,
-        region: &mut Region<'_, Fp>,
-        plan: &ContextPlan,
-        stage: u32,
-        input: &ContextInputs<'_>,
-        sigma: &SigmaBindingCells,
-    ) -> Result<(), Error> {
-        require_task(plan, stage, OperationTask::ReceiveOwnProof)?;
-        self.bind_context(region, plan, input)?;
-        let statement = sigma.hard_statement()?;
-        for (a, b) in statement.fields().iter().zip(input.own_statement.fields()) {
-            GlueChip::assert_equal(region, a, b)?;
-        }
-        let columns = input.q_instances.first().ok_or(Error::Synthesis)?;
-        let sigma_plan = &plan.operation().sigma;
-        if columns.len() != 5
-            || columns
-                .iter()
-                .zip(sigma_plan.instance_lengths())
-                .any(|(c, n)| c.len() != n)
-        {
-            return Err(Error::Synthesis);
-        }
-        let digest = bounded_word(chip, region, &columns[0][0])?;
-        GlueChip::assert_equal(region, &digest, statement.digest())?;
-        let chunks = sigma_plan.chunk_range(0).ok_or(Error::Synthesis)?;
-        if chunks.len() != sigma.proof_chunks().len() {
-            return Err(Error::Synthesis);
-        }
-        for (i, expected) in chunks.zip(sigma.proof_chunks()) {
-            let actual = bounded_word(chip, region, &columns[0][i])?;
-            GlueChip::assert_equal(region, &actual, expected)?;
-        }
-        GlueChip::assert_equal(region, self.objects[2].word(9)?, sigma.step_digest()?)
-    }
-
-    /// Hard reverify C4 and the own receipt from the same context and hard Q bundle.
-    /// Slots are own receipt, current credential and fixed-root Enrollment certificate.
-    /// # Errors
-    /// Wrong fixed task, Q partition, slot class or context; invalid own authorization fails hard.
-    pub fn constrain_current(
+    /// Wrong fixed task, Q partition, slot class or context; an invalid own
+    /// receipt fails hard.
+    pub fn constrain_own_receipt(
         &self,
         chip: &mut VerifierChip<Ep>,
         region: &mut Region<'_, Fp>,
@@ -371,28 +351,23 @@ impl ReceiveAuthorizationObjects {
         let (policy, bundle) = policy_and_bundle;
         bind_bundle(region, plan, stage, input, bundle)?;
         let slots = bundle.slots();
-        if slots.len() != 3 || slots.iter().any(|slot| slot.mode() != VerifyMode::Hard) {
+        let expected = if self.variant == Variant::ReceiveRenewed {
+            5
+        } else {
+            3
+        };
+        if slots.len() != expected
+            || slots[0].mode() != VerifyMode::Hard
+            || slots[0].key_policy() != SignatureKey::Variable
+            || slots[1..]
+                .iter()
+                .any(|slot| slot.mode() != VerifyMode::Soft)
+        {
             return Err(Error::Synthesis);
         }
         let predecessor = input.predecessor.ok_or(Error::Synthesis)?;
-        authenticate_current(
-            chip,
-            region,
-            policy,
-            CurrentAuthorization {
-                credential: &self.objects[0],
-                certificate: &self.objects[1],
-                credential_proof: &slots[1],
-                certificate_proof: &slots[2],
-                current: MapState {
-                    state: predecessor.state,
-                    lineage: predecessor.public,
-                },
-                statement: input.own_statement,
-            },
-        )?;
         let payment_key = core::array::from_fn(|i| predecessor.public.fields()[9 + i].clone());
-        let signature = self.objects[2].bind_signature(region, &slots[0], &payment_key)?;
+        let signature = self.objects[0].bind_signature(region, &slots[0], &payment_key)?;
         GlueChip::assert_constant(region, signature.word(), Fp::ONE)?;
         let provider = policy.provider(chip, region)?;
         let wallet = core::array::from_fn(|i| predecessor.public.fields()[6 + i].clone());
@@ -401,12 +376,12 @@ impl ReceiveAuthorizationObjects {
             &mut UintChip::new(lanes.glue, lanes.range),
             lanes.hash,
             region,
-            &self.objects[2],
+            &self.objects[0],
             &ReceiptContext {
                 wallet: &wallet,
                 provider: &provider,
                 statement: input.own_statement,
-                proof_digest: self.objects[2].word(9)?,
+                proof_digest: self.objects[0].word(9)?,
                 payment_digest: input
                     .objects
                     .get(3)
@@ -421,8 +396,8 @@ impl ReceiveAuthorizationObjects {
     ///
     /// All messages, keys and raw r/s values are hard-linked to their original
     /// tapes before taking a soft verdict. Ordinary Receive deduplicates the
-    /// quoted credential with mandatory current C4; Renewed verifies the extra
-    /// quoted credential/certificate under the same circuit-fixed root.
+    /// quoted credential with the state's current credential; Renewed verifies
+    /// the extra quoted credential/certificate under the same circuit-fixed root.
     /// # Errors
     /// Wrong task/Q/soft-slot/root policy or context shape, or layout failure.
     pub fn constrain_signatures(
@@ -502,10 +477,15 @@ impl ReceiveAuthorizationObjects {
         let scope = policy.scope(chip, region, predecessor.state)?;
         let lanes = chip.operation_lanes()?;
         let mut uint = UintChip::new(lanes.glue, lanes.range);
-        let receiver = CredentialCells::check(&mut uint, region, &self.objects[3])?;
+        let receiver = CredentialCells::check(&mut uint, region, &self.objects[1])?;
         let payer = CredentialCells::check(&mut uint, region, &objects.objects[1])?;
         let request = RequestCells::check(&mut uint, lanes.hash, region, &objects.objects[0])?;
-        self.bind_quoted_sources(&mut uint, region, &request)?;
+        self.bind_quoted_sources(
+            &mut uint,
+            region,
+            &request,
+            &predecessor.state.core()[core_index::CREDENTIAL],
+        )?;
         let mut checks = vec![
             objects.objects[2].structural_valid().clone(),
             objects.objects[2].bind_signature(region, &slots[0], payer.payment_key()?)?,
@@ -528,7 +508,7 @@ impl ReceiveAuthorizationObjects {
                 &mut uint,
                 region,
                 &CredentialAuthorization {
-                    certificate: &self.objects[4],
+                    certificate: &self.objects[2],
                     certificate_proof: &slots[3],
                     credential_proof: &slots[2],
                     root_key: slots[3].key(),
@@ -539,7 +519,7 @@ impl ReceiveAuthorizationObjects {
         } else {
             // Signature deduplication does not omit original wrapper evidence.
             // A malformed original quoted object/certificate still returns false.
-            checks.push(self.objects[4].structural_valid().clone());
+            checks.push(self.objects[2].structural_valid().clone());
         }
         let valid = all(uint.glue(), region, &checks)?;
         Ok(valid)

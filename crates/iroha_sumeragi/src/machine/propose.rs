@@ -7,7 +7,7 @@ use crate::{
     message::{BlockHeader, Proposal, ProposalMessage, TimeoutCert, WireMessage},
     preimage,
     safety::RecordedProposal,
-    types::ControlWitness,
+    types::{ControlWitness, Hash32},
 };
 
 impl Core {
@@ -86,6 +86,7 @@ impl Core {
                 parent_result: self.tip.result,
             },
             payload: None,
+            admission: None,
             authoring: None,
         });
         self.out.push(Action::BuildPayload {
@@ -130,7 +131,11 @@ impl Core {
     }
 
     /// Keep the first nonempty bounded payload until its exact control response arrives.
-    pub(super) fn on_payload_built(&mut self, req: u64, payload: Option<PayloadBytes>) {
+    pub(super) fn on_payload_built(
+        &mut self,
+        req: u64,
+        payload: Option<crate::proposal_admission::BuiltPayload>,
+    ) {
         if self.awaiting {
             return;
         }
@@ -148,7 +153,7 @@ impl Core {
         if req != outstanding || fresh.payload.is_some() || fresh.authoring.is_some() {
             return;
         }
-        let Some(payload) = payload else {
+        let Some(crate::proposal_admission::BuiltPayload { payload, admission }) = payload else {
             self.wait_for_work(req, ready, false);
             return;
         };
@@ -166,6 +171,7 @@ impl Core {
             .as_mut()
             .expect("original fresh build retained");
         fresh.payload = Some(payload);
+        fresh.admission = Some(admission);
         let context = fresh.context;
         self.build = Build::Requested {
             req,
@@ -346,6 +352,14 @@ impl Core {
             .authoring
             .take()
             .expect("exact template retained");
+        let Some(admission) = self
+            .fresh_build
+            .as_mut()
+            .and_then(|fresh| fresh.admission.take())
+        else {
+            return;
+        };
+        self.proposal_admission = Some((body.hash(&*self.crypto), admission));
         self.propose_block(body, justify);
     }
 
@@ -361,6 +375,13 @@ impl Core {
         self.put_body(bh, block.clone());
         #[cfg(not(sumeragi_mutation = "MS29"))]
         if let Some(record) = self.safety.as_mut() {
+            if record.proposal.as_ref().is_none_or(|previous| {
+                previous.view != self.view
+                    || previous.block_hash != bh
+                    || previous.justify != justify
+            }) {
+                record.proposal_signature = None;
+            }
             record.proposal = Some(RecordedProposal {
                 view: self.view,
                 block_hash: bh,
@@ -388,16 +409,88 @@ impl Core {
             &bh,
             &ad,
         );
-        let Some(sig) = self.sign(
-            me.slot,
-            crate::api::SigningKind::Proposal,
-            self.height,
-            self.view,
-            &msg,
-        ) else {
-            self.resend_recorded = Some(bh);
-            return;
+        let retained = self
+            .safety
+            .as_ref()
+            .filter(|record| {
+                record.proposal.as_ref().is_some_and(|proposal| {
+                    proposal.view == self.view
+                        && proposal.block_hash == bh
+                        && proposal.justify == justify
+                })
+            })
+            .and_then(|record| record.proposal_signature);
+        let sig = if let Some(signature) = retained {
+            signature
+        } else {
+            let certified = (cfg!(sumeragi_mutation = "MS78") && self.proposal_admission.is_none())
+                || !self.certified_results(bh).is_empty()
+                || justify
+                    .as_ref()
+                    .and_then(|tc| tc.high_pqc.as_ref())
+                    .is_some_and(|qc| {
+                        qc.kind == crate::message::VoteKind::Prepare
+                            && qc.instance == self.instance
+                            && qc.epoch == self.cfg.epoch.id
+                            && qc.height == self.height
+                            && qc.block_hash == bh
+                    });
+            let signature = if certified {
+                self.sign(
+                    me.slot,
+                    crate::api::SigningKind::Proposal,
+                    self.height,
+                    self.view,
+                    &msg,
+                )
+            } else if let Some((_, admission)) = self
+                .proposal_admission
+                .as_ref()
+                .filter(|(source, _)| *source == bh)
+            {
+                let request = crate::proposal_admission::ProposalSigningRequest {
+                    instance: self.instance,
+                    epoch: self.cfg.epoch.id,
+                    height: self.height,
+                    view: self.view,
+                    block_hash: bh,
+                    payload_hash: block.header().payload_hash,
+                    parent_hash: block.header().parent_hash,
+                    parent_result: block.header().parent_result,
+                    attachments_digest: ad,
+                    certified: false,
+                    payload: block.payload().clone(),
+                };
+                let outcome = self
+                    .keys
+                    .get(me.slot)
+                    .and_then(|key| key.signer.as_ref())
+                    .map(|signer| signer.sign_proposal(&request, admission));
+                outcome.and_then(|outcome| {
+                    self.signing_outcome(
+                        crate::api::SigningKind::Proposal,
+                        self.height,
+                        self.view,
+                        outcome,
+                    )
+                })
+            } else {
+                self.request_proposal_admission(bh, block.clone());
+                None
+            };
+            let Some(signature) = signature else {
+                self.resend_recorded = Some(bh);
+                return;
+            };
+            if let Some(record) = self.safety.as_mut() {
+                record.proposal_signature = Some(signature);
+            }
+            #[cfg(not(sumeragi_mutation = "MS76"))]
+            self.persist();
+            signature
         };
+        self.proposal_recovery = None;
+        self.proposal_admission = None;
         self.resend_recorded = None;
         let proposal = Proposal {
             instance: self.instance,
@@ -425,6 +518,49 @@ impl Core {
         if self.proposal.is_none() {
             self.accept_proposal(None, proposal, bh, ad);
         }
+    }
+
+    fn request_proposal_admission(&mut self, block_hash: Hash32, body: AvailableBody) {
+        if !cfg!(sumeragi_mutation = "MS79")
+            && self.proposal_recovery.as_ref().is_some_and(|pending| {
+                pending.block_hash == block_hash && pending.view == self.view
+            })
+        {
+            return;
+        }
+        let req = self.next_req;
+        self.next_req = self.next_req.saturating_add(1);
+        self.proposal_recovery = Some(super::ProposalRecovery {
+            req,
+            block_hash,
+            view: self.view,
+        });
+        self.out
+            .push(Action::RecoverProposalAdmission { req, body });
+    }
+
+    pub(super) fn on_proposal_admission_recovered(
+        &mut self,
+        req: u64,
+        admission: Option<crate::proposal_admission::ProposalAdmission>,
+    ) {
+        let Some(pending) = self.proposal_recovery.as_ref().filter(|pending| {
+            pending.req == req
+                && pending.view == self.view
+                && self.resend_recorded == Some(pending.block_hash)
+        }) else {
+            return;
+        };
+        let block_hash = pending.block_hash;
+        let Some(admission) = admission else {
+            // The driver completed without custody. A later cadence may request the same
+            // original body again; a live worker request is never replaced by a timer.
+            self.proposal_recovery = None;
+            return;
+        };
+        self.proposal_recovery = None;
+        self.proposal_admission = Some((block_hash, admission));
+        self.resend_recorded_proposal();
     }
 
     /// §6.10 rule 0: after a restart the leader re-sends exactly the recorded proposal of the

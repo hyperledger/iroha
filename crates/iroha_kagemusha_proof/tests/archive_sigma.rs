@@ -246,10 +246,14 @@ fn installed_archive_sigma_proves_both_lifecycles_and_rejects_refund() {
         installed.proving_key().artifact_bytes_v2().unwrap(),
         original
     );
-    for (retiring, seed) in [(false, 210), (true, 211)] {
+    for retiring in [false, true] {
         let witness = witness(retiring);
         let proof = installed
-            .prove(&witness, common::recovery(seed), ProverConfig::default())
+            .prove(
+                &witness,
+                common::fresh_randomness(),
+                ProverConfig::default(),
+            )
             .unwrap();
         assert_eq!(proof.instances, ArchiveCircuit::new(&witness).instances());
         let opening = accumulate_generator(
@@ -301,7 +305,7 @@ fn installed_archive_sigma_proves_both_lifecycles_and_rejects_refund() {
     rebind(&mut refund);
     assert!(
         installed
-            .prove(&refund, common::recovery(212), ProverConfig::default())
+            .prove(&refund, common::fresh_randomness(), ProverConfig::default())
             .is_err()
     );
 }

@@ -90,7 +90,7 @@ public final class BilateralSettlementInstructionsTests {
                 new BilateralSettlementInstructions.SettlementLeg(BOND, "1", ALICE, BOB),
                 new BilateralSettlementInstructions.SettlementLeg(USD, "1", ALICE, BOB),
                 BilateralSettlementInstructions.ExecutionOrder.DELIVERY_THEN_PAYMENT));
-    expectIllegalArgument(() -> new BilateralSettlementInstructions.RepoGovernance(10_001, 1));
+    expectIllegalArgument(() -> new BilateralSettlementInstructions.RepoGovernance(10_001, 1, false));
     expectIllegalArgument(
         () ->
             new BilateralSettlementInstructions.Repo(
@@ -102,7 +102,7 @@ public final class BilateralSettlementInstructionsTests {
                 new BilateralSettlementInstructions.RepoCollateralLeg(BOND, "1"),
                 0,
                 1,
-                new BilateralSettlementInstructions.RepoGovernance(0, 0)));
+                new BilateralSettlementInstructions.RepoGovernance(0, 0, false)));
   }
 
   private static BilateralSettlementInstructions.Dvp dvp() {
@@ -131,7 +131,7 @@ public final class BilateralSettlementInstructionsTests {
         new BilateralSettlementInstructions.RepoCollateralLeg(BOND, "1100"),
         250,
         1_735_086_400_000L,
-        new BilateralSettlementInstructions.RepoGovernance(1_500, 86_400));
+        new BilateralSettlementInstructions.RepoGovernance(1_500, 86_400, false));
   }
 
   private static void assertWireFixture(

@@ -37,6 +37,14 @@
   <array>
     <string>UIInterfaceOrientationPortrait</string>
   </array>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>Exchange disposable KAGEMUSHA payments with the explicitly paired nearby phone.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Use Nearby Connections for the disposable KAGEMUSHA phone qualification.</string>
+  <key>NSBonjourServices</key>
+  <array><string>_F2EBA4BCB49B._tcp</string></array>
+  <key>NSFaceIDUsageDescription</key>
+  <string>Confirm the exact reviewed operation in the disposable KAGEMUSHA device probe.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>

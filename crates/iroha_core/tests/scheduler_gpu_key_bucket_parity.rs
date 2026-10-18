@@ -1,5 +1,5 @@
 //! GPU key-bucket parity: enabling `pipeline.gpu_key_bucket` must not change
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! scheduling outcomes or final state. This toggles the knob and compares events
 //! and balances for a mixed set of transactions.
 use crate::synthetic_state_snapshots as snapshots;

@@ -1,4 +1,4 @@
-//! ClassedRaceV1 complete tick graph with explicit bounded inputs.
+//! `ClassedRaceV1` complete tick graph with explicit bounded inputs.
 //!
 //! The compiled class selects all performance constants before witness construction. This graph
 //! is a separate source identity; it never changes the retained stock relation. Fixed rows are

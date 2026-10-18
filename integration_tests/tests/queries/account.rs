@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Account query coverage for Torii.
 use eyre::Result;
 use integration_tests::sandbox;

@@ -1,0 +1,144 @@
+"""Reconcile the frozen fatal-control index with stack and mask evidence.
+
+Run once from the repository root after the three child bundles are frozen.
+All prior evidence must match except the six named live source/status files.
+This integrity check does not establish release or security qualification.
+"""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+
+
+ROOT = Path.cwd()
+B6 = ROOT / "docs/validation/parliament_ballot_b6"
+PRIOR = B6 / "pre-fatal-stack-mask-artifact-manifest.sha256"
+INDEX = B6 / "B6_ARTIFACTS_SHA256SUMS"
+RECEIPT = B6 / "fatal-stack-mask-coherence.json"
+
+
+def require(condition, detail):
+    if not condition:
+        raise RuntimeError(str(detail))
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def inventory(path):
+    entries = {}
+    for line in path.read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        require(name not in entries, (path, "duplicate", name))
+        require(re.fullmatch(r"[0-9a-f]{64}", digest), (path, digest))
+        entries[name] = digest
+    return entries
+
+
+def verify_manifest(path):
+    entries = inventory(path)
+    for name, expected in entries.items():
+        base = ROOT if name.startswith(("docs/", "specs/", "scripts/", "crates/")) else path.parent
+        require(sha(base / name) == expected, (path, name))
+    return {"path": str(path.relative_to(ROOT)), "sha256": sha(path), "entries": len(entries)}
+
+
+require(sha(PRIOR) == "afc4c1b50ff5cffe455141fc7848fdac118100fc60361e21ac4f1362f27dd236", "wrong prior index")
+require(INDEX.read_bytes() == PRIOR.read_bytes(), "current index is no longer the archived prior index")
+require(not RECEIPT.exists(), "refuse overwriting receipt")
+old = inventory(PRIOR)
+allowed = {
+    "docs/validation/parliament_ballot_b6.md",
+    "scripts/parliament_ballot_stack_audit.py",
+    "scripts/tests/parliament_ballot_stack_audit_test.py",
+    "specs/parliament_ballot_arena_sufficiency.md",
+    "specs/parliament_ballot_b6_requirement_audit.md",
+    "specs/parliament_ballot_implementation_goals.md",
+}
+changes = {name: {"before": expected, "after": sha(ROOT / name)}
+           for name, expected in old.items() if sha(ROOT / name) != expected}
+require(set(changes) == allowed, ("unexpected prior changes", changes))
+folders = [ROOT / "docs/validation" / name for name in (
+    "parliament_ballot_fatal_stack", "parliament_ballot_fatal_stack_eon",
+    "parliament_ballot_mask_coordinate",
+)]
+manifests = [verify_manifest(folder / "SHA256SUMS") for folder in folders]
+expected_manifests = [
+    "66f24e6f15aaaaf56104a69d9b1ade685b1cc5ac8052df987042e142ce616546",
+    "44f4361b01a7f4d78805055b187a8073448d516391bd407c91c70b658fa0ea48",
+    "80182ca22c54e5b7144bb2102380228844d51380c3fb7afc6ef5b374c79d1648",
+]
+require([item["sha256"] for item in manifests] == expected_manifests, "wrong child manifests")
+stack = json.loads((folders[1] / "receipt.json").read_text())
+mask = json.loads((folders[2] / "receipt.json").read_text())
+require(stack["capture_passed"] and not stack["input_changes"], "stack capture failed/drifted")
+require(not stack["complete_stack_certificate"] and not stack["profile_qualified"], "unexpected stack qualification")
+for name, expected in stack["input_sha256"].items():
+    require(sha(name) == expected, ("post-capture drift", name))
+for name, expected in mask["source_sha256_at_freeze"].items():
+    require(sha(ROOT / name) == expected, ("post-mask drift", name))
+require(not mask["source_changes_at_freeze"], "mask inputs drifted")
+require(not mask["profile_qualified"] and not mask["production_gate_changed"], "unexpected mask qualification")
+require(not mask["reverse_material_bridge_proved"] and not mask["oracle_deletion_composition_proved_here"], "unexpected mask completion")
+
+# Core changed concurrently; use the fresh CLI/read-set observation, preserving
+# the prior receipt. Its first failing obligation remains a blocker.
+gate_path = B6 / "fatal-stack-source-check.json"
+gate = json.loads(gate_path.read_text())
+for name, expected in gate["source_after"].items():
+    require(sha(ROOT / name) == expected, ("gate receipt input changed", name))
+require(gate["binding_ballot_available"] is False, "binding gate changed")
+require(gate["qualified_attempt_latency_ms"] is None, "qualified latency changed")
+require(gate["no_experimental_core_torii_dependencies"], "production dependencies changed")
+require(gate["exit"] == 1 and gate["observed_read_set_matches_cli"], "source gate result changed")
+require(not gate["source_changes"] and not gate["absence_changed"], "source gate drift")
+require(all(not (ROOT / name).exists() for name in gate["guarded_absent_paths"]), "retired path returned")
+
+documents = sorted({ROOT / name for name in allowed if name.endswith(".md")} | {
+    ROOT / "specs/parliament_ballot_b6_mask_coordinate.md", ROOT / "status.md",
+} | {path for folder in folders for path in folder.rglob("*.md")})
+links = []
+broken = []
+for doc in documents:
+    for link in re.findall(r"\]\(([^)]+)\)", doc.read_text()):
+        if "://" in link or link.startswith("#"):
+            continue
+        target = (doc.parent / link.split("#")[0]).resolve()
+        links.append({"document": str(doc.relative_to(ROOT)), "link": link})
+        if not target.exists():
+            broken.append(links[-1])
+require(not broken, broken)
+receipt = {
+    "schema": "parliament-fatal-stack-mask-coherence-v1",
+    "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "prior_entries": len(old), "prior_manifest_sha256": sha(PRIOR),
+    "updated_live_entries": changes, "frozen_new_manifests": manifests,
+    "current_stack_guards_checked": len(stack["input_sha256"]),
+    "current_mask_guards_checked": len(mask["source_sha256_at_freeze"]),
+    "source_gate_receipt": str(gate_path.relative_to(ROOT)),
+    "source_gate_receipt_sha256": sha(gate_path),
+    "source_gate_inputs_still_match": True,
+    "core_source_contract_passed": False,
+    "binding_ballot_available": False, "qualified_attempt_latency_ms": None,
+    "local_links_checked": len(links), "broken_links": broken,
+    "current_status_roadmap_sha256": {name: sha(ROOT / name) for name in ("status.md", "roadmap.md")},
+    "complete_workspace_certificate": False, "profile_qualified": False,
+    "independent_cryptographic_review": False,
+    "scope_note": "Preserves all prior frozen evidence. New current-image analysis removes decoder errors without bounding opaque costs. The conditional joint mask bijection reaches ideal-material IdealPublicPatched only; entry, deletion, reverse material bridge and complete resources remain open.",
+}
+RECEIPT.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+names = set(old) | {str(path.relative_to(ROOT)) for folder in folders for path in folder.rglob("*") if path.is_file()} | {
+    str(PRIOR.relative_to(ROOT)), str(RECEIPT.relative_to(ROOT)),
+    "docs/validation/parliament_ballot_b6/fatal-stack-mask-coherence.py.template",
+    "docs/validation/parliament_ballot_b6/fatal-stack-source-check.py.template",
+    "docs/validation/parliament_ballot_b6/fatal-stack-source-check.json",
+    "docs/validation/parliament_ballot_b6/fatal-stack-source-check.txt",
+    "specs/parliament_ballot_b6_mask_coordinate.md",
+}
+INDEX.write_text("".join(sha(ROOT / name) + "  " + name + "\n" for name in sorted(names)))
+verify_manifest(INDEX)
+print(json.dumps({"entries": len(names), "index_sha256": sha(INDEX),
+                  "coherence_sha256": sha(RECEIPT), "links_checked": len(links),
+                  "prior_changed_entries": len(changes)}, sort_keys=True))

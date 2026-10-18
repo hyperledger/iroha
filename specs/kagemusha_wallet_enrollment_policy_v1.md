@@ -40,8 +40,9 @@ largest Android app-policy frame (a 255-byte package and four signers) must fit 
 transcript sizes below do not establish that: the complete frame adds the Norito header,
 u32 discriminants and field and sequence length prefixes. The Model's tests encode both
 maximal policies with the actual Norito encoder and assert each complete frame is at most
-1024 bytes; until that test passes, the cap is unverified for them. The proposed Native
-roundtrip/byte-mutation controls must pass before adoption. Python consumes a private typed
+1024 bytes (`new_policy_maximal_norito_frames_fit_the_complete_frame_cap`). The
+canonical-frame and every-byte-substitution tests enforce Native roundtrip and
+mutation rejection. Python consumes a private typed
 projection and computes transcripts; it does not introduce another policy wire codec.
 
 Hash identity uses the existing wallet `H` construction:
@@ -110,12 +111,12 @@ The enrollment-policy transcript begins
 - Apple tag 2: root DER SHA256. Production App Attest plus a durable fresh assertion binding
   E1 and the separately selected payment key are always required.
 
-Both arms end with the existing 20-byte inline regulatory-policy transcript:
-`LE32(permitted_controls) || LE64(blacklist_max_age_ms) || LE64(time_anchor_max_response_ms)`,
+Both arms end with the existing 12-byte inline regulatory-policy transcript:
+`LE32(permitted_controls) || LE64(time_anchor_max_response_ms)`,
 then `LE64(challenge_lifetime_ms) || LE64(attestation_lease_lifetime_ms)`.
-An Android transcript is `140 + Σ root_entry_bytes`, where a Google entry is 34 bytes and a
-Vendor entry `38 + adapter_id_bytes`: 174 bytes with one Google root and at most 572 bytes
-with eight Vendor roots. Apple is exactly 167. Order follows the E1 scope first, platform
+An Android transcript is `132 + Σ root_entry_bytes`, where a Google entry is 34 bytes and a
+Vendor entry `38 + adapter_id_bytes`: 166 bytes with one Google root and at most 564 bytes
+with eight Vendor roots. Apple is exactly 159. Order follows the E1 scope first, platform
 verification inputs second, and credential regulator/lifetime rules last. There is no field order
 sorting, optional arm, extension map or compatibility decoder.
 
@@ -176,18 +177,23 @@ profile names the documented features that identify a factory-provisioned chain;
 that carries the provisioning information extension, or that the profile cannot identify as
 factory-provisioned, is evaluated as remotely provisioned, including a chain to the RSA root.
 
-The `huawei` profile admits Huawei's own attestation root for Android phones running EMUI or
-HarmonyOS 2–4 with AndroidKeyStore, including post-2019 phones without Google Mobile
-Services. Huawei's published EMUI security documentation describes iTrustee hardware
-attestation and a Huawei root, device CA, device and key certificate hierarchy. That supports
-pinning a genuine Huawei root; it does not establish that every such phone emits the AOSP key
-description schema. The profile's chain shape, constraints, extension OIDs and positions are
-therefore fixed from genuine chains captured from such phones, and enrollment tests on them
-qualify it before its root entry is admitted. Where those chains carry the AOSP key
-description, steps 4–9 apply to it unchanged, and a phone whose attestation lacks a required
-field is refused for that evidence. No HarmonyOS NEXT or HUKS assumption applies: that
-platform runs no Android apps and needs its own adapter (design §2.2). An emulator chain
-ends at a software root and never qualifies a profile.
+The `huawei` identifier currently names an unqualified candidate profile. The Python
+verifier and native issuer configuration reject a policy selecting it. Huawei's
+[EMUI security documentation](https://consumer.huawei.com/content/dam/huawei-cbg-site/common/campaign/privacy/whitepaper/emui_11.0_security_technical_white_paper_v1.0.pdf)
+describes iTrustee hardware attestation and a Huawei root, device CA, device and key
+certificate hierarchy. It does not establish that AndroidKeyStore emits a chain to those
+roots or that its evidence carries the AOSP key description schema. HUKS also exists on
+Android/EMUI; HUKS evidence must not be conflated with either AndroidKeyStore evidence or
+HarmonyOS NEXT merely because the manufacturer is the same.
+
+TODO: establish the candidate profile's chain shape, constraints, extension OIDs and
+positions from authentic no-GMS Android evidence, and test all E1 assertions before
+admitting its root entry. Where those chains carry the AOSP key description, steps 4–9
+apply unchanged; a different vendor schema requires its own reviewed parsing and equivalent
+assertion checks. A phone whose evidence lacks a required field is refused for that
+evidence. HarmonyOS NEXT has no Android APK runtime and remains outside the first release
+(design §2.2). A software-rooted chain, including one that claims a TEE security level,
+never establishes manufacturer hardware provenance.
 
 ## Android admission
 
@@ -249,14 +255,9 @@ source or the operator denylist is `Unavailable`, never a refusal or an admissio
 
 An admitted Android evidence record carries facts HARDWARE_BACKED_KEY, BOOTLOADER_LOCKED,
 VERIFIED_BOOT, APP_SIGNING_IDENTITY and REVOCATION_LIST_CLEAR, plus STRONGBOX for StrongBox and
-PATCH_POLICY_MET when the floor is met. The issuer never sets fact bit 9
-(PLAY_INTEGRITY_SIGNAL). Bit 9 is retired issuer output: newly generated evidence never sets
-bit 9, and renewals preserve historical enrollment evidence unchanged, including bit 9, as
-credential replacement validation requires. It stays defined in record validation and
-forbidden on Apple records, so a credential already issued with it, and each renewal of it,
-stays valid. Record validation and both masks are unchanged: removing bit 9 from the
-defined-facts mask would reject that historical Android evidence, and removing it from the
-Apple-forbidden mask would instead permit an invalid Apple fact (design §9.1).
+PATCH_POLICY_MET when the floor is met. Bit 9 is reserved zero in every evidence
+record. Native record validation and the credential proof relation reject it in
+both enrollment and renewal evidence; no historical-credential exception exists.
 
 Nothing else is an Android admission input: no Play Integrity token or verdict, Google
 account, Google Mobile Services, Huawei Mobile Services, app-store installation, exact
@@ -331,7 +332,7 @@ verifies again as a first attempt, signs a second credential or consumes the App
 again (design §2.4).
 
 Existing regulatory bits and consistency rules are preserved. Zero permitted controls does
-not disable Kagemusha; it permits no extra blacklist/quota/lease restrictions. Lease lifetime
+not disable Kagemusha; it permits no extra quota/lease restrictions. Lease lifetime
 is zero iff the regulator does not permit attestation lease and otherwise positive. The NEW
 initial producer computes expiry as checked `issued_at_ms + lease_lifetime` with positive
 trusted issuer time. This is an attestation lease. Renewals keep

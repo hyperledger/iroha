@@ -1,7 +1,7 @@
 //! Exact floor square root using the shared radix-2^16 product workspace.
 //!
 //! A 32-bit root q and bounded nonnegative remainder r satisfy n=q*q+r and
-//! r<=2*q, which is equivalent to q*q<=n<(q+1)*(q+1), including u64::MAX.
+//! r<=2*q, which is equivalent to q*q<=n<(q+1)*(q+1), including `u64::MAX`.
 //! The shift/division workspace holds q, r, 2*q-r and the gas comparison. All
 //! shared word digits and borrow/carry bits remain unconditionally constrained.
 //! No interpreter callback or field-reduced 64-bit equality establishes a root.

@@ -76,7 +76,7 @@ fn validated_arithmetic_owner_rejects_valid_but_wrong_topology_and_clears_input(
 #[test]
 fn validated_arithmetic_constructor_guard_clears_input_during_unwind() {
     let trace = small_trace_v1();
-    let (_, observations) = inspection::observe_v1(|| {
+    let ((), observations) = inspection::observe_v1(|| {
         assert!(
             std::panic::catch_unwind(move || {
                 // This is the constructor's first operation, before all fallible
@@ -124,7 +124,9 @@ fn validated_arithmetic_owner_matches_checked_rows_and_aux_without_revalidation(
     let owner = owner_slot.take().unwrap(); // same ownership move used by bind
     assert!(owner_slot.is_none());
     let rows = owner.rows_v1(role).unwrap();
-    assert!(matches!(&rows.fixed, Cow::Borrowed(fixed) if core::ptr::eq(*fixed, &owner.fixed)));
+    assert!(
+        matches!(&rows.fixed, Cow::Borrowed(fixed) if core::ptr::eq(*fixed, &raw const owner.fixed))
+    );
     let checked = P256ArithmeticAggregateRowsV1::new_v1(role, oracle.as_ref_v1().unwrap()).unwrap();
     assert_eq!(checked_constructors_v1(), before + 2);
     for row in 0..P256_ARITHMETIC_AGGREGATE_TRACE_SIZE_V1 {
@@ -247,7 +249,7 @@ fn validated_arithmetic_owner_matches_checked_rows_and_aux_without_revalidation(
         owner.fixed.allocated_heap_bytes_v1(),
     ]);
     assert_eq!(owner.allocated_heap_bytes_v1(), expected);
-    let (_, observations) = inspection::observe_v1(|| {
+    let ((), observations) = inspection::observe_v1(|| {
         assert!(
             std::panic::catch_unwind(move || {
                 let _owner = owner;

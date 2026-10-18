@@ -125,6 +125,21 @@ impl<T: Encode> AdmittedNetworkPayload<T> {
         }
     }
 }
+/// The original dispatch owner temporarily unpacked by one actor attempt.
+///
+/// The payload and its byte lease precede retained routing and flush state.
+/// This moves an admitted item without allocation or new authority.
+pub(super) struct NetworkDispatchParts<T> {
+    pub(super) message: AdmittedNetworkPayload<T>,
+    pub(super) byte_lease: NetworkActorLease,
+    pub(super) remaining_broadcast_targets: Option<VecDeque<PeerId>>,
+    pub(super) pending_flush_acks: HashMap<PeerId, PendingWriterFlush>,
+    pub(super) progress_authority: Option<ProgressDeliveryAuthority>,
+    pub(super) reply_writer_timeout_attempt: Option<u8>,
+    pub(super) reply_writer_deadline: Option<ExactReplyWriterDeadline>,
+    pub(super) reply_flush_ack: Option<tokio::sync::oneshot::Sender<NetworkReplyFlushCompletion>>,
+}
+
 pub(super) struct AdmittedNetworkMessage<T> {
     /// One signed relay envelope retained across every actor retry.
     ///
@@ -273,18 +288,7 @@ impl<T> AdmittedNetworkMessage<T> {
             byte_lease,
         )
     }
-    pub(super) fn into_dispatch_parts(
-        self,
-    ) -> (
-        AdmittedNetworkPayload<T>,
-        NetworkActorLease,
-        Option<VecDeque<PeerId>>,
-        HashMap<PeerId, PendingWriterFlush>,
-        Option<ProgressDeliveryAuthority>,
-        Option<u8>,
-        Option<ExactReplyWriterDeadline>,
-        Option<tokio::sync::oneshot::Sender<NetworkReplyFlushCompletion>>,
-    ) {
+    pub(super) fn into_dispatch_parts(self) -> NetworkDispatchParts<T> {
         let Self {
             mut message,
             byte_lease,
@@ -295,8 +299,8 @@ impl<T> AdmittedNetworkMessage<T> {
             reply_writer_deadline,
             reply_flush_ack,
         } = self;
-        (
-            message
+        NetworkDispatchParts {
+            message: message
                 .take()
                 .expect("admitted network message must be consumed exactly once"),
             byte_lease,
@@ -306,23 +310,24 @@ impl<T> AdmittedNetworkMessage<T> {
             reply_writer_timeout_attempt,
             reply_writer_deadline,
             reply_flush_ack,
-        )
+        }
     }
     /// Retain the same admitted owner after an incomplete writer-dispatch attempt.
     ///
     /// This is not a capability reconstruction boundary: every tenure-bound
     /// authority and reply completion sender is moved out by
     /// [`Self::into_dispatch_parts`] and returned here unchanged.
-    pub(super) fn retain_after_dispatch_attempt(
-        message: AdmittedNetworkPayload<T>,
-        byte_lease: NetworkActorLease,
-        remaining_broadcast_targets: Option<VecDeque<PeerId>>,
-        pending_flush_acks: HashMap<PeerId, PendingWriterFlush>,
-        progress_authority: Option<ProgressDeliveryAuthority>,
-        reply_writer_timeout_attempt: Option<u8>,
-        reply_writer_deadline: Option<ExactReplyWriterDeadline>,
-        reply_flush_ack: Option<tokio::sync::oneshot::Sender<NetworkReplyFlushCompletion>>,
-    ) -> Self {
+    pub(super) fn retain_after_dispatch_attempt(parts: NetworkDispatchParts<T>) -> Self {
+        let NetworkDispatchParts {
+            message,
+            byte_lease,
+            remaining_broadcast_targets,
+            pending_flush_acks,
+            progress_authority,
+            reply_writer_timeout_attempt,
+            reply_writer_deadline,
+            reply_flush_ack,
+        } = parts;
         Self {
             message: Some(message),
             byte_lease,

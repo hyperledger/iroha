@@ -132,7 +132,7 @@ def test_wrong_stale_archive_emitter_source_tool_and_component_relationship_refu
 
 def test_current_repository_owned_c_jni_and_privacy_policy_is_exact():
     policy = unit.native_policy(ROOT)
-    assert len(policy['c_jni']) == 88
+    assert len(policy['c_jni']) == 108
     assert sum(symbol.startswith('connect_norito_kagemusha_wallet_') for symbol in policy['c_jni']) == 27
     assert sum('offline_wallet_KagemushaWalletNativeV1_' in symbol for symbol in policy['c_jni']) == 15
     for method in ('beginInstallation', 'registerInstallation', 'closeInstallation', 'relocateRegistrationSource'):

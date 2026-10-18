@@ -1,5 +1,16 @@
 # Non-hiding IPA polynomial and transcript controls
 
+**Retained model scope.** This package models the earlier non-hiding salted
+fold, with the source versions and hashes named below. The selected C12
+construction instead uses an opened D commitment and 32 W masks, total actual
+round challenges, and a scoped full-group suffix; its private witness is 2,176
+bytes. The recurrence, first-L argument and transcript counts below retain
+their original hypotheses. They are not tests or a privacy theorem for that
+selected construction. Existing source manifests must continue to refuse
+changed bodies until the model and its source joins are independently updated;
+do not refresh their pins as a documentation fix. See the
+[transfer boundary](../../specs/kagemusha_recursion_soundness_v1.md#retained-arguments-and-selected-source-transfer).
+
 Run the standard-library Python controls from the repository root:
 
 ```sh
@@ -53,7 +64,8 @@ later absorption; unchanged prior challenges do not make a bad witness valid.
 Missing/changed sources and invalid/unbounded inputs refuse. The separate exact
 `transcript_source_manifest.json` pins these controls, their reference imports,
 native/circuit schedule sources and the Rust KAT test. The original algebra
-inventory/assertions remain unchanged except for this README's refreshed hash.
+inventory and mathematical assertions remain unchanged; source refreshes are
+reviewed separately below.
 
 Transcript agreement supplies no fresh-answer law for fixed public RP57. The
 conditional ideal-permutation first-hit argument still needs its salt/capacity
@@ -62,6 +74,21 @@ test that security theorem. Neither control group establishes adaptive privacy,
 entropy or resource guarantees, recursive continuation, C12, current artifact
 validity or release qualification. No external Python dependency or `target/`
 input is needed.
+
+The current source refresh compares the former IPA module from commit
+`6df11a47f7bc51ace2384696196b8507faf192c2` and accumulation circuit from
+`4d4385af26803909b2800570a3ea1899d07b2393` with their bodies in
+`687058065dcf6a461b1953d8f975ec9589f8578d`. The IPA module adds bounded,
+parameter-owned memos and embedded-parameter loading; its coefficient recurrence,
+parameter digest and trusted decoding checks are unchanged. The circuit's only
+change delegates its deciding dummy's ordered generator sum to
+`PinnedParams::generator_prefix_sum`. That method performs the same ordered sum
+after the same domain bound, retaining a point only inside its immutable
+parameter owner. The circuit still rejects an identity dummy. Its transcript
+schedule is unchanged. The transcript inventory now includes both the parameter
+owner and the delegated sum implementation, with missing-role and changed-body
+controls. This refresh does not qualify the separate public-column memo, embedded
+artifacts, current setup or any native proof.
 
 The separate `ideal_game.py`/`test_ideal_game.py` controls implement a finite
 partial-bijection game. They never call RP57. A private path begins at its first

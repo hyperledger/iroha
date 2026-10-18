@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for GET /v1/zk/vk/{backend}/{name} (`app_api`).
 #![allow(clippy::similar_names)]
 #![allow(clippy::redundant_closure_for_method_calls)]

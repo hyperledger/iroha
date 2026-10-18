@@ -1,16 +1,16 @@
 //! The permutation grand products (spec section 2 "Permutation", section 7
 //! row 3, `BlindingScheduleV1` item 3).
 //!
-//! The equality columns are split into sets of `d - 2` columns. For set `s`
+//! The equality columns are split into sets of `floor((d - 2) / 2)` columns. For set `s`
 //! the prover builds
 //!
 //! ```text
 //! z_s(omega^0) = z_{s-1}(omega^u)   (1 for the first set)
-//! z_s(omega^(i+1)) = z_s(omega^i) prod_j (v_j(omega^i) + beta DELTA^j omega^i + gamma)
-//!                                  / (v_j(omega^i) + beta sigma_j(omega^i) + gamma)
+//! z_s(omega^(i+1)) = z_s(omega^i) prod_j N(v_j(omega^i) + beta DELTA^j omega^i + gamma)
+//!                                  / N(v_j(omega^i) + beta sigma_j(omega^i) + gamma)
 //! ```
 //!
-//! over every row, where `j` is the global equality index, then overwrites
+//! With `N(t) = t^2 - 5`, over every row where `j` is the global equality index, then overwrites
 //! rows `n-b..n` with random values, draws its blind and writes its
 //! commitment. The values `v_j` are the advice columns with their blinding
 //! rows, the fixed columns and the zero-padded instance columns.
@@ -128,7 +128,7 @@ where
                 for (offset, value) in out.iter_mut().enumerate() {
                     let row = start + offset;
                     for (column, sigma) in values.iter().zip(set_sigma) {
-                        *value *= column[row] + beta * sigma[row] + gamma;
+                        *value *= crate::norm_factor(column[row] + beta * sigma[row] + gamma);
                     }
                 }
             });
@@ -149,7 +149,8 @@ where
                 for column in &values {
                     let mut delta_omega = column_delta * start_power;
                     for (offset, value) in out.iter_mut().enumerate() {
-                        *value *= column[start + offset] + delta_omega * beta + gamma;
+                        *value *=
+                            crate::norm_factor(column[start + offset] + delta_omega * beta + gamma);
                         delta_omega *= omega;
                     }
                     column_delta *= <C::ScalarExt as PrimeField>::DELTA;

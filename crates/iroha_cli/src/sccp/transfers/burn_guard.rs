@@ -37,7 +37,7 @@ fn require_horizon(
 ) -> Result<()> {
     ensure!(!client.is_frozen(), "source light client is frozen");
     // Round up: one millisecond below the required quarter must never be accepted.
-    let quarter = bound_ms / 4 + u64::from(bound_ms % 4 != 0);
+    let quarter = bound_ms / 4 + u64::from(!bound_ms.is_multiple_of(4));
     ensure!(
         bound_ms > 0
             && deadline_ms

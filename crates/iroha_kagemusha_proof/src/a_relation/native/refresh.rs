@@ -14,16 +14,15 @@ pub use checkpoint::{CheckpointKind, CheckpointLayout};
 #[path = "refresh/original.rs"]
 mod original;
 use super::artifact::KeyArtifact;
+use super::identity::{BoundV1, ProverInstanceV1};
 
 use core::fmt;
 use std::sync::Arc;
 
 use ff::{Field, PrimeField};
-use iroha_pasta::{
-    Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
-};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
-    DescriptorBinding, ProverConfig, ProverRandomness, ProvingKey, VerifyingKey,
+    DescriptorBinding, ProverConfig, ProverRandomness, VerifyingKey,
     cs::{Column, ConstraintSystem, Instance, InstanceType},
     frontend::{Circuit, Error as LayoutError, Layouter, Region, SimpleFloorPlanner, Value},
     pcs::ipa::PinnedParams,
@@ -34,7 +33,6 @@ use iroha_plonk_gadgets::{
         le_value, p_bytes_native,
         tape::{BytesChip, BytesConfig, SegmentSpec},
     },
-    imt::{LeafCells, OpeningCells, PathCells},
     statement::foreign_limbs,
 };
 use iroha_plonk_recursion::{
@@ -59,11 +57,10 @@ use crate::{
     admin_sigma::{RefreshWitness, StateWitness},
     omega::OmegaWitness,
     operation_relation::{
-        map_effects::InsertCells, objects::ObjectKind, quota_refresh::QuotaRebuildCells,
-        state::StateCells, statement::StatementCells,
+        objects::ObjectKind, quota_refresh::QuotaRebuildCells, state::StateCells,
+        statement::StatementCells,
     },
     q_signature::QSignaturePlan,
-    tree::IndexedInsert,
 };
 
 impl Prover {
@@ -228,14 +225,12 @@ impl QuotaInput {
 /// Post-Advance originals for the complete fixed Refresh relation.
 #[derive(Clone, Debug)]
 pub struct Inputs {
-    /// Exact predecessor/successor core33/rest8/public18 and own statement26.
+    /// Exact predecessor/successor core29/rest6/public18 and own statement26.
     pub state: RefreshWitness,
     /// Original unframed sigma also exported by Q0.
     pub sigma: Vec<u8>,
     /// Update certificate/update/receipt/current certificate/current credential.
     pub objects: [Vec<u8>; 5],
-    /// Exact history insertion, present only for Blacklist.
-    pub blacklist: Option<IndexedInsert<Fp>>,
     /// Exact arrays and signed issue/count, present only for Quota.
     pub quota: Option<QuotaInput>,
     /// Own sigma Q, update/receipt/certificate Q, current credential/certificate Q.
@@ -271,10 +266,9 @@ impl Plan {
         if operation.frame().part_source_k() != 12
             || operation.q_count() != 3
             || !operation.frame().has_predecessor()
-            || operation.sigma.slot_count() != 1
+            || operation.sigma_slots() != 1
             || operation
-                .sigma
-                .class(0)
+                .sigma_class(0)
                 .ok_or(Error::Artifact)?
                 .verifier()
                 .binding()
@@ -353,16 +347,13 @@ impl Plan {
         let class = self
             .context
             .operation()
-            .sigma
-            .class(0)
+            .sigma_class(0)
             .ok_or(Error::Artifact)?;
         if input.sigma.len() != class.verifier().proof_length() {
             return Err(Error::Input);
         }
         let variant = self.context.operation().frame().variant();
-        if input.blacklist.is_some() != (variant == Variant::RefreshBlacklist)
-            || input.quota.is_some() != (variant == Variant::RefreshQuotaShare)
-        {
+        if input.quota.is_some() != (variant == Variant::RefreshQuotaShare) {
             return Err(Error::Input);
         }
         check_update_projection(variant, &input.state.update, &input.objects[1])?;
@@ -474,7 +465,6 @@ impl Plan {
         });
         let maps = Maps {
             witness: input.state,
-            blacklist: input.blacklist,
             quota: input.quota,
             known: true,
         };
@@ -540,13 +530,11 @@ impl SignedTape {
     }
 }
 struct AssignedMaps {
-    blacklist: Option<InsertCells>,
     quota: Option<QuotaRebuildCells>,
 }
 #[derive(Clone)]
 struct Maps {
     witness: RefreshWitness,
-    blacklist: Option<IndexedInsert<Fp>>,
     quota: Option<QuotaInput>,
     known: bool,
 }
@@ -592,46 +580,6 @@ impl Maps {
         r: &mut Region<'_, Fp>,
         task: &[OperationTask],
     ) -> Result<AssignedMaps, LayoutError> {
-        let blacklist = if task.contains(&OperationTask::RefreshBlacklist) {
-            let proof = self.blacklist.ok_or(LayoutError::Synthesis)?;
-            let fields = [proof.leaf.key, proof.leaf.value, proof.leaf.next_key];
-            let leaf = LeafCells::from_words(
-                chip.uint()
-                    .glue()
-                    .witnesses(r, &fields.map(|v| self.value(v)))?
-                    .try_into()
-                    .map_err(|_| LayoutError::Synthesis)?,
-            );
-            let mut paths = Vec::new();
-            for (index, siblings) in [
-                (proof.leaf_slot, proof.leaf_siblings),
-                (proof.slot, proof.slot_siblings),
-            ] {
-                let index = chip
-                    .uint()
-                    .glue()
-                    .witness(r, self.value(Fp::from(u64::from(index))))?;
-                let siblings = chip
-                    .uint()
-                    .glue()
-                    .witnesses(r, &siblings.map(|v| self.value(v)))?
-                    .try_into()
-                    .map_err(|_| LayoutError::Synthesis)?;
-                paths.push(PathCells::from_words(
-                    &mut chip.uint(),
-                    r,
-                    &index,
-                    siblings,
-                )?);
-            }
-            let [low, slot] = paths.try_into().map_err(|_| LayoutError::Synthesis)?;
-            Some(InsertCells {
-                low: OpeningCells { leaf, path: low },
-                slot,
-            })
-        } else {
-            None
-        };
         let quota = if task.iter().any(|task| {
             matches!(
                 task,
@@ -666,7 +614,7 @@ impl Maps {
         } else {
             None
         };
-        Ok(AssignedMaps { blacklist, quota })
+        Ok(AssignedMaps { quota })
     }
 }
 #[derive(Clone)]
@@ -674,7 +622,7 @@ struct First {
     source: Arc<Sources>,
     plan: ContextPlan,
     pallas: AccumulatorT<Ep>,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     known: bool,
 }
 // Source-only circuit inputs. None is an unknown witness, never an accepted claim.
@@ -702,7 +650,7 @@ struct CircuitSources {
 struct FirstCircuit {
     source: Arc<CircuitSources>,
     plan: ContextPlan,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     known: bool,
 }
 impl First {
@@ -774,7 +722,7 @@ impl FirstCircuit {
         region: &mut Region<'_, Fp>,
         input: Option<&FoldInput<Ep>>,
     ) -> Result<FoldInputCells<Ep>, LayoutError> {
-        let g = chip.witness_point(
+        let g = chip.witness_generator(
             region,
             input.map_or(Value::unknown(), |v| self.value(Ep::from(*v.g()))),
         )?;
@@ -797,9 +745,8 @@ impl FirstCircuit {
         region: &mut Region<'_, Fp>,
         input: Option<&AccumulatorT<Eq>>,
     ) -> Result<VestaClaimCells, LayoutError> {
-        let coordinates = input
-            .map(|v| Option::<(Fq, Fq)>::from(v.g().coordinates()).ok_or(LayoutError::Synthesis))
-            .transpose()?;
+        let coordinates =
+            input.map(|v| iroha_plonk::transcript::generator_coordinates::<Eq>(v.g()));
         let coordinates = [
             Self::scalar_value(
                 chip,
@@ -959,6 +906,7 @@ impl Circuit<Fp> for FirstCircuit {
     fn without_witnesses(&self) -> Self {
         Self {
             known: false,
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             ..self.clone()
         }
     }
@@ -991,7 +939,7 @@ struct Continuation {
     plan: SplitPlan,
     wrapper: Vec<u8>,
     vesta: AccumulatorT<Eq>,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     pallas: AccumulatorT<Ep>,
     carried: AccumulatorT<Ep>,
 }
@@ -1002,7 +950,7 @@ struct ContinuationCircuit {
     plan: SplitPlan,
     wrapper: Vec<u8>,
     vesta: Option<AccumulatorT<Eq>>,
-    fold: Vec<u8>,
+    fold: crate::private_fold::PrivateFoldBytes,
     carried: Option<FoldInput<Ep>>,
 }
 impl Continuation {
@@ -1024,6 +972,7 @@ impl Circuit<Fp> for ContinuationCircuit {
     fn without_witnesses(&self) -> Self {
         Self {
             first: self.first.without_witnesses(),
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             ..self.clone()
         }
     }
@@ -1169,7 +1118,6 @@ impl FirstCircuit {
                             .contains(&OperationTask::RefreshUpdateAuthorization)
                             .then_some(&sigma),
                         signatures: signatures.as_ref(),
-                        blacklist: maps.blacklist.as_ref(),
                         quota: maps.quota.as_ref(),
                     },
                 )?;
@@ -1308,14 +1256,19 @@ pub struct Prepared {
     source: Arc<Sources>,
 }
 impl Prepared {
-    fn first(&self, salt: Fp, config: &FoldConfig) -> Result<First, Error> {
+    fn first(
+        &self,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
+        config: &FoldConfig,
+    ) -> Result<First, Error> {
         let (fold, pallas) = create_fold(
             &self.plan.pallas,
             &[
                 self.source.predecessor.pallas.as_input(),
                 self.source.predecessor.opening.clone(),
             ],
-            salt.to_repr(),
+            tape,
+            iroha_plonk_recursion::FoldPurpose::AInitial,
             config,
         )
         .map_err(|error| {
@@ -1342,20 +1295,20 @@ impl Prepared {
             source: self.source.clone(),
             plan: self.plan.context.clone(),
             pallas,
-            fold: fold.to_bytes().to_vec(),
+            fold: crate::private_fold::PrivateFoldBytes::from_fold(fold),
             known: true,
         })
     }
     /// Build the actual A1 relation and exact public frame from checked originals.
-    /// The salt randomizes an actual fold; it does not choose a profile or obligation list.
+    /// The tape randomizes an actual fold; it does not choose a profile or obligation list.
     /// # Errors
     /// A failed exact predecessor two-input fold or complete decide.
     pub fn first_circuit(
         &self,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         config: &FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>), Error> {
-        let first = self.first(salt, config)?;
+        let first = self.first(tape, config)?;
         let public = first_public(&first)?;
         Ok((
             StageCircuit {
@@ -1375,6 +1328,8 @@ pub struct Prover {
     a: Vec<KeyArtifact<Eq>>,
     w: Vec<KeyArtifact<Ep>>,
     wrappers: Vec<WKey>,
+    // Process-local instance identity; only this instance resumes its sessions.
+    identity: ProverInstanceV1,
 }
 impl Prover {
     /// Check all original proofs/tapes and create a session using only installed artifacts.
@@ -1398,6 +1353,22 @@ impl Prover {
             prepared: self.plan.prepare_cancellable(input, budget, cancellation)?,
         })
     }
+    /// Resume a session retained from this exact prover instance.
+    ///
+    /// Nothing is re-read or re-verified: `prepare` on this instance verified the
+    /// retained preparation. Checkpoints that session produced or restored stay
+    /// bound to the same source; every later durable entry must still be restored
+    /// strictly from its bytes.
+    /// # Errors
+    /// `Error::Input` when the state was retained from another prover instance,
+    /// including an identically installed one; the state is dropped.
+    pub fn resume(&self, retained: RetainedSession) -> Result<Session<'_>, Error> {
+        let prepared = self.identity.admit(retained.0).map_err(|_| Error::Input)?;
+        Ok(Session {
+            prover: self,
+            prepared,
+        })
+    }
     /// Installed descriptors in exact alternating A/W checkpoint order.
     #[must_use]
     pub fn descriptors(&self) -> Vec<&DescriptorBinding> {
@@ -1417,6 +1388,16 @@ pub struct Session<'a> {
     prover: &'a Prover,
     prepared: Prepared,
 }
+
+/// A Refresh session's verified preparation, detached between fold calls.
+///
+/// Only `Session::into_retained` creates one, and only `Prover::resume` on the
+/// prover instance that prepared it consumes it. It is move-only, process-local
+/// and never serialized or built from bytes. It holds the checked originals and
+/// the source identity that the session's checkpoints carry, but no proving key,
+/// original-store handle or durable checkpoint.
+pub struct RetainedSession(BoundV1<Prepared>);
+
 impl Session<'_> {
     fn require_source(&self, source: &ACheckpoint) -> Result<(), Error> {
         if source.stage >= self.prover.a.len()
@@ -1425,6 +1406,14 @@ impl Session<'_> {
             return Err(Error::Input);
         }
         Ok(())
+    }
+
+    /// Detach this session's verified preparation so a later fold call can resume
+    /// it on the same prover instance instead of preparing again. Checkpoints this
+    /// session produced or restored remain usable by the resumed session.
+    #[must_use]
+    pub fn into_retained(self) -> RetainedSession {
+        RetainedSession(self.prover.identity.bind(self.prepared))
     }
 
     /// Execute the same native check with an explicit operation signal.
@@ -1492,9 +1481,9 @@ impl Session<'_> {
     pub fn first(
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -1509,7 +1498,7 @@ impl Session<'_> {
         self.prover.a[0]
             .require_source_bound(key)
             .map_err(|_| Error::Artifact)?;
-        let first = self.prepared.first(salt, fold)?;
+        let first = self.prepared.first(tape, fold)?;
         let public = first_public(&first)?;
         let circuit = StageCircuit {
             inner: StageData::First(Box::new(first.circuit())),
@@ -1571,7 +1560,7 @@ impl Session<'_> {
             source: self.prepared.source.clone(),
             plan: self.prepared.plan.context.clone(),
             pallas: pallas.clone(),
-            fold: vec![],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             known: true,
         };
         let public = first_public(&first)?;
@@ -1620,9 +1609,9 @@ impl Session<'_> {
         &self,
         source: &ACheckpoint,
         key: &SourceBoundViewV2<'_, Ep>,
-        salt: Fq,
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<WCheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -1644,27 +1633,14 @@ impl Session<'_> {
         if source.stage + 1 >= self.prover.a.len() {
             return Err(Error::Input);
         }
-        let trivial = AccumulatorT::trivial_cancellable(
+        let a = &self.prover.a[source.stage];
+        let (vfold, vesta) = crate::private_fold::wrapper(
             &self.prepared.plan.vesta,
-            fold.kernel_budget,
-            config.cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Proof
-            }
-        })?;
-        let (vfold, vesta) = create_fold(
-            &self.prepared.plan.vesta,
-            &[
-                source.part.clone(),
-                source.opening.clone(),
-                trivial.as_input(),
-                trivial.as_input(),
-            ],
-            salt.to_repr(),
+            a.binding(),
+            a.key(),
+            std::slice::from_ref(&source.public),
+            &source.proof,
+            tape,
             fold,
         )
         .map_err(|error| {
@@ -1703,7 +1679,7 @@ impl Session<'_> {
                 instances: source.public.clone(),
                 proof: source.proof.clone(),
                 length: u32::try_from(source.proof.len()).map_err(|_| Error::Input)?,
-                fold: vfold.to_bytes(),
+                fold: crate::private_fold::PrivateFoldBytes::from_fold(vfold),
             },
         )
         .map_err(|_| Error::Input)?;
@@ -1800,7 +1776,7 @@ impl Session<'_> {
         &self,
         wrapper: &WCheckpoint,
         pallas: AccumulatorT<Ep>,
-        fold: Vec<u8>,
+        fold: crate::private_fold::PrivateFoldBytes,
     ) -> Result<Continuation, Error> {
         self.require_source(&wrapper.source)?;
         let previous = wrapper.source.stage;
@@ -1832,9 +1808,9 @@ impl Session<'_> {
         &self,
         wrapper: &WCheckpoint,
         key: &SourceBoundViewV2<'_, Eq>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -1872,16 +1848,26 @@ impl Session<'_> {
                 .iter()
                 .map(|i| self.prepared.source.q_openings[*i].clone()),
         );
-        let (pfold, pallas) =
-            create_fold(&self.prepared.plan.pallas, &claims, salt.to_repr(), fold).map_err(
-                |error| {
+        let purpose = if next + 1 == self.prepared.plan.context.stage_count() {
+            crate::private_fold::terminal_inputs(&self.prepared.plan.pallas, &mut claims, fold)
+                .map_err(|error| {
                     if error.is_cancelled() {
                         Error::Cancelled
                     } else {
                         Error::Proof
                     }
-                },
-            )?;
+                })?
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
+        let (pfold, pallas) = create_fold(&self.prepared.plan.pallas, &claims, tape, purpose, fold)
+            .map_err(|error| {
+                if error.is_cancelled() {
+                    Error::Cancelled
+                } else {
+                    Error::Proof
+                }
+            })?;
         pallas
             .decide_cancellable(
                 &self.prepared.plan.pallas,
@@ -1895,8 +1881,11 @@ impl Session<'_> {
                     Error::Proof
                 }
             })?;
-        let continuation =
-            self.continuation(&restored, pallas.clone(), pfold.to_bytes().to_vec())?;
+        let continuation = self.continuation(
+            &restored,
+            pallas.clone(),
+            crate::private_fold::PrivateFoldBytes::from_fold(pfold),
+        )?;
         let public = continuation_public(&continuation)?;
         let circuit = StageCircuit {
             inner: StageData::Continued(Box::new(continuation.circuit())),
@@ -1962,7 +1951,11 @@ impl Session<'_> {
                     Error::Proof
                 }
             })?;
-        let continuation = self.continuation(&restored, pallas.clone(), vec![])?;
+        let continuation = self.continuation(
+            &restored,
+            pallas.clone(),
+            crate::private_fold::PrivateFoldBytes::unknown(),
+        )?;
         let public = continuation_public(&continuation)?;
         let next = restored.source.stage + 1;
         let key = &self.prover.a[next];
@@ -2117,7 +2110,6 @@ fn object_kinds(variant: Variant) -> Result<[ObjectKind; 5], Error> {
     let update = match variant {
         Variant::RefreshCredential => ObjectKind::Credential,
         Variant::RefreshSchemePolicy => ObjectKind::SchemePolicy,
-        Variant::RefreshBlacklist => ObjectKind::Blacklist,
         Variant::RefreshQuotaShare => ObjectKind::QuotaShare,
         Variant::RefreshTimeAnchor => ObjectKind::TimeAnchor,
         _ => return Err(Error::Artifact),
@@ -2170,7 +2162,8 @@ fn q_sigma_part(input: &QInput, source_k: u32, variant: Variant) -> Result<FoldI
     {
         return Err(Error::Input);
     }
-    let g = Option::<EqAffine>::from(EqAffine::from_xy(point[0], point[1])).ok_or(Error::Input)?;
+    let g = iroha_plonk::transcript::generator_from_coordinates::<Eq>(point[0], point[1])
+        .map_err(|_| Error::Input)?;
     let challenges = bounded[bounded.len() - K..]
         .iter()
         .map(|v| Option::<Fp>::from(Fp::from_repr(v.to_repr())).ok_or(Error::Input))
@@ -2203,21 +2196,21 @@ fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<(), Error> 
     if claim.source_k() != 16 {
         return Err(Error::Input);
     }
-    let (x, y) = Option::<(Fp, Fp)>::from(claim.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(claim.g());
     words.extend([Fp::from(16), x, y]);
     for value in claim.challenges() {
         words.extend(foreign_limbs(value).map(Fp::from_u128));
     }
     Ok(())
 }
-fn vesta_words(claim: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(claim.g().coordinates()).ok_or(Error::Input)?;
+fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(claim.g());
     let mut words = Vec::with_capacity(20);
     for value in [x, y] {
         words.extend(foreign_limbs(&value).map(Fp::from_u128));
     }
     words.extend(claim.challenges());
-    Ok(words)
+    words
 }
 
 fn object_claims_parts(
@@ -2271,7 +2264,7 @@ fn context_digest(first: &First) -> Result<Fp, Error> {
     words.extend(old.rest);
     words.extend(old.lineage);
     push_pallas(&mut words, &source.predecessor.pallas.as_input())?;
-    words.extend(vesta_words(&source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&source.predecessor.vesta.as_input()));
     words.extend(new.core);
     words.extend(new.rest);
     words.extend(new.lineage);
@@ -2289,11 +2282,11 @@ fn trivial_vesta_words() -> Result<Vec<Fp>, Error> {
     .map_err(|_| Error::Artifact)?;
     let claim =
         FoldInput::<Eq>::from_normalized(g, 16, [Fp::ONE; K]).map_err(|_| Error::Artifact)?;
-    vesta_words(&claim)
+    Ok(vesta_words(&claim))
 }
 fn internal_public(digest: Fp, part: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
     let mut words = vec![digest, Fp::from(u64::from(part.source_k()))];
-    words.extend(vesta_words(part)?);
+    words.extend(vesta_words(part));
     let trivial = trivial_vesta_words()?;
     words.extend(&trivial);
     words.extend(&trivial);
@@ -2329,8 +2322,8 @@ fn continuation_public(c: &Continuation) -> Result<Vec<Fp>, Error> {
         )?,
         Fp::from(16),
     ];
-    words.extend(vesta_words(&c.vesta.as_input())?);
-    words.extend(vesta_words(&c.first.source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&c.vesta.as_input()));
+    words.extend(vesta_words(&c.first.source.predecessor.vesta.as_input()));
     let trivial = trivial_vesta_words()?;
     words.extend(&trivial);
     words.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);
@@ -2352,7 +2345,7 @@ fn terminal_digest(public: &[Fp; 18], pallas: &FoldInput<Ep>) -> Result<Fp, Erro
     Ok(hash_with_domain(super::super::LINEAGE_DOMAIN, &words))
 }
 fn omega_instances(context: Fp, vesta: &AccumulatorT<Eq>) -> Result<Vec<Vec<Fq>>, Error> {
-    let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
     let digest = Option::<Fq>::from(Fq::from_repr(context.to_repr())).ok_or(Error::Input)?;
     let challenges = vesta
         .challenges()
@@ -2452,7 +2445,7 @@ fn prove_a(
     key: &SourceBoundViewV2<'_, Eq>,
     circuit: &StageCircuit,
     public: &[Fp],
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
     budget: MemoryBudget,
 ) -> Result<(Vec<u8>, FoldInput<Eq>), Error> {
@@ -2505,12 +2498,11 @@ fn check_update_projection(
         Variant::RefreshCredential => (
             ObjectKind::Credential,
             &[
-                2, 32, 32, 32, 32, 65, 32, 1, 32, 8, 4, 4, 4, 4, 32, 8, 4, 4, 4, 4, 32, 4, 8, 8,
-                32, 8, 4, 8, 32,
+                2, 32, 32, 32, 32, 65, 32, 1, 32, 8, 4, 4, 4, 4, 32, 8, 4, 4, 4, 4, 32, 4, 8, 32,
+                8, 4, 8, 32,
             ],
         ),
         Variant::RefreshSchemePolicy => (ObjectKind::SchemePolicy, &[2, 32, 32, 8, 4, 32, 32]),
-        Variant::RefreshBlacklist => (ObjectKind::Blacklist, &[2, 32, 8, 8, 4, 32, 32]),
         Variant::RefreshQuotaShare => {
             (ObjectKind::QuotaShare, &[2, 32, 32, 32, 8, 8, 8, 32, 4, 32])
         }
@@ -2565,8 +2557,8 @@ fn check_update_projection(
     };
     match variant {
         Variant::RefreshCredential => {
-            expected.issued_at_ms = word(25)?;
-            expected.expires_at_ms = word(27)?;
+            expected.issued_at_ms = word(24)?;
+            expected.expires_at_ms = word(26)?;
         }
         Variant::RefreshSchemePolicy => {
             expected.kind = RefreshKind::SchemePolicy;
@@ -2575,13 +2567,6 @@ fn check_update_projection(
             expected.counter = word(3)?;
             expected.controls = word(4)?;
             expected.fee_schedule = word(5)?;
-        }
-        Variant::RefreshBlacklist => {
-            expected.kind = RefreshKind::Blacklist;
-            expected.scheme = id(1)?;
-            expected.counter = word(2)?;
-            expected.issued_at_ms = word(3)?;
-            expected.root = word(5)?;
         }
         Variant::RefreshQuotaShare => {
             expected.kind = RefreshKind::QuotaShare;

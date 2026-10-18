@@ -30,6 +30,14 @@ fn partial(context: ApplicationControlContext, tag: u8) -> ApplicationControl {
         bytes: ControlWitness::try_from_slice(&[tag; 64]).unwrap(),
     }
 }
+fn peer_partial(context: ApplicationControlContext, index: usize) -> ApplicationControl {
+    let mut bytes = [0; 64];
+    bytes[..8].copy_from_slice(&u64::try_from(index).unwrap().to_le_bytes());
+    ApplicationControl {
+        context,
+        bytes: ControlWitness::try_from_slice(&bytes).unwrap(),
+    }
+}
 fn key(tag: usize) -> PublicKey {
     let mut bytes = vec![0; 32];
     bytes[..8].copy_from_slice(&(tag as u64).to_le_bytes());
@@ -149,7 +157,6 @@ fn every_execution_producer_retains_original_source_until_actual_release() {
         }
         drop(retry);
         drop(expected);
-        drop(message);
         drop(sched);
         assert_eq!(budget.reserved_bytes(), 0);
     }
@@ -191,7 +198,7 @@ fn scheduler_controls_admit_all_or_none_from_the_original_pool() {
         std::alloc::Layout::array::<InboundSlot>(MAX_COMMITTEE_SIZE)
             .unwrap()
             .size()
-            + ReleaseRegistration::allocation_layout().size() * (4 + MAX_COMMITTEE_SIZE)
+            + ReleaseRegistration::allocation_layout().size() * (6 + MAX_COMMITTEE_SIZE)
     );
     let budget = AllocationBudget::new(bytes - 1);
     assert!(
@@ -220,8 +227,10 @@ fn scheduler_controls_admit_all_or_none_from_the_original_pool() {
             .all(|slot| slot.retry.registration.belongs_to(&budget))
     );
     for control in [
+        &registrations.speculative,
         &registrations.committed,
         &registrations.payload,
+        &registrations.proposal,
         &registrations.witness,
         &registrations.drive,
     ] {
@@ -240,10 +249,7 @@ fn independent_blocked_partial_slots_keep_all_peers_and_original_occurrences() {
     let mut held: [_; MAX_COMMITTEE_SIZE] =
         std::array::from_fn(|i| Some(notifications[i].guard(locks[i].lock().unwrap())));
     for index in 0..MAX_COMMITTEE_SIZE {
-        let message = partial(
-            source(),
-            u8::try_from(index).expect("fixture value fits u8"),
-        );
+        let message = peer_partial(source(), index);
         sched.receive_control(key(index), message);
     }
     assert_eq!(sched.queued_ops(), MAX_COMMITTEE_SIZE);
@@ -260,13 +266,7 @@ fn independent_blocked_partial_slots_keep_all_peers_and_original_occurrences() {
         };
         let index = key_index(&from);
         assert_eq!(occurrence, occurrences[index]);
-        assert_eq!(
-            message,
-            partial(
-                source(),
-                u8::try_from(index).expect("fixture value fits u8")
-            )
-        );
+        assert_eq!(message, peer_partial(source(), index));
         // In-flight custody consumes the same bounded seat; conflicting ingress cannot replace it.
         sched.receive_control(from.clone(), partial(source(), 253));
         sched.done(
@@ -295,13 +295,7 @@ fn independent_blocked_partial_slots_keep_all_peers_and_original_occurrences() {
     };
     assert_eq!(key_index(&from), freed);
     assert_eq!(occurrence, occurrences[freed]);
-    assert_eq!(
-        message,
-        partial(
-            source(),
-            u8::try_from(freed).expect("fixture value fits u8")
-        )
-    );
+    assert_eq!(message, peer_partial(source(), freed));
     sched.done(
         0,
         ExecDone::ApplicationControlReceived {

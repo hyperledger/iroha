@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Router build sanity across feature flags.
 //!
 //! This test exercises `Torii::api_router_for_tests()` to ensure the router can be

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![doc = "Telemetry gating integration tests exercising profile-based access."]
 #![cfg(feature = "telemetry")]
 use axum::{http::StatusCode, response::IntoResponse};

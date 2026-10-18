@@ -16,6 +16,13 @@ for setup, configuration, and client examples.
 * Read Torii collections with one filter, sort and cursor language
 * Request data based on Iroha Queries from a Peer
 
+`Client::get_explorer_transaction_proof(entrypoint_hash)` reads selective Explorer
+evidence with the configured native account signature. Every response status has a 16 MiB body ceiling. Typed native decoding checks the network,
+selected input/output and header bindings. The returned `ExplorerTransactionProof`
+is node-supplied evidence, not independently authenticated finality; verify its
+certificate and inclusion against an independently pinned checkpoint before using
+it for settlement. Hidden/private denials remain errors without whole-block fallback.
+
 Transaction finality waits require state-resolved `Applied` status. Temporary
 HTTP 429 responses repeat only the status read, respecting Torii's delta-seconds
 `Retry-After` and the original wait deadline. They never resubmit the transaction;
@@ -401,6 +408,25 @@ resubmitted while it may still commit. Capability logic (payloads, rounds, custo
 The contract is `specs/zk_durable_workflow.md`; its fixtures are in `fixtures/zk/workflow_v1/`.
 
 ## Examples
+
+The [disposable KAGEMUSHA eligibility operator](examples/kagemusha_eligibility_operator.md)
+connects the canonical enrollment middleware adapter to an atomically published
+current-state image and a local authenticated HTTPS supervisor. It supports
+explicit SchemeOperator test campaigns; platform enrollment and network
+authority remain owned by the native issuer.
+
+The [one-shot KAGEMUSHA enrollment client](examples/kagemusha_enrollment_once.rs)
+sends one exact, SHA-256-selected Native service envelope through the canonical
+account-authenticated SDK transport. Its private `client.toml` selects the
+chain/network, actual Torii URL, transport policy, bounded request timeout and
+account; the only private-key reference is `account.key` in that same directory.
+HTTPS uses the ordinary transport; explicit HTTP is restricted to direct loopback.
+The example retains the request and a dispatch record before its one POST, then
+the canonical response and closed outcome. Missing completion after dispatch
+remains unknown. It neither retries automatically nor replaces enrollment/key
+identity. Build and test it with `cargo iroha-fast -- build -p iroha --example
+kagemusha_enrollment_once` and `cargo iroha-fast -- test -p iroha --example
+kagemusha_enrollment_once`; `--help` lists the six explicit arguments.
 
 We highly recommend looking at the sample [`iroha_cli`](../iroha_cli) binary
 crate, which builds the `iroha` executable, as well as our

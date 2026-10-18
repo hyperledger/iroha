@@ -1796,6 +1796,7 @@ dependencies = [
  "iroha_executor_data_model",
  "iroha_fs",
  "iroha_genesis",
+ "iroha_js_codec",
  "iroha_kagemusha_proof",
  "iroha_model_base",
  "iroha_pasta",
@@ -4993,12 +4994,14 @@ dependencies = [
  "p256",
  "rand 0.9.4",
  "rand_core 0.6.4",
+ "rayon",
  "rustix 1.1.4",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -5325,6 +5328,7 @@ dependencies = [
  "hex",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_model_base",
  "iroha_primitives",
  "norito",
@@ -5427,7 +5431,6 @@ dependencies = [
  "iroha_plonk_recursion",
  "iroha_sumeragi",
  "norito",
- "rand_chacha 0.3.1",
  "rayon",
  "rustix 1.1.4",
  "sha2",
@@ -5664,6 +5667,7 @@ dependencies = [
  "iroha_plonk_gadgets",
  "rayon",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
@@ -6071,6 +6075,7 @@ dependencies = [
  "tokio-tungstenite",
  "tower",
  "tower-http",
+ "tracing-subscriber",
  "tungstenite",
  "url",
  "urlencoding",
@@ -6090,6 +6095,7 @@ dependencies = [
  "hkdf",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_executor_data_model",
  "iroha_model_base",
  "iroha_primitives",
  "iroha_schema",
@@ -6247,6 +6253,7 @@ dependencies = [
  "iroha_primitives",
  "iroha_sccp",
  "iroha_sccp_rpc",
+ "iroha_service_model",
  "iroha_storage_client",
  "iroha_telemetry",
  "iroha_test_samples",

@@ -1,0 +1,13 @@
+{
+  "change_commit": "1a6270412cbb10a7ab83b91080e0da595c303a35",
+  "comparison_only_unboxed_token_sha256": "a624edcea352e56d4a5a16b35d7b250153d1ccd42dc55ed74d05666dd1d01a57",
+  "current_entry_token_sha256": "abcb73261aad256d57bd32ad6a2776bc637e7062ff1ffce278988e09fe96e4f4",
+  "current_source_sha256": "08450bc8940182983cd53ce3f958acb77a200fbce56c70eddb75619faf80efe3",
+  "entry_declaration": "pub(crate) async fn start_with_runtime_deps(",
+  "normalized_comparison_matches_prior": true,
+  "parent_commit": "5f89bf021f94d80a42b1daa991f6e8ca32d9e067",
+  "prior_entry_token_sha256": "a624edcea352e56d4a5a16b35d7b250153d1ccd42dc55ed74d05666dd1d01a57",
+  "schema": "parliament-boxed-startup-entry-history-v1",
+  "scope": "Only the exact entry item is compared. Other edits in the commit and daemon are outside this correspondence. The unboxed text is comparison data, not runtime code or a supported fallback. The checker accepts only the current two-box form. No runtime, allocation or behavioral equivalence theorem is claimed.",
+  "source": "crates/irohad/src/main.rs"
+}

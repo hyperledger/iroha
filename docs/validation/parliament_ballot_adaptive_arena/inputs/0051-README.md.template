@@ -1,0 +1,146 @@
+# Conditional arena for online typed-body selection
+
+This isolated implementation fixes logical register addresses before any
+classical online choice. It accepts actual frozen source REG, bounded-content
+VOTE, rejected-size VOTE and overlay lookup factories. It does not accept
+caller-supplied resource reports or arbitrary emitter callbacks. This is a
+conditional component composition interface, not the complete adaptive proof
+game, physical workspace qualification, or an accepted security assumption.
+
+The preceding source audit is `target/parliament-adaptive-entry-audit/README.md`.
+Owner acceptance and independent cryptographic review remain open. Production
+gates are unchanged. Captures use an isolated historical source root because
+the live Cargo manifest no longer matches the frozen source catalog; neither
+the historical catalog nor earlier receipts are repinned.
+
+## Explicit parameters and scope
+
+`Budget` requires row, valid-body cap T, invalid-typed-body cap I, external
+combined lookup cap Q, message cap C, encoded length width b, rejected-length
+envelope J, explicit `conservative-total-calls` log policy, and names asserting
+one immutable F and its agreed total completion. It requires T+I<=2^64,
+0<=J<=2^64-1, 6882996<=C<2^b, 1<=b<=4096 and finite nonnegative Q. These are
+proposal inputs and extra finite-experiment restrictions, not adopted theorem
+constants. No invalid cap is inferred from valid-only T; Q does not bound C or
+establish the cryptographic theorem's oracle-query convention.
+
+The one-row arena uses M=2^20 and N=(T+I)(M+2). All W and L0 costs are recomputed
+at N,b. This conservatively reserves M+2 for each potential generating body,
+including invalid public content. No invalid-call reservation is refunded.
+S=T+I=0 explicitly skips all request-family construction and supports the
+actual zero-log lookup factory. Its unused two-bit counter is still charged.
+The capacity guarantee requires the shared log and counter to be initially
+zero. The shared work region K must be initially zero and boundary-clean after
+each atomic component. External operations must not write the log, counter or
+work, and must not access private coin/purifier banks or future private banks.
+Only the bound source components may update shared internal state, under their
+actual source contracts and canonical full-support input premises. A nonempty
+initial log or external append is outside this capacity guarantee.
+
+`bind_reg` requires a same-row typed PublicShape with body0..4096 and six
+contexts0..256. `bind_vote` requires n3..1000 and chooses actual ContentFamily.
+`bind_rejected` requires n<=J outside3..1000 and retains all3608+1024n borrowed
+input bits. A mathematical u64 length bound does not attest native Vec
+reachability. `rejected_witness` obtains an attaining popcount maximum using J
+and its cleared-bit/all-lower-ones candidates, filtered to rejected lengths,
+plus0/1/2. The elementary rejected maximum is5881+2popcount(witness); J itself
+need not attain it.
+
+Every binding explicitly supplies one of the documented entry-premise
+constants. They are **not checked admission proofs**. Valid requests require
+public and application/witness validity upstream. Invalid bounded VOTE means
+the component's public-invalid content contract, not public-valid but
+witness-invalid input. Raw parsing errors, witness failures, optional helpers,
+application/context work and direct verification remain unknown external
+paths. Unsupported labels/shapes are refused rather than priced at zero.
+Query binding likewise requires canonical length<=C and zero padding on the
+full coherent support, source domain zero padding and the same immutable F.
+
+## Arena and counts
+
+`Plan` is immutable and represents huge caps by arithmetic intervals, never a
+list of all experiment slots. With S=T+I, it reserves a shared log/counter,
+S disjoint public/coin/output/purifier slots, Q disjoint query/enable/output
+slots, and one maximum boundary-clean work region. Per-row source role maxima
+give P*,R*,O*; K dominates retained_G+max(Gscratch,Wwork,Ework), rejected
+workspace519, and L0 workspace when Q>0. Thus the known wire count is
+
+    N(1+b+8*215150+2112) + max(2,bit_length(N))
+      + S(P*+2R*+O*) + Q(b+8C+1+2112) + K.
+
+Each chosen component's actual original input is split into public and private
+coin intervals. Source schema checks locate original iv_pre/salt and every
+other coin, not their derived aliases. Varying a public shape does not move
+coins, earlier outputs, future slots, or shared scratch. All local wires are
+covered by an injective Relocation; variable-F spans cannot cross a split.
+REG/VOTE return encodings remain typed subviews of O*, not a new shared wire
+format. Caller state preparation/routing and control/trace storage are unpriced.
+
+The known coordinatewise body upper is T*V_g+I*J_g+Q*L0_g. It retains a separate
+scalar elementary upper obtained from the correct per-family elementary
+maxima. REG's exact X maximum4095/255 and elementary maximum4096/256 are not
+conflated; the synthetic upper vector retains X+CX+5CCX convention. Each
+external combined lookup costs two base F calls, in addition to each request's
+own base calls. No implementation cost or quantum state size of F is included.
+
+## Online lifecycle and freshness premise
+
+`OnlineArena` exposes a read-only fixed plan and immutable retained chosen
+trace. A factory binding checks caps, source identity, actual component
+metadata, coin schema, geometry and relocation before committing counters or
+the trace. Only the next chosen call is emitted. A subsequent shape can be
+chosen after the preceding stream is consumed; no later binding relabels an
+earlier gate. Pending or abandoned streams block further selections.
+
+All S maximum banks have R* private original coins and R* retained purifiers.
+The fixed preparation stream emits S*R* H and S*R* CNOT gates, including unused
+banks. `emit_preparation()` reserves that lifecycle immediately; merely
+obtaining or partially consuming its lazy iterator does not open body entry.
+Full consumption opens it, or `acknowledge_prepared_banks(PREPARED)` records an
+explicit supplied Bell-state premise. Neither path checks quantum states or
+proves physical execution. Initial freshness/product state, private future-bank
+noninterference and boundary-clean scratch remain requirements.
+
+For the explicit H/CX construction, `coin_and_purifier_initial_zero_bits=2SR*`
+counts the coin/purifier registers only. The separate initially clean internal
+budget is log_bits+counter_bits+K; their sum is
+`explicit_preparation_total_internal_zero_bits`. Caller public/query inputs and
+arbitrary XOR targets are excluded from these zero-input counts. These are
+logical zero-state requirements, not initialization/reset costs or execution
+evidence. With a supplied Bell-state acknowledgment, coins and purifiers are
+already in that required state; the explicit construction's zero count is not
+a claim that those supplied Bell registers are zero. Shared log/counter/work
+zero-state and noninterference premises remain mandatory in either mode.
+
+Conditionally, induction on classical histories leaves untouched future banks
+independent of the entering cq state; selected prefixes have the required
+uniform mixed marginals when their purifiers are traced. This does not price a
+classical controller, implement a coherent selector, or establish the full
+joint quantum theorem. No conditioning on a completed trace is used.
+
+`emit_chosen_inverse()` reverses the retained chosen component order and each
+actual component inverse. It excludes external input preparation, selection,
+measurements and controller history, and leaves coin/purifier preparation in
+place. Stream exhaustion is bookkeeping, not proof gates were executed. The
+source API assumes Python interpreter/module memory integrity; private-field
+tampering, hostile monkeypatches and concurrent file edits are outside that
+contract. Before/after file and exact module-origin checks are drift controls,
+not a hostile runtime attestation mechanism.
+
+## Validation and remaining work
+
+Focused controls use real source factories. Full rejected-size circuits run in
+an independent sparse Boolean interpreter with output-driven next selection
+and a true retained-trace inverse. REG and bounded-content VOTE are full-M
+factory metadata and short emitted-prefix checks; their enormous complete
+streams are not executed. Other controls cover zero-log queries, separate cap
+refusal before mutation, fixed addresses at huge caps, rejected popcount
+boundaries/exhaustive small caps, preparation/atomic lifecycle, source drift,
+and dependency origins outside the expected directory suffix. Capture receipts
+record exact collection/execution membership and frozen source identities.
+
+TODO: obtain independent implementation review; implement authenticated and
+priced entry, routing, control/history and unsupported paths; supply full cq
+composition/primitive proofs and source-qualified physical evidence. All
+complete-resource, full-game, physical, primitive, current-candidate and
+production qualification flags remain false.

@@ -1,0 +1,178 @@
+"""L0 lazy full-message chronological overlay with explicit clean routing.
+
+F:variable is the provided response-XOR interface to the SAME immutable byte
+string function as F:length. The compact instruction carries wire intervals,
+not a truncated query or an independent function indexed by its capacity.
+Legal query encodings have length <= message_bytes and zero padding afterward.
+No query-count argument supplies that finite message capacity implicitly.
+"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+
+from bit_ir import Cost, integer, require
+
+MAX_TRIALS = 1 << 20
+PINS = {
+    'scripts/parliament_ballot_oracle_log_circuit.py': 'd045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558',
+    'specs/parliament_ballot_b6_oracle_log_circuit.md': 'de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673',
+    'scripts/parliament_ballot_write_framing.py': 'ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617',
+    'crates/iroha_zkp_vole/src/hash.rs': 'c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70',
+    'specs/parliament_ballot_b6_h5_fixed_opening.md': '5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e',
+}
+# Extended L256 backend domains, not raw SHAKE output-length permissions.
+# H5 masks the squeezed u16 to ten bits, so even its second-byte high bits are zero.
+SOURCE_RESPONSE_BITS = ((0,1024),(1,512),(3,384),(4,128),(5,10),
+                        (8,512),(9,2112),(10,832),(11,256))
+
+
+@dataclass(frozen=True)
+class OverlayLookup:
+    """Clean XOR newest-match lookup on a retained, possibly correlated log.
+
+Log records are active || length || padded key || padded response. Lookup does
+not use an append counter and allows arbitrary holes and duplicate active keys.
+The caller guarantees every active key has length <= key_bytes and canonical
+zero padding. Inputs/log/enable and the immutable F register are retained.
+    value_bits=2112 is the actual F interface. Smaller widths are synthetic
+    v-bit-oracle circuits, not a free prefix adapter to the actual264-byte F.
+"""
+    capacity: int
+    length_bits: int
+    key_bytes: int
+    message_bytes: int
+    value_bits: int = 2112
+
+    def __post_init__(self):
+        integer(self.capacity, 0, (1 << 64)*(MAX_TRIALS+2), 'log capacity')
+        integer(self.length_bits, 1, 4096, 'length width')
+        integer(self.key_bytes, 1, 215150, 'key capacity bytes')
+        integer(self.message_bytes, self.key_bytes, (1 << self.length_bits)-1, 'full message capacity bytes')
+        integer(self.value_bits, 1, 2112, 'response width')
+
+    @property
+    def key_bits(self): return self.length_bits + 8*self.key_bytes
+
+    @property
+    def record_bits(self): return 1 + self.key_bits + self.value_bits
+
+    def layout(self):
+        """Constant-size integer interval inventory; no N-slot allocation."""
+        log_bits = self.capacity*self.record_bits
+        query = log_bits
+        enable = query + self.length_bits + 8*self.message_bytes
+        output = enable + 1
+        work = output + self.value_bits
+        if self.capacity:
+            matches = work
+            prefixes = matches + self.capacity
+            hit = prefixes + self.capacity + 1
+            ladder = hit + 1
+            base = ladder + self.key_bits
+        else:
+            matches = prefixes = hit = ladder = None
+            base = work
+        return dict(log=0, log_bits=log_bits, query=query, length=query,
+                    message=query+self.length_bits, enable=enable, output=output,
+                    work=work, matches=matches, prefixes=prefixes, hit=hit,
+                    ladder=ladder, base=base, size=base+self.value_bits)
+
+    def emit_clean(self):
+        """Fixed sequential gates plus two unconditional full-message F calls.
+
+The F instruction is ('F:variable', length_start, length_bits, message_start,
+message_capacity_bytes, response_start, response_bits). Wire ranges are
+disjoint by this layout. F must be a fixed total response-XOR map on its
+encoded query domain; only canonical encodings are interpreted as messages.
+        Its extension outside that legal domain is not used or silently validated.
+        For actual source domains, the provided F response is zero after its
+        native domain width (SOURCE_RESPONSE_BITS). Unknown/empty domains have
+        one experiment-supplied fixed total completion shared by every adapter.
+        Neither an independent tail nor a free circuit padding adapter is given.
+"""
+        p, k, n, v = self.layout(), self.key_bits, self.capacity, self.value_bits
+        oracle = ('F:variable', p['length'], self.length_bits, p['message'],
+                  self.message_bytes, p['base'], v)
+        if n == 0:
+            yield oracle
+            for j in range(v): yield ('ccx', p['enable'], p['base']+j, p['output']+j)
+            yield oracle
+            return
+
+        def equality(slot):
+            active = slot*self.record_bits
+            key = active+1
+            match = p['matches']+slot
+            for j in range(k): yield ('cx', p['query']+j, key+j)
+            for j in range(k): yield ('x', key+j)
+            # k+2 controls; exactly 2*k+1 Toffolis, k clean ladder bits.
+            yield ('ccx', p['enable'], active, p['ladder'])
+            for j in range(k-1): yield ('ccx', p['ladder']+j, key+j, p['ladder']+j+1)
+            yield ('ccx', p['ladder']+k-1, key+k-1, match)
+            for j in range(k-2, -1, -1): yield ('ccx', p['ladder']+j, key+j, p['ladder']+j+1)
+            yield ('ccx', p['enable'], active, p['ladder'])
+            for j in range(k-1, -1, -1): yield ('x', key+j)
+            for j in range(k-1, -1, -1): yield ('cx', p['query']+j, key+j)
+
+        def suffix(slot):
+            match = p['matches']+slot
+            yield ('x', match)
+            yield ('ccx', p['prefixes']+slot+1, match, p['prefixes']+slot)
+            yield ('x', match)
+
+        for i in range(n): yield from equality(i)
+        yield ('x', p['prefixes']+n)
+        for i in range(n-1, -1, -1): yield from suffix(i)
+        for i in range(n):
+            hit = ('ccx', p['matches']+i, p['prefixes']+i+1, p['hit'])
+            yield hit
+            value = i*self.record_bits+1+k
+            for j in range(v): yield ('ccx', p['hit'], value+j, p['output']+j)
+            yield hit
+        yield oracle
+        miss = ('ccx', p['enable'], p['prefixes'], p['hit'])
+        yield miss
+        for j in range(v): yield ('ccx', p['hit'], p['base']+j, p['output']+j)
+        yield miss
+        yield oracle
+        for i in range(n): yield from suffix(i)
+        yield ('x', p['prefixes']+n)
+        for i in range(n-1, -1, -1): yield from equality(i)
+
+    def resources(self):
+        n, k, v, p = self.capacity, self.key_bits, self.value_bits, self.layout()
+        cost = (Cost(ccx=v, base_calls=2) if n == 0 else
+                Cost(x=4*k*n+4*n+2, cx=4*k*n,
+                     ccx=n*(4*k+6+v)+v+2, base_calls=2))
+        return dict(gates=cost.as_dict(), persistent_log_bits=p['log_bits'],
+                    append_counter_bits_excluded=True,
+                    query_input_bits=self.length_bits+8*self.message_bytes,
+                    enable_input_bits=1, output_bits=v,
+                    clean_work_bits=p['size']-p['work'],
+                    log_capacity=n, compared_key_bits=k, full_message_capacity_bytes=self.message_bytes,
+                    last_active_matching_write_wins=True, all_slots_scanned=True,
+                    unconditional_base_calls=2, conditional_on_same_immutable_F=True,
+                    actual_base_response_width=self.value_bits == 2112,
+                    smaller_width_is_distinct_synthetic_oracle_contract=self.value_bits != 2112,
+                    source_native_response_bits=dict(SOURCE_RESPONSE_BITS),
+                    source_domain_zero_padding_is_provided_interface_premise=True,
+                    unknown_domain_completion='one fixed experiment-supplied total completion',
+                    canonical_query_and_active_record_encoding_premise=True,
+                    independent_base_functions_by_length=False,
+                    concrete_base_oracle_implemented=False, hidden_qram_access=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    actual_input_entry_bridge=False, joint_whole_machine_projection_proved=False,
+                    profile_qualified=False, production_gate_changed=False)
+
+
+def actual_lookup(root, requests, message_bytes, length_bits=64):
+    """Source-bound fixed lifetime capacity, with explicitly supplied message cap."""
+    integer(requests, 0, 1 << 64, 'request cap')
+    integer(length_bits, 1, 4096, 'length width')
+    integer(message_bytes, 6882996, (1 << length_bits)-1, 'full honest/external message capacity')
+    before = {p: hashlib.sha256((Path(root)/p).read_bytes()).hexdigest() for p in PINS}
+    require(before == PINS, 'overlay source changed')
+    result = OverlayLookup(requests*(MAX_TRIALS+2), length_bits, 215150, message_bytes)
+    after = {p: hashlib.sha256((Path(root)/p).read_bytes()).hexdigest() for p in PINS}
+    require(before == after, 'overlay source drift')
+    return result

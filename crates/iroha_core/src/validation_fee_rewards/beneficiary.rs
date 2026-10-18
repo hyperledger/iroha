@@ -78,6 +78,40 @@ pub(super) fn owner_in_world(
     }
     Ok(Some(value))
 }
+/// A superseded revision stays hot until its successor's original block is
+/// compacted. Claims made before recovery are archived no later than that block.
+pub(super) fn retirement_height(
+    world: &impl WorldReadOnly,
+    binding: &ValidationFeeTreasuryPayoutBindingV1,
+    revision: &Revision,
+) -> Result<Option<u64>, ExecutionAttemptError<Error>> {
+    let current = owner_in_world(world, binding, &revision.beneficiary_id)?
+        .ok_or_else(|| fail("reward revision has no current owner"))?;
+    if revision == &current {
+        return Ok(None);
+    }
+    if revision.revision >= current.revision {
+        return Err(fail("reward revision exceeds its current owner").into());
+    }
+    let next_index = revision
+        .revision
+        .checked_add(1)
+        .ok_or_else(|| fail("beneficiary revision exhausted"))?;
+    let next: Revision = read_from_world(
+        world,
+        &revision_key(binding, &revision.beneficiary_id, next_index).map_err(fail)?,
+    )?
+    .ok_or_else(|| fail("superseded reward revision has no retained successor"))?;
+    if next.beneficiary_id != revision.beneficiary_id
+        || next.revision != next_index
+        || next.previous_account_id.as_ref() != Some(&revision.account_id)
+        || next.authorized_at_height < revision.authorized_at_height
+    {
+        return Err(fail("superseded reward revision has an inconsistent successor").into());
+    }
+    Ok(Some(next.authorized_at_height))
+}
+
 fn immutable<T: NoritoSerialize>(
     stx: &mut StateTransaction<'_, '_>,
     key: StatePath,
@@ -175,6 +209,14 @@ pub(crate) fn rekey_beneficiary(
             &next,
         )?;
         write(stx, current_key(&binding, &original)?, &revision)?;
+        let previous_key = revision_key(&binding, &original, previous.revision).map_err(fail)?;
+        let previous_bytes = stx
+            .world
+            .smart_contract_state
+            .get(&previous_key)
+            .ok_or_else(|| fail("previous reward beneficiary revision disappeared"))?
+            .clone();
+        history::journal_superseded_revision(stx, &previous_key, &previous_bytes)?;
     }
     validate_pending_fee_evidence_budget(stx)
         .map_err(|error| string_attempt_instruction_error(stx, error))

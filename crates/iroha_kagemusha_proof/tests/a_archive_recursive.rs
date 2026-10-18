@@ -52,9 +52,11 @@ use iroha_kagemusha_proof::{
         incoming_statement::IncomingStatementCells, map_effects::RemoveCells, state::StateCells,
         statement::StatementCells,
     },
+    q_sigma::QSigmaPlan,
+    q_signature::{SLOT_WORDS, SignatureWitness},
     tree::IndexedRemove,
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     ProverConfig, VerifyingKey, Witness,
     check::{CheckMode, check, check_circuit},
@@ -68,7 +70,6 @@ use iroha_plonk::{
 use iroha_plonk_gadgets::{
     UintChip, Word,
     bytes::{
-        chunk_segments,
         tape::{BytesChip, BytesConfig, SegmentSpec},
         variable::ActiveBytes,
     },
@@ -129,7 +130,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &FoldInput<Ep>,
     ) -> Result<FoldInputCells<Ep>, Error> {
-        let point = chip.witness_point(region, self.value(Ep::from(*value.g())))?;
+        let point = chip.witness_generator(region, self.value(Ep::from(*value.g())))?;
         let scalars = value
             .challenges()
             .iter()
@@ -145,7 +146,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &AccumulatorT<Eq>,
     ) -> Result<VestaClaimCells, Error> {
-        let (x, y) = Option::from(value.g().coordinates()).ok_or(Error::Synthesis)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(value.g());
         let coordinates = [self.scalar(chip, region, x)?, self.scalar(chip, region, y)?];
         let challenges = self.words(chip, region, value.challenges())?;
         VestaClaimCells::constrain(chip, region, 16, coordinates, challenges)
@@ -276,7 +277,7 @@ struct Stage {
     plan: ArchiveStagePlan,
     continuation: Option<Continuation>,
     pallas: AccumulatorT<Ep>,
-    fold: Vec<u8>,
+    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     known: bool,
     omit_q: Option<usize>,
     mutate_context: Option<(usize, usize)>,
@@ -441,46 +442,18 @@ impl Circuit<Fp> for Stage {
                     vesta_corrections: &[],
                     receive_results: None,
                 };
-                let indices = [0, 1]
-                    .map(|slot| bounded_word(&mut chip, &mut region, &q_instances[0][2][slot]));
-                let [own_index, incoming_index] = indices;
-                let own_index = own_index?;
-                let incoming_index = incoming_index?;
-                let chunks = [0, 1].map(|slot| {
-                    s.sigma_plan
-                        .chunk_range(slot)
-                        .ok_or(Error::Synthesis)?
-                        .map(|i| bounded_word(&mut chip, &mut region, &q_instances[0][0][i]))
-                        .collect::<Result<Vec<_>, _>>()
-                });
-                let [own_chunks, incoming_chunks] = chunks;
-                let mut own_sigma =
-                    SigmaBindingCells::from_statement(&statement, own_index.clone(), own_chunks?);
-                let mut incoming_sigma = SigmaBindingCells::from_incoming(
-                    &incoming_statement,
-                    incoming_index.clone(),
-                    incoming_chunks?,
-                );
-                if tasks.contains(&OperationTask::ArchiveOwnProof) {
-                    let raw = frame(&s.own_sigma);
-                    let run = bytes.run(
-                        &mut region,
-                        &cells.bytes(&raw),
-                        &chunk_segments(0, raw.len()),
-                        &[SegmentSpec::little(0, 4)],
-                    )?;
-                    own_sigma = SigmaBindingCells::from_run(
-                        &mut chip,
-                        &mut region,
-                        &statement,
-                        own_index,
-                        &run,
-                    )?;
-                }
-                let proof_source = if tasks.contains(&OperationTask::ArchiveProofs) {
+                // Same order as the native source: no own sigma binds; Q0 is the
+                // incoming-only Q_sigma, read at the incoming role's positions.
+                let mut sigmas = Vec::new();
+                let row = s
+                    .sigma_plan
+                    .position(QSigmaPlan::INCOMING)
+                    .ok_or(Error::Synthesis)?;
+                let index = bounded_word(&mut chip, &mut region, &q_instances[0][2][row])?;
+                let incoming_sigma = if tasks.contains(&OperationTask::ArchiveProofs) {
                     let proof_bytes = s
                         .sigma_plan
-                        .class(1)
+                        .class(QSigmaPlan::INCOMING)
                         .ok_or(Error::Synthesis)?
                         .verifier()
                         .proof_length();
@@ -489,32 +462,40 @@ impl Circuit<Fp> for Stage {
                         &mut bytes,
                         &mut region,
                         &s.incoming_sigma,
-                        plan.object_specs()[13].capacity as usize,
+                        plan.object_specs()[11].capacity as usize,
                         &SigmaBindingCells::incoming_segments(proof_bytes)?,
                     )?;
-                    incoming_sigma = SigmaBindingCells::from_incoming_active(
+                    SigmaBindingCells::from_incoming_active(
                         &mut chip,
                         &mut region,
                         &incoming_statement,
-                        incoming_index,
+                        index,
                         &raw,
                         proof_bytes,
-                    )?;
-                    Some(ArchiveProofSources::receive(&incoming_sigma, 13)?)
+                    )?
+                } else {
+                    let view = s
+                        .sigma_plan
+                        .chunk_range(QSigmaPlan::INCOMING)
+                        .ok_or(Error::Synthesis)?
+                        .map(|i| bounded_word(&mut chip, &mut region, &q_instances[0][0][i]))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    SigmaBindingCells::from_incoming(&incoming_statement, index, view)
+                };
+                sigmas.push(incoming_sigma);
+                let proof_source = if tasks.contains(&OperationTask::ArchiveProofs) {
+                    Some(ArchiveProofSources::receive(&sigmas[0], 11)?)
                 } else {
                     None
                 };
-                let sigmas = [own_sigma.clone(), incoming_sigma];
-                let own = if tasks.contains(&OperationTask::ArchiveOwnProof)
-                    || tasks.contains(&OperationTask::ArchiveAuthorization)
-                {
-                    let raw = s.own.each_ref().map(|v| cells.bytes(&v.bytes));
+                let own = if tasks.contains(&OperationTask::ArchiveAuthorization) {
+                    let raw = cells.bytes(&s.own.bytes);
                     Some(ArchiveAuthorizationObjects::decode(
                         &mut chip,
                         &mut bytes,
                         &mut region,
                         Variant::ArchiveReceive,
-                        raw.each_ref().map(Vec::as_slice),
+                        [raw.as_slice()],
                     )?)
                 } else {
                     None
@@ -525,7 +506,7 @@ impl Circuit<Fp> for Stage {
                         &mut bytes,
                         &mut region,
                         &s.predecessor.source.predecessor_omega,
-                        plan.object_specs()[9].capacity as usize,
+                        plan.object_specs()[7].capacity as usize,
                         &[],
                     )?;
                     let sigma = cells.active(
@@ -533,7 +514,7 @@ impl Circuit<Fp> for Stage {
                         &mut bytes,
                         &mut region,
                         &s.predecessor.source.sigma,
-                        plan.object_specs()[10].capacity as usize,
+                        plan.object_specs()[8].capacity as usize,
                         &[],
                     )?;
                     Some(ArchiveRetainedProofs::from_sources(
@@ -616,14 +597,32 @@ impl Circuit<Fp> for Stage {
                     None
                 };
                 let mut verified = Vec::new();
-                let mut own_signatures = None;
-                let mut incoming_signatures = None;
+                let mut signatures = None;
                 for &index in plan.q_partition(stage).ok_or(Error::Synthesis)? {
                     if self.omit_q == Some(index) {
                         continue;
                     }
                     let proof = cells.proof(&mut chip, &mut region, &s.q[index].proof)?;
-                    if index == 0 {
+                    if index == self.plan.signature_q() {
+                        let q = verify_q(
+                            &mut chip,
+                            &mut region,
+                            plan.operation(),
+                            index,
+                            &q_instances[index],
+                            &proof,
+                        )?;
+                        let bundle = bind_signature_q(
+                            &mut chip,
+                            &mut region,
+                            plan.operation(),
+                            index,
+                            self.plan.signature_schema(index).ok_or(Error::Synthesis)?,
+                            &q,
+                        )?;
+                        verified.push(bundle.verified().clone());
+                        signatures = Some(bundle);
+                    } else {
                         verified.push(
                             verify_sigma(
                                 &mut chip,
@@ -635,29 +634,6 @@ impl Circuit<Fp> for Stage {
                             )?
                             .0,
                         );
-                    } else {
-                        let q = verify_q(
-                            &mut chip,
-                            &mut region,
-                            plan.operation(),
-                            index,
-                            &q_instances[index],
-                            &proof,
-                        )?;
-                        let signatures = bind_signature_q(
-                            &mut chip,
-                            &mut region,
-                            plan.operation(),
-                            index,
-                            self.plan.signature_schema(index).ok_or(Error::Synthesis)?,
-                            &q,
-                        )?;
-                        verified.push(signatures.verified().clone());
-                        if index == 1 {
-                            own_signatures = Some(signatures);
-                        } else {
-                            incoming_signatures = Some(signatures);
-                        }
                     }
                 }
                 let credited = cells.bytes(&s.credited);
@@ -693,17 +669,13 @@ impl Circuit<Fp> for Stage {
                         retained: retained.as_ref(),
                         retained_proofs: retained_proofs.as_ref(),
                         incoming: incoming.as_ref(),
-                        sigma: tasks
-                            .contains(&OperationTask::ArchiveOwnProof)
-                            .then_some(&own_sigma),
                         proof_source: proof_source.as_ref(),
                     },
                     ArchiveStageWitness {
-                        own_signatures: own_signatures.as_ref(),
-                        incoming_signatures: incoming_signatures.as_ref(),
+                        signatures: signatures.as_ref(),
                         proof: tasks
                             .contains(&OperationTask::ArchiveProofs)
-                            .then_some(ArchiveProofInputs::Receive(&own_sigma)),
+                            .then_some(ArchiveProofInputs::Receive),
                         evidence: tasks.contains(&OperationTask::ArchiveEvidence).then_some(
                             ArchiveEvidenceSource::Receive {
                                 credited: &credited,
@@ -753,21 +725,16 @@ impl Circuit<Fp> for Stage {
         Ok(())
     }
 }
-fn frame(raw: &[u8]) -> Vec<u8> {
-    let mut out = u32::try_from(raw.len()).unwrap().to_le_bytes().to_vec();
-    out.extend_from_slice(raw);
-    out
-}
 fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) {
     words.push(Fp::from(u64::from(claim.source_k())));
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(claim.g());
     words.extend([x, y]);
     for u in claim.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
     }
 }
 fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
     let mut words = Vec::new();
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
@@ -837,7 +804,8 @@ impl Stage {
         };
         if c.plan.is_terminal() {
             let mut lineage = self.source.archive.witness.successor.lineage.to_vec();
-            let (x, y) = self.pallas.g().coordinates().unwrap();
+            let (x, y) =
+                iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(self.pallas.g());
             lineage.extend([x, y]);
             for v in self.pallas.challenges() {
                 lineage.extend(foreign_limbs(v).map(Fp::from_u128));
@@ -867,7 +835,8 @@ impl Stage {
 
 fn first(source: archive_q::ArchiveSource) -> Stage {
     let params = PinnedParams::<Ep>::derive(16).unwrap();
-    let operation = AProofPlan::new(
+    // Lean: A proves the own step inline; Q0 is the incoming-only Q_sigma.
+    let operation = AProofPlan::inline_with_incoming(
         Variant::ArchiveReceive,
         source.sigma_plan.clone(),
         source.q.iter().map(|q| q.plan.clone()).collect(),
@@ -883,7 +852,8 @@ fn first(source: archive_q::ArchiveSource) -> Stage {
             source.predecessor.source.pallas.as_input(),
             source.predecessor.opening.clone(),
         ],
-        Fp::from(191).to_repr(),
+        common::public_fixture_tape(191),
+        iroha_plonk_recursion::FoldPurpose::AInitial,
         &FoldConfig::default(),
     )
     .unwrap();
@@ -893,7 +863,9 @@ fn first(source: archive_q::ArchiveSource) -> Stage {
         plan,
         continuation: None,
         pallas,
-        fold: fold.to_bytes().to_vec(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
+        ),
         known: true,
         omit_q: None,
         mutate_context: None,
@@ -904,8 +876,7 @@ fn native_inputs(source: &archive_q::ArchiveSource) -> native::Inputs {
     native::Inputs {
         state: source.archive.witness,
         removals: source.archive.removals,
-        own: source.own.each_ref().map(|s| s.bytes.clone()),
-        sigma: source.own_sigma.clone(),
+        own: source.own.bytes.clone(),
         retained: native::RetainedPayment {
             signed: source.retained.clone(),
             payment: source.payment.clone(),
@@ -925,10 +896,14 @@ fn native_inputs(source: &archive_q::ArchiveSource) -> native::Inputs {
             },
         },
         results: [source.valid, true, true],
-        q: source.q.each_ref().map(|q| native::QInput {
-            proof: q.proof.clone(),
-            instances: q.instances.clone(),
-        }),
+        q: source
+            .q
+            .iter()
+            .map(|q| native::QInput {
+                proof: q.proof.clone(),
+                instances: q.instances.clone(),
+            })
+            .collect(),
         predecessor: native::PredecessorInput {
             proof: source.predecessor.proof.clone(),
             pallas: source.predecessor.source.pallas.to_bytes(),
@@ -979,27 +954,16 @@ fn replay_native_checkpoints(
     foreign: &native::ACheckpoint,
 ) {
     let budget = MemoryBudget::DEFAULT;
-    assert_eq!(
-        retained.len(),
-        native::A_STAGE_COUNT + native::W_STAGE_COUNT
-    );
-    for object in 0..3 {
-        for offset in [0, input.own[object].len() - 1] {
-            let mut bad = input.clone();
-            bad.own[object][offset] ^= 1;
-            assert!(
-                prover.prepare(bad, budget).is_err(),
-                "own tape {object}/{offset}"
-            );
-        }
+    assert_eq!(retained.len(), 2 * native::RECEIVE_A_STAGE_COUNT - 1);
+    for offset in [0, input.own.len() - 1] {
+        let mut bad = input.clone();
+        bad.own[offset] ^= 1;
+        assert!(
+            prover.prepare(bad, budget).is_err(),
+            "own receipt tape {offset} differs from the merged leaf's hard slot"
+        );
     }
-    let mut bad = input.clone();
-    bad.sigma[0] ^= 1;
-    assert!(
-        prover.prepare(bad, budget).is_err(),
-        "own sigma differs from Q0"
-    );
-    let session = prover.prepare(input.clone(), budget).unwrap();
+    let mut session = prover.prepare(input.clone(), budget).unwrap();
     assert!(
         session.terminal(foreign, budget).is_err(),
         "foreign session handle"
@@ -1035,6 +999,15 @@ fn replay_native_checkpoints(
         *original
     );
     for (index, pair) in retained[1..].chunks_exact(2).enumerate() {
+        // D6a: each continuation runs on a session detached and resumed between
+        // fold calls; checkpoints restored before detaching keep their source.
+        session = prover.resume(session.into_retained()).unwrap();
+        // T5 (C2 n2): the resumed session still refuses another session's checkpoint, before
+        // any verification.
+        assert!(matches!(
+            session.terminal(foreign, budget),
+            Err(native::Error::Input)
+        ));
         assert!(
             session.terminal(&current, budget).is_err(),
             "unfinished owner chain"
@@ -1198,7 +1171,7 @@ fn preflight_stage_layouts(first: &Stage) -> Vec<StageIdentity> {
                     instances: vec![Fp::ZERO; 69],
                     length: u32::try_from(proof_length).unwrap(),
                     proof: vec![0; proof_length],
-                    fold: [0; 1120],
+                    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
                 },
             )
             .unwrap()
@@ -1239,27 +1212,29 @@ fn prove_chain(source: archive_q::ArchiveSource) {
     let identities = preflight_stage_layouts(&stage);
     let input = native_inputs(&stage.source);
     let plan = native_plan(&stage);
-    let slot = &input.q[2].instances[0];
-    assert_eq!(slot.len(), 10);
+    // The merged leaf's two slots, own receipt first, re-read from its instances.
+    let leaf = &input.q[stage.plan.signature_q()].instances[0];
+    assert_eq!(leaf.len(), 2 * SLOT_WORDS);
     let integer = |low: Fq, high: Fq| {
         let mut bytes = [0u8; 32];
         bytes[..16].copy_from_slice(&low.to_repr()[..16]);
         bytes[16..].copy_from_slice(&high.to_repr()[..16]);
         core::array::from_fn(|i| u64::from_le_bytes(bytes[8 * i..8 * i + 8].try_into().unwrap()))
     };
+    let witness = |slot: &[Fq]| SignatureWitness {
+        digest: Option::<Fp>::from(Fp::from_repr(slot[0].to_repr())).unwrap(),
+        key: [integer(slot[1], slot[2]), integer(slot[3], slot[4])],
+        signature: [integer(slot[5], slot[6]), integer(slot[7], slot[8])],
+    };
     let proposal = native::PredicateInputs {
         state: input.state,
         own: input.own.clone(),
         retained: input.retained.clone(),
         evidence: input.evidence.clone(),
-        signature: iroha_kagemusha_proof::q_signature::SignatureWitness {
-            digest: Option::<Fp>::from(Fp::from_repr(slot[0].to_repr())).unwrap(),
-            key: [integer(slot[1], slot[2]), integer(slot[3], slot[4])],
-            signature: [integer(slot[5], slot[6]), integer(slot[7], slot[8])],
-        },
+        signatures: [witness(&leaf[..SLOT_WORDS]), witness(&leaf[SLOT_WORDS..])],
         predecessor_pallas: AccumulatorT::from_bytes(&input.predecessor.pallas).unwrap(),
         predecessor_vesta: AccumulatorT::from_bytes(&input.predecessor.vesta).unwrap(),
-        incoming_selector: Some(input.q[0].instances[2][1].to_repr()[0]),
+        incoming_selector: Some(input.q[0].instances[2][0].to_repr()[0]),
     };
     let derived = plan.propose_nonproof(proposal.clone()).unwrap();
     assert_eq!(derived, [input.results[1], input.results[2]]);
@@ -1276,48 +1251,64 @@ fn prove_chain(source: archive_q::ArchiveSource) {
     );
     let prepared = Arc::new(plan.prepare(input.clone(), MemoryBudget::DEFAULT).unwrap());
     let (first_circuit, first_public) = prepared
-        .first_circuit(Fp::from(191), &FoldConfig::default())
+        .first_circuit(common::public_fixture_tape(191), &FoldConfig::default())
         .unwrap();
     compare_native_source(&stage, &first_circuit, &first_public);
-    let prover = native::Prover::from_artifacts(
-        plan,
-        identities
-            .iter()
-            .map(|i| KeyArtifact::new(i.binding.clone(), i.key.clone()).unwrap())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap(),
-        identities
-            .iter()
-            .filter_map(|i| i.wrapper.as_ref())
-            .map(|w| {
-                KeyArtifact::new(w.verifier().binding().clone(), w.verifying_key().clone()).unwrap()
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap(),
-    )
-    .unwrap();
+    let install = |plan: native::Plan| {
+        native::Prover::from_artifacts(
+            plan,
+            identities
+                .iter()
+                .map(|i| KeyArtifact::new(i.binding.clone(), i.key.clone()).unwrap())
+                .collect(),
+            identities
+                .iter()
+                .filter_map(|i| i.wrapper.as_ref())
+                .map(|w| {
+                    KeyArtifact::new(w.verifier().binding().clone(), w.verifying_key().clone())
+                        .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap()
+    };
+    let other = install(plan.clone());
+    let prover = install(plan);
+    // D6a (DP §7.4 test 8): a detached session resumes only on the prover instance
+    // that prepared it, never on an identically installed one.
+    let detached = prover
+        .prepare(input.clone(), MemoryBudget::DEFAULT)
+        .unwrap()
+        .into_retained();
+    assert!(matches!(other.resume(detached), Err(native::Error::Input)));
+    drop(other);
     let layouts = prover.checkpoint_layouts().unwrap();
-    assert_eq!(layouts.len(), native::A_STAGE_COUNT + native::W_STAGE_COUNT);
+    assert_eq!(layouts.len(), 2 * native::RECEIVE_A_STAGE_COUNT - 1);
     let session = prover
         .prepare(input.clone(), MemoryBudget::DEFAULT)
         .unwrap();
     let mut prior_native = None;
     let mut retained = Vec::new();
-    let mut part = stage.source.part.clone();
     let mut config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     config.compress_selectors = false;
     loop {
         let index = stage.continuation.as_ref().map_or(0, |c| c.plan.stage());
+        let stages = stage.plan.context().stage_count();
         checked_layout(&stage);
         // The recomputed public digest prevents these mutations from merely
-        // failing against a stale public statement. The named owner must bind.
-        if index == 0 {
-            for slot in 0..3 {
+        // failing against a stale public statement. The named owner must bind:
+        // the own receipt (slot 0) and incoming receipt (slot 10) are both bound
+        // where the merged signature leaf is verified.
+        if stage
+            .plan
+            .context()
+            .operation_tasks(index)
+            .is_some_and(|tasks| tasks.contains(&OperationTask::ArchiveAuthorization))
+        {
+            for slot in [0, 10] {
                 let mut bad = stage.clone();
                 bad.mutate_context = Some((slot, 0));
-                reject(&bad, "own source substitution");
+                reject(&bad, "receipt source substitution");
             }
         }
         for &q in stage.plan.context().q_partition(index).unwrap() {
@@ -1354,7 +1345,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
         );
         assert!(
             prover
-                .import_a((index + 1) % native::A_STAGE_COUNT, &original, read)
+                .import_a((index + 1) % stages, &original, read)
                 .is_err()
         );
         let key_seal = prover.import_a(index, &original, read).unwrap();
@@ -1364,7 +1355,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             &vparams,
             &baseline_key,
             Witness::from_circuit(&baseline_key, &stage, &public).unwrap(),
-            common::recovery(170 + u8::try_from(index).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -1391,33 +1382,60 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 session
                     .first(
                         &key,
-                        Fp::from(191),
+                        common::public_fixture_tape(191),
                         &FoldConfig::default(),
-                        common::recovery(170),
+                        common::fresh_randomness(),
                         ProverConfig::default(),
                     )
                     .unwrap()
             },
             |prior| {
-                let salt = Fp::from(229 + index as u64);
+                let salt = 229 + index as u64;
                 let (circuit, frame) = session
-                    .next_circuit(prior, salt, &FoldConfig::default())
+                    .next_circuit(
+                        prior,
+                        common::public_fixture_tape(salt),
+                        &FoldConfig::default(),
+                    )
                     .unwrap();
                 compare_native_source(&stage, &circuit, &frame);
                 session
                     .advance(
                         &key,
                         prior,
-                        salt,
+                        common::public_fixture_tape(salt),
                         &FoldConfig::default(),
-                        common::recovery(170 + u8::try_from(index).unwrap()),
+                        common::fresh_randomness(),
                         ProverConfig::default(),
                     )
                     .unwrap()
             },
         );
-        assert_eq!(native.proof(), output.proof);
+        assert_ne!(native.proof(), output.proof, "fresh producer attempt");
         assert_eq!(native.instances(), public[0]);
+        // Continue from the retained original whose opening defines the fixture.
+        let native = prior_native.as_ref().map_or_else(
+            || {
+                session
+                    .restore_first(
+                        output.proof.clone(),
+                        &stage.pallas.to_bytes(),
+                        MemoryBudget::DEFAULT,
+                    )
+                    .unwrap()
+            },
+            |prior| {
+                session
+                    .restore_a(
+                        prior,
+                        output.proof.clone(),
+                        &stage.pallas.to_bytes(),
+                        MemoryBudget::DEFAULT,
+                    )
+                    .unwrap()
+            },
+        );
+        assert_eq!(native.proof(), output.proof, "exact retained A original");
         assert_eq!(native.pallas_bytes(), stage.pallas.to_bytes());
         let encoded = session
             .encode_a_checkpoint(&native, MemoryBudget::DEFAULT)
@@ -1430,23 +1448,25 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             assert_eq!(terminal.instances, public[0]);
             replay_native_checkpoints(&prover, input, &retained, &native);
             eprintln!(
-                "ARCHIVE_COMPLETE all10A_all9W=true valid={} native_maps=true native_source_and_proof_bytes_equal=true original_PK_import=true all19_canonical_checkpoints_restored=true no_final_omega_admission=true ordinary_finality_fixture=true release_qualified=false",
+                "ARCHIVE_COMPLETE all9A_all8W=true valid={} native_maps=true native_source_equal_retained_original_bytes_exact=true original_PK_import=true all17_canonical_checkpoints_restored=true no_final_omega_admission=true ordinary_finality_fixture=true release_qualified=false",
                 stage.source.valid
             );
             break;
         }
-        let own =
-            FoldInput::from_opening(*output.opening.g(), output.opening.challenges()).unwrap();
-        let trivial = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT)
-            .unwrap()
-            .as_input();
-        let (vfold, vesta) = create_fold(
-            &vparams,
-            &[part, own, trivial.clone(), trivial],
-            Fq::from(220 + index as u64).to_repr(),
-            &FoldConfig::default(),
+        let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+            key.binding().encoded(),
+            &[key.verifying_key().to_bytes().to_vec()],
+            vparams.clone(),
         )
         .unwrap();
+        let (vfold, vesta) = terminal
+            .read(0, &public, &output.proof, &FoldConfig::default())
+            .unwrap()
+            .create(
+                common::public_fixture_tape(220 + index as u64),
+                &FoldConfig::default(),
+            )
+            .unwrap();
         vesta.decide(&vparams, MemoryBudget::DEFAULT).unwrap();
         let wrapper_circuit = WCircuit::new(
             stage.plan.context(),
@@ -1459,7 +1479,9 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 instances: public[0].clone(),
                 length: output.proof.len().try_into().unwrap(),
                 proof: output.proof,
-                fold: vfold.to_bytes(),
+                fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                    vfold.to_private_bytes(),
+                ),
             },
         )
         .unwrap();
@@ -1483,7 +1505,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
         );
         assert!(
             prover
-                .import_w((index + 1) % native::W_STAGE_COUNT, &original, read)
+                .import_w((index + 1) % (stages - 1), &original, read)
                 .is_err()
         );
         let key_seal = prover.import_w(index, &original, read).unwrap();
@@ -1502,7 +1524,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 );
             }
         }
-        let (x, y) = vesta.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
         let wpublic = vec![
             vec![Fq::from_repr(public[0][0].to_repr()).unwrap()],
             vec![x, y],
@@ -1516,7 +1538,7 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             &params,
             &baseline_key,
             Witness::from_circuit(&baseline_key, &wrapper_circuit, &wpublic).unwrap(),
-            common::recovery(180 + u8::try_from(index).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -1538,14 +1560,31 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             .wrapper(
                 &key,
                 &native,
-                Fq::from(220 + index as u64),
+                common::public_fixture_tape(220 + index as u64),
                 &FoldConfig::default(),
-                common::recovery(180 + u8::try_from(index).unwrap()),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();
-        assert_eq!(native_wrapper.proof(), output.proof);
+        assert_ne!(
+            native_wrapper.proof(),
+            output.proof,
+            "fresh wrapper attempt"
+        );
         assert_eq!(native_wrapper.vesta_bytes(), vesta.to_bytes());
+        let native_wrapper = session
+            .restore_wrapper(
+                &native,
+                output.proof.clone(),
+                &vesta.to_bytes(),
+                MemoryBudget::DEFAULT,
+            )
+            .unwrap();
+        assert_eq!(
+            native_wrapper.proof(),
+            output.proof,
+            "exact retained W original"
+        );
         let encoded = session
             .encode_wrapper_checkpoint(&native_wrapper, MemoryBudget::DEFAULT)
             .unwrap();
@@ -1569,10 +1608,20 @@ fn prove_chain(source: archive_q::ArchiveSource) {
                 .iter()
                 .map(|i| stage.source.q[*i].opening.clone()),
         );
+        let purpose = if index + 2 == stage.plan.context().stage_count() {
+            let filler = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
+            while claims.len() < 4 {
+                claims.push(filler.as_input());
+            }
+            iroha_plonk_recursion::FoldPurpose::ATerminal
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
         let (fold, pallas) = create_fold(
             &params,
             &claims,
-            Fp::from(230 + index as u64).to_repr(),
+            common::public_fixture_tape(230 + index as u64),
+            purpose,
             &FoldConfig::default(),
         )
         .unwrap();
@@ -1586,8 +1635,9 @@ fn prove_chain(source: archive_q::ArchiveSource) {
         };
         stage.continuation = Some(continuation);
         stage.pallas = pallas;
-        stage.fold = fold.to_bytes().to_vec();
-        part = vesta.as_input();
+        stage.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
+        );
     }
 }
 

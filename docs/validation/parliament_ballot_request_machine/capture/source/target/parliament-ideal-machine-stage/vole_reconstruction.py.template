@@ -1,0 +1,111 @@
+"""V0-to-V1 clean composition with explicit columns/share lifetimes.
+
+This mathematical map starts with typed source material and uses one immutable
+F. It neither accepts Rust input errors nor supplies the full request driver.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost,require
+from vole_columns import VoleColumns
+from crt_machine import CrtReconstruction
+
+
+@dataclass(frozen=True)
+class VoleReconstruction:
+    """XOR Delta||Q||q_masks into caller output, retaining all input labels.
+
+    Hidden u16 values must be the source decoding of the same selector (including
+    its zero grinding tail). Revealed seeds/corrections must be the matching
+    canonical material. This component does not independently validate those
+    relations; the eventual opening/request join must supply and prove them.
+    """
+    columns: VoleColumns
+    crt: CrtReconstruction
+
+    def __post_init__(self):
+        require(self.columns.ell==self.crt.ell and self.columns.width_bits==self.crt.width_bits,
+                'V0/V1 row shape mismatch')
+        require(sum(self.columns.geometry.depths)==self.crt.n_delta,'V0/V1 residue count mismatch')
+        require(self.columns.output_bits==self.crt.column_bits+10*self.crt.share_width,
+                'V0/V1 padded share shape mismatch')
+
+    def input_regions(self):
+        g=self.columns.geometry
+        result={};cursor=0
+        for name,width in (('namespace',616),('iv',128),('salt',256),('selector',256),
+                           ('seeds',256*g.leaves),('hidden',16*g.tau),
+                           ('corrections',(g.tau-1)*self.columns.ell),('mult_corrections',10*self.crt.gates)):
+            result[name]=(cursor,width);cursor+=width
+        return result,cursor
+
+    @property
+    def input_bits(self): return self.input_regions()[1]
+    @property
+    def output_bits(self): return self.crt.output_bits
+
+    def layout(self):
+        inputs,cursor=self.input_regions()
+        retained_start=cursor;cursor+=self.columns.output_bits
+        plans={'v0':self.columns.layout(),'v1':self.crt.layout()}
+        scratch=max(plans[name]['output_start']-component.input_bits
+                    for name,component in (('v0',self.columns),('v1',self.crt)))
+        return dict(inputs=inputs,retained_start=retained_start,scratch_start=cursor,
+                    scratch_bits=scratch,plans=plans,output_start=cursor+scratch,
+                    size=cursor+scratch+self.output_bits)
+
+    def sources(self,p,name):
+        source=p['inputs']
+        if name=='v0': pieces=tuple(source[n] for n in ('iv','seeds','hidden','corrections'))
+        elif name=='v1':
+            pieces=tuple(source[n] for n in ('namespace','iv','salt','selector'))
+            pieces+=((p['retained_start'],self.columns.output_bits),source['mult_corrections'])
+        else: raise ValueError('unknown V0/V1 stage')
+        pieces=tuple((a,w) for a,w in pieces if w)
+        component=self.columns if name=='v0' else self.crt
+        require(sum(w for _,w in pieces)==component.input_bits,'V0/V1 wire map widths')
+        ordered=sorted(pieces)
+        require(all(type(a) is int and type(w) is int and a>=0 and w>0 for a,w in pieces)
+                and all(a+w<=b for (a,w),(b,_) in zip(ordered,ordered[1:])), 'V0/V1 source aliases')
+        return pieces
+
+    def emit_clean(self):
+        p=self.layout()
+        def run(name):
+            component=self.columns if name=='v0' else self.crt
+            plan=p['plans'][name];local_out=plan['output_start']
+            output=p['retained_start'] if name=='v0' else p['output_start']
+            boundaries=[];cursor=0
+            for start,width in self.sources(p,name):
+                boundaries.append((cursor+width,start-cursor));cursor+=width
+            boundaries=tuple(boundaries)
+            def wire(w):
+                require(type(w) is int and 0<=w<plan['size'],'V0/V1 component wire')
+                if w<component.input_bits:
+                    for end,delta in boundaries:
+                        if w<end:return w+delta
+                    raise ValueError('unreachable V0/V1 input')
+                if w<local_out:return p['scratch_start']+w-component.input_bits
+                return output+w-local_out
+            for gate in component.emit_clean():
+                yield (gate[0],*(wire(w) for w in gate[1:]))
+        yield from run('v0')
+        yield from run('v1')
+        yield from run('v0')
+
+    def resources(self):
+        p=self.layout();v0=self.columns.resources();v1=self.crt.resources()
+        def cost(value):
+            g=value['gates'];return Cost(g['x'],g['cx'],g['ccx'],g['base_xor_oracle_calls'])
+        total=cost(v0).times(2)+cost(v1)
+        return dict(gates=total.as_dict(),input_bits=self.input_bits,output_bits=self.output_bits,
+                    retained_column_and_share_bits=self.columns.output_bits,
+                    shared_component_work_bits=p['scratch_bits'],
+                    total_clean_work_bits=p['output_start']-self.input_bits,
+                    concrete_clean_AES_calls=2*v0['concrete_clean_AES_calls'],
+                    V0=v0,V1=v1,source_mask_order_zero_through_nine=True,
+                    supplied_typed_material_required=True,selector_hidden_index_consistency_required=True,
+                    conditional_on_one_shared_immutable_F=True,
+                    V0_to_V1_clean_composition_implemented=True,exact_for_defined_lazy_emitter=True,
+                    whole_request_composition_implemented=False,complete_simulator_coverage=False,
+                    complete_resource_vector=False,actual_input_entry_bridge=False,
+                    profile_qualified=False,production_gate_changed=False)

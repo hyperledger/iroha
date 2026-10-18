@@ -3,7 +3,7 @@
 //! Each measured block is assembled by the leader's payload builder, executed by the node's
 //! `StateExecutor`, certified by a BLS `CommitQC`, stored in Kura and published: the path every
 //! certified block takes on the global chain.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "./common.rs"]
 mod common;
 use common::*;

@@ -72,8 +72,8 @@ pub struct PaymentCells {
 ///
 /// This retains the original Payment/package digests and includes the decoded
 /// predecessor's original structural verdict. It does not authenticate proofs,
-/// signatures, the receiver's quoted credential, or recorded blacklist history;
-/// those remain mandatory predicates of the owning Receive relation.
+/// signatures or the receiver's quoted credential; those remain mandatory
+/// predicates of the owning Receive relation.
 #[must_use = "include the total consumer verdict and bind its deterministic sigma selector"]
 #[derive(Clone, Debug)]
 pub struct IncomingPaymentCells {
@@ -179,16 +179,16 @@ impl IncomingPaymentCells {
         }
         // An unknown controls bit gives false; it must not make the total
         // decoder's selector range check unsatisfiable before choosing burn.
-        let mask = uint.assign::<3>(region, controls.value().map(|v| v & 7))?;
-        let high = uint.assign::<29>(region, controls.value().map(|v| v >> 3))?;
+        let mask = uint.assign::<2>(region, controls.value().map(|v| v & 3))?;
+        let high = uint.assign::<30>(region, controls.value().map(|v| v >> 2))?;
         let joined = uint.glue().linear(
             region,
-            &[(Fp::ONE, mask.word()), (Fp::from(8), high.word())],
+            &[(Fp::ONE, mask.word()), (Fp::from(4), high.word())],
             Fp::ZERO,
         )?;
         GlueChip::assert_equal(region, &joined, controls.word())?;
         let mask_valid = uint.glue().is_zero(region, high.word())?;
-        let zero = uint.constant::<3>(region, 0)?;
+        let zero = uint.constant::<2>(region, 0)?;
         let safe_mask = uint
             .glue()
             .select(region, &mask_valid, mask.word(), zero.word())?;

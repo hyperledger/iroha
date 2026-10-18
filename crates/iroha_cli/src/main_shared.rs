@@ -1,6 +1,6 @@
 //! Iroha client CLI implementation executed by the thin `iroha` binary.
 #![deny(deprecated)]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::release_identity::CompiledBuildMetadata;
 use iroha_model_base::domain::DomainId;
 
@@ -906,6 +906,8 @@ mod explorer {
         Blocks(crate::collection_list::ListArgs),
         /// Read the bounded Transactions Explorer feed.
         Transactions(crate::collection_list::ListArgs),
+        /// Read node-supplied selective evidence; does not independently verify finality
+        TransactionProof(TransactionProof),
         /// Read the bounded TransactionsLatest Explorer feed.
         TransactionsLatest(crate::collection_list::ListArgs),
         /// Read the bounded Instructions Explorer feed.
@@ -913,9 +915,35 @@ mod explorer {
         /// Read the bounded InstructionsLatest Explorer feed.
         InstructionsLatest(crate::collection_list::ListArgs),
     }
+    /// Arguments of the authenticated, read-only selective evidence request.
+    #[derive(clap::Args, Debug)]
+    pub struct TransactionProof {
+        /// Canonical transaction entrypoint hash literal (hash:UPPERCASE_HEX#CHECKSUM)
+        #[arg(short('H'), long, value_parser = parse_proof_hash)]
+        pub hash: HashOf<TransactionEntrypoint>,
+    }
+    fn parse_proof_hash(
+        literal: &str,
+    ) -> std::result::Result<HashOf<TransactionEntrypoint>, String> {
+        if literal.len() > 128 {
+            return Err("transaction hash literal exceeds its size bound".to_owned());
+        }
+        // Delegate syntax, marker and checksum admission to the native hash JSON codec.
+        norito::json::from_value(norito::json::Value::String(literal.to_owned()))
+            .map_err(|error| format!("expected canonical transaction hash literal: {error}"))
+    }
+    impl Run for TransactionProof {
+        fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
+            let evidence = context
+                .client_from_config()?
+                .get_explorer_transaction_proof(self.hash)?;
+            context.print_data(&evidence)
+        }
+    }
     impl Run for Command {
         fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
             let (collection, args) = match self {
+                Self::TransactionProof(args) => return args.run(context),
                 Self::Accounts(args) => (iroha::collections::Collection::ExplorerAccounts, args),
                 Self::Domains(args) => (iroha::collections::Collection::ExplorerDomains, args),
                 Self::AssetDefinitions(args) => (
@@ -4078,7 +4106,7 @@ mod multisig {
         num::{NonZeroU16, NonZeroU64},
         time::{Duration, SystemTime},
     };
-    type ProposalKey = HashOf<Vec<InstructionBox>>;
+    type InstructionCommitment = HashOf<Vec<InstructionBox>>;
     #[derive(clap::Subcommand, Debug)]
     pub enum Command {
         /// List pending multisig proposals for explicitly selected authorities
@@ -4182,6 +4210,9 @@ mod multisig {
     }
     #[derive(clap::Args, Debug)]
     pub struct Propose {
+        /// Nonzero 32-byte nonce, lowercase hex; retain the same value for every retry.
+        #[arg(long)]
+        pub proposal_nonce: MultisigProposalNonce,
         /// Multisig authority managing the proposed transaction
         #[arg(short, long)]
         pub account: String,
@@ -4209,11 +4240,23 @@ mod multisig {
                 surface_policy_ttl(context, &account, transaction_ttl_ms)?;
             }
             let instructions_hash = HashOf::new(&instructions);
-            if matches!(context.output_format(), CliOutputFormat::Text) {
+            let proposal_id = MultisigProposalId::derive(
+                &context.config().network_id,
+                &account,
+                &self.proposal_nonce,
+            );
+            if !context.output_instructions()
+                && matches!(context.output_format(), CliOutputFormat::Text)
+            {
+                context.println(format_args!("proposal_id: {proposal_id}"))?;
                 context.println(format_args!("instructions_hash: {instructions_hash}"))?;
             }
-            let propose_multisig_transaction =
-                MultisigPropose::new(account, instructions, transaction_ttl_ms);
+            let propose_multisig_transaction = MultisigPropose::new(
+                account,
+                self.proposal_nonce,
+                instructions,
+                transaction_ttl_ms,
+            );
             context
                 .finish([iroha::data_model::isi::InstructionBox::from(
                     propose_multisig_transaction,
@@ -4223,19 +4266,22 @@ mod multisig {
     }
     #[derive(clap::Args, Debug)]
     pub struct Approve {
+        /// Exact proposal occurrence to approve or cancel.
+        #[arg(long)]
+        pub proposal_id: MultisigProposalId,
         /// Multisig authority of the transaction
         #[arg(short, long)]
         pub account: String,
         /// Hash of the instructions to approve
         #[arg(short, long)]
-        pub instructions_hash: ProposalKey,
+        pub instructions_hash: InstructionCommitment,
     }
     impl Run for Approve {
         fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
             let account = resolve_account_id(context, &self.account)
                 .wrap_err("failed to resolve --account")?;
             let approve_multisig_transaction =
-                MultisigApprove::new(account, self.instructions_hash);
+                MultisigApprove::new(account, self.proposal_id, self.instructions_hash);
             context
                 .finish([iroha::data_model::isi::InstructionBox::from(
                     approve_multisig_transaction,
@@ -4245,12 +4291,18 @@ mod multisig {
     }
     #[derive(clap::Args, Debug)]
     pub struct Cancel {
+        /// Exact proposal occurrence to approve or cancel.
+        #[arg(long)]
+        pub proposal_id: MultisigProposalId,
+        /// Nonzero 32-byte nonce, lowercase hex; retain the same value for every retry.
+        #[arg(long)]
+        pub proposal_nonce: MultisigProposalNonce,
         /// Multisig authority of the transaction
         #[arg(short, long)]
         pub account: String,
         /// Hash of the target proposal instructions to cancel
         #[arg(short, long)]
-        pub instructions_hash: ProposalKey,
+        pub instructions_hash: InstructionCommitment,
         /// Overrides the default time-to-live for the cancel proposal itself.
         #[arg(short, long)]
         pub transaction_ttl: Option<humantime::Duration>,
@@ -4272,14 +4324,27 @@ mod multisig {
             }
             let cancel_instructions = vec![InstructionBox::from(MultisigCancel::new(
                 account.clone(),
+                self.proposal_id,
                 self.instructions_hash,
             ))];
             let cancel_hash = HashOf::new(&cancel_instructions);
-            if matches!(context.output_format(), CliOutputFormat::Text) {
-                context.println(format_args!("cancel_proposal_hash: {cancel_hash}"))?;
+            let cancel_id = MultisigProposalId::derive(
+                &context.config().network_id,
+                &account,
+                &self.proposal_nonce,
+            );
+            if !context.output_instructions()
+                && matches!(context.output_format(), CliOutputFormat::Text)
+            {
+                context.println(format_args!("cancel_proposal_id: {cancel_id}"))?;
+                context.println(format_args!("cancel_instructions_hash: {cancel_hash}"))?;
             }
-            let propose_cancel =
-                MultisigPropose::new(account, cancel_instructions, transaction_ttl_ms);
+            let propose_cancel = MultisigPropose::new(
+                account,
+                self.proposal_nonce,
+                cancel_instructions,
+                transaction_ttl_ms,
+            );
             context
                 .finish([iroha::data_model::isi::InstructionBox::from(propose_cancel)])
                 .wrap_err("Failed to propose cancellation")
@@ -4620,15 +4685,12 @@ mod multisig {
                         response.resolved_multisig_account_id.clone(),
                         proposal,
                     );
-                    let key = (
-                        entry.multisig_account_id.clone(),
-                        entry.instructions_hash.clone(),
-                    );
+                    let key = (entry.multisig_account_id.clone(), entry.proposal_id.clone());
                     if let Some(existing) = merged.get(&key) {
                         if existing != &entry {
                             eyre::bail!(
                                 "conflicting multisig proposal payload for {} on {}",
-                                entry.instructions_hash,
+                                entry.proposal_id,
                                 entry.multisig_account_id
                             );
                         }
@@ -4652,7 +4714,7 @@ mod multisig {
             right
                 .proposed_at_ms
                 .cmp(&left.proposed_at_ms)
-                .then_with(|| left.instructions_hash.cmp(&right.instructions_hash))
+                .then_with(|| left.proposal_id.cmp(&right.proposal_id))
                 .then_with(|| left.multisig_account_id.cmp(&right.multisig_account_id))
         });
         Ok(entries)
@@ -4684,9 +4746,10 @@ mod multisig {
         let mut blocks = Vec::with_capacity(entries.len());
         for entry in entries {
             blocks.push(format!(
-                "multisig_account_id: {}\nproposal_id: {}\nstatus: {}\noperation_type: {}\nintent: {}\nproposed_at_ms: {}",
+                "multisig_account_id: {}\nproposal_id: {}\ninstructions_hash: {}\nstatus: {}\noperation_type: {}\nintent: {}\nproposed_at_ms: {}",
                 entry.multisig_account_id,
                 entry.proposal_id,
+                entry.instructions_hash,
                 entry.status,
                 entry.operation_type,
                 format_multisig_intent(&entry.intent)?,
@@ -4716,16 +4779,27 @@ mod multisig {
             suffix: &str,
             proposed_at_ms: u64,
         ) -> iroha::client::MultisigProposalEntry {
-            let proposal = MultisigProposalValue::new(
-                Vec::new(),
-                proposed_at_ms,
-                proposed_at_ms + 60_000,
-                BTreeSet::new(),
-                None,
+            let network_id = try_fallback_config().unwrap().network_id;
+            let proposal_nonce =
+                MultisigProposalNonce::new([suffix.as_bytes()[0].max(1); 32]).unwrap();
+            let proposal_id = MultisigProposalId::derive(
+                &network_id,
+                &iroha_test_samples::ALICE_ID,
+                &proposal_nonce,
             );
-            let instructions_hash = format!("{suffix:0>64}");
+            let proposal = MultisigProposalValue {
+                network_id,
+                proposal_nonce,
+                proposal_id,
+                transaction_ttl_ms: None,
+                instructions: Vec::new(),
+                proposed_at_ms,
+                expires_at_ms: proposed_at_ms + 60_000,
+                approvals: BTreeSet::new(),
+            };
+            let instructions_hash = hex::encode(HashOf::new(&proposal.instructions).as_ref());
             iroha::client::MultisigProposalEntry {
-                proposal_id: instructions_hash.clone(),
+                proposal_id: proposal_id.to_string(),
                 instructions_hash,
                 proposal,
                 operation_type: "TRANSFER".to_owned(),
@@ -4733,6 +4807,104 @@ mod multisig {
                 status: COLLECTING_SIGNATURES_STATUS.to_owned(),
                 terminal_at_ms: None,
             }
+        }
+        #[test]
+        fn occurrence_flags_are_required_and_nonce_encoding_is_strict() {
+            #[derive(clap::Parser)]
+            struct ProposeArgs {
+                #[command(flatten)]
+                command: Propose,
+            }
+            #[derive(clap::Parser)]
+            struct ApproveArgs {
+                #[command(flatten)]
+                command: Approve,
+            }
+            #[derive(clap::Parser)]
+            struct CancelArgs {
+                #[command(flatten)]
+                command: Cancel,
+            }
+            use clap::Parser as _;
+            assert!(ProposeArgs::try_parse_from(["test", "--account", "account"]).is_err());
+            for bad in ["00".repeat(32), "AA".repeat(32), "01".repeat(31)] {
+                assert!(
+                    ProposeArgs::try_parse_from([
+                        "test",
+                        "--account",
+                        "account",
+                        "--proposal-nonce",
+                        &bad
+                    ])
+                    .is_err()
+                );
+            }
+            let nonce = "07".repeat(32);
+            assert!(
+                ProposeArgs::try_parse_from([
+                    "test",
+                    "--account",
+                    "account",
+                    "--proposal-nonce",
+                    &nonce
+                ])
+                .is_ok()
+            );
+            let hash = HashOf::new(&Vec::<InstructionBox>::new()).to_string();
+            assert!(
+                ApproveArgs::try_parse_from([
+                    "test",
+                    "--account",
+                    "account",
+                    "--instructions-hash",
+                    &hash
+                ])
+                .is_err()
+            );
+            let id = "81".repeat(32);
+            assert!(
+                ApproveArgs::try_parse_from([
+                    "test",
+                    "--account",
+                    "account",
+                    "--proposal-id",
+                    &id,
+                    "--instructions-hash",
+                    &hash
+                ])
+                .is_ok()
+            );
+            assert!(
+                CancelArgs::try_parse_from([
+                    "test",
+                    "--account",
+                    "account",
+                    "--proposal-id",
+                    &id,
+                    "--instructions-hash",
+                    &hash
+                ])
+                .is_err()
+            );
+        }
+
+        #[test]
+        fn list_preserves_equal_content_with_distinct_occurrences() {
+            let account = AccountId::new(fixture_key_pair(0x57).public_key().clone());
+            let first = sample_proposal_entry("a", 7);
+            let second = sample_proposal_entry("b", 7);
+            assert_eq!(first.instructions_hash, second.instructions_hash);
+            assert_ne!(first.proposal_id, second.proposal_id);
+            let entries =
+                collect_multisig_proposals_with(&[account.to_string()], None, &mut |_| {
+                    Ok(iroha::client::MultisigProposalsQueryResponse {
+                        resolved_multisig_account_id: account.clone(),
+                        proposals: vec![first.clone(), second.clone()],
+                        next_cursor: None,
+                    })
+                })
+                .unwrap();
+            assert_eq!(entries.len(), 2);
         }
         #[test]
         fn ttl_override_within_policy_is_allowed() {
@@ -4885,7 +5057,8 @@ mod multisig {
             let rendered =
                 render_multisig_list_all_text(std::slice::from_ref(&entry)).expect("render text");
             assert!(rendered.contains("multisig_account_id: "));
-            assert!(rendered.contains(&format!("proposal_id: {:0>64}", "a")));
+            assert!(rendered.contains(&format!("proposal_id: {}", entry.proposal_id)));
+            assert!(rendered.contains(&format!("instructions_hash: {}", entry.instructions_hash)));
             assert!(rendered.contains("status: COLLECTING_SIGNATURES"));
             assert!(rendered.contains("operation_type: TRANSFER"));
             assert!(rendered.contains("intent: {\"sequence\":\"a\"}"));
@@ -5673,7 +5846,6 @@ mod parameter {
         }
     }
 }
-#[allow(clippy::large_enum_variant)]
 mod trigger {
     use super::*;
     use clap::ValueEnum;
@@ -6959,7 +7131,8 @@ mod repo {
     pub enum Command {
         /// Initiate or roll a repo agreement between two counterparties
         Initiate(Initiate),
-        /// Unwind an active repo agreement (reverse repo leg)
+        /// Settle an active repo agreement (reverse repo leg): at or after maturity by
+        /// any participant, or earlier by the initiator when early repayment was agreed
         Unwind(Unwind),
         /// List repo agreements (`/v1/repo/agreements`) with filter, sort, projection and paging
         List(crate::collection_list::ListArgs),
@@ -7032,6 +7205,10 @@ mod repo {
         /// Cadence between margin checks, in seconds (0 disables margining)
         #[arg(long)]
         pub margin_frequency_secs: u64,
+        /// Allow the initiator (cash borrower) to repay before maturity, paying
+        /// interest accrued to the committed block time. Bound into both consents.
+        #[arg(long)]
+        pub allow_early_repayment: bool,
     }
     impl Initiate {
         fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
@@ -7055,8 +7232,11 @@ mod repo {
                 quantity: self.collateral_quantity,
                 metadata: Metadata::default(),
             };
-            let governance =
-                RepoGovernance::with_defaults(self.haircut_bps, self.margin_frequency_secs);
+            let governance = RepoGovernance::new(
+                self.haircut_bps,
+                self.margin_frequency_secs,
+                self.allow_early_repayment,
+            );
             let instruction = RepoIsi::new(
                 self.agreement_id,
                 initiator,
@@ -7076,7 +7256,8 @@ mod repo {
     }
     #[derive(clap::Args, Debug)]
     pub struct Unwind {
-        /// Stable identifier to settle at maturity as any recorded participant
+        /// Stable identifier to settle; any participant at or after maturity, or the
+        /// initiator earlier when the agreement allows early repayment
         #[arg(long)]
         pub agreement_id: RepoAgreementId,
     }
@@ -7086,7 +7267,7 @@ mod repo {
             let instruction: RepoInstructionBox = instruction.into();
             context
                 .finish([InstructionBox::from(instruction)])
-                .wrap_err("Failed to settle repo agreement at maturity")
+                .wrap_err("Failed to settle repo agreement")
         }
     }
     #[derive(clap::Args, Debug)]

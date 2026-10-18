@@ -307,7 +307,7 @@ fn bounded_workspace_shape_and_released_replay_reservation_are_explicit() {
 #[test]
 #[ignore = "native22 byte-exact scalar/tree frontier and row-finalize stage diagnostic; run --release"]
 fn native22_streamed_hash_prefix_and_tile_match_scalar_tree_with_stage_timings() {
-    assert!(!cfg!(debug_assertions), "run with --release");
+    crate::test_support::require_no_debug_assertions("run with --release");
     const ROWS: usize = 1 << 22;
     const WIDTH: usize = 8;
     let columns = (0..WIDTH)

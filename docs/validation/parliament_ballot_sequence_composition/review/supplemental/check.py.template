@@ -1,0 +1,148 @@
+"""Independent completed-capture membership, custody and scalar controls."""
+from copy import deepcopy
+import hashlib
+import json
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[3]
+HERE = Path(__file__).resolve().parent
+CAPTURE = ROOT/'target/parliament-sequential-composition-stage/capture'
+WATCHED = {}
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def read(path, expected=None):
+    data = path.read_bytes()
+    h = hashlib.sha256(data).hexdigest()
+    if expected:
+        require(h == expected, 'identity: '+str(path))
+    WATCHED[str(path.relative_to(ROOT))] = h
+    return data
+
+
+def cost(x, cx, ccx, base=0):
+    return dict(x=x, cx=cx, ccx=ccx, base_xor_oracle_calls=base,
+                elementary_gates=x+cx+5*ccx)
+
+
+def check(report, receipt, reference, expected_names):
+    names = [entry['name'] for entry in receipt['test_membership']]
+    require(names == expected_names and len(set(names)) == 75, 'exact ordered test membership')
+    require(receipt['parent_tests'] == 75 and receipt['failures'] == receipt['errors']
+            == receipt['skips'] == 0, 'test results')
+    require(report['status'] == 'PASS', 'observation status')
+    for key in ('full_stream_executed', 'adaptive_controller_executed', 'quantum_joint_state_theorem',
+                'full_family_bound', 'complete_resource_vector', 'native_workspace_qualification',
+                'current_candidate_qualified', 'profile_qualified', 'production_gate_changed'):
+        require(report[key] is False, 'qualification claim')
+    require(report['component_resources'][0] == reference, 'exact frozen content metadata')
+    t, m, b, w, v, c, n = 2**44, 2**20, 64, 215150, 2112, 6882996, 1001
+    slots, k = t*(m+2), b+8*w
+    lookup = cost(4*k*slots+4*slots+2, 4*k*slots, slots*(4*k+6+v)+v+2, 2)
+    rejected = cost(569+2*n.bit_count(), 872, 888)
+    require(report['component_resources'][1]['gates'] == lookup, 'analytic lookup census')
+    require(report['component_resources'][2]['gates'] == rejected, 'analytic rejection census')
+    expected_gates = {key: reference['gates'][key]+lookup[key]+rejected[key] for key in lookup}
+    r = report['sequence_resources']
+    require(r['gates'] == report['expected_gates'] == expected_gates, 'summed gate vector')
+    workspace = max(reference['retained_derived_bits']+reference['shared_work_bits'],
+                    2*slots+k+v+2, 519)
+    wanted = [('persistent.log', slots*(1+k+v)),
+              ('persistent.counter', max(2, slots.bit_length())),
+              ('event.content.input', reference['original_input_bits']),
+              ('event.content.output', reference['caller_output_bits']),
+              ('event.lookup.query', b+8*c), ('event.lookup.enable', 1), ('event.lookup.output', v),
+              ('event.rejected.input', 3608+1024*n),
+              ('event.rejected.output', reference['caller_output_bits']), ('reusable.clean', workspace)]
+    expected_allocations, cursor = [], 0
+    for name, width in wanted:
+        expected_allocations.append([name, cursor, width])
+        cursor += width
+    require(r['allocations'] == expected_allocations, 'complete disjoint register allocation')
+    require(r['logical_bits'] == report['expected_logical_bits'] == cursor, 'total logical bits')
+    require(r['retained_coin_bits'] == reference['original_private_coin_bits'], 'retained coins')
+    require(r['reserved_append_slots'] == m+2 and r['actual_log_occupancy'] is None,
+            'reservation is not occupancy')
+    for prefix in report['observed_gate_prefixes']:
+        require(len(prefix) == 4, 'four-gate prefix')
+        for op, *wires in prefix:
+            require(op in ('x', 'cx', 'ccx') and len(wires) == {'x': 1, 'cx': 2, 'ccx': 3}[op],
+                    'observed elementary gate shape')
+            require(len(wires) == len(set(wires)) and all(type(i) is int and 0 <= i < cursor for i in wires),
+                    'observed relocated wires')
+
+
+receipt_data = read(CAPTURE/'receipt.json', '5472577d2daca72943bd173bb0f1fdff0b47b62b4542e0007a68d61abde70498')
+receipt = json.loads(receipt_data)
+manifest = read(CAPTURE/'SHA256SUMS', 'b3033bbf656d63500fdfef5136d384bf9e042110f03d75a0e29b9f4a95f1d367')
+for line in manifest.decode().splitlines():
+    h, name = line.split('  ', 1)
+    relative = Path(name)
+    require(not relative.is_absolute() and '..' not in relative.parts, 'manifest path')
+    read(CAPTURE/relative, h)
+for name, h in receipt['source_sha256_before'].items():
+    read(CAPTURE/'source'/(name+'.template'), h)
+    read(CAPTURE/'execution-root'/name, h)
+require(len(receipt['source_sha256_before']) == 159, '159 selected execution inputs')
+require(receipt['source_sha256_before'] == receipt['captured_source_sha256_after'], 'captured pin equality')
+require(receipt['live_source_sha256_before'] == receipt['live_source_sha256_after'], 'recorded live stability')
+require(set(receipt['live_source_differences']) == {'crates/iroha_parliament_ballot_proof/Cargo.toml'},
+        'explicit known live drift')
+review = json.loads(read(HERE.parent/'receipt.json',
+    '31652fce3c1026c3eb6ae7e72aeb620d6575bb11d3a33367bd71a943b8aa594c'))
+for name in ('target/parliament-sequential-composition-stage/sequence.py',
+             'target/parliament-sequential-composition-review/test_independent.py'):
+    require(receipt['source_sha256_before'][name] == review['selected_before'][name],
+            'same independently reviewed binder and controls')
+owned = [f'test_joint_stream_hit_miss_last_write_invalid_identity_and_true_inverse[{n}]' for n in (11, 29)]
+owned += ['test_whole_stream_matches_atomic_calls_and_shared_layout',
+          'test_nontrivial_interval_relocation_keeps_widths_and_fixed_F_semantics']
+owned += [f'test_malformed_gate_and_interval_refusals[bad{i}]' for i in range(14)]
+owned += [f'test_malformed_partition_refused[parts{i}]' for i in range(4)]
+owned += ['test_zero_capacity_source_lookup_and_rejected_size_without_materialized_input',
+          'test_type_caps_shape_and_inverse_refusals']
+expected_names = owned+[name.rsplit('::', 1)[-1] for name in review['collected']]
+xml = ET.fromstring(read(CAPTURE/'tests.xml', receipt['output_sha256']['tests.xml']))
+require([e.attrib['name'] for e in xml.findall('.//testcase')] == expected_names, 'XML membership')
+require(not any(e.tag in ('error', 'failure', 'skipped') for e in xml.iter()), 'XML outcomes')
+observation = json.loads(read(CAPTURE/'observation.stdout', receipt['output_sha256']['observation.stdout']))
+old = json.loads(read(CAPTURE/'source/target/parliament-content-resources-stage/capture/observation.json.template',
+                     'c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'))
+require(observation['source_sha256_before'] == observation['source_sha256_after']
+        == old['source_sha256_before'], 'same frozen component inventory')
+require(len(old['source_sha256_before']) == 152 and all(
+    receipt['source_sha256_before'][name] == h for name, h in old['source_sha256_before'].items()),
+    '152 component sources in captured inputs')
+reference = next(c['family_resources'] for c in old['cases'] if c['row'] == 'candidate' and c['list_count'] == 3)
+check(observation, receipt, reference, expected_names)
+mutations = []
+for name in ('membership_order', 'membership_duplicate', 'logical_bits', 'oracle_calls', 'flag', 'content_metadata'):
+    changed, rec = deepcopy(observation), deepcopy(receipt)
+    if name == 'membership_order':
+        rec['test_membership'][0], rec['test_membership'][1] = rec['test_membership'][1], rec['test_membership'][0]
+    elif name == 'membership_duplicate': rec['test_membership'][0] = rec['test_membership'][1]
+    elif name == 'logical_bits': changed['sequence_resources']['logical_bits'] -= 1
+    elif name == 'oracle_calls': changed['sequence_resources']['gates']['base_xor_oracle_calls'] -= 1
+    elif name == 'flag': changed['current_candidate_qualified'] = True
+    else: changed['component_resources'][0]['original_private_coin_bits'] -= 1
+    try:
+        check(changed, rec, reference, expected_names)
+    except ValueError:
+        mutations.append(name)
+    else:
+        raise AssertionError('mutation accepted: '+name)
+read(Path(__file__))
+for name, expected in tuple(WATCHED.items()):
+    require(hashlib.sha256((ROOT/name).read_bytes()).hexdigest() == expected, 'selected review input drift')
+output = dict(success=True, exact_ordered_test_membership=expected_names, tests=75,
+              scalar_cases=1, selected_input_hashes=WATCHED, selected_inputs_stable=True,
+              mutations_refused=mutations, source_inventory_is_not_runtime_closure=True,
+              full_stream_executed=False, current_candidate_qualified=False,
+              full_joint_quantum_theorem=False, production_gate_changed=False)
+(HERE/'receipt.json').write_text(json.dumps(output, indent=2, sort_keys=True)+'\n')
+print(json.dumps(dict(success=True, tests=75, controls=len(mutations), watched=len(WATCHED))))

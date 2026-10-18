@@ -12,15 +12,16 @@ import pytest
 
 import iroha_python.client as client_module
 from iroha_python import (
+    ContractArtifactId,
     ContractEntrypointKind,
     ContractManifest,
     ContractManifestRecord,
-    ContractArtifactId,
     ContractTriggerRepeatKind,
     EntrypointValueKindV1,
     EntrypointValueTypeNodeKindV1,
     EntrypointValueTypeV1,
 )
+
 
 def _hash_literal(hexadecimal: str) -> str:
     prefix = "hash:" + hexadecimal.upper()
@@ -1360,7 +1361,7 @@ def test_contract_manifest_record_requires_scope_and_hash_agreement() -> None:
 
 
 def test_mock_artifacts_keep_equal_hashes_in_separate_dataspaces() -> None:
-    from iroha_torii_client.mock import _MockState, _artifact_fixture_key
+    from iroha_torii_client.mock import _artifact_fixture_key, _MockState
     state = _MockState()
     digest = "b" * 64
     state.contract_manifests = {f"1/{digest}": {"scope": 1}, f"18446744073709551615/{digest}": {"scope": 2}}

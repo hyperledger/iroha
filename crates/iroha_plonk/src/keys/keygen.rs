@@ -50,7 +50,11 @@ use crate::{
     },
 };
 
+mod builtin;
 mod rebuild;
+pub use builtin::{
+    BuiltinSourceErrorV1, BuiltinSourceMemberV1, BuiltinSourceProfileV1, builtin_source_identity_v1,
+};
 pub use rebuild::{
     RebuildError, SourceAdmissionSealV2, SourceBoundVerifyingKeyV2, SourceBoundViewV2,
     keygen_pk_from_vk_v2, keygen_pk_from_vk_v2_cancellable,
@@ -441,19 +445,27 @@ fn finish_pk_cancellable<C: PastaCurve>(
     )
 }
 
+/// Native source and every original commitment have passed strict admission.
+/// Private construction prevents a declared fingerprint from minting a seal.
+struct AdmittedSource<C: PastaCurve> {
+    vk: VerifyingKey<C>,
+    source: Prepared<C::ScalarExt>,
+    source_digest: [u8; 32],
+}
+
 /// Validate imported originals against native source without generating a VK.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn import_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
+fn admit_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     params: &PinnedParams<C>,
     circuit: &Ci,
     binding: &DescriptorBinding,
     vk: VerifyingKey<C>,
-    fixed: Vec<Vec<C::ScalarExt>>,
-    sigma: Vec<Vec<C::ScalarExt>>,
     copy_digest: [u8; 32],
+    source_digest: [u8; 32],
     config: super::pk::artifact::ReadConfig,
     cancellation: Option<&iroha_pasta::CancellationToken>,
-) -> Result<ProvingKey<C>, super::pk::artifact::Error> {
+    require_masking: bool,
+) -> Result<AdmittedSource<C>, super::pk::artifact::Error> {
     use super::pk::artifact::Error;
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     let descriptor = binding.descriptor();
@@ -490,55 +502,135 @@ pub(super) fn import_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     if &source.binding != binding {
         return Err(Error::Profile);
     }
+    // Preserve the full PK constructor's shape and quotient-domain checks before
+    // either kind of admission can return authority. These allocate no proving
+    // coefficient or mask buffers, and make commitment zip coverage explicit.
+    check_shape(
+        "fixed columns",
+        descriptor.num_fixed_columns as usize,
+        source.fixed.len(),
+    )?;
+    check_shape(
+        "permutation columns",
+        descriptor.permutation.len(),
+        source.sigma.len(),
+    )?;
+    for column in source.fixed.iter().chain(&source.sigma) {
+        check_shape("column rows", binding.n(), column.len())?;
+    }
+    super::pk::QuotientDomain::<C::ScalarExt>::new(params.k(), usize::from(descriptor.degree))?;
     if source.copy_digest != copy_digest
-        || source.fixed != fixed
-        || source.sigma != sigma
-        || source.vk_selectors != vk.selectors()
+        || !vk
+            .selectors()
+            .matches_rows_cancellable(&source.vk_selectors, cancellation)?
     {
         return Err(Error::Source);
     }
-    let blind = default_blind::<C::ScalarExt>();
-    for (column, expected) in fixed.iter().chain(&sigma).zip(
+    let (fingerprint, columns) = super::source_fingerprint::from_tables_with_columns(
+        &source.binding,
+        &source.copy_digest,
+        source.vk_selectors.as_slice().into(),
+        &source.fixed,
+        &source.sigma,
+        cancellation,
+    )?;
+    if fingerprint.digest() != &source_digest {
+        return Err(Error::Source);
+    }
+    if require_masking {
+        super::masking::validate_tables(
+            &source.binding,
+            &source.fixed,
+            &source.sigma,
+            cancellation,
+        )?;
+    }
+    for (column, expected) in columns.iter().zip(
         vk.fixed_commitments()
             .iter()
             .chain(vk.permutation_commitments()),
     ) {
-        let actual = crate::pcs::ipa::commit::commit_lagrange_cancellable(
-            params.params(),
-            column,
-            &blind,
-            Secrecy::Public,
-            config.msm_budget,
-            cancellation,
-        )
-        .map_err(KeyError::from)?
-        .to_affine();
+        // Reuse only computations over identical native public columns under
+        // this immutable parameter owner; every original VK point is compared.
+        let actual = params
+            .commit_hashed_public_column_cancellable(column, config.msm_budget, cancellation)
+            .map_err(KeyError::from)?;
         if &actual != expected {
             return Err(Error::Commitment);
         }
     }
-    let Prepared {
-        constraint_system,
-        binding: source_binding,
-        fixed: source_fixed,
-        sigma: source_sigma,
-        vk_selectors,
-        ..
-    } = source;
-    // Retain one original table set while constructing coefficients and masks.
-    drop((source_binding, source_fixed, source_sigma, vk_selectors));
+    drop(columns);
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    Ok(AdmittedSource {
+        vk,
+        source,
+        source_digest,
+    })
+}
+
+/// Strict original admission followed by proving-only coefficient/cache assembly.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn import_artifact_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
+    params: &PinnedParams<C>,
+    circuit: &Ci,
+    binding: &DescriptorBinding,
+    vk: VerifyingKey<C>,
+    copy_digest: [u8; 32],
+    source_digest: [u8; 32],
+    config: super::pk::artifact::ReadConfig,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+    require_masking: bool,
+) -> Result<ProvingKey<C>, super::pk::artifact::Error> {
+    let AdmittedSource { vk, source, .. } = admit_artifact_v2(
+        params,
+        circuit,
+        binding,
+        vk,
+        copy_digest,
+        source_digest,
+        config,
+        cancellation,
+        require_masking,
+    )?;
     ProvingKey::new_cancellable(
         vk,
-        binding.clone(),
-        constraint_system,
-        fixed,
-        sigma,
+        source.binding,
+        source.constraint_system,
+        source.fixed,
+        source.sigma,
         copy_digest,
         config.coset_cache,
         CommitmentTables::none(),
         cancellation,
     )
-    .map_err(Error::from)
+    .map_err(super::pk::artifact::Error::from)
+}
+
+/// Strict original admission with public metadata only; no proving FFTs/masks.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn import_artifact_metadata_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
+    params: &PinnedParams<C>,
+    circuit: &Ci,
+    binding: &DescriptorBinding,
+    vk: VerifyingKey<C>,
+    copy_digest: [u8; 32],
+    source_digest: [u8; 32],
+    config: super::pk::artifact::ReadConfig,
+    cancellation: Option<&iroha_pasta::CancellationToken>,
+    require_masking: bool,
+) -> Result<SourceBoundVerifyingKeyV2<C>, super::pk::artifact::Error> {
+    let admitted = admit_artifact_v2(
+        params,
+        circuit,
+        binding,
+        vk,
+        copy_digest,
+        source_digest,
+        config,
+        cancellation,
+        require_masking,
+    )?;
+    rebuild::from_admitted_source(admitted, cancellation).map_err(super::pk::artifact::Error::from)
 }
 
 /// Generates the proving key (and its verifying key) from explicit tables:
@@ -740,22 +832,14 @@ pub fn source_fingerprint_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
         cancellation,
     )?;
     drop(permutation);
-    let mut hash = super::source_fingerprint::SourceHasher::new(
+    super::source_fingerprint::from_tables(
         &prepared.binding,
         &prepared.copy_digest,
-        &prepared.vk_selectors,
+        prepared.vk_selectors.as_slice().into(),
+        &prepared.fixed,
+        &prepared.sigma,
         cancellation,
-    )?;
-    for column in prepared.fixed.iter().chain(&prepared.sigma) {
-        for (index, value) in column.iter().enumerate() {
-            if index % 1024 == 0 {
-                CancellationToken::checkpoint(cancellation)?;
-            }
-            hash.scalar(value.to_repr().as_ref());
-        }
-    }
-    CancellationToken::checkpoint(cancellation)?;
-    Ok(hash.finish(prepared.binding))
+    )
 }
 
 /// Generates a V2 verifying key without retaining a proving key.

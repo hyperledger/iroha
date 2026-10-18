@@ -43,6 +43,8 @@ Design rules:
 | account movements | `GET /v1/accounts/{account_id}/history` | `POST /v1/accounts/{account_id}/history/query` |
 | contract activity | `GET /v1/contracts/activity` | `POST /v1/contracts/activity/query` |
 | contract events | `GET /v1/contracts/events` | `POST /v1/contracts/events/query` |
+| bonds | `GET /v1/bonds` | — |
+| bond entitlements | `GET /v1/bonds/{bond_id}/entitlements` | — |
 
 `GET` and `POST …/query` are equivalent; `POST` additionally supports
 `aggregate` and avoids URL length limits. Responses are JSON. Transactions, account movements, contract activity and events
@@ -257,13 +259,15 @@ absent.
 | account assets | `asset`, `asset_name`, `asset_alias`, `scope`, `account_id` (strings, *sort*), `quantity` (decimal, *sort*) | `asset`, `scope` |
 | asset holders | `account_id`, `asset`, `asset_alias`, `scope` (strings, *sort*), `quantity` (decimal, *sort*) | `account_id`, `scope` |
 | transactions, account transactions | `entrypoint_hash`, `block_hash`, `authority` (string or null), `entrypoint_kind` (strings), `block_height`, `block_index`, `timestamp_ms` (number or null) (numbers), `result_ok` (bool), `asset_ids`, `asset_definition_ids` (lists of strings), `metadata.*` | newest first |
-| repo agreements | `id`, `initiator`, `counterparty`, `custodian`, `status`, `cash_source`, `cash_leg.asset_definition_id`, `collateral_leg.asset_definition_id`, `collateral_custody_asset` (strings, *sort*), `cash_leg.quantity`, `collateral_leg.quantity` (decimals, *sort*), `rate_bps`, `maturity_timestamp_ms`, `initiated_timestamp_ms`, `last_margin_check_timestamp_ms`, `settlement_timestamp_ms`, `governance.haircut_bps`, `governance.margin_frequency_secs` (numbers, *sort*) | `id` |
+| repo agreements | `id`, `initiator`, `counterparty`, `custodian`, `status`, `cash_source`, `cash_leg.asset_definition_id`, `collateral_leg.asset_definition_id`, `collateral_custody_asset` (strings, *sort*), `cash_leg.quantity`, `collateral_leg.quantity` (decimals, *sort*), `rate_bps`, `maturity_timestamp_ms`, `initiated_timestamp_ms`, `last_margin_check_timestamp_ms`, `settlement_timestamp_ms`, `governance.haircut_bps`, `governance.margin_frequency_secs` (numbers, *sort*), `governance.allow_early_repayment` (bool) | `id` |
 | account permissions | `name` (string, *sort*), `payload` (JSON); effective grants include direct and role permissions, deduplicated by name and payload | `name`, `payload` |
 | subscription plans | `id`, `provider` (strings, *sort*), `billing`, `pricing` (JSON) | `id` |
 | subscriptions | `id`, `owned_by`, `plan_id`, `provider`, `subscriber`, `status`, `billing_trigger_id` (strings, *sort*), `current_period_start_ms`, `current_period_end_ms`, `next_charge_ms`, `cancel_at_ms`, `failure_count` (numbers, *sort*), `cancel_at_period_end` (bool), `usage_accumulated`, `invoice`, `plan` (JSON) | `id` |
 | UAID manifests | `dataspace_id` (number, *sort*), `dataspace_alias`, `manifest_hash`, `status` (strings, *sort*), `manifest`, `lifecycle` (JSON), `accounts` (list of strings) | `dataspace_id` |
 | account movements | `id`, `source`, `type`, `status`, `direction`, `account_id`, `counterparty_account_id`, `asset_id`, `asset_definition_id`, `tx_hash` (strings), `timestamp_ms`, `block_height`, `block_index`, `movement_index`, `expires_at_ms`, `finalized_at_ms` (numbers), `operation_id`, `requesting_fi_id` (strings), `amount` (decimal), `result_ok` (bool) | newest chain position first, then descending movement index |
 | contract activity | `authority`, `entrypoint_hash`, `contract_address`, `contract_alias`, `contract_entrypoint` (strings), `timestamp_ms`, `block_height`, `block_index` (numbers), `result_ok` (bool), `contract_payload`, `fee_payment` (JSON) | newest first |
+| bonds | `id`, `vault`, `terms.issuer`, `terms.paying_agent`, `terms.payment_asset`, `terms.identifiers.isin`, `state.lifecycle` (strings, *sort*), `terms.coupon_rate_bps`, `terms.coupon_frequency`, `terms.issue_date_ms`, `terms.maturity_date_ms` (numbers, *sort*), `state.outstanding_units`, `state.redeemed_units`, `state.retired_units` (decimals, *sort*), `state.transfers_frozen` (bool), `terms`, `state` (JSON); each item is the complete `BondRecord` | `id` |
+| bond entitlements | `id` (`<index>:<holder>`), `bond`, `holder` (strings, *sort*), `index`, `claimed_at_ms` (number or null) (numbers, *sort*), `units`, `amount` (decimals, *sort*), `claimed` (bool) | `id` (cash flow, then holder) |
 | contract events | `event_id`, `provenance` (always `emitted`), `authority`, `execution_hash_hex`, `block_hash_hex`, `contract_address`, `event_kind` (strings), `schema_version`, `timestamp_ms`, `block_height`, `output_index`, `emission_index` (numbers), `result_ok` (always true), `participants`, `asset_ids` (lists of strings), `numeric_fields`, `payload`, `emission`, `fee_payment` (JSON) | descending `block_height`, `output_index`, `emission_index` |
 
 Subscription status is a lower-case string (`active`, `paused`, `past_due`,
@@ -294,6 +298,22 @@ candidates; exhausting a page budget before finding one returns an explicit
 `query_scan_limit_exceeded` error. Account movement expansion also consumes the
 raw-row budget. These pages do not build a full-history process cache.
 
+Multisig proposals are administrative activity for the controller account;
+their proposed transfers are not payments. Account movement history reads the
+immutable native terminal and approval-outcome originals for each successful
+executing transaction. Only matching `Finalized` and `Executed` records, bound
+to the network, account, proposal occurrence, instruction commitment, block
+height and entrypoint hash, produce multisig movements. Nested approvals use
+their own executed records, so proposed or repeated instructions cannot create
+duplicate credits. Movement identities include the executing transaction and
+occurrence. Batch transfers use the transaction result's ordered applied-leg
+receipts once, including nested execution; rejected legs produce no successful
+movement. Receipt identities include their committed result position.
+Original reads, decoded instructions and projected rows share a bounded work
+allowance across the page, with a separate bounded byte allowance for native
+originals. Malformed or inconsistent originals fail the page. These display
+rows do not replace consumers' verification of authenticated finality.
+
 - The cursor holds the block coordinates of the last row and the next page
   starts strictly before them, so transactions committed while paging never
   shift later pages.
@@ -309,7 +329,14 @@ raw-row budget. These pages do not build a full-history process cache.
   64 blocks, recorded at startup and as blocks commit, plus the blocks recent
   pages verified), so a page starts at most 64 blocks above its position and
   all of history is reachable. A page whose blocks alone exceed the budget
-  is rejected with `query_scan_limit_exceeded`.
+  is rejected with `query_scan_limit_exceeded`. Transaction and account movement
+  visibility uses that same authenticated carrier, without rereading and verifying
+  the block for each visibility check. The captured canonical prefix is rechecked
+  before publishing the page. Account movement projection borrows the input and
+  result from that carrier, avoiding unused per-transaction Merkle proof DTOs,
+  encoding and clones. Its byte allowance charges the exact authenticated source
+  frames; collection limits separately bound retained display rows. Proof-bearing
+  transaction queries still charge their additional owned proof DTO bytes.
 - Bounds on `block_height` in the filter's top-level `and` bound the rows a
   page examines: `block_height >= 1200` ends the walk below height 1200, and
   `block_height <= 1500` starts the walk just above height 1500. `filter=block_height >= 1200 and result_ok = true`
@@ -393,6 +420,18 @@ transaction adds `rejection_code` (`account_does_not_exist`, `limit_check`,
 `trigger_execution`) and the fixed public `rejection_reason`; a rejected
 block adds `rejection_code` with the block rejection variant. A `summary`
 member, where present, is diagnostic text without a stable format.
+
+### Account-history stream
+
+`GET /v1/accounts/{account_id}/history/sse[?filter=<text>]` streams the
+account-history rows of every newly published height as `event: movement`
+frames, oldest first. Rows have the same fields, values and visibility as
+`/v1/accounts/{account_id}/history` items, so a client merges them into a
+history list by `id`; `filter` takes the same grammar and fields as the history
+collection (for example `direction = "incoming"`). Page, order and projection
+controls are rejected. The stream is live-only: open it, then read the first
+history page, and repeat both after a reconnect (see
+[streaming.md](streaming.md)).
 
 ## Explorer feeds
 

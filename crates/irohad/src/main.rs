@@ -2841,9 +2841,7 @@ impl Iroha {
             p2p_identity_keys,
             config.network.clone(),
             expected_network_id,
-            Some(consensus_caps),
-            Some(confidential_caps),
-            Some(crypto_caps),
+            iroha_p2p::network::HandshakeCapabilities { consensus: Some(consensus_caps), confidential: Some(confidential_caps), crypto: Some(crypto_caps) },
             initial_trusted_sources,
             configured_validator_dial_roster.iter().cloned().collect(),
             supervisor.shutdown_signal(),
@@ -4303,9 +4301,9 @@ impl Iroha {
         // cannot sign or dispatch AMX carriers. Invalid explicit custody fails activation.
         if !emergency_fast {
             let children = amx_relay::start(
-                Arc::clone(&state),
+                &state,
                 config.amx_relay.clone(),
-                supervisor.shutdown_signal(),
+                &supervisor.shutdown_signal(),
             )
             .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?;
             for child in children {

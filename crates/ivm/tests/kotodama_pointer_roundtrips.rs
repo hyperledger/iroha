@@ -1,7 +1,7 @@
 //! Kotodama pointer roundtrip tests.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 fn run_prog(body: &str) {
     let src = format!(
         "seiyaku PointerRoundtrip {{ permission FixtureAccess;  kotoage fn main() authorize(FixtureAccess) {{\n{body}\n}} }}"

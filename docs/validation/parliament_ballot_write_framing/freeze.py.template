@@ -1,0 +1,64 @@
+"""Verify captured framing evidence and freeze a new manifest; never repin it."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+
+root = Path.cwd()
+out = root / "docs/validation/parliament_ballot_write_framing"
+manifest = out / "SHA256SUMS"
+review_path = out / "freeze-review.json"
+if manifest.exists() or review_path.exists():
+    raise RuntimeError("refuse modifying frozen framing evidence")
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+receipt = json.loads((out / "receipt.json").read_text())
+assert receipt["test_count"] == 11
+assert receipt["source_sha256_before"] == receipt["source_sha256_after"]
+assert receipt["executing_artifact_sha256_before"] == receipt["executing_artifact_sha256_after"]
+sources = {name: sha(root/name) for name in receipt["source_sha256_after"]}
+executing = {name: sha(root/name) for name in receipt["executing_artifact_sha256_after"]}
+assert sources == receipt["source_sha256_after"] and len(sources) == 69
+assert executing == receipt["executing_artifact_sha256_after"] and len(executing) == 6
+for name, value in receipt["output_sha256"].items():
+    assert sha(out/name) == value, name
+for name, snapshot in receipt["snapshot_paths"].items():
+    assert sha(out/snapshot) == executing[name], snapshot
+assert (out/"qualification-refusal.txt").read_bytes() == (out/"report.json").read_bytes()
+assert receipt["exit_codes"] == {"tests": 0, "illustrative": 0, "zero_requests": 0,
+                                 "framing_only_width": 0, "qualification_refusal": 2}
+for path in (out/"README.md", root/"specs/parliament_ballot_b6_write_framing.md"):
+    for target in re.findall(r"\]\(([^)]+)\)", path.read_text()):
+        if "://" not in target and path.parent/target != review_path:
+            assert (path.parent/target).exists(), target
+review = {
+    "schema": "parliament-write-framing-freeze-review-v1",
+    "frozen_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "receipt_sha256": sha(out/"receipt.json"),
+    "source_sha256_at_freeze": sources,
+    "executing_artifact_sha256_at_freeze": executing,
+    "source_count": len(sources), "executing_count": len(executing),
+    "output_count": len(receipt["output_sha256"]), "exact_snapshot_count": len(receipt["snapshot_paths"]),
+    "all_captured_inputs_outputs_snapshots_match": True,
+    "local_code_review": "Root and security_obligations reviewed source framing, exact counts, composition premises, disjointness and quantum scope; peer independently ran11 controls. Scope text and zero-request staging correction were subsequently checked in capture review.",
+    "independent_cryptographic_review": False, "owner_acceptance": False,
+    "full_resource_vector": False, "profile_qualified": False,
+    "physical_verification_workspace_certificate": False, "production_gate_changed": False,
+}
+with review_path.open("x") as stream:
+    stream.write(json.dumps(review, indent=2, sort_keys=True)+"\n")
+files = sorted(path for path in out.rglob("*") if path.is_file()
+               and path.name not in {"SHA256SUMS", ".DS_Store"} and "__pycache__" not in path.parts)
+with manifest.open("x") as stream:
+    for path in files:
+        stream.write(sha(path)+"  "+path.relative_to(root).as_posix()+"\n")
+for line in manifest.read_text().splitlines():
+    value, name = line.split("  ", 1)
+    assert sha(root/name) == value
+print(json.dumps({"entry_count": len(files), "manifest_sha256": sha(manifest),
+                  "freeze_review_sha256": sha(review_path)}))

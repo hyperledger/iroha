@@ -41,6 +41,14 @@ impl std::ops::Deref for Flow {
     }
 }
 
+/// Borrowed native authority and the original journal action selected for one flow step.
+#[derive(Clone, Copy)]
+pub struct FlowStep<'a> {
+    pub(super) original: &'a origin::AuthenticatedOrigin,
+    pub(super) flow: &'a Flow,
+    pub(super) action: SccpFlowActionV1,
+}
+
 pub(super) fn evidence(
     label: &str,
     value: &(impl JsonSerialize + ?Sized),
@@ -107,9 +115,9 @@ pub(super) fn bind_intent(items: &mut Vec<SccpEvidenceItemV1>, digest: [u8; 32])
     });
 }
 
-pub(super) fn confirmed(outcome: &Option<SccpJournalOutcomeV1>) -> bool {
+pub(super) fn confirmed(outcome: Option<&SccpJournalOutcomeV1>) -> bool {
     matches!(
-        outcome.as_ref().map(|outcome| outcome.outcome),
+        outcome.map(|outcome| outcome.outcome),
         Some(SccpStepOutcomeKindV1::Confirmed | SccpStepOutcomeKindV1::Superseded)
     )
 }
@@ -210,6 +218,7 @@ fn original_transaction(
 /// Quote and sign only an unprepared intent. All subsequent invocations use its original bytes.
 pub(super) fn taira<C: RunContext>(
     context: &mut C,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
     instructions: Vec<InstructionBox>,
@@ -256,13 +265,14 @@ pub(super) fn taira<C: RunContext>(
         )?
     };
     check_flow(flow, &step)?;
-    run_taira_step(context, &step, flow.rebroadcast)
+    run_taira_step(context, original, &step, flow.rebroadcast)
 }
 
 /// Recover the exact original before fresh proof discovery, eligibility or signing.
 /// Returns true whenever the action already has retained custody, even if still unresolved.
 pub(super) fn recover_taira(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
 ) -> Result<bool> {
@@ -270,7 +280,7 @@ pub(super) fn recover_taira(
         return Ok(false);
     };
     check_flow(flow, &step)?;
-    let outcome = run_taira_step(context, &step, flow.rebroadcast)?;
+    let outcome = run_taira_step(context, original, &step, flow.rebroadcast)?;
     if outcome.is_some() && retry_allowed(flow, action, &step)? {
         return Ok(false);
     }
@@ -278,7 +288,11 @@ pub(super) fn recover_taira(
 }
 
 /// Reconcile a retained prerequisite before a fresh proof can select another backfill.
-pub(super) fn recover_advance(context: &mut impl RunContext, flow: &Flow) -> Result<bool> {
+pub(super) fn recover_advance(
+    context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
+    flow: &Flow,
+) -> Result<bool> {
     let Some(step) = flow.pending()? else {
         return Ok(false);
     };
@@ -286,14 +300,15 @@ pub(super) fn recover_advance(context: &mut impl RunContext, flow: &Flow) -> Res
         return Ok(false);
     }
     check_flow(flow, &step)?;
-    let outcome = run_taira_step(context, &step, flow.rebroadcast)?;
-    Ok(!confirmed(&outcome) && !retry_allowed(flow, SccpFlowActionV1::Advance, &step)?)
+    let outcome = run_taira_step(context, original, &step, flow.rebroadcast)?;
+    Ok(!confirmed(outcome.as_ref()) && !retry_allowed(flow, SccpFlowActionV1::Advance, &step)?)
 }
 
 /// Retain the final Core message state separately from transaction admission. A confirmed
 /// settle instruction may have left a held or frozen claim pending and is not itself release.
 pub(super) fn finish_message(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     message_id: &[u8; 32],
 ) -> Result<bool> {
@@ -309,13 +324,16 @@ pub(super) fn finish_message(
         "message status names another id"
     );
     context.print_data(&status)?;
-    if !status.is_final() || flow.pending()?.is_some() {
+    if !original.verify_message(message_id, &status)? || flow.pending()?.is_some() {
         return Ok(false);
     }
     if flow.phase()? == iroha_sccp_wallet::flow::SccpFlowPhaseV1::Complete {
         return Ok(true);
     }
-    let mut items = vec![evidence("taira.final_message_status", &status)?];
+    let mut items = vec![
+        evidence("taira.original_cut", &original.receipt_cut())?,
+        evidence("taira.final_message_status", &status)?,
+    ];
     bind_flow(flow, &mut items);
     let step = flow.prepare(
         SccpFlowActionV1::ObserveComplete,
@@ -331,6 +349,17 @@ pub(super) fn finish_message(
     Ok(true)
 }
 
+fn checked_outcome(outcome: Option<SccpJournalOutcomeV1>) -> Result<Option<SccpJournalOutcomeV1>> {
+    if let Some(value) = &outcome {
+        ensure!(
+            norito::json::to_vec(value)?.len() as u64
+                <= iroha_sccp_wallet::journal::MAX_RECORD_BYTES,
+            "authenticated outcome exceeds durable journal bound; original remains pending"
+        );
+    }
+    Ok(outcome)
+}
+
 fn drive_and_wait(
     context: &impl RunContext,
     step: &SccpJournalStep,
@@ -340,6 +369,7 @@ fn drive_and_wait(
 ) -> Result<Option<SccpJournalOutcomeV1>> {
     let config = context.sccp_config()?;
     let started = std::time::Instant::now();
+    let mut observe = |record: &SccpJournalRecordV1| checked_outcome(observe(record)?);
     let mut outcome = drive_step_with_rebroadcast(step, rebroadcast, &mut observe, dispatch)?;
     while outcome.is_none() {
         let Some(remaining) = config.confirmation_timeout.checked_sub(started.elapsed()) else {
@@ -359,46 +389,23 @@ fn drive_and_wait(
 
 fn run_taira_step(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     step: &SccpJournalStep,
     rebroadcast: bool,
 ) -> Result<Option<SccpJournalOutcomeV1>> {
     let transaction = original_transaction(context, step.record())?;
-    let native = context.client_from_config()?;
+    let deadline = std::time::Instant::now()
+        .checked_add(context.sccp_config()?.confirmation_timeout)
+        .ok_or_else(|| eyre!("native confirmation deadline overflows"))?;
+    let native = context
+        .client_from_config()?
+        .with_request_deadline(deadline);
     let client = BlockingClient::from_client(native.clone())?;
     let outcome = drive_and_wait(
         context,
         step,
         rebroadcast,
-        |_| {
-            let status = native.get_transaction_status_response_global(transaction.hash())?;
-            let Some(status) = status else {
-                return Ok(None);
-            };
-            ensure!(
-                status.hash == transaction.hash().to_string() && status.scope == "global",
-                "status differs from the original global transaction"
-            );
-            let kind = match (status.status.kind.as_str(), status.resolved_from.as_str()) {
-                ("Applied", "state") => SccpStepOutcomeKindV1::Confirmed,
-                ("Rejected" | "Expired", "state") => SccpStepOutcomeKindV1::Failed,
-                _ => return Ok(None),
-            };
-            let mut retained = vec![evidence("taira.transaction_status", &status)?];
-            if kind == SccpStepOutcomeKindV1::Confirmed {
-                ensure!(
-                    status.status.block_height.is_some_and(|height| height > 0),
-                    "Applied status lacks a committed height"
-                );
-                let details = native.get_transaction_details(transaction.hash_as_entrypoint())?;
-                crate::transaction_journal::verify_committed(&transaction, &details)?;
-                retained.push(evidence("taira.committed_transaction", &details)?);
-            }
-            Ok(Some(SccpJournalOutcomeV1 {
-                outcome: kind,
-                transaction: transaction.hash().as_ref().to_vec(),
-                evidence: retained,
-            }))
-        },
+        |_| native_receipt::observe(&native, original, &transaction),
         |wire| {
             ensure!(
                 wire == transaction.encode_wire_v1()?,
@@ -417,18 +424,18 @@ fn run_taira_step(
             Ok(())
         },
     )?;
-    print_outcome(context, &outcome, transaction.hash().as_ref())?;
+    print_outcome(context, outcome.as_ref(), transaction.hash().as_ref())?;
     Ok(outcome)
 }
 
 pub(super) fn print_outcome(
     context: &mut impl RunContext,
-    outcome: &Option<SccpJournalOutcomeV1>,
+    outcome: Option<&SccpJournalOutcomeV1>,
     hash: &[u8],
 ) -> Result<()> {
     context.print_data(&norito::json!({
         "transaction": (hex::encode(hash)),
-        "state": (match outcome.as_ref().map(|outcome| outcome.outcome) {
+        "state": (match outcome.map(|outcome| outcome.outcome) {
             Some(SccpStepOutcomeKindV1::Confirmed) => "confirmed",
             Some(SccpStepOutcomeKindV1::Failed) => "failed",
             Some(SccpStepOutcomeKindV1::Superseded) => "superseded",
@@ -441,9 +448,7 @@ pub(super) fn print_outcome(
 /// Retain a verified EVM call before signing/broadcasting and recover its exact receipt.
 pub(super) fn evm<C: RunContext>(
     context: &mut C,
-    original: &origin::AuthenticatedOrigin,
-    flow: &Flow,
-    action: SccpFlowActionV1,
+    selected: FlowStep<'_>,
     network: SccpNetworkV1,
     destination: &super::evm::EvmDestination,
     key_file: &std::path::Path,
@@ -452,9 +457,7 @@ pub(super) fn evm<C: RunContext>(
 ) -> Result<Option<SccpJournalOutcomeV1>> {
     evm_call(
         context,
-        original,
-        flow,
-        action,
+        selected,
         network,
         &destination.transport(),
         key_file,
@@ -464,17 +467,24 @@ pub(super) fn evm<C: RunContext>(
 }
 
 /// Journal one verified call target, including the fixed deterministic deployment proxy.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "owned call bytes remain live through reconciliation and journal-step teardown"
+)]
 pub(super) fn evm_call<C: RunContext>(
     context: &mut C,
-    original: &origin::AuthenticatedOrigin,
-    flow: &Flow,
-    action: SccpFlowActionV1,
+    selected: FlowStep<'_>,
     network: SccpNetworkV1,
     destination: &super::evm::EvmTransport<'_>,
     key_file: &std::path::Path,
     calldata: Vec<u8>,
     mut items: Vec<SccpEvidenceItemV1>,
 ) -> Result<Option<SccpJournalOutcomeV1>> {
+    let FlowStep {
+        original,
+        flow,
+        action,
+    } = selected;
     check_action_intent(flow, action)?;
     let digest = intent(&calldata);
     let previous = flow.find_intent(action, &digest)?;
@@ -578,7 +588,7 @@ fn run_evm_step(
                 proof_items.extend(destination.confirm_finalized(&receipt, &bundle)?);
             }
             let locator = norito::json!({"transaction_hash": (hex::encode(hash)), "block_hash": (hex::encode(receipt.block_hash)), "block_number": (receipt.block_number), "transaction_index": (receipt.transaction_index)});
-            bounded_evm_outcome(SccpJournalOutcomeV1 {
+            checked_outcome(Some(SccpJournalOutcomeV1 {
                 outcome: kind,
                 transaction: hash.to_vec(),
                 evidence: {
@@ -591,10 +601,10 @@ fn run_evm_step(
                     ]);
                     proof_items
                 },
-            })
+            }))
             .and_then(|outcome| {
                 destination.require_receipt_deadline(receipt_deadline)?;
-                Ok(Some(outcome))
+                Ok(outcome)
             })
         },
         |raw| {
@@ -605,26 +615,14 @@ fn run_evm_step(
             Ok(())
         },
     )?;
-    print_outcome(context, &outcome, &hash)?;
-    Ok(outcome)
-}
-
-/// Refuse a terminal result before its evidence can exceed the durable journal's record cap.
-fn bounded_evm_outcome(outcome: SccpJournalOutcomeV1) -> Result<SccpJournalOutcomeV1> {
-    ensure!(
-        norito::json::to_vec(&outcome)?.len() as u64
-            <= iroha_sccp_wallet::journal::MAX_RECORD_BYTES,
-        "authenticated EVM outcome exceeds the journal record limit"
-    );
+    print_outcome(context, outcome.as_ref(), &hash)?;
     Ok(outcome)
 }
 
 /// Prepare one TON wallet envelope only after retaining its verified source evidence.
 pub(super) fn ton(
     context: &mut impl RunContext,
-    original: &origin::AuthenticatedOrigin,
-    flow: &Flow,
-    action: SccpFlowActionV1,
+    selected: FlowStep<'_>,
     lite: &iroha_sccp_rpc::ton::LiteClient,
     items: Vec<SccpEvidenceItemV1>,
     prepare: impl FnOnce(&mut Vec<SccpEvidenceItemV1>) -> Result<Vec<u8>>,
@@ -632,9 +630,7 @@ pub(super) fn ton(
 ) -> Result<Option<SccpJournalOutcomeV1>> {
     ton_observed(
         context,
-        original,
-        flow,
-        action,
+        selected,
         lite,
         items,
         prepare,
@@ -646,22 +642,25 @@ pub(super) fn ton(
 /// Maintenance progress can supersede the need to retry; it does not prove mint/burn completion.
 pub(super) fn ton_observed(
     context: &mut impl RunContext,
-    original: &origin::AuthenticatedOrigin,
-    flow: &Flow,
-    action: SccpFlowActionV1,
+    selected: FlowStep<'_>,
     lite: &iroha_sccp_rpc::ton::LiteClient,
     items: Vec<SccpEvidenceItemV1>,
     prepare: impl FnOnce(&mut Vec<SccpEvidenceItemV1>) -> Result<Vec<u8>>,
     mut observe: impl FnMut(&SccpJournalStep) -> Result<Option<Vec<SccpEvidenceItemV1>>>,
     kind: SccpStepOutcomeKindV1,
 ) -> Result<Option<SccpJournalOutcomeV1>> {
+    let FlowStep {
+        original,
+        flow,
+        action,
+    } = selected;
     check_action_intent(flow, action)?;
     let previous = flow.latest(action)?;
     let previous = match previous {
         Some(step)
             if (action == SccpFlowActionV1::Checkpoint && step.outcome()?.is_some())
                 || (action == SccpFlowActionV1::Control
-                    && confirmed(&step.outcome()?)
+                    && confirmed(step.outcome()?.as_ref())
                     && newer_prerequisite(&step.record().evidence, &items))
                 || retry_allowed(flow, action, &step)? =>
         {
@@ -681,13 +680,21 @@ pub(super) fn ton_observed(
     );
     let hash = iroha_sccp::ton_boc_single_root_hash_v1(&step.record().submission)
         .ok_or_else(|| eyre!("original TON envelope is not a single-root BoC"))?;
+    let _confirmation_budget = lite
+        .budget()
+        .start(context.sccp_config()?.confirmation_timeout);
     let outcome = drive_and_wait(
         context,
         &step,
         flow.rebroadcast,
         |_| {
             retired_ton_outcome(observe(&step)?, kind, hash, || {
-                super::ton::wallet_retirement(lite, &step.record().submission)
+                super::ton::wallet_retirement(
+                    &blocking(context)?,
+                    original,
+                    lite,
+                    &step.record().submission,
+                )
             })
         },
         |bytes| {
@@ -698,7 +705,7 @@ pub(super) fn ton_observed(
             Ok(())
         },
     )?;
-    print_outcome(context, &outcome, &hash)?;
+    print_outcome(context, outcome.as_ref(), &hash)?;
     if outcome.is_none() {
         let envelope = iroha_sccp_wallet::pure::ton::wallet_v5_envelope(&step.record().submission)?;
         if u64::from(envelope.valid_until) <= super::wall_clock_ms() / 1000 {
@@ -728,12 +735,14 @@ pub(super) fn retired_ton_outcome(
     observed: Option<Vec<SccpEvidenceItemV1>>,
     kind: SccpStepOutcomeKindV1,
     hash: [u8; 32],
-    observe_retirement: impl FnOnce() -> Result<super::ton::WalletRetirement>,
+    observe_retirement: impl FnOnce() -> Result<Option<super::ton::WalletRetirement>>,
 ) -> Result<Option<SccpJournalOutcomeV1>> {
     let Some(mut evidence) = observed else {
         return Ok(None);
     };
-    let retirement = observe_retirement()?;
+    let Some(retirement) = observe_retirement()? else {
+        return Ok(None);
+    };
     if !retirement.retired() {
         return Ok(None);
     }
@@ -753,18 +762,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn evm_terminal_evidence_must_fit_before_journal_completion() {
+    fn authenticated_outcome_must_fit_the_reopenable_journal_bound() {
         let mut outcome = SccpJournalOutcomeV1 {
-            outcome: SccpStepOutcomeKindV1::Failed,
-            transaction: vec![7; 32],
+            outcome: SccpStepOutcomeKindV1::Confirmed,
+            transaction: vec![1; 32],
             evidence: vec![SccpEvidenceItemV1 {
-                label: "evm.original_receipt.proof".to_owned(),
-                bytes: vec![1, 2, 3],
+                label: "proof".into(),
+                bytes: Vec::new(),
             }],
         };
-        assert_eq!(bounded_evm_outcome(outcome.clone()).unwrap(), outcome);
-        outcome.evidence[0].bytes = vec![0; iroha_sccp_wallet::journal::MAX_RECORD_BYTES as usize];
-        assert!(bounded_evm_outcome(outcome).is_err());
+        let maximum = usize::try_from(iroha_sccp_wallet::journal::MAX_RECORD_BYTES)
+            .expect("bounded journal records fit usize");
+        let mut low = 0;
+        let mut high = maximum;
+        while low + 1 < high {
+            let middle = usize::midpoint(low, high);
+            outcome.evidence[0].bytes.resize(middle, 0);
+            if norito::json::to_vec(&outcome).unwrap().len() <= maximum {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        outcome.evidence[0].bytes.resize(low, 0);
+        assert!(checked_outcome(Some(outcome.clone())).is_ok());
+        outcome.evidence[0].bytes.resize(high, 0);
+        assert!(checked_outcome(Some(outcome)).is_err());
+        assert!(checked_outcome(None).unwrap().is_none());
     }
 
     #[test]
@@ -847,7 +871,7 @@ mod tests {
             norito::json::from_slice::<norito::json::Value>(&item.bytes).unwrap()["nonce"].as_u64(),
             Some(3)
         );
-        assert!(!confirmed(&None));
+        assert!(!confirmed(None));
     }
 
     #[test]

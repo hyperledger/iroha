@@ -1,9 +1,9 @@
 //! Retained diagnostic trace and execution behavior controls.
 use std::any::Any;
 
-use ivm::{IVM, IVMHost, TraceMode, VMError, encoding, instruction};
-mod common;
+use crate::common;
 use common::assemble_zk;
+use ivm::{IVM, IVMHost, TraceMode, VMError, encoding, instruction};
 #[test]
 fn test_register_events_logged() {
     // Program: store 0x11 at heap, load it back
@@ -125,7 +125,7 @@ fn replacing_vm_during_traced_host_callback_fails_closed() {
         .as_mut()
         .expect("callback retains the replaced VM");
     assert!(
-        common::diagnostic_snapshot(&retained_vm).register_event_count() == 0,
+        common::diagnostic_snapshot(retained_vm).register_event_count() == 0,
         "a retained detached log must be scrubbed before isolation is dropped"
     );
     assert_eq!(
@@ -212,7 +212,7 @@ fn moved_detached_vm_cannot_adopt_the_outer_scratch_log() {
         "a moved VM must reject reuse while it carries outer callback ownership"
     );
     let retained_vm = host.retained_vm.as_mut().expect("callback retains old VM");
-    assert!(common::diagnostic_snapshot(&retained_vm).register_event_count() == 0);
+    assert!(common::diagnostic_snapshot(retained_vm).register_event_count() == 0);
     assert_eq!(retained_vm.execution_summary().register_log_len, 0);
 }
 
@@ -237,7 +237,7 @@ fn destructive_host_callback_lifecycle_changes_fail_closed() {
         }
 
         fn syscall(&mut self, _number: u32, vm: &mut IVM) -> Result<u64, VMError> {
-            assert!(!common::diagnostic_snapshot(&vm).states().is_empty());
+            assert!(!common::diagnostic_snapshot(vm).states().is_empty());
             assert!(!vm.step_log().is_empty());
             assert!(!vm.constraints().is_empty());
             assert!(!vm.delta_register_trace().is_empty());
@@ -430,7 +430,7 @@ fn nested_untraced_vm_masks_the_outer_register_logger() {
         fn allows_syscall(&self, policy: ivm::SyscallPolicy, number: u32) -> bool {
             self.policy_probe_vm
                 .borrow_mut()
-                .set_register(10, 0xA110_05CA_11AB1E);
+                .set_register(10, 0x00A1_1005_CA11_AB1E);
             ivm::syscalls::is_syscall_allowed(policy, number)
         }
 
@@ -463,7 +463,9 @@ fn nested_untraced_vm_masks_the_outer_register_logger() {
     assert!(
         !common::diagnostic_snapshot(&vm)
             .register_events()
-            .any(|event| event.written && event.index == 10 && event.value == 0xA110_05CA_11AB1E)
+            .any(|event| event.written
+                && event.index == 10
+                && event.value == 0x00A1_1005_CA11_AB1E)
     );
     assert!(
         !common::diagnostic_snapshot(&vm)

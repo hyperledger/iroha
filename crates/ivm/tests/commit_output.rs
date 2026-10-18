@@ -1,11 +1,11 @@
 //! OUTPUT region and COMMIT_OUTPUT syscall coverage.
+use crate::common;
+use common::assemble;
 use ivm::{IVM, Memory, VMError, encoding, host::IVMHost, instruction, syscalls};
 use std::{
     any::Any,
     sync::{Arc, Mutex},
 };
-mod common;
-use common::assemble;
 const HALT: [u8; 4] = encoding::wide::encode_halt().to_le_bytes();
 const SCALL_COMMIT_OUTPUT: [u8; 4] = encoding::wide::encode_sys(
     instruction::wide::system::SCALL,

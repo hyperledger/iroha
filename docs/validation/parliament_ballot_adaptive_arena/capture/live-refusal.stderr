@@ -1,0 +1,21 @@
+Traceback (most recent call last):
+  File "/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/observe.py", line 31, in <module>
+    print(json.dumps(observe(),indent=2,sort_keys=True))
+                     ~~~~~~~^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/observe.py", line 8, in observe
+    source = a.Source(a.ROOT)
+  File "/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/arena.py", line 121, in __init__
+    catalog = family.Catalog(root)
+  File "/Users/mtakemiya/dev/iroha/target/parliament-request-family-envelope-stage/envelope.py", line 91, in __init__
+    self.verify();object.__setattr__(self,'accepted',legacy.cases)
+    ~~~~~~~~~~~^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-request-family-envelope-stage/envelope.py", line 148, in verify
+    for path,identity in self.pins:authenticated(self.root/path,identity)
+                                   ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-request-family-envelope-stage/envelope.py", line 31, in authenticated
+    require(hashlib.sha256(data).hexdigest()==expected,'source drift: '+str(path))
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mtakemiya/dev/iroha/target/parliament-request-family-envelope-stage/envelope.py", line 28, in require
+    if not ok:raise ValueError(why)
+              ^^^^^^^^^^^^^^^^^^^^^
+ValueError: source drift: /Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/Cargo.toml

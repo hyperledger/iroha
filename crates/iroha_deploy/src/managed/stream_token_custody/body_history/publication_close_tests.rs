@@ -76,6 +76,8 @@ fn same(actual: &BodyHistory, expected: &BodyHistory) {
 
 #[test]
 fn publication_close_removes_one_exact_scan_and_preserves_parser_work_and_decode_budgets() {
+    use finish_timing::Phase;
+
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
     let mut old = history.read_current(&fixture.owner).unwrap();
@@ -102,7 +104,6 @@ fn publication_close_removes_one_exact_scan_and_preserves_parser_work_and_decode
         new_work,
         (old_work.0 - tail_work.0, old_work.1 - tail_work.1)
     );
-    use finish_timing::Phase;
     for phase in [
         Phase::ParserWallet,
         Phase::GraphValidate,

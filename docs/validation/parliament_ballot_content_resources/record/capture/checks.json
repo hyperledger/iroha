@@ -1,0 +1,185 @@
+{
+  "arithmetic_mutations_rejected": [
+    "omitted P0 inverse",
+    "ungated W census",
+    "uncleared E census",
+    "missing common extension",
+    "counter too narrow",
+    "summed workspace",
+    "qualification promoted"
+  ],
+  "cases": [
+    {
+      "P0_clean_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 2176280,
+        "cx": 15188180,
+        "elementary_gates": 28242528,
+        "x": 2172948
+      },
+      "counter_bits": 65,
+      "gates": {
+        "base_xor_oracle_calls": 6200,
+        "ccx": 33340057520512656853608327220932,
+        "cx": 19342886900926995815672753,
+        "elementary_gates": 166702860207775482442082173872041,
+        "x": 2553262325297247044722094628
+      },
+      "list_count": 3,
+      "log_bits": 31790755097454963270352896,
+      "output_bits": 1864349,
+      "private_coin_bits": 538737664,
+      "proof_bytes": 233012,
+      "public_bits": 6680,
+      "retained_bits": 14850434,
+      "row": "candidate",
+      "shared_work_bits": 1872769931,
+      "total_logical_bits": 31790755097454965698582019,
+      "validated_E_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 5592444,
+        "cx": 67,
+        "elementary_gates": 27962293,
+        "x": 6
+      },
+      "validated_W_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 33340057520512656823811460571136,
+        "cx": 19342886900880737562944390,
+        "elementary_gates": 166702860207775482245754399425628,
+        "x": 2553262325297245959533625558
+      }
+    },
+    {
+      "P0_clean_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 559126914,
+        "cx": 3873221686,
+        "elementary_gates": 7225099904,
+        "x": 556243648
+      },
+      "counter_bits": 65,
+      "gates": {
+        "base_xor_oracle_calls": 6200,
+        "ccx": 33340057520512656853612098598808,
+        "cx": 19342886900927013302731453,
+        "elementary_gates": 166702860207775482442120717732401,
+        "x": 2553262325297247046922006908
+      },
+      "list_count": 1000,
+      "log_bits": 31790755097454963270352896,
+      "output_bits": 1864349,
+      "private_coin_bits": 538737664,
+      "proof_bytes": 233012,
+      "public_bits": 1027608,
+      "retained_bits": 15871362,
+      "row": "candidate",
+      "shared_work_bits": 1872769931,
+      "total_logical_bits": 31790755097454965700623875,
+      "validated_E_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 5592444,
+        "cx": 67,
+        "elementary_gates": 27962293,
+        "x": 6
+      },
+      "validated_W_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 33340057520512656823811460571136,
+        "cx": 19342886900880737562944390,
+        "elementary_gates": 166702860207775482245754399425628,
+        "x": 2553262325297245959533625558
+      }
+    },
+    {
+      "P0_clean_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 2176280,
+        "cx": 15188180,
+        "elementary_gates": 28242528,
+        "x": 2172948
+      },
+      "counter_bits": 65,
+      "gates": {
+        "base_xor_oracle_calls": 5960,
+        "ccx": 33340057520512657197081674806396,
+        "cx": 19342886901324591014578227,
+        "elementary_gates": 166702860207775484569776903826639,
+        "x": 2553262325297259777515216432
+      },
+      "list_count": 3,
+      "log_bits": 31790755097454963270352896,
+      "output_bits": 1264845,
+      "private_coin_bits": 538138160,
+      "proof_bytes": 158074,
+      "public_bits": 6680,
+      "retained_bits": 14839378,
+      "row": "comparator",
+      "shared_work_bits": 7442924779,
+      "total_logical_bits": 31790755097454971267526803,
+      "validated_E_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 3793932,
+        "cx": 69,
+        "elementary_gates": 18969735,
+        "x": 6
+      },
+      "validated_W_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 33340057520512656823811460571136,
+        "cx": 19342886900880737561767142,
+        "elementary_gates": 166702860207775482245754398248372,
+        "x": 2553262325297245959533625550
+      }
+    },
+    {
+      "P0_clean_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 559126914,
+        "cx": 3873221686,
+        "elementary_gates": 7225099904,
+        "x": 556243648
+      },
+      "counter_bits": 65,
+      "gates": {
+        "base_xor_oracle_calls": 5960,
+        "ccx": 33340057520512657197085446184272,
+        "cx": 19342886901324608501636927,
+        "elementary_gates": 166702860207775484569815447686999,
+        "x": 2553262325297259779715128712
+      },
+      "list_count": 1000,
+      "log_bits": 31790755097454963270352896,
+      "output_bits": 1264845,
+      "private_coin_bits": 538138160,
+      "proof_bytes": 158074,
+      "public_bits": 1027608,
+      "retained_bits": 15860306,
+      "row": "comparator",
+      "shared_work_bits": 7442924779,
+      "total_logical_bits": 31790755097454971269568659,
+      "validated_E_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 3793932,
+        "cx": 69,
+        "elementary_gates": 18969735,
+        "x": 6
+      },
+      "validated_W_gates": {
+        "base_xor_oracle_calls": 0,
+        "ccx": 33340057520512656823811460571136,
+        "cx": 19342886900880737561767142,
+        "elementary_gates": 166702860207775482245754398248372,
+        "x": 2553262325297245959533625550
+      }
+    }
+  ],
+  "complete_resource_vector": false,
+  "factory_imported": false,
+  "full_kernel_gate_totals_reexecuted": false,
+  "independent_cryptographic_review": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "report_sha256": "c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e",
+  "status": "PASS"
+}

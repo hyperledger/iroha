@@ -27,7 +27,7 @@ use iroha_kagemusha_proof::{
     omega::{OmegaPlan, OmegaWitness},
     operation_relation::statement::StatementCells,
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     DescriptorBinding, ProverConfig, ProverOutput, ProvingKey, VerifyingKey, Witness,
     check::{CheckMode, check, check_circuit},
@@ -106,7 +106,7 @@ struct Stage {
     owner: Owner,
     predecessor: Arc<Predecessor>,
     pallas: AccumulatorT<Ep>,
-    fold: Vec<u8>,
+    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     resume: Option<Resume>,
     omit_q: Option<usize>,
 }
@@ -126,7 +126,7 @@ impl Stage {
         r: &mut Region<'_, Fp>,
         claim: &FoldInput<Ep>,
     ) -> Result<FoldInputCells<Ep>, Error> {
-        let g = chip.witness_point(r, self.owner.value(Ep::from(*claim.g())))?;
+        let g = chip.witness_generator(r, self.owner.value(Ep::from(*claim.g())))?;
         let challenges = claim
             .challenges()
             .iter()
@@ -142,7 +142,7 @@ impl Stage {
         r: &mut Region<'_, Fp>,
         claim: &AccumulatorT<Eq>,
     ) -> Result<VestaClaimCells, Error> {
-        let (x, y) = Option::from(claim.g().coordinates()).ok_or(Error::Synthesis)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
         let coordinates = [
             self.owner.scalar(chip, r, x)?,
             self.owner.scalar(chip, r, y)?,
@@ -164,7 +164,8 @@ impl Stage {
         };
         if resume.plan.is_terminal() {
             let mut lineage = self.owner.source.fixture.witness.successor.lineage.to_vec();
-            let (x, y) = self.pallas.g().coordinates().unwrap();
+            let (x, y) =
+                iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(self.pallas.g());
             lineage.extend([x, y]);
             for u in self.pallas.challenges() {
                 lineage.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -391,7 +392,6 @@ impl Circuit<Fp> for Stage {
                             .contains(&OperationTask::RefreshUpdateAuthorization)
                             .then_some(&sigma),
                         signatures: signatures.as_ref(),
-                        blacklist: maps.blacklist.as_ref(),
                         quota: maps.quota.as_ref(),
                     },
                 )?;
@@ -478,14 +478,14 @@ impl Circuit<Fp> for Stage {
 }
 fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) {
     words.push(Fp::from(16));
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(claim.g());
     words.extend([x, y]);
     for u in claim.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
     }
 }
 fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
     let mut words = Vec::new();
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
@@ -589,7 +589,7 @@ fn prove_stage(
         &params,
         &key,
         Witness::from_circuit(&key, circuit, &public).unwrap(),
-        common::recovery(245 + u8::try_from(circuit.owner.stage).unwrap()),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -643,9 +643,6 @@ fn prepare_refresh(rooted: &bootstrap_outer::RootedBootstrapOmega, variant: Vari
         vec![OperationTask::RefreshCurrentAuthorization],
     ];
     let mut partition = vec![vec![], vec![0], vec![1], vec![2]];
-    if variant == Variant::RefreshBlacklist {
-        tasks[0].push(OperationTask::RefreshBlacklist);
-    }
     if variant == Variant::RefreshQuotaShare {
         // Root hashing must precede long continuation histories. The first
         // stage has room for Effects and the old usage root alongside the hard
@@ -675,8 +672,14 @@ fn prepare_refresh(rooted: &bootstrap_outer::RootedBootstrapOmega, variant: Vari
     .unwrap();
     source.plan = RefreshStagePlan::new(context, refresh_objects::policy()).unwrap();
     let claims = [rooted.source.pallas.as_input(), rooted.opening.clone()];
-    let (fold, pallas) =
-        create_fold(&p, &claims, Fp::from(244).to_repr(), &FoldConfig::default()).unwrap();
+    let (fold, pallas) = create_fold(
+        &p,
+        &claims,
+        common::public_fixture_tape(244),
+        iroha_plonk_recursion::FoldPurpose::AInitial,
+        &FoldConfig::default(),
+    )
+    .unwrap();
     pallas.decide(&p, MemoryBudget::DEFAULT).unwrap();
     let source = Arc::new(source);
     Stage {
@@ -694,7 +697,9 @@ fn prepare_refresh(rooted: &bootstrap_outer::RootedBootstrapOmega, variant: Vari
         }),
 
         pallas: pallas.clone(),
-        fold: fold.to_bytes().to_vec(),
+        fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
+        ),
         resume: None,
         omit_q: None,
     }
@@ -725,14 +730,6 @@ fn preflight_stage_layouts(first: &Stage) -> PlannedKeys {
     let mut w_config = KeygenConfigV2::pipa_r(OmegaPlan::instance_types().to_vec());
     w_config.compress_selectors = false;
     let trivial_v = AccumulatorT::trivial(&v, MemoryBudget::DEFAULT).unwrap();
-    let vclaims: [FoldInput<Eq>; 4] = core::array::from_fn(|_| trivial_v.as_input());
-    let (vf, _) = create_fold(
-        &v,
-        &vclaims,
-        Fq::from(199).to_repr(),
-        &FoldConfig::default(),
-    )
-    .unwrap();
     let mut planned = PlannedKeys {
         a: vec![],
         w: vec![],
@@ -780,7 +777,7 @@ fn preflight_stage_layouts(first: &Stage) -> PlannedKeys {
                 instances: vec![Fp::ZERO; 69],
                 length: u32::try_from(length).unwrap(),
                 proof: vec![0; length],
-                fold: vf.to_bytes(),
+                fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .unwrap()
@@ -793,25 +790,15 @@ fn preflight_stage_layouts(first: &Stage) -> PlannedKeys {
         let wrapper_key =
             WKey::from_artifact(first.context(), stage, binding, p.clone(), key).unwrap();
         let next = stage + 1;
-        let mut claims = vec![first.pallas.as_input(); 2];
-        claims.extend(
-            first
-                .context()
-                .q_partition(next)
-                .unwrap()
-                .iter()
-                .map(|i| first.owner.source.q_openings[*i].clone()),
-        );
-        let (fold, pallas) =
-            create_fold(&p, &claims, Fp::from(198).to_repr(), &FoldConfig::default()).unwrap();
+        // Key planning is witnessless; no private fold is created from fake proofs.
         current = Stage {
             owner: Owner {
                 stage: next,
                 known: false,
                 ..first.owner.clone()
             },
-            pallas,
-            fold: fold.to_bytes().to_vec(),
+            pallas: first.pallas.clone(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::unknown(),
             resume: Some(Resume {
                 plan: SplitPlan::new(first.context().clone(), next, wrapper_key.clone(), &p)
                     .unwrap(),
@@ -852,7 +839,6 @@ fn build_refresh(
     }
     let mut public = first.public();
     let mut carried = pallas;
-    let mut part = source.part.clone();
     if adversarial {
         if variant == Variant::RefreshQuotaShare {
             for mutation in [8, 9] {
@@ -876,32 +862,45 @@ fn build_refresh(
                 .filter(|(i, _)| *i != omitted)
                 .map(|(_, c)| c.clone())
                 .collect::<Vec<_>>();
-            let (fold, _) =
-                create_fold(&p, &kept, Fp::from(244).to_repr(), &FoldConfig::default()).unwrap();
+            let (fold, _) = create_fold(
+                &p,
+                &kept,
+                common::public_fixture_tape(244),
+                iroha_plonk_recursion::FoldPurpose::AInitial,
+                &FoldConfig::default(),
+            )
+            .unwrap();
             let mut bad = first.clone();
-            bad.fold = fold.to_bytes().to_vec();
+            bad.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            );
             assert!(rejected(&bad, &public), "dropped predecessor claim");
         }
     }
     for stage in 1..first.context().stage_count() {
-        let own = FoldInput::from_opening(*proof.opening.g(), proof.opening.challenges()).unwrap();
-        let trivial = AccumulatorT::trivial(&v, MemoryBudget::DEFAULT)
-            .unwrap()
-            .as_input();
-        let (vfold, vesta) = create_fold(
-            &v,
-            &[part, own, trivial.clone(), trivial],
-            Fq::from(410 + u64::try_from(stage).unwrap()).to_repr(),
-            &FoldConfig::default(),
+        let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
+            key.binding().encoded(),
+            &[key.vk().to_bytes().to_vec()],
+            v.clone(),
         )
         .unwrap();
+        let (vfold, vesta) = terminal
+            .read(0, &public, &proof.proof, &FoldConfig::default())
+            .unwrap()
+            .create(
+                common::public_fixture_tape(410 + stage as u64),
+                &FoldConfig::default(),
+            )
+            .unwrap();
         vesta.decide(&v, MemoryBudget::DEFAULT).unwrap();
         let witness = OmegaWitness {
             key: key.vk().clone(),
             instances: public[0].clone(),
             length: u32::try_from(proof.proof.len()).unwrap(),
             proof: proof.proof,
-            fold: vfold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                vfold.to_private_bytes(),
+            ),
         };
         let accepted = vec![key.vk().kagemusha_digest(key.binding()).unwrap()];
         assert!(
@@ -934,7 +933,7 @@ fn build_refresh(
                 assert!(SplitPlan::new(first.context().clone(), wrong, wkey.clone(), &p).is_err());
             }
         }
-        let (x, y) = vesta.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
         let wp = vec![
             vec![Fq::from_repr(public[0][0].to_repr()).unwrap()],
             vec![x, y],
@@ -948,7 +947,7 @@ fn build_refresh(
             &p,
             &wprover,
             Witness::from_circuit(&wprover, &wc, &wp).unwrap(),
-            common::recovery(220 + u8::try_from(stage).unwrap()),
+            common::fresh_randomness(),
             ProverConfig::default(),
         )
         .unwrap();
@@ -974,8 +973,24 @@ fn build_refresh(
             FoldInput::from_opening(*opening.g(), opening.challenges()).unwrap(),
         ];
         claims.extend(indices.iter().map(|i| source.q_openings[*i].clone()));
-        let salt = Fp::from(420 + u64::try_from(stage).unwrap()).to_repr();
-        let (fold, pallas) = create_fold(&p, &claims, salt, &FoldConfig::default()).unwrap();
+        let required_count = claims.len();
+        let purpose = if stage + 1 == first.context().stage_count() {
+            let filler = AccumulatorT::trivial(&p, MemoryBudget::DEFAULT).unwrap();
+            while claims.len() < 4 {
+                claims.push(filler.as_input());
+            }
+            iroha_plonk_recursion::FoldPurpose::ATerminal
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
+        let (fold, pallas) = create_fold(
+            &p,
+            &claims,
+            common::public_fixture_tape(420 + stage as u64),
+            purpose,
+            &FoldConfig::default(),
+        )
+        .unwrap();
         pallas.decide(&p, MemoryBudget::DEFAULT).unwrap();
         let current = Stage {
             owner: Owner {
@@ -983,7 +998,9 @@ fn build_refresh(
                 ..first.owner.clone()
             },
             pallas: pallas.clone(),
-            fold: fold.to_bytes().to_vec(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            ),
             resume: Some(Resume {
                 plan: SplitPlan::new(first.context().clone(), stage, wkey, &p).unwrap(),
                 wrapper: wrapper.proof,
@@ -1005,16 +1022,23 @@ fn build_refresh(
                 .push((next_proof.proof.clone(), pallas.to_bytes()));
         }
         if adversarial {
-            for omitted in 0..claims.len() {
-                let kept = claims
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| *i != omitted)
-                    .map(|(_, c)| c.clone())
-                    .collect::<Vec<_>>();
-                let (fold, _) = create_fold(&p, &kept, salt, &FoldConfig::default()).unwrap();
+            for omitted in 0..required_count {
+                let mut kept = claims.clone();
+                kept[omitted] = AccumulatorT::trivial(&p, MemoryBudget::DEFAULT)
+                    .unwrap()
+                    .as_input();
+                let (fold, _) = create_fold(
+                    &p,
+                    &kept,
+                    common::public_fixture_tape(420 + stage as u64),
+                    purpose,
+                    &FoldConfig::default(),
+                )
+                .unwrap();
                 let mut bad = current.clone();
-                bad.fold = fold.to_bytes().to_vec();
+                bad.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                    fold.to_private_bytes(),
+                );
                 assert!(
                     rejected(&bad, &public),
                     "dropped stage{stage} claim{omitted}"
@@ -1120,7 +1144,6 @@ fn build_refresh(
         }
         internal_keys.push(next_key.vk().clone());
         carried = pallas;
-        part = vesta.as_input();
         key = next_key;
         proof = next_proof;
     }
@@ -1138,15 +1161,6 @@ fn compact_bootstrap_completes_credential_policy_and_anchor_refresh() {
         refresh_from_bootstrap(&rooted, variant, true);
     }
 }
-#[test]
-#[ignore = "genuine compact Bootstrap and full Blacklist/Quota map owners; diagnostic capacity does not relax k16"]
-fn compact_bootstrap_measures_blacklist_and_quota_refresh_capacity() {
-    let rooted = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap();
-    for variant in [Variant::RefreshBlacklist, Variant::RefreshQuotaShare] {
-        refresh_from_bootstrap(&rooted, variant, true);
-    }
-}
-
 #[test]
 #[ignore = "genuine compact Bootstrap plus seven fixed Quota Q/A/W stages and all64 slots; optimized only"]
 fn compact_bootstrap_completes_split_quota_refresh() {
@@ -1257,7 +1271,6 @@ impl NativeRecord {
             state: source.fixture.witness,
             sigma: source.sigma.clone(),
             objects: source.objects.each_ref().map(|o| o.bytes.clone()),
-            blacklist: source.fixture.blacklist,
             quota: source.fixture.quota.as_ref().map(|q| native::QuotaInput {
                 old: q.old,
                 windows: q.windows,
@@ -1277,7 +1290,7 @@ impl NativeRecord {
         };
         let prepared = plan.prepare(input.clone(), budget).unwrap();
         let (candidate, public) = prepared
-            .first_circuit(Fp::from(244), &FoldConfig::default())
+            .first_circuit(common::public_fixture_tape(244), &FoldConfig::default())
             .unwrap();
         assert_eq!(public, first.public()[0]);
         let expected = synthesize(first, 16, Some(&first.public())).unwrap();
@@ -1378,6 +1391,7 @@ impl NativeRecord {
         assert!(check_originals(plan.clone(), &bad_a, &w).is_err());
         drop(bad_a);
         drop(changed_pk);
+        let other = install(plan.clone(), &a, &w).unwrap();
         let prover = install(plan, &a, &w).unwrap();
         assert!(prover.import_a(a.len(), a[0].proving_key, read).is_err());
         assert!(prover.import_w(w.len(), w[0].proving_key, read).is_err());
@@ -1411,16 +1425,24 @@ impl NativeRecord {
         let mut changed = input.clone();
         changed.q[0].proof[0] ^= 1;
         assert!(prover.prepare(changed, budget).is_err());
-        let session = prover.prepare(input, budget).unwrap();
+        // D6a (DP §7.4 test 8): a detached session resumes only on the prover
+        // instance that prepared it, never on an identically installed one.
+        let detached = prover
+            .prepare(input.clone(), budget)
+            .unwrap()
+            .into_retained();
+        assert!(matches!(other.resume(detached), Err(native::Error::Input)));
+        drop(other);
+        let mut session = prover.prepare(input, budget).unwrap();
         let fold = FoldConfig::default();
         let foreign_seal = prover.import_a(1, a[1].proving_key, read).unwrap();
         let foreign = prover.bind_a(1, &foreign_seal, None).unwrap();
         assert!(matches!(
             session.first(
                 &foreign,
-                Fp::from(244),
+                common::public_fixture_tape(244),
                 &fold,
-                common::recovery(245),
+                common::fresh_randomness(),
                 ProverConfig::default()
             ),
             Err(native::Error::Artifact)
@@ -1430,13 +1452,13 @@ impl NativeRecord {
         let mut checkpoint = session
             .first(
                 &key,
-                Fp::from(244),
+                common::public_fixture_tape(244),
                 &fold,
-                common::recovery(245),
+                common::fresh_randomness(),
                 ProverConfig::default(),
             )
             .unwrap();
-        assert_eq!(checkpoint.proof(), self.proofs[0].0);
+        assert_ne!(checkpoint.proof(), self.proofs[0].0, "fresh attempt");
         assert_eq!(checkpoint.pallas_bytes(), self.proofs[0].1);
         assert!(session.terminal(&checkpoint, budget).is_err());
         let mut bad = self.proofs[0].0.clone();
@@ -1468,6 +1490,9 @@ impl NativeRecord {
             .unwrap();
         assert_eq!(checkpoint.proof(), self.proofs[0].0);
         for stage in 1..self.proofs.len() {
+            // D6a: each continuation runs on a session detached and resumed between
+            // fold calls; checkpoints restored before detaching keep their source.
+            session = prover.resume(session.into_retained()).unwrap();
             let salt = u64::try_from(stage).unwrap();
             if stage == 1 {
                 let foreign_seal = prover.import_w(1, w[1].proving_key, read).unwrap();
@@ -1476,9 +1501,9 @@ impl NativeRecord {
                     session.wrapper(
                         &checkpoint,
                         &foreign,
-                        Fq::from(410 + salt),
+                        common::public_fixture_tape(410 + salt),
                         &fold,
-                        common::recovery(221),
+                        common::fresh_randomness(),
                         ProverConfig::default()
                     ),
                     Err(native::Error::Artifact)
@@ -1492,13 +1517,13 @@ impl NativeRecord {
                 .wrapper(
                     &checkpoint,
                     &key,
-                    Fq::from(410 + salt),
+                    common::public_fixture_tape(410 + salt),
                     &fold,
-                    common::recovery(220 + u8::try_from(stage).unwrap()),
+                    common::fresh_randomness(),
                     ProverConfig::default(),
                 )
                 .unwrap();
-            assert_eq!(wrapper.proof(), self.wrappers[stage - 1].0);
+            assert_ne!(wrapper.proof(), self.wrappers[stage - 1].0, "fresh attempt");
             assert_eq!(wrapper.vesta_bytes(), self.wrappers[stage - 1].1);
             let wrapper = session
                 .restore_wrapper(
@@ -1527,9 +1552,9 @@ impl NativeRecord {
                     session.advance(
                         &wrapper,
                         &foreign,
-                        Fp::from(420 + salt),
+                        common::public_fixture_tape(420 + salt),
                         &fold,
-                        common::recovery(246),
+                        common::fresh_randomness(),
                         ProverConfig::default()
                     ),
                     Err(native::Error::Artifact)
@@ -1541,13 +1566,13 @@ impl NativeRecord {
                 .advance(
                     &wrapper,
                     &key,
-                    Fp::from(420 + salt),
+                    common::public_fixture_tape(420 + salt),
                     &fold,
-                    common::recovery(245 + u8::try_from(stage).unwrap()),
+                    common::fresh_randomness(),
                     ProverConfig::default(),
                 )
                 .unwrap();
-            assert_eq!(next.proof(), self.proofs[stage].0);
+            assert_ne!(next.proof(), self.proofs[stage].0, "fresh attempt");
             assert_eq!(next.pallas_bytes(), self.proofs[stage].1);
             let mut bad = self.proofs[stage].0.clone();
             bad[0] ^= 1;
@@ -1587,9 +1612,9 @@ impl NativeRecord {
                 .wrapper(
                     &checkpoint,
                     &key,
-                    Fq::ONE,
+                    common::public_fixture_tape(1),
                     &fold,
-                    common::recovery(200),
+                    common::fresh_randomness(),
                     ProverConfig::default()
                 )
                 .is_err()
@@ -1624,14 +1649,10 @@ fn compact_bootstrap_preflights_split_quota_refresh() {
 }
 
 #[test]
-#[ignore = "genuine Policy, Anchor and Blacklist installed native A/W exact-proof/checkpoint parity; optimized only"]
-fn installed_native_policy_anchor_blacklist_match_genuine_relations_and_checkpoints() {
+#[ignore = "genuine Policy and Anchor installed native A/W exact-proof/checkpoint parity; optimized only"]
+fn installed_native_policy_and_anchor_match_genuine_relations_and_checkpoints() {
     let rooted = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap();
-    for variant in [
-        Variant::RefreshSchemePolicy,
-        Variant::RefreshTimeAnchor,
-        Variant::RefreshBlacklist,
-    ] {
+    for variant in [Variant::RefreshSchemePolicy, Variant::RefreshTimeAnchor] {
         build_refresh(&rooted, variant, false, true);
     }
 }

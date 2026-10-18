@@ -304,7 +304,7 @@ fn descriptor_and_lifecycle_original_substitutions_refuse_and_padding_is_canonic
             let mut bad = fixture.clone();
             bad.packets[super::descriptor_slot(descriptor_slot)][AFTER + limb] = bad.packets
                 [super::descriptor_slot(descriptor_slot)][AFTER + limb]
-                .add(F(0x1234567));
+                .add(F(0x0123_4567));
             assert!(!bad.accepts(&program));
         }
     }
@@ -316,7 +316,7 @@ fn descriptor_and_lifecycle_original_substitutions_refuse_and_padding_is_canonic
         for field in [KEY, BEFORE, AFTER, GENERATION] {
             let mut bad = fixture.clone();
             let p = &mut bad.packets[dispatch_slot(slot)];
-            p[field] = p[field].add(F(0x1234567));
+            p[field] = p[field].add(F(0x0123_4567));
             assert!(!bad.accepts(&program));
         }
     }
@@ -850,16 +850,16 @@ fn actual_native_frame_work_oog_retains_opcode_debit_without_completing_or_writi
         let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
         let mut recorder =
             ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(3, &budget).unwrap();
-        assert!(match (
-            &(vm.run_with_host_diagnostic_steps(
-                &mut ivm::host::DefaultHost::default(),
-                &mut recorder
-            )),
-            &(ivm::VMError::OutOfGas)
-        ) {
-            (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            (
+                &(vm.run_with_host_diagnostic_steps(
+                    &mut ivm::host::DefaultHost::default(),
+                    &mut recorder
+                )),
+                &(ivm::VMError::OutOfGas)
+            ),
+            (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas)
+        ));
         assert_eq!(recorder.records().len(), 3);
         assert!(
             recorder.records()[..2].iter().all(

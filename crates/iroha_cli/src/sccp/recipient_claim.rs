@@ -15,6 +15,7 @@ use iroha_sccp_rpc::builders::{VerifiedBuildError, build_verified};
 pub(super) struct Evidence {
     pub advances: Vec<AdvanceSccpLightClientV1>,
     pub source: SourceEvidenceV1,
+    pub trust: Vec<SccpEvidenceItemV1>,
 }
 
 /// Select the nearest checkpoint across replay-learned and retained original state.
@@ -48,24 +49,28 @@ impl TairaLightClientView for View<'_> {
 }
 
 pub(super) fn prove_claim(
-    profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+    profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
     client: &BlockingClient,
+    authority: &origin::AuthenticatedOrigin,
     network: SccpNetworkV1,
     builder: &dyn SourceChainBuilder,
-    event: &SourceEventRefV1,
-    payload: &[u8],
+    (event, payload): (&SourceEventRefV1, &[u8]),
     max_advances: u16,
 ) -> Result<Evidence> {
-    let original = ToriiLightClient::read(client, network, profiles)?;
-    build(
+    let original = ToriiLightClient::authenticated(client, authority, network, profiles)?;
+    let now = authority.source_verification_time_ms(wall_clock_ms());
+    let mut evidence = build(
         &original,
         original.replay(),
         builder,
         event,
         payload,
         max_advances,
-        wall_clock_ms(),
-    )
+        now,
+    )?;
+    super::require_ton_reference(event, &evidence.source)?;
+    evidence.trust.push(original.retained_trust(now)?);
+    Ok(evidence)
 }
 
 fn build(
@@ -109,7 +114,11 @@ fn build(
                         || advances.len() + source.backfills.len() <= usize::from(max_advances),
                     "claim prerequisites exceed --max-advances; use separate keeper advances first"
                 );
-                return Ok(Evidence { advances, source });
+                return Ok(Evidence {
+                    advances,
+                    source,
+                    trust: Vec::new(),
+                });
             }
             Err(VerifiedBuildError::Build(BuildError::Unavailable(_)))
                 if advances.len() < usize::from(max_advances) => {}

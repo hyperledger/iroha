@@ -11,6 +11,22 @@ from .curve import Curve, P
 KATS = json.loads((Path(__file__).resolve().parents[1] / 'kats_v1.json').read_text())
 
 
+def nonzero_challenge(raw: int, modulus: int) -> int:
+    """Map an already converted canonical scalar zero to one, without a retry."""
+    require(type(raw) is int and 0 <= raw < modulus, 'canonical role challenge')
+    return raw if raw else 1
+
+
+def evaluation_challenge(raw: int, modulus: int) -> int:
+    """The nonzero nonsquare evaluation role, after transcript field conversion."""
+    return 5 * pow(nonzero_challenge(raw, modulus), 2, modulus) % modulus
+
+
+def multiopening_challenge(raw: int, modulus: int) -> int:
+    """The square but nonquartic multiopening role; no extra transcript squeeze."""
+    return 25 * pow(nonzero_challenge(raw, modulus), 4, modulus) % modulus
+
+
 class Sponge:
     """Plain width-three RP57 permutation, with the specified rate-two padding."""
 
@@ -59,11 +75,10 @@ class Sponge:
 class Transcript:
     """One explicit transcript profile, canonical proof reader and challenge tape."""
 
-    def __init__(self, curve: Curve, profile: int, proof: bytes, *, oracle: bool = False):
+    def __init__(self, curve: Curve, profile: int, proof: bytes):
         require(type(profile) is int and profile in (0, 1, 2), 'transcript profile')
         require(isinstance(proof, bytes), 'encoded proof required')
-        require(not oracle or profile != 2, 'no base-field oracle fallback')
-        self.curve, self.profile, self.proof, self.oracle = curve, profile, proof, oracle
+        self.curve, self.profile, self.proof = curve, profile, proof
         self.position = 0
         self.challenges = []
         if profile == 0:
@@ -100,9 +115,6 @@ class Transcript:
         elif self.profile == 2:
             self.sponge.absorb(x)
             self.sponge.absorb(y)
-        elif self.oracle:
-            self.sponge.absorb(x % self.curve.scalar)
-            self.sponge.absorb(y % self.curve.scalar)
         else:
             self.sponge.absorb(x % self.curve.scalar)
             self.sponge.absorb(int(x >= self.curve.scalar) + 2 * (y & 1))
@@ -124,12 +136,15 @@ class Transcript:
         self.position += 32
         return raw
 
-    def point(self, *, absorb: bool = True):
-        """Decode one canonical nonidentity point and optionally absorb it."""
+    def point(self):
+        """Decode and absorb one ordinary canonical finite proof point."""
         point = self.curve.decode(self.message())
-        if absorb:
-            self.common_point(point)
+        self.common_point(point)
         return point
+
+    def generator(self):
+        """Read the sole unabsorbed full-group suffix, including zero32 identity."""
+        return self.curve.decode_generator(self.message())
 
     def scalar(self):
         """Decode and absorb one canonical scalar."""

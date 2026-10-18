@@ -1,4 +1,5 @@
-//! Genuine Archive own-sigma and C4 owners; no predecessor or full lineage admission.
+//! Genuine Archive merged signature leaf: the hard own-receipt and soft
+//! incoming-receipt owners on one Q; no predecessor or full lineage admission.
 
 #[path = "common/bootstrap.rs"]
 mod bootstrap;
@@ -13,8 +14,7 @@ mod send_objects;
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
     a_relation::{
-        AProofPlan, LineagePublicCells, ProofMessageCells, QProofPlan, SigmaBindingCells,
-        VestaClaimCells,
+        AProofPlan, LineagePublicCells, ProofMessageCells, QProofPlan, VestaClaimCells,
         archive::{
             authorization::ArchiveAuthorizationObjects,
             incoming::ArchiveIncomingObjects,
@@ -31,7 +31,6 @@ use iroha_kagemusha_proof::{
     },
     admin_sigma::{ArchiveCircuit, ArchiveWitness, StateWitness},
     operation_relation::{objects::ObjectKind, state::StateCells, statement::StatementCells},
-    q_sigma::{QSigmaPlan, SigmaClass, SigmaSlotWitness, native::QSigmaProver},
     q_signature::{QSignatureCircuit, QSignaturePlan},
     witness::core_index as core,
 };
@@ -52,10 +51,10 @@ use iroha_plonk_gadgets::{
         p_bytes_native,
         tape::{BytesChip, BytesConfig, SegmentSpec},
     },
+    p256::VerifyMode,
     statement::{STATEMENT_DOMAIN, foreign_limbs},
 };
 use iroha_plonk_recursion::{
-    FoldConfig,
     accumulation_circuit::FoldInputCells,
     codec::ScalarCells,
     obligation::ledger::Variant,
@@ -63,15 +62,22 @@ use iroha_plonk_recursion::{
 };
 use std::sync::Arc;
 
+// The stage owning Authorization, Signatures and the merged leaf in this fixture.
+const LEAF_STAGE: u32 = 1;
+// The result object follows eleven source categories in this component context.
+const RESULT_SLOT: usize = 11;
+// Context slots of the held Request, quoted receiver credential and incoming receipt.
+const INCOMING_SLOTS: [usize; 3] = [1, 4, 10];
+
 fn policy() -> OwnPolicy {
     OwnPolicy::new([31, 32], bootstrap_objects::key(23)).unwrap()
 }
-fn transition() -> (ArchiveWitness, [bootstrap_objects::Signed; 2]) {
-    let (before, certificate, credential) = bootstrap_objects::enrollment();
+fn transition() -> ArchiveWitness {
+    let (before, _, _) = bootstrap_objects::enrollment();
     let mut after = before;
     after.core[core::SEQUENCE] += Fp::ONE;
     after.core[core::STATE_NONCE] += Fp::ONE;
-    // This component checks own authorization, not a pending-map removal or ancestry.
+    // This component checks the merged leaf, not a pending-map removal or ancestry.
     after.statement = [Fp::ZERO; 26];
     after.statement[0] = Fp::ONE;
     after.statement[14] = before.lineage[5];
@@ -79,14 +85,11 @@ fn transition() -> (ArchiveWitness, [bootstrap_objects::Signed; 2]) {
     after.statement[17] = Fp::from(181);
     after.statement[18] = Fp::from(182);
     bootstrap::rebind(&mut after);
-    (
-        ArchiveWitness {
-            predecessor: StateWitness::from(&before),
-            successor: StateWitness::from(&after),
-            statement: after.statement,
-        },
-        [credential, certificate],
-    )
+    ArchiveWitness {
+        predecessor: StateWitness::from(&before),
+        successor: StateWitness::from(&after),
+        statement: after.statement,
+    }
 }
 fn receipt(w: &ArchiveWitness, sigma: &[u8]) -> bootstrap_objects::Signed {
     let mut tape = u32::try_from(sigma.len()).unwrap().to_le_bytes().to_vec();
@@ -127,179 +130,129 @@ fn receipt(w: &ArchiveWitness, sigma: &[u8]) -> bootstrap_objects::Signed {
 }
 struct Sources {
     witness: ArchiveWitness,
-    objects: [bootstrap_objects::Signed; 3],
-    sigma: Vec<u8>,
+    own: bootstrap_objects::Signed,
+    // Original Request, quoted receiver credential and incoming receipt.
+    incoming: [Vec<u8>; 3],
     context: ContextPlan,
-    q_instances: Vec<Vec<Vec<Fq>>>,
-    signature_proof: Vec<u8>,
+    instances: Vec<Vec<Fq>>,
+    proof: Vec<u8>,
     schema: QSignaturePlan,
-    sigma_plan: QSigmaPlan,
+    valid: bool,
 }
-fn sources() -> Sources {
-    let (witness, [credential, certificate]) = transition();
-    let leaf = ArchiveCircuit::new(&witness);
-    let lp = common::vesta_params(12);
+fn sources(valid: bool) -> Sources {
+    let witness = transition();
+    // sigma_archive is produced natively and named by the receipt's proof digest.
+    // A proves the step inline and never verifies it, so an opaque stand-in suffices.
+    let own = receipt(&witness, &[0x5a; 96]);
+    let mut before = witness.predecessor;
+    before.core[core::BALANCE] = Fp::from(100);
+    let send = send_objects::from_load(&before);
+    let receiver = send_objects::receiver_credential();
+    let mut incoming = bootstrap_objects::sign(
+        ObjectKind::Receipt,
+        own.bytes[..ObjectKind::Receipt.body_len()].to_vec(),
+        43,
+        83,
+    );
+    if !valid {
+        incoming.signature.signature[0] = [0; 4];
+        incoming.bytes[ObjectKind::Receipt.body_len()..ObjectKind::Receipt.body_len() + 32].fill(0);
+    }
     let p = PinnedParams::<Ep>::derive(16).unwrap();
-    let v = common::vesta_params(16);
+    let schema = ArchiveAuthorizationObjects::signature_schema().unwrap();
+    let circuit =
+        QSignatureCircuit::new(schema.clone(), vec![own.signature, incoming.signature]).unwrap();
+    let instances = circuit.instances(&[true, valid]).unwrap().to_vec();
     let key = keygen_pk_v2(
-        &lp,
-        &leaf,
-        &KeygenConfigV2::pipa_r(ArchiveCircuit::instance_types().to_vec()),
-    )
-    .unwrap();
-    let sigma = create_proof_owned_with_claim(
-        &lp,
-        &key,
-        Witness::from_circuit(&key, &leaf, &leaf.instances()).unwrap(),
-        common::recovery(221),
-        ProverConfig::default(),
-    )
-    .unwrap()
-    .proof;
-    let claim = accumulate_generator(
-        &lp,
-        key.binding(),
-        key.vk(),
-        &leaf.instances(),
-        &sigma,
-        MemoryBudget::DEFAULT,
-    )
-    .unwrap();
-    claim.decide(&lp, MemoryBudget::DEFAULT).unwrap();
-    let objects = [credential, certificate, receipt(&witness, &sigma)];
-    let sigma_plan = QSigmaPlan::new(
-        SigmaClass::new(
-            VerifierPlan::new(key.binding().clone(), lp).unwrap(),
-            vec![(12, key.vk().kagemusha_digest(key.binding()).unwrap())],
-        )
-        .unwrap(),
-        None,
-        &v,
-    )
-    .unwrap();
-    let prepared = sigma_plan
-        .prepare(
-            SigmaSlotWitness {
-                key: key.vk().clone(),
-                statement: leaf.instances()[0][0],
-                length: sigma.len().try_into().unwrap(),
-                proof: sigma.clone(),
-            },
-            None,
-            &v,
-            Fq::from(403),
-            &FoldConfig::default(),
-        )
-        .unwrap();
-    let q0 = QSigmaProver::keygen_serialized_foreign(&prepared, p.clone(), 2).unwrap();
-    let q0_proof = q0
-        .prove(&prepared, common::recovery(222), ProverConfig::default())
-        .unwrap();
-    accumulate_generator(
-        &p,
-        q0.binding(),
-        q0.verifying_key(),
-        &q0_proof.instances,
-        &q0_proof.bytes,
-        MemoryBudget::DEFAULT,
-    )
-    .unwrap()
-    .decide(&p, MemoryBudget::DEFAULT)
-    .unwrap();
-    let [schema, _] = ArchiveAuthorizationObjects::signature_schemas(policy()).unwrap();
-    let circuit = QSignatureCircuit::new(
-        schema.clone(),
-        [2, 0, 1].map(|i| objects[i].signature).to_vec(),
-    )
-    .unwrap();
-    let instances = circuit.instances(&[true; 3]).unwrap();
-    let qkey = keygen_pk_v2(
         &p,
         &circuit,
         &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
     )
     .unwrap();
-    let signature_proof = create_proof_owned_with_claim(
+    let proof = create_proof_owned_with_claim(
         &p,
-        &qkey,
-        Witness::from_circuit(&qkey, &circuit, &instances).unwrap(),
-        common::recovery(223),
+        &key,
+        Witness::from_circuit(&key, &circuit, &instances).unwrap(),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap()
     .proof;
     accumulate_generator(
         &p,
-        qkey.binding(),
-        qkey.vk(),
+        key.binding(),
+        key.vk(),
         &instances,
-        &signature_proof,
+        &proof,
         MemoryBudget::DEFAULT,
     )
     .unwrap()
     .decide(&p, MemoryBudget::DEFAULT)
     .unwrap();
-    let q = vec![
-        QProofPlan::new(
-            VerifierPlan::new(q0.binding().clone(), p.clone()).unwrap(),
-            q0.verifying_key().clone(),
-        )
-        .unwrap(),
-        QProofPlan::new(
-            VerifierPlan::new(qkey.binding().clone(), p.clone()).unwrap(),
-            qkey.vk().clone(),
-        )
-        .unwrap(),
-    ];
-    // Constructor metadata/fillers below are never accepted as an incoming or predecessor proof.
-    // The remaining operation owners are declared but deliberately not executed in this component test.
-    let operation = AProofPlan::new(
+    // Lean: A proves the own step inline and Status has no Q_sigma, so the
+    // merged leaf is the only Q. The predecessor is constructor metadata.
+    let operation = AProofPlan::inline(
         Variant::ArchiveStatus,
-        sigma_plan.clone(),
-        q,
+        vec![
+            QProofPlan::new(
+                VerifierPlan::new(key.binding().clone(), p.clone()).unwrap(),
+                key.vk().clone(),
+            )
+            .unwrap(),
+        ],
         Some(predecessor_metadata()),
         &p,
     )
     .unwrap();
-    let context = ContextPlan::with_schedule(
-        operation,
-        vec![vec![0], vec![1], vec![]],
-        Some(0),
-        ArchiveAuthorizationObjects::context_specs()
+    // Only the merged leaf and its two owners execute here. Other named owners
+    // are constructor metadata with explicit dummy context categories; this
+    // component cannot authenticate a complete Archive or a lineage head.
+    let mut specs = (1..=11)
+        .map(|tag| ContextObjectSpec { tag, capacity: 32 })
+        .collect::<Vec<_>>();
+    specs[0] = ArchiveAuthorizationObjects::context_specs().unwrap()[0];
+    for (index, spec) in INCOMING_SLOTS
+        .into_iter()
+        .zip(ArchiveIncomingObjects::context_specs().unwrap())
+    {
+        specs[index] = spec;
+    }
+    specs.push(ArchiveResultPlan::context_spec(Variant::ArchiveStatus, 12).unwrap());
+    let context =
+        ContextPlan::with_schedule(operation, vec![vec![], vec![0], vec![]], Some(0), specs)
             .unwrap()
-            .to_vec(),
-    )
-    .unwrap()
-    .with_operation_tasks(vec![
-        vec![OperationTask::ArchiveOwnProof],
-        vec![OperationTask::ArchiveAuthorization],
-        vec![
-            OperationTask::ArchiveRetainedPayment,
-            OperationTask::ArchiveEvidence,
-            OperationTask::ArchiveProofs,
-            OperationTask::ArchiveSignatures,
-            OperationTask::ArchiveEffects,
-            OperationTask::ArchiveRetainedProofs,
-            OperationTask::ArchiveCorePending,
-            OperationTask::ArchiveLineagePending,
-        ],
-    ])
-    .unwrap();
+            .with_operation_tasks(vec![
+                vec![
+                    OperationTask::ArchiveRetainedPayment,
+                    OperationTask::ArchiveEvidence,
+                    OperationTask::ArchiveProofs,
+                ],
+                vec![
+                    OperationTask::ArchiveSignatures,
+                    OperationTask::ArchiveAuthorization,
+                ],
+                vec![
+                    OperationTask::ArchiveEffects,
+                    OperationTask::ArchiveRetainedProofs,
+                    OperationTask::ArchiveCorePending,
+                    OperationTask::ArchiveLineagePending,
+                ],
+            ])
+            .unwrap();
     Sources {
         witness,
-        objects,
-        sigma,
+        own,
+        incoming: [send.objects[1].clone(), receiver.bytes, incoming.bytes],
         context,
-        q_instances: vec![q0_proof.instances, instances.to_vec()],
-        signature_proof,
+        instances,
+        proof,
         schema,
-        sigma_plan,
+        valid,
     }
 }
 #[derive(Clone)]
 struct Owner {
     source: Arc<Sources>,
-    stage: usize,
     mutation: u8,
     known: bool,
 }
@@ -384,23 +337,57 @@ impl Owner {
         )?;
         ProofMessageCells::from_run(chip, r, &run, 0, raw.len())
     }
-
-    fn originals(&self) -> [bootstrap_objects::Signed; 3] {
-        let mut objects = self.source.objects.clone();
-        if (1..=3).contains(&self.mutation) {
-            objects[usize::from(self.mutation - 1)].bytes[40] ^= 1;
+    fn own(&self) -> bootstrap_objects::Signed {
+        let mut own = self.source.own.clone();
+        match self.mutation {
+            1 => own.bytes[40] ^= 1,
+            2 => own.bytes[ObjectKind::Receipt.body_len()] ^= 1,
+            _ => {}
         }
-        if self.mutation == 4 {
-            objects[2].bytes[ObjectKind::Receipt.body_len()] ^= 1;
+        own
+    }
+    fn originals(&self) -> [Vec<u8>; 3] {
+        let mut originals = self.source.incoming.clone();
+        match self.mutation {
+            3 => originals[2][40] ^= 1,
+            4 => originals[2][ObjectKind::Receipt.body_len() + 17] ^= 1,
+            5 => {
+                // A genuinely different quoted credential plus a matching
+                // Request address still cannot change the leaf's verified key.
+                let key = bootstrap_objects::sec1(bootstrap_objects::key(19));
+                originals[1][130..195].copy_from_slice(&key);
+                let changed = bootstrap_objects::Signed {
+                    kind: ObjectKind::Credential,
+                    bytes: originals[1].clone(),
+                    signature: self.source.own.signature,
+                }
+                .digest();
+                originals[0][210..242].copy_from_slice(&changed.to_repr());
+            }
+            _ => {}
         }
-        objects
+        originals
     }
     fn public(&self) -> [Vec<Fp>; 1] {
-        [self
-            .originals()
-            .iter()
-            .map(bootstrap_objects::Signed::digest)
-            .collect()]
+        let mut out = vec![self.own().digest()];
+        out.extend(
+            self.originals()
+                .iter()
+                .zip([
+                    ObjectKind::Request,
+                    ObjectKind::Credential,
+                    ObjectKind::Receipt,
+                ])
+                .map(|(raw, kind)| {
+                    bootstrap_objects::Signed {
+                        kind,
+                        bytes: raw.clone(),
+                        signature: self.source.own.signature,
+                    }
+                    .digest()
+                }),
+        );
+        [out]
     }
 }
 impl Circuit<Fp> for Owner {
@@ -418,7 +405,7 @@ impl Circuit<Fp> for Owner {
         let a = meta.advice_column();
         let b = meta.advice_column();
         let bytes = BytesConfig::configure(meta, a, b);
-        let public = meta.instance_column(3);
+        let public = meta.instance_column(4);
         meta.enable_equality(public);
         Config {
             verifier,
@@ -432,7 +419,7 @@ impl Circuit<Fp> for Owner {
         chip.load_tables(&mut layouter)?;
         bytes.load_table(&mut layouter)?;
         let out = layouter.assign_region(
-            || "Archive hard own owner",
+            || "Archive merged signature leaf owners",
             |mut r| {
                 let source = &self.source;
                 let (before, previous) =
@@ -454,44 +441,50 @@ impl Circuit<Fp> for Owner {
                     Variant::ArchiveStatus,
                     &fields,
                 )?;
-                let raw = self.originals().map(|o| {
-                    o.bytes
-                        .into_iter()
-                        .map(|b| self.value(b))
-                        .collect::<Vec<_>>()
-                });
-                let objects = ArchiveAuthorizationObjects::decode(
+                let raw = self
+                    .own()
+                    .bytes
+                    .into_iter()
+                    .map(|b| self.value(b))
+                    .collect::<Vec<_>>();
+                let own = ArchiveAuthorizationObjects::decode(
                     &mut chip,
                     &mut bytes,
                     &mut r,
                     Variant::ArchiveStatus,
+                    [raw.as_slice()],
+                )?;
+                let originals = self.originals();
+                let raw = originals
+                    .each_ref()
+                    .map(|raw| raw.iter().map(|b| self.value(*b)).collect::<Vec<_>>());
+                let incoming = ArchiveIncomingObjects::decode(
+                    &mut chip,
+                    &mut bytes,
+                    &mut r,
                     raw.each_ref().map(Vec::as_slice),
                 )?;
-                let mut qi = source.q_instances.clone();
-                if self.mutation == 7 {
-                    qi[0][2][0] += Fq::ONE;
-                }
+                let mut instances = source.instances.clone();
                 if self.mutation == 8 {
-                    qi[0][0][1] += Fq::ONE;
+                    // The soft incoming verdict is the leaf's last exported word.
+                    let last = instances[0].len() - 1;
+                    instances[0][last] = Fq::from(u64::from(!source.valid));
                 }
-                let q_instances = qi
-                    .iter()
-                    .map(|columns| {
-                        columns
-                            .iter()
-                            .map(|c| {
-                                c.iter()
-                                    .map(|v| self.scalar(&mut chip, &mut r, *v))
-                                    .collect()
-                            })
-                            .collect()
-                    })
-                    .collect::<Result<Vec<Vec<Vec<_>>>, Error>>()?;
+                let q_instances = vec![
+                    instances
+                        .iter()
+                        .map(|c| {
+                            c.iter()
+                                .map(|v| self.scalar(&mut chip, &mut r, *v))
+                                .collect()
+                        })
+                        .collect::<Result<Vec<Vec<_>>, Error>>()?,
+                ];
                 let point = iroha_plonk::transcript::decode_point::<Ep>(
                     &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
                 )
                 .map_err(|_| Error::Synthesis)?;
-                let point = chip.constant_point(&mut r, &Ep::from(point))?;
+                let point = chip.constant_generator(&mut r, &Ep::from(point))?;
                 let one = self.scalar(&mut chip, &mut r, Fq::ONE)?;
                 let pallas = FoldInputCells::from_normalized(
                     &mut chip,
@@ -501,6 +494,46 @@ impl Circuit<Fp> for Owner {
                     ::core::array::from_fn(|_| one.clone()),
                 )?;
                 let vesta = VestaClaimCells::trivial(&mut chip, &mut r)?;
+                let results = ArchiveResultClaims::assign(
+                    &mut chip,
+                    &mut r,
+                    ArchiveResultPlan::new(&source.context, RESULT_SLOT)?,
+                    [
+                        true,
+                        true,
+                        if self.mutation == 12 {
+                            !source.valid
+                        } else {
+                            source.valid
+                        },
+                    ]
+                    .map(|v| self.value(v)),
+                    Some(&pallas),
+                )?;
+                let zero = chip.uint().glue().constant(&mut r, Fp::ZERO)?;
+                let mut contexts = Vec::new();
+                for (index, spec) in source.context.object_specs().iter().enumerate() {
+                    let actual = if index == 0 {
+                        own.context()[0].clone()
+                    } else if let Some(i) = INCOMING_SLOTS.iter().position(|i| *i == index) {
+                        incoming.context()[i].clone()
+                    } else if index == RESULT_SLOT {
+                        results.context().clone()
+                    } else {
+                        ContextObjectCells::from_internal_words(
+                            &mut chip,
+                            &mut r,
+                            *spec,
+                            std::slice::from_ref(&zero),
+                        )?
+                    };
+                    contexts.push(actual);
+                }
+                match self.mutation {
+                    13 => contexts.swap(1, 4),
+                    14 => contexts.swap(0, 2),
+                    _ => {}
+                }
                 let input = ContextInputs {
                     own_statement: &statement,
                     incoming_statement: None,
@@ -516,82 +549,70 @@ impl Circuit<Fp> for Owner {
                     },
                     incoming: None,
                     q_instances: &q_instances,
-                    objects: objects.context(),
+                    objects: &contexts,
                     modes: &[],
                     pallas_corrections: &[],
                     vesta_corrections: &[],
                     receive_results: None,
                 };
-                let stage = u32::try_from(if self.mutation == 10 { 2 } else { self.stage })
-                    .map_err(|_| Error::BoundsFailure)?;
-                if self.stage == 0 {
-                    let mut raw = u32::try_from(source.sigma.len())
-                        .unwrap()
-                        .to_le_bytes()
-                        .to_vec();
-                    raw.extend(&source.sigma);
-                    if self.mutation == 5 {
-                        raw[40] ^= 1;
-                    }
-                    let raw = raw.into_iter().map(|b| self.value(b)).collect::<Vec<_>>();
-                    let run = bytes.run(
-                        &mut r,
-                        &raw,
-                        &raw.chunks(31).map(<[Value<u8>]>::len).collect::<Vec<_>>(),
-                        &[SegmentSpec::little(0, 4)],
-                    )?;
-                    let index = chip.uint().glue().constant(&mut r, Fp::from(12))?;
-                    let sigma =
-                        SigmaBindingCells::from_run(&mut chip, &mut r, &statement, index, &run)?;
-                    objects.constrain_own_proof(
-                        &mut chip,
-                        &mut r,
-                        &source.context,
-                        stage,
-                        &input,
-                        &sigma,
-                    )?;
-                } else {
-                    let mut proof = source.signature_proof.clone();
-                    if self.mutation == 6 {
-                        proof[32] ^= 1;
-                    }
-                    let proof = self.proof(&mut chip, &mut bytes, &mut r, &proof)?;
-                    let q = verify_q(
-                        &mut chip,
-                        &mut r,
-                        source.context.operation(),
-                        1,
-                        &q_instances[1],
-                        &proof,
-                    )?;
-                    let bundle = bind_signature_q(
-                        &mut chip,
-                        &mut r,
-                        source.context.operation(),
-                        1,
-                        &source.schema,
-                        &q,
-                    )?;
-                    let policy = if self.mutation == 11 {
-                        OwnPolicy::new([31, 32], bootstrap_objects::key(19)).unwrap()
-                    } else {
-                        policy()
-                    };
-                    objects.constrain_current(
-                        &mut chip,
-                        &mut r,
-                        &source.context,
-                        stage,
-                        &input,
-                        (policy, &bundle),
-                    )?;
+                let mut raw = source.proof.clone();
+                if self.mutation == 6 {
+                    raw[32] ^= 1;
                 }
-                Ok(objects
-                    .context()
-                    .iter()
-                    .map(|o| o.authenticated_digest().clone())
-                    .collect::<Vec<_>>())
+                if self.mutation == 7 {
+                    raw.pop();
+                }
+                let proof = self.proof(&mut chip, &mut bytes, &mut r, &raw)?;
+                let q = verify_q(
+                    &mut chip,
+                    &mut r,
+                    source.context.operation(),
+                    0,
+                    &q_instances[0],
+                    &proof,
+                )?;
+                let bundle = bind_signature_q(
+                    &mut chip,
+                    &mut r,
+                    source.context.operation(),
+                    0,
+                    &source.schema,
+                    &q,
+                )?;
+                let stage = if self.mutation == 10 {
+                    LEAF_STAGE + 1
+                } else {
+                    LEAF_STAGE
+                };
+                let policy = if self.mutation == 11 {
+                    OwnPolicy::new([33, 34], bootstrap_objects::key(23)).unwrap()
+                } else {
+                    policy()
+                };
+                own.constrain_current(
+                    &mut chip,
+                    &mut r,
+                    &source.context,
+                    stage,
+                    &input,
+                    (policy, &bundle),
+                )?;
+                incoming.constrain_signature(
+                    &mut r,
+                    &source.context,
+                    stage,
+                    &input,
+                    &results,
+                    &bundle,
+                )?;
+                let mut out = vec![own.context()[0].authenticated_digest().clone()];
+                out.extend(
+                    incoming
+                        .context()
+                        .iter()
+                        .map(|o| o.authenticated_digest().clone()),
+                );
+                Ok(out)
             },
         )?;
         for (i, v) in out.iter().enumerate() {
@@ -636,417 +657,29 @@ fn predecessor_metadata() -> VerifierPlan<Ep> {
 
 #[test]
 fn archive_fixture_is_a_valid_shared_leaf_without_claiming_pending_membership() {
-    let (w, _) = transition();
+    let w = transition();
     let c = ArchiveCircuit::new(&w);
     assert!(
         check_circuit(&c, 12, &c.instances(), CheckMode::Strict)
             .unwrap()
             .is_satisfied()
     );
-    let [own, incoming] = ArchiveAuthorizationObjects::signature_schemas(policy()).unwrap();
-    assert_eq!(own.slots().len(), 3);
-    assert_eq!(incoming.slots().len(), 1);
-}
-#[test]
-#[ignore = "genuine sigma/Q proof creation plus original-source adversarial owners"]
-fn genuine_archive_own_qs_bind_current_authorization_and_sigma_only_receipt() {
-    let source = Arc::new(sources());
-    for stage in 0..2 {
-        let c = Owner {
-            source: source.clone(),
-            stage,
-            mutation: 0,
-            known: true,
-        };
-        let report = check_circuit(&c, 16, &c.public(), CheckMode::Strict).unwrap();
-        assert!(report.is_satisfied(), "{report:?}");
-        let known = synthesize(&c, 16, None).unwrap();
-        let unknown = synthesize(&c.without_witnesses(), 16, None).unwrap();
-        assert_eq!(known.tables.fixed(), unknown.tables.fixed());
-        assert_eq!(known.tables.permutation(), unknown.tables.permutation());
-        eprintln!(
-            "ARCHIVE_OWN_COMPONENT stage={stage} rows={:?} genuine_sources=true full_chain=false",
-            known
-                .tables
-                .advice_assigned()
-                .iter()
-                .map(|c| c.iter().rposition(|v| *v).map_or(0, |i| i + 1))
-                .collect::<Vec<_>>()
-        );
-        let mutations: &[u8] = if stage == 0 {
-            &[5, 7, 8, 9, 10]
-        } else {
-            &[1, 2, 3, 4, 6, 9, 10, 11]
-        };
-        for &mutation in mutations {
-            let bad = Owner {
-                mutation,
-                ..c.clone()
-            };
-            assert!(
-                !check_circuit(&bad, 16, &bad.public(), CheckMode::Strict)
-                    .is_ok_and(|r| r.is_satisfied()),
-                "stage={stage} mutation={mutation}"
-            );
-        }
-    }
-}
-
-struct IncomingSignatureSources {
-    own: Arc<Sources>,
-    originals: [Vec<u8>; 3],
-    context: ContextPlan,
-    schema: QSignaturePlan,
-    public: Vec<Vec<Fq>>,
-    proof: Vec<u8>,
-    valid: bool,
-}
-fn incoming_signature_sources(own: Arc<Sources>, valid: bool) -> IncomingSignatureSources {
-    let mut before = own.witness.predecessor;
-    before.core[core::BALANCE] = Fp::from(100);
-    let send = send_objects::from_load(&before);
-    let receiver = send_objects::receiver_credential();
-    let mut receipt = bootstrap_objects::sign(
-        ObjectKind::Receipt,
-        own.objects[2].bytes[..ObjectKind::Receipt.body_len()].to_vec(),
-        43,
-        83,
-    );
-    if !valid {
-        receipt.signature.signature[0] = [0; 4];
-        receipt.bytes[ObjectKind::Receipt.body_len()..ObjectKind::Receipt.body_len() + 32].fill(0);
-    }
-    let schema = ArchiveAuthorizationObjects::signature_schemas(policy()).unwrap()[1].clone();
-    let circuit = QSignatureCircuit::new(schema.clone(), vec![receipt.signature]).unwrap();
-    let public = circuit.instances(&[valid]).unwrap().to_vec();
-    let params = PinnedParams::<Ep>::derive(16).unwrap();
-    let key = keygen_pk_v2(
-        &params,
-        &circuit,
-        &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
-    )
-    .unwrap();
-    let proof = create_proof_owned_with_claim(
-        &params,
-        &key,
-        Witness::from_circuit(&key, &circuit, &public).unwrap(),
-        common::recovery(if valid { 224 } else { 225 }),
-        ProverConfig::default(),
-    )
-    .unwrap()
-    .proof;
-    accumulate_generator(
-        &params,
-        key.binding(),
-        key.vk(),
-        &public,
-        &proof,
-        MemoryBudget::DEFAULT,
-    )
-    .unwrap()
-    .decide(&params, MemoryBudget::DEFAULT)
-    .unwrap();
-    let old = own.context.operation();
-    let operation = AProofPlan::new(
-        Variant::ArchiveStatus,
-        own.sigma_plan.clone(),
-        vec![
-            old.q(0).unwrap().clone(),
-            old.q(1).unwrap().clone(),
-            QProofPlan::new(
-                VerifierPlan::new(key.binding().clone(), params.clone()).unwrap(),
-                key.vk().clone(),
-            )
-            .unwrap(),
-        ],
-        old.omega().cloned(),
-        &params,
-    )
-    .unwrap();
-    // Only Q2 and its exact original sources execute here. Other named owners
-    // are constructor metadata, with explicit dummy context categories; this
-    // component cannot authenticate a complete Archive or a lineage head.
-    let mut specs = (1..=13)
-        .map(|tag| ContextObjectSpec { tag, capacity: 32 })
-        .collect::<Vec<_>>();
-    for (index, spec) in [3, 6, 12]
-        .into_iter()
-        .zip(ArchiveIncomingObjects::context_specs().unwrap())
-    {
-        specs[index] = spec;
-    }
-    specs.push(ArchiveResultPlan::context_spec(Variant::ArchiveStatus, 14).unwrap());
-    let context =
-        ContextPlan::with_schedule(operation, vec![vec![0, 1], vec![2], vec![]], Some(0), specs)
-            .unwrap()
-            .with_operation_tasks(vec![
-                vec![
-                    OperationTask::ArchiveRetainedPayment,
-                    OperationTask::ArchiveEvidence,
-                    OperationTask::ArchiveProofs,
-                    OperationTask::ArchiveAuthorization,
-                    OperationTask::ArchiveOwnProof,
-                ],
-                vec![OperationTask::ArchiveSignatures],
-                vec![
-                    OperationTask::ArchiveEffects,
-                    OperationTask::ArchiveRetainedProofs,
-                    OperationTask::ArchiveCorePending,
-                    OperationTask::ArchiveLineagePending,
-                ],
-            ])
-            .unwrap();
-    IncomingSignatureSources {
-        own,
-        originals: [send.objects[1].clone(), receiver.bytes, receipt.bytes],
-        context,
-        schema,
-        public,
-        proof,
-        valid,
-    }
-}
-#[derive(Clone)]
-struct IncomingSignatureOwner {
-    source: Arc<IncomingSignatureSources>,
-    mutation: u8,
-    known: bool,
-}
-impl Circuit<Fp> for IncomingSignatureOwner {
-    type Config = Config;
-    type Params = ();
-    type FloorPlanner = SimpleFloorPlanner;
-    fn without_witnesses(&self) -> Self {
-        Self {
-            known: false,
-            ..self.clone()
-        }
-    }
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Config {
-        Owner::configure(meta)
-    }
-    fn synthesize(&self, config: Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
-        let helper = Owner {
-            source: self.source.own.clone(),
-            stage: 0,
-            mutation: 0,
-            known: self.known,
-        };
-        let mut chip = VerifierChip::new(config.verifier);
-        let mut bytes = BytesChip::new(config.bytes);
-        chip.load_tables(&mut layouter)?;
-        bytes.load_table(&mut layouter)?;
-        let out = layouter.assign_region(
-            || "Archive actual incoming Q2 owner",
-            |mut r| {
-                let source = &self.source;
-                let (state, next) =
-                    helper.state(&mut chip, &mut r, &source.own.witness.successor)?;
-                let fields = chip
-                    .uint()
-                    .glue()
-                    .witnesses(
-                        &mut r,
-                        &source.own.witness.statement.map(|v| helper.value(v)),
-                    )?
-                    .try_into()
-                    .map_err(|_| Error::Synthesis)?;
-                let statement = StatementCells::constrain_with_verifier(
-                    &mut chip,
-                    &mut r,
-                    Variant::ArchiveStatus,
-                    &fields,
-                )?;
-                let originals = self.originals();
-                let raw = originals
-                    .each_ref()
-                    .map(|raw| raw.iter().map(|b| helper.value(*b)).collect::<Vec<_>>());
-                let objects = ArchiveIncomingObjects::decode(
-                    &mut chip,
-                    &mut bytes,
-                    &mut r,
-                    raw.each_ref().map(Vec::as_slice),
-                )?;
-                let mut qi = source.own.q_instances.clone();
-                qi.push(source.public.clone());
-                if self.mutation == 4 {
-                    qi[2][0][9] = Fq::from(u64::from(!source.valid));
-                }
-                let q_instances = qi
-                    .iter()
-                    .map(|columns| {
-                        columns
-                            .iter()
-                            .map(|c| {
-                                c.iter()
-                                    .map(|v| helper.scalar(&mut chip, &mut r, *v))
-                                    .collect()
-                            })
-                            .collect()
-                    })
-                    .collect::<Result<Vec<Vec<Vec<_>>>, Error>>()?;
-                let point = iroha_plonk::transcript::decode_point::<Ep>(
-                    &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
-                )
-                .map_err(|_| Error::Synthesis)?;
-                let point = chip.constant_point(&mut r, &Ep::from(point))?;
-                let one = helper.scalar(&mut chip, &mut r, Fq::ONE)?;
-                let opening = FoldInputCells::from_normalized(
-                    &mut chip,
-                    &mut r,
-                    16,
-                    point,
-                    ::core::array::from_fn(|_| one.clone()),
-                )?;
-                let result_plan = ArchiveResultPlan::new(&source.context, 13)?;
-                let results = ArchiveResultClaims::assign(
-                    &mut chip,
-                    &mut r,
-                    result_plan,
-                    [
-                        true,
-                        true,
-                        if self.mutation == 5 {
-                            !source.valid
-                        } else {
-                            source.valid
-                        },
-                    ]
-                    .map(|v| helper.value(v)),
-                    Some(&opening),
-                )?;
-                let zero = chip.uint().glue().constant(&mut r, Fp::ZERO)?;
-                let mut contexts = Vec::new();
-                for (index, spec) in source.context.object_specs().iter().enumerate() {
-                    let actual = if let Some(i) = [3, 6, 12].iter().position(|i| *i == index) {
-                        objects.context()[i].clone()
-                    } else if index == 13 {
-                        results.context().clone()
-                    } else {
-                        ContextObjectCells::from_internal_words(
-                            &mut chip,
-                            &mut r,
-                            *spec,
-                            std::slice::from_ref(&zero),
-                        )?
-                    };
-                    contexts.push(actual);
-                }
-                if self.mutation == 6 {
-                    contexts.swap(3, 6);
-                }
-                let input = ContextInputs {
-                    own_statement: &statement,
-                    incoming_statement: None,
-                    predecessor: None,
-                    successor: ContextState {
-                        state: &state,
-                        public: &next,
-                    },
-                    incoming: None,
-                    q_instances: &q_instances,
-                    objects: &contexts,
-                    modes: &[],
-                    pallas_corrections: &[],
-                    vesta_corrections: &[],
-                    receive_results: None,
-                };
-                let mut raw = source.proof.clone();
-                if self.mutation == 7 {
-                    raw[32] ^= 1;
-                }
-                if self.mutation == 8 {
-                    raw.pop();
-                }
-                let proof = helper.proof(&mut chip, &mut bytes, &mut r, &raw)?;
-                let q = verify_q(
-                    &mut chip,
-                    &mut r,
-                    source.context.operation(),
-                    2,
-                    &q_instances[2],
-                    &proof,
-                )?;
-                let bundle = bind_signature_q(
-                    &mut chip,
-                    &mut r,
-                    source.context.operation(),
-                    2,
-                    &source.schema,
-                    &q,
-                )?;
-                objects.constrain_signature(
-                    &mut r,
-                    &source.context,
-                    if self.mutation == 9 { 2 } else { 1 },
-                    &input,
-                    &results,
-                    &bundle,
-                )?;
-                Ok(objects
-                    .context()
-                    .iter()
-                    .map(|o| o.authenticated_digest().clone())
-                    .collect::<Vec<_>>())
-            },
-        )?;
-        for (i, word) in out.iter().enumerate() {
-            layouter.constrain_instance(word.cell(), config.public, i)?;
-        }
-        Ok(())
-    }
-}
-impl IncomingSignatureOwner {
-    fn originals(&self) -> [Vec<u8>; 3] {
-        let mut originals = self.source.originals.clone();
-        match self.mutation {
-            1 => originals[2][40] ^= 1,
-            2 => originals[2][ObjectKind::Receipt.body_len() + 17] ^= 1,
-            3 => {
-                // A genuinely different quoted credential plus a matching
-                // Request address still cannot change Q2's verified key.
-                let key = bootstrap_objects::sec1(bootstrap_objects::key(19));
-                originals[1][130..195].copy_from_slice(&key);
-                let changed = bootstrap_objects::Signed {
-                    kind: ObjectKind::Credential,
-                    bytes: originals[1].clone(),
-                    signature: self.source.own.objects[0].signature,
-                }
-                .digest();
-                originals[0][210..242].copy_from_slice(&changed.to_repr());
-            }
-            _ => {}
-        }
-        originals
-    }
-    fn public(&self) -> [Vec<Fp>; 1] {
-        [self
-            .originals()
+    let schema = ArchiveAuthorizationObjects::signature_schema().unwrap();
+    assert_eq!(
+        schema
+            .slots()
             .iter()
-            .zip([
-                ObjectKind::Request,
-                ObjectKind::Credential,
-                ObjectKind::Receipt,
-            ])
-            .map(|(raw, kind)| {
-                bootstrap_objects::Signed {
-                    kind,
-                    bytes: raw.clone(),
-                    signature: self.source.own.objects[0].signature,
-                }
-                .digest()
-            })
-            .collect()]
-    }
+            .map(|slot| slot.mode)
+            .collect::<Vec<_>>(),
+        [VerifyMode::Hard, VerifyMode::Soft]
+    );
 }
 #[test]
-#[ignore = "actual own and incoming Q proofs plus strict original-source owner mutations"]
-fn genuine_archive_incoming_q2_binds_receipt_key_originals_and_soft_result() {
-    let own = Arc::new(sources());
+#[ignore = "genuine merged-leaf Q proofs plus strict original-source owner mutations"]
+fn genuine_archive_merged_leaf_binds_own_receipt_hard_and_incoming_receipt_soft() {
     for valid in [true, false] {
-        let source = Arc::new(incoming_signature_sources(own.clone(), valid));
-        let c = IncomingSignatureOwner {
-            source,
+        let c = Owner {
+            source: Arc::new(sources(valid)),
             mutation: 0,
             known: true,
         };
@@ -1057,7 +690,7 @@ fn genuine_archive_incoming_q2_binds_receipt_key_originals_and_soft_result() {
         assert_eq!(known.tables.fixed(), unknown.tables.fixed());
         assert_eq!(known.tables.permutation(), unknown.tables.permutation());
         eprintln!(
-            "ARCHIVE_Q2_COMPONENT signature_valid={valid} proof_bytes={} rows={:?} full_chain=false",
+            "ARCHIVE_MERGED_LEAF_COMPONENT signature_valid={valid} proof_bytes={} rows={:?} full_chain=false",
             c.source.proof.len(),
             known
                 .tables
@@ -1066,13 +699,13 @@ fn genuine_archive_incoming_q2_binds_receipt_key_originals_and_soft_result() {
                 .map(|c| c.iter().rposition(|v| *v).map_or(0, |i| i + 1))
                 .collect::<Vec<_>>()
         );
-        for mutation in 1..=9 {
-            let wrong = IncomingSignatureOwner {
+        for mutation in 1..=14 {
+            let bad = Owner {
                 mutation,
                 ..c.clone()
             };
             assert!(
-                !check_circuit(&wrong, 16, &wrong.public(), CheckMode::Strict)
+                !check_circuit(&bad, 16, &bad.public(), CheckMode::Strict)
                     .is_ok_and(|r| r.is_satisfied()),
                 "valid{valid} mutation{mutation}"
             );

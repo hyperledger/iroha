@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Nexus CBDC whitelist validation workflow.
 #![cfg(target_family = "unix")]
 use eyre::{Result, WrapErr, ensure, eyre};

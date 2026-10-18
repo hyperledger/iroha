@@ -32,7 +32,7 @@ pub(super) fn prove<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     metadata: &SourceBoundViewV2<'_, C>,
     circuit: &Ci,
     instances: &[Vec<C::ScalarExt>],
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
 ) -> Result<ProverOutput<C>, Error> {
     CancellationToken::checkpoint(config.cancellation).map_err(|_| Error::Cancelled)?;
@@ -60,6 +60,8 @@ pub(super) fn prove<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
                 Error::Prover
             }
         })?;
+    #[cfg(test)]
+    crate::proof_entry_probe::reached();
     let output = create_proof_owned_with_claim(params, &key, witness, randomness, config).map_err(
         |error| {
             if error.is_cancelled() {

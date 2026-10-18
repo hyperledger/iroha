@@ -298,7 +298,7 @@ pub(super) fn lookup_residues_v1<A: PolynomialAirFieldV1>(
     first: A,
     continue_row: A,
     last: A,
-    challenges: [[F; 12]; LOOKUP_LANES_V1],
+    challenges: &[[F; 12]; LOOKUP_LANES_V1],
 ) -> Vec<A> {
     let active = event.source.add(event.query);
     let weight = event.source.mul(event.multiplicity).sub(event.query);
@@ -306,7 +306,7 @@ pub(super) fn lookup_residues_v1<A: PolynomialAirFieldV1>(
     residues.push(event.source.mul(event.source.sub(A::ONE)));
     residues.push(event.query.mul(event.query.sub(A::ONE)));
     residues.push(event.source.mul(event.query));
-    for (lane, challenge) in challenges.into_iter().enumerate() {
+    for (lane, challenge) in challenges.iter().copied().enumerate() {
         let factor = lookup_factor_v1(event.tuple, challenge);
         let inverse = current.inverse[lane];
         let zero = current.zero[lane];

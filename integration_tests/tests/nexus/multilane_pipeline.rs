@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Multi-lane routing and storage provisioning integration.
 use eyre::Result;
 use iroha_config::{

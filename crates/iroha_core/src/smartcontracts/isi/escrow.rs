@@ -17,7 +17,7 @@ use iroha_data_model::account::Account;
 use iroha_data_model::fastpq::TransferDeltaTranscript;
 use iroha_data_model::{
     account::AccountId,
-    asset::{AssetDefinitionId, AssetId},
+    asset::{AssetBalanceScope, AssetDefinitionId, AssetId},
     escrow::{
         AssetEscrowKind, AssetEscrowRecord, AssetEscrowResolution, AssetEscrowStatus,
         ConditionalEscrowAttestation, ConditionalEscrowCondition, ConditionalEscrowConditionState,
@@ -355,9 +355,6 @@ fn reject_native_orderbook_lock(
     Ok(())
 }
 /// Derive the deterministic protocol custody account for an escrow.
-///
-/// # Errors
-/// This derivation is infallible and currently always returns `Ok`.
 pub fn escrow_custody_account_id(
     network_id: &iroha_data_model::NetworkId,
     escrow_id: &EscrowId,
@@ -1168,6 +1165,67 @@ pub(crate) fn is_native_escrow_custody_asset(
                     && record.custody_account_id == *resolved_id.account()
             }))
 }
+/// Reject retiring asset definitions while native escrow custody still depends on them.
+///
+/// Unregistering an asset definition (directly or through its domain) deletes
+/// every balance of that definition, including the deterministic custody
+/// buckets of marketplace escrows, asset locks, conditional escrows and VPN
+/// leases. Such a definition is retained while any of those records is still
+/// active or its custody bucket still holds a balance; the record must first
+/// reach its release, refund or expiry terminal path. Closed records with empty
+/// custody remain as audit history and do not block retirement.
+pub(crate) fn ensure_asset_definitions_not_retained_by_native_escrows(
+    state_transaction: &StateTransaction<'_, '_>,
+    definitions: &BTreeSet<AssetDefinitionId>,
+    context: &str,
+) -> Result<(), Error> {
+    let holds_balance = |definition: &AssetDefinitionId, custody: &AccountId| {
+        state_transaction
+            .world
+            .assets
+            .get(&AssetId::new(definition.clone(), custody.clone()))
+            .is_some_and(|balance| !balance.as_ref().is_zero())
+    };
+    if let Some((escrow_id, record)) =
+        state_transaction
+            .world
+            .asset_escrows
+            .iter()
+            .find(|(_, record)| {
+                definitions.contains(&record.asset_definition)
+                    && (matches!(
+                        record.status,
+                        AssetEscrowStatus::Open
+                            | AssetEscrowStatus::Accepted
+                            | AssetEscrowStatus::PaymentSent
+                            | AssetEscrowStatus::Disputed
+                            | AssetEscrowStatus::Locked
+                    ) || holds_balance(&record.asset_definition, &record.custody))
+            })
+    {
+        return Err(validation_err(format!(
+            "cannot {context}: asset definition {} is retained by native escrow {} custody; release, refund or expire the escrow first",
+            record.asset_definition,
+            escrow_id.as_hash()
+        )));
+    }
+    if let Some((_, lease)) = state_transaction
+        .world
+        .vpn_leases
+        .iter()
+        .find(|(_, lease)| {
+            definitions.contains(&lease.asset_definition)
+                && (lease.status == iroha_data_model::soranet::vpn::VpnLeaseStatusV1::Active
+                    || holds_balance(&lease.asset_definition, &lease.custody_account_id))
+        })
+    {
+        return Err(validation_err(format!(
+            "cannot {context}: asset definition {} is retained by native VPN lease custody; settle or refund the lease first",
+            lease.asset_definition
+        )));
+    }
+    Ok(())
+}
 /// Return whether an account is retained as native-escrow or VPN-lease custody.
 ///
 /// Closed records remain authoritative: removing their accounts would destroy audit history and
@@ -1841,143 +1899,234 @@ fn conditional_escrow_predicate_matches(
         _ => false,
     }
 }
-impl Execute for OpenConditionalEscrow {
-    fn execute(
-        self,
-        authority: &AccountId,
+/// Exact immutable terms of one native conditional escrow, excluding its source bucket.
+pub(crate) struct ConditionalEscrowTerms {
+    /// Caller-selected unused escrow identifier.
+    pub(crate) escrow_id: EscrowId,
+    /// Account that receives the full amount after every condition passes.
+    pub(crate) beneficiary: AccountId,
+    /// Positive amount moved into protocol custody.
+    pub(crate) amount: Quantity,
+    /// Immutable ordered all-of predicates and optional ledger-time window.
+    pub(crate) conditions: Vec<ConditionalEscrowCondition>,
+    /// Absolute refund deadline in Unix milliseconds.
+    pub(crate) expires_at_ms: u64,
+    /// Evidence hashes attached when opening the escrow.
+    pub(crate) evidence_hashes: Vec<iroha_crypto::Hash>,
+}
+/// A completely validated, not yet funded conditional escrow opening.
+///
+/// The value can be produced only by [`prepare_conditional_escrow_opening`]. Its
+/// owner either funds custody through the single-movement escrow capability
+/// ([`OpenConditionalEscrow`]) or through one prepared atomic settlement batch,
+/// and then records the retained escrow with [`Self::record_funded`].
+pub(crate) struct ConditionalEscrowOpening {
+    record: AssetEscrowRecord,
+    source: AssetId,
+}
+impl ConditionalEscrowOpening {
+    /// Exact source bucket debited by the funding movement.
+    pub(crate) fn source(&self) -> &AssetId {
+        &self.source
+    }
+    /// Deterministic protocol custody bucket credited by the funding movement.
+    pub(crate) fn custody_asset(&self) -> AssetId {
+        custody_asset(&self.record)
+    }
+    /// Exact amount moved into custody.
+    pub(crate) fn amount(&self) -> &Quantity {
+        &self.record.amount
+    }
+    /// Create the deterministic custody account when absent.
+    ///
+    /// Returns whether the account was created so a failed funding attempt can
+    /// remove it again with [`remove_created_custody_account`].
+    pub(crate) fn ensure_custody_account(
+        &self,
         state_transaction: &mut StateTransaction<'_, '_>,
-    ) -> Result<(), Error> {
-        reject_reserved_orderbook_escrow_id(&self.escrow_id)?;
-        if state_transaction
-            .world
-            .asset_escrows
-            .get(&self.escrow_id)
-            .is_some()
-        {
-            return Err(validation_err("escrow already exists"));
-        }
-        ensure_positive(&self.amount)?;
-        if self.conditions.is_empty() || self.conditions.len() > MAX_CONDITIONAL_ESCROW_CONDITIONS {
-            return Err(validation_err(
-                "conditional escrow must contain 1..=64 conditions",
-            ));
-        }
-        if self.evidence_hashes.len() > MAX_CONDITIONAL_ESCROW_EVIDENCE_HASHES {
-            return Err(validation_err(
-                "conditional escrow may contain at most 64 opening evidence hashes",
-            ));
-        }
-        let created_at_ms = state_transaction.block_unix_timestamp_ms();
-        if self.expires_at_ms <= created_at_ms {
-            return Err(validation_err(
-                "conditional escrow expiry must be later than its committed creation time",
-            ));
-        }
-        let mut condition_ids = BTreeSet::new();
-        let mut oracle_sequences = BTreeSet::new();
-        let mut oracle_count = 0_u32;
-        let mut within_deadline_ms = None::<u64>;
-        for condition in &self.conditions {
-            if !condition_ids.insert(condition.id().clone()) {
-                return Err(validation_err(
-                    "conditional escrow condition ids must be unique",
-                ));
-            }
-            match condition {
-                ConditionalEscrowCondition::Oracle(condition) => {
-                    oracle_count = oracle_count.checked_add(1).ok_or_else(|| {
-                        validation_err("conditional escrow oracle count overflow")
-                    })?;
-                    if !oracle_sequences.insert(condition.sequence.get()) {
-                        return Err(validation_err(
-                            "conditional escrow oracle sequences must be unique",
-                        ));
-                    }
-                    state_transaction.world.account(&condition.attestor)?;
-                    if let ConditionalEscrowPredicate::Equals(value) = &condition.predicate {
-                        validate_conditional_escrow_value(value)?;
-                    }
-                }
-                ConditionalEscrowCondition::Within(condition) => {
-                    if within_deadline_ms.is_some() {
-                        return Err(validation_err(
-                            "conditional escrow may contain at most one ledger-time window",
-                        ));
-                    }
-                    let deadline = created_at_ms
-                        .checked_add(condition.duration_ms.get())
-                        .ok_or_else(|| {
-                            validation_err("conditional escrow within deadline overflow")
-                        })?;
-                    within_deadline_ms = Some(deadline);
-                }
-            }
-        }
-        if oracle_count == 0 {
-            return Err(validation_err(
-                "conditional escrow must contain at least one oracle condition",
-            ));
-        }
-        let expected_sequences = (1..=oracle_count).collect::<BTreeSet<_>>();
-        if oracle_sequences != expected_sequences {
-            return Err(validation_err(
-                "conditional escrow oracle sequences must be contiguous starting at one",
-            ));
-        }
-        let effective_expiry_ms = within_deadline_ms.map_or(self.expires_at_ms, |deadline| {
-            deadline.min(self.expires_at_ms)
-        });
-        if effective_expiry_ms <= created_at_ms {
-            return Err(validation_err(
-                "conditional escrow effective expiry must be in the future",
-            ));
-        }
-        let spec = state_transaction
-            .numeric_spec_for(&self.asset_definition)
-            .map_err(Error::from)?;
-        assert_numeric_spec_with(self.amount.as_numeric(), spec)?;
-        state_transaction.world.account(authority)?;
-        state_transaction.world.account(&self.beneficiary)?;
+    ) -> Result<bool, Error> {
+        ensure_custody_account(&self.record.custody, state_transaction)
+    }
+    /// Deterministic custody account of this opening.
+    pub(crate) fn custody_account(&self) -> &AccountId {
+        &self.record.custody
+    }
+    /// Insert the retained record after the caller funded custody in the same transaction.
+    pub(crate) fn record_funded(self, state_transaction: &mut StateTransaction<'_, '_>) {
         state_transaction
             .world
-            .asset_definition(&self.asset_definition)?;
-        let custody = escrow_custody_account_id(
-            state_transaction.network_id(),
-            &self.escrow_id,
-            &self.asset_definition,
-        );
-        let source_asset = AssetId::new(self.asset_definition.clone(), authority.clone());
-        let custody_asset = AssetId::new(self.asset_definition.clone(), custody.clone());
-        let custody_created = ensure_custody_account(&custody, state_transaction)?;
+            .insert_asset_escrow_entry(self.record.clone());
+        state_transaction
+            .world
+            .emit_events(Some(EscrowEvent::Opened(self.record)));
+    }
+    /// Fund custody from the opener's exact bucket with the single-movement capability.
+    fn fund_from_opener_and_record(
+        self,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        let custody_created = self.ensure_custody_account(state_transaction)?;
         let transfer_result = transfer_numeric_asset_for_escrow(
             state_transaction,
             VerifiedNativeEscrowMovement::funding(
-                self.escrow_id.clone(),
-                authority.clone(),
-                source_asset,
-                custody_asset,
-                self.amount.clone(),
+                self.record.id,
+                self.record.seller.clone(),
+                self.source.clone(),
+                self.custody_asset(),
+                self.record.amount.clone(),
             ),
         );
         if transfer_result.is_err() && custody_created {
-            state_transaction.world.accounts.remove(custody.clone());
+            remove_created_custody_account(state_transaction, self.custody_account());
         }
         transfer_result?;
-        let record = AssetEscrowRecord {
-            id: self.escrow_id,
-            seller: authority.clone(),
-            buyer: Some(self.beneficiary),
-            asset_definition: self.asset_definition,
-            amount: self.amount.clone(),
+        self.record_funded(state_transaction);
+        Ok(())
+    }
+}
+/// Remove a custody account created for a funding attempt that failed.
+pub(crate) fn remove_created_custody_account(
+    state_transaction: &mut StateTransaction<'_, '_>,
+    custody: &AccountId,
+) {
+    state_transaction.world.accounts.remove(custody.clone());
+}
+/// Validate one conditional escrow opened by the owner of the exact `source` bucket.
+///
+/// This is the single stateful validation owner shared by
+/// [`OpenConditionalEscrow`] and atomic settlement escrow legs. It never
+/// mutates state; the returned opening must be funded into its deterministic
+/// custody in the same transaction before [`ConditionalEscrowOpening::record_funded`].
+pub(crate) fn prepare_conditional_escrow_opening(
+    state_transaction: &StateTransaction<'_, '_>,
+    source: AssetId,
+    terms: ConditionalEscrowTerms,
+) -> Result<ConditionalEscrowOpening, Error> {
+    let ConditionalEscrowTerms {
+        escrow_id,
+        beneficiary,
+        amount,
+        conditions,
+        expires_at_ms,
+        evidence_hashes,
+    } = terms;
+    reject_reserved_orderbook_escrow_id(&escrow_id)?;
+    if state_transaction
+        .world
+        .asset_escrows
+        .get(&escrow_id)
+        .is_some()
+    {
+        return Err(validation_err("escrow already exists"));
+    }
+    // Retained escrow records refund and release through global buckets.
+    if source.scope() != &AssetBalanceScope::Global {
+        return Err(validation_err(
+            "conditional escrow source must be a global balance bucket",
+        ));
+    }
+    ensure_positive(&amount)?;
+    if conditions.is_empty() || conditions.len() > MAX_CONDITIONAL_ESCROW_CONDITIONS {
+        return Err(validation_err(
+            "conditional escrow must contain 1..=64 conditions",
+        ));
+    }
+    if evidence_hashes.len() > MAX_CONDITIONAL_ESCROW_EVIDENCE_HASHES {
+        return Err(validation_err(
+            "conditional escrow may contain at most 64 opening evidence hashes",
+        ));
+    }
+    let created_at_ms = state_transaction.block_unix_timestamp_ms();
+    if expires_at_ms <= created_at_ms {
+        return Err(validation_err(
+            "conditional escrow expiry must be later than its committed creation time",
+        ));
+    }
+    let mut condition_ids = BTreeSet::new();
+    let mut oracle_sequences = BTreeSet::new();
+    let mut oracle_count = 0_u32;
+    let mut within_deadline_ms = None::<u64>;
+    for condition in &conditions {
+        if !condition_ids.insert(condition.id().clone()) {
+            return Err(validation_err(
+                "conditional escrow condition ids must be unique",
+            ));
+        }
+        match condition {
+            ConditionalEscrowCondition::Oracle(condition) => {
+                oracle_count = oracle_count
+                    .checked_add(1)
+                    .ok_or_else(|| validation_err("conditional escrow oracle count overflow"))?;
+                if !oracle_sequences.insert(condition.sequence.get()) {
+                    return Err(validation_err(
+                        "conditional escrow oracle sequences must be unique",
+                    ));
+                }
+                state_transaction.world.account(&condition.attestor)?;
+                if let ConditionalEscrowPredicate::Equals(value) = &condition.predicate {
+                    validate_conditional_escrow_value(value)?;
+                }
+            }
+            ConditionalEscrowCondition::Within(condition) => {
+                if within_deadline_ms.is_some() {
+                    return Err(validation_err(
+                        "conditional escrow may contain at most one ledger-time window",
+                    ));
+                }
+                let deadline = created_at_ms
+                    .checked_add(condition.duration_ms.get())
+                    .ok_or_else(|| validation_err("conditional escrow within deadline overflow"))?;
+                within_deadline_ms = Some(deadline);
+            }
+        }
+    }
+    if oracle_count == 0 {
+        return Err(validation_err(
+            "conditional escrow must contain at least one oracle condition",
+        ));
+    }
+    let expected_sequences = (1..=oracle_count).collect::<BTreeSet<_>>();
+    if oracle_sequences != expected_sequences {
+        return Err(validation_err(
+            "conditional escrow oracle sequences must be contiguous starting at one",
+        ));
+    }
+    let effective_expiry_ms =
+        within_deadline_ms.map_or(expires_at_ms, |deadline| deadline.min(expires_at_ms));
+    if effective_expiry_ms <= created_at_ms {
+        return Err(validation_err(
+            "conditional escrow effective expiry must be in the future",
+        ));
+    }
+    let asset_definition = source.definition().clone();
+    let opener = source.account().clone();
+    let spec = state_transaction
+        .world
+        .asset_definition(&asset_definition)?
+        .spec();
+    assert_numeric_spec_with(amount.as_numeric(), spec)?;
+    state_transaction.world.account(&opener)?;
+    state_transaction.world.account(&beneficiary)?;
+    let custody = escrow_custody_account_id(
+        state_transaction.network_id(),
+        &escrow_id,
+        &asset_definition,
+    );
+    Ok(ConditionalEscrowOpening {
+        record: AssetEscrowRecord {
+            id: escrow_id,
+            seller: opener,
+            buyer: Some(beneficiary),
+            asset_definition,
+            amount: amount.clone(),
             custody,
             status: AssetEscrowStatus::Locked,
             kind: AssetEscrowKind::Conditional,
-            remaining_amount: self.amount,
+            remaining_amount: amount,
             release_authority: None,
             expires_at_ms: Some(effective_expiry_ms),
-            evidence_hashes: self.evidence_hashes,
-            conditions: self
-                .conditions
+            evidence_hashes,
+            conditions: conditions
                 .into_iter()
                 .map(|condition| ConditionalEscrowConditionState {
                     condition,
@@ -1991,14 +2140,30 @@ impl Execute for OpenConditionalEscrow {
             disputed_at_ms: None,
             closed_at_ms: None,
             resolution: None,
-        };
-        state_transaction
-            .world
-            .insert_asset_escrow_entry(record.clone());
-        state_transaction
-            .world
-            .emit_events(Some(EscrowEvent::Opened(record)));
-        Ok(())
+        },
+        source,
+    })
+}
+impl Execute for OpenConditionalEscrow {
+    fn execute(
+        self,
+        authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        let source = AssetId::new(self.asset_definition, authority.clone());
+        prepare_conditional_escrow_opening(
+            state_transaction,
+            source,
+            ConditionalEscrowTerms {
+                escrow_id: self.escrow_id,
+                beneficiary: self.beneficiary,
+                amount: self.amount,
+                conditions: self.conditions,
+                expires_at_ms: self.expires_at_ms,
+                evidence_hashes: self.evidence_hashes,
+            },
+        )?
+        .fund_from_opener_and_record(state_transaction)
     }
 }
 impl Execute for AttestEscrowCondition {
@@ -2521,6 +2686,238 @@ mod tests {
         )
     }
 
+    fn conditional_terms(
+        escrow_id: EscrowId,
+        beneficiary: &AccountId,
+        attestor: &AccountId,
+        expires_at_ms: u64,
+    ) -> ConditionalEscrowTerms {
+        ConditionalEscrowTerms {
+            escrow_id,
+            beneficiary: beneficiary.clone(),
+            amount: Quantity::from(40_u32),
+            conditions: vec![ConditionalEscrowCondition::Oracle(
+                iroha_data_model::escrow::ConditionalEscrowOracleCondition {
+                    id: "delivered".parse().expect("condition id"),
+                    attestor: attestor.clone(),
+                    predicate: ConditionalEscrowPredicate::Equals(ConditionalEscrowValue::Bool(
+                        true,
+                    )),
+                    sequence: core::num::NonZeroU32::new(1).expect("sequence"),
+                },
+            )],
+            expires_at_ms,
+            evidence_hashes: Vec::new(),
+        }
+    }
+    #[test]
+    fn conditional_escrow_opening_validates_terms_without_mutation() {
+        let seller = fixture_account("opening-seller");
+        let buyer = fixture_account("opening-buyer");
+        let attestor = fixture_account("opening-attestor");
+        let asset_definition = fixture_asset_definition_id();
+        let escrow_id = fixture_escrow_id("opening");
+        let state = state_with_parties(
+            &seller,
+            &buyer,
+            &attestor,
+            &asset_definition,
+            Quantity::from(100_u32),
+        );
+        let mut block = state.block(block_header(1_000));
+        let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0xD3; Hash::LENGTH]));
+        let source = AssetId::new(asset_definition.clone(), seller.clone());
+        let accounts_before = tx.world.accounts.iter().count();
+        for (source, terms, expected) in [
+            (
+                AssetId::with_scope(
+                    asset_definition.clone(),
+                    seller.clone(),
+                    iroha_data_model::asset::AssetBalanceScope::Dataspace(
+                        iroha_model_base::topology::DataSpaceId::new(3),
+                    ),
+                ),
+                conditional_terms(escrow_id, &buyer, &attestor, 1_000_000),
+                "global balance bucket",
+            ),
+            (
+                source.clone(),
+                conditional_terms(escrow_id, &buyer, &attestor, 1_000),
+                "expiry must be later",
+            ),
+            (
+                source.clone(),
+                conditional_terms(
+                    escrow_id,
+                    &buyer,
+                    &fixture_account("opening-missing-attestor"),
+                    1_000_000,
+                ),
+                "",
+            ),
+        ] {
+            let error = prepare_conditional_escrow_opening(&tx, source, terms)
+                .err()
+                .expect("invalid conditional escrow terms");
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+        let opening = prepare_conditional_escrow_opening(
+            &tx,
+            source.clone(),
+            conditional_terms(escrow_id, &buyer, &attestor, 1_000_000),
+        )
+        .expect("valid terms");
+        let custody = escrow_custody_account_id(&tx.network_id, &escrow_id, &asset_definition);
+        assert_eq!(opening.source(), &source);
+        assert_eq!(opening.custody_account(), &custody);
+        assert_eq!(
+            opening.custody_asset(),
+            AssetId::new(asset_definition.clone(), custody.clone())
+        );
+        assert_eq!(opening.amount(), &Quantity::from(40_u32));
+        assert_eq!(tx.world.accounts.iter().count(), accounts_before);
+        assert!(tx.world.asset_escrows.get(&escrow_id).is_none());
+        OpenConditionalEscrow::new(
+            escrow_id,
+            asset_definition.clone(),
+            buyer.clone(),
+            Quantity::from(40_u32),
+            conditional_terms(escrow_id, &buyer, &attestor, 1_000_000).conditions,
+            1_000_000,
+        )
+        .execute(&seller, &mut tx)
+        .expect("open through the shared owner");
+        let record = escrow_record(&tx, &escrow_id);
+        assert_eq!(record.seller, seller);
+        assert_eq!(record.buyer, Some(buyer));
+        assert_eq!(record.custody, custody);
+        assert_eq!(
+            balance(&tx, &custody, &asset_definition),
+            Quantity::from(40_u32)
+        );
+        assert_eq!(
+            balance(&tx, &seller, &asset_definition),
+            Quantity::from(60_u32)
+        );
+    }
+    #[test]
+    fn asset_definition_retirement_waits_for_native_escrow_custody() {
+        let seller = fixture_account("retire-seller");
+        let buyer = fixture_account("retire-buyer");
+        let attestor = fixture_account("retire-attestor");
+        let asset_definition = fixture_asset_definition_id();
+        let escrow_id = fixture_escrow_id("retire-conditional");
+        // A domain-owned definition is retired both directly and by domain teardown.
+        let state = state_with_parties_and_definition(
+            &seller,
+            &buyer,
+            &attestor,
+            &asset_definition,
+            AssetDefinition::numeric(
+                asset_definition.clone(),
+                "XOR".to_owned(),
+                iroha_data_model::asset::AssetBalancePolicy::Global,
+                Some(fixture_asset_definition_domain()),
+            )
+            .build(&seller),
+            Quantity::from(100_u32),
+        );
+        let mut block = state.block(block_header(1_000));
+        let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0xD4; Hash::LENGTH]));
+        OpenConditionalEscrow::new(
+            escrow_id,
+            asset_definition.clone(),
+            buyer.clone(),
+            Quantity::from(40_u32),
+            conditional_terms(escrow_id, &buyer, &attestor, 1_000_000).conditions,
+            1_000_000,
+        )
+        .execute(&seller, &mut tx)
+        .expect("open conditional escrow");
+        let custody = escrow_record(&tx, &escrow_id).custody;
+        let assert_retained = |error: Error, tx: &StateTransaction<'_, '_>| {
+            assert!(
+                error.to_string().contains("retained by native escrow"),
+                "unexpected error: {error}"
+            );
+            assert!(tx.world.asset_definition(&asset_definition).is_ok());
+            assert_eq!(
+                balance(tx, &custody, &asset_definition),
+                Quantity::from(40_u32)
+            );
+        };
+        // The definition owner cannot destroy funds held in escrow custody,
+        // neither directly nor by tearing down the definition's domain.
+        let error = Unregister::asset_definition(asset_definition.clone())
+            .execute(&seller, &mut tx)
+            .expect_err("active escrow custody retains the definition");
+        assert_retained(error, &tx);
+        let error = Unregister::domain(fixture_asset_definition_domain())
+            .execute(&seller, &mut tx)
+            .expect_err("active escrow custody retains the domain's definition");
+        assert_retained(error, &tx);
+        AttestEscrowCondition::new(
+            escrow_id,
+            "delivered".parse().expect("condition id"),
+            ConditionalEscrowValue::Bool(true),
+            None,
+        )
+        .execute(&attestor, &mut tx)
+        .expect("release to the beneficiary");
+        assert_eq!(
+            balance(&tx, &buyer, &asset_definition),
+            Quantity::from(40_u32)
+        );
+        assert_eq!(balance(&tx, &custody, &asset_definition), Quantity::zero());
+        ensure_asset_definitions_not_retained_by_native_escrows(
+            &tx,
+            &BTreeSet::from([asset_definition.clone()]),
+            "unregister asset definition",
+        )
+        .expect("a released escrow no longer retains the definition");
+        Unregister::asset_definition(asset_definition.clone())
+            .execute(&seller, &mut tx)
+            .expect("retire the definition after the escrow released");
+        assert!(tx.world.asset_definition(&asset_definition).is_err());
+    }
+    #[test]
+    fn expired_asset_lock_releases_definition_retention() {
+        let source = fixture_account("retire-lock-source");
+        let destination = fixture_account("retire-lock-destination");
+        let observer = fixture_account("retire-lock-observer");
+        let asset_definition = fixture_asset_definition_id();
+        let lock_id = fixture_escrow_id("retire-lock");
+        let state = state_with_parties(
+            &source,
+            &destination,
+            &observer,
+            &asset_definition,
+            Quantity::from(100_u32),
+        );
+        let definitions = BTreeSet::from([asset_definition.clone()]);
+        let mut block = state.block(block_header(3_000));
+        let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0xD5; Hash::LENGTH]));
+        OpenAssetLock::with_options(
+            lock_id,
+            asset_definition.clone(),
+            destination,
+            Quantity::from(30_u32),
+            None,
+            Some(2_000),
+            Vec::new(),
+        )
+        .execute(&source, &mut tx)
+        .expect("open lock");
+        assert!(
+            ensure_asset_definitions_not_retained_by_native_escrows(&tx, &definitions, "retire")
+                .is_err()
+        );
+        ExpireAssetLock::new(lock_id)
+            .execute(&observer, &mut tx)
+            .expect("refund the expired lock");
+        ensure_asset_definitions_not_retained_by_native_escrows(&tx, &definitions, "retire")
+            .expect("an expired, empty lock no longer retains the definition");
+    }
     #[test]
     fn escrow_funding_requires_its_original_retained_invocation() {
         let seller = fixture_account("seller");

@@ -1,7 +1,7 @@
 //! Kotodama calls to durable state helpers through the public `state` namespace.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 fn encoded_state_path(name: &str, key: i64) -> String {
     let key = common::encode_int_state_value(key);
     format!("{name}/{}", hex::encode(key))

@@ -148,6 +148,15 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
+        "crates/iroha_core/src/retail_fee/native_maintenance.rs",
+        "into_entries",
+        1,
+        UseOwner::Other(
+            Use::Record,
+            "Moves the original receipt identifiers and transfer transcripts after rechecking their retained source and exact receipt bytes. The separate private ordered receipt-byte digest is inventoried as retail_native_receipt_binding; it checks local preparation custody, is never returned or certified and grants no independent authority",
+        ),
+    ),
+    function(
         "crates/iroha_core/src/smartcontracts/code.rs",
         "fetch_instance_binding",
         1,
@@ -348,12 +357,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/store.rs",
         "get",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/settlement/atomic.rs",
-        "validate_atomic_intent",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),

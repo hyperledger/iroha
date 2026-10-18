@@ -97,7 +97,7 @@ pub struct CircuitDescriptorV2 {
     pub degree: u8,
     /// The blinding factors `b`.
     pub blinding_factors: u16,
-    /// Columns per permutation set, `d - 2`.
+    /// Columns per permutation set, `floor((d - 2) / 2)`.
     pub permutation_chunk_len: u8,
     /// Quotient pieces, `d - 1`.
     pub quotient_pieces: u8,
@@ -152,7 +152,7 @@ pub struct ProtocolDescriptor {
     pub degree: u8,
     /// The blinding factors `b`.
     pub blinding_factors: u16,
-    /// Columns per permutation set, `d - 2`.
+    /// Columns per permutation set, `floor((d - 2) / 2)`.
     pub permutation_chunk_len: u8,
     /// Quotient pieces, `d - 1`.
     pub quotient_pieces: u8,
@@ -462,6 +462,17 @@ impl ProtocolDescriptor {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(super::CsError::from)?;
         self.arithmetic_layout()
             .check_selector_plan_cancellable(selectors, cancellation)
+    }
+
+    /// Validate canonical packed activations using the native selector plan.
+    pub(crate) fn check_packed_selector_plan_cancellable(
+        &self,
+        selectors: &[u8],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), DescriptorError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(super::CsError::from)?;
+        self.arithmetic_layout()
+            .check_packed_selector_plan_cancellable(selectors, cancellation)
     }
 
     /// The common arithmetic in the retained validator's input type. The

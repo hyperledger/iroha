@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Router-level tests for ZK convenience endpoints.
 #![cfg(feature = "app_api")]
 use axum::{Router, extract::State, routing::post};

@@ -1,0 +1,127 @@
+{
+  "actual_input_collision_bridge": false,
+  "actual_simulator_execution": false,
+  "checked_component_construction": true,
+  "compiled_memory_or_allocator_bound": false,
+  "complete_resource_vector": false,
+  "exclusions": [
+    "This four-input inventory is not a complete compiler/dependency or historical-accounting closure.",
+    "Inputs, output and work must be disjoint wire regions; equal operand values are allowed, aliased registers are not.",
+    "Source basis labels are preserved jointly; their reduced state may change through entanglement with z.",
+    "Zero initialization, sampling, addressing, source-field creation and whole-program history/cleanup are not priced.",
+    "No source operation-count multiplication is claimed to give a whole-simulator quantum or memory bound.",
+    "Primitive interfaces, entry bridges, adversary resources, full reductions and qualification remain open."
+  ],
+  "independent_cryptographic_review": false,
+  "kernels": {
+    "gf256_mul": {
+      "CNOT": 1298,
+      "Toffoli": 131072,
+      "X": 0,
+      "base_oracle_calls": 0,
+      "clean_work_bits": 511,
+      "elementary_one_two_qubit_gates": 656658,
+      "modulus_taps": [
+        10,
+        5,
+        2,
+        0
+      ],
+      "operand_bits": [
+        256,
+        256
+      ],
+      "output_bits": 256,
+      "scope": "One disjoint product-XOR kernel; zero work is supplied and returned. No routing, alias adaptation or whole-program cleanup is included.",
+      "sequential_elementary_depth_upper_bound": 656658,
+      "source_and_output_bits": 768,
+      "total_interface_bits": 1279
+    },
+    "gf256_mul_tripled": {
+      "CNOT": 1788,
+      "Toffoli": 393216,
+      "X": 0,
+      "base_oracle_calls": 0,
+      "clean_work_bits": 1023,
+      "elementary_one_two_qubit_gates": 1967868,
+      "modulus_taps": [
+        19,
+        17,
+        4,
+        0
+      ],
+      "operand_bits": [
+        256,
+        768
+      ],
+      "output_bits": 768,
+      "scope": "One disjoint product-XOR kernel; zero work is supplied and returned. No routing, alias adaptation or whole-program cleanup is included.",
+      "sequential_elementary_depth_upper_bound": 1967868,
+      "source_and_output_bits": 1792,
+      "total_interface_bits": 2815
+    },
+    "gf256_mul_u64": {
+      "CNOT": 508,
+      "Toffoli": 32768,
+      "X": 0,
+      "base_oracle_calls": 0,
+      "clean_work_bits": 319,
+      "elementary_one_two_qubit_gates": 164348,
+      "modulus_taps": [
+        10,
+        5,
+        2,
+        0
+      ],
+      "operand_bits": [
+        256,
+        64
+      ],
+      "output_bits": 256,
+      "scope": "One disjoint product-XOR kernel; zero work is supplied and returned. No routing, alias adaptation or whole-program cleanup is included.",
+      "sequential_elementary_depth_upper_bound": 164348,
+      "source_and_output_bits": 576,
+      "total_interface_bits": 895
+    }
+  },
+  "physical_workspace_qualified": false,
+  "primitive_advantage_assumed": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "schema": "parliament-gf-circuit-v1",
+  "selected_source_count": 4,
+  "source_field_geometry": {
+    "Gf256": [
+      256,
+      [
+        10,
+        5,
+        2,
+        0
+      ]
+    ],
+    "Gf768": [
+      768,
+      [
+        19,
+        17,
+        4,
+        0
+      ]
+    ]
+  },
+  "source_sha256_after": {
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "docs/validation/parliament_ballot_ideal_sampler_accounting/report.json": "32f13e842ac39f7f3c3d08ae2135a8ebdffd442acc776002e2229c36610ad043",
+    "specs/parliament_ballot_b6_ideal_sampler_accounting.md": "c022d1f76360dfe4bdd6934fe352d5d87e7b9f63df3828608230f759cb1e22c5",
+    "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673"
+  },
+  "source_sha256_before": {
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "docs/validation/parliament_ballot_ideal_sampler_accounting/report.json": "32f13e842ac39f7f3c3d08ae2135a8ebdffd442acc776002e2229c36610ad043",
+    "specs/parliament_ballot_b6_ideal_sampler_accounting.md": "c022d1f76360dfe4bdd6934fe352d5d87e7b9f63df3828608230f759cb1e22c5",
+    "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673"
+  },
+  "verdict": "PASS_UNDER_STATED_PREMISES",
+  "whole_program_quantum_gate_bound": false
+}

@@ -226,10 +226,10 @@ fn mutation(original: &[u8], proof_length: usize, name: &str) -> Vec<u8> {
         "truncated-proof" => raw.truncate(320 + proof_length - 96),
         "identity-proof" => raw[320..352].fill(0),
         "noncanonical-scalar" => raw[320 + proof_length - 96..320 + proof_length - 64].fill(0xff),
-        "malformed-p" => raw[320 + proof_length..352 + proof_length].fill(0),
+        "malformed-p" => raw[320 + proof_length..352 + proof_length].fill(0xff),
         "malformed-v" => raw
             [320 + proof_length + ACCUMULATOR_BYTES..352 + proof_length + ACCUMULATOR_BYTES]
-            .fill(0),
+            .fill(0xff),
         "noncanonical-public" => raw[66..98].fill(0xff),
         _ => panic!("fixed case inventory"),
     }
@@ -393,7 +393,7 @@ impl NativeCases {
 }
 
 #[test]
-#[ignore = "current six-file Omega fixture + admitted native soft case outputs; five real VK keygens and fixed-k16 checks, no new proofs"]
+#[ignore = "current six-file Omega fixture + admitted native soft case outputs; three real VK keygens and fixed-k16 checks, no new proofs"]
 fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_outputs() {
     let fixture = real_sources::read_selected_fixture();
     let (binding, key) =
@@ -431,7 +431,8 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
     let (operation, _policy, selected_key) =
         real_sources::captured_operation(Variant::ArchiveReceive, binding.clone(), key.clone(), 12);
     assert_eq!(operation.frame().variant(), Variant::ArchiveReceive);
-    assert_eq!(operation.q_count(), 3);
+    // Lean: the incoming-only Q_sigma and the merged signature leaf.
+    assert_eq!(operation.q_count(), 2);
     assert_eq!(selected_key.to_bytes(), key.to_bytes());
     assert_eq!(operation.omega().unwrap().binding(), &binding);
     let decode_plan = IncomingTransportPlan::new(&operation).unwrap();
@@ -534,9 +535,9 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
     let foreign = DescriptorBinding::new_v2(foreign).unwrap();
     assert_ne!(foreign, binding);
     let original_program = base.operation.omega().unwrap();
-    let foreign_plan = AProofPlan::new(
+    let foreign_plan = AProofPlan::inline_with_incoming(
         Variant::ArchiveReceive,
-        base.operation.sigma.clone(),
+        base.operation.sigma_plan().unwrap().clone(),
         (0..base.operation.q_count())
             .map(|i| base.operation.q(i).unwrap().clone())
             .collect(),
@@ -569,7 +570,7 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
     }
     retain(&output, "result.json", &norito::json::to_vec(&norito::json!({
         "scope":"actual incoming transport/AProofPlan boundary; full ArchiveReceive/Receive operation and folds unqualified",
-        "k":16,"generated_proofs":0,"actual_plan_vk_keygens":5,"cases":observed,
+        "k":16,"generated_proofs":0,"actual_plan_vk_keygens":3,"cases":observed,
         "known_unknown_layout_equal":true,"actual_incoming_verify_chain":true,
         "forged_export_checks":(FORGED_INDICES.len()),"descriptor_mismatch_synthesis_error":true,
         "native_result_sha256":(hex(&sha(&native.originals[0].1))),
@@ -577,4 +578,23 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
         "descriptor_sha256":(hex(&sha(&fixture.originals[0]))),"key_sha256":(hex(&sha(&fixture.originals[1]))),
         "full_operation_chain_qualified":false
     })).unwrap());
+}
+
+#[test]
+fn malformed_claim_mutations_are_distinct_from_canonical_identity() {
+    let proof_length = 96;
+    let original = vec![0; 320 + proof_length + 2 * ACCUMULATOR_BYTES];
+    for (name, start) in [
+        ("malformed-p", 320 + proof_length),
+        ("malformed-v", 320 + proof_length + ACCUMULATOR_BYTES),
+    ] {
+        let changed = mutation(&original, proof_length, name);
+        assert_eq!(&changed[..start], &original[..start]);
+        assert_eq!(&changed[start + 32..], &original[start + 32..]);
+        let word: [u8; 32] = changed[start..start + 32].try_into().unwrap();
+        assert_eq!(word, [0xff; 32]);
+        assert!(iroha_plonk::transcript::decode_generator::<Ep>(&word).is_err());
+        assert!(iroha_plonk::transcript::decode_generator::<iroha_pasta::Eq>(&word).is_err());
+    }
+    // This all-zero input exercises byte selection only; it is not a genuine Omega proof.
 }

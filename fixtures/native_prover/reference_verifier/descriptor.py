@@ -130,7 +130,8 @@ class Descriptor:
     @property
     def permutation_sets(self):
         """Exact permutation product count from equality columns and degree."""
-        return (len(self['permutation']) + self['degree'] - 3) // (self['degree'] - 2)
+        chunk = self['permutation_chunk_len']
+        return (len(self['permutation']) + chunk - 1) // chunk
 
     @property
     def digest(self):
@@ -188,7 +189,7 @@ class Descriptor:
         require(len(pinned) == 1 and v['params_digest'].hex() == pinned[0]['sha256'],
                 'descriptor parameter identity')
         d = v['degree']
-        require(3 <= d <= 9 and v['permutation_chunk_len'] == d - 2 and
+        require(4 <= d <= 14 and v['permutation_chunk_len'] == (d - 2) // 2 and
                 v['quotient_pieces'] == d - 1, 'degree pieces')
         counts = [v['num_fixed_columns'], v['num_advice_columns'], len(v['instance_lengths'])]
         require(all(count <= MAX_COUNT for count in counts), 'column count')
@@ -215,7 +216,7 @@ class Descriptor:
             require(len(inputs) == len(outputs) and len(inputs) > 0, 'lookup width')
             a = max(self.expression(e) for e in inputs)
             s = max(self.expression(e) for e in outputs)
-            require(max(4, 2 + max(1, a) + max(1, s)) <= d, 'lookup degree')
+            require(max(6, 2 + 2 * (max(1, a) + max(1, s))) <= d, 'lookup degree')
         nz, nl = self.permutation_sets, len(v['lookups'])
         if nz + nl:
             rotations.add(1)

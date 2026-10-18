@@ -1,9 +1,9 @@
 //! Fixed policy-update owners over exact original objects and recursive context.
 //!
 //! Every kind authenticates both the update and the current credential under
-//! direct, purpose-scoped root certificates. State effects, blacklist insertion
-//! and the fixed64 quota rebuild consume those same context-bound object fields.
-//! The shared tag7 sigma class proves all five state-effect branches under one
+//! direct, purpose-scoped root certificates. State effects and the fixed64 quota
+//! rebuild consume those same context-bound object fields.
+//! The shared tag7 sigma class proves all four state-effect branches under one
 //! fixed key. TODO: compose and qualify complete genuine Q/A/W chains before
 //! admitting any Refresh terminal key or wallet producer.
 
@@ -21,7 +21,7 @@ use super::{
 };
 use crate::{
     operation_relation::{
-        map_effects::{InsertCells, MapEffectsChip, MapState, MapTransition},
+        map_effects::{MapState, MapTransition},
         objects::{
             ObjectKind, SignedObjectCells,
             credential::{CredentialAuthorization, CredentialCells},
@@ -39,7 +39,6 @@ fn update_kind(variant: Variant) -> Result<ObjectKind, Error> {
     match variant {
         Variant::RefreshCredential => Ok(ObjectKind::Credential),
         Variant::RefreshSchemePolicy => Ok(ObjectKind::SchemePolicy),
-        Variant::RefreshBlacklist => Ok(ObjectKind::Blacklist),
         Variant::RefreshQuotaShare => Ok(ObjectKind::QuotaShare),
         Variant::RefreshTimeAnchor => Ok(ObjectKind::TimeAnchor),
         _ => Err(Error::Synthesis),
@@ -512,13 +511,11 @@ pub struct RefreshStageWitness<'a> {
     pub sigma: Option<&'a SigmaBindingCells>,
     /// Hard Q1 update/receipt/certificate or hard Q2 current credential/certificate.
     pub signatures: Option<&'a SignatureQCells>,
-    /// Mandatory new-version history insertion for the Blacklist map owner.
-    pub blacklist: Option<&'a InsertCells>,
     /// All578 original words, mandatory at each quota root/merge owner.
     pub quota: Option<&'a QuotaRebuildCells>,
 }
 
-/// Mandatory fixed owners and signature schemas for all five policy updates.
+/// Mandatory fixed owners and signature schemas for all four policy updates.
 #[derive(Clone, Debug)]
 pub struct RefreshStagePlan {
     context: ContextPlan,
@@ -636,7 +633,6 @@ impl RefreshStagePlan {
         if input.own_statement.variant() != self.context.operation().frame().variant()
             || update != witness.sigma.is_some()
             || (update || current) != witness.signatures.is_some()
-            || tasks.contains(&OperationTask::RefreshBlacklist) != witness.blacklist.is_some()
             || quota_owner != witness.quota.is_some()
             || (objects.objects.is_none() && !RefreshObjects::quota_root_only(&self.context, stage))
         {
@@ -674,7 +670,7 @@ impl RefreshStagePlan {
             super::bind_sigma(
                 chip,
                 region,
-                &self.context.operation().sigma,
+                self.context.operation().own_sigma()?,
                 input.q_instances.first().ok_or(Error::Synthesis)?,
                 core::slice::from_ref(sigma),
             )?;
@@ -706,14 +702,6 @@ impl RefreshStagePlan {
                     input,
                     witness.signatures.ok_or(Error::Synthesis)?,
                 )?,
-                OperationTask::RefreshBlacklist => {
-                    let lanes = chip.operation_lanes()?;
-                    MapEffectsChip::new(lanes.glue, lanes.range, lanes.hash).refresh_blacklist(
-                        region,
-                        &transition,
-                        witness.blacklist.ok_or(Error::Synthesis)?,
-                    )?;
-                }
                 OperationTask::RefreshQuotaMerge => {
                     let quota = witness.quota.ok_or(Error::Synthesis)?;
                     objects.bind_quota_witness(chip, region, quota, *task)?;

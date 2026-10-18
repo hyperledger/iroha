@@ -884,8 +884,23 @@ def test_workspace_evidence_must_show_exact_reuse(index, field, bad):
     assert "quotient workspace not retained and reused between proofs" in reasons
 
 
-@pytest.mark.parametrize("name", ["CARGO_BUILD_RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER"])
-def test_compiler_configuration_wrapper_override_is_refused(tmp_path, monkeypatch, name):
+COMPILER_OVERRIDE_VARIABLES = (
+    "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_BUILD_RUSTC",
+    "CARGO_BUILD_RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+)
+
+
+@pytest.fixture
+def clean_compiler_environment(monkeypatch):
+    """Keep mocked tool selection independent of the real test runner's compiler."""
+    for name in COMPILER_OVERRIDE_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("name", COMPILER_OVERRIDE_VARIABLES)
+def test_compiler_configuration_wrapper_override_is_refused(
+    tmp_path, monkeypatch, name, clean_compiler_environment
+):
     tool = tmp_path / "tool"
     tool.write_bytes(b"selected binary")
     monkeypatch.setattr(qualify.shutil, "which", lambda _name: str(tool))
@@ -897,7 +912,9 @@ def test_compiler_configuration_wrapper_override_is_refused(tmp_path, monkeypatc
         qualify.tool_identity()
 
 
-def test_tool_identity_binds_auto_cache_and_script_interpreters(tmp_path, monkeypatch):
+def test_tool_identity_binds_auto_cache_and_script_interpreters(
+    tmp_path, monkeypatch, clean_compiler_environment
+):
     tool = tmp_path / "tool"
     tool.write_bytes(b"selected binary")
     wrapper = tmp_path / "sccache"

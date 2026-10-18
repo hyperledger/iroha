@@ -1,0 +1,136 @@
+.........................................FFF...........                  [100%]
+=================================== FAILURES ===================================
+__________ test_each_budget_refused_before_mutation_or_factory[valid] __________
+
+source = Source(root=PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/capture/source'), catalog=Cat...iament-sequential-composition-stage/sequence.py', '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131')))
+category = 'valid'
+
+    @pytest.mark.parametrize('category',['valid','invalid','query'])
+    def test_each_budget_refused_before_mutation_or_factory(source,category):
+        changes = dict(valid=0,invalid=0,queries=0)
+        arena = ready(source,**changes)
+        before = (arena.trace,arena.counts,arena.phase)
+        with patch.object(a,'actual_transition',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_rejected_vote',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_lookup',side_effect=AssertionError('no factory')):
+            with pytest.raises(ValueError,match='budget exhausted'):
+>               if category == 'valid':arena.bind_reg(a.PublicShape('REG'),entry_contract=a.VALID)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+target/parliament-adaptive-arena-stage/test_arena.py:189: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+target/parliament-adaptive-arena-stage/arena.py:389: in bind_reg
+    self._preflight('valid')
+target/parliament-adaptive-arena-stage/arena.py:334: in _preflight
+    self.plan.source.verify()
+target/parliament-adaptive-arena-stage/arena.py:144: in verify
+    require(function.__globals__ is module.__dict__, 'factory module globals identity')
+            ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='actual_transition' id='4579719632'>
+name = '__globals__'
+
+    def __getattr__(self, name):
+        if name in {'_mock_methods', '_mock_unsafe'}:
+            raise AttributeError(name)
+        elif self._mock_methods is not None:
+            if name not in self._mock_methods or name in _all_magics:
+                raise AttributeError("Mock object has no attribute %r" % name)
+        elif _is_magic(name):
+>           raise AttributeError(name)
+E           AttributeError: __globals__
+
+/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py:655: AttributeError
+_________ test_each_budget_refused_before_mutation_or_factory[invalid] _________
+
+source = Source(root=PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/capture/source'), catalog=Cat...iament-sequential-composition-stage/sequence.py', '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131')))
+category = 'invalid'
+
+    @pytest.mark.parametrize('category',['valid','invalid','query'])
+    def test_each_budget_refused_before_mutation_or_factory(source,category):
+        changes = dict(valid=0,invalid=0,queries=0)
+        arena = ready(source,**changes)
+        before = (arena.trace,arena.counts,arena.phase)
+        with patch.object(a,'actual_transition',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_rejected_vote',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_lookup',side_effect=AssertionError('no factory')):
+            with pytest.raises(ValueError,match='budget exhausted'):
+                if category == 'valid':arena.bind_reg(a.PublicShape('REG'),entry_contract=a.VALID)
+>               elif category == 'invalid':arena.bind_rejected(0,entry_contract=a.REJECTED)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+target/parliament-adaptive-arena-stage/test_arena.py:190: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+target/parliament-adaptive-arena-stage/arena.py:411: in bind_rejected
+    self._preflight('invalid')
+target/parliament-adaptive-arena-stage/arena.py:334: in _preflight
+    self.plan.source.verify()
+target/parliament-adaptive-arena-stage/arena.py:144: in verify
+    require(function.__globals__ is module.__dict__, 'factory module globals identity')
+            ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='actual_transition' id='4532063632'>
+name = '__globals__'
+
+    def __getattr__(self, name):
+        if name in {'_mock_methods', '_mock_unsafe'}:
+            raise AttributeError(name)
+        elif self._mock_methods is not None:
+            if name not in self._mock_methods or name in _all_magics:
+                raise AttributeError("Mock object has no attribute %r" % name)
+        elif _is_magic(name):
+>           raise AttributeError(name)
+E           AttributeError: __globals__
+
+/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py:655: AttributeError
+__________ test_each_budget_refused_before_mutation_or_factory[query] __________
+
+source = Source(root=PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/capture/source'), catalog=Cat...iament-sequential-composition-stage/sequence.py', '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131')))
+category = 'query'
+
+    @pytest.mark.parametrize('category',['valid','invalid','query'])
+    def test_each_budget_refused_before_mutation_or_factory(source,category):
+        changes = dict(valid=0,invalid=0,queries=0)
+        arena = ready(source,**changes)
+        before = (arena.trace,arena.counts,arena.phase)
+        with patch.object(a,'actual_transition',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_rejected_vote',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_lookup',side_effect=AssertionError('no factory')):
+            with pytest.raises(ValueError,match='budget exhausted'):
+                if category == 'valid':arena.bind_reg(a.PublicShape('REG'),entry_contract=a.VALID)
+                elif category == 'invalid':arena.bind_rejected(0,entry_contract=a.REJECTED)
+>               else:arena.bind_lookup(query_contract=a.QUERY)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+target/parliament-adaptive-arena-stage/test_arena.py:191: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+target/parliament-adaptive-arena-stage/arena.py:420: in bind_lookup
+    self._preflight('query')
+target/parliament-adaptive-arena-stage/arena.py:334: in _preflight
+    self.plan.source.verify()
+target/parliament-adaptive-arena-stage/arena.py:144: in verify
+    require(function.__globals__ is module.__dict__, 'factory module globals identity')
+            ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <MagicMock name='actual_transition' id='4680140816'>
+name = '__globals__'
+
+    def __getattr__(self, name):
+        if name in {'_mock_methods', '_mock_unsafe'}:
+            raise AttributeError(name)
+        elif self._mock_methods is not None:
+            if name not in self._mock_methods or name in _all_magics:
+                raise AttributeError("Mock object has no attribute %r" % name)
+        elif _is_magic(name):
+>           raise AttributeError(name)
+E           AttributeError: __globals__
+
+/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py:655: AttributeError
+=========================== short test summary info ============================
+FAILED ../../../../../../../../dev::test_each_budget_refused_before_mutation_or_factory[valid]
+FAILED ../../../../../../../../dev::test_each_budget_refused_before_mutation_or_factory[invalid]
+FAILED ../../../../../../../../dev::test_each_budget_refused_before_mutation_or_factory[query]
+3 failed, 52 passed in 67.01s (0:01:07)

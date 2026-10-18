@@ -403,3 +403,63 @@ fn wallet_advance_v1_native_clock_preserves_unavailability_and_custody() {
         (0, 0, 0)
     );
 }
+
+#[test]
+fn wallet_advance_v1_live_enrollment_clock_preserves_both_custody_brackets() {
+    let device = device();
+    let provider = device.open();
+    device.platform.with(|state| {
+        state.boot = Err(KagemushaWalletUnavailableV1::Io(1));
+        state.monotonic = Err(KagemushaWalletUnavailableV1::Busy);
+    });
+    assert!(matches!(
+        provider.live_enrollment_reading(),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Busy
+        ))
+    ));
+    device
+        .platform
+        .with(|state| state.live_enrollment_native_clock = true);
+    let start = provider.live_enrollment_reading().unwrap();
+    assert!(matches!(
+        start,
+        super::super::LiveEnrollmentReadingV1::Native(_)
+    ));
+    assert!(
+        provider
+            .live_enrollment_reading()
+            .unwrap()
+            .elapsed_since(&start)
+            .is_ok()
+    );
+    assert!(matches!(
+        provider.monotonic_reading(),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Io(1)
+        ))
+    ));
+    assert_eq!(kagemusha_wallet_boot_stamp_v1(&provider.boot()), [0; 32]);
+    assert!(kagemusha_wallet_written_this_boot_v1(
+        &[0x99; 32],
+        &provider.boot()
+    ));
+    for successful_storage_checks in [0, 1] {
+        device.platform.with(|state| {
+            state.storage = Ok(());
+            state.storage_lock_after = Some(successful_storage_checks);
+        });
+        assert!(matches!(
+            provider.live_enrollment_reading(),
+            Err(KagemushaWalletProviderErrorV1::Unavailable(
+                KagemushaWalletUnavailableV1::Locked
+            ))
+        ));
+    }
+    assert_eq!(
+        device
+            .platform
+            .with(|state| (state.generate_calls, state.sign_calls, state.delete_calls)),
+        (0, 0, 0)
+    );
+}

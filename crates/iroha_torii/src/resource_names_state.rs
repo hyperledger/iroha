@@ -1,10 +1,11 @@
-//! Challenge-bound complete native resource-name originals for a full-ledger reader.
+//! Challenge-bound complete native resource-name originals for an authorized certified-original reader.
 //!
 //! This route publishes data under current permission, never a permission grant or
 //! finality/ownership fact. Every original is borrowed from one certified applied cut
 //! and output keeps the aggregate finite pool through egress.
 
 use super::*;
+use crate::certified_originals_auth::{authenticate, require_permission};
 use crate::native_projection_response::{capacity, encode, native_committee_original_bytes};
 use iroha_core::{
     state::AllocationBudget,
@@ -40,7 +41,7 @@ async fn handle(
 ) -> Result<AxResponse, Error> {
     let principal = validate_api_token(app.as_ref(), &headers)?.authenticated_principal();
     let challenge = validate_request_target(&headers, &method, &uri, &challenge_literal)?;
-    let account = authenticate_full_ledger_carrier_reader(&app, &headers, &method, &uri)?;
+    let account = authenticate(&app, &headers, &method, &uri, &[])?;
     let capture_authority = account.clone();
     let format = match negotiate_heavy_query_response_format(&headers) {
         Ok(format) => format,
@@ -215,7 +216,7 @@ async fn handle(
     .await?;
     // Authorization is current, not an archived grant. A revocation while
     // work was queued or encoded refuses before any private body is delivered.
-    require_full_ledger_carrier_permission(&app, &account)?;
+    require_permission(&app, &account)?;
     let mut response = proof_response_with_exact_egress(
         app.as_ref(),
         &headers,
@@ -225,7 +226,7 @@ async fn handle(
         true,
     )
     .await?;
-    require_full_ledger_carrier_permission(&app, &account)?;
+    require_permission(&app, &account)?;
     response.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-store"),

@@ -489,9 +489,9 @@ public struct ToriiGovernanceRuntimeUpgradeManifest: Decodable, Sendable, Equata
 /// - `network_id` is a canonical `NetworkId` literal;
 /// - `base_revisions` holds 1...16 exact `{subject, revision}` entries, where
 ///   `revision` is an exact unsigned JSON integer and `subject` is `route`,
-///   `route_control` or `light_client` keyed by an external network with a null
-///   profile, `parameters` with a null key, or `bridge_key_fault` keyed by a
-///   canonical BLS validator id;
+///   `route_control`, `light_client`, `forgery_hold`, `fast_hold` or
+///   `fast_pause_control` keyed by an external network with a null profile, or
+///   `parameters` with a null key;
 /// - `actions` holds 1...16 exact `{action, payload}` entries with a known action
 ///   tag and a JSON object payload.
 // TODO: decode each action `payload` into its typed `SccpGovernanceActionV1` body and
@@ -513,8 +513,9 @@ public struct ToriiGovernanceSccpRouteProposal: Decodable, Sendable, Equatable {
         "register_route", "activate_revision", "switch_revision", "deactivate_outbound",
         "retire_revision", "remove_staged", "release_stranded", "set_taira_paused",
         "set_destination_paused", "initialize_light_client", "install_trusted_checkpoint",
-        "freeze_light_client", "set_parameters", "clear_bridge_key_fault",
-        "activate_light_client_profile",
+        "freeze_light_client", "set_parameters", "activate_light_client_profile",
+        "attest_deployment_progress", "quarantine_revision", "open_reconciliation",
+        "set_fast_pause_suspended",
     ]
 
     public init(from decoder: Decoder) throws {
@@ -606,7 +607,7 @@ public struct ToriiGovernanceSccpRouteProposal: Decodable, Sendable, Equatable {
             throw invalid("\(label).subject is unknown", codingPath)
         }
         switch tag {
-        case "route", "route_control", "light_client":
+        case "route", "route_control", "light_client", "forgery_hold", "fast_hold", "fast_pause_control":
             let key = try exactObject(
                 subject["key"],
                 fields: ["network", "profile"],
@@ -624,25 +625,8 @@ public struct ToriiGovernanceSccpRouteProposal: Decodable, Sendable, Equatable {
             guard case .null? = subject["key"] else {
                 throw invalid("\(label).key must be null", codingPath)
             }
-        case "bridge_key_fault":
-            guard case let .string(peer)? = subject["key"], isCanonicalBlsValidatorId(peer) else {
-                throw invalid("\(label).key must be a canonical BLS validator id", codingPath)
-            }
         default:
             throw invalid("\(label).subject is unknown", codingPath)
-        }
-    }
-
-    /// Matches `ea0130` followed by 96 uppercase hex digits, the multihash form of a BLS
-    /// validator public key.
-    private static func isCanonicalBlsValidatorId(_ value: String) -> Bool {
-        let prefix = "ea0130"
-        let bytes = Array(value.utf8)
-        guard bytes.count == prefix.utf8.count + 96, value.hasPrefix(prefix) else {
-            return false
-        }
-        return bytes.dropFirst(prefix.utf8.count).allSatisfy {
-            (0x30...0x39).contains($0) || (0x41...0x46).contains($0)
         }
     }
 

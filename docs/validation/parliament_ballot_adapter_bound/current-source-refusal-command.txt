@@ -1,0 +1,5 @@
+{
+  "verdict": "UNKNOWN",
+  "failure": "ValueError: inherited source/tool input changed: /Users/mtakemiya/dev/iroha/Cargo.lock",
+  "input_changes": {}
+}

@@ -44,7 +44,7 @@ pub(super) fn exercise(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     let committed = wallet.snapshot().unwrap();
     assert_eq!(committed.sequence, before.sequence.checked_add(1).unwrap());

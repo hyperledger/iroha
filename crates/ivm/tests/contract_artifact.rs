@@ -1,4 +1,5 @@
 //! Admission coverage for authenticated V1 contract metadata and callable-table rules.
+use crate::common;
 use iroha_data_model::{
     smart_contract::entrypoint::{
         EntrypointArgumentFieldV1, EntrypointArgumentSchemaV1, EntrypointListTypeNodeV1,
@@ -11,7 +12,6 @@ use iroha_data_model::{
     },
     trigger::{TriggerId, action::Repeats},
 };
-mod common;
 fn time_trigger(id: &str, namespace: Option<&str>, entrypoint: &str) -> TriggerDescriptor {
     TriggerDescriptor {
         id: TriggerId::new(id.parse().expect("trigger id")),

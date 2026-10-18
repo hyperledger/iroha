@@ -93,7 +93,7 @@ impl WalletFixtureV1 {
         boot: [u8; 32],
         anchor: KagemushaWalletAnchorPolicyV1,
     ) -> KagemushaWalletMarkerRecordV1 {
-        KagemushaWalletMarkerRecordV1::new(self.slot, self.enrollment, anchor, None, boot)
+        KagemushaWalletMarkerRecordV1::new(self.slot, &self.enrollment, anchor, None, boot)
             .expect("enrollment record")
     }
 }
@@ -194,10 +194,6 @@ fn state_for(
             enabled_controls: 0,
             quota_windows_root: [0; 32],
             quota_share_expires_at_ms: 0,
-            blacklist_version: 0,
-            blacklist_root: [0; 32],
-            blacklist_issued_at_ms: 0,
-            blacklist_max_age_ms: 0,
             lease_expires_at_ms: 0,
             policy_epoch: 0,
             accepted_time_floor_ms: 0,
@@ -208,8 +204,6 @@ fn state_for(
             permitted_controls: 0,
             scheme_policy: [0; 32],
             fee_schedule: [0; 32],
-            blacklist: [0; 32],
-            blacklist_history_root: field_value(0x37),
             quota_share: [0; 32],
             quota_share_id: 0,
             time_anchor: [0; 32],
@@ -485,6 +479,10 @@ pub(super) struct FakeStateV1 {
     pub(super) monotonic: Result<u64, KagemushaWalletUnavailableV1>,
     pub(super) monotonic_script:
         std::collections::VecDeque<Result<u64, KagemushaWalletUnavailableV1>>,
+    /// Use the actual native E1 clock instead of the scripted test reading.
+    pub(super) live_enrollment_native_clock: bool,
+    /// Transient simulated E1 clock domain, independent of the custody boot identity.
+    pub(super) live_enrollment_clock_domain: [u8; 32],
     /// Change the boot result during the next clock read to detect mixed observations.
     pub(super) boot_after_monotonic: Option<Result<[u8; 32], KagemushaWalletUnavailableV1>>,
     /// Storage state answer.
@@ -553,7 +551,7 @@ pub(super) struct FakeStateV1 {
 /// Fake platform: software P-256 keys with randomized signatures, an in-memory keychain and
 /// injectable unavailability. Clones share state; [`Self::fork`] copies it.
 #[derive(Debug, Clone)]
-pub(super) struct FakePlatformV1 {
+pub(crate) struct FakePlatformV1 {
     state: Arc<Mutex<FakeStateV1>>,
 }
 
@@ -571,6 +569,8 @@ impl FakePlatformV1 {
                 monotonic: Ok(1_000),
                 monotonic_script: std::collections::VecDeque::new(),
                 boot_after_monotonic: None,
+                live_enrollment_native_clock: false,
+                live_enrollment_clock_domain: [0xe1; 32],
                 storage: Ok(()),
                 storage_lock_after: None,
                 probe_unavailable: false,
@@ -919,6 +919,28 @@ impl KagemushaWalletPlatformV1 for FakePlatformV1 {
 
     fn boot_id(&self) -> Result<[u8; 32], KagemushaWalletUnavailableV1> {
         self.with(|state| state.boot)
+    }
+
+    fn live_enrollment_clock_for_test(
+        &self,
+    ) -> Option<Result<([u8; 32], u128), KagemushaWalletUnavailableV1>> {
+        self.with(|state| {
+            if state.live_enrollment_native_clock {
+                return None;
+            }
+            Some(
+                state
+                    .monotonic_script
+                    .pop_front()
+                    .unwrap_or(state.monotonic)
+                    .map(|ms| {
+                        (
+                            state.live_enrollment_clock_domain,
+                            u128::from(ms) * 1_000_000,
+                        )
+                    }),
+            )
+        })
     }
 
     fn monotonic_ms(&self) -> Result<u64, KagemushaWalletUnavailableV1> {
@@ -1298,4 +1320,51 @@ pub(super) fn bootstrapped_device(
             .expect("bootstrap"),
     );
     (device, f, slot, capsule)
+}
+
+/// Provider over any filesystem `fs` (the simulator or a real root) after enrollment and
+/// Bootstrap of fixture `seed`, with its fake platform, slot and Bootstrap capsule. Storage
+/// measurements of the state owner use it; the platform has no simulator signing guard.
+pub(crate) fn bootstrapped_provider<F: super::KagemushaWalletFsV1>(
+    fs: F,
+    policy: KagemushaWalletAnchorPolicyV1,
+    seed: u8,
+) -> (
+    super::KagemushaWalletProviderV1<F, FakePlatformV1>,
+    FakePlatformV1,
+    KagemushaWalletSlotIdV1,
+    KagemushaWalletRecoveryCapsuleV1,
+) {
+    let platform = FakePlatformV1::new(policy, seed);
+    let mut provider =
+        super::KagemushaWalletProviderV1::open(fs, platform.clone(), SCHEME, test_options())
+            .expect("open");
+    let super::KagemushaWalletEnrollmentStepV1::Enrolled { slot, .. } = provider
+        .test_begin_enrollment(
+            &enrollment_challenge(seed),
+            PROFILE,
+            super::KagemushaWalletEnrollmentDatesV1 {
+                issued_at_ms: 1,
+                expires_at_ms: 600_001,
+            },
+        )
+        .expect("begin")
+    else {
+        panic!("not enrolled");
+    };
+    provider
+        .retain_enrollment_request(&slot, b"request")
+        .expect("request");
+    provider
+        .store_credential(&slot, 0, b"credential")
+        .expect("credential");
+    let current = provider.status(&slot).expect("status");
+    let capsule = bootstrap_capsule(&wallet_fixture(seed));
+    let request = advance_request(current.marker().expect("marker"), &capsule);
+    released(
+        provider
+            .advance(&slot, &TestOwnerV1, &request)
+            .expect("bootstrap"),
+    );
+    (provider, platform, slot, capsule)
 }

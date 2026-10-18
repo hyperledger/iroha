@@ -681,3 +681,262 @@ fn retained_semantic_heap_comparisons_have_an_exact_finite_ceiling() {
         }
     }
 }
+
+#[test]
+fn ordinal_encoder_admits_count_before_backing_and_retains_refused_planning_work() {
+    let budget = AllocationBudget::new(1024 * 1024);
+    let scope = budget.try_owned_refund_scope().unwrap();
+    let baseline = budget.reserved_bytes();
+    let physical = allocations_during(|| {
+        assert!(matches!(
+            RetainedSemanticOrdinalRows::new(TABLE, IDENTITY, limits(), 9, &scope),
+            Err(RetainedSemanticError::Table(LeafError::RowLimit))
+        ));
+    });
+    assert_eq!(physical, 0);
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let mut rows = RetainedSemanticOrdinalRows::new(TABLE, IDENTITY, limits(), 2, &scope).unwrap();
+    let selector = setup_selector_work(TABLE).unwrap();
+    assert!(
+        matches!(rows.prepare(selector), Err(RetainedSemanticError::Work { used, .. }) if used == selector)
+    );
+    assert_eq!(rows.progress().work, selector);
+    assert_eq!(rows.next_row(), 0);
+    assert!(!rows.pending_digest());
+    assert!(rows.snapshot().is_none());
+    let before = rows.progress();
+    assert_eq!(
+        allocations_during(|| {
+            assert!(matches!(
+                rows.prepare(before.work),
+                Err(RetainedSemanticError::Work { .. })
+            ));
+        }),
+        0
+    );
+    assert_eq!(rows.progress(), before);
+    let (key, value) = closed_setup_literal(TABLE).unwrap();
+    let exact = selector + setup_registry_work(key, value).unwrap();
+    for limit in [selector + 1, exact - 1] {
+        assert!(
+            matches!(rows.prepare(limit), Err(RetainedSemanticError::Work { used, required, .. })
+            if used == selector && required == exact),
+            "completed selector must survive insufficient cumulative grants"
+        );
+        assert_eq!(
+            rows.progress(),
+            before,
+            "completed selector cannot be spent again"
+        );
+    }
+    rows.prepare(exact).unwrap();
+    assert_eq!(rows.progress().work, exact);
+    assert!(rows.progress().work > before.work);
+    let prepared = rows.progress();
+    rows.prepare(prepared.work).unwrap();
+    assert_eq!(rows.progress(), prepared);
+    assert!(matches!(
+        rows.finish(usize::MAX),
+        Err(RetainedSemanticError::Phase)
+    ));
+    drop(rows);
+    drop(scope);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn ordinal_pending_digest_resumes_without_original_key_value_or_reencoding() {
+    let keys = keys();
+    let values = [11, 22];
+    let oracle_pool = AllocationBudget::new(1024 * 1024);
+    let oracle = original_snapshot(&keys, &values, &oracle_pool);
+    let budget = AllocationBudget::new(1024 * 1024);
+    let scope = budget.try_owned_refund_scope().unwrap();
+    let mut rows = RetainedSemanticOrdinalRows::new(TABLE, IDENTITY, limits(), 2, &scope).unwrap();
+    rows.prepare(usize::MAX).unwrap();
+    rows.push(&keys[0], || values[0], usize::MAX).unwrap();
+    let first = rows.builder.as_ref().unwrap().encoded.as_slice()[0]
+        .key
+        .as_slice()
+        .as_ptr();
+    let key_bytes = norito::codec::encode_adaptive(&keys[1]).len();
+    let limit = budget.limit_bytes();
+    let occupied = budget
+        .try_reserve_bytes(limit - budget.reserved_bytes() - key_bytes)
+        .unwrap();
+    let calls = Cell::new(0);
+    assert!(matches!(
+        rows.push(
+            &keys[1],
+            || {
+                calls.set(calls.get() + 1);
+                values[1]
+            },
+            usize::MAX
+        ),
+        Err(RetainedSemanticError::Table(LeafError::Admission(
+            AllocationRefusal::Capacity { .. }
+        )))
+    ));
+    assert_eq!(calls.get(), 1);
+    assert_eq!(rows.next_row(), 1);
+    assert!(rows.pending_digest());
+    let pending = rows
+        .builder
+        .as_ref()
+        .unwrap()
+        .pending_row
+        .as_ref()
+        .unwrap()
+        .key
+        .as_slice()
+        .as_ptr();
+    let before = rows.progress();
+    assert_eq!(
+        allocations_during(|| {
+            assert!(matches!(
+                rows.resume_pending(before.work),
+                Err(RetainedSemanticError::Work { .. })
+            ));
+        }),
+        0
+    );
+    assert_eq!(rows.progress(), before);
+    assert_eq!(
+        rows.builder.as_ref().unwrap().encoded.as_slice()[0]
+            .key
+            .as_slice()
+            .as_ptr(),
+        first
+    );
+    assert_eq!(
+        rows.builder
+            .as_ref()
+            .unwrap()
+            .pending_row
+            .as_ref()
+            .unwrap()
+            .key
+            .as_slice()
+            .as_ptr(),
+        pending
+    );
+    drop(occupied);
+    rows.resume_pending(usize::MAX).unwrap();
+    assert_eq!(calls.get(), 1);
+    assert_eq!(rows.next_row(), 2);
+    assert!(!rows.pending_digest());
+    assert!(matches!(
+        rows.push(&keys[0], || 99_u32, usize::MAX),
+        Err(RetainedSemanticError::Phase)
+    ));
+    assert!(rows.finish(usize::MAX).unwrap().complete);
+    let snapshot = rows.snapshot().unwrap();
+    assert_eq!(snapshot.root(), oracle.root());
+    assert_eq!(snapshot.lookup_root(), oracle.lookup_root());
+    assert_eq!(snapshot.ordered_root(), oracle.ordered_root());
+    let complete = rows.progress();
+    rows.finish(complete.work).unwrap();
+    assert_eq!(rows.progress(), complete);
+    drop(scope);
+    assert!(budget.reserved_bytes() > 0);
+    drop(rows);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn ordinal_empty_table_keeps_original_scope_and_matches_canonical_empty_root() {
+    let budget = AllocationBudget::new(1024 * 1024);
+    let scope = budget.try_owned_refund_scope().unwrap();
+    let mut rows = RetainedSemanticOrdinalRows::new(TABLE, IDENTITY, limits(), 0, &scope).unwrap();
+    rows.prepare(usize::MAX).unwrap();
+    assert!(rows.finish(usize::MAX).unwrap().complete);
+    let oracle_budget = AllocationBudget::new(1024 * 1024);
+    let oracle = original_snapshot(&[], &[], &oracle_budget);
+    assert_eq!(rows.snapshot().unwrap().root(), oracle.root());
+    assert_eq!(rows.snapshot().unwrap().row_count(), 0);
+    assert!(matches!(
+        rows.resume_pending(usize::MAX),
+        Err(RetainedSemanticError::Phase)
+    ));
+    drop(scope);
+    drop(rows);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn retained_sort_geometry_survives_exact_cumulative_work_refusal() {
+    let keys = keys();
+    let budget = AllocationBudget::new(1024 * 1024);
+    let scope = budget.try_owned_refund_scope().unwrap();
+    let mut rows = RetainedSemanticOrdinalRows::new(TABLE, IDENTITY, limits(), 2, &scope).unwrap();
+    rows.prepare(usize::MAX).unwrap();
+    for (index, key) in keys.iter().enumerate() {
+        rows.push(key, || u32::try_from(index).unwrap(), usize::MAX)
+            .unwrap();
+    }
+    let after_geometry = rows.progress().work + SORT_BOUND_STEP;
+    assert!(matches!(
+        rows.finish(after_geometry),
+        Err(RetainedSemanticError::Work { .. })
+    ));
+    assert!(!rows.progress().sorted);
+    assert!(rows.progress().rows_sealed);
+    assert_eq!(rows.progress().work, after_geometry);
+    let sort_work = rows.builder.as_ref().unwrap().sort_plan.unwrap();
+    assert!(sort_work > 0);
+    for limit in [after_geometry, after_geometry + sort_work - 1] {
+        assert!(
+            matches!(rows.finish(limit), Err(RetainedSemanticError::Work { used, required, .. })
+            if used == after_geometry && required == after_geometry + sort_work),
+            "completed sort geometry must survive insufficient cumulative grants"
+        );
+        assert_eq!(rows.progress().work, after_geometry);
+    }
+    assert!(matches!(
+        rows.finish(after_geometry + sort_work),
+        Err(RetainedSemanticError::Work { .. })
+    ));
+    assert!(
+        rows.progress().sorted,
+        "the exact allowance completes sort without repeating its geometry"
+    );
+    assert_eq!(rows.progress().work, after_geometry + sort_work);
+    assert!(rows.finish(usize::MAX).unwrap().complete);
+}
+
+#[test]
+fn configured_encoding_quantum_covers_three_single_row_canonical_kernel_bounds() {
+    let policy = iroha_config::parameters::actual::StateCapture::default();
+    assert_eq!(
+        policy.table_rows,
+        u64::try_from(MAX_NORITO_TREE_ENTRIES).unwrap()
+    );
+    assert_eq!(policy.table_payload_bytes, MAX_NORITO_VALUE_BYTES);
+    assert_eq!(policy.table_ordered_bytes, MAX_NORITO_TREE_PAYLOAD_BYTES);
+    let limits = LeafLimits {
+        max_tables: policy.table_count,
+        max_rows: 1,
+        max_payload_bytes: policy.table_payload_bytes,
+        max_ordered_table_bytes: policy.table_ordered_bytes,
+        max_streamed_value_bytes: policy.table_streamed_value_bytes,
+    };
+    // One quantum targets three worst-case bounded rows plus actual catalog setup.
+    // Larger tables resume; this calculation neither grants runtime work nor money.
+    let mut bound = 0usize;
+    for table in [
+        "world.musubi_archive_availability",
+        "world.musubi_resolver_index",
+        "world.musubi_public_directory",
+    ] {
+        let (key, value) = closed_setup_literal(table).unwrap();
+        let framing = key.len() + value.len() + table.len() + 256;
+        bound += setup_selector_work(table).unwrap()
+            + setup_registry_work(key, value).unwrap()
+            + finite_work_bound(limits, framing).unwrap();
+    }
+    assert!(
+        bound <= policy.encoding_work_per_attempt,
+        "default encoding quantum must cover its documented three bounded rows: {bound}"
+    );
+}

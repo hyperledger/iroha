@@ -108,10 +108,10 @@ fn actual_root_spki_products_match_rfc_and_ca_and_reject_retired_channel() {
             &ca_trace,
             &sha_schedule,
             sha_challenges,
-            io_challenges,
+            &io_challenges,
         )
         .unwrap();
-        let rfc = zk_x509_rfc5280_output_terminals_v1(&rfc_trace, io_challenges).unwrap();
+        let rfc = zk_x509_rfc5280_output_terminals_v1(&rfc_trace, &io_challenges).unwrap();
         let role = ZkX509Rfc5280OutputRoleV1::GovernedTrustAnchor;
         let role_index = output_role_index_v1(role);
         let witnesses = rfc5280_io_witnesses_v1(&rfc_trace, 0).unwrap();
@@ -149,7 +149,7 @@ fn actual_root_spki_products_match_rfc_and_ca_and_reject_retired_channel() {
                             byte,
                             false,
                             lane,
-                            io_challenges,
+                            &io_challenges,
                         )
                         .unwrap(),
                     )

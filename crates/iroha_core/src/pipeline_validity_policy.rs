@@ -65,6 +65,7 @@ pub fn policy_of(pipeline: &Pipeline) -> PipelineValidityPolicyV1 {
         cache_size: _,                   // local resource
         ivm_cache_max_decoded_ops: _,    // local resource
         ivm_cache_max_bytes: _,          // local resource
+        state_capture: _,                // local resource: capture refusal/scheduling only
         ivm_execution_max_bytes: _,      // local resource: refusal defers, never rejects
         ivm_prover_threads: _,           // local resource
         overlay_max_instructions,
@@ -139,6 +140,7 @@ pub fn apply_policy(
         ivm_cache_max_decoded_ops: pipeline.ivm_cache_max_decoded_ops,
         ivm_cache_max_bytes: pipeline.ivm_cache_max_bytes,
         ivm_execution_max_bytes: pipeline.ivm_execution_max_bytes,
+        state_capture: pipeline.state_capture,
         ivm_prover_threads: pipeline.ivm_prover_threads,
         overlay_max_instructions: size(
             policy.overlay_max_instructions,
@@ -262,3 +264,38 @@ pub fn validate_set_parameter(
 #[cfg(test)]
 #[path = "pipeline_validity_policy_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod state_capture_policy_tests {
+    use super::*;
+
+    #[test]
+    fn capture_work_is_local_and_survives_committed_policy_replacement() {
+        let capture = iroha_config::parameters::actual::StateCapture {
+            source_elements: 0,
+            source_variable_bytes: 11,
+            source_table_pass_rows: 12,
+            source_lookup_index_entries: 13,
+            source_model_operations: 14,
+            source_signature_checks: 15,
+            native_work_per_attempt: 16,
+            table_count: 17,
+            table_rows: 18,
+            table_payload_bytes: 19,
+            table_ordered_bytes: 20,
+            table_streamed_value_bytes: 21,
+            total_table_rows: 22,
+            encoding_work_per_attempt: 23,
+        };
+        let mut node = Pipeline {
+            state_capture: capture,
+            ..Pipeline::default()
+        };
+        let policy = policy_of(&node);
+        assert!(node_validity_overrides(&node).is_empty());
+        apply_policy(&policy, &mut node).unwrap();
+        assert_eq!(node.state_capture, capture);
+        assert_eq!(policy_of(&node), policy);
+        assert_eq!(node_local_resources(node).state_capture, capture);
+    }
+}

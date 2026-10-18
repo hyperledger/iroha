@@ -123,7 +123,7 @@ fn callable(program: &Program, slot: usize) -> Option<&ivm::call::EmbeddedCallab
     callables.get(index)
 }
 
-/// Native V1 call_gas::frame: one byte per eight frame bytes, plus one
+/// Native V1 `call_gas::frame`: one byte per eight frame bytes, plus one
 /// initialization byte per result word. This is derived from the authenticated
 /// artifact, never from an unbounded prover-provided tariff. Prepared callable
 /// validation bounds it by 532480; each selected 16-bit limb remains bounded.

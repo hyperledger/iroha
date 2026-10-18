@@ -1,8 +1,8 @@
-//! Replay the independent snark-verifier corpus without linking the retired stack.
+//! Replay the current native succinct corpus with exact retained G/u and mutations.
 //!
-//! Historical transcript framing is available only in unit tests. The
-//! captured native descriptor and original key/proof bytes stay reviewable after
-//! vendor retirement. A cheap result is checked against G/u and then decided.
+//! Fixture provenance identifies the current native capture. These synthetic
+//! proofs test complete generator decision and the full raw squeeze schedule;
+//! they are not a second implementation's security oracle.
 
 use ff::{Field, PrimeField};
 use group::GroupEncoding;
@@ -10,7 +10,7 @@ use iroha_pasta::{Ep, Eq, PastaCurve, msm::MemoryBudget, poseidon::PoseidonField
 use norito::json::Value;
 use sha2::{Digest, Sha256};
 
-use super::accumulate_succinct_oracle;
+use super::{VerifyError, accumulate_succinct};
 use crate::{
     keys::{DescriptorBinding, VerifyingKey},
     pcs::ipa::{PinnedParams, accumulator::PendingAccumulator},
@@ -44,9 +44,18 @@ where
         "../../../../fixtures/native_prover/succinct_v1.json"
     ))
     .expect("captured corpus");
+    validate_document::<C>(&document, curve);
+}
+
+/// Reuse the complete maintained replay and adversarial checks before publication.
+pub fn validate_document<C: PastaCurve>(document: &Value, curve: &str)
+where
+    C::Base: PoseidonField,
+    C::ScalarExt: PoseidonField,
+{
     assert_eq!(
         document["format"].as_str(),
-        Some("iroha.snark_verifier.succinct.v1")
+        Some("iroha.native_prover.succinct.v1")
     );
     let cases = document["cases"].as_array().expect("cases");
     assert_eq!(cases.len(), 8);
@@ -73,7 +82,7 @@ where
                 })
         })
         .collect();
-    assert_eq!(identities, expected, "exact independent source matrix");
+    assert_eq!(identities, expected, "exact recorded source matrix");
     let selected = cases
         .iter()
         .filter(|case| case["curve"].as_str() == Some(curve))
@@ -82,6 +91,7 @@ where
     for case in selected {
         let k = u32::try_from(case["k"].as_u64().expect("k")).expect("bounded k");
         let params = PinnedParams::<C>::derive(k).expect("pinned parameters");
+        assert_eq!(bytes(&case["params_sha256"]), params.digest());
         let binding =
             DescriptorBinding::decode(&bytes(&case["descriptor"])).expect("captured descriptor");
         let vk = VerifyingKey::<C>::read(&bytes(&case["verifying_key"]), &binding)
@@ -104,15 +114,18 @@ where
                     .collect()
             })
             .collect();
-        let repr = scalar::<C::ScalarExt>(&case["transcript_repr"]);
-        let (claim, native_challenges) = accumulate_succinct_oracle(
+        assert_eq!(
+            vk.transcript_repr_bytes().as_slice(),
+            bytes(&case["transcript_repr"]),
+            "native descriptor-bound transcript representation"
+        );
+        let (claim, native_challenges) = native_claim_with_challenges(
             &params,
             &binding,
             &vk,
             &instances,
             &proof,
             MemoryBudget::DEFAULT,
-            repr,
         )
         .expect("cheap verification");
         assert_eq!(claim.g().to_bytes().as_ref(), bytes(&case["g"]));
@@ -132,7 +145,15 @@ where
             .collect::<Vec<_>>();
         assert_eq!(challenges.len(), k as usize + 11);
         assert_eq!(native_challenges, challenges, "every native squeeze");
-        assert_eq!(&challenges[challenges.len() - rounds.len()..], rounds);
+        let actual_rounds = challenges[challenges.len() - rounds.len()..]
+            .iter()
+            .copied()
+            .map(crate::transcript::pipa_r::nonzero_challenge)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actual_rounds, rounds,
+            "raw squeezes use the actual total round map"
+        );
         let mut tape = Vec::new();
         for challenge in &challenges {
             tape.extend_from_slice(challenge.to_repr().as_ref());
@@ -181,30 +202,61 @@ where
                 proof[..proof.len() - 1].to_vec(),
             ),
         ] {
-            let result = accumulate_succinct_oracle(
+            let result = accumulate_succinct(
                 &params,
                 &binding,
                 &vk,
                 &instance,
                 &proof,
                 MemoryBudget::DEFAULT,
-                repr,
             );
             assert!(
-                result.ok().is_none_or(|(pending, _)| pending
-                    .decide(&params, MemoryBudget::DEFAULT)
-                    .is_err()),
+                result
+                    .ok()
+                    .is_none_or(|pending| pending.decide(&params, MemoryBudget::DEFAULT).is_err()),
                 "{label}"
             );
         }
     }
 }
 
+/// Record scalar squeezes after transcript-field conversion and before role maps,
+/// using the production reader; obtain the claim through the public native API.
+/// This is not raw base-field Theta and is never proof acceptance.
+pub fn native_claim_with_challenges<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    binding: &DescriptorBinding,
+    vk: &VerifyingKey<C>,
+    instances: &[Vec<C::ScalarExt>],
+    proof: &[u8],
+    budget: MemoryBudget,
+) -> Result<(PendingAccumulator<C>, Vec<C::ScalarExt>), VerifyError>
+where
+    C::Base: PoseidonField,
+    C::ScalarExt: PoseidonField,
+{
+    let mut mode = super::production(vk);
+    mode.record_challenges = true;
+    let read = super::read_proof(
+        params,
+        binding,
+        vk,
+        instances,
+        proof,
+        mode,
+        budget,
+        &super::AllTerms,
+        None,
+    )?;
+    let claim = accumulate_succinct(params, binding, vk, instances, proof, budget)?;
+    Ok((claim, read.challenges))
+}
+
 #[test]
-fn captured_snark_succinct_pallas_decides_and_rejects_mutations() {
+fn captured_native_succinct_pallas_decides_and_rejects_mutations() {
     replay::<Ep>("ep");
 }
 #[test]
-fn captured_snark_succinct_vesta_decides_and_rejects_mutations() {
+fn captured_native_succinct_vesta_decides_and_rejects_mutations() {
     replay::<Eq>("eq");
 }

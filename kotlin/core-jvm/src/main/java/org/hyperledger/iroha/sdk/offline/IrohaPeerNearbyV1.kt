@@ -118,6 +118,21 @@ class IrohaPeerNearbyDiscoveryContextV1 private constructor(
             true,
         )
 
+        /**
+         * A RECEIVER context advertised before the receiver holds a Request
+         * (`specs/kagemusha_wallet_wire_v1.md` §6, Nearby): a fresh random nonzero session
+         * identifier and a fresh random nonzero 32-byte binding in place of the Request hash
+         * ([requestCanonicalHash]). The authenticated session binds to both, and the Offer,
+         * Request, Payment and Credited then all travel inside it.
+         */
+        @JvmStatic fun freshReceiver(profile: IrohaPeerPayloadProfile): IrohaPeerNearbyDiscoveryContextV1 =
+            IrohaPeerNearbyDiscoveryContextV1(
+                profile,
+                IrohaPeerNearbyRoleV1.RECEIVER,
+                randomNonzeroNearbyBytes(16),
+                randomNonzeroNearbyBytes(32),
+            )
+
         @JvmStatic fun decode(data: ByteArray): IrohaPeerNearbyDiscoveryContextV1 {
             require(data.size == 56 && data.copyOfRange(0, 4)
                 .contentEquals(IrohaPeerNearbyV1.DISCOVERY_MAGIC)) { "Malformed IPD1 record" }
@@ -855,6 +870,13 @@ private fun requireRecordPrefix(
 }
 
 private fun randomNearbyBytes(count: Int): ByteArray = ByteArray(count).also(SecureRandom()::nextBytes)
+
+private fun randomNonzeroNearbyBytes(count: Int): ByteArray {
+    while (true) {
+        val candidate = randomNearbyBytes(count)
+        if (candidate.any { it.toInt() != 0 }) return candidate
+    }
+}
 
 private fun ByteArray.boundedNearbyCopy(minimum: Int, maximum: Int, name: String): ByteArray {
     require(size in minimum..maximum) { "$name length is outside its IPN1 bound" }

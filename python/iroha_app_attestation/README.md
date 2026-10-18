@@ -14,8 +14,8 @@ enrollment service. The admission contract is `specs/kagemusha_wallet_enrollment
 
 There is no Play Integrity, Google account, Google Mobile Services, Huawei Mobile Services,
 app-store installation, exact version, hardware selector, model allowlist or second attested
-key in the admission path. The verifier never sets evidence fact bit 9
-(`PLAY_INTEGRITY_SIGNAL`), which is retired issuer output.
+key in the admission path. Evidence fact bit 9 is reserved zero; native validators
+and proof circuits reject it in enrollment and renewal records.
 
 ## Android admission
 
@@ -61,11 +61,15 @@ provisioning information extension, and a root-issued certificate whose subject 
 are refused in every profile. Every other chain, including remotely provisioned chains to the
 RSA root, keeps its validity checks.
 
-`huawei` implements the AOSP key-description variant for a Vendor root and ships
+`huawei` is a candidate AOSP key-description profile for a Vendor root and ships
 **unqualified**: a policy naming it fails configuration (`android_adapter_profile`), exactly
 like an unknown adapter id, matching Native's `ANDROID_VENDOR_ADAPTER_PROFILES_V1`. A
 reviewed release qualifies it after genuine post-2019 no-GMS chains. Until then no Huawei root
-is pinned and a chain to an unpinned root is refused with code 5.
+is pinned and a chain to an unpinned root is refused with code 5. Huawei HUKS exists
+on Android/EMUI too; a HUKS device certificate or SOTER RSA certificate does not
+establish the P-256 key, challenge, application identity and boot assertions E1
+requires. The public P40 capture in `tests/fixtures/huawei_p40_untrusted` is a
+rejection fixture: its TEE claims do not override its untrusted software root.
 
 ## Revocation
 

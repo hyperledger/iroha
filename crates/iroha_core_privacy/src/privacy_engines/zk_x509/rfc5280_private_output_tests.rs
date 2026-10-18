@@ -42,7 +42,7 @@ fn output_normalization_matches_each_fixed_role_channel_offset_and_direction() {
                 );
                 let row = &mut endpoints[side];
                 row[BASE_ACTIVE] = F::ONE;
-                row[BASE_VALUE] = F((entry.channel as u64 + u64::from(entry.offset)) % 256);
+                row[BASE_VALUE] = F((u64::from(entry.channel) + u64::from(entry.offset)) % 256);
                 for (column, value) in metadata_columns_v1()
                     .into_iter()
                     .zip(&fixed[FIX_EXPECTED..FIX_EXPECTED + 6])
@@ -61,20 +61,20 @@ fn output_normalization_matches_each_fixed_role_channel_offset_and_direction() {
             }
             for lane in 0..4 {
                 assert_eq!(
-                    output_role_product_factor_v1(&endpoints[0], role, false, lane, challenges),
-                    output_role_product_factor_v1(&endpoints[1], role, true, lane, challenges)
+                    output_role_product_factor_v1(&endpoints[0], role, false, lane, &challenges),
+                    output_role_product_factor_v1(&endpoints[1], role, true, lane, &challenges)
                 );
                 // Raw endpoint factors differ, explaining why raw equality was invalid.
                 assert_ne!(
-                    output_row_factor_v1(&endpoints[0], lane, challenges),
-                    output_row_factor_v1(&endpoints[1], lane, challenges)
+                    output_row_factor_v1(&endpoints[0], lane, &challenges),
+                    output_row_factor_v1(&endpoints[1], lane, &challenges)
                 );
                 for column in [BASE_ROLE, BASE_INSTANCE, BASE_OFFSET, BASE_VALUE] {
                     let mut wrong = endpoints[0];
                     wrong[column] = wrong[column].add(F::ONE);
                     assert_ne!(
-                        output_role_product_factor_v1(&wrong, role, false, lane, challenges),
-                        output_role_product_factor_v1(&endpoints[1], role, true, lane, challenges)
+                        output_role_product_factor_v1(&wrong, role, false, lane, &challenges),
+                        output_role_product_factor_v1(&endpoints[1], role, true, lane, &challenges)
                     );
                 }
             }
@@ -133,10 +133,10 @@ fn actual_rfc_output_witnesses_have_exact_normalized_receiver_products() {
             .unwrap();
             for lane in 0..4 {
                 producer[role_index][lane] = producer[role_index][lane].mul(
-                    output_role_product_factor_v1(&source, role_index, false, lane, challenges),
+                    output_role_product_factor_v1(&source, role_index, false, lane, &challenges),
                 );
                 consumer[role_index][lane] =
-                    consumer[role_index][lane].mul(output_row_factor_v1(&sink, lane, challenges));
+                    consumer[role_index][lane].mul(output_row_factor_v1(&sink, lane, &challenges));
             }
             ordinal += 1;
         }
@@ -145,7 +145,7 @@ fn actual_rfc_output_witnesses_have_exact_normalized_receiver_products() {
     assert_eq!(producer, consumer);
     assert_eq!(
         consumer,
-        zk_x509_rfc5280_output_terminals_v1(&trace, challenges)
+        zk_x509_rfc5280_output_terminals_v1(&trace, &challenges)
             .unwrap()
             .consumer
     );
@@ -160,11 +160,11 @@ fn normalized_output_products_and_private_endpoints_support_zero_factors() {
     row[BASE_OFFSET] = F(3);
     row[BASE_VALUE] = F(7);
     for lane in 0..4 {
-        let partial = output_role_product_factor_v1(&row, 0, false, lane, challenges)
+        let partial = output_role_product_factor_v1(&row, 0, false, lane, &challenges)
             .sub(F(80).mul(challenges.tuple[lane][0]));
         challenges.tuple[lane][0] = F::ZERO.sub(partial).mul(F(80).inv().unwrap());
         assert_eq!(
-            output_role_product_factor_v1(&row, 0, false, lane, challenges),
+            output_role_product_factor_v1(&row, 0, false, lane, &challenges),
             F::ZERO
         );
     }
@@ -174,7 +174,7 @@ fn normalized_output_products_and_private_endpoints_support_zero_factors() {
         row[BASE_VALUE] = F(value);
         for lane in 0..4 {
             product[lane] = product[lane].mul(output_role_product_factor_v1(
-                &row, 0, false, lane, challenges,
+                &row, 0, false, lane, &challenges,
             ));
         }
     }
@@ -212,12 +212,12 @@ fn normalized_output_factor_is_affine_in_arbitrary_fp4_openings() {
             .add(row[BASE_OFFSET].mul_base(c[5]))
             .add(row[BASE_VALUE].mul_base(c[6]));
             assert_eq!(
-                output_role_product_factor_v1(&row, role, false, lane, challenges),
+                output_role_product_factor_v1(&row, role, false, lane, &challenges),
                 expected
             );
             assert_eq!(
-                output_role_product_factor_v1(&row, role, true, lane, challenges),
-                output_row_factor_v1(&row, lane, challenges)
+                output_role_product_factor_v1(&row, role, true, lane, &challenges),
+                output_row_factor_v1(&row, lane, &challenges)
             );
         }
     }

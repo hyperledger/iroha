@@ -95,6 +95,11 @@ pub(in crate::state) trait OriginalControlSource {
     where
         Self: 'a;
     fn successor_layout(&self) -> Option<Layout>;
+    /// Only owners with a fixed original pool constrain later World acquisition.
+    /// Ordinary stores and Cells admit their new acquisition controls separately.
+    fn original_pool_matches(&self, _budget: &AllocationBudget) -> bool {
+        true
+    }
     fn generation_layouts(&self) -> [Option<Layout>; 2] {
         [None, None]
     }
@@ -332,6 +337,9 @@ where
         Self: 'a;
     fn successor_layout(&self) -> Option<Layout> {
         None
+    }
+    fn original_pool_matches(&self, budget: &AllocationBudget) -> bool {
+        self.allocation_budget().same_pool(budget)
     }
     fn original_acquisition<'a>(
         &'a self,

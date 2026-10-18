@@ -1,0 +1,76 @@
+"""Observe one actual full-cap sequence's metadata and short relocated prefixes.
+
+This does not execute the complete component streams or a full quantum driver.
+"""
+import hashlib
+from itertools import islice
+import json
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT/'target/parliament-ideal-machine-stage'))
+
+from content_request import actual_content_request
+from l0_machine import actual_lookup
+from public_machine import PublicShape
+from request_family import ContentFamily, actual_rejected_vote
+from sequence import Call, Geometry, Sequence
+
+
+def require(condition, why):
+    if not condition:
+        raise ValueError(why)
+
+
+def observe():
+    path = ROOT/'target/parliament-content-resources-stage/capture/observation.json'
+    data = path.read_bytes()
+    expected = 'c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'
+    require(hashlib.sha256(data).hexdigest() == expected, 'frozen observation identity')
+    old = json.loads(data)
+    before = {p: hashlib.sha256((ROOT/p).read_bytes()).hexdigest()
+              for p in old['source_sha256_before']}
+    require(before == old['source_sha256_before'], 'frozen component inventory')
+    reference = next(c['family_resources'] for c in old['cases']
+                     if c['row'] == 'candidate' and c['list_count'] == 3)
+    t, m, b, c = 1 << 44, 1 << 20, 64, 6882996
+    content = ContentFamily(actual_content_request(ROOT,
+        PublicShape('VOTE', row='candidate', list_count=3), t, trials=m, length_bits=b))
+    content_resources = content.resources()
+    require(json.loads(json.dumps(content_resources)) == reference,
+            'fresh content metadata versus frozen observation')
+    lookup = actual_lookup(ROOT, t, c, b)
+    rejection = actual_rejected_vote(ROOT, 'candidate', 1001)
+    sequence = Sequence(Geometry(t*(m+2), b, 215150, 2112, 'one supplied F', 'agreed total completion'),
+        (Call('content', content), Call('lookup', lookup), Call('rejected', rejection)))
+    r = sequence.resources()
+    components = (content_resources, lookup.resources(), rejection.resources())
+    expected_gates = {key: sum(x['gates'][key] for x in components)
+                      for key in ('x', 'cx', 'ccx', 'elementary_gates', 'base_xor_oracle_calls')}
+    require(r['gates'] == expected_gates, 'all component gate vectors')
+    work = max(reference['retained_derived_bits']+reference['shared_work_bits'],
+               components[1]['clean_work_bits'], components[2]['clean_work_bits'])
+    expected_bits = (reference['persistent_log_bits']+reference['persistent_counter_bits']
+        +reference['original_input_bits']+reference['caller_output_bits']
+        +b+8*c+1+2112+components[2]['borrowed_typed_input_bits']+components[2]['caller_output_bits']+work)
+    require(r['logical_bits'] == expected_bits, 'shared workspace and all retained interfaces')
+    require(r['retained_coin_bits'] == reference['original_private_coin_bits'], 'coins retained once')
+    prefixes = [list(islice(sequence.emit_call(i), 4)) for i in range(3)]
+    require(all(len(p) == 4 for p in prefixes), 'short prefix coverage')
+    # This verifies only these observed gate prefixes, not the enormous full stream.
+    after = {p: hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in before}
+    require(before == after, 'selected component source drift')
+    return dict(status='PASS', source_sha256_before=before, source_sha256_after=after,
+        reference_observation_sha256=expected, parameters=dict(trials=m, lifetime_requests=t,
+            length_bits=b, lookup_message_bytes=c, row='candidate', list_count=3, rejected_list_count=1001),
+        sequence_resources=r, expected_gates=expected_gates, expected_logical_bits=expected_bits,
+        component_resources=components, observed_gate_prefixes=prefixes,
+        full_stream_executed=False, adaptive_controller_executed=False,
+        quantum_joint_state_theorem=False, full_family_bound=False,
+        complete_resource_vector=False, native_workspace_qualification=False,
+        current_candidate_qualified=False, profile_qualified=False, production_gate_changed=False)
+
+
+if __name__ == '__main__':
+    print(json.dumps(observe(), indent=2, sort_keys=True))

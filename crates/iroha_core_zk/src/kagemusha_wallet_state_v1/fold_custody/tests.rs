@@ -238,6 +238,120 @@ fn historical_originals_are_exact_and_unknown_final_roots_reject() {
             view.successor_original(role).unwrap()
         );
     }
-    assert!(view.blacklist_history().is_err());
     assert!(view.finish(&public(field(90), field(91))).is_err());
+}
+
+/// A fold replays a committed step: its derivation custody never holds the wallet's local
+/// blacklist, so a list installed after the operation cannot refuse its fold.
+#[test]
+fn fold_preparation_replays_without_the_local_blacklist() {
+    let (mut store, step, source) = setup(KagemushaWalletEffectV1::Retiring);
+    let plan = transition_custody::PreparedTransitionV1 {
+        request: NativeIntentV1::user(OperationRequestV1 {
+            request_id: [41; 32],
+            action: OperationActionV1::Retire,
+        }),
+        native: std::sync::Arc::new(PrivateArchiveBytes::copy_from(&[1]).unwrap()),
+        source: step.frozen.capsule.custody_digest(),
+        draft: source.clone(),
+    };
+    let mut view = FoldCustodyV1::new(
+        &mut store,
+        Some(&step),
+        &step,
+        FoldSourcesV1 {
+            before: Some(source.clone()),
+            after: source,
+            preparation: Some(plan),
+            issued: IndexRoot::default(),
+            anchors: IndexRoot::default(),
+            epochs: IndexRoot::default(),
+        },
+        credit_tree::CreditTree::default(),
+        map_tree::PersistentMapV1::default(),
+    )
+    .unwrap();
+    let (request, _, _, mut custody) = view.preparation().unwrap();
+    assert_eq!(request.kind(), KagemushaWalletOperationKindV1::Retiring);
+    assert!(custody.local_blacklist().unwrap().is_none());
+}
+
+/// D6b key inputs (deploy-pipeline §7.4 test 11, reviews G2 and K3): the source identities
+/// follow the predecessor and successor source records and every part of the retained
+/// preparation, and ignore the issued-Request, direct-anchor and finality-epoch roots, which
+/// are insert-once indexes. They read no store.
+#[test]
+fn source_digests_follow_records_and_preparation_but_no_index_root() {
+    let (mut store, step, source) = setup(KagemushaWalletEffectV1::Retiring);
+    let mut draft = source.clone();
+    let mut tree = map_tree::PersistentMapV1::default();
+    tree.insert(&mut store, field(17), field(18)).unwrap();
+    draft.maps.replace_pending(tree);
+    let plan = |native: u8, request: u8, capsule: u8, draft: &SourceCustodyV1| {
+        transition_custody::PreparedTransitionV1 {
+            request: NativeIntentV1::user(OperationRequestV1 {
+                request_id: [request; 32],
+                action: OperationActionV1::Retire,
+            }),
+            native: std::sync::Arc::new(PrivateArchiveBytes::copy_from(&[native]).unwrap()),
+            source: [capsule; 32],
+            draft: draft.clone(),
+        }
+    };
+    let mut digests =
+        |before: bool, preparation: Option<transition_custody::PreparedTransitionV1>, index: u8| {
+            let fold_sources = FoldSourcesV1 {
+                before: before.then(|| source.clone()),
+                after: source.clone(),
+                preparation,
+                issued: IndexRoot([index; 32]),
+                anchors: IndexRoot([index ^ 1; 32]),
+                epochs: IndexRoot([index ^ 2; 32]),
+            };
+            FoldCustodyV1::new(
+                &mut store,
+                before.then_some(&step),
+                &step,
+                fold_sources,
+                credit_tree::CreditTree::default(),
+                map_tree::PersistentMapV1::default(),
+            )
+            .unwrap()
+            .source_digests()
+            .unwrap()
+        };
+    let cold = digests(false, None, 0);
+    assert_eq!((cold[0], cold[2]), ([0; 32], [0; 32]), "absent sources");
+    assert_eq!(
+        cold[1],
+        canonical_digest(b"KAGEMUSHA fold source after v1", &source).unwrap()
+    );
+    assert_eq!(
+        digests(false, None, 9),
+        cold,
+        "index roots are not key inputs"
+    );
+    let folded = digests(true, None, 0);
+    assert_ne!(folded[0], [0; 32]);
+    assert_eq!(folded[1], cold[1]);
+    let prepared = digests(true, Some(plan(1, 41, 42, &source)), 0);
+    assert_ne!(prepared[2], [0; 32]);
+    assert_eq!(
+        digests(true, Some(plan(1, 41, 42, &source)), 7),
+        prepared,
+        "index roots are not key inputs"
+    );
+    for changed in [
+        plan(2, 41, 42, &source),
+        plan(1, 43, 42, &source),
+        plan(1, 41, 44, &source),
+        plan(1, 41, 42, &draft),
+    ] {
+        assert_ne!(digests(true, Some(changed), 0)[2], prepared[2]);
+    }
+    assert_ne!(
+        canonical_digest(b"KAGEMUSHA fold source after v1", &draft).unwrap(),
+        cold[1],
+        "a changed source record changes its identity"
+    );
 }

@@ -1,4 +1,4 @@
-//! Narrow microcycle RaceV1 AIR with shared range-check banks.
+//! Narrow microcycle `RaceV1` AIR with shared range-check banks.
 //!
 //! Each public tick executes a boundary row, six rows per car, every ordered pair,
 //! and one finish row per car. The state is carried between rows; fixed selectors bind

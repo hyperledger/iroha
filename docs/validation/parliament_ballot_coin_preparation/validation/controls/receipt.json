@@ -1,0 +1,701 @@
+{
+  "exact_ordered_membership": [
+    "test_restore.py::test_exact_restoration_from_authenticated_buffers[False]",
+    "test_restore.py::test_exact_restoration_from_authenticated_buffers[True]",
+    "test_restore.py::test_noncanonical_paths_refused[]",
+    "test_restore.py::test_noncanonical_paths_refused[.]",
+    "test_restore.py::test_noncanonical_paths_refused[..]",
+    "test_restore.py::test_noncanonical_paths_refused[/tmp/x]",
+    "test_restore.py::test_noncanonical_paths_refused[a/../b]",
+    "test_restore.py::test_noncanonical_paths_refused[./a]",
+    "test_restore.py::test_noncanonical_paths_refused[a//b]",
+    "test_restore.py::test_noncanonical_paths_refused[a/]",
+    "test_restore.py::test_noncanonical_paths_refused[a\\\\b]",
+    "test_restore.py::test_noncanonical_paths_refused[a\\x00b]",
+    "test_restore.py::test_noncanonical_paths_refused[a\\nb]",
+    "test_restore.py::test_noncanonical_paths_refused[1]",
+    "test_restore.py::test_noncanonical_paths_refused[None]",
+    "test_restore.py::test_hash_types_and_encoding_refused[]",
+    "test_restore.py::test_hash_types_and_encoding_refused[000000000000000000000000000000000000000000000000000000000000000]",
+    "test_restore.py::test_hash_types_and_encoding_refused[gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg]",
+    "test_restore.py::test_hash_types_and_encoding_refused[AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]",
+    "test_restore.py::test_hash_types_and_encoding_refused[42]",
+    "test_restore.py::test_hash_types_and_encoding_refused[None]",
+    "test_restore.py::test_duplicate_and_empty_manifests_refused",
+    "test_restore.py::test_corrupted_bytes_refused_before_first_write[outer-manifest]",
+    "test_restore.py::test_corrupted_bytes_refused_before_first_write[own-snapshot]",
+    "test_restore.py::test_corrupted_bytes_refused_before_first_write[dependency-snapshot]",
+    "test_restore.py::test_corrupted_bytes_refused_before_first_write[final-receipt]",
+    "test_restore.py::test_corrupted_bytes_refused_before_first_write[original-manifest]",
+    "test_restore.py::test_corrupted_bytes_refused_before_first_write[review-snapshot]",
+    "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[traversal]",
+    "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[duplicate]",
+    "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[provider]",
+    "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-hash]",
+    "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-membership]",
+    "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-duplicate]",
+    "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-membership]",
+    "test_restore.py::test_existing_destination_and_missing_parent_refused",
+    "test_restore.py::test_symlink_input_and_destination_parent_refused",
+    "test_restore.py::test_all_inputs_are_read_before_destination_is_created",
+    "test_restore.py::test_known_sha256_and_canonical_path",
+    "test_restore.py::test_altered_helper_never_executes_or_creates_output",
+    "test_restore.py::test_wrong_outer_hash_never_executes_helper",
+    "test_restore.py::test_verified_helper_is_executed_from_checked_buffer"
+  ],
+  "exit_code": 0,
+  "loaded_control_modules": {
+    "replay.py": "2d3ae729b7a1dba3cc4d2b034118edc4f532a87d788d608e80f9ac519cb6f747",
+    "restore.py": "b90d2004fbb07e56b74319f7b8392cb16c0a071c0355595585aa69d54edacfc5",
+    "test_restore.py": "78e526ac24f84d227408f2e886d068c2c16b998a3d4e13e4996aada80e408bbf"
+  },
+  "reports": [
+    {
+      "nodeid": "test_restore.py::test_exact_restoration_from_authenticated_buffers[False]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_exact_restoration_from_authenticated_buffers[False]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_exact_restoration_from_authenticated_buffers[False]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_exact_restoration_from_authenticated_buffers[True]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_exact_restoration_from_authenticated_buffers[True]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_exact_restoration_from_authenticated_buffers[True]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[.]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[.]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[.]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[..]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[..]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[..]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[/tmp/x]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[/tmp/x]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[/tmp/x]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a/../b]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a/../b]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a/../b]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[./a]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[./a]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[./a]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a//b]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a//b]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a//b]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a/]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a/]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a/]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\\\b]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\\\b]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\\\b]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\x00b]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\x00b]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\x00b]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\nb]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\nb]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[a\\nb]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[1]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[1]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[1]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[None]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[None]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_noncanonical_paths_refused[None]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[000000000000000000000000000000000000000000000000000000000000000]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[000000000000000000000000000000000000000000000000000000000000000]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[000000000000000000000000000000000000000000000000000000000000000]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[42]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[42]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[42]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[None]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[None]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_hash_types_and_encoding_refused[None]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_duplicate_and_empty_manifests_refused",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_duplicate_and_empty_manifests_refused",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_duplicate_and_empty_manifests_refused",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[outer-manifest]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[outer-manifest]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[outer-manifest]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[own-snapshot]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[own-snapshot]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[own-snapshot]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[dependency-snapshot]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[dependency-snapshot]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[dependency-snapshot]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[final-receipt]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[final-receipt]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[final-receipt]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[original-manifest]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[original-manifest]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[original-manifest]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[review-snapshot]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[review-snapshot]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_corrupted_bytes_refused_before_first_write[review-snapshot]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[traversal]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[traversal]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[traversal]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[duplicate]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[duplicate]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[duplicate]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[provider]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[provider]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[provider]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-hash]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-hash]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-hash]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-membership]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-membership]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[source-membership]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-duplicate]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-duplicate]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-duplicate]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-membership]",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-membership]",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_invalid_authenticated_plan_refused_before_first_write[review-membership]",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_existing_destination_and_missing_parent_refused",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_existing_destination_and_missing_parent_refused",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_existing_destination_and_missing_parent_refused",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_symlink_input_and_destination_parent_refused",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_symlink_input_and_destination_parent_refused",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_symlink_input_and_destination_parent_refused",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_all_inputs_are_read_before_destination_is_created",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_all_inputs_are_read_before_destination_is_created",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_all_inputs_are_read_before_destination_is_created",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_known_sha256_and_canonical_path",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_known_sha256_and_canonical_path",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_known_sha256_and_canonical_path",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_altered_helper_never_executes_or_creates_output",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_altered_helper_never_executes_or_creates_output",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_altered_helper_never_executes_or_creates_output",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_wrong_outer_hash_never_executes_helper",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_wrong_outer_hash_never_executes_helper",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_wrong_outer_hash_never_executes_helper",
+      "outcome": "passed",
+      "when": "teardown"
+    },
+    {
+      "nodeid": "test_restore.py::test_verified_helper_is_executed_from_checked_buffer",
+      "outcome": "passed",
+      "when": "setup"
+    },
+    {
+      "nodeid": "test_restore.py::test_verified_helper_is_executed_from_checked_buffer",
+      "outcome": "passed",
+      "when": "call"
+    },
+    {
+      "nodeid": "test_restore.py::test_verified_helper_is_executed_from_checked_buffer",
+      "outcome": "passed",
+      "when": "teardown"
+    }
+  ],
+  "runtime": {
+    "executable": "/opt/homebrew/opt/python@3.11/bin/python3.11",
+    "pytest": "9.1.0",
+    "python": "3.11.17"
+  },
+  "source_sha256_after": {
+    "replay.py": "2d3ae729b7a1dba3cc4d2b034118edc4f532a87d788d608e80f9ac519cb6f747",
+    "restore.py": "b90d2004fbb07e56b74319f7b8392cb16c0a071c0355595585aa69d54edacfc5",
+    "test_restore.py": "78e526ac24f84d227408f2e886d068c2c16b998a3d4e13e4996aada80e408bbf"
+  },
+  "source_sha256_before": {
+    "replay.py": "2d3ae729b7a1dba3cc4d2b034118edc4f532a87d788d608e80f9ac519cb6f747",
+    "restore.py": "b90d2004fbb07e56b74319f7b8392cb16c0a071c0355595585aa69d54edacfc5",
+    "test_restore.py": "78e526ac24f84d227408f2e886d068c2c16b998a3d4e13e4996aada80e408bbf"
+  },
+  "status": "PASS",
+  "tests": 42
+}

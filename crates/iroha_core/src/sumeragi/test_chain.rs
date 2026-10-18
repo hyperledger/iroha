@@ -36,6 +36,9 @@ pub use private_context::native_private_context_route_fixture;
 #[path = "test_chain/retail_multisig.rs"]
 mod retail_multisig;
 #[cfg(test)]
+#[path = "test_chain/reward_crash_recovery.rs"]
+mod reward_crash_recovery;
+#[cfg(test)]
 pub(crate) use genesis_policy::{signed_genesis_fixture_for_state, staged_genesis_policies};
 /// Genuine monthly-fee multisig transfer evidence for downstream integration tests.
 pub use retail_multisig::{
@@ -251,7 +254,12 @@ pub fn fixture_validators() -> Vec<(PeerId, Vec<u8>)> {
         .collect()
 }
 
-fn fixture_keys() -> Vec<KeyPair> {
+/// Return the maintained deterministic engineering validator owners in signed roster order.
+///
+/// These public test seeds are only for disposable engineering networks. The same
+/// constructor owns the certified fixture committee and real-peer test adapters.
+#[must_use]
+pub fn fixture_keys() -> Vec<KeyPair> {
     let mut keys = VALIDATOR_SEEDS
         .iter()
         .map(|seed| KeyPair::from_seed(vec![*seed; 32], Algorithm::BlsNormal))

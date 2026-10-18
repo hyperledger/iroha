@@ -421,7 +421,7 @@ fn run_case(row: Row, case: Case, count: usize, output: &mut impl Write) -> Resu
 
 /// Measure bounded malformed classes using the ordinary cold-input path.
 ///
-/// Arguments use the same options as `qualify`, after its `malformed` command.
+/// Arguments use the same options as `parliament_ballot_qualify`, after its `malformed` command.
 /// # Errors
 /// Rejects invalid options, unexpected acceptance/error classes, failed proof
 /// setup or output failures. Prior JSON records are retained on failure.

@@ -146,6 +146,9 @@ impl ExecutionDeferred {
 
     /// Preserve the original refusal across a VM/host error boundary.
     /// Native finalizer provenance is Core context, not a VM error category.
+    ///
+    /// # Errors
+    /// Returns the complete original error unchanged when it is not an execution deferral.
     pub fn try_from_vm_error(error: VMError) -> Result<Self, VMError> {
         let Some(reason) = error.execution_deferral() else {
             return Err(error);

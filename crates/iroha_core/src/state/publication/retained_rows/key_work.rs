@@ -17,6 +17,7 @@ use iroha_data_model::{
     },
 };
 
+use crate::state::deserialize::musubi_source_read::KeyWorkCursor;
 use std::mem::size_of;
 
 mod sealed {
@@ -28,6 +29,14 @@ pub(in crate::state::publication) trait ComparisonKey:
 {
     fn comparison_units(
         &self,
+        work: &mut usize,
+        limit: usize,
+    ) -> Result<usize, RetainedPackageReadError> {
+        self.comparison_units_retained(&mut KeyWorkCursor::default(), work, limit)
+    }
+    fn comparison_units_retained(
+        &self,
+        cursor: &mut KeyWorkCursor,
         work: &mut usize,
         limit: usize,
     ) -> Result<usize, RetainedPackageReadError>;
@@ -51,14 +60,14 @@ macro_rules! fixed_keys {
     ($($key:ty),+ $(,)?) => { $(
         impl sealed::NativeKey for $key {}
         impl ComparisonKey for $key {
-            fn comparison_units(&self, work: &mut usize, limit: usize)
+            fn comparison_units_retained(&self, cursor: &mut KeyWorkCursor, work: &mut usize, limit: usize)
                 -> Result<usize, RetainedPackageReadError> {
-                // These keys contain only fixed arrays/numbers. One unit per
-                // byte plus a branch covers their derived scalar/array order.
-                let amount = size_of::<Self>().checked_add(1)
-                    .ok_or(RetainedPackageReadError::Geometry)?;
-                admit(work, amount, limit)?;
-                Ok(amount)
+                if cursor.part == 0 {
+                    let amount = size_of::<Self>().checked_add(1).ok_or(RetainedPackageReadError::Geometry)?;
+                    add(&mut cursor.units, amount, work, limit)?;
+                    cursor.part = 1;
+                }
+                Ok(cursor.units)
             }
         }
     )+ };
@@ -73,62 +82,133 @@ fixed_keys!(
     ProviderId
 );
 
+fn package_units(
+    key: &MusubiPackageIdV1,
+    cursor: &mut KeyWorkCursor,
+    work: &mut usize,
+    limit: usize,
+) -> Result<(), RetainedPackageReadError> {
+    if cursor.part == 0 {
+        add(&mut cursor.units, 8 + 1, work, limit)?;
+        cursor.part = 1;
+    }
+    if cursor.part == 1 {
+        if let MusubiPackageScopeV1::Domain(domain) = &key.scope {
+            add(&mut cursor.units, 1, work, limit)?;
+            cursor.pending = domain.as_ref().len();
+        } else {
+            cursor.pending = 0;
+        }
+        cursor.part = 2;
+    }
+    if cursor.part == 2 {
+        add(&mut cursor.units, cursor.pending, work, limit)?;
+        cursor.part = 3;
+    }
+    if cursor.part == 3 {
+        add(&mut cursor.units, 1, work, limit)?;
+        cursor.pending = key.name.as_str().len();
+        cursor.part = 4;
+    }
+    if cursor.part == 4 {
+        add(&mut cursor.units, cursor.pending, work, limit)?;
+        cursor.part = 5;
+    }
+    Ok(())
+}
 impl sealed::NativeKey for MusubiPackageIdV1 {}
 impl ComparisonKey for MusubiPackageIdV1 {
-    fn comparison_units(
+    fn comparison_units_retained(
         &self,
+        cursor: &mut KeyWorkCursor,
         work: &mut usize,
         limit: usize,
     ) -> Result<usize, RetainedPackageReadError> {
-        let mut units = 0;
-        add(&mut units, 8 + 1, work, limit)?; // dataspace and scope discriminant
-        if let MusubiPackageScopeV1::Domain(domain) = &self.scope {
-            add(&mut units, 1, work, limit)?; // before reading borrowed length
-            add(&mut units, domain.as_ref().len(), work, limit)?;
-        }
-        add(&mut units, 1, work, limit)?;
-        add(&mut units, self.name.as_str().len(), work, limit)?;
-        Ok(units)
+        package_units(self, cursor, work, limit)?;
+        Ok(cursor.units)
     }
 }
-
 impl sealed::NativeKey for MusubiReleaseIdV1 {}
 impl ComparisonKey for MusubiReleaseIdV1 {
-    fn comparison_units(
+    fn comparison_units_retained(
         &self,
+        cursor: &mut KeyWorkCursor,
         work: &mut usize,
         limit: usize,
     ) -> Result<usize, RetainedPackageReadError> {
-        let mut units = self.package.comparison_units(work, limit)?;
-        add(&mut units, 3 * 8 + 1, work, limit)?;
-        // Admit sequence inspection before walking any prerelease element.
-        add(&mut units, self.version.prerelease.len(), work, limit)?;
-        for identifier in &self.version.prerelease {
-            add(&mut units, 1, work, limit)?;
-            match identifier {
-                MusubiPrereleaseIdentifierV1::Numeric(_) => add(&mut units, 8, work, limit)?,
-                MusubiPrereleaseIdentifierV1::AlphaNumeric(text) => {
-                    add(&mut units, 1, work, limit)?;
-                    add(&mut units, text.len(), work, limit)?;
-                }
-            }
+        package_units(&self.package, cursor, work, limit)?;
+        if cursor.part == 5 {
+            add(&mut cursor.units, 3 * 8 + 1, work, limit)?;
+            cursor.part = 6;
         }
-        Ok(units)
+        if cursor.part == 6 {
+            add(
+                &mut cursor.units,
+                self.version.prerelease.len(),
+                work,
+                limit,
+            )?;
+            cursor.part = 7;
+        }
+        if cursor.part == 7 {
+            while cursor.entry < self.version.prerelease.len() {
+                if cursor.detail == 0 {
+                    add(&mut cursor.units, 1, work, limit)?;
+                    match &self.version.prerelease[cursor.entry] {
+                        MusubiPrereleaseIdentifierV1::Numeric(_) => {
+                            cursor.pending = 8;
+                            cursor.detail = 2;
+                        }
+                        MusubiPrereleaseIdentifierV1::AlphaNumeric(_) => {
+                            cursor.detail = 1;
+                        }
+                    }
+                }
+                if cursor.detail == 1 {
+                    add(&mut cursor.units, 1, work, limit)?;
+                    let MusubiPrereleaseIdentifierV1::AlphaNumeric(text) =
+                        &self.version.prerelease[cursor.entry]
+                    else {
+                        return Err(RetainedPackageReadError::Geometry);
+                    };
+                    cursor.pending = text.len();
+                    cursor.detail = 2;
+                }
+                add(&mut cursor.units, cursor.pending, work, limit)?;
+                cursor.entry += 1;
+                cursor.detail = 0;
+            }
+            cursor.part = 8;
+        }
+        Ok(cursor.units)
     }
 }
-
 impl sealed::NativeKey for MusubiPackageSelectorV1 {}
 impl ComparisonKey for MusubiPackageSelectorV1 {
-    fn comparison_units(
+    fn comparison_units_retained(
         &self,
+        cursor: &mut KeyWorkCursor,
         work: &mut usize,
         limit: usize,
     ) -> Result<usize, RetainedPackageReadError> {
-        let mut units = 0;
-        add(&mut units, 1, work, limit)?;
-        add(&mut units, self.namespace.as_str().len(), work, limit)?;
-        add(&mut units, 1, work, limit)?;
-        add(&mut units, self.name.as_str().len(), work, limit)?;
-        Ok(units)
+        if cursor.part == 0 {
+            add(&mut cursor.units, 1, work, limit)?;
+            cursor.pending = self.namespace.as_str().len();
+            cursor.part = 1;
+        }
+        if cursor.part == 1 {
+            add(&mut cursor.units, cursor.pending, work, limit)?;
+            cursor.part = 2;
+        }
+        if cursor.part == 2 {
+            add(&mut cursor.units, 1, work, limit)?;
+            cursor.pending = self.name.as_str().len();
+            cursor.part = 3;
+        }
+        if cursor.part == 3 {
+            add(&mut cursor.units, cursor.pending, work, limit)?;
+            cursor.part = 4;
+        }
+        Ok(cursor.units)
     }
 }

@@ -1,0 +1,76 @@
+{
+  "complete_workspace_certificate": false,
+  "input_changes": {},
+  "input_sha256": {
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_memory_entry/build-receipt.json": "b1a63ffc0be83f64daf37bd6af6da14811378aaccc33942f8786157327d4c8a8",
+    "/private/tmp/parliament-memory-entry/binaries/worker-accel": "8c70b3d97bd66bb1c0d551032bee0d066ff1e8a257ddc5c8a58d98c6aec1a47e",
+    "/private/tmp/parliament-memory-entry/binaries/worker-portable": "831611da08f64fc6fa711e2126508b68fadb23f62af4d37597e786b5008e8c37"
+  },
+  "old_inputs_modified": false,
+  "physical_cost_calibrated": false,
+  "profile_qualified": false,
+  "reproduced": true,
+  "rows": [
+    {
+      "binary_sha256": "831611da08f64fc6fa711e2126508b68fadb23f62af4d37597e786b5008e8c37",
+      "control_exit": 73,
+      "control_report": {
+        "arena_enforced": true,
+        "charged_bytes": 1,
+        "charged_units": 1,
+        "complete_workspace_certificate": false,
+        "outcome": "resource_exhausted",
+        "profile_qualified": false
+      },
+      "control_seconds": 0.01371654192917049,
+      "control_stderr": "",
+      "exit_after_drain": 73,
+      "heap_limit": 1,
+      "input_hex": "78",
+      "mode": "portable",
+      "pipe_prefilled_bytes": 65536,
+      "report_after_prefill": {
+        "arena_enforced": true,
+        "charged_bytes": 1,
+        "charged_units": 1,
+        "complete_workspace_certificate": false,
+        "outcome": "resource_exhausted",
+        "profile_qualified": false
+      },
+      "seconds_after_drain": 0.001043209107592702,
+      "stderr": "",
+      "still_running_after_half_second": true
+    },
+    {
+      "binary_sha256": "8c70b3d97bd66bb1c0d551032bee0d066ff1e8a257ddc5c8a58d98c6aec1a47e",
+      "control_exit": 73,
+      "control_report": {
+        "arena_enforced": true,
+        "charged_bytes": 1,
+        "charged_units": 1,
+        "complete_workspace_certificate": false,
+        "outcome": "resource_exhausted",
+        "profile_qualified": false
+      },
+      "control_seconds": 0.01089404197409749,
+      "control_stderr": "",
+      "exit_after_drain": 73,
+      "heap_limit": 1,
+      "input_hex": "78",
+      "mode": "accel",
+      "pipe_prefilled_bytes": 65536,
+      "report_after_prefill": {
+        "arena_enforced": true,
+        "charged_bytes": 1,
+        "charged_units": 1,
+        "complete_workspace_certificate": false,
+        "outcome": "resource_exhausted",
+        "profile_qualified": false
+      },
+      "seconds_after_drain": 0.0011974999215453863,
+      "stderr": "",
+      "still_running_after_half_second": true
+    }
+  ],
+  "schema": "parliament-old-fatal-backpressure-v1"
+}

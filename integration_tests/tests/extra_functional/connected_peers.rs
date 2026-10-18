@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Connected peers count and reconfiguration under register/unregister.
 use assert_matches::assert_matches;
 use eyre::{Result, WrapErr, eyre};

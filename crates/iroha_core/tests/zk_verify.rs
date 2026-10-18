@@ -1,5 +1,4 @@
 #![doc = "ZK attachment pre-verify wiring tests (dedup and basic sanity)."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! ZK attachment pre-verify wiring tests (dedup and basic sanity).
 #![cfg(feature = "zk-preverify")]

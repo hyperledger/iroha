@@ -1,0 +1,149 @@
+"""In-memory entry derivation preserves the frozen worker and its ownership boundary."""
+
+import json
+from pathlib import Path
+import sys
+import tomllib
+from unittest.mock import patch
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import prepare_parliament_ballot_memory_entry as prepare
+
+
+def test_derived_worker_reserves_actual_borrow_before_owned_copy():
+    path = prepare.ROOT / prepare.RESOURCE / "workspace.rs"
+    before = prepare.digest(path)
+    source = path.read_text()
+    derived = prepare.derive_workspace(source)
+    execute = derived.split("fn execute(", 1)[1].split("fn classify(", 1)[0]
+    steps = ["let length = request.record_length", "budget.reserve(length)", "super::fatal::admit(",
+             "ACTIVE.store(true", "vec![0u8; length]",
+             "from_raw_parts(request.record, length)", "record.copy_from_slice(staged)",
+             "reservation.verify("]
+    positions = [execute.index(step) for step in steps]
+    assert positions == sorted(positions)
+    assert "record: options.record.as_ptr()" in derived
+    assert "record_length: options.record.len()" in derived
+    assert "pub record: &'a [u8]" in derived
+    assert "pub path:" not in derived and "4096 ||" not in derived
+    for removed in ("OpenOptions", "io::Read", "file.", "Path::new", "metadata()", "read_exact"):
+        assert removed not in derived
+    assert prepare.digest(path) == before
+
+
+def test_existing_allocator_join_and_classification_are_reused():
+    source = (prepare.ROOT / prepare.RESOURCE / "workspace.rs").read_text()
+    derived = prepare.derive_workspace(source)
+    assert source.split("struct Routed;", 1)[1].split("fn exhausted()", 1)[0] == (
+        derived.split("struct Routed;", 1)[1].split("fn exhausted()", 1)[0])
+    assert source.split('extern "C" fn worker', 1)[1].split("fn execute", 1)[0] == (
+        derived.split('extern "C" fn worker', 1)[1].split("fn execute", 1)[0])
+    assert source.split("fn classify(", 1)[1].split("#[cfg(test)]", 1)[0] == (
+        derived.split("fn classify(", 1)[1].split("#[cfg(test)]", 1)[0])
+    run = derived.split("pub fn run(", 1)[1].split('extern "C" fn worker', 1)[0]
+    assert run.index("mapping.run(worker") < run.index("ACTIVE.store(false") < run.index("joined?;")
+    assert "std::mem::forget(mapping)" in run
+
+
+def test_fatal_publication_replaces_output_and_counts_shared_control():
+    source = (prepare.ROOT / prepare.RESOURCE / "workspace.rs").read_text()
+    derived = prepare.derive_workspace(source)
+    fatal = derived.split("fn exhausted()", 1)[1].split("#[derive(Clone, Copy)]", 1)[0]
+    assert "super::fatal::exhausted()" in fatal
+    for removed in ("libc::write", "fn decimal(", "fn append(", "CHARGED_UNITS", "CHARGED_BYTES"):
+        assert removed not in derived
+    run = derived.split("pub fn run(", 1)[1].split('extern "C" fn worker', 1)[0]
+    assert run.index("super::fatal::reserved_bytes()") < run.index("native::Mapping::new")
+    assert "mapping.length().checked_add(fatal_control_reserved_bytes)" in run
+    assert "*bytes <= native::WORKSPACE_LIMIT" in run
+    assert run.index("workspace_reserved_bytes =") < run.index("if ARENA")
+    assert "pub fatal_control_reserved_bytes: usize" in derived
+    assert "            fatal_control_reserved_bytes," in run
+
+
+@pytest.mark.parametrize("old,new", [
+    ("pub path: &'a Path", "pub path: &'a str"),
+    ("path_length: usize", "path_length: u64"),
+    ("file.metadata()", "file.changed_metadata()"),
+    ("file.read_exact(&mut record)", "file.read(&mut record)"),
+    ("ACTIVE.store(true", "ACTIVE.store(false"),
+    ("libc::write(", "other::write("),
+    ("libc::_exit(73)", "libc::_exit(74)"),
+    ("CHARGED_BYTES.store(charge.input_bytes", "CHARGED_BYTES.store(0"),
+])
+def test_changed_derivation_anchors_fail_closed(old, new):
+    source = (prepare.ROOT / prepare.RESOURCE / "workspace.rs").read_text()
+    assert old in source
+    with pytest.raises(ValueError):
+        prepare.derive_workspace(source.replace(old, new))
+
+
+def test_manifest_retains_root_overrides_and_acceleration():
+    result = tomllib.loads(prepare.manifest(prepare.ROOT))
+    original = tomllib.loads((prepare.ROOT / "Cargo.toml").read_text())
+    assert result["package"]["name"] == prepare.PACKAGE
+    assert result["features"]["accel"] == ["iroha_parliament_ballot_proof/accel"]
+    assert result["dependencies"]["norito"]["default-features"] is False
+    assert result["workspace"] == {}
+    for name, entry in original["patch"]["crates-io"].items():
+        assert result["patch"]["crates-io"][name]["path"] == str((prepare.ROOT / entry["path"]).resolve())
+
+
+def test_preparation_retains_derivation_and_preserves_root_lock(tmp_path):
+    target = tmp_path / "prepared"
+    before = prepare.digest(prepare.ROOT / "Cargo.lock")
+    result = prepare.prepare(target)
+    assert not result["source_changes"] and not result["profile_qualified"]
+    assert not result["complete_workspace_certificate"]
+    assert prepare.digest(prepare.ROOT / "Cargo.lock") == before
+    assert (target / "Cargo.lock").read_bytes() == (prepare.ROOT / "Cargo.lock").read_bytes()
+    assert (target / "workspace.diff").is_file()
+    for module in ("arena", "budget", "native"):
+        assert str(prepare.ROOT / prepare.RESOURCE / f"{module}.rs") in (target / "driver.rs").read_text()
+    assert f"{prepare.PROBE}/staging.rs" in result["source_files"]
+    assert f"{prepare.PROBE}/fatal.rs" in result["source_files"]
+    assert (target / "fatal.rs").read_bytes() == (prepare.ROOT / prepare.PROBE / "fatal.rs").read_bytes()
+    assert json.loads((target / "preparation.json").read_text()) == result
+    assert all(prepare.digest(target / name) == digest for name, digest in result["generated_files"].items())
+    with pytest.raises(ValueError, match="new directory"):
+        prepare.prepare(target)
+
+
+def test_frozen_source_drift_refuses_before_writing_output(tmp_path):
+    target = tmp_path / "prepared"
+    with patch.object(prepare, "digest", return_value="changed"):
+        with pytest.raises(ValueError, match="frozen source changed"):
+            prepare.prepare(target)
+    assert not target.exists()
+
+
+def test_lock_identity_membership_and_own_package_are_strict(tmp_path):
+    old, new = tmp_path / "old.lock", tmp_path / "new.lock"
+    body = '[[package]]\nname="x"\nversion="1.0.0"\nsource="registry+https://invalid.example"\nchecksum="abc"\n'
+    own = f'\n[[package]]\nname="{prepare.PACKAGE}"\nversion="0.0.0"\n'
+    old.write_text(body)
+    new.write_text(body + own)
+    report = prepare.compare_locks(old, new)
+    assert report["diagnostic_packages"] == 2
+    assert "not dependency-edge" in report["comparison_scope"]
+    assert report["reference_sha256"] == prepare.digest(old)
+    for wrong in (body, body + own + own,
+                  (body + own).replace('checksum="abc"', 'checksum="def"'),
+                  (body + own).replace('version="0.0.0"', 'version="0.1.0"'),
+                  body + own + 'source="registry+https://invalid.example"\n'):
+        new.write_text(wrong)
+        with pytest.raises(ValueError, match="identity drift"):
+            prepare.compare_locks(old, new)
+
+
+def test_cli_help_and_existing_target_refusal(tmp_path, capsys):
+    with patch.object(sys, "argv", ["prepare", "--help"]):
+        with pytest.raises(SystemExit) as result:
+            prepare.main()
+        assert result.value.code == 0
+        assert "--check-lock" in capsys.readouterr().out
+    with patch.object(sys, "argv", ["prepare", "--output", str(tmp_path)]):
+        assert prepare.main() == 1
+        assert json.loads(capsys.readouterr().out)["profile_qualified"] is False

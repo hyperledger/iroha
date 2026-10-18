@@ -1,6 +1,12 @@
+import { requireMultisigId, requireMultisigNonce } from "./multisigIdentifiers.js";
 import { requireNetworkPrefix } from "./networkPrefix.js";
 import { rejectError, rejectRange, rejectType } from "./validationThrow.js";
-import { ToriiHttpError, ToriiStreamGapError, toriiHttpErrorFromResponseText } from "./toriiErrors.js";
+import {
+  ToriiHttpError,
+  ToriiStreamGapError,
+  isIdempotentSubmissionRejection,
+  toriiHttpErrorFromResponseText,
+} from "./toriiErrors.js";
 import { createToriiCollections } from "./query/collections.js";
 import { decodePageText, stringifyRequestJson } from "./query/page.js";
 import { filterQueryText } from "./query/listQuery.js";
@@ -14,12 +20,16 @@ import {
   NumericV1Error,
 } from "./numericV1.js";
 import { parseStrictLosslessIntegerJson } from "./strictLosslessJson.js";
+import {
+  EXPLORER_TRANSACTION_PROOF_MAX_BYTES,
+  decodeExplorerTransactionProof,
+  explorerTransactionProofHash,
+} from "./explorerTransactionProof.js";
 import { readAccountCapabilitiesResponseV1 } from "./accountCapabilities.js";
+import { isExactJsonMediaType } from "./toriiBoundedResponse.js";
+import { inspectToriiAccountIdentityViaNativeTransport, requireToriiNativeIdentity } from "./nativeAccountInspection.js";
 import {
   noritoDecodeBlockProofs,
-  noritoEncodeMultisigContractCallApproveRequest,
-  noritoEncodeMultisigContractCallProposeRequest,
-  noritoEncodeMultisigProposeRequest,
 } from "./norito.js";
 import { browserSignedTransactionHashHex } from "./transactionCodec.js";
 import { buildCanonicalJsonRequest } from "./canonicalRequest.js";
@@ -30,7 +40,21 @@ import {
   applyOperatorGetHeaders,
   requireOperatorSigningContext,
 } from "./operatorRequest.browser.js";
-import { ensureCanonicalAccountId } from "./normalizers.js";
+import {
+  ensureCanonicalAccountId,
+  normalizeAccountId,
+  normalizeAssetDefinitionId,
+} from "./normalizers.js";
+import {
+  BOND_ENTITLEMENT_PAGE_MAX_BYTES,
+  BOND_RECORD_MAX_BYTES,
+  BOND_RECORD_PAGE_MAX_BYTES,
+  bondEntitlementPageParams,
+  bondRecordPageParams,
+  normalizeBondEntitlementPage,
+  normalizeBondRecord,
+  normalizeBondRecordPage,
+} from "./bondRecords.js";
 import {
   SUMERAGI_LANES_TYPED_JSON_MAX_BYTES,
   SUMERAGI_STATUS_TYPED_JSON_MAX_BYTES,
@@ -302,30 +326,31 @@ function requireNonEmptyString(value, context) {
   return trimmed;
 }
 
-function normalizeBrowserCanonicalRequestAuth(value, networkId) {
+function normalizeBrowserCanonicalRequestAuth(value, networkId, baseUrl) {
   if (value === undefined || value === null) return null;
   if (!isPlainObject(value)) {
     rejectType((TEXT_TORII_BROWSER_CLIENT + "options.canonicalRequestAuth" + TEXT_MUST_BE_A_2 + "plain object"));
   }
   const keys = Object.keys(value).sort();
   if (
-    keys.length !== 2
-    || keys[0] !== FIELD_ACCOUNT_ID
-    || keys[1] !== "sign"
+    !keys.includes(FIELD_ACCOUNT_ID) || !keys.includes("sign")
+    || keys.some((key) => ![FIELD_ACCOUNT_ID, "sign", "nativeIdentity"].includes(key))
   ) {
-    rejectType((TEXT_TORII_BROWSER_CLIENT + "options.canonicalRequestAuth requires exactly accountId and sign"));
+    rejectType((TEXT_TORII_BROWSER_CLIENT + "options.canonicalRequestAuth requires accountId and sign, with optional nativeIdentity"));
   }
   if (networkId === null) {
     rejectType((TEXT_TORII_BROWSER_CLIENT + "options.canonicalRequestAuth requires options.networkId"));
   }
-  const accountId = requireCanonicalAuthAccount(
+  const accountId = value.nativeIdentity === undefined ? requireCanonicalAuthAccount(
     value.accountId,
     (TEXT_TORII_BROWSER_CLIENT + "options.canonicalRequestAuth.accountId"),
-  );
+  ) : requireToriiNativeIdentity(value.nativeIdentity, {
+    accountId: value.accountId, networkId, baseUrl,
+  }).accountId;
   if (typeof value.sign !== FIELD_FUNCTION) {
     rejectType((TEXT_TORII_BROWSER_CLIENT + "options.canonicalRequestAuth.sign" + TEXT_MUST_BE_A_2 + "function"));
   }
-  return Object.freeze({ accountId, sign: value.sign });
+  return Object.freeze({ accountId, sign: value.sign, nativeIdentity: value.nativeIdentity });
 }
 
 function normalizeContractDeploymentStateRequest(value) {
@@ -955,31 +980,33 @@ function normalizeMultisigProposalsQueryBody(value, context) {
   return body;
 }
 
+function normalizeNativeMultisigJson(kind, request) {
+  const common = ["multisig_account_id", "multisig_account_alias", "signer_account_id", "public_key_hex", "signature_b64", "creation_time_ms", "fee_payment"];
+  const extra = kind === "propose" ? ["proposal_nonce", "instructions", "memo", "validation_fee_assessment"]
+    : kind === "contract-propose" ? ["proposal_nonce", "contract_alias", "entrypoint", "payload"]
+    : ["proposal_id", "instructions_hash", "contract_alias", "entrypoint", "payload"];
+  if (Object.keys(request).some(key => !common.includes(key) && !extra.includes(key))) rejectType("native multisig request has unexpected fields");
+  if (Boolean(request.multisig_account_id) === Boolean(request.multisig_account_alias)) rejectType("native multisig request requires one account selector");
+  requireNonEmptyString(request.signer_account_id, "signer_account_id");
+  requireObject(request.fee_payment, "fee_payment");
+  if (kind === "contract-approve") {
+    requireMultisigId(request.proposal_id); requireMultisigId(request.instructions_hash, "instructions_hash");
+  } else requireMultisigNonce(request.proposal_nonce);
+  if (kind === "propose") {
+    if (!Array.isArray(request.instructions) || !request.instructions.length) rejectType("native instructions must be nonempty");
+  } else {
+    requireNonEmptyString(request.contract_alias, "contract_alias");
+    requireNonEmptyString(request.entrypoint, "entrypoint"); requireObject(request.payload, "payload");
+  }
+  return request;
+}
+
 function normalizeMultisigProposalsResolveBody(value, context) {
   const source = requireObject(value, context);
+  if (source.instructionsHash !== undefined || source.instructions_hash !== undefined) rejectType(`${context} resolves only a proposal occurrence ID`);
   const body = normalizeMultisigSelectorBody(source, context);
-  if (source.proposalId !== undefined && body.proposal_id === undefined) {
-    body.proposal_id = source.proposalId;
-  }
-  if (source.instructionsHash !== undefined && body.instructions_hash === undefined) {
-    body.instructions_hash = source.instructionsHash;
-  }
+  body.proposal_id = requireMultisigId(source.proposal_id ?? source.proposalId);
   delete body.proposalId;
-  delete body.instructionsHash;
-  if (body.proposal_id !== undefined) {
-    body.proposal_id = requireNonEmptyString(body.proposal_id, `${context}.proposal_id`);
-  }
-  if (body.instructions_hash !== undefined) {
-    body.instructions_hash = requireNonEmptyString(
-      body.instructions_hash,
-      `${context}.instructions_hash`,
-    );
-  }
-  const hasProposalId = body.proposal_id !== undefined;
-  const hasInstructionsHash = body.instructions_hash !== undefined;
-  if (hasProposalId === hasInstructionsHash) {
-    rejectType(`${context} requires exactly one of proposalId or instructionsHash`);
-  }
   return body;
 }
 
@@ -1060,6 +1087,7 @@ async function fetchToriiResponse(
   init,
   successStatuses,
   cleanupSignal,
+  errorBodyOptions,
 ) {
   let response;
   try {
@@ -1075,7 +1103,7 @@ async function fetchToriiResponse(
   const status = responseStatus(response);
   if (!successStatuses.includes(status)) {
     try {
-      throw await toriiHttpErrorFromResponse(response, status, successStatuses);
+      throw await toriiHttpErrorFromResponse(response, status, successStatuses, errorBodyOptions);
     } finally {
       cleanupSignal();
     }
@@ -1083,8 +1111,27 @@ async function fetchToriiResponse(
   return { response, status };
 }
 
-async function toriiHttpErrorFromResponse(response, status, expected) {
-  const bodyText = await responseText(response);
+async function toriiHttpErrorFromResponse(response, status, expected, bodyOptions) {
+  let bodyText;
+  if (bodyOptions?.maximumBodyBytes === undefined) {
+    bodyText = await responseText(response);
+  } else {
+    try {
+      bodyText = await readBoundedResponseText(
+        response,
+        bodyOptions.maximumBodyBytes,
+        bodyOptions.context,
+        bodyOptions.signal,
+      );
+    } catch (error) {
+      try {
+        Promise.resolve(response.body?.cancel(error)).catch(() => {});
+      } catch {
+        // A rejected or already-locked stream may not be cancelable.
+      }
+      throw error;
+    }
+  }
   return toriiHttpErrorFromResponseText({
     status,
     statusText: typeof response?.statusText === "string" && response.statusText ? response.statusText : null,
@@ -1656,6 +1703,7 @@ export class ToriiBrowserClient {
     this.#canonicalRequestAuth = normalizeBrowserCanonicalRequestAuth(
       normalizedOptions.canonicalRequestAuth,
       this.#networkId,
+      this.#baseUrl,
     );
     const operatorSigningContext = normalizedOptions.operatorSigningContext ?? null;
     this.#operatorSigningContext = operatorSigningContext === null
@@ -1815,6 +1863,7 @@ export class ToriiBrowserClient {
       rejectPrecomputedCanonicalHeaders({ ...this.#defaultHeaders, ...(opts.headers ?? {}) });
       const signed = await buildCanonicalJsonRequest({
         accountId: this.#canonicalRequestAuth.accountId,
+        nativeIdentity: this.#canonicalRequestAuth.nativeIdentity,
         networkId: this.#networkId,
         method: "POST",
         path: target,
@@ -1835,6 +1884,30 @@ export class ToriiBrowserClient {
       signal: signalFrom(opts),
       jsonParser: (text) => decodePageText(text, `${target} response`),
     });
+  }
+
+  /** Inspect supplied account syntax through Torii's native codec; no ledger authority is granted. */
+  async inspectAccountIdentity(accountId, options = {}) {
+    const opts = signalOnlyOptions(options, "inspectAccountIdentity options");
+    const publicClient = new ToriiBrowserClient(this.#baseUrl, {
+      networkId: this.#networkId, fetchImpl: this.#fetchImpl, timeoutMs: this.#timeoutMs,
+    });
+    return inspectToriiAccountIdentityViaNativeTransport({
+      networkId: this.#networkId, baseUrl: this.#baseUrl, accountId,
+    }, ({ body }) => publicClient._json("POST", "/v1/accounts/inspect", {
+      rawBody: body,
+      contentType: FIELD_APPLICATION_JSON,
+      omitCredentials: true,
+      oneShot: true,
+      signal: signalFrom(opts),
+      maximumBodyBytes: 8192,
+      responseObserver: (response) => {
+        if (!isExactJsonMediaType(response.headers.get("content-type"))) {
+          rejectType("native account inspection response must use application/json");
+        }
+      },
+      jsonParser: (text) => parseStrictLosslessIntegerJson(text, "native account inspection response"),
+    }));
   }
 
   /** Discover account bootstrap policy without using configured credentials or signing callbacks. */
@@ -1867,21 +1940,26 @@ export class ToriiBrowserClient {
     return url;
   }
 
-  async _applyDataspaceReadIdentity(url, init) {
+  async _applyDataspaceReadIdentity(url, init, requestAuth) {
     if (init.method !== "GET" || init.body !== undefined) {
       rejectType(("browser dataspace" + TEXT_AUTHENTICATION_ONLY_SUPPORTS_EMPTY_BODY_GETS));
     }
     rejectPrecomputedCanonicalHeaders(init.headers);
     init.credentials = "omit";
-    if (this.#canonicalRequestAuth === null) return;
+    const canonicalRequestAuth = requestAuth === undefined
+      ? this.#canonicalRequestAuth
+      : normalizeBrowserCanonicalRequestAuth(requestAuth, this.#networkId, this.#baseUrl);
+    if (canonicalRequestAuth === null) return;
     const signed = await buildCanonicalJsonRequest({
-      accountId: this.#canonicalRequestAuth.accountId,
+      accountId: canonicalRequestAuth.accountId,
+      nativeIdentity: canonicalRequestAuth.nativeIdentity,
+      baseUrl: this.#baseUrl,
       networkId: this.#networkId,
       method: "GET",
-      path: url.pathname,
+      path: url.pathname.slice(new URL(this.#baseUrl).pathname.replace(/\/+$/u, "").length),
       query: url.search.startsWith("?") ? url.search.slice(1) : url.search,
       headers: init.headers,
-      sign: this.#canonicalRequestAuth.sign,
+      sign: canonicalRequestAuth.sign,
     });
     init.headers = signed.headers;
     init.redirect = "error";
@@ -1929,7 +2007,7 @@ export class ToriiBrowserClient {
       init.credentials = "omit";
     }
     if (normalizedOptions.dataspaceVisible === true) {
-      await this._applyDataspaceReadIdentity(url, init);
+      await this._applyDataspaceReadIdentity(url, init, normalizedOptions.canonicalRequestAuth);
     }
     if (normalizedOptions.operatorSigningContext !== undefined) {
       if (method !== "GET" || init.body !== undefined) {
@@ -1952,6 +2030,11 @@ export class ToriiBrowserClient {
       init,
       successStatuses,
       cleanup,
+      {
+        maximumBodyBytes: normalizedOptions.maximumBodyBytes,
+        context: `${method} ${path} error`,
+        signal,
+      },
     );
     try {
       if (normalizedOptions.responseObserver !== undefined) {
@@ -1976,6 +2059,13 @@ export class ToriiBrowserClient {
       );
       if (text === "" && normalizedOptions.jsonParser === undefined) return null;
       return jsonParser(text);
+    } catch (error) {
+      try {
+        Promise.resolve(response.body?.cancel(error)).catch(() => {});
+      } catch {
+        // A rejected or already-locked stream may not be cancelable.
+      }
+      throw error;
     } finally {
       cleanup();
     }
@@ -2030,6 +2120,7 @@ export class ToriiBrowserClient {
     }
     const signed = await buildCanonicalJsonRequest({
       accountId: requireNonEmptyString(opts.authAccountId, `${method} ${path} options.authAccountId`),
+      nativeIdentity: opts.nativeIdentity,
       networkId: this.#networkId,
       method,
       path,
@@ -2084,6 +2175,77 @@ export class ToriiBrowserClient {
         );
       },
     });
+  }
+
+  /**
+   * Page native bond records (`GET /v1/bonds`) as native snake_case JSON:
+   * `{ items, nextCursor, total? }`, at most 20 records and 16 MiB per page.
+   */
+  async listBonds(options = {}) {
+    const opts = requireSupportedOptions(
+      options,
+      "listBonds options",
+      new Set(["signal", "limit", "cursor", "filter"]),
+    );
+    const payload = await this._json("GET", "/v1/bonds", {
+      signal: signalFrom(opts),
+      params: bondRecordPageParams(opts, "listBonds"),
+      maximumBodyBytes: BOND_RECORD_PAGE_MAX_BYTES,
+      jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond page response"),
+    });
+    return normalizeBondRecordPage(payload, "bond page response");
+  }
+
+  /** Fetch one native bond record (`GET /v1/bonds/{bond_id}`, at most 2 MiB); null when it is not registered. */
+  async getBond(bondId, options = {}) {
+    const bond = normalizeAssetDefinitionId(bondId, "getBond.bondId");
+    const opts = signalOnlyOptions(options, "getBond options");
+    let payload;
+    try {
+      payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}`, {
+        signal: signalFrom(opts),
+        maximumBodyBytes: BOND_RECORD_MAX_BYTES,
+        jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond response"),
+      });
+    } catch (error) {
+      if (error instanceof ToriiHttpError && error.status === 404) return null;
+      throw error;
+    }
+    const record = normalizeBondRecord(payload, "bond response");
+    if (record.id !== bond) {
+      rejectType(`bond response describes ${record.id}, not the requested bond ${bond}`);
+    }
+    return record;
+  }
+
+  /**
+   * Page the record-date entitlements of one bond
+   * (`GET /v1/bonds/{bond_id}/entitlements`), in cash-flow then holder order;
+   * null when the bond is not registered. At most 1000 rows and 4 MiB per page.
+   */
+  async getBondEntitlements(bondId, options = {}) {
+    const bond = normalizeAssetDefinitionId(bondId, "getBondEntitlements.bondId");
+    const opts = requireSupportedOptions(
+      options,
+      "getBondEntitlements options",
+      new Set(["signal", "index", "holder", "limit", "cursor"]),
+    );
+    const holder = opts.holder === undefined
+      ? undefined
+      : normalizeAccountId(opts.holder, "getBondEntitlements.holder");
+    let payload;
+    try {
+      payload = await this._json("GET", `/v1/bonds/${encodeURIComponent(bond)}/entitlements`, {
+        signal: signalFrom(opts),
+        params: bondEntitlementPageParams({ ...opts, holder }, "getBondEntitlements"),
+        maximumBodyBytes: BOND_ENTITLEMENT_PAGE_MAX_BYTES,
+        jsonParser: (text) => parseStrictLosslessIntegerJson(text, "bond entitlement page response"),
+      });
+    } catch (error) {
+      if (error instanceof ToriiHttpError && error.status === 404) return null;
+      throw error;
+    }
+    return normalizeBondEntitlementPage(payload, "bond entitlement page response", bond);
   }
 
   /** Fetch one exact pipeline status by transaction hash. */
@@ -2192,7 +2354,11 @@ export class ToriiBrowserClient {
     throw error;
   }
 
-  /** Submit exact locally signed bytes and wait for global state-resolved Applied finality. */
+  /**
+   * Submit exact locally signed bytes and wait for global state-resolved Applied
+   * finality. An HTTP 409 `already_committed` or `already_enqueued` rejection of
+   * the same bytes continues with the finality wait.
+   */
   async submitTransactionAndWait(signedTransaction, options = {}) {
     const context = (TEXT_SUBMIT_TRANSACTION_AND_WAIT + "options");
     const opts = requireObject(options, context);
@@ -2212,10 +2378,18 @@ export class ToriiBrowserClient {
         rejectError((TEXT_SUBMIT_TRANSACTION_AND_WAIT + "options.hashHex does not match signedTransaction"));
       }
     }
-    await this.submitTransaction(body, {
-      signal: signalFrom(opts),
-      headers: opts.headers,
-    });
+    try {
+      await this.submitTransaction(body, {
+        signal: signalFrom(opts),
+        headers: opts.headers,
+      });
+    } catch (error) {
+      // The hash is derived from the exact signed bytes, so a node that already
+      // queued or committed this transaction only needs the finality wait.
+      if (!isIdempotentSubmissionRejection(error)) {
+        throw error;
+      }
+    }
     return this.waitForTransactionStatus(hashHex, {
       signal: opts.signal,
       headers: opts.headers,
@@ -2265,6 +2439,7 @@ export class ToriiBrowserClient {
           opts.authAccountId,
           (TEXT_GET_CONTRACT_DEPLOYMENT_STATE + "options.authAccountId"),
         ),
+        nativeIdentity: opts.nativeIdentity,
         networkId: this.#networkId,
         method: "POST",
         path: FIELD_V1_CONTRACTS_DEPLOYMENT_STATE,
@@ -2641,6 +2816,25 @@ export class ToriiBrowserClient {
     });
   }
 
+  /** Fetch one visible transaction's selective evidence; this is not a finality verdict. */
+  getExplorerTransactionProof(hash, options = {}) {
+    const opts = requireSupportedOptions(options, "getExplorerTransactionProof options",
+      new Set(["signal", "canonicalRequestAuth"]));
+    const normalizedHash = explorerTransactionProofHash(hash, "getExplorerTransactionProof hash");
+    return this._json("GET", `${TEXT_V1_EXPLORER}transactions/${normalizedHash.slice(5, 69).toLowerCase()}/proof`, {
+      dataspaceVisible: true,
+      canonicalRequestAuth: opts.canonicalRequestAuth,
+      signal: signalFrom(opts),
+      maximumBodyBytes: EXPLORER_TRANSACTION_PROOF_MAX_BYTES,
+      responseObserver: (response) => {
+        if (!isExactJsonMediaType(response.headers.get("content-type"))) {
+          rejectType("explorer transaction proof response must use the application/json media type");
+        }
+      },
+      jsonParser: (text) => decodeExplorerTransactionProof(text, normalizedHash, this.#networkId),
+    });
+  }
+
 
 
   getExplorerInstruction(transactionHash, index, options = {}) {
@@ -2687,8 +2881,7 @@ export class ToriiBrowserClient {
     const opts = requireObject(options, "submitMultisigPropose options");
     rejectSuccessStatuses(opts, "submitMultisigPropose options");
     return this._json("POST", "/v1/multisig/propose", {
-      rawBody: noritoEncodeMultisigProposeRequest(requireObject(request, "submitMultisigPropose request"), this.#networkPrefix),
-      contentType: FIELD_APPLICATION_X_NORITO,
+      body: normalizeNativeMultisigJson("propose", requireObject(request, "submitMultisigPropose request")),
       headers: { Accept: FIELD_APPLICATION_JSON, ...(opts.headers ?? {}) },
       signal: signalFrom(opts),
       successStatuses: [200, 202],
@@ -2699,11 +2892,7 @@ export class ToriiBrowserClient {
     const opts = requireObject(options, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_PROPOSE + "options"));
     rejectSuccessStatuses(opts, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_PROPOSE + "options"));
     return this._json("POST", (TEXT_V1_CONTRACTS + "call/multisig/propose"), {
-      rawBody: noritoEncodeMultisigContractCallProposeRequest(
-        requireObject(request, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_PROPOSE + "request")),
-        this.#networkPrefix,
-      ),
-      contentType: FIELD_APPLICATION_X_NORITO,
+      body: normalizeNativeMultisigJson("contract-propose", requireObject(request, "submitMultisigContractCallPropose request")),
       headers: { Accept: FIELD_APPLICATION_JSON, ...(opts.headers ?? {}) },
       signal: signalFrom(opts),
       successStatuses: [200, 202],
@@ -2714,11 +2903,7 @@ export class ToriiBrowserClient {
     const opts = requireObject(options, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_APPROVE + "options"));
     rejectSuccessStatuses(opts, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_APPROVE + "options"));
     return this._json("POST", (TEXT_V1_CONTRACTS + "call/multisig/approve"), {
-      rawBody: noritoEncodeMultisigContractCallApproveRequest(
-        requireObject(request, (TEXT_SUBMIT_MULTISIG_CONTRACT_CALL_APPROVE + "request")),
-        this.#networkPrefix,
-      ),
-      contentType: FIELD_APPLICATION_X_NORITO,
+      body: normalizeNativeMultisigJson("contract-approve", requireObject(request, "submitMultisigContractCallApprove request")),
       headers: { Accept: FIELD_APPLICATION_JSON, ...(opts.headers ?? {}) },
       signal: signalFrom(opts),
       successStatuses: [200, 202],

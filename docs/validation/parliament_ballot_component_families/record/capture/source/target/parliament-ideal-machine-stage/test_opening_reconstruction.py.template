@@ -1,0 +1,99 @@
+"""Finite source algorithm reference for the joined B0/B1/V0/V1 clean map."""
+from pathlib import Path
+import random
+import unittest
+
+from bit_ir import bits,unpack
+from schedule import load_predicate
+from opening import Opening,GeometryKernel
+from reconstruction import Reconstruction
+from vole_columns import VoleColumns
+from crt_machine import CrtReconstruction,Matrix
+from vole_reconstruction import VoleReconstruction
+from opening_reconstruction import OpeningReconstruction
+from test_prg_machine import ToyCipher
+from test_reconstruction import ToyField,reference as bavc_reference
+from test_vole_machine import source_hidden_fold
+from test_vole_columns import reference_masks
+from test_crt_machine import padded,reference as crt_reference
+from test_hash_machine import apply
+
+ROOT=Path(__file__).resolve().parents[2]
+
+
+class OpeningReconstructionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):cls.module=load_predicate(ROOT)
+
+    def machine(self):
+        g=self.module.Geometry(2,3,0,1,7)
+        opening=Opening(GeometryKernel(self.module,g))
+        bavc=Reconstruction(g,ToyCipher(),ToyField(768),ToyField(256))
+        columns=VoleColumns(g,256,(7,7),ToyCipher())
+        crt=CrtReconstruction(256,columns.width_bits,Matrix(4,(3,10,12,0,9,5,6,15)),
+                              Matrix(4,padded((1,2,4,8,3,12))),Matrix(4,padded((8,7,11,3))),
+                              Matrix(8,padded((1,2,64,128,129,54))))
+        return OpeningReconstruction(opening,bavc,VoleReconstruction(columns,crt))
+
+    def test_same_selector_opening_seeds_columns_CRT_and_clean_reverse(self):
+        m=self.machine();g=m.geometry;p=m.layout();rng=random.Random(510)
+        namespace=bytes(range(77));iv=(1<<128)-3;salt=bytes(reversed(range(32)))
+        selected=12;hidden=(0,3)
+        # Zero keys and repeats are valid: routing must not use key values as markers.
+        keys=(0,11,11,0,57,0,9);commitments=(17,31)
+        correction=rng.getrandbits(256);cmult=rng.getrandbits(80)
+        values=(bits(int.from_bytes(namespace,'little'),616)+bits(iv,128)
+                +bits(int.from_bytes(salt,'little'),256)+bits(selected,256)
+                +tuple(b for c in commitments for b in bits(c,896))
+                +tuple(b for k in keys for b in bits(k,256))+bits(correction,256)+bits(cmult,80))
+        marks,commitment,seeds=bavc_reference(g,hidden,keys,commitments,namespace,iv)
+        r=sum(marks[2*parent+1]^marks[2*parent+2] for parent in range(g.leaves-1))
+        self.assertLessEqual(r,g.opening_limit)
+        opening=(tuple(b for c in commitments for b in bits(c,896))
+                 +tuple(b for i,k in enumerate(keys) for b in bits(k if i<r else 0,256)))
+        columns=[];offset=0;v=m.vole.columns;c=m.vole.crt
+        for instance,depth in enumerate(g.depths):
+            count=1<<depth
+            columns+=source_hidden_fold(seeds[offset:offset+count],iv,hidden[instance],depth,instance,
+                                         v.row_bits,v.ell,0 if instance==0 else correction)
+            offset+=count
+        shares=reference_masks(columns,g.depths,v.moduli,v.ell)
+        crt_inputs=values[:1256]+tuple(b for col in columns for b in bits(col,v.width_bits))
+        crt_inputs+=tuple(b for share in shares for b in bits(share,c.share_width))+bits(cmult,80)
+        material,visible_messages=crt_reference(c,crt_inputs)
+        wanted=(opening+tuple(b for h in hidden for b in bits(h,16))
+                +bits(int.from_bytes(commitment,'little'),512)+material)
+        z=tuple(rng.randrange(2) for _ in range(m.output_bits))
+        state=list(values+(0,)*(p['output_start']-len(values))+z)
+        counts,queries=apply(state,m.emit_clean())
+        self.assertEqual(state[:m.input_bits],list(values))
+        self.assertEqual(state[m.input_bits:p['output_start']],[0]*(p['output_start']-m.input_bits))
+        self.assertEqual(tuple(state[p['output_start']:]),tuple(a^b for a,b in zip(z,wanted)))
+        self.assertEqual([q for q in queries if q[-1]==5],[q for msg in visible_messages for q in (msg,)*4])
+        self.assertEqual(set(q[-1] for q in queries),{0,1,5})
+        resource=m.resources();cost=resource['gates']
+        for name in ('x','cx','ccx'):self.assertEqual(counts[name],cost[name])
+        self.assertEqual(counts['F'],8*g.tau+12+4*c.gates)
+        self.assertEqual(counts['F'],cost['base_xor_oracle_calls'])
+        self.assertFalse(resource['complete_resource_vector'])
+
+    def test_affine_region_mapping_and_geometry_refusal(self):
+        m=self.machine();p=m.layout()
+        for stage in ('b0','b1','vole'):
+            pieces=m.sources(p,stage)
+            self.assertEqual(sum(width for _,width in pieces),p['input_widths'][stage])
+            slots=[(a,a+w) for a,w in pieces]
+            for i,(a,b) in enumerate(slots):
+                for c,d in slots[i+1:]:self.assertTrue(b<=c or d<=a)
+        # B0 decoded hidden slices are exactly what V0 receives.
+        b0=p['retained']['b0'][0]
+        self.assertIn((b0+m.opening_bits,m.hidden_bits),m.sources(p,'vole'))
+        self.assertIn((p['inputs']['selector'][0],256),m.sources(p,'vole'))
+        self.assertIn((p['inputs']['selector'][0],m.opening.kernel.inputs),m.sources(p,'b0'))
+        with self.assertRaises(ValueError):m.sources(p,'other')
+        other=self.module.Geometry(2,3,1,1,7)
+        with self.assertRaises(ValueError):
+            OpeningReconstruction(Opening(GeometryKernel(self.module,other)),m.bavc,m.vole)
+
+
+if __name__=='__main__':unittest.main()

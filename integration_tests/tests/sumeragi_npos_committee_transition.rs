@@ -105,6 +105,8 @@ mod committee_status;
 mod parliament_contract;
 #[path = "support/parliament_submission.rs"]
 mod parliament_submission;
+#[path = "sccp_key_transition/main.rs"]
+mod sccp_key_transition;
 
 // Paid citizen setup precedes selection; one full preparation epoch then covers every seat.
 const EPOCH: u64 = 64;
@@ -2671,45 +2673,53 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
     result
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn overfull_pool_freezes_seven_then_missing_incumbent_custody_certifies_four_retained()
--> Result<()> {
-    Box::pin(run_overfull_qualification(
-        QualificationScenario::WithheldIncumbentCustody,
-    ))
-    .await
+// Native authenticated history decoding runs inside the test driver during DKG.
+// Bound its owning thread and runtime stacks explicitly, without an inherited env setting.
+fn run_network_qualification(scenario: QualificationScenario) -> Result<()> {
+    const NETWORK_STACK_BYTES: usize = 32 * 1024 * 1024;
+    let handle = std::thread::Builder::new()
+        .name(scenario.seed().to_owned())
+        .stack_size(NETWORK_STACK_BYTES)
+        .spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(NETWORK_STACK_BYTES)
+                .enable_all()
+                .build()
+                .wrap_err("build the NPoS qualification test runtime")?
+                .block_on(run_overfull_qualification(scenario))
+        })
+        .wrap_err("start the NPoS qualification test thread")?;
+    match handle.join() {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn five_candidates_freeze_exact_four_and_certify_retention_without_reroll() -> Result<()> {
-    Box::pin(run_overfull_qualification(
-        QualificationScenario::FiveCandidateRetention,
-    ))
-    .await
+#[test]
+fn overfull_pool_freezes_seven_then_missing_incumbent_custody_certifies_four_retained() -> Result<()>
+{
+    run_network_qualification(QualificationScenario::WithheldIncumbentCustody)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn eleven_candidates_freeze_exact_seven_and_certify_retention_without_reroll() -> Result<()> {
-    Box::pin(run_overfull_qualification(
-        QualificationScenario::ElevenCandidateRetention,
-    ))
-    .await
+#[test]
+fn five_candidates_freeze_exact_four_and_certify_retention_without_reroll() -> Result<()> {
+    run_network_qualification(QualificationScenario::FiveCandidateRetention)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn complete_dkg_but_missing_target_custody_certifies_four_retained() -> Result<()> {
-    Box::pin(run_overfull_qualification(
-        QualificationScenario::MissingTargetCustody,
-    ))
-    .await
+#[test]
+fn eleven_candidates_freeze_exact_seven_and_certify_retention_without_reroll() -> Result<()> {
+    run_network_qualification(QualificationScenario::ElevenCandidateRetention)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn complete_real_xor_committee_rotates_four_to_seven_to_four() -> Result<()> {
-    Box::pin(run_overfull_qualification(
-        QualificationScenario::ActivateSevenThenReturnFour,
-    ))
-    .await
+#[test]
+fn complete_dkg_but_missing_target_custody_certifies_four_retained() -> Result<()> {
+    run_network_qualification(QualificationScenario::MissingTargetCustody)
+}
+
+#[test]
+fn complete_real_xor_committee_rotates_four_to_seven_to_four() -> Result<()> {
+    run_network_qualification(QualificationScenario::ActivateSevenThenReturnFour)
 }
 
 #[test]

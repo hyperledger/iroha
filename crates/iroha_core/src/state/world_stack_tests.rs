@@ -61,9 +61,7 @@ fn world_constructor_and_snapshot_restore_preserve_history_on_default_stack() {
         let storage_owner = std::ptr::from_ref(&*world);
         let kura = Kura::blank_kura_for_testing();
         let state = State::try_new(
-            crate::state::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget().clone(),
             world,
             Arc::clone(&kura),
             LiveQueryStore::start_test(),

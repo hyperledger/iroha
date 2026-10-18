@@ -85,9 +85,9 @@ pub(super) fn payment(bytes: &[u8]) -> Result<IncomingOriginalV1, Error> {
         &receipt_digest,
     ))?;
     let mut compact = kagemusha_wallet_payment_transcript_v1(
-        &payment.request.request_digest(),
-        &payment.payer_payment_key,
-        &payment.payer_credential_digest,
+        &authority(payment.signed_request())?.request_digest(),
+        &lineage.public.payment_key,
+        &lineage.public.credential_digest,
         &package_digest,
     );
     // The model helper constructs a new V1 object. Here an invalid carried version

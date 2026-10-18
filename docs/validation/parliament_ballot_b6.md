@@ -1,6 +1,6 @@
 # Parliament ballot B6 qualification evidence
 
-Status, 2026-10-13: **experimental; no profile selected or qualified; production
+Status, 2026-10-14: **experimental; no profile selected or qualified; production
 remains gated.** This record extends the [B1–B5 evidence](parliament_ballot_standalone.md)
 and tracks the [B6 goals](../../specs/parliament_ballot_implementation_goals.md).
 It records completed local work and concrete remaining obligations, not an
@@ -57,7 +57,203 @@ exceed the allowance; a complete honest-game/simulator driver and its resource
 bound are still missing. These source counts are neither an attack-cost
 assessment nor independent cryptographic review.
 
+The [bounded hybrid-driver proposal](../../specs/parliament_ballot_b6_hybrid_driver.md)
+repairs a missing worst-case sampler boundary in the proposed experiments:
+use bounded auxiliary sampling already before material replacement, when its
+exhaustion value is private unused bookkeeping. It specifies opening caches,
+whole-lifetime oracle state and actual-IV component interfaces. Local algebra
+supports every fixed opening. A separate [conditional fixed-opening H5 derivation](../../specs/parliament_ballot_b6_h5_fixed_opening.md)
+now supplies a gate-domain adaptive-reprogramming bound at the explicit ideal-row
+entry, including one own-label-equality charge. The
+[zero-challenge certificate](parliament_ballot_zero_challenge/README.md) verifies
+the fallback for both actual rows and roles. The separate
+[joint mask-coordinate derivation](../../specs/parliament_ballot_b6_mask_coordinate.md)
+preserves the full oracle/transcript state through the ten-mask change of
+variables, under explicit ideal-row, independent high-mask and prescribed-challenge
+premises. Actual table checks cover both rank-256 maps and all 127,488 bilinear
+basis pairs. Its endpoint retains ideal commitment material; a finite support
+argument rules out identifying that distribution exactly with real-root `Sim+`.
+A separate [hidden-assignment deletion derivation](../../specs/parliament_ballot_b6_hidden_assignment_deletion.md)
+now removes the patches at that same ideal-material boundary. It proves joint
+pad/query independence in the unpatched baseline and applies a full-state
+lookup comparison across adaptive requests and exhaustion. This conditional
+result does not supply the ideal-entry or reverse material bridges.
+The separate [direct public sampler](../../specs/parliament_ballot_b6_ideal_public_sampler.md)
+now exactly samples that post-deletion public endpoint under its explicit fresh
+replacement-slot premise. It draws frontier keys and hidden commitments and
+runs one source-shaped VOLE reconstruction, preserving actual revealed-generator
+aliases and persistent oracle history. This defines a distinct bounded simulator
+proposal; it does not identify the endpoint with real-root `Sim+`. Computational
+entry, proposal acceptance and complete reduction resources remain open.
+The separate [executable sampler accounting](../../specs/parliament_ballot_b6_ideal_sampler_accounting.md)
+now checks bounded schedules, ordinary reads, programming writes and persistent
+log payloads across sequential requests. Its 30 controls preserve a distinct
+request cap and external-query cap, chronological overwrites and componentwise
+all-opening extrema. The separate [reversible oracle-log construction](../../specs/parliament_ballot_b6_oracle_log_circuit.md)
+now prices a fixed-address coherent lookup and reversible append, including
+two base-oracle calls per lookup, clean work and persistent wires. Twenty-one
+finite circuit/provenance controls pass. Its very large illustrative gate
+count is an upper bound for that construction, not a primitive advantage or
+an impossibility result. The separate [write-frame construction](../../specs/parliament_ballot_b6_write_framing.md)
+now supplies the omitted preparation and cleanup around append, with 11 focused
+controls. Its fixed X/CNOT scatter preserves supplied field labels and restores
+the reused staging register. Counts include the actual namespace, recovered
+fields, trailing domains and little-endian trial counter; field generation,
+validation and controller work remain outside this supplied-field boundary.
+It adds no oracle calls or staging allocation. Base-oracle and other reduction costs, actual-input
+bridges and a complete physical-memory bound remain unknown.
+The separate [admissibility circuit](../../specs/parliament_ballot_b6_admissibility_circuit.md)
+now prices the actual grinding/opening predicate on supplied challenge wires,
+including exact tree selection/counting and full cleanup. Its candidate and
+comparator costs are 10,310,244 and 153,513,026 elementary gates per trial, with
+12,832 and 122,916 clean work bits reused across trials. The
+[component capture](parliament_ballot_admissibility_circuit/README.md) retains
+independent predicate tests and both actual-row circuit executions. Randomness,
+first-success selection, controller, reconstruction and remaining reductions
+are separate, unpriced components; this is not a full resource certificate.
+The existing arguments and ledger are unchanged; local consistency review does
+not supply independent cryptographic review or qualification.
+The [clean field-product kernels](parliament_ballot_gf_circuit/README.md)
+supply exact reversible implementations for the already-inventoried 256-bit
+product, low-64-bit scalar product and 256-by-768-bit wide product. Their
+compute/reduce/uncompute circuits return all work bits to zero on disjoint
+supplied registers. These kernel counts alone are not a
+whole-simulator bound; the request composition below adds explicit routing,
+intermediate history and cleanup within its stated atomic boundary. Physical
+verifier memory and primitive advantages
+remain separate qualification obligations.
+
+The [mathematical request-machine implementation](parliament_ballot_request_machine/README.md)
+now joins public preparation, the bounded sampler, opening/VOLE reconstruction,
+response equations, chronological writes, return values and derived-state cleanup.
+It also implements content rejection and fixed-length VOTE error families with
+full 64-bit length payloads. Its exact accepted-request observations separate
+logical gates, ideal-oracle calls and retained storage; they are not a family-wide
+maximum or native verifier-memory measurement. Complete adaptive lifetime
+accounting, primitive entry bounds, external review and production qualification
+remain open. The existing production gates remain closed.
+
+The [conditional lifetime ledger](parliament_ballot_lifetime_ledger/README.md)
+composes known event costs and disjoint retained storage for its supported traces.
+It refuses unsupported families and keeps preparation, adaptive control, primitive
+and complete-resource terms unknown. Separate [content resource observations](parliament_ballot_content_resources/README.md)
+price both rows at list counts 3 and 1000 using the full trial cap; these are exact
+cases, not proved maxima or physical-workspace measurements. The separate
+[ContentFamily ledger extension](parliament_ballot_content_lifetime/README.md)
+now includes those four cases in combined event accounting. It explicitly caps
+all typed requests, including invalid ones; the theorem's valid-request-only T
+does not imply that additional bound. Actual validity and occupancy stay unknown.
+
+The [finite sequence binder](parliament_ballot_sequence_composition/README.md)
+emits the existing component streams with one shared log/counter, distinct retained
+interfaces and shared clean workspace. Its 75 controls and one full-cap metadata
+reconciliation cover a sequence chosen in advance; adaptive selection, preparation
+and the complete experiment theorem remain open. The [legal-domain audit](parliament_ballot_family_domains/README.md)
+identifies upstream constructor, raw-decoder, witness and application paths that
+still need their own counts and costs. [Component-family arithmetic](parliament_ballot_component_families/README.md)
+derives REG P1 and VOTE P0/P1/R1 bounds, including the interior REG X-gate maximum;
+component maxima alone do not establish the full experiment bound.
+
+These new mathematical checks replay authenticated historical sources. The current
+ballot Cargo manifest differs; the frozen ledger correctly refuses it. No prior
+evidence is repinned, and these results do not qualify the changed native candidate.
+Production remains gated.
+
 ## Standalone adversarial and conformance evidence
+
+The [current-source rebuild](parliament_ballot_current_candidate/README.md)
+passes 17 release worker tests, strict Clippy and builds per mode, followed by
+122 observations and four output controls. Fresh disassembly has zero frame
+errors with 62 analyzer regressions. The allocation check exposed an overly
+strong `will_wake` test assertion; the documented correction retains pointer,
+callback and allocation checks, with 28 shared and nine custody tests passing.
+The failed attempt and previous builds remain immutable. A separate
+[compiled correspondence check](parliament_ballot_current_correspondence/README.md)
+compares 24 code ranges, loaded data and resolved symbols, then reruns the four
+unchanged adapter/frontend/profile/typed-decoder analyzers on the new captures.
+All 49 controls pass, with 2,123 stable input guards. It binds seven source
+deltas and narrowly accounts for private-symbol spelling changes; the original
+ordinary-flow, ownership and native-call premises still apply. Complete work,
+workspace, native runtime and hardware costs remain unresolved.
+After those captures, concurrent work changed the root lockfile. The recorded
+worker sources otherwise still match, but the build, campaign, allocation and
+correspondence results retain their captured source scope. Four changed package
+dependency lists lie outside the recorded isolated worker package set; this
+observation does not establish a new build or dependency-graph equivalence.
+The original lock remains archived; no old receipt was repinned.
+
+The [fatal-control revision](parliament_ballot_fatal_control/README.md) fixes a
+resource-failure write that blocked charged verification on full stdout pipes.
+Both frozen binaries reproduce the defect. Fresh binaries publish exact debit
+through a counted shared page before exiting, and the external supervisor
+formats the failure afterward. All 122 new observations and full/broken-output
+controls pass; 17 Rust tests per mode, strict Clippy and 61 focused Python tests
+pass. The reserved mapping is now 41.109375 MiB on this Mac. Earlier images and
+their compiled analyses remain historical; this is not a complete stack/work,
+native-memory or physical-cost certificate.
+
+The [fresh stack captures](parliament_ballot_fatal_stack_eon/README.md) bind the
+same shared-control binaries. The analyzer now handles their scalar `STLUR` and
+`EON` instructions, with 62 passing regressions and no frame-decoding errors in
+either image. It exposes two additional portable AES native-copy calls rather
+than treating them as zero cost. Local worker/fatal frames are 176/16 bytes;
+the finite resolved regions are 15,984/13,440 bytes by mode, excluding opaque
+costs. Native calls, indirect targets, exceptional edges and the 63-function
+recursive component still prevent a complete stack bound.
+
+The separate [adapter bound](parliament_ballot_adapter_bound/README.md) isolates
+the code around `Reservation::verify` in these two images. Under its explicit
+ownership, ordinary-flow and native premises, that region uses at most 336
+stack bytes including the red zone, 5,298 issued instructions outside opaque
+callees, and one 524,288-byte input block inside the existing arena. All 20
+checker tests pass. The verifier and native routine costs remain unknown;
+this does not supply a whole-call work or workspace certificate.
+After capture and passing tests, concurrent edits changed `Cargo.lock` and four
+allocator files. The [post-analysis check](parliament_ballot_adapter_bound/post-analysis-source-check.json)
+retains their exact hashes, and the [current-source refusal](parliament_ballot_adapter_bound/current-source-refusal/report.json)
+correctly reports UNKNOWN. The recorded binaries, reports and source interval
+remain unchanged; no result is transferred to those later source revisions.
+The [historical-input recovery](parliament_ballot_adapter_source_recovery/README.md)
+resolves all 2,081 original identities, recovering four changed inputs into
+separate files from exact Git revisions. Twelve [fault controls](parliament_ballot_b6/source-recovery-controls.json)
+cover refusal and first/second-pass identity changes. This preserves the earlier
+argument's inputs without rebuilding, changing live files or repinning evidence.
+The separate [historical frontend bound](parliament_ballot_frontend_bound/README.md)
+uses those identities to bound the reservation dispatcher plus outer record
+parser at 146 local issued instructions and 2,160 owned stack bytes in both
+images. Its fixed-count field parser contributes at most 299/277 local
+instructions for registration/vote, separately from the opaque typed-decoder
+cost. Twenty-seven checker tests cover identity, control-flow and count
+mutations. Typed validation, cryptography, allocation, cleanup and native costs
+remain unresolved; these component bounds do not certify the complete call.
+The [profile coordinator](parliament_ballot_profile_bound/README.md) now has a
+checked two-role loop: 834 local instructions and 1,760 own stack bytes, with
+CRT serialization, framing, hashes and frees still opaque. Eighteen tests pass.
+The [typed-decoder coordinators](parliament_ballot_typed_decoder_bound/README.md)
+add all-ordinary-path bounds of 621/592 instructions and 1,824/1,184 owned stack
+bytes, including their framed parser, for registration/vote. Twenty-four tests
+cover guard-dominated copy/split requests, malformed inputs and cleanup paths.
+The registration allocation-error trap and all lower constructor, hash, native
+and allocator costs remain unresolved. These historical component formulas
+replace their named opaque terms; they do not establish a numerical whole-call
+bound or transfer to the changed checkout.
+The [opaque-field constructor analysis](parliament_ballot_opaque_field_bound/README.md)
+derives all four unsigned-length paths in both retained images: 20/23/29 local
+instructions on returning paths and an 18-instruction allocation-failure prefix.
+It bounds requested allocation/copy lengths at 256 bytes and its own frame at
+48 bytes, with a 176-byte red-zone envelope. Native costs and the final error
+call continuation remain unknown; the conditional substitution applies only to
+ordinary returning calls and does not qualify the current checkout.
+
+The [retained-image exception audit](parliament_ballot_exception_coverage/README.md)
+resolves compact-unwind and CIE/FDE headers to all 228 LSDAs in each image,
+with 182 staged tests and a separate row-by-row LLVM metadata comparison.
+Conservatively seeding all landing pads of reached owners adds 1,544/1,479
+instructions by mode. An independent whole-function census still contains
+46 additional instructions per image behind unresolved indirect control;
+they are not proven dead. CFI execution, loaded personality correspondence,
+exceptional stack/register state and native/resource costs remain unknown.
+All qualification and current-checkout applicability flags remain false.
 
 The [campaign inventory](../../crates/iroha_zkp_vole/tests/fixtures/standalone_adversarial.md)
 records deterministic malformed-input campaigns in portable and accelerated
@@ -168,11 +364,15 @@ scope does not contain Norito. These preserved snapshots do not validate the
 later concurrent code. The [final reconstruction receipt](parliament_ballot_b6/checkpoint-source-reconstruction.json)
 verifies all three recorded scopes with the exact substitutions listed.
 
-The [artifact manifest](parliament_ballot_b6/B6_ARTIFACTS_SHA256SUMS) covers the
-retained reports, raw observations, templates and accounting tools. Its paths
-are repository-relative: run `shasum -a 256 -c
-docs/validation/parliament_ballot_b6/B6_ARTIFACTS_SHA256SUMS` from the repository
-root. The separately pinned fuzz corpus has its own source/evidence manifest.
+The [artifact manifest](parliament_ballot_b6/B6_ARTIFACTS_SHA256SUMS) retains the
+source-framing checkpoint's reports, observations, templates and tools at their
+recorded identities. Its repository-relative paths can differ after subsequent
+edits; a failed current-path hash must not be silently repinned. The separate
+[admissibility component manifest](parliament_ballot_admissibility_circuit/SHA256SUMS)
+covers the later predicate work and archives the three central documents as
+they existed in that earlier aggregate. The separately pinned fuzz corpus has
+its own source/evidence manifest. None of these manifests transfers historical
+execution results to later source versions.
 
 [Mac results](parliament_ballot_b6/mac_results.md) retain raw records, exact
 commands, build identities and all phase distributions for both modes:
@@ -417,31 +617,103 @@ latency remains unavailable. No experimental crate has been connected to Core.
 The complete workspace suite was not run for this standalone work; unrelated
 concurrent changes and repository signing/staging state were preserved.
 
-## Current-tree checks and concurrent failure
+## Source-contract checks and retained history
+
+The [in-memory worker](parliament_ballot_memory_entry/README.md) moves retrieval
+outside the charged interval and checks the actual borrowed length before its
+arena copy. Its separate binaries pass 16 release Rust tests, strict Clippy and
+builds per mode; all 122 observations pass with matching outcomes/stages/debits.
+The final campaign checker passes 20 tests after its JSON-overflow correction.
+The original resource worker and its disassembly remain frozen under their
+original scope. The separate [normal-return analysis](parliament_ballot_noreturn_frontiers/README.md)
+explains 50/52 ordinary continuations and 23/26 traps under explicit premises;
+native unwind, unconditional frontiers and complete resource costs remain open.
+
+The [memory-entry/frontier checks](parliament_ballot_b6/memory-driver-checks.json)
+pass 51 focused Python tests, diagnostic Rust formatting and the codec guard
+for their retained source interval. The stale queue-binding and Kura wrapper
+expectations are replaced with scoped checks for signed gas, original release
+custody, unconditional owners and complete pre-quote admission structure, with
+[192 focused controls](parliament_ballot_b6/kura-claim-guard-controls.json).
+The initial queue guard's [36-test capture](parliament_ballot_b6/queue-signed-gas-controls.json)
+proved insufficient: a [retained counterexample](parliament_ballot_b6/queue-signed-gas-counterexample.json)
+hid a live zero quote behind a disabled intact helper. The replacement includes
+that regression and refuses pre-quote error recovery or shadowed success paths.
+The [current phase guard](parliament_ballot_current_candidate/source-guard-controls/README.md)
+now binds all seven same-block calls, their order, the original height and the
+single reconciliation batch. Seventy-four focused controls pass. The full
+check at that capture first refused the separate construction guard.
+The subsequent [construction guard](parliament_ballot_construction_guard/README.md)
+binds the exact conditional DA custody, original acquired owners, handoff and
+retirement order. Review found and repaired import-substitution and raw-macro
+shadowing gaps before capture; all 121 focused controls passed with 11 stable
+input identities. Its source comparison remains conditional on
+the surrounding crate/dependency resolver and compiler. Six inputs changed
+after capture, including the State file read by those controls; their exact
+originals are archived. The separate [Torii release guard](parliament_ballot_torii_release_guard/README.md)
+now binds the current private service, physical permit handoff and closed
+recovery mapping, with 136 controls. Review found and repaired an early-release
+custom `Drop` gap. Its older source-check capture predates a separate routing
+argument-grouping repair; exact original bytes are retained, and the later
+captures bind the updated routing source. The [daemon startup guard](parliament_ballot_daemon_startup_guard/README.md)
+then binds the original prepared handoff through exactly two `Box::pin` wrappers,
+with 181 focused controls; the subsequent awaited signer preflight is unchanged.
+The [borrowed beacon-witness guard](parliament_ballot_beacon_borrow_guard/README.md)
+then preserves the original demanded-pulse and serializer bindings with 182 controls.
+The [execution-result guard](parliament_ballot_execution_result_guard/README.md)
+binds the current `Result<Option<ExecOutcome>, PublicationError>` assertions and
+complete original test owners, with 204 focused controls. Independent review's
+dormant-assertion counterexample is included in its 68 new regression controls.
+The [captured source check](parliament_ballot_execution_result_guard/source-check.json)
+passed with 402 stable input identities. The separate
+[complete regression capture](parliament_ballot_source_guard_regressions/README.md)
+passed all 1,755 collected tests with the same checker/test pair. A subsequent
+constructor-to-named-field migration changed two observed Rust files. Their
+original bytes remain archived; the [post-merge source recheck](parliament_ballot_post_merge_source_check/README.md)
+passes across 402 stable inputs and records exactly those two deltas. The full
+regression run retains its original source scope and was not repeated or
+transferred to the changed files.
+These structural checks retain compiler, name-resolution and runtime premises;
+they do not rerun or extend historical Rust and construction-control results.
+No Core runtime code was changed by these guard repairs. The prior [ordering failure](parliament_ballot_b6/kura-claim-guard-source-check.json),
+queue-only [Kura failure](parliament_ballot_b6/decoder-profile-resource-source-check.json)
+and preceding source snapshots remain historical evidence.
+Availability remains false, qualified latency remains `None`, and neither Core
+nor Torii depends on the experimental ballot/backend crates.
+
+The [shared qualification dispatch repair](parliament_ballot_qualification_dispatch/README.md)
+moves the existing `malformed` command branch into `qualification::run`, so the
+standalone example and temporary bridge use the same dispatch. The malformed
+implementation and bridge templates are unchanged. Both host feature modes pass
+strict Clippy and all 17 shared/bridge tests, including two new dispatch controls,
+with 69 watched inputs unchanged. These are scoped host checks; earlier device
+measurements and worker captures retain their original sources. No physical
+phone, complete dependency-closure or production qualification follows.
 
 The [ownership/guard checks](parliament_ballot_b6/ownership-guards-checks.json)
 pass 60 focused Python tests. Separate peer reviews found and repaired
 pointer-origin and frozen-identity gaps before the new reports were finalized.
 The ownership audit rechecks 81 source hashes and 65 excerpts. These checks
 retain all ten unconditional free frontiers per mode and the worker I/O
-frontier. The Core source-contract ordering failure remains; the production
-gate is false and qualified attempt latency is still `None`.
+frontier. Their recorded source-contract ordering failure is historical;
+the later source-guard repairs and complete Python regression capture are separate. The production gate is false
+and qualified attempt latency is still `None`.
 
 The [allocation/frontier/prover checks](parliament_ballot_b6/allocation-frontier-prover-checks.json)
 pass 120 Python tests and 182 subtests. Both allocation-trace builds separately
 pass 17 release Rust tests, strict Clippy and builds. The 132-observation,
 14-control trace campaign passes, and the activation analysis retains its
 conditional result with 39 focused tests. Diagnostic source formatting and
-the codec guard pass. The real Core source-contract check still fails on
-block-start ordering; availability is false and qualified latency is `None`.
+the codec guard pass. That capture's Core source-contract check failed on
+block-start ordering; availability was false and qualified latency was `None`.
 No complete workspace test or qualification pass is claimed.
 
 The subsequent [native/call-target checks](parliament_ballot_native_probe/final-checks.json)
 pass 60 Python tests and three subtests, diagnostic Rust formatting and the codec
 guard. The native adapter separately passes 15 release Rust tests, strict Clippy
-and builds in each mode. Its 134-observation campaign passes. Current repository
-formatting has unrelated SCCP/Mochi differences, and the Core source-contract
-failure remains. These are scoped results, not a complete workspace pass.
+and builds in each mode. Its 134-observation campaign passes. At that capture, repository
+formatting had unrelated SCCP/Mochi differences and the Core source-contract
+check still failed. These are scoped results, not a complete workspace pass.
 
 The earlier scoped arena/stack validation passes 99 Python tests, six Rust
 oracle tests, strict release Clippy, formatting and the codec guard. Its
@@ -457,29 +729,29 @@ All three reconstructed qualification/certificate checks refuse qualification
 as intended; current-tree resource/front-end checks separately refuse source drift.
 Runner helper tests, bridge host
 tests, strict standalone lint, formatting and codec checks are recorded with
-their respective artifacts. The broader Python Parliament regression run
+their respective artifacts. The earlier broader Python Parliament regression run
 completed with **1,115 passed, 92 failed and six subtests passed**. All 92
-failures are in the source-contract suite, whose initial current-tree check
-fails on `crates/iroha_core/src/state.rs`: the concurrently added
+failures are in the source-contract suite, whose check at that capture
+failed on `crates/iroha_core/src/state.rs`: the concurrently added
 `sccp::governance_clock::advance_reconciliation(&mut sb)?` call occurs in a
-region that the guard still requires to contain exactly four start-phase calls.
-The remaining mutation tests inherit that baseline mismatch.
+region that the guard then required to contain exactly four start-phase calls.
+The remaining mutation tests inherited that baseline mismatch.
 
-This broader check is **not passing**. A read-only diagnostic that omitted the
-single new call in memory allowed the complete guard to pass, including the
-current B6 documents. No Core source or guard was changed for that diagnostic;
-it is not a fix or validation of the reconciliation hook. The SCCP integration
-must reconcile its hook, ordering contract and tests before combined validation
-can pass. See the [test transcript](parliament_ballot_b6/python-regression.txt)
+That historical broader check **failed**. A read-only diagnostic that omitted
+the single new call in memory allowed the complete guard to pass, including the
+B6 documents at that capture. No Core source or guard was changed for that diagnostic;
+it is not a fix or validation of the reconciliation hook. That result required reconciling the SCCP hook, ordering contract and tests;
+the later scoped repairs and complete source-guard regression run are recorded above. See the [test transcript](parliament_ballot_b6/python-regression.txt)
 and [diagnostic](parliament_ballot_b6/source-contract-diagnosis.txt). The
 [post-accounting diagnostic](parliament_ballot_b6/source-contract-post-accounting-diagnosis.txt)
-repeats only that in-memory isolation against the revised documents; the real
-source-contract check still fails.
+repeated only that in-memory isolation against the revised documents; the real
+source-contract check still failed at that capture.
 
 The [requirement-audit recheck](parliament_ballot_b6/source-contract-requirement-audit.json)
 and the [later resource-contract recheck](parliament_ballot_resource_contract/source-contract.json)
-fail on the actual start-phase ordering. Concurrent Core work has since
+failed on the actual start-phase ordering. Concurrent Core work then
 also added `sccp::pause_lifecycle::lapse_after_enactments`; its source identity
 differs from the earlier diagnostic. The earlier in-memory isolation and
-1,115/92 broad-suite totals describe their recorded snapshots, not this later
-tree. No Core or ordering guard changes were made by the B6 work.
+1,115/92 broad-suite totals describe their recorded snapshots, not subsequent
+source checks. Those diagnostic captures made no Core or ordering-guard changes;
+the current scoped guard repairs are recorded separately above.

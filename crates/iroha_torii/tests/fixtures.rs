@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Shared fixtures used across Torii integration/unit tests.
 //!
 //! Some helpers are gated by telemetry and may be unused when those tests are

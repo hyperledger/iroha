@@ -1200,7 +1200,7 @@ fn parse_crl_v1(der: &[u8]) -> Result<ParsedCrlV1<'_>, ZkX509RelationErrorV1> {
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ZkX509NativeCertificateProjectionV1 {
-    /// Exact signed TBSCertificate encoding.
+    /// Exact signed `TBSCertificate` encoding.
     pub(crate) tbs_der: Vec<u8>,
     /// Canonical positive serial magnitude.
     pub(crate) serial: Vec<u8>,
@@ -1214,7 +1214,7 @@ pub(crate) struct ZkX509NativeCertificateProjectionV1 {
     pub(crate) not_before: u64,
     /// Inclusive validity upper bound.
     pub(crate) not_after: u64,
-    /// Exact SubjectPublicKeyInfo encoding.
+    /// Exact `SubjectPublicKeyInfo` encoding.
     pub(crate) spki_der: Vec<u8>,
     /// Canonical uncompressed P-256 point.
     pub(crate) public_key: Vec<u8>,
@@ -1224,7 +1224,7 @@ pub(crate) struct ZkX509NativeCertificateProjectionV1 {
     pub(crate) authority_key_identifier: Vec<u8>,
     /// Subject key identifier octets.
     pub(crate) subject_key_identifier: Vec<u8>,
-    /// BasicConstraints CA flag.
+    /// `BasicConstraints` CA flag.
     pub(crate) basic_constraints_ca: bool,
     /// Required CA path-length constraint, absent for a leaf.
     pub(crate) basic_constraints_path_len: Option<u32>,
@@ -1237,7 +1237,7 @@ pub(crate) struct ZkX509NativeCertificateProjectionV1 {
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ZkX509NativeCrlProjectionV1 {
-    /// Exact signed TBSCertList encoding.
+    /// Exact signed `TBSCertList` encoding.
     pub(crate) tbs_der: Vec<u8>,
     /// Exact issuer Name encoding.
     pub(crate) issuer_der: Vec<u8>,
@@ -1446,7 +1446,7 @@ pub(crate) mod tests {
     const CRL_THIS_UPDATE: u64 = 1_672_531_200; // 2023-01-01T00:00:00Z
     const CRL_NEXT_UPDATE: u64 = CRL_THIS_UPDATE + 300;
     const VALIDATION_TIME: u64 = CRL_THIS_UPDATE + 60;
-    pub(crate) struct Fixture {
+    pub struct Fixture {
         pub(crate) statement: IrohaZkX509StarkP256StatementV1,
         pub(crate) trust_anchor: PrivacyZkX509TrustAnchorRecordV1,
         pub(crate) policy: PrivacyZkX509CertificatePolicyRecordV1,
@@ -1989,7 +1989,7 @@ pub(crate) mod tests {
             );
         }
     }
-    pub(crate) fn fixture() -> Fixture {
+    pub fn fixture() -> Fixture {
         fixture_with_revoked_serials(&[])
     }
     fn fixture_with_revoked_serials(revoked_serials: &[u64]) -> Fixture {

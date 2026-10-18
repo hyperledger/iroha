@@ -1,0 +1,109 @@
+{
+  "binding_ballot_available": false,
+  "broken_links": [],
+  "checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "docs/validation/parliament_ballot_b6.md",
+        "scripts/parliament_ballot_adapter_bound.py",
+        "scripts/tests/parliament_ballot_adapter_bound_test.py",
+        "specs/parliament_ballot_arena_sufficiency.md",
+        "specs/parliament_ballot_b6_requirement_audit.md",
+        "specs/parliament_ballot_implementation_goals.md"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_b6/adapter-deletion-scoped-diff.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "status.md"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_b6/adapter-deletion-shared-status-diff.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "complete_workspace_certificate": false,
+  "current_adapter_input_changes": {
+    "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+      "after": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+      "before": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+      "after": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+      "before": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+      "after": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+      "before": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+      "after": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+      "before": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+    }
+  },
+  "current_source_refusal_retained": true,
+  "current_status_roadmap_sha256": {
+    "roadmap.md": "fcd377a9c3eb2ea03af5937ddc74a23d1c4f66874a00bc872039f24d1a7ae074",
+    "status.md": "c360663d112f89238c39198c7cb11f0ed0177fae2575577311ec34e7e331aecb"
+  },
+  "deletion_source_guards_checked": 16,
+  "frozen_new_manifests": [
+    {
+      "entries": 12,
+      "path": "docs/validation/parliament_ballot_adapter_bound/SHA256SUMS",
+      "sha256": "4e3124e2ab8b757bfb76282064d06edfdf157631fe6c341277cb6791c302e57f"
+    },
+    {
+      "entries": 3,
+      "path": "docs/validation/parliament_ballot_hidden_assignment_deletion/SHA256SUMS",
+      "sha256": "22539d85684560d928f7ba5bd36b763bbe595c9b0566f4ae695388ad5a9316fb"
+    }
+  ],
+  "historical_adapter_report_sha256": "90b67fba04a4c7f1c73ed067eb4a8c8d5478707e05f4b4d51ddc27235da7a471",
+  "local_links_checked": 189,
+  "no_experimental_core_torii_dependencies": true,
+  "observed_at_utc": "2026-10-13T11:22:00.603491+00:00",
+  "pins_refreshed": false,
+  "prior_entries": 987,
+  "prior_manifest_sha256": "bd6e8326f4eafd2ea7ac4d4c1cf7c41303bb539f81807f40328d38349c8ea961",
+  "production_gate_source_sha256": {
+    "crates/iroha_core/Cargo.toml": "4d78cf26b0f43903acb43d14a3a0bc3134a8b5e44b1ca673cde2614eb1eacc16",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786",
+    "crates/iroha_torii/Cargo.toml": "54d1465c3bde69fc49650df85d1014bf99ffd80fef7ac5a0f0a346d440cc52df"
+  },
+  "profile_qualified": false,
+  "qualified_attempt_latency_ms": null,
+  "schema": "parliament-adapter-deletion-coherence-v1",
+  "scope": "Conditional adapter contribution and same-ideal-material adaptive deletion only. The recorded source-contract check fails at its first queue binding; later assertions are unexecuted. Concurrent source changes and shared-status check results are retained without modifying unrelated work.",
+  "source_check_receipt": "docs/validation/parliament_ballot_b6/adapter-deletion-source-check.json",
+  "source_check_receipt_sha256": "796e4c3283e560dbcaccc7bff7ad661e5ba9d5197af83b47f50c64845cfe3691",
+  "source_check_subsequent_changes": {},
+  "updated_live_entries": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": "2d144c458f916156250733ae697aec9e154eed122f1aba7516bbac95909b36cb",
+      "before": "91de5fd47ea2781b0c2c3eddc3d23ad0200a1bf3d0cbc4fb2b18b6d10e28e36c"
+    },
+    "specs/parliament_ballot_arena_sufficiency.md": {
+      "after": "8ac529813afc91076070c5e36fce83aaba9bb613b242b0b77d37a0dd62d4291d",
+      "before": "1c4adf4edbf81fc80e94ad818f42c16603d6ad95da1ce4b28dde00cc3255ed4b"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": "19917cf29455d4a76320002f0cc896b3887532845be1be6ba576091bf01760e4",
+      "before": "a652adac3e79442f06783de24a7eeb9d400566f54ec8ad1858969c7e80651699"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": "c152d88ab6264bc9d2001f0316fe2209dcf1c7395e9f831e3ee0b5377cf24c76",
+      "before": "81ec6e6028d88337c975e6a5fbd49a7ee6b58f7701e7089d4a4e0a5cd109f6d2"
+    }
+  }
+}

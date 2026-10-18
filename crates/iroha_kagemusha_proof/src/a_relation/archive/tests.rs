@@ -38,21 +38,25 @@ fn complete_archive_schema_covers_both_full_credited_envelope_domains() {
             }
         };
         let specs = result.unwrap();
-        assert_eq!(specs[9].capacity, 8_597);
-        assert_eq!(specs[10].capacity, 8_277);
-        assert_eq!(specs[13].capacity, u32::try_from(capacity).unwrap());
+        assert_eq!(specs[7].capacity, 5_406);
+        assert_eq!(specs[8].capacity, 3_520);
+        assert_eq!(specs[11].capacity, u32::try_from(capacity).unwrap());
         assert_eq!(
             specs,
-            ArchiveStagePlan::context_specs(variant, 8_597, 8_277, capacity).unwrap()
+            ArchiveStagePlan::context_specs(variant, 5_406, 3_520, capacity).unwrap()
         );
-        assert!(specs[13].capacity > 3_456);
+        assert!(specs[11].capacity > 3_456);
         assert_eq!(
             specs.len(),
             if variant == Variant::ArchiveReceive {
-                17
+                15
             } else {
-                19
+                17
             }
+        );
+        assert_eq!(
+            specs.iter().map(|spec| spec.tag).collect::<Vec<_>>(),
+            (1..=u32::try_from(specs.len()).unwrap()).collect::<Vec<_>>()
         );
     }
     assert_eq!(MAX_RECEIVE_SIGMA_RAW_BYTES + 679, 10_000);
@@ -86,11 +90,15 @@ fn archive_envelope_capacities_match_regenerated_g1_bounds() {
     );
     let specs = ArchiveStagePlan::full_context_specs(Variant::ArchiveStatus).unwrap();
     assert_eq!(
-        usize::try_from(specs[10].capacity).unwrap(),
-        number("payment_proof_budget_bytes")
+        usize::try_from(specs[8].capacity).unwrap(),
+        number("sigma_proof_cap_bytes")
     );
     assert_eq!(
-        usize::try_from(specs[9].capacity).unwrap(),
+        usize::try_from(specs[7].capacity).unwrap(),
+        number("omega_proof_cap_bytes") + 320
+    );
+    assert_eq!(
+        usize::try_from(specs[7].capacity + specs[8].capacity).unwrap(),
         number("payment_proof_budget_bytes") + 320
     );
 }
@@ -125,9 +133,8 @@ impl<F: PastaField> Circuit<F> for Metadata<F> {
 fn tasks() -> Vec<Vec<OperationTask>> {
     use OperationTask::*;
     vec![
-        vec![ArchiveRetainedPayment, ArchiveProofs, ArchiveOwnProof],
-        vec![ArchiveAuthorization],
-        vec![ArchiveSignatures],
+        vec![ArchiveRetainedPayment, ArchiveProofs],
+        vec![ArchiveSignatures, ArchiveAuthorization],
         vec![ArchiveEvidence],
         vec![
             ArchiveEffects,
@@ -137,53 +144,62 @@ fn tasks() -> Vec<Vec<OperationTask>> {
         ],
     ]
 }
+// `ArchiveReceive` verifies its incoming-only Q_sigma first; the merged signature
+// leaf always belongs to the stage owning Authorization and Signatures.
+fn partition(variant: Variant) -> Vec<Vec<usize>> {
+    if variant == Variant::ArchiveReceive {
+        vec![vec![0], vec![1], vec![], vec![]]
+    } else {
+        vec![vec![], vec![0], vec![], vec![]]
+    }
+}
 pub(super) fn operation(
     variant: Variant,
+) -> (AProofPlan, OwnPolicy, iroha_plonk::VerifyingKey<Ep>) {
+    let length = authorization::ArchiveAuthorizationObjects::signature_schema()
+        .unwrap()
+        .instance_length();
+    operation_with_signature(variant, length)
+}
+// Lean: A proves the own step inline, so no own sigma class exists. Only
+// `ArchiveReceive` keeps a Q_sigma, for the incoming Receive sigma alone.
+fn operation_with_signature(
+    variant: Variant,
+    signature_length: usize,
 ) -> (AProofPlan, OwnPolicy, iroha_plonk::VerifyingKey<Ep>) {
     let policy = OwnPolicy::new([31, 32], Affine::GENERATOR).unwrap();
     let p = PinnedParams::<Ep>::derive(16).unwrap();
     let v = PinnedParams::<Eq>::derive(16).unwrap();
-    let leaf_params = PinnedParams::<Eq>::derive(12).unwrap();
-    let (binding, key) = keygen_vk_with_binding_v2(
-        &leaf_params,
-        &Metadata::<Fp>(vec![1], PhantomData),
-        &KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]),
-    )
-    .unwrap();
-    let digest = key.kagemusha_digest(&binding).unwrap();
-    let leaf = VerifierPlan::new(binding, leaf_params).unwrap();
-    let own = SigmaClass::new(leaf, vec![(12, digest)]).unwrap();
-    let incoming = (variant == Variant::ArchiveReceive).then(|| {
-        // Distinct selector indices require distinct authenticated key digests.
-        // A different constructor-only domain supplies that distinction without
-        // weakening the production selector/digest bijection.
-        let params = PinnedParams::<Eq>::derive(14).unwrap();
+    let sigma = (variant == Variant::ArchiveReceive).then(|| {
+        let leaf_params = PinnedParams::<Eq>::derive(12).unwrap();
         let (binding, key) = keygen_vk_with_binding_v2(
-            &params,
+            &leaf_params,
             &Metadata::<Fp>(vec![1], PhantomData),
             &KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]),
         )
         .unwrap();
         let digest = key.kagemusha_digest(&binding).unwrap();
-        SigmaClass::new(
-            VerifierPlan::new(binding, params).unwrap(),
-            vec![(10, digest)],
+        let incoming = SigmaClass::new(
+            VerifierPlan::new(binding, leaf_params).unwrap(),
+            vec![(6, digest)],
         )
-        .unwrap()
+        .unwrap();
+        QSigmaPlan::incoming_only(incoming, &v).unwrap()
     });
-    let sigma = QSigmaPlan::new(own, incoming, &v).unwrap();
-    let schemas = authorization::ArchiveAuthorizationObjects::signature_schemas(policy).unwrap();
     let mut q = Vec::new();
-    for (lengths, types) in std::iter::once((
-        sigma.instance_lengths().to_vec(),
-        QSigmaPlan::instance_types().to_vec(),
-    ))
-    .chain(schemas.iter().map(|s| {
-        (
-            vec![s.instance_length()],
+    for (lengths, types) in sigma
+        .iter()
+        .map(|sigma| {
+            (
+                sigma.instance_lengths().to_vec(),
+                QSigmaPlan::instance_types().to_vec(),
+            )
+        })
+        .chain(std::iter::once((
+            vec![signature_length],
             QSignaturePlan::instance_types().to_vec(),
-        )
-    })) {
+        )))
+    {
         let (binding, key) = keygen_vk_with_binding_v2(
             &p,
             &Metadata::<Fq>(lengths, PhantomData),
@@ -202,12 +218,12 @@ pub(super) fn operation(
         ]),
     )
     .unwrap();
-    let omega = VerifierPlan::new(binding, p.clone()).unwrap();
-    (
-        AProofPlan::new(variant, sigma, q, Some(omega), &p).unwrap(),
-        policy,
-        omega_key,
-    )
+    let omega = Some(VerifierPlan::new(binding, p.clone()).unwrap());
+    let operation = match sigma {
+        Some(sigma) => AProofPlan::inline_with_incoming(variant, sigma, q, omega, &p),
+        None => AProofPlan::inline(variant, q, omega, &p),
+    };
+    (operation.unwrap(), policy, omega_key)
 }
 
 #[test]
@@ -215,29 +231,37 @@ fn archive_stage_schema_requires_all_original_categories_results_and_q_owners() 
     use OperationTask::*;
 
     for variant in [Variant::ArchiveReceive, Variant::ArchiveStatus] {
+        let receive = variant == Variant::ArchiveReceive;
         let (operation, policy, _) = operation(variant);
+        assert!(operation.is_inline());
+        assert_eq!(operation.has_incoming_sigma(), receive);
+        assert_eq!(operation.q_count(), 1 + usize::from(receive));
         let full = ArchiveStagePlan::full(operation.clone(), policy).unwrap();
-        assert_eq!(full.context().stage_count(), 10);
+        assert_eq!(full.context().stage_count(), if receive { 9 } else { 8 });
         assert_eq!(full.context().predecessor_stage(), Some(0));
         assert_eq!(
             full.context().object_specs(),
             ArchiveStagePlan::full_context_specs(variant).unwrap()
         );
-        for (stage, (tasks, q)) in [
-            (vec![ArchiveOwnProof, ArchiveCorePending], None),
+        let signature = full.signature_q();
+        assert_eq!(signature, usize::from(receive));
+        let mut expected = vec![
+            (vec![ArchiveCorePending], None),
             (vec![ArchiveRetainedProofs], None),
-            (vec![ArchiveSignatures], Some(2)),
-            (vec![ArchiveAuthorization], Some(1)),
+            (
+                vec![ArchiveSignatures, ArchiveAuthorization],
+                Some(signature),
+            ),
             (vec![ArchiveLineagePending], None),
             (vec![ArchiveProofs], None),
-            (vec![], Some(0)),
             (vec![ArchiveEvidence], None),
             (vec![ArchiveRetainedPayment], None),
             (vec![ArchiveEffects], None),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        ];
+        if receive {
+            expected.insert(5, (vec![], Some(0)));
+        }
+        for (stage, (tasks, q)) in expected.into_iter().enumerate() {
             assert_eq!(
                 full.context().operation_tasks(stage),
                 Some(tasks.as_slice())
@@ -248,29 +272,38 @@ fn archive_stage_schema_requires_all_original_categories_results_and_q_owners() 
             );
         }
         let specs = ArchiveStagePlan::context_specs(variant, 5120, 3456, 5120).unwrap();
-        let partition = vec![vec![0], vec![1], vec![2], vec![], vec![]];
+        let partition = partition(variant);
         let make = |operation, partition, specs, groups| {
             ContextPlan::with_schedule(operation, partition, Some(0), specs)
                 .and_then(|p| p.with_operation_tasks(groups))
                 .and_then(|p| ArchiveStagePlan::new(p, policy))
         };
         let plan = make(operation.clone(), partition.clone(), specs.clone(), tasks()).unwrap();
-        assert_eq!(plan.context().stage_count(), 5);
+        assert_eq!(plan.context().stage_count(), 4);
         assert_eq!(
             plan.context().object_specs().len(),
-            if variant == Variant::ArchiveReceive {
-                17
-            } else {
-                19
-            }
+            if receive { 15 } else { 17 }
         );
         assert_eq!(plan.results().spec(), *specs.last().unwrap());
-        assert!(plan.signature_schema(0).is_none());
-        assert!(plan.signature_schema(3).is_none());
-        assert_eq!(plan.signature_schema(1).unwrap().slots().len(), 3);
-        assert_eq!(plan.signature_schema(2).unwrap().slots().len(), 1);
+        assert_eq!(plan.signature_q(), signature);
+        for q in 0..3 {
+            assert_eq!(plan.signature_schema(q).is_some(), q == signature);
+        }
+        let merged = plan.signature_schema(signature).unwrap().slots();
+        assert_eq!(
+            merged.iter().map(|slot| slot.mode).collect::<Vec<_>>(),
+            [
+                iroha_plonk_gadgets::p256::VerifyMode::Hard,
+                iroha_plonk_gadgets::p256::VerifyMode::Soft
+            ]
+        );
+        assert!(
+            merged
+                .iter()
+                .all(|slot| slot.key == crate::q_signature::SignatureKey::Variable)
+        );
         for i in 0..specs.len() {
-            if [9, 10, 13].contains(&i) {
+            if [7, 8, 11].contains(&i) {
                 continue;
             }
             let mut changed = specs.clone();
@@ -292,8 +325,8 @@ fn archive_stage_schema_requires_all_original_categories_results_and_q_owners() 
             for duplicate in [false, true] {
                 let mut changed = tasks();
                 if duplicate {
-                    changed[4].push(*task);
-                    changed[4].sort_unstable();
+                    changed[3].push(*task);
+                    changed[3].sort_unstable();
                 } else {
                     for group in &mut changed {
                         group.retain(|t| t != task);
@@ -305,26 +338,25 @@ fn archive_stage_schema_requires_all_original_categories_results_and_q_owners() 
                 );
             }
         }
-        for changed in [
-            vec![vec![0], vec![2], vec![1], vec![], vec![]],
-            vec![vec![0], vec![1], vec![], vec![2], vec![]],
-            vec![vec![0], vec![1], vec![2], vec![], vec![2]],
-        ] {
+        // The merged leaf away from Authorization/Signatures, or verified twice.
+        let misplaced = if receive {
+            [
+                vec![vec![1], vec![0], vec![], vec![]],
+                vec![vec![0], vec![], vec![1], vec![]],
+                vec![vec![0], vec![1], vec![], vec![1]],
+            ]
+        } else {
+            [
+                vec![vec![0], vec![], vec![], vec![]],
+                vec![vec![], vec![], vec![0], vec![]],
+                vec![vec![], vec![0], vec![], vec![0]],
+            ]
+        };
+        for changed in misplaced {
             assert!(make(operation.clone(), changed, specs.clone(), tasks()).is_err());
         }
-        let p = PinnedParams::<Ep>::derive(16).unwrap();
-        let wrong = AProofPlan::new(
-            variant,
-            operation.sigma.clone(),
-            vec![
-                operation.q(0).unwrap().clone(),
-                operation.q(2).unwrap().clone(),
-                operation.q(1).unwrap().clone(),
-            ],
-            operation.omega().cloned(),
-            &p,
-        )
-        .unwrap();
+        // A signature leaf of another shape cannot stand in for the merged leaf.
+        let (wrong, _, _) = operation_with_signature(variant, crate::q_signature::SLOT_WORDS);
         assert!(make(wrong, partition, specs, tasks()).is_err());
     }
     for variant in Variant::ALL {
@@ -356,10 +388,17 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
         let (operation, policy, key) = operation(variant);
         let p = PinnedParams::<Ep>::derive(16).unwrap();
         let v = PinnedParams::<Eq>::derive(16).unwrap();
-        let own_length = operation.sigma.class(0).unwrap().verifier().proof_length();
+        let q_count = operation.q_count();
         let plan = native::Plan::new(operation.clone(), policy, key.clone(), p.clone(), v.clone())
             .unwrap();
-        assert_eq!(plan.context().stage_count(), native::A_STAGE_COUNT);
+        assert_eq!(
+            plan.context().stage_count(),
+            if variant == Variant::ArchiveReceive {
+                native::RECEIVE_A_STAGE_COUNT
+            } else {
+                native::STATUS_A_STAGE_COUNT
+            }
+        );
         assert_eq!(plan.stage().context().schema(), plan.context().schema());
         assert_eq!(plan.predecessor_key().to_bytes(), key.to_bytes());
         plan.pallas().require_k(16).unwrap();
@@ -379,16 +418,16 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
         let vesta = AccumulatorT::trivial(&v, MemoryBudget::DEFAULT).unwrap();
         let receive = native::Evidence::Receive {
             statement: [Fp::ZERO; 26],
-            receipt: vec![0; specs[12].capacity as usize],
+            receipt: vec![0; specs[10].capacity as usize],
             sigma: vec![0x37; MAX_RECEIVE_SIGMA_RAW_BYTES],
-            credited: vec![0; specs[15].capacity as usize],
+            credited: vec![0; specs[13].capacity as usize],
             mode: IncomingMode::Trivial,
         };
         let status = native::Evidence::Status {
             statement: [Fp::ZERO; 26],
-            receipt: vec![0; specs[12].capacity as usize],
+            receipt: vec![0; specs[10].capacity as usize],
             omega: vec![0x51; MAX_STATUS_OMEGA_RAW_BYTES],
-            credited: vec![0; specs[15].capacity as usize],
+            credited: vec![0; specs[13].capacity as usize],
             status: vec![0; 162],
             credit_opening: vec![0; 1125],
             witness: Box::new(native::StatusWitness {
@@ -403,8 +442,8 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
             }),
         };
         let state = StateWitness {
-            core: [Fp::ZERO; 33],
-            rest: [Fp::ZERO; 8],
+            core: [Fp::ZERO; 29],
+            rest: [Fp::ZERO; 6],
             lineage: [Fp::ZERO; 18],
         };
         let path = IndexedRemove {
@@ -424,14 +463,13 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
                 statement: [Fp::ZERO; 26],
             },
             removals: [path; 2],
-            own: core::array::from_fn(|i| vec![0; specs[i].capacity as usize]),
-            sigma: vec![0; own_length],
+            own: vec![0; specs[0].capacity as usize],
             retained: native::RetainedPayment {
-                signed: core::array::from_fn(|i| vec![0; specs[i + 3].capacity as usize]),
-                payment: vec![0; specs[7].capacity as usize],
+                signed: core::array::from_fn(|i| vec![0; specs[i + 1].capacity as usize]),
+                payment: vec![0; specs[5].capacity as usize],
                 statement: [Fp::ZERO; 26],
                 omega: vec![0; 320],
-                sigma: vec![0; 8277],
+                sigma: vec![0; 3520],
             },
             evidence: if variant == Variant::ArchiveReceive {
                 receive.clone()
@@ -439,10 +477,12 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
                 status.clone()
             },
             results: [false; 3],
-            q: core::array::from_fn(|_| native::QInput {
-                proof: vec![],
-                instances: vec![],
-            }),
+            q: (0..q_count)
+                .map(|_| native::QInput {
+                    proof: vec![],
+                    instances: vec![],
+                })
+                .collect(),
             predecessor: native::PredecessorInput {
                 proof: vec![],
                 pallas: pallas.to_bytes(),
@@ -452,7 +492,7 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
         assert_eq!(plan.validate_original_shapes(&input), Ok(()));
         let commitments = plan.original_commitments(&input).unwrap();
         assert_eq!(commitments.len(), specs.len());
-        assert_eq!(commitments[13][1], Fp::from(u64::from(specs[13].capacity)));
+        assert_eq!(commitments[11][1], Fp::from(u64::from(specs[11].capacity)));
         assert!(plan.prepare(input.clone(), MemoryBudget::DEFAULT).is_err());
         let mut changed = input.clone();
         let raw = match &mut changed.evidence {
@@ -462,10 +502,10 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
         *raw.last_mut().unwrap() ^= 1;
         let different = plan.original_commitments(&changed).unwrap();
         assert_ne!(
-            different[13], commitments[13],
+            different[11], commitments[11],
             "full original tail is bound"
         );
-        for slot in (0..commitments.len()).filter(|slot| *slot != 13) {
+        for slot in (0..commitments.len()).filter(|slot| *slot != 11) {
             assert_eq!(different[slot], commitments[slot]);
         }
         let raw = match &mut changed.evidence {
@@ -487,28 +527,39 @@ fn native_archive_intake_preserves_full_soft_originals_without_certifying_them()
             "empty original remains a total soft input"
         );
         assert_eq!(
-            plan.original_commitments(&changed).unwrap()[13][1],
+            plan.original_commitments(&changed).unwrap()[11][1],
             Fp::ZERO
         );
         changed = input.clone();
         changed.retained.omega.push(0);
         assert_eq!(
             plan.validate_original_shapes(&changed),
+            Ok(()),
+            "a bounded malformed retained proof remains a soft original"
+        );
+        changed.retained.omega.resize(specs[7].capacity as usize, 0);
+        assert_eq!(plan.validate_original_shapes(&changed), Ok(()));
+        changed.retained.omega.push(0);
+        assert_eq!(
+            plan.validate_original_shapes(&changed),
             Err(native::Error::Input)
         );
-        for slot in 0..3 {
-            changed = input.clone();
-            changed.own[slot].pop();
-            assert!(plan.validate_original_shapes(&changed).is_err());
-        }
+        changed = input.clone();
+        changed.retained.sigma.resize(specs[8].capacity as usize, 0);
+        assert_eq!(plan.validate_original_shapes(&changed), Ok(()));
+        changed.retained.sigma.push(0);
+        assert_eq!(
+            plan.validate_original_shapes(&changed),
+            Err(native::Error::Input)
+        );
+        changed = input.clone();
+        changed.own.pop();
+        assert!(plan.validate_original_shapes(&changed).is_err());
         for slot in 0..4 {
             changed = input.clone();
             changed.retained.signed[slot].push(0);
             assert!(plan.validate_original_shapes(&changed).is_err());
         }
-        changed = input.clone();
-        changed.sigma.pop();
-        assert!(plan.validate_original_shapes(&changed).is_err());
         changed = input.clone();
         changed.retained.payment.pop();
         assert!(plan.validate_original_shapes(&changed).is_err());
@@ -579,13 +630,14 @@ fn native_source_import_sweep_with_incoming_k(
     let p = PinnedParams::<Ep>::derive(16).unwrap();
     let v = PinnedParams::<Eq>::derive(16).unwrap();
     let plan = native::Plan::new(operation, policy, predecessor, p.clone(), v.clone()).unwrap();
+    let stages = plan.context().stage_count();
     let expected_buses = native::INTERNAL_RANGE_BUSES;
     assert_eq!(
         plan.source_circuit(0, None).unwrap().params(),
         expected_buses
     );
     assert!(plan.source_circuit(1, None).is_err());
-    assert!(plan.source_circuit(native::A_STAGE_COUNT, None).is_err());
+    assert!(plan.source_circuit(stages, None).is_err());
     let mut a_config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     a_config.compress_selectors = false;
     let mut w_config = KeygenConfigV2::pipa_r(crate::omega::OmegaPlan::instance_types().to_vec());
@@ -608,19 +660,19 @@ fn native_source_import_sweep_with_incoming_k(
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).unwrap(),
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .unwrap()
         .without_witnesses()
     };
-    for stage in 0..native::A_STAGE_COUNT {
+    for stage in 0..stages {
         let circuit = plan
             .source_circuit(stage, wrappers.last().cloned())
             .unwrap();
         assert_eq!(
             circuit.params(),
-            if stage + 1 == native::A_STAGE_COUNT {
+            if stage + 1 == stages {
                 3
             } else {
                 expected_buses
@@ -660,7 +712,7 @@ fn native_source_import_sweep_with_incoming_k(
         drop((layout, repeated));
         let (binding, key) = keygen_vk_with_binding_v2(&v, &circuit, &a_config).unwrap();
         let artifact = KeyArtifact::new(binding, key).unwrap();
-        if stage < native::W_STAGE_COUNT {
+        if stage + 1 < stages {
             let source = wrapper_source(stage, &artifact);
             let (binding, key) = keygen_vk_with_binding_v2(&p, &source, &w_config).unwrap();
             wrappers.push(
@@ -682,17 +734,9 @@ fn native_source_import_sweep_with_incoming_k(
     if !import {
         return;
     }
-    let prover = native::Prover::from_artifacts(
-        plan.clone(),
-        a.clone().try_into().unwrap(),
-        w.try_into().unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        prover.checkpoint_layouts().unwrap().len(),
-        native::A_STAGE_COUNT + native::W_STAGE_COUNT
-    );
-    for stage in 0..native::A_STAGE_COUNT {
+    let prover = native::Prover::from_artifacts(plan.clone(), a.clone(), w).unwrap();
+    assert_eq!(prover.checkpoint_layouts().unwrap().len(), 2 * stages - 1);
+    for stage in 0..stages {
         let source = plan
             .source_circuit(stage, stage.checked_sub(1).map(|i| wrappers[i].clone()))
             .unwrap();
@@ -713,7 +757,7 @@ fn native_source_import_sweep_with_incoming_k(
         );
         assert!(
             prover
-                .import_a((stage + 1) % native::A_STAGE_COUNT, &original, read)
+                .import_a((stage + 1) % stages, &original, read)
                 .is_err()
         );
         let imported_seal = prover.import_a(stage, &original, read).unwrap();
@@ -727,7 +771,7 @@ fn native_source_import_sweep_with_incoming_k(
             original.len()
         );
         drop((imported, original));
-        if stage < native::W_STAGE_COUNT {
+        if stage + 1 < stages {
             let pk = keygen_pk_v2(&p, &wrapper_source(stage, &a[stage]), &w_config).unwrap();
             let original = pk.artifact_bytes_v2().unwrap();
             drop(pk);
@@ -742,7 +786,7 @@ fn native_source_import_sweep_with_incoming_k(
             );
             assert!(
                 prover
-                    .import_w((stage + 1) % native::W_STAGE_COUNT, &original, read)
+                    .import_w((stage + 1) % (stages - 1), &original, read)
                     .is_err()
             );
             let imported_seal = prover.import_w(stage, &original, read).unwrap();
@@ -856,7 +900,7 @@ impl Circuit<Fp> for ProposedSources {
         }
     }
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        Self::configure_with_params(meta, 17 * 3)
+        Self::configure_with_params(meta, 15 * 3)
     }
     fn configure_with_params(meta: &mut ConstraintSystem<Fp>, count: usize) -> Self::Config {
         let verifier =
@@ -921,8 +965,8 @@ fn archive_source_proposals_require_complete_schema_and_uint32_without_certifyin
     use iroha_plonk::frontend::synthesize;
     for variant in [Variant::ArchiveReceive, Variant::ArchiveStatus] {
         let (operation, _, _) = operation(variant);
-        let specs = ArchiveStagePlan::context_specs(variant, 8597, 3456, 3456).unwrap();
-        let partition = vec![vec![0], vec![1], vec![2], vec![], vec![]];
+        let specs = ArchiveStagePlan::context_specs(variant, 5364, 3456, 3456).unwrap();
+        let partition = partition(variant);
         let unowned = ContextPlan::with_schedule(
             operation.clone(),
             partition.clone(),

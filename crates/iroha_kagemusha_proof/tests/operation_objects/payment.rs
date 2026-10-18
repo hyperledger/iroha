@@ -400,10 +400,8 @@ impl Payment {
                 policy_epoch: v(306),
                 scheme_policy: b(314),
                 request_time: v(346),
-                receiver_blacklist_version: v(354),
-                receiver_blacklist_root: b(362),
-                certificates: b(394),
-                nonce: b(426),
+                certificates: b(354),
+                nonce: b(386),
             },
         };
         let field = |offset| {
@@ -472,7 +470,7 @@ fn incoming_send_consumer_binds_lineage_and_total_policy_time_rules() {
         wrong.reject(&format!("predecessor field{offset}"));
     }
     for lifecycle in [1, 2] {
-        for mask in 0..8 {
+        for mask in 0..4 {
             let mut valid = c.clone();
             valid.statement[8] = Fp::from(lifecycle);
             valid.statement[11] = Fp::from(mask);
@@ -488,14 +486,14 @@ fn incoming_send_consumer_binds_lineage_and_total_policy_time_rules() {
     }
     // A coherent unsupported control/lifecycle still gives false, never an
     // impossible range check that prevents the protocol's burn/no-op branch.
-    for (lifecycle, mask) in [(0, 0), (3, 0), (255, 0), (1, 8), (1, u32::MAX)] {
+    for (lifecycle, mask) in [(0, 0), (3, 0), (255, 0), (1, 4), (1, u32::MAX)] {
         let mut wrong = c.clone();
         wrong.statement[8] = Fp::from(lifecycle);
         wrong.statement[11] = Fp::from(u64::from(mask));
         let consumer = wrong.consumer.as_mut().expect("consumer");
         consumer.predecessor[4 + 227] = u8::try_from(lifecycle).expect("lifecycle");
         consumer.predecessor[4 + 236..4 + 240].copy_from_slice(&mask.to_le_bytes());
-        consumer.selector = if mask < 8 { 2 + u64::from(mask) } else { 2 };
+        consumer.selector = if mask < 4 { 2 + u64::from(mask) } else { 2 };
         wrong.rebind_statement();
         wrong.reject("unsupported coherent lifecycle/control");
     }
@@ -582,13 +580,13 @@ fn native_payment_transcript_binds_every_byte_and_each_nested_component() {
         }
     }
     for i in [
-        2, 34, 66, 98, 130, 162, 194, 210, 242, 258, 290, 306, 314, 346, 354, 362, 394, 426, 458,
+        2, 34, 66, 98, 130, 162, 194, 210, 242, 258, 290, 306, 314, 346, 354, 386, 418,
     ] {
         let mut wrong = c.clone();
         wrong.request.bytes[i] ^= 1;
         wrong.reject_substitution(&c, "nested Request");
     }
-    for i in [2, 34, 66, 98, 130, 195, 227, 260, 300, 350, 444, 476] {
+    for i in [2, 34, 66, 98, 130, 195, 227, 260, 300, 350, 436, 468] {
         let mut wrong = c.clone();
         wrong.payer.bytes[i] ^= 1;
         wrong.reject_substitution(&c, "nested payer credential");

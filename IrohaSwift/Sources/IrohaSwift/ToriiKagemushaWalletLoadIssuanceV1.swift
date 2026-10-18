@@ -72,3 +72,16 @@ public struct ToriiKagemushaWalletLoadIssuanceOriginalV1: Sendable {
         self.canonicalResponseOriginal = Data(bytes)
     }
 }
+
+/// The independently fetched Load issuance and compact finality originals for one exact
+/// selection. These transport bytes grant no balance, admission or finality verdict.
+public struct ToriiKagemushaWalletLoadOriginalsV1: Sendable {
+    public let issuance: ToriiKagemushaWalletLoadIssuanceOriginalV1
+    public let finalityOriginal: Data
+}
+
+/// Typed task-group results preserve the distinct endpoint bounds and decoders.
+enum ToriiKagemushaWalletLoadReadPartV1: Sendable {
+    case issuance(ToriiKagemushaWalletLoadIssuanceOriginalV1)
+    case finality(Data)
+}

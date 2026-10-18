@@ -16,10 +16,7 @@ use iroha_plonk_gadgets::{
 };
 use iroha_plonk_recursion::obligation::ledger::Variant;
 
-use super::{
-    state::{StateCells, rest_index as rest},
-    statement::StatementCells,
-};
+use super::{state::StateCells, statement::StatementCells};
 use crate::{a_relation::LineagePublicCells, witness::core_index as core};
 
 /// Domain of the seven-field pending Send descriptor.
@@ -113,9 +110,6 @@ pub struct ArchiveMapWitness<const D: usize = DEPTH> {
     pub lineage: RemoveCells<D>,
 }
 
-/// Domain of the permanent blacklist-version/root history value.
-pub const BLACKLIST_HISTORY_DOMAIN: u64 = u64::from_le_bytes(*b"kgwbhst1");
-
 /// Map relation sharing the caller's arithmetic, range and sponge lanes.
 #[derive(Debug)]
 pub struct MapEffectsChip<'a, H: WordHasher<Fp> = SpongeChip<Fp>> {
@@ -125,80 +119,6 @@ pub struct MapEffectsChip<'a, H: WordHasher<Fp> = SpongeChip<Fp>> {
 }
 
 impl<'a, H: WordHasher<Fp>> MapEffectsChip<'a, H> {
-    /// Insert the new blacklist's exact version/root in permanent history.
-    ///
-    /// Compose with `refresh::constrain` and authenticated signed-list fields;
-    /// this helper checks the hard map obligation, not issuer authorization.
-    ///
-    /// # Errors
-    /// Wrong fixed variant or layout failure. Duplicate versions, occupied
-    /// insertion slots and incorrect successor roots are unsatisfiable.
-    pub fn refresh_blacklist<const D: usize>(
-        &mut self,
-        region: &mut Region<'_, Fp>,
-        transition: &MapTransition<'_>,
-        insertion: &InsertCells<D>,
-    ) -> Result<(), Error> {
-        if transition.statement.variant() != Variant::RefreshBlacklist {
-            return Err(Error::Synthesis);
-        }
-        self.bind(region, transition)?;
-        let state = transition.successor.state;
-        let version = &state.core()[core::BLACKLIST_VERSION];
-        let root = &state.core()[core::BLACKLIST_ROOT];
-        let value = self.sponge.hash_words(
-            region,
-            BLACKLIST_HISTORY_DOMAIN,
-            &[version.clone(), root.clone()],
-        )?;
-        let new_root = ImtChip::new(self.glue, self.range, self.sponge).insert(
-            region,
-            &transition.predecessor.state.rest()[rest::BLACKLIST_HISTORY],
-            version,
-            &value,
-            &insertion.low,
-            &insertion.slot,
-        )?;
-        GlueChip::assert_equal(region, &new_root, &state.rest()[rest::BLACKLIST_HISTORY])
-    }
-
-    /// Hard-authenticate the search route for a Request's recorded list pair.
-    ///
-    /// For a nonzero recorded version, the resulting soft bit is true iff
-    /// history contains that exact version/root. A must combine it with the
-    /// Request's other verdicts. The zero-pair Receive variant omits this
-    /// lookup and separately pins both Request words to zero. Current policy
-    /// or list fields are deliberately not substituted for the Request pair.
-    ///
-    /// # Errors
-    /// Layout failure. Zero/out-of-range versions, zero roots, false search
-    /// routes and forged paths are unsatisfiable even on a burn branch.
-    pub fn recorded_blacklist<const D: usize>(
-        &mut self,
-        region: &mut Region<'_, Fp>,
-        state: &StateCells,
-        version: &Word<Fp>,
-        entries_root: &Word<Fp>,
-        opening: &OpeningCells<Fp, D>,
-    ) -> Result<Bit<Fp>, Error> {
-        UintChip::new(self.glue, self.range).range_check::<64>(region, version)?;
-        self.glue.assert_nonzero(region, entries_root)?;
-        let absent = ImtChip::new(self.glue, self.range, self.sponge).absent(
-            region,
-            &state.rest()[rest::BLACKLIST_HISTORY],
-            version,
-            opening,
-        )?;
-        let value = self.sponge.hash_words(
-            region,
-            BLACKLIST_HISTORY_DOMAIN,
-            &[version.clone(), entries_root.clone()],
-        )?;
-        let matches = self.glue.is_equal(region, opening.leaf.value(), &value)?;
-        let present = self.glue.not(region, &absent)?;
-        self.glue.and(region, &present, &matches)
-    }
-
     /// Borrow existing chips without resetting their row cursors.
     pub const fn new(
         glue: &'a mut GlueChip<Fp>,

@@ -14,17 +14,17 @@ use sha3::{
 use zeroize::Zeroize;
 
 /// Exact byte width of every outer SHA3-384 commitment.
-pub(crate) const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;
+pub const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;
 
 const FRAME_MAGIC_V1: &[u8] = b"iroha:privacy:stark:sha3-384:frame:v1\0";
 /// Maximum number of prepared rows, independent of their payload byte budget.
-pub(crate) const MAX_PRIVACY_OUTER_BATCH_FRAMES_V1: usize = 4096;
+pub const MAX_PRIVACY_OUTER_BATCH_FRAMES_V1: usize = 4096;
 /// Maximum total framed bytes in one bounded preparation batch.
-pub(crate) const MAX_PRIVACY_OUTER_BATCH_BYTES_V1: usize = 32 * 1024 * 1024;
+pub const MAX_PRIVACY_OUTER_BATCH_BYTES_V1: usize = 32 * 1024 * 1024;
 
 /// Opaque outer commitment. Every exact 48-byte value is valid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct PrivacyOuterDigestV1([u8; 48]);
+pub struct PrivacyOuterDigestV1([u8; 48]);
 impl PrivacyOuterDigestV1 {
     /// Construct without imposing field canonicality on a byte hash.
     pub(crate) const fn from_bytes(bytes: [u8; 48]) -> Self {
@@ -52,7 +52,7 @@ impl Default for PrivacyOuterDigestV1 {
 
 /// Closed proof-family identity within one X509 proof instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PrivacyOuterProofFamilyV1 {
+pub enum PrivacyOuterProofFamilyV1 {
     /// Shared MAIN/CA transcript operations.
     Joint = 0,
     /// Original MAIN commitments and local transcript.
@@ -62,7 +62,7 @@ pub(crate) enum PrivacyOuterProofFamilyV1 {
 }
 /// Public instance coordinates; these bytes are never counted as secret entropy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PrivacyOuterProofScopeV1 {
+pub struct PrivacyOuterProofScopeV1 {
     pub(crate) nonce: [u8; 32],
     pub(crate) family: PrivacyOuterProofFamilyV1,
 }
@@ -71,7 +71,7 @@ const PROOF_INSTANCE_PROFILE_SUFFIX_BYTES_V1: usize = 5 + 1 + 32;
 
 /// Exact coordinates of a privacy outer hash frame.
 #[derive(Clone, Copy)]
-pub(crate) struct PrivacyOuterDomainV1<'a> {
+pub struct PrivacyOuterDomainV1<'a> {
     /// Exact twelve-protocol catalog commitment bytes.
     pub(crate) catalog: &'a [u8; 48],
     /// Canonical protocol byte label.
@@ -187,7 +187,7 @@ fn write_fields_v1(state: &mut WipingSha3V1, fields: &[&[u8]]) {
 }
 
 /// Validated frame borrowing its ordered payload; construction never copies it.
-pub(crate) struct PrivacyOuterFrameV1<'a> {
+pub struct PrivacyOuterFrameV1<'a> {
     domain: PrivacyOuterDomainV1<'a>,
     fields: &'a [&'a [u8]],
 }
@@ -224,7 +224,7 @@ impl<'a> PrivacyOuterFrameV1<'a> {
 /// Cached public framing through level; each digest retains its own coordinates
 /// and complete ordered fields. Clones wipe their complete SHA3 state on drop.
 #[derive(Clone)]
-pub(crate) struct PrivacyOuterDomainPrefixV1 {
+pub struct PrivacyOuterDomainPrefixV1 {
     state: WipingSha3V1,
     prefix_bytes: usize,
 }
@@ -304,7 +304,7 @@ impl PrivacyOuterDomainPrefixV1 {
 /// An exact final-field stream must neither overrun nor finalize prematurely.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PrivacyOuterLastFieldStreamErrorV1 {
+pub enum PrivacyOuterLastFieldStreamErrorV1 {
     /// A label, count, length, or total exceeds its exact framing width.
     FramingLimitExceeded,
     /// Input exceeds the declared final field; the owner remains unchanged.
@@ -322,7 +322,7 @@ pub(crate) enum PrivacyOuterLastFieldStreamErrorV1 {
 }
 /// Incremental final-field owner with bounded declared input and wiping state.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct PrivacyOuterLastFieldStreamV1 {
+pub struct PrivacyOuterLastFieldStreamV1 {
     state: WipingSha3V1,
     remaining: usize,
 }
@@ -1035,7 +1035,7 @@ mod tests {
                 profile: &profile,
                 role: &role,
                 phase: &phase,
-                level: 81985529216486895,
+                level: 81_985_529_216_486_895,
                 index: 0,
                 counter: 0,
             };
@@ -1089,7 +1089,7 @@ mod tests {
                 role: &role,
                 phase: &phase,
                 level: 0,
-                index: 81985529216486895,
+                index: 81_985_529_216_486_895,
                 counter: 0,
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
@@ -1143,7 +1143,7 @@ mod tests {
                 phase: &phase,
                 level: 0,
                 index: 0,
-                counter: 81985529216486895,
+                counter: 81_985_529_216_486_895,
             };
             let payloads: Vec<Vec<u8>> = vec![hex("78")];
             let fields: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();

@@ -1,0 +1,28 @@
+{
+  "historical_baseline_accepted": true,
+  "historical_invalid_live_zero_quote_accepted": true,
+  "later_replacement_checker_tested": false,
+  "live_replacement": "fn signed_executable_proposal_gas_cost /* live replacement */ (\n        signed: &iroha_data_model::transaction::SignedTransaction,\n        zk_gas: &ConfidentialGas,\n    ) -> Result<u64, crate::execution_attempt::ExecutionAttemptError<ProposalGasCostError>> { Ok(0) }",
+  "mutated_queue_sha256": "7b97cdc1014aec67fa88ecdbcda2c76f1d72cd1556c1f75f2fa88bd35e1a9996",
+  "mutation": "Replace the live signed gas helper with Ok(0), add a comment before its opening parenthesis, and put the intact helper in a cfg(any()) impl Queue decoy.",
+  "observed_at_utc": "2026-10-13T12:17:39.526877+00:00",
+  "production_files_modified": false,
+  "profile_qualified": false,
+  "rust_compilation_claimed": false,
+  "schema": "parliament-queue-guard-historical-counterexample-v1",
+  "scope": "Concrete Python guard false approval, independent root reproduction. The old 36 focused controls did not cover this combination; the replacement requires its own regression and provenance.",
+  "source_sha256_after": {
+    "crates/iroha_core/src/queue.rs": "3aaf1a4f6dd8d2354fed7c4b5a4d2bb099b7594d8d7a8cd1958b92af2572e5a2",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "docs/validation/parliament_ballot_b6/queue-only-check_sora_parliament_source_contract.py.template": "bd6f4743aba223b8e98715eda06e0183f9bf8d3afa50b437872454c7affbfa0c",
+    "docs/validation/parliament_ballot_b6/queue-signed-gas-counterexample.py.template": "edd1ddd7bffda502bbd840469a0191800ddda5c4f0926c84573cb4cfaa8b1410",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82"
+  },
+  "source_sha256_before": {
+    "crates/iroha_core/src/queue.rs": "3aaf1a4f6dd8d2354fed7c4b5a4d2bb099b7594d8d7a8cd1958b92af2572e5a2",
+    "crates/iroha_data_model/src/transaction/executable.rs": "cef6182ba0acd6186e6ccaf8514b94f8c58e14ed96f09762b3d2a8ba61943cea",
+    "docs/validation/parliament_ballot_b6/queue-only-check_sora_parliament_source_contract.py.template": "bd6f4743aba223b8e98715eda06e0183f9bf8d3afa50b437872454c7affbfa0c",
+    "docs/validation/parliament_ballot_b6/queue-signed-gas-counterexample.py.template": "edd1ddd7bffda502bbd840469a0191800ddda5c4f0926c84573cb4cfaa8b1410",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82"
+  }
+}

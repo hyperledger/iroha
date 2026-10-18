@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! End-to-end check that privacy proofs attached to transactions can satisfy
 //! lane compliance policies requiring advertised commitments.
 use eyre::Result;

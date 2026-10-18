@@ -2,6 +2,7 @@
 //!
 //! Global balances route to the universal coordinator. Scoped balances route to
 //! their exact dataspace even when an account or asset alias names another scope.
+//! Conditional escrow legs always debit Global buckets into Global custody.
 //! Execution separately validates the signed bucket against live asset policy.
 
 use super::RoutingResolveError;
@@ -37,12 +38,21 @@ pub(super) fn concrete_dataspaces(
         .validate()
         .map_err(|reason| RoutingResolveError::InvalidAtomicSettlement { reason })?;
     // Destination uses this same signed definition/scope. There is no second
-    // independently inferred destination scope to merge or authorize.
+    // independently inferred destination scope to merge or authorize. Escrow
+    // legs debit validated Global buckets into Global protocol custody.
     Ok(atomic
         .movements
         .as_slice()
         .iter()
-        .map(|movement| match movement.source.scope() {
+        .map(|movement| movement.source.scope())
+        .chain(
+            atomic
+                .escrows
+                .as_slice()
+                .iter()
+                .map(|escrow| escrow.source.scope()),
+        )
+        .map(|scope| match scope {
             AssetBalanceScope::Global => DataSpaceId::UNIVERSAL,
             AssetBalanceScope::Dataspace(dataspace) => *dataspace,
         })
@@ -75,7 +85,10 @@ mod tests {
         NetworkId,
         asset::{AssetDefinitionId, AssetId},
         block::BlockHeader,
-        isi::{AtomicSettlementMovement, AtomicSettlementMovements, InstructionBox},
+        isi::{
+            AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements,
+            InstructionBox,
+        },
         prelude::AccountId,
     };
     use iroha_model_base::metadata::Metadata;
@@ -123,9 +136,54 @@ mod tests {
                 "routing_atomic".parse().expect("business reference"),
             ),
             AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
+            AtomicSettlementEscrows::empty(),
             NonZeroU64::new(500).expect("expiry"),
             Metadata::default(),
         )
+    }
+
+    #[test]
+    fn escrow_legs_route_to_the_universal_coordinator() {
+        use iroha_data_model::escrow::{
+            ConditionalEscrowCondition, ConditionalEscrowOracleCondition,
+            ConditionalEscrowPredicate, ConditionalEscrowValue, EscrowId,
+        };
+        let scope = AssetBalanceScope::Dataspace(DataSpaceId::new(7));
+        let mut atomic = batch(&[scope, scope]);
+        assert_eq!(target(&atomic).expect("scoped"), Some(DataSpaceId::new(7)));
+        assert!(!requires_universal_coordinator(&atomic).expect("scoped"));
+        let source = atomic.movements.as_slice()[0].source.clone();
+        atomic.escrows = AtomicSettlementEscrows::try_from(vec![
+            iroha_data_model::isi::AtomicSettlementEscrow {
+                source: AssetId::new(source.definition().clone(), source.account().clone()),
+                escrow_id: EscrowId::new(Hash::new(b"routing-escrow")),
+                beneficiary: account(9),
+                amount: Quantity::one(),
+                conditions: vec![ConditionalEscrowCondition::Oracle(
+                    ConditionalEscrowOracleCondition {
+                        id: "condition".parse().expect("condition id"),
+                        attestor: account(10),
+                        predicate: ConditionalEscrowPredicate::Equals(
+                            ConditionalEscrowValue::Bool(true),
+                        ),
+                        sequence: core::num::NonZeroU32::new(1).expect("sequence"),
+                    },
+                )],
+                expires_at_ms: 1,
+                evidence_hashes: Vec::new(),
+            },
+        ])
+        .expect("one global escrow leg");
+        assert!(
+            concrete_dataspaces(&atomic)
+                .expect("valid")
+                .contains(&DataSpaceId::UNIVERSAL)
+        );
+        assert_eq!(
+            target(&atomic).expect("mixed"),
+            Some(DataSpaceId::UNIVERSAL)
+        );
+        assert!(requires_universal_coordinator(&atomic).expect("mixed"));
     }
 
     #[test]

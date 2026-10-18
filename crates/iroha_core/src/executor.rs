@@ -356,6 +356,7 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
         | SingularQueryBox::FindDomainById(_) => NativeQueryAccess::Registered,
         SingularQueryBox::FindProofRecordById(_)
         | SingularQueryBox::FindAssetEscrowById(_)
+        | SingularQueryBox::FindBondById(_)
         | SingularQueryBox::FindTriggerById(_)
         | SingularQueryBox::FindTwitterBindingByHash(_)
         | SingularQueryBox::FindOracleDisputeById(_)
@@ -456,6 +457,13 @@ fn native_iterable_query_access(
     }
     if let Some(payload) = payload_for!(iroha_data_model::repo::RepoAgreement, RepoAgreement) {
         if any_exact!(payload; data_model_query::repo::FindRepoAgreements) {
+            return Ok(NativeQueryAccess::AllLedger);
+        }
+        return Err(invalid_native_iterable_query());
+    }
+    // Bond records carry every investor's record-date holdings.
+    if let Some(payload) = payload_for!(iroha_data_model::bond::BondRecord, BondRecord) {
+        if any_exact!(payload; data_model_query::bond::prelude::FindBonds) {
             return Ok(NativeQueryAccess::AllLedger);
         }
         return Err(invalid_native_iterable_query());
@@ -7238,36 +7246,20 @@ impl Executor {
         state_transaction.bind_kagemusha_load_entrypoint_v1(Some(&transaction));
         state_transaction.begin_execution_fee_meter(&transaction, tx_bytes_len, fee_exemption)?;
         state_transaction.begin_execution_effect_budget(&transaction)?;
-        // Disallow direct signing with multisig accounts; only explicit multisig
-        // proposal/approval envelopes with bundled multisig signatures are allowed.
+        // Multisig participation is signed by individual signatories. Approved
+        // inner instructions execute separately under the multisig account.
         {
             if let Ok(account) = state_transaction.world.account(authority) {
                 if account.id().controller().multisig_policy().is_some() {
-                    let only_custom_instruction_envelopes = matches!(
-                        transaction.instructions(),
-                        Executable::Instructions(items)
-                            if !items.is_empty()
-                                && items.iter().all(|instruction| {
-                                    instruction
-                                        .as_any()
-                                        .downcast_ref::<CustomInstruction>()
-                                        .is_some()
-                                })
+                    #[cfg(feature = "telemetry")]
+                    crate::telemetry::record_social_rejection(
+                        state_transaction.telemetry,
+                        "multisig_direct_sign",
                     );
-                    if only_custom_instruction_envelopes {
-                        // Allowed: custom instruction envelopes are validated by their respective
-                        // runtime handlers (including multisig propose/approve/register paths).
-                    } else {
-                        #[cfg(feature = "telemetry")]
-                        crate::telemetry::record_social_rejection(
-                            state_transaction.telemetry,
-                            "multisig_direct_sign",
-                        );
-                        return Err(ValidationFail::NotPermitted(
-                            "direct signing with multisig accounts is forbidden; use multisig propose/approve"
-                                .to_owned(),
-                        ));
-                    }
+                    return Err(ValidationFail::NotPermitted(
+                        "direct signing with multisig accounts is forbidden; use multisig propose/approve"
+                            .to_owned(),
+                    ));
                 }
             }
         }
@@ -10167,7 +10159,8 @@ mod tests {
         transaction::executable::IvmBytecode,
     };
     use iroha_executor_data_model::isi::multisig::{
-        MultisigApprove, MultisigCancel, MultisigPropose, MultisigRegister, MultisigSpec,
+        MultisigApprove, MultisigCancel, MultisigProposalId, MultisigProposalNonce,
+        MultisigPropose, MultisigRegister, MultisigSpec,
     };
     use iroha_model_base::name::Name;
     use iroha_model_base::{chain::ChainId, peer::PeerId};
@@ -11011,6 +11004,12 @@ mod tests {
             "multisig proposal".to_owned(),
         ))];
         let instructions_hash = HashOf::new(&proposed_instructions);
+        let nonce = MultisigProposalNonce::new([7; 32]).unwrap();
+        let proposal_id = MultisigProposalId::derive(
+            &executor_test_network_id(b"fee-sponsor-occurrence"),
+            &target,
+            &nonce,
+        );
         let spec = MultisigSpec::new(
             BTreeMap::from([(signatory, 1)]),
             nonzero!(1_u16),
@@ -11019,14 +11018,20 @@ mod tests {
         let instructions = [
             InstructionBox::from(MultisigPropose::new(
                 target.clone(),
+                nonce,
                 proposed_instructions,
                 None,
             )),
             InstructionBox::from(MultisigApprove::new(
                 target.clone(),
+                proposal_id,
                 instructions_hash.clone(),
             )),
-            InstructionBox::from(MultisigCancel::new(target.clone(), instructions_hash)),
+            InstructionBox::from(MultisigCancel::new(
+                target.clone(),
+                proposal_id,
+                instructions_hash,
+            )),
             InstructionBox::from(MultisigRegister::new(target.clone(), None, spec)),
         ];
         let expected = [
@@ -11050,8 +11055,12 @@ mod tests {
     fn fee_sponsor_multisig_selector_is_exact_and_register_is_opt_in() {
         let target = checked_account_id();
         let other_target = checked_account_id();
-        let propose_instruction =
-            InstructionBox::from(MultisigPropose::new(target.clone(), Vec::new(), None));
+        let propose_instruction = InstructionBox::from(MultisigPropose::new(
+            target.clone(),
+            MultisigProposalNonce::new([7; 32]).unwrap(),
+            Vec::new(),
+            None,
+        ));
         assert_eq!(
             iroha_data_model::isi::instruction_wire_id(&propose_instruction),
             Some("iroha.custom"),
@@ -11137,6 +11146,8 @@ mod tests {
     include!("executor_sorafs_provider_governance_tests.rs");
     include!("executor_sorafs_pop_registry_tests.rs");
     include!("executor_asset_lock_admission_tests.rs");
+    include!("executor_conditional_escrow_repo_admission_tests.rs");
+    include!("executor_bond_admission_tests.rs");
     macro_rules! concrete_instruction_box {
         ($instruction_ty:ty, $instruction:expr) => {{
             const TEST_WIRE_ID: &str = "iroha.test.concrete_instruction.v1";
@@ -21319,6 +21330,15 @@ mod tests {
     }
     #[test]
     fn multisig_account_direct_signing_is_rejected() {
+        assert_multisig_direct_signed_transaction_is_rejected(Vec::new());
+    }
+    #[test]
+    fn multisig_account_direct_signing_custom_envelope_is_rejected() {
+        assert_multisig_direct_signed_transaction_is_rejected(vec![
+            CustomInstruction::new("multisig-envelope").into(),
+        ]);
+    }
+    fn assert_multisig_direct_signed_transaction_is_rejected(instructions: Vec<InstructionBox>) {
         let domain_id: DomainId = DomainId::try_new("wonderland", "universal").expect("domain id");
         let signer = checked_keypair();
         let member = iroha_data_model::account::MultisigMember::new(signer.public_key().clone(), 1)
@@ -21343,15 +21363,15 @@ mod tests {
             0,
         );
         let mut block = state.block(block_header);
-        let builder = TransactionBuilder::new(
+        let tx = TransactionBuilder::new(
             state.network_id,
             multisig_id.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_executable(Executable::Instructions(Vec::new().into()));
-        let signature = Signature::try_new(signer.private_key(), &builder.payload_hash_bytes())
-            .expect("fixture signer should sign the multisig-authority payload prehash");
-        let tx = builder.build_with_signature(signature);
+        .with_executable(Executable::Instructions(instructions.into()))
+        .sign_multisig([signer.private_key()]);
+        tx.verify_signature()
+            .expect("direct-signing rejection must use a valid multisig signature bundle");
         let executor = super::Executor::Initial;
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
         let mut stx = block.transaction_for_fastpq_testing(Hash::from(tx.hash_as_entrypoint()));

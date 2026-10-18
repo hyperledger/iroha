@@ -651,6 +651,76 @@ test("quoteAndSignTransaction performs the guided exact-payload flow", async () 
   assert.deepEqual(JSON.parse(calls[1][3]), quotedIntent);
 });
 
+baseTest("quoteAndSignTransaction applies requested fee headroom after quoting", async () => {
+  const instruction = buildMintAssetInstruction({
+    assetId: ASSET_ID_INPUT,
+    quantity: "1",
+  });
+  const payload = {
+    domain: { kind: "network", value: NETWORK_ID.literal },
+    authority: AUTHORITY_ID,
+    fee_payment: {
+      payer: "authority",
+      value: { charge_limits: [], gas_limit: null },
+    },
+  };
+  const quotedIntent = {
+    payer: "authority",
+    value: {
+      charge_limits: [
+        {
+          kind: { kind: "nexus", value: null },
+          asset_definition_id: ASSET_DEFINITION_ID,
+          max_amount: "1",
+        },
+      ],
+      gas_limit: null,
+    },
+  };
+  const calls = [];
+  await withTransactionApi(
+    {
+      buildTransactionPayload: () => ({
+        payload_json: JSON.stringify(payload),
+        payload_bytes: Buffer.from([1]),
+        payload_hash: Buffer.alloc(32, 2),
+      }),
+      signQuotedTransactionPayload: (...args) => {
+        calls.push(["sign", ...args]);
+        return {
+          signed_transaction: Buffer.from([3]),
+          hash: Buffer.alloc(32, 4),
+        };
+      },
+    },
+    async (transaction) => {
+      const client = {
+        async quoteFees(draft, options) {
+          calls.push(["quote", draft, options]);
+          return acceptedAuthorityFeeQuote(payload, quotedIntent);
+        },
+      };
+      const result = await transaction.quoteAndSignTransaction(client, {
+        networkId: NETWORK_ID,
+        authority: AUTHORITY_ID_INPUT,
+        instructions: [instruction],
+        feePayment: AUTHORITY_FEE_PAYMENT,
+        privateKey: PRIVATE_KEY,
+      }, { feeLimitMarginBps: 20_000 });
+      assert.deepEqual(result.signedTransaction, Buffer.from([3]));
+      assert.deepEqual(result.quote.intent, quotedIntent);
+    },
+  );
+  assert.equal(calls[0][0], "quote");
+  assert.equal(calls[0][2].canonicalAuth.accountId, AUTHORITY_ID_INPUT);
+  assert.equal(calls[1][0], "sign");
+  assert.deepEqual(Buffer.from(calls[1][1]), NETWORK_ID_BYTES);
+  assert.equal(calls[1][2], JSON.stringify(payload));
+  const expectedIntent = structuredClone(quotedIntent);
+  expectedIntent.value.charge_limits[0].max_amount = "2";
+  assert.deepEqual(JSON.parse(calls[1][3]), expectedIntent);
+});
+
 baseTest("quoteAndSignTransaction rejects an unbound injectable-client quote before signing", async () => {
   const instruction = buildMintAssetInstruction({
     assetId: ASSET_ID_INPUT,

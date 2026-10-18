@@ -60,7 +60,7 @@ use x509_parser::{
     time::ASN1Time,
 };
 mod native_payment;
-pub(crate) use native_payment::{
+pub use native_payment::{
     IsoNativeBusinessSettlement, IsoNativeCarrierOutcome, IsoNativePaymentRequest,
 };
 use native_payment::{
@@ -151,7 +151,7 @@ struct IsoLifecycleOriginalBinding {
 }
 /// Exact successful native execution already authenticated by the canonical carrier reader.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct IsoSuccessfulExecution<'a> {
+pub struct IsoSuccessfulExecution<'a> {
     /// Canonical signed transaction identity from the original lifecycle binding.
     pub(crate) transaction_hash: &'a str,
     /// Authenticated carrier creation time, shared with background reconciliation.
@@ -959,7 +959,7 @@ fn new_iso_record_incarnation() -> IsoRecordIncarnation {
 const ISO4217_MAX_MINOR_UNITS: u8 = 4;
 /// Durable ISO projection refusal surfaced to the canonical reconciliation worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum IsoStatusHistoryLimitError {
+pub enum IsoStatusHistoryLimitError {
     /// Exact status history has reached its entry bound.
     EntryCount,
     /// Exact status history has reached its encoded byte bound.
@@ -2582,7 +2582,7 @@ impl Iso20022BridgeRuntime {
             .records
             .iter()
             .filter(|record| {
-                self.record_retention_protected(record.key(), &record)
+                self.record_retention_protected(record.key(), record)
                     || wall_now.duration_since(record.replay_expires_at).is_err()
             })
             .map(|record| record.key().clone())
@@ -3459,8 +3459,7 @@ impl Iso20022BridgeRuntime {
             .filter(|_| referenced_message_known)
         {
             self.prepare_lifecycle_update(
-                message_id,
-                original_id,
+                (message_id, original_id),
                 message_type,
                 status_code.as_deref(),
                 reason_code.as_deref(),
@@ -3916,8 +3915,7 @@ impl Iso20022BridgeRuntime {
 impl Iso20022BridgeRuntime {
     fn prepare_lifecycle_update(
         &self,
-        lifecycle_message_id: &str,
-        original_id: &str,
+        (lifecycle_message_id, original_id): (&str, &str),
         message_type: &str,
         status_code: Option<&str>,
         reason_code: Option<&str>,
@@ -4087,8 +4085,7 @@ impl Iso20022BridgeRuntime {
         detail: Option<String>,
     ) -> Result<&'static str, IsoStatusHistoryLimitError> {
         let (action, mutation) = self.prepare_lifecycle_update(
-            lifecycle_message_id,
-            original_id,
+            (lifecycle_message_id, original_id),
             message_type,
             status_code,
             reason_code,
@@ -7269,9 +7266,11 @@ fn pending_return_original(record: &IsoMessageRecordV2) -> Option<&str> {
 }
 
 fn return_parties_match(report: &IsoRecordParties, original: &IsoRecordParties) -> bool {
+    let admitted_by_original_counterparty =
+        report.admitting_participant_id == original.counterparty_participant_id;
     report.originator_participant_id == original.originator_participant_id
         && report.counterparty_participant_id == original.counterparty_participant_id
-        && report.admitting_participant_id == original.counterparty_participant_id
+        && admitted_by_original_counterparty
         && report.originator_financial_id == original.originator_financial_id
         && report.counterparty_financial_id == original.counterparty_financial_id
         && report.pinned_profile_id == original.pinned_profile_id
@@ -7568,11 +7567,20 @@ fn reported_return_value(report: Option<&IsoReportedReturn>) -> JsonValue {
     );
     JsonValue::Object(obj)
 }
-fn reported_return_from_value(value: &JsonValue) -> Option<Option<IsoReportedReturn>> {
-    if matches!(value, JsonValue::Null) {
-        return Some(None);
+fn reported_return_from_value(
+    value: &JsonValue,
+) -> Result<Option<IsoReportedReturn>, InvalidPersistedNullableField> {
+    match value {
+        JsonValue::Null => Ok(None),
+        value => value
+            .as_object()
+            .and_then(reported_return_from_object)
+            .map(Some)
+            .ok_or(InvalidPersistedNullableField::InvalidValue),
     }
-    let obj = value.as_object()?;
+}
+
+fn reported_return_from_object(obj: &norito::json::Map) -> Option<IsoReportedReturn> {
     if !json_object_has_exact_keys(
         obj,
         &[
@@ -7624,7 +7632,7 @@ fn reported_return_from_value(value: &JsonValue) -> Option<Option<IsoReportedRet
     {
         return None;
     }
-    Some(Some(IsoReportedReturn {
+    Some(IsoReportedReturn {
         disposition,
         original_message_id: required_clean_string(obj, "original_message_id")?,
         original_payload_hash,
@@ -7632,7 +7640,7 @@ fn reported_return_from_value(value: &JsonValue) -> Option<Option<IsoReportedRet
         amount,
         currency,
         reason_code: required_nullable_string(obj, "reason_code").ok()?,
-    }))
+    })
 }
 fn reported_return_context(
     binding: &IsoLifecycleOriginalBinding,
@@ -7750,8 +7758,8 @@ fn context_from_value(value: &JsonValue) -> Option<IsoMessageContext> {
         collateral_reason_code: required_nullable_string(obj, "collateral_reason_code").ok()?,
         plan_execution_order: required_nullable_string(obj, "plan_execution_order").ok()?,
         plan_atomicity: required_nullable_string(obj, "plan_atomicity").ok()?,
-        reported_return: reported_return_from_value(obj.get("reported_return")?)?,
-        native_payment: native_payment_from_value(obj.get("native_payment")?)?,
+        reported_return: reported_return_from_value(obj.get("reported_return")?).ok()?,
+        native_payment: native_payment_from_value(obj.get("native_payment")?).ok()?,
     })
 }
 fn metadata_value(metadata: &IsoMessageMetadata) -> JsonValue {

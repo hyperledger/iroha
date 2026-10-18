@@ -2,7 +2,7 @@
 use ff::Field;
 use iroha_kagemusha_proof::{
     a_relation::{
-        LineagePublicCells, SigmaBindingCells,
+        LineagePublicCells,
         load::{LoadInputs, LoadObjects},
         own::OwnPolicy,
     },
@@ -40,7 +40,8 @@ pub(crate) struct LoadMaps {
     pub(crate) witness: LoadWitness,
     pub(crate) insertion: IndexedInsert<Fp>,
     pub(crate) receipt: load_objects::OrdinaryReceipt,
-    pub(crate) objects: [bootstrap_objects::Signed; 3],
+    /// The own Advance receipt; the credential is carried by continuity (lean Load).
+    pub(crate) objects: [bootstrap_objects::Signed; 1],
     pub(crate) known: bool,
 }
 #[derive(Clone, Debug)]
@@ -144,7 +145,7 @@ impl Circuit<Fp> for LoadMaps {
         let a = meta.advice_column();
         let b = meta.advice_column();
         let bytes = BytesConfig::configure(meta, a, b);
-        let public = meta.instance_column(4);
+        let public = meta.instance_column(2);
         meta.enable_equality(public);
         Config {
             verifier,
@@ -175,14 +176,7 @@ impl Circuit<Fp> for LoadMaps {
                     Variant::Load,
                     &fields,
                 )?;
-                let index = chip.uint().glue().constant(
-                    &mut region,
-                    Fp::from(u64::from(
-                        iroha_kagemusha_proof::a_relation::schedule::sigma_selector(2, 0).unwrap(),
-                    )),
-                )?;
-                let sigma = SigmaBindingCells::from_statement(&statement, index, vec![]);
-                let sources: [Vec<Value<u8>>; 4] = core::array::from_fn(|i| {
+                let sources: [Vec<Value<u8>>; 2] = core::array::from_fn(|i| {
                     let raw: &[u8] = if i == 0 {
                         &self.receipt.bytes
                     } else {
@@ -207,7 +201,7 @@ impl Circuit<Fp> for LoadMaps {
                             state: &after,
                             lineage: &next,
                         },
-                        sigma: &sigma,
+                        statement: &statement,
                         signatures: &[],
                     },
                 )?;
@@ -224,7 +218,7 @@ impl Circuit<Fp> for LoadMaps {
                             state: &after,
                             lineage: &next,
                         },
-                        sigma: &sigma,
+                        statement: &statement,
                         signatures: &[],
                     },
                     &insertion,
@@ -263,7 +257,7 @@ pub(crate) fn fixture_from(
         &params,
         &key,
         Witness::from_circuit(&key, &sigma, &sigma.instances()).unwrap(),
-        common::recovery(191),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -278,14 +272,14 @@ pub(crate) fn fixture_from(
     .unwrap();
     opening.decide(&params, MemoryBudget::DEFAULT).unwrap();
     let receipt = load_objects::receipt(&witness, &proof.proof);
-    let (_, enrollment, current) = bootstrap_objects::enrollment();
+    let (_, _, current) = bootstrap_objects::enrollment();
     assert_eq!(current.digest(), before.core[7]);
     (
         LoadMaps {
             witness,
             insertion,
             receipt: ordinary,
-            objects: [receipt, enrollment, current],
+            objects: [receipt],
             known: true,
         },
         proof.proof,

@@ -6,12 +6,17 @@
 
 use super::*;
 use crate::execution_attempt::ExecutionAttemptError;
-use crate::state::deserialize::musubi_source_read::MusubiSourceReadOnly;
+use crate::state::deserialize::musubi_source_read::{
+    MusubiRead, MusubiSourceReadOnly, ReadFailure,
+};
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 
 #[path = "deserialize_world_musubi_universal/accumulator.rs"]
 mod accumulator;
 use accumulator::PackageRevision;
+
+#[path = "deserialize_world_musubi_universal/cursor.rs"]
+pub(in crate::state) mod cursor;
 
 fn invalid(
     cut: ProjectionCut,
@@ -30,159 +35,19 @@ pub(in crate::state) fn validate_musubi_universal_projection_cut(
     cut: ProjectionCut,
     execution_budget: &AllocationBudget,
 ) -> Result<(), ExecutionAttemptError<ProjectionRejection>> {
-    const RESOLVER: ProjectionTable = ProjectionTable::ResolverIndex;
-    const DIRECTORY: ProjectionTable = ProjectionTable::PublicDirectory;
-    let packages = world.source_musubi_packages();
-    let releases = world.source_musubi_releases();
-    let archives = world.source_musubi_archives();
-    let availability = world.source_musubi_archive_availability();
-    let resolver = world.source_musubi_resolver_index();
-    let directory = world.source_musubi_public_directory();
-    let current_revision = world.source_musubi_resolver_index_revision();
-    for (package_id, package) in packages.iter() {
-        package
-            .validate()
-            .map_err(|error| invalid(cut, DIRECTORY, error.reason()))?;
-        if package_id != &package.package {
-            return Err(invalid(
-                cut,
-                DIRECTORY,
-                "package lookup key differs from its canonical identity",
-            )
-            .into());
-        }
-    }
-    // Validate all package identities before scratch admission, preserving the
-    // semantic error order. Source keys and versions stay borrowed from this cut.
-    let mut package_revisions =
-        ChargedBuffer::new(packages.len(), execution_budget).map_err(|error| {
-            ExecutionAttemptError::Deferred(match error {
-                ChargedBufferError::Admission(refusal) => refusal.into(),
-                ChargedBufferError::Allocator { .. } => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-                }
-            })
-        })?;
-    // MV storage iterates in canonical key order, so this array supports borrowed
-    // binary searches without copying package identities or sorting another index.
-    for (package_id, _) in packages.iter() {
-        package_revisions.push_reserved(PackageRevision::new(package_id));
-    }
-    for (release_id, row) in resolver.iter() {
-        row.validate()
-            .map_err(|error| invalid(cut, RESOLVER, error.reason()))?;
-        let release = releases
-            .get(release_id)
-            .ok_or_else(|| invalid(cut, RESOLVER, "resolver row references a missing release"))?;
-        release
-            .validate()
-            .map_err(|error| invalid(cut, RESOLVER, error.reason()))?;
-        if release_id != &release.manifest.release || packages.get(&release_id.package).is_none() {
-            return Err(invalid(
-                cut,
-                RESOLVER,
-                "resolver row's release identity or package source is missing",
-            )
-            .into());
-        }
-        let archive = archives
-            .get(&release.manifest.archive_id)
-            .ok_or_else(|| invalid(cut, RESOLVER, "resolver row references a missing archive"))?;
-        let storage = availability
-            .get(&release.manifest.archive_id)
-            .ok_or_else(|| {
-                invalid(
-                    cut,
-                    RESOLVER,
-                    "resolver row is missing its authoritative storage projection",
-                )
-            })?;
-        if release_id != &row.release
-            || row.release_digest != release.release_digest
-            || row.archive_id != release.manifest.archive_id
-            || row.source_digest != archive.commitment.source_tree_digest
-            || row.interface_digest != release.manifest.interface_digest
-            || row.abi != release.manifest.abi
-            || row.dependencies.as_slice() != release.manifest.dependencies.as_slice()
-            || row.selection.yank != release.yank
-            || row.selection.governance != release.artifact_governance
-            || row.selection.storage != *storage
-            || row.index_revision > current_revision
-        {
-            return Err(invalid(
-                cut,
-                RESOLVER,
-                "resolver row diverges from authoritative release/archive projections",
-            )
-            .into());
-        }
-        let index = package_revisions
-            .as_slice()
-            .binary_search_by(|entry| entry.package.cmp(&release_id.package))
-            .map_err(|_| invalid(cut, RESOLVER, "resolver row references a missing package"))?;
-        package_revisions.as_mut_slice()[index].observe(release_id, row);
-    }
-    for (release_id, _) in releases.iter() {
-        if resolver.get(release_id).is_none() {
-            return Err(invalid(cut, RESOLVER, "release is missing its exact resolver row").into());
-        }
-    }
-    for (selector, entry) in directory.iter() {
-        entry
-            .validate()
-            .map_err(|error| invalid(cut, DIRECTORY, error.reason()))?;
-        let package = packages.get(&entry.package).ok_or_else(|| {
-            invalid(
-                cut,
-                DIRECTORY,
-                "directory entry references a missing package",
-            )
-        })?;
-        let index = package_revisions
-            .as_slice()
-            .binary_search_by(|revision| revision.package.cmp(&entry.package))
-            .expect("validated directory package has a latest-version accumulator");
-        let revision = &mut package_revisions.as_mut_slice()[index];
-        if selector != &entry.selector
-            || entry.selector.namespace != package.claimed_namespace
-            || entry.selector.name != entry.package.name
-            || entry.metadata_revision != package.revisions.metadata
-            || entry.latest_selectable.as_ref() != revision.latest
-            || entry.index_revision > current_revision
-        {
-            return Err(invalid(
-                cut,
-                DIRECTORY,
-                "directory entry diverges from its package and resolver rows",
-            )
-            .into());
-        }
-        if let Some(maximum_row_revision) = revision.maximum {
-            if entry.index_revision < maximum_row_revision {
-                return Err(invalid(
-                    cut,
-                    DIRECTORY,
-                    "directory entry predates its package resolver rows",
-                )
-                .into());
-            }
-        }
-        // A validated row has exactly this package's canonical selector. Marking
-        // its borrowed accumulator avoids allocating a selector for the final
-        // completeness pass, including when two package IDs share a selector.
-        revision.directory_present = true;
-    }
-    for revision in package_revisions.as_slice() {
-        if !revision.directory_present {
-            return Err(invalid(
-                cut,
-                DIRECTORY,
-                "package is missing its exact public-directory entry",
-            )
-            .into());
-        }
-    }
-    Ok(())
+    try_validate_musubi_universal_projection_cut(world, cut, execution_budget)
+        .map_err(ReadFailure::into_predicate)
+}
+
+/// The same universal predicate preserves each original physical source refusal.
+pub(in crate::state) fn try_validate_musubi_universal_projection_cut<W: MusubiRead>(
+    world: &W,
+    cut: ProjectionCut,
+    execution_budget: &AllocationBudget,
+) -> Result<(), ReadFailure<W::Error, ExecutionAttemptError<ProjectionRejection>>> {
+    let source = cursor::BorrowedUniversalSource(world);
+    let mut validation = cursor::UniversalValidation::new(cut);
+    validation.advance(&source, execution_budget)
 }
 
 /// Check both the current and rollback-visible versions retained by one World.

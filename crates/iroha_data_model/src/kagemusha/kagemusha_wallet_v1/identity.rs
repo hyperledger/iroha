@@ -61,7 +61,7 @@ pub const KAGEMUSHA_WALLET_ID_TRANSCRIPT_BYTES_V1: usize = 32 + 32 + KEY_BYTES +
 /// Exact inline transcript bytes of one evidence record.
 pub const KAGEMUSHA_WALLET_EVIDENCE_TRANSCRIPT_BYTES_V1: usize = 32 + 8 + 4 * 4;
 /// Exact inline transcript bytes of one regulatory policy.
-pub const KAGEMUSHA_WALLET_REGULATORY_POLICY_TRANSCRIPT_BYTES_V1: usize = 4 + 8 + 8;
+pub const KAGEMUSHA_WALLET_REGULATORY_POLICY_TRANSCRIPT_BYTES_V1: usize = 4 + 8;
 /// Exact `credential-body` transcript bytes.
 pub const KAGEMUSHA_WALLET_CREDENTIAL_BODY_TRANSCRIPT_BYTES_V1: usize = 2
     + 4 * 32
@@ -116,31 +116,26 @@ pub const KAGEMUSHA_WALLET_FACT_APP_ATTEST_GENUINE_DEVICE_V1: u32 = 1 << 6;
 pub const KAGEMUSHA_WALLET_FACT_APP_ATTEST_KEY_BINDING_V1: u32 = 1 << 7;
 /// The App Attest environment is production.
 pub const KAGEMUSHA_WALLET_FACT_APP_ATTEST_PRODUCTION_V1: u32 = 1 << 8;
-/// Retired issuer output: a Play Integrity enrollment-time signal was recorded. Newly generated
-/// evidence never sets this bit; historical enrollment evidence, and every renewal that preserves
-/// it, may carry it. It stays defined and Apple-forbidden so those credentials stay valid.
-pub const KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1: u32 = 1 << 9;
 /// No chain certificate was on the attestation revocation status list at the check.
 pub const KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1: u32 = 1 << 10;
 /// Local root/jailbreak checks were negative at the check.
 pub const KAGEMUSHA_WALLET_FACT_LOCAL_COMPROMISE_CHECKS_CLEAR_V1: u32 = 1 << 11;
-/// Every defined fact bit; bits 12..=31 are zero.
-pub const KAGEMUSHA_WALLET_FACTS_DEFINED_MASK_V1: u32 = (1 << 12) - 1;
+/// Every defined fact bit; bit 9 and bits 12..=31 are reserved zero.
+pub const KAGEMUSHA_WALLET_FACTS_DEFINED_MASK_V1: u32 = ((1 << 12) - 1) & !(1 << 9);
 /// Fact bits an Android evidence record never carries (App Attest facts).
 pub const KAGEMUSHA_WALLET_ANDROID_FORBIDDEN_FACTS_V1: u32 =
     KAGEMUSHA_WALLET_FACT_APP_ATTEST_GENUINE_DEVICE_V1
         | KAGEMUSHA_WALLET_FACT_APP_ATTEST_KEY_BINDING_V1
         | KAGEMUSHA_WALLET_FACT_APP_ATTEST_PRODUCTION_V1;
-/// Fact bits an Apple evidence record never carries: Android key/boot/patch facts, the retired
-/// Play Integrity bit, and a hardware-backed claim about the separately generated payment key.
+/// Fact bits an Apple evidence record never carries: Android key/boot/patch facts
+/// and a hardware-backed claim about the separately generated payment key.
 pub const KAGEMUSHA_WALLET_APPLE_FORBIDDEN_FACTS_V1: u32 =
     KAGEMUSHA_WALLET_FACT_HARDWARE_BACKED_KEY_V1
         | KAGEMUSHA_WALLET_FACT_STRONGBOX_V1
         | KAGEMUSHA_WALLET_FACT_BOOTLOADER_LOCKED_V1
         | KAGEMUSHA_WALLET_FACT_VERIFIED_BOOT_V1
         | KAGEMUSHA_WALLET_FACT_PATCH_POLICY_MET_V1
-        | KAGEMUSHA_WALLET_FACT_APP_SIGNING_IDENTITY_V1
-        | KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1;
+        | KAGEMUSHA_WALLET_FACT_APP_SIGNING_IDENTITY_V1;
 /// Facts every Android enrollment evidence record must carry (design C5).
 pub const KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1: u32 =
     KAGEMUSHA_WALLET_FACT_HARDWARE_BACKED_KEY_V1
@@ -152,16 +147,13 @@ pub const KAGEMUSHA_WALLET_APPLE_REQUIRED_FACTS_V1: u32 =
     KAGEMUSHA_WALLET_FACT_APP_ATTEST_GENUINE_DEVICE_V1
         | KAGEMUSHA_WALLET_FACT_APP_ATTEST_KEY_BINDING_V1;
 
-/// Recipient blacklist control (§7).
-pub const KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1: u32 = 1 << 0;
 /// Daily/monthly sending quota control (§7).
-pub const KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1: u32 = 1 << 1;
+pub const KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1: u32 = 1 << 0;
 /// Attestation lease control (§7).
-pub const KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1: u32 = 1 << 2;
+pub const KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1: u32 = 1 << 1;
 /// Every defined regulatory control bit.
-pub const KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1: u32 = KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-    | KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1
-    | KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1;
+pub const KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1: u32 =
+    KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1 | KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1;
 
 const KEY_BYTES: usize = 65;
 const PROVIDER_CONTRACT_NAME_FIELD_BYTES: usize = 64;
@@ -1187,8 +1179,6 @@ impl KagemushaWalletEvidenceV1 {
 pub struct KagemushaWalletRegulatoryPolicyV1 {
     /// Permitted control bits (`KAGEMUSHA_WALLET_CONTROL_*`).
     pub permitted_controls: u32,
-    /// Maximum blacklist age in milliseconds; zero means no list-age rule.
-    pub blacklist_max_age_ms: u64,
     /// Maximum time-anchor response age on the monotonic clock; zero when no permitted rule
     /// is time dependent.
     pub time_anchor_max_response_ms: u64,
@@ -1199,7 +1189,6 @@ impl KagemushaWalletRegulatoryPolicyV1 {
     fn write(&self, transcript: WalletTranscriptV1) -> WalletTranscriptV1 {
         transcript
             .u32(self.permitted_controls)
-            .u64(self.blacklist_max_age_ms)
             .u64(self.time_anchor_max_response_ms)
     }
 
@@ -1223,21 +1212,17 @@ impl KagemushaWalletRegulatoryPolicyV1 {
     pub const fn requires_time_anchor(&self) -> bool {
         self.permits(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1)
             || self.permits(KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1)
-            || self.blacklist_max_age_ms > 0
     }
 
     /// Validate the policy's consistency rules.
     ///
     /// # Errors
     ///
-    /// Rejects undefined control bits, a list-age rule without the blacklist control, and a
-    /// response bound that is present exactly when no permitted rule is time dependent.
+    /// Rejects undefined control bits and a response bound that is present exactly when no
+    /// permitted rule is time dependent.
     pub fn validate(&self) -> WalletResult<()> {
         if self.permitted_controls & !KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1 != 0 {
             return Err(invalid_v1("regulatory_policy.permitted_controls"));
-        }
-        if self.blacklist_max_age_ms > 0 && !self.permits(KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1) {
-            return Err(invalid_v1("regulatory_policy.blacklist_max_age_ms"));
         }
         if (self.time_anchor_max_response_ms > 0) != self.requires_time_anchor() {
             return Err(invalid_v1("regulatory_policy.time_anchor_max_response_ms"));

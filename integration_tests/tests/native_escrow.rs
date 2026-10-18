@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Native asset escrow integration scenarios.
 use eyre::{Result, eyre};
 use integration_tests::sandbox;

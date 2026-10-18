@@ -75,13 +75,14 @@ fn expected(kind: usize, a: u64, b: u64, gas: u64) -> Result<u64, SegmentOutcome
     if gas < 10 {
         return Err(SegmentOutcome::OutOfGas);
     }
-    if b == 0 || (division::signed_kind(kind) && a == i64::MIN as u64 && b == u64::MAX) {
+    if b == 0 || (division::signed_kind(kind) && a == i64::cast_unsigned(i64::MIN) && b == u64::MAX)
+    {
         return Err(SegmentOutcome::AssertionFailed);
     }
     Ok(match kind {
-        0 => ((a as i64) / (b as i64)) as u64,
+        0 => i64::cast_unsigned(u64::cast_signed(a) / u64::cast_signed(b)),
         1 => a / b,
-        2 => ((a as i64) % (b as i64)) as u64,
+        2 => i64::cast_unsigned(u64::cast_signed(a) % u64::cast_signed(b)),
         3 => a % b,
         _ => unreachable!(),
     })
@@ -116,14 +117,14 @@ fn division_variants_match_interpreter_full_width_signed_quadrants_aliases_and_r
     let pairs = [
         (0, 1),
         (17, 5),
-        ((-17_i64) as u64, 5),
-        (17, (-5_i64) as u64),
-        ((-17_i64) as u64, (-5_i64) as u64),
+        (i64::cast_unsigned(-17_i64), 5),
+        (17, i64::cast_unsigned(-5_i64)),
+        (i64::cast_unsigned(-17_i64), i64::cast_unsigned(-5_i64)),
         (u64::MAX, 1),
         (1, u64::MAX),
-        (i64::MIN as u64, 1),
-        (i64::MIN as u64, i64::MIN as u64),
-        (i64::MIN as u64, u64::MAX),
+        (i64::cast_unsigned(i64::MIN), 1),
+        (i64::cast_unsigned(i64::MIN), i64::cast_unsigned(i64::MIN)),
+        (i64::cast_unsigned(i64::MIN), u64::MAX),
         (i64::MAX as u64, 3),
         (0xffff_ffff_0000_0001, 7),
         (17, 0),
@@ -187,7 +188,7 @@ fn division_gas_precedes_arithmetic_and_traps_have_exact_opcode_boundary_state()
         for (a, b) in [
             (17, 5),
             (17, 0),
-            (i64::MIN as u64, u64::MAX),
+            (i64::cast_unsigned(i64::MIN), u64::MAX),
             (0xffff_ffff_0000_0001, 0xffff_ffff_0000_0001),
         ] {
             for gas in [0, 9, 10, 11, 1 << 32, u64::MAX - unit_root_call_gas()] {
@@ -221,7 +222,7 @@ fn division_gas_precedes_arithmetic_and_traps_have_exact_opcode_boundary_state()
 fn trapped_division_does_not_inherit_priced_gas_or_completed_cycle_carries() {
     for (kind, a, b, gas) in [
         (0, 17, 5, 9),
-        (2, i64::MIN as u64, u64::MAX, 10),
+        (2, i64::cast_unsigned(i64::MIN), u64::MAX, 10),
         (1, 17, 0, u64::MAX - unit_root_call_gas()),
     ] {
         let (segment, mut records) = single(kind, a, b, gas);

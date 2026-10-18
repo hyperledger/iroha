@@ -62,6 +62,22 @@ pub(crate) struct EncodingError {
 }
 
 impl EncodingError {
+    /// Whether the original codec or I/O owner reported physical allocation failure.
+    pub(in crate::state) const fn is_allocation_refusal(&self) -> bool {
+        matches!(
+            self.reason,
+            EncodingReason::Allocation { .. } | EncodingReason::Io(io::ErrorKind::OutOfMemory)
+        )
+    }
+
+    /// Exact codec-reported bytes, without inventing a demand for generic I/O failure.
+    pub(in crate::state) const fn allocation_bytes(&self) -> Option<u64> {
+        match self.reason {
+            EncodingReason::Allocation { bytes } => Some(bytes),
+            _ => None,
+        }
+    }
+
     pub(super) fn new(operation: EncodingOperation, reason: EncodingReason) -> Self {
         Self { operation, reason }
     }
@@ -87,5 +103,59 @@ impl EncodingError {
 impl From<EncodingError> for LeafError {
     fn from(error: EncodingError) -> Self {
         Self::Encoding(error)
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use crate::state::{
+        authority_registry::{FrozenMusubiError, leaf::RetainedSemanticError},
+        publication::capture_deferral::materialization_refusal,
+        storage_transactions::TransactionsBlockError,
+    };
+
+    #[test]
+    fn codec_allocation_is_local_but_canonical_shape_failure_requires_recovery() {
+        for (input, allocation, bytes) in [
+            (
+                norito::Error::AllocationFailed { bytes: 8193 },
+                true,
+                Some(8193),
+            ),
+            (
+                norito::Error::Io(io::ErrorKind::OutOfMemory.into()),
+                true,
+                None,
+            ),
+            (norito::Error::LengthMismatch, false, None),
+            (
+                norito::Error::Io(io::ErrorKind::InvalidData.into()),
+                false,
+                None,
+            ),
+        ] {
+            let original = EncodingError::codec(EncodingOperation::HashPairedValue, input);
+            assert_eq!(original.is_allocation_refusal(), allocation);
+            assert_eq!(original.allocation_bytes(), bytes);
+            let display = original.to_string();
+            let classified = materialization_refusal(FrozenMusubiError::Encoding(
+                RetainedSemanticError::Table(LeafError::Encoding(original)),
+            ));
+            if allocation {
+                let TransactionsBlockError::CaptureDeferred(owner) = classified else {
+                    panic!("a failed codec allocation cannot become invalid State");
+                };
+                assert_eq!(owner.codec_allocation_bytes(), bytes);
+                assert!(owner.allocation_refusal().is_none());
+                assert!(owner.release_wait().is_none());
+                assert!(owner.to_string().contains(&display));
+            } else {
+                assert!(matches!(
+                    classified,
+                    TransactionsBlockError::SnapshotObservationChanged
+                ));
+            }
+        }
     }
 }

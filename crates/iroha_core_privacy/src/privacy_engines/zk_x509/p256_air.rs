@@ -1,8 +1,8 @@
 //! Exact nonnative P-256 integer arithmetic for the zk-X509 STARK.
 //!
 //! P-256 base- and scalar-field elements use sixteen little-endian 16-bit limbs. Every limb and
-//! every signed carry is bit-decomposed. Multiplication proves all 32 schoolbook coefficients of `a
-//! * b = c + q * modulus`; addition proves the analogous radix equation. The absolute value of
+//! every signed carry is bit-decomposed. Multiplication proves all 32 schoolbook coefficients of
+//! `a * b = c + q * modulus`; addition proves the analogous radix equation. The absolute value of
 //! every integer residue is below `2^43`, so equality in Goldilocks is equality over the integers
 //! rather than a field-wrap shortcut.
 use crate::privacy_engines::transparent_stark::{GoldilocksFieldV1 as F, PolynomialAirFieldV1};
@@ -10,32 +10,32 @@ use crate::privacy_engines::transparent_stark::{GoldilocksFieldV1 as F, Polynomi
 use p256::elliptic_curve::bigint::{Encoding as _, NonZero, U256, U512};
 use thiserror::Error;
 /// P-256 coordinate-field modulus in canonical big-endian form.
-pub(crate) const P256_BASE_MODULUS_BE_V1: [u8; 32] = [
+pub const P256_BASE_MODULUS_BE_V1: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 ];
 /// P-256 scalar-field order in canonical big-endian form.
-pub(crate) const P256_SCALAR_MODULUS_BE_V1: [u8; 32] = [
+pub const P256_SCALAR_MODULUS_BE_V1: [u8; 32] = [
     0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
 ];
 const LIMBS: usize = 16;
 /// Fixed schoolbook coefficient rows per arithmetic operation.
-pub(crate) const P256_ARITHMETIC_ROWS_PER_OPERATION_V1: usize = 2 * LIMBS;
+pub const P256_ARITHMETIC_ROWS_PER_OPERATION_V1: usize = 2 * LIMBS;
 /// Base width before aggregate column sharding.
-pub(crate) const P256_ARITHMETIC_BASE_WIDTH_V1: usize = 211;
+pub const P256_ARITHMETIC_BASE_WIDTH_V1: usize = 211;
 /// Challenge-dependent aggregate width.
 ///
 /// Arithmetic itself has no lookup product. The single column is committed
 /// after the transcript challenges and constrained to zero so the aggregate
 /// proof has one uniform base/aux commitment shape without an unbound cell.
-pub(crate) const P256_ARITHMETIC_STARK_AUX_WIDTH_V1: usize = 1;
+pub const P256_ARITHMETIC_STARK_AUX_WIDTH_V1: usize = 1;
 /// Verifier-preprocessed fixed width for the extension-domain evaluator.
-pub(crate) const P256_ARITHMETIC_STARK_FIXED_WIDTH_V1: usize = 90;
+pub const P256_ARITHMETIC_STARK_FIXED_WIDTH_V1: usize = 90;
 /// Exact fixed-width constraint inventory for one opened arithmetic row.
-pub(crate) const P256_ARITHMETIC_STARK_CONSTRAINT_COUNT_V1: usize = 368;
+pub const P256_ARITHMETIC_STARK_CONSTRAINT_COUNT_V1: usize = 368;
 /// Maximum total degree in committed and verifier-preprocessed columns.
-pub(crate) const P256_ARITHMETIC_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
+pub const P256_ARITHMETIC_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
 const LIMB_BITS: usize = 16;
 const CARRY_BITS: usize = 25;
 const CARRY_BIAS: i64 = 1 << 24;
@@ -82,7 +82,7 @@ const STARK_PADDING: usize = STARK_OPERATION_LAST + 1;
 const _: () = assert!(STARK_PADDING + 1 == P256_ARITHMETIC_STARK_FIXED_WIDTH_V1);
 /// Fixed P-256 modulus selected by one arithmetic instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509P256ModulusV1 {
+pub enum ZkX509P256ModulusV1 {
     /// Coordinate-field prime.
     BaseField,
     /// Scalar-field order.
@@ -101,7 +101,7 @@ impl ZkX509P256ModulusV1 {
 }
 /// Fixed arithmetic relation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509P256ArithmeticKindV1 {
+pub enum ZkX509P256ArithmeticKindV1 {
     /// `a * b = c + q * modulus`.
     Multiply,
     /// `a + b = c + q * modulus`, with `q` exactly zero or one.
@@ -112,7 +112,7 @@ pub(crate) enum ZkX509P256ArithmeticKindV1 {
 }
 /// Value-free verifier instruction used to compile arithmetic preprocessing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509P256ArithmeticTopologyV1 {
+pub struct ZkX509P256ArithmeticTopologyV1 {
     /// Fixed arithmetic relation.
     pub(crate) kind: ZkX509P256ArithmeticKindV1,
     /// Fixed arithmetic modulus.
@@ -121,7 +121,7 @@ pub(crate) struct ZkX509P256ArithmeticTopologyV1 {
 /// One canonical arithmetic operation before row expansion.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509P256ArithmeticOperationV1 {
+pub struct ZkX509P256ArithmeticOperationV1 {
     /// Relation kind.
     pub(crate) kind: ZkX509P256ArithmeticKindV1,
     /// Selected modulus.
@@ -136,7 +136,7 @@ pub(crate) struct ZkX509P256ArithmeticOperationV1 {
 /// Verifier-regenerated row location and selectors.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509P256ArithmeticFixedRowV1 {
+pub struct ZkX509P256ArithmeticFixedRowV1 {
     /// Sequential operation index.
     pub(crate) operation: u32,
     /// Product/addition coefficient, from zero through 31.
@@ -164,7 +164,7 @@ impl ZkX509P256ArithmeticFixedRowV1 {
 /// Complete exact arithmetic trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509P256ArithmeticTraceV1 {
+pub struct ZkX509P256ArithmeticTraceV1 {
     /// Verifier-regenerated fixed topology.
     pub(crate) fixed: Vec<ZkX509P256ArithmeticFixedRowV1>,
     /// Committed base rows.
@@ -184,7 +184,7 @@ impl Drop for ZkX509P256ArithmeticTraceV1 {
 }
 /// Clear private operation words held by temporary operation batches.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn zeroize_p256_operations_v1(operations: &mut [ZkX509P256ArithmeticOperationV1]) {
+pub fn zeroize_p256_operations_v1(operations: &mut [ZkX509P256ArithmeticOperationV1]) {
     for operation in operations {
         super::private_table::zeroize_words_v1(&mut operation.a);
         super::private_table::zeroize_words_v1(&mut operation.b);
@@ -197,7 +197,7 @@ pub(crate) fn zeroize_p256_operations_v1(operations: &mut [ZkX509P256ArithmeticO
 /// performs no native row decoding: source-product evaluators consume these sixteen committed cells
 /// directly on the extension domain.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_arithmetic_opened_c_limb_bits_v1(
+pub fn p256_arithmetic_opened_c_limb_bits_v1(
     base: &[F; P256_ARITHMETIC_BASE_WIDTH_V1],
 ) -> [F; LIMB_BITS] {
     core::array::from_fn(|bit| base[C_BITS + bit])
@@ -207,7 +207,7 @@ pub(crate) fn p256_arithmetic_opened_c_limb_bits_v1(
 /// The first sixteen coefficients select bits 0 through 7 and the final sixteen select bits 8
 /// through 15. Selection is a polynomial in verifier-preprocessed coefficient columns, so the
 /// extension evaluator does not branch on a native coefficient index.
-pub(crate) fn p256_arithmetic_opened_scalar_source_bits_v1<A: PolynomialAirFieldV1>(
+pub fn p256_arithmetic_opened_scalar_source_bits_v1<A: PolynomialAirFieldV1>(
     base: &[A; P256_ARITHMETIC_BASE_WIDTH_V1],
     fixed: &[A; P256_ARITHMETIC_STARK_FIXED_WIDTH_V1],
 ) -> [A; 8] {
@@ -223,7 +223,7 @@ pub(crate) fn p256_arithmetic_opened_scalar_source_bits_v1<A: PolynomialAirField
 /// The first sixteen verifier-preprocessed coefficient selectors form the limb selector. This
 /// projection is therefore a polynomial in the opened arithmetic row and fixed preprocessing; it
 /// never decodes a proof-supplied row index.
-pub(crate) fn p256_arithmetic_opened_operand_limbs_v1<A: PolynomialAirFieldV1>(
+pub fn p256_arithmetic_opened_operand_limbs_v1<A: PolynomialAirFieldV1>(
     base: &[A; P256_ARITHMETIC_BASE_WIDTH_V1],
     fixed: &[A; P256_ARITHMETIC_STARK_FIXED_WIDTH_V1],
 ) -> [A; 3] {
@@ -279,7 +279,7 @@ impl ZkX509P256ArithmeticTraceV1 {
 /// fixed rows, including the canonical suffix through `trace_size`, are then
 /// regenerated on demand without retaining a wide fixed table.
 #[derive(Clone, Debug)]
-pub(crate) struct P256ArithmeticStarkFixedProviderV1 {
+pub struct P256ArithmeticStarkFixedProviderV1 {
     operations: Vec<ZkX509P256ArithmeticTopologyV1>,
     active_rows: usize,
     trace_size: usize,
@@ -299,7 +299,8 @@ impl P256ArithmeticStarkFixedProviderV1 {
             .len()
             .checked_mul(P256_ARITHMETIC_ROWS_PER_OPERATION_V1)
             .ok_or(ZkX509P256AirErrorV1::Allocation)?;
-        if operations.is_empty() || !trace_size.is_power_of_two() || active_rows > trace_size {
+        let no_operations = operations.is_empty();
+        if no_operations || !trace_size.is_power_of_two() || active_rows > trace_size {
             return Err(ZkX509P256AirErrorV1::Topology);
         }
         let mut owned = Vec::new();
@@ -364,7 +365,7 @@ impl P256ArithmeticStarkFixedProviderV1 {
 }
 /// Exact P-256 arithmetic trace failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum ZkX509P256AirErrorV1 {
+pub enum ZkX509P256AirErrorV1 {
     /// No operation was supplied or fixed rows are inconsistent.
     #[error("zk-X509 P-256 arithmetic topology is invalid")]
     Topology,
@@ -452,16 +453,16 @@ impl ExpandedOperationV1 {
             row[B_BORROW_AFTER] = F(u64::from(self.b_borrow[slot + 1]));
             row[C_BORROW_AFTER] = F(u64::from(self.c_borrow[slot + 1]));
         }
-        row[CARRY] = F(encoded as u64);
+        row[CARRY] = F(i64::cast_unsigned(encoded));
         for bit in 0..CARRY_BITS {
-            row[CARRY_BIT_START + bit] = F(((encoded as u64) >> bit) & 1);
+            row[CARRY_BIT_START + bit] = F((i64::cast_unsigned(encoded) >> bit) & 1);
         }
         Ok(row)
     }
 }
 /// Expand a non-empty fixed operation batch into exact coefficient rows.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_p256_arithmetic_trace_v1(
+pub fn build_zk_x509_p256_arithmetic_trace_v1(
     operations: &[ZkX509P256ArithmeticOperationV1],
 ) -> Result<ZkX509P256ArithmeticTraceV1, ZkX509P256AirErrorV1> {
     if operations.is_empty() {
@@ -508,7 +509,7 @@ pub(crate) fn build_zk_x509_p256_arithmetic_trace_v1(
 /// This is the narrow source-binding surface used by value-copy buses.  It
 /// deliberately keeps the arithmetic column layout private.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_arithmetic_operand_limbs_v1(
+pub fn p256_arithmetic_operand_limbs_v1(
     trace: &ZkX509P256ArithmeticTraceV1,
     operation: usize,
     limb: usize,
@@ -536,7 +537,7 @@ pub(crate) fn p256_arithmetic_operand_limbs_v1(
 /// This is the narrow source-binding surface used by the scalar-bit copy bus. It deliberately
 /// exposes the constrained bit cells without exposing their private column offsets.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_arithmetic_c_limb_bits_v1(
+pub fn p256_arithmetic_c_limb_bits_v1(
     trace: &ZkX509P256ArithmeticTraceV1,
     operation: usize,
     limb: usize,
@@ -604,7 +605,7 @@ fn expand_operation_v1(
 /// Every returned expression is degree at most two.  `next_base` is required
 /// inside an operation and ignored on its final row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_p256_arithmetic_row_constraints_v1(
+pub fn evaluate_p256_arithmetic_row_constraints_v1(
     fixed: ZkX509P256ArithmeticFixedRowV1,
     base: &[F; P256_ARITHMETIC_BASE_WIDTH_V1],
     next_base: Option<&[F; P256_ARITHMETIC_BASE_WIDTH_V1]>,
@@ -763,7 +764,7 @@ pub(crate) fn evaluate_p256_arithmetic_row_constraints_v1(
 /// `operations` must come from the deterministic ECDSA topology compiler, not from proof bytes or a
 /// witness trace. The suffix through `trace_size` is the sole canonical padding schedule.
 #[cfg(test)]
-pub(crate) fn compile_p256_arithmetic_stark_fixed_rows_v1(
+pub fn compile_p256_arithmetic_stark_fixed_rows_v1(
     operations: &[ZkX509P256ArithmeticTopologyV1],
     trace_size: usize,
 ) -> Result<Vec<[F; P256_ARITHMETIC_STARK_FIXED_WIDTH_V1]>, ZkX509P256AirErrorV1> {
@@ -809,7 +810,7 @@ fn push_stark_range_residues_v1<A: PolynomialAirFieldV1>(
 /// and boundary selectors are verifier-preprocessed polynomial openings. Consequently the same
 /// degree-four expressions are valid on the aggregate extension domain.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_arithmetic_stark_residues_v1(
+pub fn evaluate_p256_arithmetic_stark_residues_v1(
     current: &[F; P256_ARITHMETIC_BASE_WIDTH_V1],
     next: &[F; P256_ARITHMETIC_BASE_WIDTH_V1],
     current_aux: &[F; P256_ARITHMETIC_STARK_AUX_WIDTH_V1],
@@ -825,7 +826,7 @@ pub(crate) fn evaluate_p256_arithmetic_stark_residues_v1(
     )
 }
 /// Exact same integer-arithmetic polynomial relation over F or Fp4.
-pub(crate) fn evaluate_p256_arithmetic_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_p256_arithmetic_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_ARITHMETIC_BASE_WIDTH_V1],
     next: &[A; P256_ARITHMETIC_BASE_WIDTH_V1],
     current_aux: &[A; P256_ARITHMETIC_STARK_AUX_WIDTH_V1],
@@ -1244,7 +1245,7 @@ mod tests {
             "ZkX509P256ArithmeticTraceV1 { <private trace redacted> }"
         );
         let cells = trace.base.len() * P256_ARITHMETIC_BASE_WIDTH_V1;
-        let (_, observed) = observe_v1(|| drop(trace));
+        let ((), observed) = observe_v1(|| drop(trace));
         assert_eq!(observed.iter().map(|item| item.cells).sum::<usize>(), cells);
         assert!(observed.iter().any(|item| item.nonzero_before > 0));
         assert!(observed.iter().all(|item| item.nonzero_after == 0));

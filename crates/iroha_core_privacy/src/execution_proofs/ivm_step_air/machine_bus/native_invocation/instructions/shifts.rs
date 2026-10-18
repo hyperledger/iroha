@@ -19,7 +19,7 @@ fn expected(opcode: u8, value: u64, amount: u64) -> u64 {
     match opcode {
         wide::arithmetic::SLL => value << amount,
         wide::arithmetic::SRL => value >> amount,
-        wide::arithmetic::SRA => ((value as i64) >> amount) as u64,
+        wide::arithmetic::SRA => i64::cast_unsigned(u64::cast_signed(value) >> amount),
         wide::arithmetic::ROTL | wide::arithmetic::ROTL_IMM => value.rotate_left(amount),
         wide::arithmetic::ROTR | wide::arithmetic::ROTR_IMM => value.rotate_right(amount),
         _ => unreachable!("closed shift test opcode list"),
@@ -37,7 +37,7 @@ fn value(packet: &ivm::execution_packets::NativePacket, after: bool) -> u64 {
 
 fn instruction(opcode: u8, destination: u8, left: u8, amount: u8) -> u32 {
     if IMMEDIATE.contains(&opcode) {
-        enc::encode_ri(opcode, destination, left, amount as i8)
+        enc::encode_ri(opcode, destination, left, u8::cast_signed(amount))
     } else {
         enc::encode_rr(opcode, destination, left, amount)
     }
@@ -67,7 +67,7 @@ fn check_expression(native: &NativeInvocation, window: usize, word: u32, left: u
         assert_eq!(second.after_private(), 0);
     } else {
         assert_eq!(Fields::native(second).0, [F::ZERO; packet::WIDTH]);
-        assert_eq!(amount, u64::from(wide::imm8(word) as u8));
+        assert_eq!(amount, u64::from(i8::cast_unsigned(wide::imm8(word))));
     }
     let destination = wide::rd(word);
     assert_eq!(output.enabled(), destination != 0);
@@ -106,7 +106,12 @@ fn every_register_count_keeps_full_original_bits_and_signed_shift_semantics() {
     let amounts: Vec<u64> = (0..64)
         .chain([64, 65, 127, 128, 1 << 63, u64::MAX])
         .collect();
-    for left in [0, i64::MIN as u64, i64::MAX as u64, 0xfedc_ba98_7654_3210] {
+    for left in [
+        0,
+        i64::cast_unsigned(i64::MIN),
+        i64::MAX as u64,
+        0xfedc_ba98_7654_3210,
+    ] {
         for amounts in amounts.chunks(9) {
             let mut literals = vec![left];
             literals.extend_from_slice(amounts);
@@ -145,7 +150,7 @@ fn every_register_count_keeps_full_original_bits_and_signed_shift_semantics() {
 #[test]
 fn every_rotate_immediate_is_unsigned_without_a_fabricated_count_read() {
     let amounts: Vec<u8> = (0..=u8::MAX).collect();
-    for left in [i64::MIN as u64, 0xfedc_ba98_7654_3210] {
+    for left in [i64::cast_unsigned(i64::MIN), 0xfedc_ba98_7654_3210] {
         for amounts in amounts.chunks(29) {
             let mut body = vec![enc::encode_literal(wide::memory::LDI64, 4, 0)];
             for amount in amounts {
@@ -176,7 +181,7 @@ fn every_rotate_immediate_is_unsigned_without_a_fabricated_count_read() {
 
 #[test]
 fn shifts_preserve_read_order_atomic_aliases_and_r0_reads_without_writes() {
-    for left in [i64::MIN as u64, u64::MAX] {
+    for left in [i64::cast_unsigned(i64::MIN), u64::MAX] {
         for (destination, first, second) in [
             (6, 4, 5),
             (4, 4, 5),
@@ -337,7 +342,7 @@ fn exact_shift_gas_and_cycles_preserve_the_fixed_funding_boundary() {
             ExecutionMemoryLease::reserve(&budget, NativeInvocation::allocation_plan().unwrap())
                 .unwrap();
         let result = NativeInvocation::run_public_leaf_root(
-            artifact_with_literals(&body, 0, &[i64::MIN as u64, u64::MAX]),
+            artifact_with_literals(&body, 0, &[i64::cast_unsigned(i64::MIN), u64::MAX]),
             "main",
             gas,
             &mut parent,
@@ -390,7 +395,7 @@ fn maximum_shift_profile_keeps_all_windows_and_small_stack_evaluation() {
     let (native, budget) = native(artifact_with_literals(
         &body,
         0,
-        &[i64::MIN as u64, u64::MAX],
+        &[i64::cast_unsigned(i64::MIN), u64::MAX],
     ));
     assert_eq!(native.instructions(), 64);
     std::thread::Builder::new()

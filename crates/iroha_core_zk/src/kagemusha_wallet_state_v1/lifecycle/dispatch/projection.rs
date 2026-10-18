@@ -13,6 +13,7 @@ pub struct CreditProjectionV1 {
     payment: [u8; 32],
     amount: u128,
     credited: Vec<u8>,
+    credited_len: u32,
 }
 impl CreditProjectionV1 {
     /// Fixed foreign projection: LE16 version, evidence (1 unfolded/2 credited/3 burned),
@@ -34,7 +35,7 @@ impl CreditProjectionV1 {
         bytes.extend_from_slice(&self.credit);
         bytes.extend_from_slice(&self.payment);
         bytes.extend_from_slice(&self.amount.to_le_bytes());
-        bytes.extend_from_slice(&(self.credited.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&self.credited_len.to_le_bytes());
         bytes.extend_from_slice(&self.credited);
         bytes
     }
@@ -111,7 +112,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let intent = NativeIntentV1::decode(
             &self
                 .archive
-                .read_object(&entry.request, REQUEST_MAX_BYTES)?,
+                .read_object(&entry.retained_request()?, REQUEST_MAX_BYTES)?,
             &scheme,
         )?;
         let Some(OperationRequestV1 {
@@ -132,7 +133,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let credit = self
             .indexed_credit(&manifest, &identity.credit_id)?
             .ok_or(Error::WitnessLost("Receive projection credit"))?;
-        if credit.payment_digest != identity.payment || credit.amount != payment.request.body.amount
+        if credit.payment_digest != identity.payment
+            || credit.amount != valid(payment.signed_request())?.body.amount
         {
             return Err(Error::CreditConflict);
         }
@@ -155,7 +157,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         if !matches!(
             completion,
-            Some(Completion::Complete(_)) | Some(Completion::Archived)
+            Some(Completion::Complete(_) | Completion::Archived)
         ) {
             return Err(Error::WitnessLost("Receive projection incomplete"));
         }
@@ -179,7 +181,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 || package.statement.effect
                     != (KagemushaWalletEffectV1::Receive {
                         credit_id: identity.credit_id,
-                        payer_wallet_id: payment.request.body.payer_wallet_id,
+                        payer_wallet_id: valid(payment.signed_request())?.body.payer_wallet_id,
                         amount: credit.amount,
                     })
             {
@@ -191,6 +193,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
             return Err(Error::Invalid("Credited projection bound"));
         }
+        let credited_len =
+            u32::try_from(bytes.len()).map_err(|_| Error::Invalid("Credited projection bound"))?;
         self.projection_unchanged(&before, selected)?;
         Ok(CreditProjectionV1 {
             evidence: evidence_state(&credited),
@@ -200,6 +204,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             payment: identity.payment,
             amount: credit.amount,
             credited: bytes,
+            credited_len,
         })
     }
 
@@ -310,6 +315,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             payment: identity.payment,
             amount: request.body.amount,
             credited: Vec::new(),
+            credited_len: 0,
         })
     }
 }

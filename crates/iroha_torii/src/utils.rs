@@ -256,6 +256,27 @@ mod cache_validator_tests {
     }
 }
 
+/// Internal-only provenance for the two sources of `status_state_busy`.
+/// This extension is never serialized into a public error or response header.
+#[cfg(feature = "telemetry")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HttpStatusBusyCause {
+    /// A generation-consistent State or journal snapshot could not be acquired.
+    StateSnapshotContention,
+    /// Canonical history retained an original resource deferral.
+    HistoryReadDeferred,
+}
+#[cfg(feature = "telemetry")]
+impl HttpStatusBusyCause {
+    /// Return a closed diagnostic label without rendering storage error details.
+    pub(crate) const fn as_str(&self) -> &'static str {
+        match self {
+            Self::StateSnapshotContention => "state_snapshot_contention",
+            Self::HistoryReadDeferred => "history_read_deferred",
+        }
+    }
+}
+
 /// Bounded stable error code copied into response extensions for telemetry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpErrorCode(Arc<str>);

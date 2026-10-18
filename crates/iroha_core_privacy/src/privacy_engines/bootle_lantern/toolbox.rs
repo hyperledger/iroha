@@ -81,7 +81,7 @@ const G_MESSAGE_START_V1: usize = 9;
 const RELATION_DIGEST_DOMAIN_V1: &[u8] = b"iroha.privacy.bootle-lantern.application-relation.v1";
 /// The 50 short witness polynomials, zeroized on drop.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ShortWitnessV1 {
+pub struct ShortWitnessV1 {
     polynomials: Box<[ProofPolynomialV1; TBOX_M1_V1]>,
 }
 impl core::fmt::Debug for ShortWitnessV1 {
@@ -110,7 +110,7 @@ impl Drop for ShortWitnessV1 {
 }
 /// Secret variables of the generic quadratic equation.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct QuadraticVariablesV1 {
+pub struct QuadraticVariablesV1 {
     pub(crate) short: Box<[ProofPolynomialV1; TBOX_M1_V1]>,
     pub(crate) message: Box<[ProofPolynomialV1; QUADRATIC_MESSAGE_POLYNOMIALS_V1]>,
 }
@@ -167,7 +167,7 @@ impl Drop for QuadraticVariablesV1 {
 ///
 /// Large proof workspaces must not be materialized as temporary stack arrays:
 /// validators commonly execute on Rust's default 2 MiB worker stacks.
-pub(crate) fn boxed_polynomial_array_from_fn_v1<const N: usize>(
+pub fn boxed_polynomial_array_from_fn_v1<const N: usize>(
     mut polynomial: impl FnMut(usize) -> ProofPolynomialV1,
 ) -> Box<[ProofPolynomialV1; N]> {
     let mut values = Vec::with_capacity(N);
@@ -180,12 +180,12 @@ pub(crate) fn boxed_polynomial_array_from_fn_v1<const N: usize>(
         .unwrap_or_else(|_| unreachable!("fixed polynomial array has exact length"))
 }
 /// Allocate an exact all-zero polynomial array directly on the heap.
-pub(crate) fn boxed_zero_polynomial_array_v1<const N: usize>() -> Box<[ProofPolynomialV1; N]> {
+pub fn boxed_zero_polynomial_array_v1<const N: usize>() -> Box<[ProofPolynomialV1; N]> {
     boxed_polynomial_array_from_fn_v1(|_| ProofPolynomialV1::ZERO)
 }
 /// Pre-expanded transparent matrices used by one proof or verification.
 #[derive(Clone, Debug)]
-pub(crate) struct InternalMatricesV1 {
+pub struct InternalMatricesV1 {
     pub(crate) a1: ProofMatrixV1,
     pub(crate) a2_prime: ProofMatrixV1,
     pub(crate) b_prime: ProofMatrixV1,
@@ -205,7 +205,7 @@ impl InternalMatricesV1 {
     }
 }
 /// Public material required to evaluate the one combined quadratic equation.
-pub(crate) struct QuadraticEquationV1<'a> {
+pub struct QuadraticEquationV1<'a> {
     relation: &'a BootleLanternApplicationRelationV1,
     schwartz_compilers: Box<[SchwartzAccumulatorCompilerV1; SCHWARTZ_ACCUMULATORS_V1]>,
     #[cfg(test)]
@@ -327,7 +327,7 @@ impl<'a> QuadraticEquationV1<'a> {
         variables: &QuadraticVariablesV1,
     ) -> Result<[u64; EVALUATION_CONSTRAINTS_V1], ToolboxErrorV1> {
         let mut constraints = [0_u64; EVALUATION_CONSTRAINTS_V1];
-        let (beta3, beta4) = beta_polynomials_v1(variables.message[BETA_MESSAGE_INDEX_V1])?;
+        let (beta3, beta4) = beta_polynomials_v1(&variables.message[BETA_MESSAGE_INDEX_V1])?;
         constraints[BETA3_SHAPE_START_V1..BETA4_SHAPE_START_V1]
             .copy_from_slice(&beta3.coefficients()[1..]);
         constraints[BETA4_SHAPE_START_V1..SLACK_BINARY_INDEX_V1]
@@ -340,18 +340,18 @@ impl<'a> QuadraticEquationV1<'a> {
             binary_inner_product(&BINARY_SHORT_INDICES_V1.map(|index| variables.short[index]));
         constraints[RANDOMNESS_NORM_INDEX_V1] = norm_slack_equation(
             &variables.short[RANDOMNESS_SHORT_START_V1..RANDOMNESS_SHORT_END_V1],
-            variables.short[RANDOMNESS_SLACK_INDEX_V1],
+            &variables.short[RANDOMNESS_SLACK_INDEX_V1],
             RANDOMNESS_NORM_SQUARED_BOUND_V1,
         );
         constraints[SIGNATURE_NORM_INDEX_V1] = norm_slack_equation(
             &variables.short[SIGNATURE_SHORT_START_V1..SIGNATURE_SHORT_END_V1],
-            variables.short[SIGNATURE_SLACK_INDEX_V1],
+            &variables.short[SIGNATURE_SLACK_INDEX_V1],
             SIGNATURE_NORM_SQUARED_BOUND_V1,
         );
         let s4 = Zeroizing::new(application_quotient_v1(self.relation, &variables.short)?);
-        let s3 = Zeroizing::new(projected_norm_witness_v1(&variables.short));
+        let s3 = projected_norm_witness_v1(&variables.short);
         let s4_coefficients = Zeroizing::new(flatten_polynomials(s4.as_ref()));
-        let s3_coefficients = Zeroizing::new(flatten_polynomials(s3.as_ref()));
+        let s3_coefficients = Zeroizing::new(flatten_polynomials(s3.polynomials()));
         let y3 = Zeroizing::new(flatten_polynomials(
             &variables.message
                 [Y3_MESSAGE_START_V1..Y3_MESSAGE_START_V1 + PROJECTION_POLYNOMIALS_V1],
@@ -439,9 +439,9 @@ impl<'a> QuadraticEquationV1<'a> {
         variables: &QuadraticVariablesV1,
     ) -> Result<[u64; EVALUATION_CONSTRAINTS_V1], ToolboxErrorV1> {
         let mut constraints = self.constraints(variables)?;
-        let (beta3, beta4) = beta_polynomials_v1(variables.message[BETA_MESSAGE_INDEX_V1])?;
+        let (beta3, beta4) = beta_polynomials_v1(&variables.message[BETA_MESSAGE_INDEX_V1])?;
         let s4 = Zeroizing::new(application_quotient_v1(self.relation, &variables.short)?);
-        let s3 = Zeroizing::new(projected_norm_witness_v1(&variables.short));
+        let s3 = projected_norm_witness_v1(&variables.short);
         let beta4_s4 = Zeroizing::new(
             s4.iter()
                 .copied()
@@ -449,7 +449,8 @@ impl<'a> QuadraticEquationV1<'a> {
                 .collect::<Vec<_>>(),
         );
         let beta3_s3 = Zeroizing::new(
-            s3.iter()
+            s3.polynomials()
+                .iter()
                 .copied()
                 .map(|polynomial| beta3.multiply(polynomial))
                 .collect::<Vec<_>>(),
@@ -499,11 +500,11 @@ impl<'a> QuadraticEquationV1<'a> {
         &self,
         variables: &QuadraticVariablesV1,
     ) -> Result<[ProofPolynomialV1; 2], ToolboxErrorV1> {
-        let (beta3, beta4) = beta_polynomials_v1(variables.message[BETA_MESSAGE_INDEX_V1])?;
+        let (beta3, beta4) = beta_polynomials_v1(&variables.message[BETA_MESSAGE_INDEX_V1])?;
         let beta3 = Zeroizing::new(beta3);
         let beta4 = Zeroizing::new(beta4);
         let s4 = Zeroizing::new(application_quotient_v1(self.relation, &variables.short)?);
-        let s3 = Zeroizing::new(projected_norm_witness_v1(&variables.short));
+        let s3 = projected_norm_witness_v1(&variables.short);
         let scalar_relations = Zeroizing::new([
             binary_relation_polynomial_v1(&[
                 variables.short[RANDOMNESS_SLACK_INDEX_V1],
@@ -514,22 +515,22 @@ impl<'a> QuadraticEquationV1<'a> {
             ),
             norm_slack_relation_polynomial_v1(
                 &variables.short[RANDOMNESS_SHORT_START_V1..RANDOMNESS_SHORT_END_V1],
-                variables.short[RANDOMNESS_SLACK_INDEX_V1],
+                &variables.short[RANDOMNESS_SLACK_INDEX_V1],
                 RANDOMNESS_NORM_SQUARED_BOUND_V1,
             )?,
             norm_slack_relation_polynomial_v1(
                 &variables.short[SIGNATURE_SHORT_START_V1..SIGNATURE_SHORT_END_V1],
-                variables.short[SIGNATURE_SLACK_INDEX_V1],
+                &variables.short[SIGNATURE_SLACK_INDEX_V1],
                 SIGNATURE_NORM_SQUARED_BOUND_V1,
             )?,
         ]);
         let evaluate = |compiler: &SchwartzAccumulatorCompilerV1| {
             compiler.evaluate(
-                *beta3,
-                *beta4,
-                &*scalar_relations,
-                &*s3,
-                &*s4,
+                &beta3,
+                &beta4,
+                &scalar_relations,
+                s3.polynomials(),
+                &s4,
                 &variables.message
                     [Y3_MESSAGE_START_V1..Y3_MESSAGE_START_V1 + PROJECTION_POLYNOMIALS_V1],
                 &variables.message
@@ -543,10 +544,10 @@ impl<'a> QuadraticEquationV1<'a> {
             evaluate(&self.schwartz_compilers[3])?,
         ]);
         let traces = Zeroizing::new([
-            trace_sigma_minus_one_v1(accumulators[0])?,
-            trace_sigma_minus_one_v1(accumulators[1])?,
-            trace_sigma_minus_one_v1(accumulators[2])?,
-            trace_sigma_minus_one_v1(accumulators[3])?,
+            trace_sigma_minus_one_v1(&accumulators[0])?,
+            trace_sigma_minus_one_v1(&accumulators[1])?,
+            trace_sigma_minus_one_v1(&accumulators[2])?,
+            trace_sigma_minus_one_v1(&accumulators[3])?,
         ]);
         let output = [
             traces[0].add(traces[1].multiply_by_monomial(APPLICATION_RING_DEGREE_V1 / 2)),
@@ -560,7 +561,7 @@ impl<'a> QuadraticEquationV1<'a> {
         variables: &QuadraticVariablesV1,
     ) -> Result<ProofPolynomialV1, ToolboxErrorV1> {
         let schwartz = Zeroizing::new(self.schwartz_polynomials(variables)?);
-        let (beta3, beta4) = beta_polynomials_v1(variables.message[BETA_MESSAGE_INDEX_V1])?;
+        let (beta3, beta4) = beta_polynomials_v1(&variables.message[BETA_MESSAGE_INDEX_V1])?;
         let beta3 = Zeroizing::new(beta3);
         let beta4 = Zeroizing::new(beta4);
         let one = ProofPolynomialV1::constant(1).map_err(|_| ToolboxErrorV1::InternalInvariant)?;
@@ -586,8 +587,8 @@ impl<'a> QuadraticEquationV1<'a> {
 impl SchwartzAccumulatorCompilerV1 {
     fn evaluate(
         &self,
-        beta3: ProofPolynomialV1,
-        beta4: ProofPolynomialV1,
+        beta3: &ProofPolynomialV1,
+        beta4: &ProofPolynomialV1,
         scalar_relations: &[ProofPolynomialV1; SCALAR_QUADRATIC_RELATIONS_V1],
         s3: &[ProofPolynomialV1; 50],
         s4: &[ProofPolynomialV1; APPLICATION_ROWS_V1],
@@ -793,7 +794,7 @@ fn binary_relation_polynomial_v1(polynomials: &[ProofPolynomialV1]) -> ProofPoly
 }
 fn norm_slack_relation_polynomial_v1(
     polynomials: &[ProofPolynomialV1],
-    slack: ProofPolynomialV1,
+    slack: &ProofPolynomialV1,
     bound: u64,
 ) -> Result<ProofPolynomialV1, ToolboxErrorV1> {
     let mut power = 1_u64;
@@ -815,7 +816,7 @@ fn norm_slack_relation_polynomial_v1(
         .sub(bound))
 }
 fn trace_sigma_minus_one_v1(
-    polynomial: ProofPolynomialV1,
+    polynomial: &ProofPolynomialV1,
 ) -> Result<ProofPolynomialV1, ToolboxErrorV1> {
     polynomial
         .add(polynomial.automorphism())
@@ -861,7 +862,7 @@ pub fn application_relation_digest_v1(relation: &BootleLanternApplicationRelatio
     hash.finalize().into()
 }
 /// Validate and lift an application witness, including the two binary norm slack polynomials.
-pub(crate) fn lift_short_witness_v1(
+pub fn lift_short_witness_v1(
     relation: &BootleLanternApplicationRelationV1,
     witness: &BootleLanternPresentationWitnessV1,
 ) -> Result<ShortWitnessV1, ToolboxErrorV1> {
@@ -904,7 +905,7 @@ pub(crate) fn lift_short_witness_v1(
     Ok(short)
 }
 /// Matrix-vector product in the proof ring.
-pub(crate) fn matrix_vector_product_v1(
+pub fn matrix_vector_product_v1(
     matrix: &ProofMatrixV1,
     vector: &[ProofPolynomialV1],
 ) -> Result<Zeroizing<Vec<ProofPolynomialV1>>, ToolboxErrorV1> {
@@ -926,7 +927,7 @@ pub(crate) fn matrix_vector_product_v1(
     Ok(output)
 }
 /// Compute `B' * vector` and add the supplied message vector.
-pub(crate) fn commit_extended_messages_v1(
+pub fn commit_extended_messages_v1(
     b_prime: &ProofMatrixV1,
     s21: &[ProofPolynomialV1; S21_POLYNOMIALS_V1],
     messages: &[ProofPolynomialV1; TBOX_LEXT_V1],
@@ -941,7 +942,7 @@ pub(crate) fn commit_extended_messages_v1(
 }
 /// Flatten canonical polynomial coefficients in polynomial-major order.
 #[must_use]
-pub(crate) fn flatten_polynomials(polynomials: &[ProofPolynomialV1]) -> Vec<u64> {
+pub fn flatten_polynomials(polynomials: &[ProofPolynomialV1]) -> Vec<u64> {
     let mut output = Vec::with_capacity(polynomials.len() * APPLICATION_RING_DEGREE_V1);
     for polynomial in polynomials {
         output.extend_from_slice(polynomial.coefficients());
@@ -950,7 +951,7 @@ pub(crate) fn flatten_polynomials(polynomials: &[ProofPolynomialV1]) -> Vec<u64>
 }
 /// Encode canonical proof polynomials without a header for transcript stages.
 #[must_use]
-pub(crate) fn encode_polynomials_v1(polynomials: &[ProofPolynomialV1]) -> Vec<u8> {
+pub fn encode_polynomials_v1(polynomials: &[ProofPolynomialV1]) -> Vec<u8> {
     let mut output = Vec::with_capacity(polynomials.len() * APPLICATION_RING_DEGREE_V1 * 7);
     for coefficient in flatten_polynomials(polynomials) {
         output.extend_from_slice(&coefficient.to_le_bytes()[..7]);
@@ -958,7 +959,7 @@ pub(crate) fn encode_polynomials_v1(polynomials: &[ProofPolynomialV1]) -> Vec<u8
     output
 }
 /// Expand all projection rows from a transcript stage.
-pub(crate) fn expand_projection_matrix_v1(
+pub fn expand_projection_matrix_v1(
     transcript: &ProofTranscriptCoreV1,
     stage: &[u8],
     components: &[&[u8]],
@@ -995,7 +996,7 @@ pub(crate) fn expand_projection_matrix_v1(
     Ok(output.into_boxed_slice())
 }
 fn beta_polynomials_v1(
-    beta: ProofPolynomialV1,
+    beta: &ProofPolynomialV1,
 ) -> Result<(ProofPolynomialV1, ProofPolynomialV1), ToolboxErrorV1> {
     let beta_auto = beta.automorphism();
     let beta3 = beta
@@ -1003,26 +1004,31 @@ fn beta_polynomials_v1(
         .scale_canonical(PROOF_INVERSE_TWO_V1)
         .map_err(|_| ToolboxErrorV1::InternalInvariant)?;
     let beta4 = beta_auto
-        .sub(beta)
+        .sub(*beta)
         .multiply_by_monomial(APPLICATION_RING_DEGREE_V1 / 2)
         .scale_canonical(PROOF_INVERSE_TWO_V1)
         .map_err(|_| ToolboxErrorV1::InternalInvariant)?;
     Ok((beta3, beta4))
 }
-pub(crate) fn projected_norm_witness_v1(
-    short: &[ProofPolynomialV1; TBOX_M1_V1],
-) -> [ProofPolynomialV1; 50] {
-    let mut output = Zeroizing::new([ProofPolynomialV1::ZERO; 50]);
+/// Reorder the short witness under the same heap-owned, zeroizing custody.
+/// Returning the owner avoids materializing or copying a 25 KiB secret array
+/// through the caller's stack before it can establish its zeroizing guard.
+pub fn projected_norm_witness_v1(short: &[ProofPolynomialV1; TBOX_M1_V1]) -> ShortWitnessV1 {
+    let mut output = ShortWitnessV1 {
+        polynomials: boxed_zero_polynomial_array_v1(),
+    };
     for (destination, source) in BINARY_SHORT_INDICES_V1.into_iter().enumerate() {
-        output[destination] = short[source];
+        output.polynomials[destination] = short[source];
     }
-    output[16..32].copy_from_slice(&short[RANDOMNESS_SHORT_START_V1..RANDOMNESS_SHORT_END_V1]);
-    output[32..48].copy_from_slice(&short[SIGNATURE_SHORT_START_V1..SIGNATURE_SHORT_END_V1]);
-    output[48] = short[RANDOMNESS_SLACK_INDEX_V1];
-    output[49] = short[SIGNATURE_SLACK_INDEX_V1];
-    *output
+    output.polynomials[16..32]
+        .copy_from_slice(&short[RANDOMNESS_SHORT_START_V1..RANDOMNESS_SHORT_END_V1]);
+    output.polynomials[32..48]
+        .copy_from_slice(&short[SIGNATURE_SHORT_START_V1..SIGNATURE_SHORT_END_V1]);
+    output.polynomials[48] = short[RANDOMNESS_SLACK_INDEX_V1];
+    output.polynomials[49] = short[SIGNATURE_SLACK_INDEX_V1];
+    output
 }
-pub(crate) fn application_quotient_v1(
+pub fn application_quotient_v1(
     relation: &BootleLanternApplicationRelationV1,
     short: &[ProofPolynomialV1; TBOX_M1_V1],
 ) -> Result<[ProofPolynomialV1; APPLICATION_ROWS_V1], ToolboxErrorV1> {
@@ -1062,7 +1068,7 @@ fn binary_inner_product(polynomials: &[ProofPolynomialV1]) -> u64 {
 #[cfg(test)]
 fn norm_slack_equation(
     polynomials: &[ProofPolynomialV1],
-    slack: ProofPolynomialV1,
+    slack: &ProofPolynomialV1,
     bound: u64,
 ) -> u64 {
     let norm = polynomials
@@ -1159,6 +1165,47 @@ mod tests {
         .proof_core()
     }
     #[test]
+    fn projected_norm_witness_keeps_exact_order_and_zeroizing_heap_custody() {
+        let short = ShortWitnessV1 {
+            polynomials: boxed_polynomial_array_from_fn_v1(|row| {
+                ProofPolynomialV1::from_centered_coefficients(core::array::from_fn(|column| {
+                    i64::try_from(1 + row * APPLICATION_RING_DEGREE_V1 + column)
+                        .expect("fixed witness geometry fits i64")
+                }))
+            }),
+        };
+        let mut projected = projected_norm_witness_v1(short.polynomials());
+        // The return value carries one owner, never another by-value witness.
+        assert_eq!(
+            core::mem::size_of_val(&projected),
+            core::mem::size_of::<usize>()
+        );
+        let expected_indices = (16..24)
+            .chain(40..48)
+            .chain(0..16)
+            .chain(24..40)
+            .chain([48, 49]);
+        let mut checked = 0;
+        for (actual, source) in projected.polynomials().iter().zip(expected_indices) {
+            assert_eq!(*actual, short.polynomials()[source]);
+            checked += 1;
+        }
+        assert_eq!(checked, 50);
+        projected.zeroize();
+        assert!(
+            projected
+                .polynomials()
+                .iter()
+                .all(ProofPolynomialV1::is_zero)
+        );
+        assert!(
+            short
+                .polynomials()
+                .iter()
+                .all(|polynomial| !polynomial.is_zero())
+        );
+    }
+    #[test]
     fn fixed_constraint_layout_is_exact() {
         assert_eq!(S21_POLYNOMIALS_V1, 44);
         assert_eq!(PROJECTION_POLYNOMIALS_V1, 4);
@@ -1206,7 +1253,7 @@ mod tests {
                 beta_coefficients[0] = beta3_sign;
                 beta_coefficients[APPLICATION_RING_DEGREE_V1 / 2] = beta4_sign;
                 let beta = ProofPolynomialV1::from_centered_coefficients(beta_coefficients);
-                let (beta3, beta4) = beta_polynomials_v1(beta).expect("fixed inverse");
+                let (beta3, beta4) = beta_polynomials_v1(&beta).expect("fixed inverse");
                 assert_eq!(beta3.centered_coefficient(0), beta3_sign);
                 assert_eq!(beta4.centered_coefficient(0), beta4_sign);
                 assert!(
@@ -1224,7 +1271,7 @@ mod tests {
         let mut noisy = [0_i64; APPLICATION_RING_DEGREE_V1];
         noisy[1] = 7;
         let (beta3, beta4) =
-            beta_polynomials_v1(ProofPolynomialV1::from_centered_coefficients(noisy))
+            beta_polynomials_v1(&ProofPolynomialV1::from_centered_coefficients(noisy))
                 .expect("fixed inverse");
         assert!(
             beta3.coefficients()[1..]
@@ -1240,7 +1287,7 @@ mod tests {
         assert_eq!(
             norm_slack_equation(
                 &[ProofPolynomialV1::constant(1).expect("one")],
-                binary,
+                &binary,
                 34_034_726,
             ),
             0
@@ -1259,8 +1306,8 @@ mod tests {
         let other = ProofPolynomialV1::from_centered_coefficients(core::array::from_fn(|index| {
             701 - i64::try_from(index).expect("ring index fits i64") * 29
         }));
-        let trace = trace_sigma_minus_one_v1(polynomial).expect("fixed inverse of two");
-        let other_trace = trace_sigma_minus_one_v1(other).expect("fixed inverse of two");
+        let trace = trace_sigma_minus_one_v1(&polynomial).expect("fixed inverse of two");
+        let other_trace = trace_sigma_minus_one_v1(&other).expect("fixed inverse of two");
         assert_eq!(trace, trace.automorphism());
         assert_eq!(trace.coefficients()[0], polynomial.coefficients()[0]);
         assert_eq!(trace.coefficients()[APPLICATION_RING_DEGREE_V1 / 2], 0);
@@ -1277,7 +1324,8 @@ mod tests {
         let challenge = ProofPolynomialV1::from_centered_coefficients(challenge_coefficients);
         assert_eq!(challenge, challenge.automorphism());
         assert_eq!(
-            trace_sigma_minus_one_v1(challenge.multiply(polynomial)).expect("fixed inverse of two"),
+            trace_sigma_minus_one_v1(&challenge.multiply(polynomial))
+                .expect("fixed inverse of two"),
             challenge.multiply(trace)
         );
         let non_stable = ProofPolynomialV1::constant(1)
@@ -1285,7 +1333,7 @@ mod tests {
             .multiply_by_monomial(1);
         assert_ne!(non_stable, non_stable.automorphism());
         assert_ne!(
-            trace_sigma_minus_one_v1(non_stable.multiply(polynomial))
+            trace_sigma_minus_one_v1(&non_stable.multiply(polynomial))
                 .expect("fixed inverse of two"),
             non_stable.multiply(trace)
         );
@@ -1293,16 +1341,16 @@ mod tests {
     #[test]
     fn scalar_packing_counterexample_is_repaired_by_sigma_lift() {
         fn split(
-            q0: ProofPolynomialV1,
-            positive: ProofPolynomialV1,
-            negative: ProofPolynomialV1,
+            q0: &ProofPolynomialV1,
+            positive: &ProofPolynomialV1,
+            negative: &ProofPolynomialV1,
         ) -> (ProofPolynomialV1, ProofPolynomialV1) {
             let linear = positive
-                .sub(negative)
+                .sub(*negative)
                 .scale_canonical(PROOF_INVERSE_TWO_V1)
                 .expect("fixed inverse of two");
             let quadratic = positive
-                .add(negative)
+                .add(*negative)
                 .sub(q0.scale_centered(2))
                 .scale_canonical(PROOF_INVERSE_TWO_V1)
                 .expect("fixed inverse of two");
@@ -1320,7 +1368,7 @@ mod tests {
         };
         let old_q0 = old_map(ProofPolynomialV1::ZERO);
         let (old_linear, old_quadratic) =
-            split(old_q0, old_map(challenge), old_map(challenge.negate()));
+            split(&old_q0, &old_map(challenge), &old_map(challenge.negate()));
         let old_recovered = old_quadratic.add(challenge.multiply(old_linear));
         let mut expected = [0_i64; APPLICATION_RING_DEGREE_V1];
         expected[0] = 2;
@@ -1332,18 +1380,21 @@ mod tests {
         );
         assert!(!old_recovered.is_zero());
         let lifted_map = |polynomial| {
-            trace_sigma_minus_one_v1(binary_relation_polynomial_v1(&[polynomial]))
+            trace_sigma_minus_one_v1(&binary_relation_polynomial_v1(&[polynomial]))
                 .expect("fixed inverse of two")
         };
         let secret = ProofPolynomialV1::constant(1).expect("one");
         let scaled_secret = challenge.multiply(secret);
         let lifted_q0 = lifted_map(ProofPolynomialV1::ZERO);
-        let (secret_linear, secret_quadratic) =
-            split(lifted_q0, lifted_map(secret), lifted_map(secret.negate()));
+        let (secret_linear, secret_quadratic) = split(
+            &lifted_q0,
+            &lifted_map(secret),
+            &lifted_map(secret.negate()),
+        );
         let (scaled_linear, scaled_quadratic) = split(
-            lifted_q0,
-            lifted_map(scaled_secret),
-            lifted_map(scaled_secret.negate()),
+            &lifted_q0,
+            &lifted_map(scaled_secret),
+            &lifted_map(scaled_secret.negate()),
         );
         assert_eq!(scaled_linear, challenge.multiply(secret_linear));
         assert_eq!(
@@ -1354,25 +1405,25 @@ mod tests {
     #[test]
     fn quadratic_black_box_decomposition_identity_holds() {
         // Q(x) = x^2 + 7x + 11, embedded as constant polynomials.
-        fn q(x: ProofPolynomialV1) -> ProofPolynomialV1 {
-            x.multiply(x)
+        fn q(x: &ProofPolynomialV1) -> ProofPolynomialV1 {
+            x.multiply(*x)
                 .add(x.scale_centered(7))
                 .add(ProofPolynomialV1::constant(11).expect("constant"))
         }
         let x = ProofPolynomialV1::constant(19).expect("x");
         let zero = ProofPolynomialV1::ZERO;
-        let q0 = q(zero);
-        let q2 = q(x)
-            .add(q(x.negate()))
+        let q0 = q(&zero);
+        let q2 = q(&x)
+            .add(q(&x.negate()))
             .sub(q0.scale_centered(2))
             .scale_canonical(PROOF_INVERSE_TWO_V1)
             .expect("inverse");
-        let linear = q(x)
-            .sub(q(x.negate()))
+        let linear = q(&x)
+            .sub(q(&x.negate()))
             .scale_canonical(PROOF_INVERSE_TWO_V1)
             .expect("inverse");
         assert_eq!(q2, x.multiply(x));
         assert_eq!(linear, x.scale_centered(7));
-        assert_eq!(q(x), q2.add(linear).add(q0));
+        assert_eq!(q(&x), q2.add(linear).add(q0));
     }
 }

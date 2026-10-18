@@ -164,6 +164,8 @@ pub enum PayloadError {
 }
 
 fn staking_preparation_error(mut error: eyre::Report) -> PayloadError {
+    use crate::execution_attempt::ExecutionAttemptError;
+
     if !cfg!(all(test, sumeragi_core_mutation = "HC49")) {
         error = match error.downcast::<crate::state::EvidencePreparationError>() {
             Ok(original) => return PayloadError::StakingPreparation(original),
@@ -195,7 +197,6 @@ fn staking_preparation_error(mut error: eyre::Report) -> PayloadError {
             Err(error) => error,
         };
     }
-    use crate::execution_attempt::ExecutionAttemptError;
     error = match error.downcast::<ExecutionAttemptError<String>>() {
         Ok(ExecutionAttemptError::Deferred(original)) => {
             return PayloadError::RoutingDeferred(original);
@@ -409,8 +410,8 @@ pub(crate) fn recheck_sccp_forgery_for_proposal(
     }
 }
 
-/// Recheck progress carriers after every removal that can change the canonical clock.
-/// Original Queue sources remain owned by the lease path; the keeper creates fresh signatures.
+/// Recheck progress carriers at the exact proposed time after every input removal.
+/// A fresh view can advance authenticated time while retaining the original signed inputs.
 pub(crate) fn recheck_progress_for_proposal(
     view: &crate::state::StateView<'_>,
     assembly: Assembly<'_>,
@@ -428,8 +429,20 @@ pub(crate) fn recheck_progress_for_proposal(
             .header()
             .creation_time()
             .checked_add(assembly.cadence)
-            .ok_or(PayloadError::TimeOverflow)?
-            .max(Duration::from_millis(merges.time_floor_ms));
+            .ok_or(PayloadError::TimeOverflow)?;
+        let minimum = if merges.merges.is_empty() {
+            minimum
+        } else {
+            minimum.max(Duration::from_millis(merges.time_floor_ms))
+        };
+        let proposed = Duration::from_millis(
+            u64::try_from(assembly.proposed_time.as_millis())
+                .map_err(|_| PayloadError::TimeOverflow)?,
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC384")))]
+        let minimum = minimum.max(proposed);
+        #[cfg(all(test, sumeragi_core_mutation = "HC384"))]
+        let _ = proposed;
         let time = crate::block::creation_time_after_inputs(
             minimum,
             selected.iter().map(AcceptedTransaction::entrypoint),

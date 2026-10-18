@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Ensure Torii account endpoints accept canonical I105 account path segments.
 #![cfg(all(feature = "app_api", feature = "telemetry"))]
 use axum::{

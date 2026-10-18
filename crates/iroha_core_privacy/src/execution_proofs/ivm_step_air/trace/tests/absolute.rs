@@ -25,8 +25,8 @@ fn absolute_matches_interpreter_full_width_aliases_r0_and_unused_source() {
         1,
         u64::MAX,
         i64::MAX as u64,
-        i64::MIN as u64,
-        (i64::MIN + 1) as u64,
+        i64::cast_unsigned(i64::MIN),
+        i64::cast_unsigned(i64::MIN + 1),
         0xffff_ffff_0000_0001,
         0x1_0000_0000,
     ] {
@@ -40,13 +40,13 @@ fn absolute_matches_interpreter_full_width_aliases_r0_and_unused_source() {
         ] {
             for gas in [0, 1, 2, 1 << 32] {
                 let (segment, records) = single(value, gas, rd, rs1, rs2);
-                let input = segment.before.registers[usize::from(rs1)] as i64;
+                let input = u64::cast_signed(segment.before.registers[usize::from(rs1)]);
                 let expected = if gas == 0 {
                     Err(SegmentOutcome::OutOfGas)
                 } else {
                     input
                         .checked_abs()
-                        .map(|v| v as u64)
+                        .map(|v| i64::cast_unsigned(v))
                         .ok_or(SegmentOutcome::AssertionFailed)
                 };
                 assert_eq!(
@@ -85,9 +85,9 @@ fn absolute_matches_interpreter_full_width_aliases_r0_and_unused_source() {
 fn absolute_rejects_mutated_magnitude_source_gas_and_outcome_witnesses() {
     for (value, gas) in [
         (17, 1),
-        ((-17_i64) as u64, 1),
-        (i64::MIN as u64, 1),
-        (i64::MIN as u64, 0),
+        (i64::cast_unsigned(-17_i64), 1),
+        (i64::cast_unsigned(i64::MIN), 1),
+        (i64::cast_unsigned(i64::MIN), 0),
     ] {
         let (segment, records) = single(value, gas, 8, 6, 7);
         let rows = segment.witness_rows(&records).unwrap();
@@ -149,7 +149,7 @@ fn maximum_segment(tail_value: u64, tail_gas: u64) -> (ScalarSegment, Vec<Diagno
         MAX_STEPS,
         &[
             (2, 21),
-            (6, (-17_i64) as u64),
+            (6, i64::cast_unsigned(-17_i64)),
             (7, tail_value),
             (255, u64::MAX),
         ],
@@ -162,7 +162,11 @@ fn maximum_segment(tail_value: u64, tail_gas: u64) -> (ScalarSegment, Vec<Diagno
 
 #[test]
 fn absolute_maximum_segments_fit_existing_security_caps_and_keep_degree_four() {
-    for (value, gas) in [(17, 1), (i64::MIN as u64, 1), (i64::MIN as u64, 0)] {
+    for (value, gas) in [
+        (17, 1),
+        (i64::cast_unsigned(i64::MIN), 1),
+        (i64::cast_unsigned(i64::MIN), 0),
+    ] {
         let (segment, records) = maximum_segment(value, gas);
         assert_rows(&segment, &segment.witness_rows(&records).unwrap());
         assert_eq!(segment.base_width_v1(), 1_356);
@@ -201,7 +205,11 @@ fn absolute_maximum_segments_fit_existing_security_caps_and_keep_degree_four() {
 
 #[test]
 fn native_stark_proves_maximum_absolute_segment_and_binds_trap_state_code() {
-    for (value, gas) in [(17, 1), (i64::MIN as u64, 1), (i64::MIN as u64, 0)] {
+    for (value, gas) in [
+        (17, 1),
+        (i64::cast_unsigned(i64::MIN), 1),
+        (i64::cast_unsigned(i64::MIN), 0),
+    ] {
         let (segment, records) = maximum_segment(value, gas);
         let columns = segment.columns(&records).unwrap();
         let proof = prove_proof_managed_note_stark_v1(&segment, &columns).unwrap();

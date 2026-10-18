@@ -3,7 +3,7 @@
 //! These tests provide basic coverage that the CLI binary starts up, renders help text, and reports
 //! the current version string. They help catch regression where the clap command tree fails to
 //! build or the binary cannot launch in automated environments.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "cli_smoke/consensus_status.rs"]
 mod consensus_status;
 #[path = "cli_smoke/incentives_dispute.rs"]
@@ -2853,6 +2853,7 @@ fn repo_initiate_emits_instruction_payload() {
             "1500",
             "--margin-frequency-secs",
             "86400",
+            "--allow-early-repayment",
         ])
         .output()
         .expect("failed to execute iroha repo initiate");
@@ -2873,6 +2874,7 @@ fn repo_initiate_emits_instruction_payload() {
             assert_eq!(isi.agreement_id().to_string(), "daily_repo");
             assert_eq!(isi.initiator(), &expected_initiator);
             assert_eq!(isi.counterparty(), &expected_counterparty);
+            assert!(isi.governance().allow_early_repayment());
         }
         other => panic!("unexpected instruction variant: {other:?}"),
     }

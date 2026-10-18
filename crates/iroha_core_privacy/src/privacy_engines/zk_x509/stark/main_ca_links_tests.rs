@@ -266,15 +266,20 @@ fn ca_link_replay_transform_degree_and_owner_census_is_source_derived() {
     assert_eq!(MainCaPrivatePlanV1::COEFFICIENT_COUNT_V1, 526_104);
     assert_eq!(MainCaPrivatePlanV1::CA_COEFFICIENT_COUNT_V1, 6_196);
     assert_eq!(MainCaPrivatePlanV1::MAXIMUM_QUOTIENT_DEGREE_V1, 532_297);
-    assert!(
-        MainCaPrivatePlanV1::MAXIMUM_QUOTIENT_DEGREE_V1 < MainCaPrivatePlanV1::QUOTIENT_ROWS_V1
-    );
+    const {
+        assert!(
+            MainCaPrivatePlanV1::MAXIMUM_QUOTIENT_DEGREE_V1 < MainCaPrivatePlanV1::QUOTIENT_ROWS_V1
+        )
+    };
     assert_eq!(
         MainCaOriginalAuxiliaryV1::payload_bound_v1(),
         24 * (526_104 * 8 + core::mem::size_of::<Vec<F>>())
             + core::mem::size_of::<MainCaOriginalAuxiliaryV1>()
     );
-    assert_eq!(MainCaPrivatePlanV1::quotient_private_bytes_v1(), 109074624);
+    assert_eq!(
+        MainCaPrivatePlanV1::quotient_private_bytes_v1(),
+        109_074_624
+    );
 }
 
 #[test]

@@ -255,12 +255,13 @@ fn structured_tampers_are_rejected_with_typed_reasons() {
                 setup.verify(&instances, &tampered)
             };
             if *point {
-                assert_eq!(
-                    replace(&[0; 32]),
-                    Err(VerifyError::Transcript(TranscriptError::IdentityPoint)),
-                    "message {index}"
-                );
                 let last = suffix && index + 1 == kinds.len();
+                let zero_error = if last {
+                    VerifyError::Ipa(IpaError::FoldedGeneratorMismatch)
+                } else {
+                    VerifyError::Transcript(TranscriptError::IdentityPoint)
+                };
+                assert_eq!(replace(&[0; 32]), Err(zero_error), "message {index}");
                 let other = replace(&generator);
                 if last {
                     assert_eq!(
@@ -605,6 +606,105 @@ fn a_folded_generator_solved_from_the_equation_is_accumulated_but_never_accepted
             Err(VerifyError::BatchRejected)
         );
     }
+}
+
+/// The wallet's V2 base-field RP57 profile must retain the deferred decision on
+/// both curves. A canonical, equation-satisfying suffix is not proof acceptance.
+fn check_pipa_r_solved_generator<C: PastaCurve>()
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    let params = PinnedParams::<C>::derive(K).expect("params");
+    let pk = crate::keys::keygen_pk_v2(
+        &params,
+        &PERMUTATIONS,
+        &crate::keys::KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]),
+    )
+    .expect("V2 PIPA-R key");
+    let setup = Setup { params, pk };
+    let (binding, vk) = (setup.pk.binding(), setup.pk.vk());
+    let instances = PERMUTATIONS.instances::<C::ScalarExt>();
+    let honest = setup.prove(&PERMUTATIONS, &instances, 73).expect("proof");
+    let genuine = accumulate_generator(&setup.params, binding, vk, &instances, &honest, BUDGET)
+        .expect("honest generator opening");
+    assert_eq!(genuine.decide(&setup.params, BUDGET), Ok(()));
+    assert_eq!(setup.verify(&instances, &honest), Ok(()));
+
+    let mut false_statement = instances.clone();
+    false_statement[0][1] += C::ScalarExt::ONE;
+    assert!(setup.verify(&false_statement, &honest).is_err());
+    let read = read_proof(
+        &setup.params,
+        binding,
+        vk,
+        &false_statement,
+        &honest,
+        production(vk),
+        BUDGET,
+        &AllTerms,
+        None,
+    )
+    .expect("canonical proof messages under the false statement");
+    let (terms, neg_c, challenges) = read.pending.into_batch_terms(&setup.params);
+    let inverse = Option::<C::ScalarExt>::from((-neg_c).invert()).expect("c != 0");
+    let solved = (terms.evaluate(BUDGET) * inverse).to_affine();
+    let mut forged = honest.clone();
+    let suffix = forged.len() - MESSAGE_BYTES;
+    forged[suffix..].copy_from_slice(&solved.to_bytes());
+
+    // This is the actual API used by recursive consumers, including native
+    // operation source preparation. The final unabsorbed suffix can solve its
+    // succinct equation, but cannot change any earlier transcript challenge.
+    let memo_before = setup.params.verification_memo_sizes();
+    let reads_before = proof_reads_for_test();
+    let pending = accumulate_generator(
+        &setup.params,
+        binding,
+        vk,
+        &false_statement,
+        &forged,
+        BUDGET,
+    )
+    .expect("a solved false opening remains an undecided obligation");
+    assert_eq!(proof_reads_for_test() - reads_before, 1);
+    assert_eq!(setup.params.verification_memo_sizes(), memo_before);
+    let replay = accumulate_generator(
+        &setup.params,
+        binding,
+        vk,
+        &false_statement,
+        &forged,
+        BUDGET,
+    )
+    .expect("succinct-only miss remains correctable on replay");
+    assert_eq!(replay, pending);
+    assert_eq!(proof_reads_for_test() - reads_before, 2);
+    assert_eq!(setup.params.verification_memo_sizes(), memo_before);
+    assert_eq!(pending.g(), &solved);
+    assert_eq!(pending.challenges(), challenges);
+    assert!(pending.decide(&setup.params, BUDGET).is_err());
+    assert_eq!(
+        setup.verify(&false_statement, &forged),
+        Err(VerifyError::Ipa(IpaError::FoldedGeneratorMismatch))
+    );
+    assert_eq!(
+        verify_full_from_bytes_v2(
+            &setup.params,
+            binding.encoded(),
+            vk.to_bytes(),
+            &false_statement,
+            &forged,
+            BUDGET,
+        ),
+        Err(VerifyError::Ipa(IpaError::FoldedGeneratorMismatch))
+    );
+}
+
+#[test]
+fn pipa_r_solved_generator_is_rejected_on_both_curves() {
+    check_pipa_r_solved_generator::<Ep>();
+    check_pipa_r_solved_generator::<Eq>();
 }
 
 #[test]

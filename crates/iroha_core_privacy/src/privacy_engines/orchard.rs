@@ -69,7 +69,7 @@ const _: () = assert!(PROVER_RNG_STREAM_DOMAIN_V1.len() <= ORCHARD_UPSTREAM_RNG_
 pub struct OrchardActionPublicV1 {
     /// Canonical Pallas-base nullifier encoding.
     pub nullifier: [u8; 32],
-    /// Canonical non-identity randomized RedPallas verification key.
+    /// Canonical non-identity randomized `RedPallas` verification key.
     pub randomized_key: [u8; 32],
     /// Canonical extracted note commitment.
     pub note_commitment: [u8; 32],
@@ -295,7 +295,7 @@ pub enum OrchardChangeInputErrorV1 {
 pub struct OrchardProvedBundleV1 {
     /// Proof-independent public bundle reconstructed by validators.
     pub public: OrchardBundlePublicV1,
-    /// Exact Halo2 proof and ordered RedPallas signatures in the ORC1 wire.
+    /// Exact Halo2 proof and ordered `RedPallas` signatures in the ORC1 wire.
     pub authorization: Vec<u8>,
 }
 /// Proof-independent public Orchard actions emitted by the prepare phase.
@@ -429,13 +429,13 @@ pub enum OrchardNativeErrorV1 {
     /// The fixed V3 bundle could not be reconstructed.
     #[error("Orchard V3 bundle construction rejected canonical public data")]
     BundleEncoding,
-    /// A RedPallas spend-authorization signature failed.
+    /// A `RedPallas` spend-authorization signature failed.
     #[error("Orchard action {index} spend-authorization signature is invalid")]
     SpendAuthorizationSignature {
         /// Ordered action index.
         index: usize,
     },
-    /// The RedPallas binding signature failed.
+    /// The `RedPallas` binding signature failed.
     #[error("Orchard binding signature is invalid")]
     BindingSignature,
     /// The Post-NU6.3 Halo2 proof failed.
@@ -1246,7 +1246,7 @@ pub fn authorize_orchard_bundle_v1(
 /// # Errors
 ///
 /// Returns a typed failure for malformed encodings, count/size violations,
-/// invalid RedPallas signatures, or an invalid Post-NU6.3 Halo2 proof.
+/// invalid `RedPallas` signatures, or an invalid Post-NU6.3 Halo2 proof.
 pub fn verify_orchard_bundle_v1(
     public: &OrchardBundlePublicV1,
     proof_bytes: &[u8],
@@ -1369,7 +1369,7 @@ pub(crate) mod tests {
             }
         }
     }
-    pub(crate) fn build_fixture(
+    pub fn build_fixture(
         action_count: u8,
         rng_seed: [u8; 32],
         consensus_binding: PrivacyNativeConsensusBindingV1,
@@ -1413,7 +1413,7 @@ pub(crate) mod tests {
             .expect("encode canonical Orchard authorization");
         (proved.public, proved.authorization)
     }
-    pub(crate) fn fixture() -> &'static (OrchardBundlePublicV1, Vec<u8>) {
+    pub fn fixture() -> &'static (OrchardBundlePublicV1, Vec<u8>) {
         static FIXTURE: OnceLock<(OrchardBundlePublicV1, Vec<u8>)> = OnceLock::new();
         FIXTURE.get_or_init(|| build_fixture(1, [0xA7; 32], consensus_binding(0x44)))
     }
@@ -2271,8 +2271,8 @@ pub(crate) mod tests {
         changed.actions[0].randomized_key = [0; 32];
         assert!(matches!(
             verify_orchard_bundle_v1(&changed, proof, &consensus_limits()),
-            Err(OrchardNativeErrorV1::RandomizedKeyEncoding { index: 0 })
-                | Err(OrchardNativeErrorV1::ActionEncoding { index: 0 })
+            Err(OrchardNativeErrorV1::RandomizedKeyEncoding { index: 0 }
+                | OrchardNativeErrorV1::ActionEncoding { index: 0 })
         ));
         changed = public.clone();
         changed.actions[0].note_commitment = [0xFF; 32];

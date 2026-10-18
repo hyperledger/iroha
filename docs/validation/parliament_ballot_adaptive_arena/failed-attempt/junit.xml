@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="55" time="67.011" timestamp="2026-10-14T13:20:09.747489+09:00" hostname="takemiyamakotonoMac-Studio.local"><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[0]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[1]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[2]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[3]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[999]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[1000]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[1001]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[1022]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[1023]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[1024]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[2048]" time="0.000" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[9223372036854775808]" time="0.001" /><testcase classname="" name="test_rejected_popcount_attaining_witness_and_hole[18446744073709551615]" time="0.000" /><testcase classname="" name="test_all_small_rejected_length_bounds_exhaustively" time="0.014" /><testcase classname="" name="test_plan_uses_total_call_geometry_reprices_and_separates_gate_maxima[1-0-23-candidate]" time="0.351" /><testcase classname="" name="test_plan_uses_total_call_geometry_reprices_and_separates_gate_maxima[1-0-23-comparator]" time="0.219" /><testcase classname="" name="test_plan_uses_total_call_geometry_reprices_and_separates_gate_maxima[0-2-64-candidate]" time="0.218" /><testcase classname="" name="test_plan_uses_total_call_geometry_reprices_and_separates_gate_maxima[0-2-64-comparator]" time="0.220" /><testcase classname="" name="test_plan_uses_total_call_geometry_reprices_and_separates_gate_maxima[3-4-4096-candidate]" time="0.216" /><testcase classname="" name="test_plan_uses_total_call_geometry_reprices_and_separates_gate_maxima[3-4-4096-comparator]" time="0.220" /><testcase classname="" name="test_fixed_slots_disjoint_immutable_and_huge_caps_do_not_allocate_lists" time="0.277" /><testcase classname="" name="test_zero_request_budget_query_only_uses_true_zero_log_case" time="0.906" /><testcase classname="" name="test_online_choice_after_actual_output_keeps_all_prior_maps_and_true_inverse" time="1.255" /><testcase classname="" name="test_actual_REG_selected_after_rejection_and_original_coin_split" time="23.205" /><testcase classname="" name="test_actual_bounded_invalid_content_factory_metadata_and_stable_coin_prefix" time="35.575" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change0]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change1]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change2]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change3]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change4]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change5]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change6]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change7]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change8]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change9]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change10]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change11]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change12]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change13]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change14]" time="0.000" /><testcase classname="" name="test_explicit_budget_and_geometry_refusals[change15]" time="0.000" /><testcase classname="" name="test_each_budget_refused_before_mutation_or_factory[valid]" time="0.184"><failure message="AttributeError: __globals__">source = Source(root=PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/capture/source'), catalog=Cat...iament-sequential-composition-stage/sequence.py', '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131')))
+category = 'valid'
+
+    @pytest.mark.parametrize('category',['valid','invalid','query'])
+    def test_each_budget_refused_before_mutation_or_factory(source,category):
+        changes = dict(valid=0,invalid=0,queries=0)
+        arena = ready(source,**changes)
+        before = (arena.trace,arena.counts,arena.phase)
+        with patch.object(a,'actual_transition',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_rejected_vote',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_lookup',side_effect=AssertionError('no factory')):
+            with pytest.raises(ValueError,match='budget exhausted'):
+&gt;               if category == 'valid':arena.bind_reg(a.PublicShape('REG'),entry_contract=a.VALID)
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+target/parliament-adaptive-arena-stage/test_arena.py:189: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+target/parliament-adaptive-arena-stage/arena.py:389: in bind_reg
+    self._preflight('valid')
+target/parliament-adaptive-arena-stage/arena.py:334: in _preflight
+    self.plan.source.verify()
+target/parliament-adaptive-arena-stage/arena.py:144: in verify
+    require(function.__globals__ is module.__dict__, 'factory module globals identity')
+            ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;MagicMock name='actual_transition' id='4579719632'&gt;
+name = '__globals__'
+
+    def __getattr__(self, name):
+        if name in {'_mock_methods', '_mock_unsafe'}:
+            raise AttributeError(name)
+        elif self._mock_methods is not None:
+            if name not in self._mock_methods or name in _all_magics:
+                raise AttributeError("Mock object has no attribute %r" % name)
+        elif _is_magic(name):
+&gt;           raise AttributeError(name)
+E           AttributeError: __globals__
+
+/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py:655: AttributeError</failure></testcase><testcase classname="" name="test_each_budget_refused_before_mutation_or_factory[invalid]" time="0.175"><failure message="AttributeError: __globals__">source = Source(root=PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/capture/source'), catalog=Cat...iament-sequential-composition-stage/sequence.py', '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131')))
+category = 'invalid'
+
+    @pytest.mark.parametrize('category',['valid','invalid','query'])
+    def test_each_budget_refused_before_mutation_or_factory(source,category):
+        changes = dict(valid=0,invalid=0,queries=0)
+        arena = ready(source,**changes)
+        before = (arena.trace,arena.counts,arena.phase)
+        with patch.object(a,'actual_transition',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_rejected_vote',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_lookup',side_effect=AssertionError('no factory')):
+            with pytest.raises(ValueError,match='budget exhausted'):
+                if category == 'valid':arena.bind_reg(a.PublicShape('REG'),entry_contract=a.VALID)
+&gt;               elif category == 'invalid':arena.bind_rejected(0,entry_contract=a.REJECTED)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+target/parliament-adaptive-arena-stage/test_arena.py:190: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+target/parliament-adaptive-arena-stage/arena.py:411: in bind_rejected
+    self._preflight('invalid')
+target/parliament-adaptive-arena-stage/arena.py:334: in _preflight
+    self.plan.source.verify()
+target/parliament-adaptive-arena-stage/arena.py:144: in verify
+    require(function.__globals__ is module.__dict__, 'factory module globals identity')
+            ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;MagicMock name='actual_transition' id='4532063632'&gt;
+name = '__globals__'
+
+    def __getattr__(self, name):
+        if name in {'_mock_methods', '_mock_unsafe'}:
+            raise AttributeError(name)
+        elif self._mock_methods is not None:
+            if name not in self._mock_methods or name in _all_magics:
+                raise AttributeError("Mock object has no attribute %r" % name)
+        elif _is_magic(name):
+&gt;           raise AttributeError(name)
+E           AttributeError: __globals__
+
+/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py:655: AttributeError</failure></testcase><testcase classname="" name="test_each_budget_refused_before_mutation_or_factory[query]" time="0.178"><failure message="AttributeError: __globals__">source = Source(root=PosixPath('/Users/mtakemiya/dev/iroha/target/parliament-adaptive-arena-stage/capture/source'), catalog=Cat...iament-sequential-composition-stage/sequence.py', '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131')))
+category = 'query'
+
+    @pytest.mark.parametrize('category',['valid','invalid','query'])
+    def test_each_budget_refused_before_mutation_or_factory(source,category):
+        changes = dict(valid=0,invalid=0,queries=0)
+        arena = ready(source,**changes)
+        before = (arena.trace,arena.counts,arena.phase)
+        with patch.object(a,'actual_transition',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_rejected_vote',side_effect=AssertionError('no factory')), \
+             patch.object(a,'actual_lookup',side_effect=AssertionError('no factory')):
+            with pytest.raises(ValueError,match='budget exhausted'):
+                if category == 'valid':arena.bind_reg(a.PublicShape('REG'),entry_contract=a.VALID)
+                elif category == 'invalid':arena.bind_rejected(0,entry_contract=a.REJECTED)
+&gt;               else:arena.bind_lookup(query_contract=a.QUERY)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+target/parliament-adaptive-arena-stage/test_arena.py:191: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+target/parliament-adaptive-arena-stage/arena.py:420: in bind_lookup
+    self._preflight('query')
+target/parliament-adaptive-arena-stage/arena.py:334: in _preflight
+    self.plan.source.verify()
+target/parliament-adaptive-arena-stage/arena.py:144: in verify
+    require(function.__globals__ is module.__dict__, 'factory module globals identity')
+            ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;MagicMock name='actual_transition' id='4680140816'&gt;
+name = '__globals__'
+
+    def __getattr__(self, name):
+        if name in {'_mock_methods', '_mock_unsafe'}:
+            raise AttributeError(name)
+        elif self._mock_methods is not None:
+            if name not in self._mock_methods or name in _all_magics:
+                raise AttributeError("Mock object has no attribute %r" % name)
+        elif _is_magic(name):
+&gt;           raise AttributeError(name)
+E           AttributeError: __globals__
+
+/opt/homebrew/Cellar/python@3.11/3.11.17/Frameworks/Python.framework/Versions/3.11/lib/python3.11/unittest/mock.py:655: AttributeError</failure></testcase><testcase classname="" name="test_unsupported_paths_are_unknown_and_refused_before_trace_mutation[&lt;lambda&gt;0]" time="0.196" /><testcase classname="" name="test_unsupported_paths_are_unknown_and_refused_before_trace_mutation[&lt;lambda&gt;1]" time="0.250" /><testcase classname="" name="test_unsupported_paths_are_unknown_and_refused_before_trace_mutation[&lt;lambda&gt;2]" time="0.193" /><testcase classname="" name="test_unsupported_paths_are_unknown_and_refused_before_trace_mutation[&lt;lambda&gt;3]" time="0.247" /><testcase classname="" name="test_unsupported_paths_are_unknown_and_refused_before_trace_mutation[&lt;lambda&gt;4]" time="0.244" /><testcase classname="" name="test_unsupported_paths_are_unknown_and_refused_before_trace_mutation[&lt;lambda&gt;5]" time="0.194" /><testcase classname="" name="test_unsupported_paths_are_unknown_and_refused_before_trace_mutation[&lt;lambda&gt;6]" time="0.193" /><testcase classname="" name="test_preparation_and_atomic_lifecycle_never_treat_iterator_creation_as_completion" time="0.979" /><testcase classname="" name="test_sources_verified_before_every_bind_emission_and_after_consumption" time="0.585" /><testcase classname="" name="test_wrong_origin_dependency_outside_expected_relative_suffix_is_refused" time="0.199" /><testcase classname="" name="test_scope_retains_unknown_entry_and_all_qualification_flags" time="0.248" /></testsuite></testsuites>

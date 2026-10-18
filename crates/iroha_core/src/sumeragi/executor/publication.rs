@@ -11,6 +11,9 @@ pub(super) fn original_refusal(error: TransactionsBlockError) -> PublicationErro
         TransactionsBlockError::ExecutionDeferred(original) => {
             PublicationDeferral::Execution(original)
         }
+        TransactionsBlockError::CaptureDeferred(original) => {
+            PublicationDeferral::StateCapture(original)
+        }
         TransactionsBlockError::BlockHashesBusy(wait) => PublicationDeferral::BlockHashesBusy(wait),
         TransactionsBlockError::PublicationBusy(wait) => PublicationDeferral::PublicationBusy(wait),
         TransactionsBlockError::MembershipAdmission(MembershipAdmissionError::Busy(wait)) => {
@@ -21,5 +24,7 @@ pub(super) fn original_refusal(error: TransactionsBlockError) -> PublicationErro
     PublicationError::Deferred(original)
 }
 
+#[cfg(test)]
+mod capture_refusal_tests;
 #[cfg(test)]
 mod tests;

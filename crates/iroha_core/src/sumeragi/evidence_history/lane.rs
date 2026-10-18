@@ -33,6 +33,9 @@ pub(super) struct LaneProofRead {
     budget: AllocationBudget,
     crypto: BlsCrypto,
     headers: ChargedBuffer<FundedLaneBody>,
+    // Original namespace custody spans every frame and every refused retry. This
+    // is not an authenticated history-release permit or physical deletion owner.
+    directory: Option<iroha_fs::OwnerDirectory>,
     frame: Option<FundedLaneFrameRead>,
     ready: Option<FundedLaneBody>,
     parent: Option<CommittedTip>,
@@ -139,6 +142,7 @@ impl LaneProofRead {
             budget,
             crypto,
             headers,
+            directory: None,
             frame: None,
             ready: None,
             parent,
@@ -146,6 +150,20 @@ impl LaneProofRead {
         })
     }
     pub(super) fn poll(&mut self) -> Result<(), Attempt<io::Error>> {
+        #[cfg(sumeragi_core_mutation = "HC363")]
+        {
+            self.directory = None;
+        }
+        // Genesis-only evidence has no native frame namespace to acquire.
+        if self.directory.is_none() && self.cursor.next_frontier().is_some() {
+            self.directory = Some(iroha_fs::OwnerDirectory::open(
+                self.kura
+                    .store_root()
+                    .join("lanes")
+                    .join(hex::encode(self.instance.0)),
+            )?);
+        }
+        self.revalidate_directory()?;
         while let Some(expected) = self.cursor.next_frontier() {
             if self.frame.is_none() {
                 let config = self
@@ -161,13 +179,16 @@ impl LaneProofRead {
                     &self.budget,
                 )
                 .map_err(|(_, error)| error)?;
-                let path = self
-                    .kura
-                    .store_root()
-                    .join("lanes")
-                    .join(hex::encode(self.instance.0))
-                    .join(format!("{:020}.frame", expected.height));
-                self.frame = Some(FundedLaneFrameRead::new(path, source, self.budget.clone()));
+                let directory = self
+                    .directory
+                    .as_ref()
+                    .expect("nonempty ancestry retains its original directory")
+                    .retain()?;
+                self.frame = Some(FundedLaneFrameRead::new(
+                    directory,
+                    source,
+                    self.budget.clone(),
+                ));
             }
             if self.ready.is_none() {
                 self.ready = Some(
@@ -187,6 +208,7 @@ impl LaneProofRead {
                 return Err(std::io::Error::from(std::io::ErrorKind::InvalidData).into());
             }
             let original = self.ready.as_ref().expect("original complete body custody");
+            self.revalidate_directory()?;
             // Every frame above the interval is authenticated too; a file QC cannot select a branch.
             self.cursor
                 .advance(&self.crypto, &original.body, &original.qc)
@@ -214,12 +236,22 @@ impl LaneProofRead {
             self.headers.as_mut_slice().reverse();
             self.ordered = true;
         }
+        self.revalidate_directory()?;
+        Ok(())
+    }
+    fn revalidate_directory(&self) -> io::Result<()> {
+        #[cfg(not(sumeragi_core_mutation = "HC363"))]
+        if let Some(directory) = &self.directory {
+            directory.revalidate()?;
+        }
         Ok(())
     }
     pub(super) fn verify(
         &self,
         evidence: &Evidence,
     ) -> Result<super::VerifiedNativeEvidence, super::NativeEvidenceError> {
+        self.revalidate_directory()
+            .map_err(|error| super::NativeEvidenceError::Source(error.into()))?;
         let (_, height, _) = super::subject(evidence);
         let parent = self.parent.as_ref().ok_or_else(|| {
             super::NativeEvidenceError::Context("original native parent is incomplete".into())
@@ -283,6 +315,8 @@ impl LaneProofRead {
                 Ok((peer_key, lane_stake))
             },
         )?;
+        self.revalidate_directory()
+            .map_err(|error| super::NativeEvidenceError::Source(error.into()))?;
         Ok(super::VerifiedNativeEvidence {
             scope: iroha_data_model::block::consensus::EvidenceScope::Lane(self.scope),
             tip: self.tip,

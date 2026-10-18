@@ -6,6 +6,9 @@
 
 use std::{collections::BTreeMap, path::Path};
 
+#[path = "evm_receipt.rs"]
+mod authenticated_receipt;
+
 use eyre::{Result, WrapErr as _, ensure, eyre};
 use iroha::data_model::{bridge::SccpNetworkV1, sccp::deployment::SccpCommitteePinV1};
 use iroha_sccp::{
@@ -252,7 +255,7 @@ impl EvmTransport<'_> {
     }
     /// Sign without network dispatch; the caller must persist these exact bytes first.
     pub(super) fn prepare(&self, key: &EvmSigningKey, data: Vec<u8>) -> Result<Vec<u8>> {
-        prepare_transaction(&self.client, self.network, key, Some(self.contract), data)
+        prepare_transaction(self.client, self.network, key, Some(self.contract), data)
             .map(|(raw, _)| raw)
     }
 
@@ -463,7 +466,7 @@ impl Deployment {
             client: &self.client,
             network: self.network,
             contract: DEPLOYER,
-            code_hash: iroha_sccp::v1::hashes::keccak256(&[&SCCP_EVM_DEPLOYER_RUNTIME]),
+            code_hash: iroha_sccp::v1::constants::SCCP_EVM_DEPLOYER_RUNTIME_HASH,
         }
     }
     pub(super) fn runtime_code_hash(&self) -> Result<[u8; 32]> {
@@ -539,6 +542,38 @@ pub(super) fn load_key(path: &Path) -> Result<EvmSigningKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receipt_budget_owns_one_deadline_until_attempt_observation_ends() {
+        let client = EvmClient::new(
+            HttpTransport::new(
+                EndpointSet::parse(&["http://127.0.0.1:1"], &[]).unwrap(),
+                iroha_sccp_rpc::http::HttpConfig::default(),
+                FailoverPolicy::default(),
+            )
+            .unwrap(),
+        );
+        let destination = EvmTransport {
+            client: &client,
+            network: SccpNetworkV1::EthereumMainnet,
+            contract: [1; 20],
+            code_hash: [2; 32],
+        };
+        assert_eq!(client.transport().budget().deadline(), None);
+        let before = std::time::Instant::now();
+        let (deadline, guard) = destination
+            .receipt_budget(std::time::Duration::from_secs(3))
+            .unwrap();
+        assert!(deadline >= before + std::time::Duration::from_secs(3));
+        assert!(deadline <= std::time::Instant::now() + std::time::Duration::from_secs(3));
+        // The same transport is borrowed by every receipt, trie and storage acquisition.
+        assert_eq!(
+            destination.client.transport().budget().deadline(),
+            Some(deadline)
+        );
+        drop(guard);
+        assert_eq!(client.transport().budget().deadline(), None);
+    }
 
     #[test]
     fn finalized_receipt_requires_exact_original_effect_once() {
@@ -635,7 +670,7 @@ mod tests {
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
             });
             let config = iroha_sccp_wallet::config::SccpClientConfig::from_user(
-                Default::default(),
+                iroha::config::sccp::SccpClientConfigUser::default(),
                 Path::new("target/sccp-continuation/export-test-journal"),
             )
             .unwrap();

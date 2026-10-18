@@ -13,7 +13,7 @@ use musubi_rejection::{ProjectionCut, ProjectionRejection, ProjectionTable};
 pub(crate) mod musubi_source_read;
 
 #[path = "deserialize_world_musubi_live.rs"]
-mod musubi_live;
+pub(in crate::state) mod musubi_live;
 #[path = "deserialize_world_musubi_source_work.rs"]
 pub(in crate::state) mod musubi_source_work;
 pub(in crate::state) use musubi_live::validate_musubi_live_projection_cut;
@@ -7261,6 +7261,7 @@ mod validation_fee_registry_restore_tests {
             enacted_at_height,
         };
         let registry = ValidationFeePolicyRegistryV1 {
+            history: None,
             registered_policies: vec![
                 ValidationFeePolicyRegistryEntryV1::from_enactment(policy, authorization)
                     .expect("canonical validation-fee registry entry"),
@@ -7424,7 +7425,11 @@ mod validation_fee_registry_restore_tests {
                 .expect("valid fixture parameters");
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+                .set_parameter(Parameter::Custom(
+                    registry.clone().into_custom_parameter().expect(
+                        "validation-fee fixture registry fits the canonical JSON parameter",
+                    ),
+                ))
                 .expect("valid fixture parameters");
             parameters.commit();
         }
@@ -7543,7 +7548,11 @@ mod validation_fee_registry_restore_tests {
                 .get()
                 .custom()
                 .get(&ValidationFeePolicyRegistryV1::parameter_id()),
-            Some(&registry.into_custom_parameter()),
+            Some(
+                &registry
+                    .into_custom_parameter()
+                    .expect("validation-fee fixture registry fits the canonical JSON parameter")
+            ),
         );
         assert!(
             matches!(
@@ -8690,8 +8699,10 @@ fn decode_world_fields(
     crate::privacy_state::validate_privacy_persisted_state_v1(
         privacy_consensus_policy.view().get(),
         &privacy_activations.view(),
-        &privacy_pgc_accounts.view(),
-        &privacy_pgc_pool_invariants.view(),
+        crate::privacy_state::PrivacyPgcStateReadV1 {
+            accounts: &privacy_pgc_accounts.view(),
+            pool_invariants: &privacy_pgc_pool_invariants.view(),
+        },
         &privacy_nullifiers.view(),
         &privacy_commitments.view(),
         &privacy_roots.view(),
@@ -8872,6 +8883,8 @@ fn decode_world_fields(
     let global_beacon_pulses = take_required(&mut map, "global_beacon_pulses")?;
     let repo_agreements = take_required(&mut map, "repo_agreements")?;
     let settlement_receipts = take_required(&mut map, "settlement_receipts")?;
+    let bonds = take_required(&mut map, "bonds")?;
+    let bond_entitlements = take_required(&mut map, "bond_entitlements")?;
     let manifest_aliases = take_required(&mut map, "manifest_aliases")?;
     validate_musubi_location_reverse_indices(
         &musubi_archives,
@@ -9142,6 +9155,9 @@ fn decode_world_fields(
         repo_agreements_by_counterparty: Storage::default(),
         repo_agreements_by_custodian: Storage::default(),
         settlement_receipts,
+        bonds,
+        bond_entitlements,
+        bond_vaults: Storage::default(),
         domain_committees,
         domain_endorsement_policies,
         domain_endorsements,
@@ -9251,8 +9267,8 @@ fn parse_world(
     ivm_seed: &IvmSeed<'_, World>,
 ) -> Result<World, StateRestoreError> {
     let mut world = decode_world_fields(execution_budget, map, ivm_seed)?;
-    crate::smartcontracts::isi::multisig::validate_persisted_proposals(&world.view()).map_err(
-        |error| match error {
+    crate::smartcontracts::isi::multisig::validate_persisted_proposals(&world.view(), None)
+        .map_err(|error| match error {
             crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
                 StateRestoreError::Serialization(json::Error::InvalidField {
                     field: "world.smart_contract_state.multisig/proposal".into(),
@@ -9262,8 +9278,7 @@ fn parse_world(
             crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
                 StateRestoreError::ExecutionDeferred(reason)
             }
-        },
-    )?;
+        })?;
     validate_domain_endorsement_index(&world)?;
     validate_da_pin_persistence(&world)?;
     validator_committee::validate_persisted_progress(&world.view()).map_err(|message| {
@@ -9634,6 +9649,7 @@ fn parse_world(
             message,
         })?;
     world.rebuild_repo_agreement_indexes();
+    world.rebuild_bond_vault_index();
     world.rebuild_proof_status_index();
     world
         .validate_identifier_claims()
@@ -9802,6 +9818,20 @@ fn build_state(
         Some(original) => original,
         None => native_execution_tip::empty_cell(&execution_budget)?,
     };
+    crate::smartcontracts::isi::multisig::validate_persisted_proposals(
+        &world.view(),
+        Some(&network_id),
+    )
+    .map_err(|error| match error {
+        crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+            MergeLedgerCommitError::ExecutionStatePublication(format!(
+                "restored multisig occurrence is not bound to the selected network: {error}"
+            ))
+        }
+        crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+            MergeLedgerCommitError::ExecutionDeferred(reason)
+        }
+    })?;
     #[cfg(feature = "telemetry")]
     let telemetry_seed = telemetry.clone();
     validate_no_standalone_governance_state_for_typed_proposals_v1(&world).map_err(|error| {
@@ -9995,6 +10025,8 @@ fn build_state(
                 execution_budget.clone(),
             ),
         )),
+        finality_prefix_checkpoints:
+            crate::sumeragi::certified_chain::FinalityPrefixCheckpoints::new(),
         ivm_execution_budget: execution_budget.clone(),
         pipeline_ivm_prepared_cache: PublicationRwLock::try_new(
             PreparedContractCache::with_execution_budget(
@@ -10147,6 +10179,7 @@ fn default_pipeline() -> iroha_config::parameters::actual::Pipeline {
         ivm_cache_max_decoded_ops:
             iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
         ivm_cache_max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
+        state_capture: iroha_config::parameters::actual::StateCapture::default(),
         ivm_execution_max_bytes:
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ivm_prover_threads: iroha_config::parameters::defaults::pipeline::IVM_PROVER_THREADS,
@@ -10319,6 +10352,14 @@ pub(in crate::state) fn decode_world_component_for_testing(
 #[cfg(test)]
 pub(in crate::state) fn seeded_musubi_publication_world_for_testing() -> World {
     decode_tests::seeded_musubi_publication_snapshot().0
+}
+
+/// Reuse the signed provider fixture for retained original-source admission controls.
+#[cfg(test)]
+pub(in crate::state) fn seeded_musubi_attested_publication_world_for_testing() -> World {
+    let (mut world, release, archive, _) = decode_tests::seeded_musubi_publication_snapshot();
+    decode_tests::seed_provider_attested_location(&mut world, &release, archive);
+    world
 }
 
 #[cfg(test)]
@@ -10739,9 +10780,7 @@ mod decode_tests {
         validate_musubi_persisted_snapshot(world)?;
         validate_musubi_live_projections(
             world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
     }
@@ -11059,9 +11098,7 @@ mod decode_tests {
         let (world, _, archive_id, _) = seeded_musubi_publication_snapshot();
         validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect("both retained availability cuts match their SoraFS evidence");
@@ -11081,9 +11118,7 @@ mod decode_tests {
         block.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("current availability cannot invent an active location");
@@ -11097,9 +11132,7 @@ mod decode_tests {
         block.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("repairing current availability cannot hide the stale predecessor");
@@ -11126,9 +11159,7 @@ mod decode_tests {
             .insert(orphan.archive_id, orphan);
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("a valid availability row cannot name an absent archive");
@@ -11267,9 +11298,7 @@ mod decode_tests {
         let key = seed_provider_attested_location(&mut world, &release, archive_id);
         validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect("the attested location is valid on both retained cuts");
@@ -11284,9 +11313,7 @@ mod decode_tests {
         removal.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("current location must retain its exact attestation");
@@ -11302,9 +11329,7 @@ mod decode_tests {
         repair.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("repairing current evidence cannot hide a missing predecessor row");
@@ -11865,21 +11890,33 @@ mod decode_tests {
             "restored approved body".into(),
         ))];
         let hash = iroha_crypto::HashOf::new(&instructions);
+        let network = iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([0x41; 32])),
+        );
+        let nonce =
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x71; 32])
+                .unwrap();
+        let proposal_id = iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+            &network, &account, &nonce,
+        );
         let key: iroha_model_base::state_path::StatePath = format!(
-            "multisig/proposal/{}/{hash}",
+            "multisig/proposal/{}/{proposal_id}",
             iroha_crypto::HashOf::new(&account)
         )
         .parse()
         .unwrap();
-        let proposal = MultisigProposalState::new(
-            account.clone(),
-            hash,
+        let proposal = MultisigProposalState {
+            network_id: network,
+            multisig_account_id: account.clone(),
+            proposal_nonce: nonce,
+            proposal_id,
+            instructions_hash: hash,
+            transaction_ttl_ms: None,
             instructions,
-            1,
-            10_000,
-            std::collections::BTreeSet::new(),
-            None,
-        );
+            proposed_at_ms: 1,
+            expires_at_ms: 10_000,
+            approvals: std::collections::BTreeSet::new(),
+        };
         let mut world = World::with(
             [],
             [iroha_data_model::account::Account::new(account.clone()).build(&account)],
@@ -11927,7 +11964,8 @@ mod decode_tests {
                     .expect("World fields finish within their measured budget");
                 assert!(matches!(
                     crate::smartcontracts::isi::multisig::validate_persisted_proposals(
-                        &decoded.view()
+                        &decoded.view(),
+                        None
                     ),
                     Err(crate::execution_attempt::ExecutionAttemptError::Deferred(_))
                 ));

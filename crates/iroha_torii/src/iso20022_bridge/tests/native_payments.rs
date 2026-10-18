@@ -368,14 +368,19 @@ fn native_iso_journal_refuses_changed_intent_and_disappearing_conflict() {
             .native_payment
             .as_ref(),
     );
-    assert!(native_payment_from_value(&value).flatten().is_some());
+    assert!(native_payment_from_value(&value).is_ok_and(|payment| payment.is_some()));
+    assert!(matches!(
+        native_payment_from_value(&JsonValue::Null),
+        Ok(None)
+    ));
+    assert!(native_payment_from_value(&JsonValue::from(false)).is_err());
     let mut extra = value.clone();
     extra
         .as_object_mut()
         .unwrap()
         .insert("verified".into(), JsonValue::from(true));
     assert!(
-        native_payment_from_value(&extra).is_none(),
+        native_payment_from_value(&extra).is_err(),
         "persisted self-asserted authority is not a supported field"
     );
 }

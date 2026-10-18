@@ -791,12 +791,11 @@ pub(in crate::managed) fn recover_original(
             "pending Original custody changed during validation",
         ));
     }
-    if let Some(reservation) = image.index.reservation {
-        if *Hash::new(&operation.read("reserved.nrt", MAX_RESERVATION_BYTES)?).as_ref()
+    if let Some(reservation) = image.index.reservation
+        && *Hash::new(&operation.read("reserved.nrt", MAX_RESERVATION_BYTES)?).as_ref()
             != reservation
-        {
-            return Err(invalid("pending Original reservation changed"));
-        }
+    {
+        return Err(invalid("pending Original reservation changed"));
     }
     if let Some(retained) = operation.read_optional("original.nrt", maximum)? {
         if retained.as_slice() != original {
@@ -846,19 +845,12 @@ pub(in crate::managed) fn require_reserved(operation: &PrivateDirectory) -> Resu
 #[cfg(test)]
 fn test_component_index(ordinal: Option<u8>, name: &str) -> Result<usize> {
     match (ordinal, name) {
-        (None, "dispatch")
-        | (None, "dispatch.nrt")
-        | (Some(_), "authorization")
-        | (Some(_), "authorization.nrt") => Ok(0),
-        (None, "closing")
-        | (None, "closing.nrt")
-        | (Some(_), "observation")
-        | (Some(_), "observation.nrt") => Ok(1),
-        (None, "closed")
-        | (None, "closed.nrt")
-        | (Some(_), "committed")
-        | (Some(_), "committed.nrt") => Ok(2),
-        (Some(_), "retired") | (Some(_), "retired.nrt") => Ok(3),
+        (None, "dispatch" | "dispatch.nrt") | (Some(_), "authorization" | "authorization.nrt") => {
+            Ok(0)
+        }
+        (None, "closing" | "closing.nrt") | (Some(_), "observation" | "observation.nrt") => Ok(1),
+        (None, "closed" | "closed.nrt") | (Some(_), "committed" | "committed.nrt") => Ok(2),
+        (Some(_), "retired" | "retired.nrt") => Ok(3),
         _ => Err(invalid("unknown test metadata component")),
     }
 }

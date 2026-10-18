@@ -257,7 +257,7 @@ fn retail_declared_scope_substitution_cannot_escape_catalog_or_native_source() {
     for instruction in substitutions.clone() {
         let transaction = accepted(&key, instruction);
         crate::queue::router::assert_completed_routing_error_eq(
-            &(evaluate_policy_with_catalog_and_world_at(
+            (evaluate_policy_with_catalog_and_world_at(
                 &nexus.routing_policy,
                 &nexus.lane_catalog,
                 &nexus.dataspace_catalog,
@@ -348,13 +348,9 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         &movement
     ));
     crate::queue::router::assert_completed_routing_error_eq(
-        &(instruction_transaction_dataspace_target(
-            &movement,
-            Some(&nexus.dataspace_catalog),
-            None,
-        ))
-        .as_ref()
-        .expect_err("expected completed routing rejection"),
+        (instruction_transaction_dataspace_target(&movement, Some(&nexus.dataspace_catalog), None))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
         &(RoutingResolveError::OrdinaryRouteUnavailable {
             reason: "retail monetary routing requires current native policy state".into(),
         }),
@@ -368,7 +364,7 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         records.commit();
     }
     crate::queue::router::assert_completed_routing_error_eq(
-        &(retail_monetary_dataspace_target_with_world(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),
@@ -398,7 +394,7 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         norito::encode_canonical(&substituted).unwrap(),
     );
     crate::queue::router::assert_completed_routing_error_eq(
-        &(retail_monetary_dataspace_target_with_world(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),
@@ -420,7 +416,7 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         records.commit();
     }
     crate::queue::router::assert_completed_routing_error_eq(
-        &(retail_monetary_dataspace_target_with_world(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),
@@ -439,7 +435,7 @@ fn retail_monetary_requires_current_exact_definition_policy_and_activation() {
         definitions.commit();
     }
     crate::queue::router::assert_completed_routing_error_eq(
-        &(retail_monetary_dataspace_target_with_world(
+        (retail_monetary_dataspace_target_with_world(
             &movement,
             Some(&nexus.dataspace_catalog),
             &state.world.view(),

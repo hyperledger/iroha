@@ -101,13 +101,17 @@ pub fn sign(kind: ObjectKind, mut body: Vec<u8>, secret: u64, nonce: u64) -> Sig
     }
 }
 
+/// Deterministic participant identity for signed Bootstrap test objects.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Identity {
+    /// The default payer enrollment and signing identity.
     #[default]
     Payer,
+    /// The distinct receiver enrollment and signing identity.
     Receiver,
 }
 impl Identity {
+    /// Return this fixture identity's deterministic signing secret.
     pub const fn secret(self) -> u64 {
         match self {
             Self::Payer => 29,
@@ -164,7 +168,6 @@ pub fn enrollment_for_schemes(
     }
     body.extend(small_id(51, 52));
     body.extend(0u32.to_le_bytes());
-    body.extend(0u64.to_le_bytes());
     body.extend(0u64.to_le_bytes());
     body.extend(id(w.statement[17], w.statement[18]));
     body.extend(101u64.to_le_bytes());

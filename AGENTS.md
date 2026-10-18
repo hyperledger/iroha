@@ -16,7 +16,7 @@ These guidelines apply to the entire repository, which is organised as a Cargo w
 - Kotlin SDK: from the `kotlin` directory run `./gradlew :core-jvm:test --console=plain`; build Android artifacts with `./gradlew :client-android:assembleRelease :kagemusha-wallet-android:assembleRelease --quiet`.
 - JVM attestation tooling: from `kotlin`, run `./gradlew :tools:test :tools:installDist --console=plain`; the repository shell launcher invokes the same Kotlin-owned command.
 - Android managed consumers: from `kotlin`, run `./gradlew :client-android:testDebugUnitTest :kagemusha-wallet-android:testDebugUnitTest --console=plain` with JDK 21 and the Android SDK configured.
-- Android consumers of host JNI: from `kotlin`, run `IROHA_NATIVE_LIBRARY_PATH=<absolute-rebuilt-host-library-directory> ./gradlew :client-android:testDebugHostNative --console=plain`. Missing native artifacts fail; this is separate from physical-device qualification.
+- Android consumers of host JNI: from `kotlin`, run `IROHA_NATIVE_LIBRARY_PATH=<absolute-rebuilt-host-library-directory> ./gradlew :client-android:testDebugHostNative :kagemusha-wallet-android:testDebugHostNative --console=plain`. Missing native artifacts fail; this is separate from physical-device qualification.
 - Scripts dependencies (Python 3.10+): `python3 -m pip install -r scripts/requirements.txt`.
 - Script tests: `pytest pytests/scripts`.
 - Sumeragi core and simulator: `cargo test -p iroha_sumeragi --features sim`; mutation gate: `python3 scripts/sumeragi_mutation_gate.py --jobs 4`.
@@ -50,7 +50,7 @@ These guidelines apply to the entire repository, which is organised as a Cargo w
 - Universal-account model:
   - `AccountId` is the canonical account identity and is always domainless.
   - Domain context for routing, aliasing, and ownership lives outside the canonical account identity in alias bindings and domain-owned entities.
-  - Account aliases are a separate SNS/account-label layer. Both domain-qualified aliases like `merchant@banka.paynet` and dataspace-root aliases like `merchant@paynet` bind to the same canonical `AccountId`.
+  - Account aliases are a separate SNS/account-label layer. Both domain-qualified aliases like `merchant@banka.paynet` and data space root aliases like `merchant@paynet` bind to the same canonical `AccountId`.
   - In tests and fixtures, seed the universal `AccountId` first, then add alias leases, alias permissions, and any domain-owned state separately. Use `Account::new(...)` for account registration and bind aliases separately only when the behavior under test depends on them.
 
 ## Repository structure
@@ -115,6 +115,27 @@ These guidelines apply to the entire repository, which is organised as a Cargo w
 - Optionally run `cargo clippy -- -D warnings` for additional lint checks.
 
 ## Documentation
+- The English term is **data space** (plural **data spaces**), written as two
+  words in prose, headings, captions, and diagrams. Preserve exact code names,
+  configuration keys, paths, and URLs such as `DataSpaceId`, `dataspace_id`,
+  `nexus.dataspace_catalog`, and `sora-nexus-dataspaces.md`.
+- For articles, explanations, headings, captions, and diagrams about SORA Nexus,
+  lead with **data spaces** as the environments for institutional data, authority,
+  policy, and applications. Call a bank's or central bank's environment a
+  data space. Introduce lanes only when routing, certification, or capacity is
+  relevant; never use "lane" as a synonym for "data space".
+- Preserve catalog ownership and cardinality: `DataSpaceCatalog`
+  (`[[nexus.dataspace_catalog]]`) defines data spaces; `LaneCatalog`
+  (`[[nexus.lane_catalog]]`) defines lanes. Each lane references one data space
+  through `LaneConfig::dataspace_id`; a data space can contain multiple lanes.
+  `DataSpaceId` and `LaneId` are distinct identities. A lane entry, alias, or
+  one-lane example does not define or imply a separate data space.
+- Keep execution boundaries explicit: public lanes certify transaction batches
+  for global execution; an independently signed data space root owns its State
+  and local finality. A data space catalog entry alone does not establish an
+  independent root. Before delivering an article, check every use of "lane"
+  against this distinction, including figures. Use `specs/sumeragi_lanes.md`
+  for lane mechanics and `specs/sumeragi.md` §11 for independent data spaces.
 - The canonical public and in-depth Iroha 3 documentation is maintained in the
   sibling [`hyperledger-iroha/iroha-docs`](https://github.com/hyperledger-iroha/iroha-docs)
   repository and published at <https://docs.iroha.tech/>.

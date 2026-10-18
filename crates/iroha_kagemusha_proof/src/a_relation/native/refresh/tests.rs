@@ -1,13 +1,13 @@
 //! Native Refresh artifact and exact-original rejection coverage.
 
 use super::*;
+use iroha_pasta::PastaAffine;
 
 #[test]
 fn fixed_refresh_schedules_require_each_owner_exactly_once() {
     for (v, n) in [
         (Variant::RefreshCredential, 4),
         (Variant::RefreshSchemePolicy, 4),
-        (Variant::RefreshBlacklist, 4),
         (Variant::RefreshQuotaShare, 7),
         (Variant::RefreshTimeAnchor, 4),
     ] {
@@ -48,8 +48,8 @@ fn fixed_refresh_schedules_require_each_owner_exactly_once() {
 
 fn original() -> Inputs {
     let state = StateWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
+        core: [Fp::ZERO; 29],
+        rest: [Fp::ZERO; 6],
         lineage: [Fp::ZERO; 18],
     };
     let state = RefreshWitness {
@@ -84,7 +84,6 @@ fn original() -> Inputs {
         state,
         sigma,
         objects: core::array::from_fn(|_| vec![]),
-        blacklist: None,
         quota: None,
         q: [
             QInput {
@@ -92,7 +91,7 @@ fn original() -> Inputs {
                 instances: vec![
                     bounded,
                     vec![],
-                    vec![Fq::from(14)],
+                    vec![Fq::from(9)],
                     vec![Fq::ONE],
                     vec![Fq::from(12)],
                 ],
@@ -150,13 +149,22 @@ fn refresh_q_sigma_normalization_rejects_wrong_selector_source_or_scalar_alias()
     input.instances[1] = vec![x, y];
     let n = input.instances[0].len();
     input.instances[0][n - K..n - K + 4].fill(Fq::ZERO);
-    assert!(q_sigma_part(&input, 12, Variant::RefreshCredential).is_ok());
+    let finite = q_sigma_part(&input, 12, Variant::RefreshCredential).unwrap();
+    let mut identity_input = input.clone();
+    identity_input.instances[1] = vec![Fq::ZERO; 2];
+    let identity = q_sigma_part(&identity_input, 12, Variant::RefreshCredential).unwrap();
+    assert_eq!(identity.source_k(), finite.source_k());
+    assert_eq!(identity.challenges(), finite.challenges());
+    assert_eq!(
+        *identity.g(),
+        iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap()
+    );
     for mutation in 0..6 {
         let mut bad = input.clone();
         match mutation {
             0 => bad.instances[0][n - K] = Fq::ONE,
             1 => bad.instances[0][n - 1] = Fq::ZERO,
-            2 => bad.instances[1] = vec![Fq::ZERO, Fq::ZERO],
+            2 => bad.instances[1] = vec![Fq::ZERO, Fq::ONE],
             3 => bad.instances[3][0] = Fq::ZERO,
             4 => bad.instances[4][0] = Fq::from(16),
             _ => bad.instances[2][0] = Fq::ZERO,
@@ -268,12 +276,11 @@ fn refresh_uses_one_shared_sigma_selector_and_rejects_unrelated_variants() {
     for variant in [
         Variant::RefreshCredential,
         Variant::RefreshSchemePolicy,
-        Variant::RefreshBlacklist,
         Variant::RefreshQuotaShare,
         Variant::RefreshTimeAnchor,
     ] {
         assert_eq!(check_sigma_tape(&original(), variant), Ok(()));
-        assert_eq!(sigma_selector(variant), Ok(Fq::from(14)));
+        assert_eq!(sigma_selector(variant), Ok(Fq::from(9)));
     }
     assert_eq!(
         check_sigma_tape(&original(), Variant::Load),
@@ -332,11 +339,6 @@ fn fixed_union_projection_rejects_wrong_kind_each_field_and_original_signature()
             Variant::RefreshSchemePolicy,
             ObjectKind::SchemePolicy,
             RefreshKind::SchemePolicy,
-        ),
-        (
-            Variant::RefreshBlacklist,
-            ObjectKind::Blacklist,
-            RefreshKind::Blacklist,
         ),
         (
             Variant::RefreshQuotaShare,
@@ -410,7 +412,6 @@ fn typed_refresh_context_schema_rejects_foreign_operations_and_cross_kind_update
     for variant in [
         Variant::RefreshCredential,
         Variant::RefreshSchemePolicy,
-        Variant::RefreshBlacklist,
         Variant::RefreshQuotaShare,
         Variant::RefreshTimeAnchor,
     ] {
@@ -445,7 +446,6 @@ fn typed_refresh_context_schema_rejects_foreign_operations_and_cross_kind_update
     let renewal = RefreshObjects::context_specs(Variant::RefreshCredential).unwrap();
     for variant in [
         Variant::RefreshSchemePolicy,
-        Variant::RefreshBlacklist,
         Variant::RefreshQuotaShare,
         Variant::RefreshTimeAnchor,
     ] {
@@ -469,4 +469,24 @@ fn typed_refresh_context_schema_rejects_foreign_operations_and_cross_kind_update
             Err(LayoutError::Synthesis)
         );
     }
+}
+
+#[test]
+fn identity_generator_claims_preserve_public_word_and_frame_encoding() {
+    let p = iroha_plonk::transcript::decode_generator::<Ep>(&[0; 32]).unwrap();
+    let v = iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap();
+    let p = FoldInput::<Ep>::from_normalized(p, 16, [Fq::ONE; K]).unwrap();
+    let v = FoldInput::<Eq>::from_normalized(v, 16, [Fp::ONE; K]).unwrap();
+    let mut pwords = Vec::new();
+    push_pallas(&mut pwords, &p).unwrap();
+    assert_eq!(&pwords[..3], &[Fp::from(16), Fp::ZERO, Fp::ZERO]);
+    assert_eq!(pwords.len(), 35);
+    let vwords = vesta_words(&v);
+    assert_eq!(&vwords[..4], &[Fp::ZERO; 4]);
+    assert_eq!(&vwords[4..], &[Fp::ONE; K]);
+    let accumulated = AccumulatorT::<Eq>::new(*v.g(), [Fp::ONE; K]).unwrap();
+    let public = omega_instances(Fp::from(23), &accumulated).unwrap();
+    assert_eq!(public[0], [Fq::from(23)]);
+    assert_eq!(public[1], [Fq::ZERO; 2]);
+    assert_eq!(public[2], [Fq::ONE; K]);
 }

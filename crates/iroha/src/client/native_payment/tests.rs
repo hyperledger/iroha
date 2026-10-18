@@ -422,7 +422,10 @@ fn native_payment_request_requires_one_global_movement_from_its_namespace_owner(
         NetworkId,
         asset::{AssetDefinitionId, AssetId},
         block::BlockHeader,
-        isi::{AtomicSettlementMovement, AtomicSettlementMovements, SettlementId},
+        isi::{
+            AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements,
+            SettlementId,
+        },
     };
     use iroha_model_base::topology::DataSpaceId;
     use iroha_primitives::numeric::Quantity;
@@ -443,6 +446,7 @@ fn native_payment_request_requires_one_global_movement_from_its_namespace_owner(
         ))),
         SettlementId::new(ALICE_ID.clone(), "constructor".parse().unwrap()),
         AtomicSettlementMovements::try_from(vec![movement.clone()]).unwrap(),
+        AtomicSettlementEscrows::empty(),
         NonZeroU64::new(100).unwrap(),
         Metadata::default(),
     );
@@ -950,7 +954,7 @@ async fn native_payment_unsigned_resume_preserves_journal_without_signing_or_bui
     assert_eq!(account.signs.load(Ordering::Relaxed), 0);
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
     // Both resume capabilities refuse construction, even if a future engine path asks.
-    assert!(matches!(payment.resume_handle.progress().unwrap(), Some(_)));
+    assert!(payment.resume_handle.progress().unwrap().is_some());
     let journal = payment.handle.journal_snapshot().unwrap().unwrap();
     let plan = request.plan().unwrap();
     let context = StepContext {

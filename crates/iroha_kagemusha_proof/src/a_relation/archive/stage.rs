@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     a_relation::{
-        SigmaBindingCells, SignatureQCells,
+        SignatureQCells,
         context::{ContextInputs, ContextObjectSpec, ContextPlan},
         own::OwnPolicy,
         schedule::OperationTask,
@@ -30,7 +30,8 @@ use crate::{
 pub struct ArchiveStagePlan {
     context: ContextPlan,
     policy: OwnPolicy,
-    signatures: [QSignaturePlan; 2],
+    signature: QSignaturePlan,
+    signature_q: usize,
     results: ArchiveResultPlan,
 }
 
@@ -41,7 +42,7 @@ pub struct ArchiveStageInputs<'a> {
     pub context: &'a ContextInputs<'a>,
     /// All three proposed results and original Status opening.
     pub results: &'a ArchiveResultClaims,
-    /// Current credential/certificate/receipt only for their named owners.
+    /// Own receipt only for its Authorization owner.
     pub own: Option<&'a ArchiveAuthorizationObjects>,
     /// Exact historical Payment only for its mandatory hard owner.
     pub retained: Option<&'a ArchiveRetainedPayment>,
@@ -49,8 +50,6 @@ pub struct ArchiveStageInputs<'a> {
     pub retained_proofs: Option<&'a ArchiveRetainedProofs>,
     /// Held Request/receiver and soft receipt, for Evidence or Signatures.
     pub incoming: Option<&'a ArchiveIncomingObjects>,
-    /// Own sigma projection only for the own-proof owner.
-    pub sigma: Option<&'a SigmaBindingCells>,
     /// Exact incoming proof carrier only for the Proofs owner.
     pub proof_source: Option<&'a ArchiveProofSources>,
 }
@@ -58,11 +57,10 @@ pub struct ArchiveStageInputs<'a> {
 /// Additional actual verifiers, original tapes and paths for the assigned tasks.
 #[derive(Clone, Copy, Default)]
 pub struct ArchiveStageWitness<'a> {
-    /// Hard current authorization Q1; required only at Authorization.
-    pub own_signatures: Option<&'a SignatureQCells>,
-    /// Soft incoming receipt Q2, hard-verified at Signatures.
-    pub incoming_signatures: Option<&'a SignatureQCells>,
-    /// Original Receive sigma pair or Status trusted Omega key.
+    /// Merged signature leaf: the own receipt hard and the incoming receipt soft.
+    /// Required exactly at the stage owning Authorization and Signatures.
+    pub signatures: Option<&'a SignatureQCells>,
+    /// Receive marker or the Status trusted Omega key.
     pub proof: Option<ArchiveProofInputs<'a>>,
     /// Original incoming evidence tapes, only for Evidence.
     pub evidence: Option<ArchiveEvidenceSource<'a>>,
@@ -75,11 +73,13 @@ pub struct ArchiveStageWitness<'a> {
 impl ArchiveStagePlan {
     /// Compose every original-source owner over the complete envelope domain.
     ///
-    /// The first stage verifies the hard predecessor. Q0 has a dedicated proof
-    /// stage; Q1 belongs to Authorization and Q2 to Signatures. Source capacities and owner
-    /// order are compiled properties; private inputs cannot narrow them.
-    /// Actual source key generation must still establish each stage's capacity
-    /// and every recursive proof must close before artifact admission.
+    /// The first stage verifies the hard predecessor. `ArchiveReceive`'s
+    /// incoming-only `Q_sigma` has a dedicated proof stage; the merged signature
+    /// leaf belongs to the stage owning both Authorization and Signatures. Source
+    /// capacities and owner order are compiled properties; private inputs cannot
+    /// narrow them. Actual source key generation must still establish each
+    /// stage's capacity and every recursive proof must close before artifact
+    /// admission.
     /// # Errors
     /// Wrong operation, missing predecessor or invalid fixed Q/source schema.
     pub fn full(
@@ -116,7 +116,7 @@ impl ArchiveStagePlan {
         )
     }
 
-    /// Own3, retained9, incoming receipt/raw proof, exact evidence and typed results.
+    /// Own receipt, retained9, incoming receipt/raw proof, exact evidence and typed results.
     /// All capacities belong to this fixed key schema, never a witness choice.
     /// Smaller component profiles do not qualify the complete envelope domain;
     /// production composition starts with [`Self::full_context_specs`].
@@ -139,7 +139,7 @@ impl ArchiveStagePlan {
         )?);
         specs.push(ArchiveIncomingObjects::context_specs()?[2]);
         specs.push(ContextObjectSpec {
-            tag: 14,
+            tag: 12,
             capacity: u32::try_from(incoming_proof).map_err(|_| Error::BoundsFailure)?,
         });
         specs.extend(evidence::evidence_specs(variant)?);
@@ -151,60 +151,59 @@ impl ArchiveStagePlan {
     }
 
     /// Validate complete tasks, all original categories and the actual Q schemas.
-    /// Q1/Q2 must execute with their exact authorization/signature owners.
+    /// A proves the own step inline, so the plan verifies no own sigma and keeps
+    /// `Q_sigma` exactly for `ArchiveReceive`'s incoming sigma. Authorization and
+    /// Signatures must execute where the merged signature leaf is verified.
     /// # Errors
     /// Wrong class/count/shape, missing or repeated owner, or misplaced Q.
     pub fn new(context: ContextPlan, policy: OwnPolicy) -> Result<Self, Error> {
         let variant = context.operation().frame().variant();
-        super::require_variant(variant)?;
+        let signature_q = super::signature_q(variant)?;
+        let operation = context.operation();
         let specs = context.object_specs();
-        if context.operation().q_count() != 3
-            || specs.len() < 14
-            || context.operation().sigma.slot_count()
-                != 1 + usize::from(variant == Variant::ArchiveReceive)
+        if !operation.is_inline()
+            || operation.has_incoming_sigma() != (variant == Variant::ArchiveReceive)
+            || operation.q_count() != signature_q + 1
+            || specs.len() < 12
             || specs
                 != Self::context_specs(
                     variant,
-                    specs[9].capacity as usize,
-                    specs[10].capacity as usize,
-                    specs[13].capacity as usize,
+                    specs[7].capacity as usize,
+                    specs[8].capacity as usize,
+                    specs[11].capacity as usize,
                 )?
         {
             return Err(Error::Synthesis);
         }
-        let signatures = ArchiveAuthorizationObjects::signature_schemas(policy)?;
-        for (i, schema) in signatures.iter().enumerate() {
-            let descriptor = context
-                .operation()
-                .q(i + 1)
-                .ok_or(Error::Synthesis)?
-                .verifier()
-                .binding()
-                .descriptor();
-            if descriptor.instance_lengths
-                != [u32::try_from(schema.instance_length()).map_err(|_| Error::BoundsFailure)?]
-                || descriptor.instance_types.as_deref() != Some(&QSignaturePlan::instance_types())
-            {
-                return Err(Error::Synthesis);
-            }
+        let signature = ArchiveAuthorizationObjects::signature_schema()?;
+        let descriptor = operation
+            .q(signature_q)
+            .ok_or(Error::Synthesis)?
+            .verifier()
+            .binding()
+            .descriptor();
+        if descriptor.instance_lengths
+            != [u32::try_from(signature.instance_length()).map_err(|_| Error::BoundsFailure)?]
+            || descriptor.instance_types.as_deref() != Some(&QSignaturePlan::instance_types())
+        {
+            return Err(Error::Synthesis);
         }
         let results = ArchiveResultPlan::new(&context, specs.len() - 1)?;
         for stage in 0..context.stage_count() {
             let tasks = context.operation_tasks(stage).ok_or(Error::Synthesis)?;
             let partition = context.q_partition(stage).ok_or(Error::Synthesis)?;
-            for (task, q) in [
-                (OperationTask::ArchiveAuthorization, 1),
-                (OperationTask::ArchiveSignatures, 2),
-            ] {
-                if tasks.contains(&task) && !partition.contains(&q) {
-                    return Err(Error::Synthesis);
-                }
+            if (tasks.contains(&OperationTask::ArchiveAuthorization)
+                || tasks.contains(&OperationTask::ArchiveSignatures))
+                && !partition.contains(&signature_q)
+            {
+                return Err(Error::Synthesis);
             }
         }
         Ok(Self {
             context,
             policy,
-            signatures,
+            signature,
+            signature_q,
             results,
         })
     }
@@ -217,10 +216,15 @@ impl ArchiveStagePlan {
     pub const fn results(&self) -> ArchiveResultPlan {
         self.results
     }
-    /// Fixed Q1 or Q2 signature schema. Q0 is the separate sigma program.
+    /// Index of the merged signature leaf: Q1 after `ArchiveReceive`'s
+    /// incoming-only `Q_sigma`, or `ArchiveStatus`'s only Q.
+    pub const fn signature_q(&self) -> usize {
+        self.signature_q
+    }
+    /// The fixed merged signature-Q schema at [`Self::signature_q`]. `Q_sigma`
+    /// is the separate sigma program.
     pub fn signature_schema(&self, q: usize) -> Option<&QSignaturePlan> {
-        q.checked_sub(1)
-            .and_then(|index| self.signatures.get(index))
+        (q == self.signature_q).then_some(&self.signature)
     }
 
     /// Execute every assigned task exactly once on the same original context.
@@ -244,10 +248,7 @@ impl ArchiveStagePlan {
             .operation_tasks(usize::try_from(stage).map_err(|_| Error::BoundsFailure)?)
             .ok_or(Error::Synthesis)?;
         for (required, present) in [
-            (
-                tasks.contains(&ArchiveAuthorization) || tasks.contains(&ArchiveOwnProof),
-                input.own.is_some(),
-            ),
+            (tasks.contains(&ArchiveAuthorization), input.own.is_some()),
             (
                 tasks.contains(&ArchiveRetainedPayment),
                 input.retained.is_some(),
@@ -260,16 +261,11 @@ impl ArchiveStagePlan {
                 tasks.contains(&ArchiveEvidence) || tasks.contains(&ArchiveSignatures),
                 input.incoming.is_some(),
             ),
-            (tasks.contains(&ArchiveOwnProof), input.sigma.is_some()),
             (tasks.contains(&ArchiveProofs), input.proof_source.is_some()),
             (tasks.contains(&ArchiveProofs), witness.proof.is_some()),
             (
-                tasks.contains(&ArchiveAuthorization),
-                witness.own_signatures.is_some(),
-            ),
-            (
-                tasks.contains(&ArchiveSignatures),
-                witness.incoming_signatures.is_some(),
+                tasks.contains(&ArchiveAuthorization) || tasks.contains(&ArchiveSignatures),
+                witness.signatures.is_some(),
             ),
             (tasks.contains(&ArchiveEvidence), witness.evidence.is_some()),
             (
@@ -307,15 +303,7 @@ impl ArchiveStagePlan {
                     &self.context,
                     stage,
                     input.context,
-                    (self.policy, witness.own_signatures.ok_or(Error::Synthesis)?),
-                )?,
-                ArchiveOwnProof => input.own.ok_or(Error::Synthesis)?.constrain_own_proof(
-                    chip,
-                    region,
-                    &self.context,
-                    stage,
-                    input.context,
-                    input.sigma.ok_or(Error::Synthesis)?,
+                    (self.policy, witness.signatures.ok_or(Error::Synthesis)?),
                 )?,
                 ArchiveSignatures => input
                     .incoming
@@ -326,11 +314,11 @@ impl ArchiveStagePlan {
                         stage,
                         input.context,
                         input.results,
-                        witness.incoming_signatures.ok_or(Error::Synthesis)?,
+                        witness.signatures.ok_or(Error::Synthesis)?,
                     )?,
                 ArchiveProofs => {
                     let source = input.proof_source.ok_or(Error::Synthesis)?;
-                    source.require_context_slot(13)?;
+                    source.require_context_slot(11)?;
                     source.constrain_proofs(
                         chip,
                         region,

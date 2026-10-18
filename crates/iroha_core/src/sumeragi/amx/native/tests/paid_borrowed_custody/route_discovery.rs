@@ -57,12 +57,12 @@ fn native_amx_route_discovery_selects_prepare_expiry_and_final_decision_before_t
         }
         let mut expiry = amx_relays_to(&view, begin_height, restored.network_id()).unwrap();
         let intent = expiry.complete_next().unwrap().unwrap();
-        let expire = intent
+        let instruction = intent
             .instruction()
             .as_any()
             .downcast_ref::<ExpireAmxV1>()
             .unwrap();
-        assert_eq!(expire.tx, tx);
+        assert_eq!(instruction.tx, tx);
         assert_eq!(intent.descriptor().source_height(), begin_height);
         assert_eq!(intent.descriptor().target_network(), restored.network_id());
         assert!(intent.descriptor().ready_at_ms().is_some());

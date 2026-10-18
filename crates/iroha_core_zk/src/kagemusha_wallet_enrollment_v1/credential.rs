@@ -83,7 +83,7 @@ mod tests {
                 spki_sha256: [1; 32],
                 revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
             }],
-            patch_floor_yyyymm: 202610,
+            patch_floor_yyyymm: 202_610,
         };
         let apple = Platform::Apple {
             attestation_root_sha256: [1; 32],

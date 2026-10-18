@@ -86,9 +86,8 @@ interface KagemushaWalletCleanupResourceV1 {
 
 /** One actual Native startup owner. Opening uses the existing RuntimeV1/PendingOpenV1 registry. */
 class KagemushaWalletInstalledRuntimeV1 private constructor(
+    // Runtime retains the actual platform adapter through retirement; JNI also owns a GlobalRef.
     private val runtime: KagemushaWalletRuntimeV1,
-    // JNI Native platform owns a GlobalRef too; retain the actual adapter through retirement.
-    private val platform: KagemushaWalletAndroidPlatformV1,
 ) : Closeable, KagemushaWalletCleanupResourceV1 {
     private val gate = Any()
     private var closing: CompletableFuture<Void>? = null
@@ -238,7 +237,9 @@ class KagemushaWalletInstalledRuntimeV1 private constructor(
             return KagemushaWalletInstallationAttemptV1.begin(platform,originals)
         }
         internal fun adoptRegistered(handle:Long,platform:KagemushaWalletAndroidPlatformV1):KagemushaWalletInstalledRuntimeV1 =
-            KagemushaWalletInstalledRuntimeV1(KagemushaWalletRuntimeV1(handle,platform),platform)
+            KagemushaWalletInstalledRuntimeV1(KagemushaWalletRuntimeV1(handle,platform))
+        internal fun adoptEnrolled(runtime:KagemushaWalletRuntimeV1):KagemushaWalletInstalledRuntimeV1 =
+            KagemushaWalletInstalledRuntimeV1(runtime)
 
     }
 }

@@ -1,4 +1,5 @@
 //! Focused coverage for the stable map-helper surface.
+use crate::common;
 use ivm::{
     IVM,
     mock_wsv::{AccountId, MockWorldStateView, WsvHost},
@@ -10,7 +11,6 @@ use kotodama_lang::{
     semantic::analyze,
 };
 use std::str::FromStr;
-mod common;
 #[test]
 fn ephemeral_map_constructor_is_rejected() {
     let src = r#"

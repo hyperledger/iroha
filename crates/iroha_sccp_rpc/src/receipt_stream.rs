@@ -1,4 +1,4 @@
-//! Incremental JSON receipt decoding with one canonical RLP spool and bounded metadata.
+//! Incremental EVM receipt and raw transaction decoding with one byte spool and bounded metadata.
 
 use crate::{
     RpcError,
@@ -510,6 +510,35 @@ pub fn decode(
     endpoint: &str,
     limit: usize,
 ) -> Result<Receipt, RpcError> {
+    decode_result(input, id, endpoint, |json| receipt(json, limit))
+}
+
+/// Decode raw signed transaction bytes incrementally, without constructing a JSON string copy.
+pub fn decode_raw_transaction(
+    input: &mut dyn std::io::Read,
+    id: u64,
+    endpoint: &str,
+    limit: usize,
+) -> Result<Option<Vec<u8>>, RpcError> {
+    decode_result(input, id, endpoint, |json| {
+        json.ws()?;
+        if json.peek()? == Some(b'n') && json.scalar()?.is_null() {
+            return Ok(None);
+        }
+        let raw = json.hex(limit)?;
+        if raw.is_empty() {
+            return Err(invalid_response("raw transaction is empty"));
+        }
+        Ok(Some(raw))
+    })
+}
+
+fn decode_result<T>(
+    input: &mut dyn std::io::Read,
+    id: u64,
+    endpoint: &str,
+    mut decode: impl FnMut(&mut Json<'_>) -> Result<T, RpcError>,
+) -> Result<T, RpcError> {
     let mut json = Json::new(input);
     json.expect(b'{')?;
     let mut first = true;
@@ -517,10 +546,10 @@ pub fn decode(
     let mut output = None;
     while let Some(key) = json.member(&mut first)? {
         if envelope.contains_key(&key) || envelope.len() > 16 {
-            return Err(invalid_response("invalid receipt response envelope"));
+            return Err(invalid_response("invalid EVM response envelope"));
         }
         if key == "result" {
-            output = Some(receipt(&mut json, limit)?);
+            output = Some(decode(&mut json)?);
             envelope.insert(key, Value::Null);
         } else {
             envelope.insert(key, json.value(0)?);
@@ -528,10 +557,10 @@ pub fn decode(
     }
     json.ws()?;
     if json.peek()?.is_some() {
-        return Err(invalid_response("trailing receipt response bytes"));
+        return Err(invalid_response("trailing EVM response bytes"));
     }
     decode_json_rpc_response(Value::Object(envelope), Some(id), endpoint)?;
-    output.ok_or_else(|| invalid_response("receipt result is absent"))
+    output.ok_or_else(|| invalid_response("EVM result is absent"))
 }
 
 #[cfg(test)]
@@ -607,6 +636,61 @@ mod tests {
         let error = r#"{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"missing"}}"#;
         assert!(matches!(
             decode(&mut error.as_bytes(), 7, "test", 4096),
+            Err(RpcError::JsonRpc { code: -32601, .. })
+        ));
+    }
+    #[test]
+    fn raw_transaction_stream_preserves_bytes_across_chunks_and_escapes() {
+        for text in ["0x00", "0x7f", "0x80", "0x02c0", r"0\u007830324330"] {
+            let raw: String = norito::json::from_str(&format!("\"{text}\"")).unwrap();
+            let expected = crate::evm::parse_data(&raw).unwrap();
+            let wire = format!(r#"{{"result":"{text}","id":7,"jsonrpc":"2.0"}}"#);
+            for maximum in [1, 2, 3, 7, 8192] {
+                let actual = decode_raw_transaction(
+                    &mut Chunk {
+                        bytes: wire.as_bytes(),
+                        maximum,
+                    },
+                    7,
+                    "test",
+                    expected.len(),
+                )
+                .unwrap();
+                assert_eq!(actual, Some(expected.clone()));
+            }
+        }
+        let wire = br#"{"result":null,"id":7,"jsonrpc":"2.0"}"#;
+        assert_eq!(
+            decode_raw_transaction(&mut wire.as_slice(), 7, "test", 0).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_transaction_stream_rejects_envelope_hex_and_budget_substitutions() {
+        let valid = r#"{"result":"0x02c0","id":7,"jsonrpc":"2.0"}"#;
+        for wire in [
+            format!("{valid}null"),
+            valid.replace("\"id\":7", "\"id\":8"),
+            valid.replace("\"id\":7", "\"id\":7,\"id\":7"),
+            valid.replace("0x02c0", "0x0"),
+            valid.replace("0x02c0", "0x"),
+            valid.replace("0x02c0", "0xz0"),
+            valid.replace("0x02c0", r"0x\uD800"),
+            valid.replace("\"0x02c0\"", "{}"),
+            valid.replace("\"result\":", "\"missing\":"),
+            valid.replace("\"result\":", "\"result\":null,\"result\":"),
+            valid[..valid.len() - 1].to_owned(),
+        ] {
+            assert!(
+                decode_raw_transaction(&mut wire.as_bytes(), 7, "test", 4096).is_err(),
+                "{wire}"
+            );
+        }
+        assert!(decode_raw_transaction(&mut valid.as_bytes(), 7, "test", 1).is_err());
+        let error = r#"{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"missing"}}"#;
+        assert!(matches!(
+            decode_raw_transaction(&mut error.as_bytes(), 7, "test", 4096),
             Err(RpcError::JsonRpc { code: -32601, .. })
         ));
     }

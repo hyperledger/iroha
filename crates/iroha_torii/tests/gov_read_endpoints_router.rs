@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Router-level test for governance read endpoint wiring (`/v1/gov/proposals/{id}`).
 #![allow(clippy::similar_names)]
 #![cfg(feature = "app_api")]

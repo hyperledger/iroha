@@ -3,8 +3,10 @@
 //! Trusted native deployment selects the exact scheme, policies and, on Apple, the root
 //! original; an Android `KeyMint` chain carries its own root, matched by SPKI. Foreign
 //! calls provide retry identity and original account/asset/permit/evidence frames only. Native retains
-//! a client nonce before issuer E1 and checks the rooted permit and live same-boot elapsed budget
-//! immediately before hardware generation. The issuer independently
+//! a client nonce before issuer E1 and checks the rooted permit and process-bound,
+//! suspend-inclusive elapsed budget immediately before hardware generation. This live clock
+//! is never restored: restarting the process requires a fresh dispatch and permit. It grants
+//! no boot identity or persisted time-anchor authority. The issuer independently
 //! authenticates its live challenge, current account eligibility and platform evidence before
 //! signing. Retained E5 and E6 bytes survive retries; this module grants no Bootstrap proof
 //! capability and never replaces the complete source-qualified wallet-open boundary.

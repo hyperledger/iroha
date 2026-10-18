@@ -8,7 +8,7 @@ max_frame_bytes_tx_gossip = 17825792
 max_frame_bytes_connect = 8388608
 
 [torii.connect]
-# A four-MiB unsigned transaction adds 216 browser Connect framing/AEAD bytes.
+# A four-MiB unsigned transaction adds 472 browser Connect framing/AEAD bytes.
 frame_max_bytes = 4198400
 session_buffer_max_bytes = 8388608
 # Bound concurrent sessions while qualifying memory and throughput on actual peers.

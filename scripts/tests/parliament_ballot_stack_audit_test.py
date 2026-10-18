@@ -46,6 +46,75 @@ def test_worker_prologue_and_shifted_immediate():
     assert not result["frame_errors"]
 
 
+@pytest.mark.parametrize("store", ["stlur x9, [x8, #0x8]", "stlur w9, [x8, #-0x100]",
+                                  "stlur xzr, [x8, #255]", "stlur wzr, [sp]",
+                                  "stlur x29, [sp, #-8]"])
+def test_stlur_preserves_sp_fp_and_continues_after_control_publication(store):
+    result = function(["sub sp, sp, #16", "mov x29, sp", store,
+                       "sub sp, sp, #32", "mov sp, x29", "add sp, sp, #16", "ret"])
+    assert result["maximum_sp_decrement_bytes"] == 48
+    assert result["visited_instructions"] == 7
+    assert not result["frame_errors"] and not result["gaps"]
+
+
+@pytest.mark.parametrize("store", ["stlur x0, [sp, #-256]", "stlur x0, [sp], #16",
+                                  "stlur x0, [sp, #-16]!", "stlur x0, [x8, #256]",
+                                  "stlur x0, [x8, #-257]", "stlur x0, [x8, x1]",
+                                  "stlur sp, [x8]", "stlur x31, [x8]"])
+def test_stlur_does_not_bypass_operand_or_red_zone_checks(store):
+    result = function([store, "ret"])
+    assert result["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+    assert MODULE.call_region({0x1000: result}, 0x1000)["complete_stack_bound_bytes"] is None
+
+
+def test_actual_fatal_publication_keeps_exit_and_fallthrough_unknown():
+    # Both branches of the new fatal::exhausted body, with addresses relocated.
+    result = function([
+        "adrp x8, 0x7000", "add x8, x8, #0xd58", "ldapr x8, [x8]",
+        "cbz x8, 0x102c <invalid>", "ldapur x9, [x8, #0x8]", "cmp x9, #2",
+        "b.ne 0x102c <invalid>", "mov w9, #3", "stlur x9, [x8, #0x8]",
+        "mov w0, #0x49", "b 0x1030 <exit>", "mov w0, #0x4a",
+        "stp x29, x30, [sp, #-0x10]!", "mov x29, sp", "bl 0x9000 <_exit>",
+    ], stubs={0x9000: "__exit"})
+    assert result["maximum_sp_decrement_bytes"] == 16
+    assert result["visited_instructions"] == 15
+    assert not result["frame_errors"]
+    region = MODULE.call_region({0x1000: result}, 0x1000)
+    assert region["frontier_kind_counts"] == {"function_fallthrough": 1, "native_edge": 1}
+    assert region["complete_stack_bound_bytes"] is None
+
+
+@pytest.mark.parametrize("instruction", ["eon x10, x12, x10", "eon x11, x12, x11",
+                                        "eon w0, wzr, w29", "eon xzr, x29, x30",
+                                        "eon w0, w1, w2, lsl #31", "eon x0, x1, x2, lsr #63",
+                                        "eon x0, x1, x2, asr #0x3f", "eon w0, w1, w2, ror #0"])
+def test_eon_store_free_register_operation_preserves_unwritten_sp_fp(instruction):
+    result = function(["sub sp, sp, #16", "mov x29, sp", instruction,
+                       "sub sp, sp, #32", "mov sp, x29", "add sp, sp, #16", "ret"])
+    assert result["maximum_sp_decrement_bytes"] == 48
+    assert result["visited_instructions"] == 7
+    assert not result["frame_errors"] and not result["gaps"]
+
+
+@pytest.mark.parametrize("instruction", ["eon x29, x0, x1", "eon w29, w0, w1"])
+def test_eon_fp_destination_cannot_justify_later_stack_restore(instruction):
+    result = function(["sub sp, sp, #16", "mov x29, sp", instruction, "mov sp, x29", "ret"])
+    assert result["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+    assert MODULE.call_region({0x1000: result}, 0x1000)["complete_stack_bound_bytes"] is None
+
+
+@pytest.mark.parametrize("instruction", ["eon sp, x0, x1", "eon wsp, w0, w1",
+                                        "eon x0, sp, x1", "eon x0, x1, w2",
+                                        "eon x31, x0, x1", "eon x0, x1, #1",
+                                        "eon w0, w1, w2, lsl #32", "eon x0, x1, x2, lsr #64",
+                                        "eon x0, x1, x2, asr #-1", "eon x0, x1, x2, future #1",
+                                        "eon.future x0, x1, x2", "stlur.future x0, [x1]"])
+def test_new_scalar_opcodes_reject_unknown_forms_and_stack_pointer_operands(instruction):
+    result = function([instruction, "ret"])
+    assert result["frame_errors"][0]["kind"] == "unsupported_stack_effect"
+    assert MODULE.call_region({0x1000: result}, 0x1000)["complete_stack_bound_bytes"] is None
+
+
 def test_fp_restore_and_unknown_fp_fail_closed():
     valid = function(["stp x29, x30, [sp, #-0x10]!", "mov x29, sp",
                       "sub sp, sp, #0x40", "mov sp, x29", "ldp x29, x30, [sp], #0x10", "ret"])

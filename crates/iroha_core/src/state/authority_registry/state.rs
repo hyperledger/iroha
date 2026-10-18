@@ -93,6 +93,8 @@ classified_owner!(State, check_state_fields, STATE_FIELDS, {
         Role::Local("Reusable execution/validation machinery; semantics belong to bytecode, ABI and canonical policy; capacity/refusal cannot select consensus validity"));
     contract_query_ivm_cache: parking_lot::Mutex<IvmCache> => ("state.contract_query_ivm_cache",
         Role::Local("Reusable execution/validation machinery; semantics belong to bytecode, ABI and canonical policy; capacity/refusal cannot select consensus validity"));
+    finality_prefix_checkpoints: crate::sumeragi::certified_chain::FinalityPrefixCheckpoints => ("state.finality_prefix_checkpoints",
+        Role::Local("Bounded resume points for off-chain finality proof production; each use rechecks its pinned frame and natively verifies every later height; consensus execution never reads it"));
     pipeline_ivm_prepared_cache: PublicationRwLock<PreparedContractCache> => ("state.pipeline_ivm_prepared_cache",
         Role::Local("Reusable execution/validation machinery; semantics belong to bytecode, ABI and canonical policy; capacity/refusal cannot select consensus validity"));
     ivm_execution_budget: iroha_allocation::AllocationBudget => ("state.ivm_execution_budget",

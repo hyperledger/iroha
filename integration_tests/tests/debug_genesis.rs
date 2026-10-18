@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Inspect genesis encoding/decoding behaviour for troubleshooting.
 use integration_tests::sandbox;
 use iroha_data_model::{block::decode_framed_signed_block, transaction::Executable};

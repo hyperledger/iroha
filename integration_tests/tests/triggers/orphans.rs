@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Orphaned trigger cleanup scenarios.
 use integration_tests::sandbox;
 use iroha::{

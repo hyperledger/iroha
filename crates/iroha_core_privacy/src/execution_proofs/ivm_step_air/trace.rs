@@ -9,12 +9,12 @@
 //! bits and one zero-prefix bank. MUL/MULHU/MULHSU/MULH reuse that workspace
 //! for exact product digits with bounded carries and signed corrections. DIV/DIVU/
 //! REM/REMU and signed ABS include exact last-attempt gas/arithmetic traps before
-//! invocation cleanup. ABS rejects i64::MIN after the one-unit gas debit.
+//! invocation cleanup. ABS rejects `i64::MIN` after the one-unit gas debit.
 //! MEAN computes the signed 65-bit sum and truncates toward zero, charging two
 //! gas units and completing three cycles. Final-attempt cycle admission follows
 //! the interpreter pre-dispatch limit, including a completed last-step crossing.
 //! ISQRT proves n=q²+r and 0<=r<=2q with a 32-bit root, charging six gas
-//! and cycles. DIV_CEIL proves the signed quotient plus its exact same-sign
+//! and cycles. `DIV_CEIL` proves the signed quotient plus its exact same-sign
 //! nonzero-remainder correction, charging twelve gas and cycles; OOG takes
 //! precedence over denominator-zero and signed-overflow traps. All use the
 //! existing arithmetic workspaces. GCD uses five constrained mode cells and
@@ -228,9 +228,9 @@ fn family(word: u32) -> Option<Family> {
     match opcode {
         wide::arithmetic::CMOV => return Some(Family::Move(Operand::Register(wide::rs1(word)))),
         wide::arithmetic::CMOVI => {
-            return Some(Family::Move(Operand::Constant(
-                i64::from(wide::imm8(word)) as u64
-            )));
+            return Some(Family::Move(Operand::Constant(i64::cast_unsigned(
+                i64::from(wide::imm8(word)),
+            ))));
         }
         wide::arithmetic::ABS => return Some(Family::Absolute),
         wide::arithmetic::MEAN => return Some(Family::Mean),
@@ -297,7 +297,7 @@ fn immediate(word: u32) -> Option<u64> {
             wide::opcode(word),
             wide::arithmetic::ROTL_IMM | wide::arithmetic::ROTR_IMM
         )
-        .then(|| u64::from(wide::imm8(word) as u8))
+        .then(|| u64::from(i8::cast_unsigned(wide::imm8(word))))
     })
 }
 
@@ -366,7 +366,7 @@ fn signed(value: i64) -> F {
     if value < 0 {
         F::ZERO.sub(F(value.unsigned_abs()))
     } else {
-        F(value as u64)
+        F(i64::cast_unsigned(value))
     }
 }
 
@@ -614,6 +614,7 @@ impl ScalarSegment {
             return Err(Error::InvalidTrace);
         }
         let mut rows = Vec::with_capacity(self.physical_steps() + 1);
+        let scalar_vector_length = self.before.vector_length;
         for (index, record) in records.iter().enumerate() {
             let outcome = if index + 1 == self.steps {
                 self.outcome
@@ -632,8 +633,8 @@ impl ScalarSegment {
                 || record.after.halted
                 || record.before.constraint_failed
                 || record.after.constraint_failed
-                || record.before.vector_length != self.before.vector_length
-                || record.after.vector_length != self.before.vector_length
+                || record.before.vector_length != scalar_vector_length
+                || record.after.vector_length != scalar_vector_length
             {
                 return Err(Error::InvalidTrace);
             }
@@ -764,10 +765,12 @@ impl ScalarSegment {
                     state.gas_remaining < cost
                         || right == 0
                         || (division::signed_kind(kind)
-                            && left == i64::MIN as u64
+                            && left == i64::cast_unsigned(i64::MIN)
                             && right == u64::MAX)
                 }
-                Some(Family::Absolute) => state.gas_remaining < cost || left == i64::MIN as u64,
+                Some(Family::Absolute) => {
+                    state.gas_remaining < cost || left == i64::cast_unsigned(i64::MIN)
+                }
                 Some(Family::Mean | Family::SquareRoot | Family::Gcd) => state.gas_remaining < cost,
                 _ => false,
             };
@@ -811,9 +814,9 @@ impl ScalarSegment {
             let result = if index < 4 {
                 row[BRANCH + branch::TAKEN_BANK_OFFSET].0
             } else if index == 4 {
-                (left as i64).min(right as i64) as u64
+                i64::cast_unsigned(u64::cast_signed(left).min(u64::cast_signed(right)))
             } else {
-                (left as i64).max(right as i64) as u64
+                i64::cast_unsigned(u64::cast_signed(left).max(u64::cast_signed(right)))
             };
             row[RESULT..RESULT + 2].copy_from_slice(&halves(result));
         }
@@ -1507,7 +1510,7 @@ impl ProofManagedNoteStarkAdapterV1 for ScalarSegment {
         _: &[Vec<F>],
         _: &[Vec<F>],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<Vec<F>>, Error> {
         Ok(Vec::new())
     }
@@ -1519,7 +1522,7 @@ impl ProofManagedNoteStarkAdapterV1 for ScalarSegment {
         _: &[F],
         fixed: &[F],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<F>, Error> {
         residues(
             self,

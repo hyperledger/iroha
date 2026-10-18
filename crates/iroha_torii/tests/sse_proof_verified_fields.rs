@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Assert `ProofVerified` SSE JSON includes `proof_hash`, `call_hash`, `vk_ref`, `vk_commitment`, and filtering works.
 #![cfg(feature = "app_api")]
 #[path = "common/proof_events.rs"]

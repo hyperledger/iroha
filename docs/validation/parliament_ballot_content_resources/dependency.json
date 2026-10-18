@@ -1,0 +1,15 @@
+{
+  "accepted_observation_path": "capture/source/target/parliament-ideal-machine-stage/request-accepted-observation.json.template",
+  "accepted_observation_sha256": "81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c",
+  "capture_files": {
+    "capture/manifest.sha256": "dbaf7f5306389646f492862cc3f6618ade622546011de6159b856f1fbec61d93",
+    "capture/receipt.json": "a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69"
+  },
+  "complete_resource_vector": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "published_bundle": "docs/validation/parliament_ballot_request_machine",
+  "published_manifest_sha256": "a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d",
+  "selected_source_count": 152,
+  "source_archive_rule": "capture/source/{original_path}.template"
+}

@@ -38,6 +38,7 @@ from .attestation import (
     AttestationRejected, EnrollmentRefusal, EvidenceRefused, VerificationUnavailable,
     _verify_apple_assertion_with_hash, demand, refusal_stage, require,
     verify_apple_wallet_attestation_raw,
+    recheck_retained_android_chain_revocation,
 )
 from .wallet_enrollment import (
     APPLE_ADMITTED_FACTS, WalletEnrollmentScope, _digest,
@@ -215,7 +216,7 @@ def configured_policy(value: dict, platform: str) -> ConfiguredWalletEnrollmentP
     require(any(scheme) and any(asset), "empty private policy binding")
     regulator = value["regulatory_policy"]
     require(type(regulator) is dict and set(regulator) == {
-        "permitted_controls", "blacklist_max_age_ms", "time_anchor_max_response_ms"}, "invalid regulator projection")
+        "permitted_controls", "time_anchor_max_response_ms"}, "invalid regulator projection")
     selected_regulator = RegulatoryPolicyV1(**regulator)
     require(type(value["challenge_lifetime_ms"]) is int and 0 < value["challenge_lifetime_ms"] < (1 << 64),
             "invalid private challenge lifetime")
@@ -607,6 +608,22 @@ class VerifierOwner:
         self.recheck()
         return result
 
+    def recheck_revocation(self, original: bytes, **arguments) -> None:
+        """Read an exact successful E1, refresh its revocation, never change its outcome."""
+        require(self.platform == "android", "revocation refresh requires Android evidence")
+        result = self.perform(original, "inspect", **arguments)
+        if result is None:
+            raise VerificationUnavailable("successful retained enrollment unavailable")
+        value, _ = self.request(original)
+        retained = exact_json(result, MAX_ORIGINAL)
+        chain = retained.get("original_items_base64")
+        require(type(chain) is list and chain == value["evidence"].get("chain_base64")
+                and retained.get("config_sha256") == self.config_digest.hex(),
+                "retained chain differs from admitted enrollment")
+        recheck_retained_android_chain_revocation(
+            [b64(item, 16384) for item in chain], self.policy.android_anchors(), self.revocation)
+        self.recheck()
+
     def _verify(self, value: dict, scope, digest: bytes, incarnation: bytes,
                 first_dispatch: int) -> bytes:
         self._clock()
@@ -736,6 +753,12 @@ def serve(owner: VerifierOwner, input_stream, output_stream):
                         "preparation exchange carries dispatch inputs")
                     owner.prepare(incarnation, preparation)
                     response["outcome"] = "prepared"
+                elif action == "recheck_revocation":
+                    owner.recheck_revocation(b64(value["original_base64"], MAX_REQUEST),
+                        incarnation=incarnation, preparation=preparation,
+                        account_signature=b64(value["account_signature_base64"], 64, 64),
+                        dispatch_time_ms=value["dispatch_time_ms"])
+                    response["outcome"] = "current"
                 else:
                     result = owner.perform(b64(value["original_base64"], MAX_REQUEST), action,
                         incarnation=incarnation, preparation=preparation,

@@ -501,7 +501,7 @@ mod tests {
             public_balance_scope: iroha_data_model::asset::AssetBalanceScope::Global,
             amount: 19,
             authorization_epoch: 7,
-            replay_nullifier: Default::default(),
+            replay_nullifier: iroha_data_model::privacy::PrivacyZkAceReplayNullifierV1::default(),
         };
         let mut public_inputs = ZkAcePrivacyPublicInputsV1::new(statement, [0x48; 32]);
         let authorization_digest = derive_zk_ace_privacy_authorization_digest(&public_inputs)
@@ -535,7 +535,7 @@ mod tests {
                 .expect("profile is UTF-8")
                 .ends_with(ZK_ACE_DIGEST384_PARAMETER_SHA3_256_V1)
         );
-        assert!(!ZK_ACE_FULL_ENGINE_AVAILABLE_V1);
+        const { assert!(!ZK_ACE_FULL_ENGINE_AVAILABLE_V1) };
         let stark_profile = core::str::from_utf8(zk_ace_stark_profile_descriptor_v1())
             .expect("STARK profile is UTF-8");
         assert!(stark_profile.contains("blowup=8"));

@@ -1,5 +1,5 @@
 //! Scheduler telemetry smoke tests (telemetry feature only).
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Checks canonical execution and explicit lane telemetry projections.
 #![allow(unused_imports)]
 use iroha_config::parameters::actual::{
@@ -564,7 +564,8 @@ fn assert_governance_manifest_snapshot(
 fn nexus_config_diff_counter_and_event_emitted() {
     use iroha_config::parameters::actual::{
         Autoscale, Commit, Da, Fusion, GovernanceCatalog, LaneRegistry, LaneRoutingMatcher,
-        LaneRoutingPolicy, LaneRoutingRule, Nexus, NexusAxt,
+        LaneRoutingPolicy, LaneRoutingRule, Nexus, NexusAtomicPrivateSettlement, NexusAxt,
+        NexusHfSharedLeases, NexusUploadedModels,
     };
     use nonzero_ext::nonzero;
     use norito::json::to_string as to_json_string;
@@ -628,11 +629,11 @@ fn nexus_config_diff_counter_and_event_emitted() {
         relay_worker: NexusRelayWorker::default(),
         staking: NexusStaking::default(),
         fees: NexusFees::default(),
-        hf_shared_leases: Default::default(),
-        uploaded_models: Default::default(),
+        hf_shared_leases: NexusHfSharedLeases::default(),
+        uploaded_models: NexusUploadedModels::default(),
         endorsement: NexusEndorsement::default(),
         axt: NexusAxt::default(),
-        atomic_private_settlement: Default::default(),
+        atomic_private_settlement: NexusAtomicPrivateSettlement::default(),
         lane_config: RuntimeLaneConfig::from_catalog(&lane_catalog),
         configured_lane_catalog: lane_catalog.clone(),
         lane_catalog,

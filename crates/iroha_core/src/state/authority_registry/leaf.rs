@@ -675,8 +675,8 @@ impl CanonicalTablePairedSnapshot {
 #[path = "leaf/paired.rs"]
 mod paired;
 pub(in crate::state) use paired::{
-    RetainedSemanticError, RetainedSemanticRows, TypedPairedRowAllowance, TypedPairedRowError,
-    TypedPairedTableBuilder,
+    RetainedSemanticError, RetainedSemanticOrdinalRows, RetainedSemanticProgress,
+    RetainedSemanticRows, TypedPairedRowAllowance, TypedPairedRowError, TypedPairedTableBuilder,
 };
 
 impl CanonicalTableLeafSet {

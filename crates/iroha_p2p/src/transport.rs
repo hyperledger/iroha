@@ -1259,7 +1259,7 @@ pub enum TcpConnectStream {
     /// Raw substrate stream which is not itself an admitted P2P transport.
     Plain(TcpStream),
     /// TLS-wrapped stream to the proxy (`https://` proxies only).
-    Tls(tokio_rustls::client::TlsStream<TcpStream>),
+    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProxyKind {
@@ -1754,10 +1754,10 @@ pub async fn connect(addr: &SocketAddr, opts: &TcpConnectOptions) -> Result<TcpC
             Err(e) => {
                 static PROXY_CONNECT_SAMPLER: OnceLock<Mutex<LogSampler>> = OnceLock::new();
                 let sampler = PROXY_CONNECT_SAMPLER.get_or_init(|| Mutex::new(LogSampler::new()));
-                if let Ok(mut s) = sampler.lock() {
-                    if let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500)) {
-                        iroha_logger::warn!(%e, proxy=%proxy_endpoint, suppressed=supp, "Failed to connect to proxy");
-                    }
+                if let Ok(mut s) = sampler.lock()
+                    && let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500))
+                {
+                    iroha_logger::warn!(%e, proxy=%proxy_endpoint, suppressed=supp, "Failed to connect to proxy");
                 }
                 return Err(e);
             }
@@ -1777,7 +1777,7 @@ pub async fn connect(addr: &SocketAddr, opts: &TcpConnectOptions) -> Result<TcpC
                 )
                 .await?;
                 http_connect_tunnel(&mut tls, proxy, tunnel_target, &proxy_endpoint).await?;
-                return Ok(TcpConnectStream::Tls(tls));
+                return Ok(TcpConnectStream::Tls(Box::new(tls)));
             }
             ProxyKind::Socks5 => {
                 socks5_connect(&mut stream, proxy, tunnel_target).await?;
@@ -1793,10 +1793,10 @@ pub async fn connect(addr: &SocketAddr, opts: &TcpConnectOptions) -> Result<TcpC
             Err(e) => {
                 static DIRECT_CONNECT_SAMPLER: OnceLock<Mutex<LogSampler>> = OnceLock::new();
                 let sampler = DIRECT_CONNECT_SAMPLER.get_or_init(|| Mutex::new(LogSampler::new()));
-                if let Ok(mut s) = sampler.lock() {
-                    if let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500)) {
-                        iroha_logger::warn!(%e, target=%addr.to_string(), suppressed=supp, "TCP connect failed");
-                    }
+                if let Ok(mut s) = sampler.lock()
+                    && let Some(supp) = s.should_log(tokio::time::Duration::from_millis(500))
+                {
+                    iroha_logger::warn!(%e, target=%addr.to_string(), suppressed=supp, "TCP connect failed");
                 }
                 Err(e)
             }
@@ -2637,6 +2637,110 @@ mod tests {
             client_result.is_err(),
             "TLS CertificateVerify must reject a replayed certificate without its private key"
         );
+    }
+    #[test]
+    fn tcp_connect_stream_keeps_proxy_tls_state_off_stack() {
+        const {
+            assert!(
+                std::mem::size_of::<TcpConnectStream>()
+                    <= std::mem::size_of::<TcpStream>() + std::mem::size_of::<usize>()
+            );
+        }
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn boxed_https_proxy_stream_preserves_nested_p2p_tls_and_payload() {
+        use iroha_primitives::addr::socket_addr;
+        use tokio::net::TcpListener;
+        use tokio_rustls::TlsAcceptor;
+
+        let rcgen::CertifiedKey { cert, signing_key } =
+            rcgen::generate_simple_self_signed(["test.local".to_owned()])
+                .expect("generate test certificate");
+        let pinned: Arc<[u8]> = Arc::from(cert.der().as_ref());
+        let expected_binding = certificate_fingerprint(pinned.as_ref());
+        let mut config =
+            rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![rustls::pki_types::CertificateDer::from(pinned.to_vec())],
+                    rustls::pki_types::PrivateKeyDer::from(
+                        rustls::pki_types::PrivatePkcs8KeyDer::from(signing_key.serialize_der()),
+                    ),
+                )
+                .expect("test TLS server config");
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        let proxy_acceptor = TlsAcceptor::from(Arc::new(config.clone()));
+        config.alpn_protocols = vec![P2P_ALPN.to_vec()];
+        let peer_acceptor = TlsAcceptor::from(Arc::new(config));
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind proxy");
+        let endpoint = listener.local_addr().expect("proxy address");
+        let opts = TcpConnectOptions {
+            proxy: ProxyPolicy::from_config(Some(format!("https://{endpoint}")), Vec::new())
+                .expect("proxy policy"),
+            proxy_tls_pinned_cert_der: Some(pinned),
+            ..TcpConnectOptions::default()
+        };
+        let server = async move {
+            let (tcp, _) = listener.accept().await.expect("accept proxy client");
+            let mut proxy = proxy_acceptor.accept(tcp).await.expect("proxy TLS");
+            assert_eq!(
+                proxy.get_ref().1.alpn_protocol(),
+                Some(b"http/1.1".as_slice())
+            );
+            let expected = b"CONNECT 192.0.2.1:443 HTTP/1.1\r\nHost: 192.0.2.1:443\r\nConnection: keep-alive\r\n\r\n";
+            let mut request = vec![0; expected.len()];
+            proxy
+                .read_exact(&mut request)
+                .await
+                .expect("CONNECT request");
+            assert_eq!(request, expected);
+            proxy
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .await
+                .expect("CONNECT response");
+            proxy.flush().await.expect("flush CONNECT");
+            let mut peer = peer_acceptor.accept(proxy).await.expect("nested P2P TLS");
+            assert_eq!(peer.get_ref().1.alpn_protocol(), Some(P2P_ALPN));
+            let mut payload = [0; 4];
+            peer.read_exact(&mut payload)
+                .await
+                .expect("authenticated request");
+            assert_eq!(&payload, b"ping");
+            peer.write_all(b"pong")
+                .await
+                .expect("authenticated response");
+            peer.flush().await.expect("flush response");
+        };
+        let client = async {
+            let stream = connect(&socket_addr!(192.0.2.1:443), &opts)
+                .await
+                .expect("CONNECT tunnel");
+            let TcpConnectStream::Tls(proxy) = stream else {
+                panic!("HTTPS proxy must retain its TLS transport");
+            };
+            assert_eq!(
+                proxy.get_ref().1.alpn_protocol(),
+                Some(b"http/1.1".as_slice())
+            );
+            let mut peer = tls::connect_tls("test.local", proxy)
+                .await
+                .expect("nested P2P TLS");
+            assert_eq!(peer.get_ref().1.alpn_protocol(), Some(P2P_ALPN));
+            assert_eq!(
+                tls_peer_certificate_fingerprint(&peer).unwrap(),
+                expected_binding
+            );
+            peer.write_all(b"ping")
+                .await
+                .expect("authenticated request");
+            peer.flush().await.expect("flush request");
+            let mut payload = [0; 4];
+            peer.read_exact(&mut payload)
+                .await
+                .expect("authenticated response");
+            assert_eq!(&payload, b"pong");
+        };
+        tokio::join!(client, server);
     }
     #[tokio::test(flavor = "current_thread")]
     async fn https_proxy_tls_pinning_accepts_only_matching_cert() {

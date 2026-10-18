@@ -167,12 +167,51 @@ impl CellArenaV1 {
             data[full] |= 0x80 >> (bits.len() % 8);
         }
         self.insert(TonBocCell {
-            descriptor: u8::try_from(refs.len()).expect("refs"),
+            descriptor: u8::try_from(refs.len()).expect("refs")
+                | refs.iter().fold(0, |mask, index| {
+                    mask | (self.cells[*index].descriptor & 0xe0)
+                }),
             data_descriptor: u8::try_from(full + bits.len().div_ceil(8)).expect("data"),
             data: (data).into(),
             refs: (refs.to_vec()).into(),
             exotic: false,
         })
+    }
+
+    fn import_cell(&mut self, reference: &crate::v1::ton_cell::CellRef) -> usize {
+        if let Some(cell) = reference.cell() {
+            let refs = cell
+                .refs()
+                .iter()
+                .map(|child| self.import_cell(child))
+                .collect::<Vec<_>>();
+            let mut data = cell.data().to_vec();
+            if !cell.bit_len().is_multiple_of(8) {
+                *data.last_mut().expect("partial byte") |= 0x80 >> (cell.bit_len() % 8);
+            }
+            self.insert(TonBocCell {
+                descriptor: u8::try_from(refs.len()).expect("refs")
+                    | refs.iter().fold(0, |mask, index| {
+                        mask | (self.cells[*index].descriptor & 0xe0)
+                    }),
+                data_descriptor: u8::try_from(cell.bit_len() / 8 + cell.bit_len().div_ceil(8))
+                    .expect("data"),
+                data: data.into(),
+                refs: refs.into(),
+                exotic: false,
+            })
+        } else {
+            let mut data = vec![1, 1];
+            data.extend_from_slice(reference.hash());
+            data.extend_from_slice(&reference.depth().to_be_bytes());
+            self.insert(TonBocCell {
+                descriptor: 0x28,
+                data_descriptor: 72,
+                data: data.into(),
+                refs: vec![].into(),
+                exotic: true,
+            })
+        }
     }
 
     /// The arena as a `BoC` whose parents precede their children.
@@ -1176,6 +1215,158 @@ impl SyntheticTonChainV1 {
                 header_proof: arena.boc(root),
             },
             transaction: transaction_boc,
+        }
+    }
+
+    /// An authenticated account-state fixture for a standard v5r1 wallet, including its
+    /// immutable code commitment, exact wallet id and current sequence.
+    #[must_use]
+    pub fn wallet_state_proof(
+        &self,
+        account: [u8; 32],
+        wallet_id: u32,
+        seqno: u32,
+        code_hash: [u8; 32],
+        time: u32,
+    ) -> crate::light_client::ton::wallet_state::TonAccountStateProofV1 {
+        let mut arena = CellArenaV1::new();
+        let mut code = vec![1, 1];
+        code.extend_from_slice(&code_hash);
+        code.extend_from_slice(&0_u16.to_be_bytes());
+        let code = arena.insert(TonBocCell {
+            descriptor: 0x28,
+            data_descriptor: 72,
+            data: code.into(),
+            refs: vec![].into(),
+            exotic: true,
+        });
+        let data = arena.cell(
+            BitsV1::new()
+                .bit(true)
+                .uint(u128::from(seqno), 32)
+                .uint(u128::from(wallet_id), 32)
+                .bytes(&[5; 32])
+                .bit(false),
+            &[],
+        );
+        let account_cell = arena.cell(
+            BitsV1::new()
+                .bit(true)
+                .uint(2, 2)
+                .bit(false)
+                .int(0, 8)
+                .bytes(&account)
+                .uint(0, 3)
+                .uint(0, 3)
+                .uint(0, 3)
+                .uint(0, 32)
+                .bit(false)
+                .uint(1, 64)
+                .zero_currency()
+                .bit(true)
+                .bit(false)
+                .bit(false)
+                .bit(true)
+                .bit(true)
+                .bit(false),
+            &[code, data],
+        );
+        self.proof_with_account(arena, account_cell, account, 101, 2, time)
+    }
+
+    /// Authenticate an independently constructed active Account cell at explicit source heights.
+    /// Opaque locked-code references become native pruned cells without changing hash zero.
+    #[must_use]
+    pub fn account_state_proof(
+        &self,
+        account: [u8; 32],
+        state: crate::v1::ton_cell::Cell,
+        masterchain_seqno: u32,
+        shard_seqno: u32,
+        time: u32,
+    ) -> crate::light_client::ton::wallet_state::TonAccountStateProofV1 {
+        let expected = *state.hash();
+        let mut arena = CellArenaV1::new();
+        let root = arena.import_cell(&state.into());
+        assert_eq!(
+            arena.hash(root),
+            expected,
+            "imported Account representation hash"
+        );
+        self.proof_with_account(arena, root, account, masterchain_seqno, shard_seqno, time)
+    }
+
+    fn proof_with_account(
+        &self,
+        mut arena: CellArenaV1,
+        account_cell: usize,
+        account: [u8; 32],
+        masterchain_seqno: u32,
+        shard_seqno: u32,
+        time: u32,
+    ) -> crate::light_client::ton::wallet_state::TonAccountStateProofV1 {
+        let account_state = arena.boc(account_cell);
+        let leaf = LeafV1 {
+            bits: BitsV1::new()
+                .uint(0, 5)
+                .zero_currency()
+                .bytes(&[6; 32])
+                .uint(100, 64)
+                .clone(),
+            refs: vec![account_cell],
+        };
+        let edge = hashmap_edge(&mut arena, &[(key_bits(&account, 256), leaf)], 256, None);
+        let edge = arena.cell(&edge.bits, &edge.refs);
+        let accounts = arena.cell(BitsV1::new().bit(true).uint(0, 5).zero_currency(), &[edge]);
+        let empty = arena.cell(&BitsV1::new(), &[]);
+        let state = arena.cell(
+            BitsV1::new()
+                .uint(0x9023_afe2, 32)
+                .int(-239, 32)
+                .shard_ident(0)
+                .uint(u128::from(shard_seqno), 32)
+                .uint(0, 32)
+                .uint(u128::from(time), 32)
+                .uint(100, 64)
+                .uint(0, 32)
+                .bit(false)
+                .bit(false),
+            &[empty, accounts, empty],
+        );
+        let state_proof = arena.boc(state);
+        let key = self.key_block(100, 0, 0, 0, time, time + 65536, 4);
+        let info = Self::block_info(
+            &mut arena,
+            false,
+            false,
+            shard_seqno,
+            time,
+            100,
+            0,
+            &self.genesis_shard(),
+            Some(&key.hop.block.block_id),
+        );
+        let account_blocks = Self::empty_account_blocks(&mut arena);
+        let extra = Self::block_extra(&mut arena, account_blocks, None);
+        let root = Self::block(&mut arena, info, state, extra);
+        let root_hash = arena.hash(root);
+        let shard = TonShardLinkV1 {
+            block_id: TonBlockIdExtV1 {
+                workchain: 0,
+                shard: MASTER_SHARD,
+                seqno: shard_seqno,
+                root_hash,
+                file_hash: self.file_hash(&root_hash),
+            },
+            header_proof: arena.boc(root),
+        };
+        let (masterchain, _) =
+            self.master_block(masterchain_seqno, 100, 0, time + 1, &shard.block_id, &[], 4);
+        crate::light_client::ton::wallet_state::TonAccountStateProofV1 {
+            masterchain: crate::light_client::ton::TonMasterchainAnchorV1::Signed(masterchain),
+            shard,
+            state_proof,
+            account_state,
         }
     }
 

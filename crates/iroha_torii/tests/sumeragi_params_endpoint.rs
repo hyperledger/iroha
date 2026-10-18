@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Router-level test for GET /v1/sumeragi/params
 #[cfg(feature = "telemetry")]
 #[path = "fixtures.rs"]

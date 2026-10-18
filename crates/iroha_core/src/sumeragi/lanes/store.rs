@@ -88,7 +88,6 @@ struct PendingRead {
     ready: Option<PreparedLaneWrite>,
 }
 struct StoreState {
-    tip: u64,
     write: Option<PreparedLaneWrite>,
     read: Option<PendingRead>,
 }
@@ -114,6 +113,9 @@ pub struct FileLaneBlockStore {
     schedule: Arc<dyn AvailabilitySchedule>,
 
     state: Mutex<StoreState>,
+    // The sole validated durable tip has a short notification lock. Waiting never
+    // acquires the read/publication I/O mutex; operations order state before tip.
+    tip: Mutex<u64>,
     pub(super) batch_read: Mutex<Option<BatchRead>>,
     grown: Condvar,
     // The same runtime store serves member and observer publication. Only a weak original
@@ -122,9 +124,10 @@ pub struct FileLaneBlockStore {
 }
 impl core::fmt::Debug for FileLaneBlockStore {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let height = *self.tip.lock();
         f.debug_struct("FileLaneBlockStore")
             .field("dir", &self.dir)
-            .field("height", &self.state.lock().tip)
+            .field("height", &height)
             .finish_non_exhaustive()
     }
 }
@@ -322,10 +325,10 @@ impl FileLaneBlockStore {
             budget,
             schedule,
             state: Mutex::new(StoreState {
-                tip: 0,
                 write: None,
                 read: None,
             }),
+            tip: Mutex::new(0),
             batch_read: Mutex::new(None),
             grown: Condvar::new(),
             global_queue: OnceLock::new(),
@@ -344,7 +347,7 @@ impl FileLaneBlockStore {
         Self::with_original_refunds(&self.budget, || {
             self.revalidate_custody()?;
             let mut state = self.state.lock();
-            if height == 0 || height > state.tip {
+            if height == 0 || height > *self.tip.lock() {
                 return Ok(None);
             }
             self.read_prepared(&mut state, height)?;
@@ -419,7 +422,55 @@ impl FileLaneBlockStore {
                 read.ready = Some(read.job.poll(&self.budget)?);
             }
             self.revalidate_custody()?;
-            Ok(state.tip)
+            Ok(*self.tip.lock())
+        })
+    }
+
+    // Only append installs state.write, after independent certified_source verification
+    // and exact body.source equality. Recovery never installs it. This private helper
+    // completes that immutable admitted owner; it cannot accept fresh or disk-supplied input.
+    fn publish_pending_write(&self, state: &mut StoreState) -> Result<(), Attempt<io::Error>> {
+        let pending = state.write.as_mut().expect("original publication retained");
+        let height = pending.body().header().height;
+        pending
+            .check_context(pending.body().source(), &*self.crypto)
+            .map_err(record_error)?;
+        let bytes = pending.prepare(&self.budget).map_err(record_error)?;
+        if bytes.len() > MAX_FRAME_FILE_BYTES {
+            return Err(invalid("lane frame exceeds disk custody bound").into());
+        }
+        self.publish_frame(height, bytes)?;
+        state.write = None;
+        {
+            let mut tip = self.tip.lock();
+            *tip = height;
+            self.grown.notify_all();
+        }
+        Ok(())
+    }
+
+    /// Continue only the original already-admitted publication after its driver retires.
+    /// A busy state or any original refusal retains the exact owner for reconciliation.
+    ///
+    /// # Errors
+    /// Original lock contention, resource refusal, namespace or publication failure.
+    pub(super) fn resume_retired_publication(&self) -> Result<(), Attempt<io::Error>> {
+        Self::with_original_refunds(&self.budget, || {
+            let Some(mut state) = self.state.try_lock() else {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "original retired lane publication is busy",
+                )
+                .into());
+            };
+            if state.write.is_none() {
+                return Ok(());
+            }
+            self.revalidate_custody()?;
+            self.publish_pending_write(&mut state)?;
+            drop(state);
+            self.notify_global_queue();
+            Ok(())
         })
     }
 
@@ -440,11 +491,13 @@ impl FileLaneBlockStore {
     /// Wait until the durable validated tip reaches `height`, bounded by `timeout`.
     #[must_use]
     pub fn wait_for(&self, height: u64, timeout: Duration) -> bool {
+        #[cfg(all(test, sumeragi_core_mutation = "HC389"))]
+        let _original_io_state = self.state.lock();
         let deadline = Instant::now() + timeout;
-        let mut state = self.state.lock();
-        while state.tip < height {
-            if self.grown.wait_until(&mut state, deadline).timed_out() {
-                return state.tip >= height;
+        let mut tip = self.tip.lock();
+        while *tip < height {
+            if self.grown.wait_until(&mut tip, deadline).timed_out() {
+                return *tip >= height;
             }
         }
         true
@@ -504,13 +557,13 @@ impl BlockStore for FileLaneBlockStore {
         Self::committed_body(self, height)
     }
     fn height(&self) -> u64 {
-        self.state.lock().tip
+        *self.tip.lock()
     }
     fn entry(&self, height: u64) -> Result<Option<SyncEntry>, Attempt<io::Error>> {
         Self::with_original_refunds(&self.budget, || {
             self.revalidate_custody()?;
             let mut state = self.state.lock();
-            if height == 0 || height > state.tip {
+            if height == 0 || height > *self.tip.lock() {
                 return Ok(None);
             }
             let prepared = self.read_prepared(&mut state, height)?;
@@ -547,7 +600,8 @@ impl BlockStore for FileLaneBlockStore {
             }
             self.revalidate_custody()?;
             let mut state = self.state.lock();
-            if height <= state.tip {
+            let tip = *self.tip.lock();
+            if height <= tip {
                 let stored = self.read_prepared(&mut state, height)?;
                 if stored.body() != body || stored.commit_qc().result != qc.result {
                     // This healthy stored read is complete; reject the incoming decision without
@@ -562,7 +616,7 @@ impl BlockStore for FileLaneBlockStore {
                 self.notify_global_queue();
                 return Ok(());
             }
-            if height != state.tip.saturating_add(1) {
+            if height != tip.saturating_add(1) {
                 return Err(invalid("lane append is not the next durable height").into());
             }
             if let Some(original) = &state.write {
@@ -576,18 +630,7 @@ impl BlockStore for FileLaneBlockStore {
             } else {
                 state.write = Some(PreparedLaneWrite::new(body.clone(), qc.clone()));
             }
-            let pending = state.write.as_mut().expect("original publication retained");
-            pending
-                .check_context(&source, &*self.crypto)
-                .map_err(record_error)?;
-            let bytes = pending.prepare(&self.budget).map_err(record_error)?;
-            if bytes.len() > MAX_FRAME_FILE_BYTES {
-                return Err(invalid("lane frame exceeds disk custody bound").into());
-            }
-            self.publish_frame(height, bytes)?;
-            state.write = None;
-            state.tip = height;
-            self.grown.notify_all();
+            self.publish_pending_write(&mut state)?;
             drop(state);
             self.notify_global_queue();
             Ok(())

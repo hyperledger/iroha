@@ -1059,7 +1059,7 @@ match the explicit declarations. The [capture record](../crates/iroha_data_model
 documents the source and fixture digests; the permanent test has no writer or
 source-path inference.
 
-The 127 generated query types preserve all 684 captured frames across 171
+The 129 generated query types preserve all 692 captured frames across 173
 payloads, with JSON and frame roundtrips. Coverage includes both alias scopes,
 optional anchors and all query-filter enum variants; the focused query suite
 passes 28 tests. The [query capture record](../crates/iroha_data_model/tests/fixtures/query_generated_identity_frames.md)

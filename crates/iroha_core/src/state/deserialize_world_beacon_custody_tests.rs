@@ -164,21 +164,58 @@ fn beacon_snapshot_second_cut_refusal_keeps_raw_source_and_refunds_partial_resto
     let mut map = SnapshotJsonMap::parse(&raw, "world").unwrap();
     let pointer = original_field(&map);
     let pool = AllocationBudget::new(peak - 1);
-    pool.with_deferred_refund_notifications(|_| {
+    let (release, mut registration) = pool.with_deferred_refund_notifications(|_| {
         let error = take_native_beacon_sessions(&mut map, &pool).err().unwrap();
         let StateRestoreError::BeaconSession(GlobalThresholdBeaconSessionError::Admission(actual)) = error else {
             panic!("second graph must preserve its actual original pool refusal")
         };
-        assert!(matches!(actual, AllocationRefusal::Capacity { requested_bytes, .. } if requested_bytes == second_demand));
+        let AllocationRefusal::Capacity {
+            requested_bytes,
+            reserved_bytes,
+            limit_bytes,
+            ref release,
+        } = actual else {
+            panic!("second graph must retain its original capacity observation")
+        };
+        assert_eq!(requested_bytes, second_demand);
+        assert_eq!(reserved_bytes, peak - second_demand);
+        assert_eq!(limit_bytes, peak - 1);
         assert_eq!(pool.reserved_bytes(), 0, "failed reconstruction released its first graph");
-        // Defer this pool's notifications while independently reproducing the
-        // exact occupied geometry. Equality includes the actual release source
-        // and observation sequence, not only requested/occupied byte counts.
-        let occupied = pool.try_reserve_bytes(peak - second_demand).unwrap();
+        let mut registration = crate::unit_test_support::release_registration(&pool);
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(registration.poll_wait(release, &mut context).is_pending());
+        let unrelated = AllocationBudget::new(second_demand);
+        drop(unrelated.try_reserve_bytes(second_demand).unwrap());
+        assert!(registration.poll_wait(release, &mut context).is_pending());
+
+        // Credits return immediately to callback-free thread retries. Task callbacks
+        // remain deferred until this original pool's enclosing physical scope ends.
+        let mut thread_registration = crate::unit_test_support::release_registration(&pool);
+        thread_registration.bind_thread(std::thread::current());
+        assert!(thread_registration.poll_wait(release, &mut context).is_ready());
+        drop(thread_registration);
+        let occupied = pool
+            .try_reserve_bytes(reserved_bytes - pool.reserved_bytes())
+            .unwrap();
         let independently_observed = pool.try_reserve_bytes(second_demand).unwrap_err();
-        assert_eq!(actual, independently_observed);
+        assert!(matches!(independently_observed,
+            AllocationRefusal::Capacity {
+                requested_bytes: requested,
+                reserved_bytes: reserved,
+                limit_bytes: limit,
+                ..
+            } if requested == requested_bytes && reserved == reserved_bytes && limit == limit_bytes
+        ));
+        assert_ne!(actual, independently_observed,
+            "real partial-graph refunds advance the thread credit sequence even while task wakes are deferred");
+        assert!(registration.poll_wait(release, &mut context).is_pending());
         drop(occupied);
+        assert!(registration.poll_wait(release, &mut context).is_pending());
+        (release.clone(), registration)
     });
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(registration.poll_wait(&release, &mut context).is_ready());
+    drop(registration);
     assert_eq!(original_field(&map), pointer);
     assert_eq!(
         pool.reserved_bytes(),

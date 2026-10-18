@@ -8,16 +8,17 @@ use iroha_data_model::sumeragi_finality::{
 };
 use std::fs;
 
-const CAPTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../fixtures/kagemusha/ordinary_first_load_receipt_v1.json"
-);
+#[path = "../../../iroha_data_model/src/kagemusha/kagemusha_wallet_v1/test_fixture_cohort.rs"]
+mod test_fixture_cohort;
+
+const CAPTURE: &str = "fixtures/kagemusha/ordinary_first_load_receipt_v1.json";
 /// Read the exact separately generated first-Load capture with a finite extent.
 pub fn first_capture() -> String {
+    let path = test_fixture_cohort::path(CAPTURE);
     let metadata =
-        fs::symlink_metadata(CAPTURE).expect("exact separately generated first-Load capture");
+        fs::symlink_metadata(&path).expect("exact separately generated first-Load capture");
     assert!(metadata.file_type().is_file() && metadata.len() <= 1 << 20);
-    fs::read_to_string(CAPTURE).unwrap()
+    fs::read_to_string(path).unwrap()
 }
 
 /// Authenticate the original certificate and exact receipt event from signed genesis.

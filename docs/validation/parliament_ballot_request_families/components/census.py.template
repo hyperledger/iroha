@@ -1,0 +1,88 @@
+"""Write a finite arithmetic census of three frozen component schedules."""
+import argparse
+import csv
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+from arithmetic import p0, p1, R1_PER_ITEM
+
+
+def run(root, destination):
+    """Enumerate 998 VOTE lengths; report proved REG component witnesses."""
+    sys.path.insert(0, str(root/'target/parliament-ideal-machine-stage'))
+    from public_machine import table_bytes
+    tables = {row: table_bytes(root,row) for row in ('candidate','comparator')}
+    observed = json.loads((root/'target/parliament-content-resources-stage/capture/observation.json').read_bytes())
+    base_case = next(c for c in observed['cases'] if c['row']=='candidate' and c['list_count']==3)
+    base = next(s for s in base_case['stages'] if s['name']=='R1')
+    names = ('x','cx','ccx','base_xor_oracle_calls','elementary_gates')
+    columns = ['row','list_count']
+    for stage in ('P0','P1','R1'):
+        columns.extend(f'{stage}_{name}' for name in (*names,'clean_work_bits','output_bits','input_bits'))
+    csv_path = destination/'vote-census.csv'
+    summaries = {}
+    with csv_path.open('x',newline='') as stream:
+        writer = csv.DictWriter(stream,fieldnames=columns); writer.writeheader()
+        for row in tables:
+            previous = None
+            first = None
+            for n in range(3,1001):
+                item = dict(row=row,list_count=n)
+                for stage, value in (('P0',p0(n)),('P1',p1(row,tables[row],'VOTE',count=n))):
+                    item.update({f'{stage}_{key}':value['gates'][key] for key in names})
+                    item[f'{stage}_clean_work_bits'] = value['total_clean_work_bits']
+                    item[f'{stage}_output_bits'] = value['output_bits']
+                    item[f'{stage}_input_bits'] = 8*(499+128*n)
+                item.update({f'R1_{key}':base['gates'][key]+(n-3)*R1_PER_ITEM[key] for key in names})
+                item['R1_clean_work_bits'] = base['work']+(n-3)*524800
+                item['R1_input_bits'] = base['inputs']+(n-3)*1024
+                item['R1_output_bits'] = base['outputs']
+                if previous is not None and not all(previous[k]<=item[k] for k in columns[2:]):
+                    raise ValueError('nonmonotone VOTE component coordinate')
+                if first is None: first = item
+                previous = item
+                writer.writerow(item)
+            summaries[row] = dict(count=998,minimum_case=first,maximum_case=previous,
+                coordinatewise_nondecreasing=True,
+                note='F counts and some widths are constant; maxima need not be unique.')
+    reg = {}
+    for row,table in tables.items():
+        endpoint = p1(row,table,'REG',4096,(256,)*6)
+        interior = p1(row,table,'REG',4095,(255,)*6)
+        reg[row] = dict(
+            allowed_shape_count=4097*257**6,
+            endpoint_shape=dict(body=4096,contexts=[256]*6),endpoint=endpoint,
+            maximum_x_shape=dict(body=4095,contexts=[255]*6),maximum_x_case=interior,
+            maximum_x_extra_over_endpoint=interior['gates']['x']-endpoint['gates']['x'],
+            endpoint_maximal_coordinates=['cx','ccx','elementary_gates','base_xor_oracle_calls',
+                                         'input_bits','history_bits','total_clean_work_bits','output_bits'],
+            maximum_original_public_input_bits=8*(4096+6*256+192),
+            maximum_P1_input_bits_including_supplied_iv_pre_and_salt=8*(4096+6*256+240),
+            proof='Coordinatewise elementary increments >=62 per body byte and >=36 per context byte; '
+                  'CX and hash blocks are monotone; profile SHAKE dominates REG scratch. '
+                  'All seven popcounts and both SHA3 block maxima coincide at the listed X witness.')
+    lengths = set(range(40,4137)) | set(range(343,5976))
+    lengths |= {536+128*n for n in range(3,1001)} | {114+128*n for n in range(3,1001)}
+    result = dict(schema='parliament-component-family-arithmetic-v1',
+        scope='Frozen P0/P1/R1 component counts only; no full request or lifetime maximum.',
+        reg_p1=reg,vote_components=summaries,r1_per_item=R1_PER_ITEM,
+        census_rows=1996,census_sha256=hashlib.sha256(csv_path.read_bytes()).hexdigest(),
+        distinct_SHA3_lengths_checked_against_frozen_kernel=len(lengths),
+        reg_shape_reduction='Algebraic monotonicity and a simultaneously attaining X witness; no tuple enumeration or DP.',
+        vote_shape_reduction='All 998 accepted actual sizes enumerated per row with scalar P0/P1 and affine R1.',
+        omitted_stages=['S0','opening','R0','validated W','E','common return','L0','lifetime driver'],
+        full_request_family_bound=False,complete_resource_vector=False,
+        full_gate_stream_executed=False,native_workspace_qualified=False,
+        independent_cryptographic_review=False,profile_qualified=False,production_gate_changed=False)
+    (destination/'census.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    return result
+
+
+if __name__=='__main__':
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root',type=Path,required=True)
+    parser.add_argument('--out',type=Path,required=True)
+    arguments=parser.parse_args()
+    run(arguments.root.resolve(),arguments.out.resolve())

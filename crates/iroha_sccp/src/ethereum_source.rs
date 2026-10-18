@@ -724,6 +724,8 @@ pub enum EthereumMptRoleV1 {
     Transaction,
     /// Transaction receipt opening.
     Receipt,
+    /// Original signed transaction envelope opening.
+    Transaction,
 }
 /// Errors produced by the Ethereum wire conversions and execution-layer openings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

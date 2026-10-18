@@ -11,6 +11,40 @@ use iroha_core::{
 use tower::ServiceExt as _;
 
 #[test]
+fn finite_finality_heapless_rejections_preserve_missing_and_invalid_classification() {
+    use iroha_core::sumeragi::finality::NativeFinalityProofRefusal as Refusal;
+
+    for missing in [
+        Refusal::NotCommitted { height: 49 },
+        Refusal::NotInView { height: 49 },
+        Refusal::MissingCertificate { height: 49 },
+    ] {
+        let error = source_error(FinalityProofIntervalReadError::Proof(
+            NativeFinalityProofIntervalError::Native(missing),
+        ));
+        assert!(matches!(
+            error,
+            Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::NotFound
+            ))
+        ));
+    }
+    for invalid in [
+        Refusal::Malformed { height: 49 },
+        Refusal::Committee { height: 49 },
+        Refusal::HeaderMismatch { height: 49 },
+    ] {
+        let error = source_error(FinalityProofIntervalReadError::Proof(
+            NativeFinalityProofIntervalError::Native(invalid),
+        ));
+        assert!(matches!(
+            error,
+            Error::Query(iroha_data_model::ValidationFail::InternalError(_))
+        ));
+    }
+}
+
+#[test]
 fn borrowed_interval_identity_projects_only_its_root_to_the_owned_sequence() {
     use norito::{NoritoSchema as _, schema::identity::frame_hash};
 
@@ -45,7 +79,7 @@ fn admission() -> (
     let pool = ByteWeightedMemoryPool::new(working).unwrap();
     let reservation = QueryFanoutMemoryReservation::from_admitted_fanout(
         pool.try_acquire_parts([working as u64]).unwrap(),
-        QueryFanoutMemoryEnvelope::for_body_admission(working).unwrap(),
+        QueryFanoutMemoryEnvelope::for_bodyless_finality(working).unwrap(),
         pool.generation(),
     )
     .unwrap();
@@ -329,6 +363,8 @@ async fn cancelled_interval_http_future_keeps_original_worker_credit_until_physi
     let (release, held) = std::sync::mpsc::channel();
     let (finished, result) = tokio::sync::oneshot::channel();
     let request = tokio::spawn(run_with_stop(admission, owner, move |owner, cancelled| {
+        let budget = owner.finality_budget()?;
+        let prepaid = owner.allocation_context().consumed_allocated_bytes();
         started.send(()).unwrap();
         held.recv().unwrap();
         let limits = NativeFinalityProofIntervalLimits::new(
@@ -340,16 +376,12 @@ async fn cancelled_interval_http_future_keeps_original_worker_credit_until_physi
         )
         .unwrap();
         let stopped = matches!(
-            state.read_finality_proof_interval(
-                &owner.canonical_history_budget(),
-                &limits,
-                &cancelled,
-            ),
+            state.read_finality_proof_interval(&budget, &limits, &cancelled),
             Err(FinalityProofIntervalReadError::Proof(
                 NativeFinalityProofIntervalError::Cancelled
             ))
         );
-        let codec_debit = owner.allocation_context().consumed_allocated_bytes();
+        let codec_debit = owner.allocation_context().consumed_allocated_bytes() - prepaid;
         finished.send((stopped, codec_debit)).unwrap();
         Ok(())
     }));
@@ -441,11 +473,8 @@ async fn failed_and_timed_out_workers_keep_original_credit_until_unpolled_stop_c
             )
             .unwrap();
             // Exercise the actual native missing-height or original deadline refusal.
-            match state.read_finality_proof_interval(
-                &owner.canonical_history_budget(),
-                &limits,
-                &cancelled,
-            ) {
+            match state.read_finality_proof_interval(&owner.finality_budget()?, &limits, &cancelled)
+            {
                 Err(FinalityProofIntervalReadError::Proof(
                     NativeFinalityProofIntervalError::Deadline,
                 )) => Ok(PreparedResponse::deadline(ResponseFormat::Norito)),
@@ -468,7 +497,7 @@ async fn failed_and_timed_out_workers_keep_original_credit_until_unpolled_stop_c
         let entered = tokio::time::timeout(std::time::Duration::from_secs(2), entered).await;
         let released = release.send(()).is_ok();
         // This is the sole JoinHandle's completion wake, after the physical operation
-        // and run_admitted_blocking's admission/TLS owners have retired. The HTTP
+        // and the finality worker's admission/TLS owners have retired. The HTTP
         // future is deliberately not polled again until after the observations.
         let physically_closed = initially_pending
             && matches!(

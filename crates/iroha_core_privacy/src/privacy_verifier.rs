@@ -151,7 +151,7 @@ pub struct PrivacyVerificationContextV1<'a> {
     pub expected_action_index: u32,
     /// Canonical current block timestamp in Unix milliseconds.
     ///
-    /// VeRange does not use time, but credential profiles consume this same
+    /// `VeRange` does not use time, but credential profiles consume this same
     /// trusted field rather than accepting a prover-selected clock.
     pub block_timestamp_ms: u64,
     /// Complete trusted PGC state, required only by Anonymous-PGC payments.
@@ -498,7 +498,7 @@ pub enum VerifiedPrivacyLedgerEffectsV1 {
     OrchardActions(VerifiedOrchardLedgerEffectV1),
     /// Atomic FCMP++/private-IVM/PQ-MASP nullifier, commitment, and root transition.
     ProofManagedPool(VerifiedProofManagedPoolLedgerEffectV1),
-    /// Atomic ZK-AMS PHC/seed admission and AccountRegistry successor.
+    /// Atomic ZK-AMS PHC/seed admission and `AccountRegistry` successor.
     ZkAmsBatchAdmission(VerifiedZkAmsBatchAdmissionV1),
     /// Atomic ZK-AMS provisioning key image and fresh account creation.
     ZkAmsProvisionAccount(VerifiedZkAmsProvisionAccountV1),
@@ -608,7 +608,7 @@ impl VerifiedPrivacyEffectsV1 {
 #[doc(hidden)]
 pub fn verify_privacy_envelope_v1(
     envelope: &PrivacyProofEnvelopeV1,
-    context: PrivacyVerificationContextV1<'_>,
+    context: &PrivacyVerificationContextV1<'_>,
 ) -> Result<VerifiedPrivacyEffectsV1, PrivacyVerificationErrorV1> {
     validate_compiled_privacy_activation_v1(context.activation).map_err(|source| {
         PrivacyVerificationErrorV1::CompiledActivation(Box::new(
@@ -619,7 +619,7 @@ pub fn verify_privacy_envelope_v1(
 }
 fn verify_privacy_envelope_after_compiled_activation_v1(
     envelope: &PrivacyProofEnvelopeV1,
-    context: PrivacyVerificationContextV1<'_>,
+    context: &PrivacyVerificationContextV1<'_>,
 ) -> Result<VerifiedPrivacyEffectsV1, PrivacyVerificationErrorV1> {
     envelope
         .validate_against_activation(
@@ -727,7 +727,7 @@ fn verify_privacy_envelope_after_compiled_activation_v1(
             )));
         }
         PrivacyStatementV1::AnonymousPgcKOutOfNV1(statement) => {
-            verify_anonymous_pgc_payment_v1(statement, proof, envelope, &context)?
+            verify_anonymous_pgc_payment_v1(statement, proof, envelope, context)?
         }
         PrivacyStatementV1::VeRangeTransparentRangeV1(statement) => {
             let profile = match statement.bit_length {
@@ -779,34 +779,33 @@ fn verify_privacy_envelope_after_compiled_activation_v1(
             VerifiedPrivacyLedgerEffectsV1::None
         }
         PrivacyStatementV1::IrohaZkAmsV1(statement) => {
-            verify_zk_ams_v1(statement, proof, envelope, &context)?
+            verify_zk_ams_v1(statement, proof, envelope, context)?
         }
         PrivacyStatementV1::VegaExistingCredentialZkV1(statement) => {
-            verify_vega_existing_credential_v1(statement, proof, &context)?
+            verify_vega_existing_credential_v1(statement, proof, context)?
         }
         PrivacyStatementV1::IrohaZkX509StarkP256V1(statement) => {
-            verify_zk_x509_certificate_v1(statement, proof, &context)?
+            verify_zk_x509_certificate_v1(statement, proof, context)?
         }
         PrivacyStatementV1::IrohaJindoPolynomialCommitmentV1(statement) => {
-            verify_jindo_batched_evaluation_v1(statement, proof, envelope, &context)?
+            verify_jindo_batched_evaluation_v1(statement, proof, envelope, context)?
         }
         PrivacyStatementV1::IrohaBootleLanternAnoncredV1(statement) => {
-            verify_bootle_lantern_presentation_v1(statement, proof, &context)?
+            verify_bootle_lantern_presentation_v1(statement, proof, context)?
         }
         PrivacyStatementV1::OrchardHalo2ActionsV1(statement) => {
-            verify_orchard_actions_v1(statement, proof, envelope, &context)?
+            verify_orchard_actions_v1(statement, proof, envelope, context)?
         }
         PrivacyStatementV1::MoneroFcmpPlusPlusV1(statement) => {
-            verify_fcmp_plus_plus_action_v1(statement, proof, envelope, &context)?
+            verify_fcmp_plus_plus_action_v1(statement, proof, envelope, context)?
         }
         PrivacyStatementV1::IrohaIvmPrivateNoteStarkV1(statement) => {
-            verify_ivm_private_note_action_v1(statement, proof, envelope, &context)?
+            verify_ivm_private_note_action_v1(statement, proof, envelope, context)?
         }
         PrivacyStatementV1::PqMaspStarkV1(statement) => {
-            verify_pq_masp_action_v1(statement, proof, envelope, &context)?
+            verify_pq_masp_action_v1(statement, proof, envelope, context)?
         }
     };
-    let _trusted_block_timestamp_ms = context.block_timestamp_ms;
     VerifiedPrivacyEffectsV1::seal_v1(
         role,
         envelope.statement_digest,
@@ -1009,9 +1008,16 @@ fn prepare_ivm_private_note_transition_v1(
     let accumulator = snapshot.accumulator_state().ok_or_else(|| {
         ivm_private_note_state_error(PrivacyIvmPrivateNoteStateFailureCodeV1::MissingNoteFrontier)
     })?;
-    if accumulator.namespace() != snapshot.namespace()
-        || accumulator.epoch() != snapshot.current_epoch()
-        || accumulator.root() != snapshot.current_root()
+    if accumulator.namespace() != snapshot.namespace() {
+        return Err(ivm_private_note_state_error(
+            PrivacyIvmPrivateNoteStateFailureCodeV1::FrontierMismatch,
+        ));
+    }
+    let accumulator_epoch = accumulator.epoch();
+    let mutation_head_epoch = snapshot.current_epoch();
+    let mutation_head_root = snapshot.current_root();
+    if accumulator_epoch != mutation_head_epoch
+        || accumulator.root() != mutation_head_root
         || accumulator.tree_size() != snapshot.output_count()
     {
         return Err(ivm_private_note_state_error(
@@ -1149,9 +1155,16 @@ fn prepare_pq_masp_transition_v1(
     let accumulator = snapshot
         .accumulator_state()
         .ok_or_else(|| pq_masp_state_error(PrivacyPqMaspStateFailureCodeV1::MissingNoteFrontier))?;
-    if accumulator.namespace() != snapshot.namespace()
-        || accumulator.epoch() != snapshot.current_epoch()
-        || accumulator.root() != snapshot.current_root()
+    if accumulator.namespace() != snapshot.namespace() {
+        return Err(pq_masp_state_error(
+            PrivacyPqMaspStateFailureCodeV1::FrontierMismatch,
+        ));
+    }
+    let accumulator_epoch = accumulator.epoch();
+    let mutation_head_epoch = snapshot.current_epoch();
+    let mutation_head_root = snapshot.current_root();
+    if accumulator_epoch != mutation_head_epoch
+        || accumulator.root() != mutation_head_root
         || accumulator.tree_size() != snapshot.output_count()
     {
         return Err(pq_masp_state_error(
@@ -1259,19 +1272,17 @@ fn verify_pq_masp_action_v1(
 fn fcmp_runtime_context_hash_v1(
     envelope: &PrivacyProofEnvelopeV1,
     context: &PrivacyVerificationContextV1<'_>,
-) -> Result<[u8; 32], PrivacyVerificationErrorV1> {
-    Ok(derive_fcmp_runtime_context_hash_v1(
-        &FcmpRuntimeContextBindingV1 {
-            network_id: context.network_id,
-            action_index: context.expected_action_index,
-            statement_digest: envelope.statement_digest,
-            parameter_id: envelope.parameter_id,
-            parameter_digest: envelope.parameter_digest,
-            verifier_digest: envelope.verifier_digest,
-            statement_schema_digest: envelope.statement_schema_digest,
-            engine_manifest_digest: envelope.engine_manifest_digest,
-        },
-    ))
+) -> [u8; 32] {
+    derive_fcmp_runtime_context_hash_v1(&FcmpRuntimeContextBindingV1 {
+        network_id: context.network_id,
+        action_index: context.expected_action_index,
+        statement_digest: envelope.statement_digest,
+        parameter_id: envelope.parameter_id,
+        parameter_digest: envelope.parameter_digest,
+        verifier_digest: envelope.verifier_digest,
+        statement_schema_digest: envelope.statement_schema_digest,
+        engine_manifest_digest: envelope.engine_manifest_digest,
+    })
 }
 fn verify_fcmp_plus_plus_action_v1(
     statement: &MoneroFcmpPlusPlusStatementV1,
@@ -1303,8 +1314,14 @@ fn verify_fcmp_plus_plus_action_v1(
     let accumulator = snapshot
         .fcmp_accumulator_state()
         .ok_or_else(|| fcmp_state_error(PrivacyFcmpStateFailureCodeV1::MissingCurveFrontier))?;
-    if accumulator.namespace() != snapshot.namespace()
-        || accumulator.epoch() != snapshot.current_epoch()
+    if accumulator.namespace() != snapshot.namespace() {
+        return Err(fcmp_state_error(
+            PrivacyFcmpStateFailureCodeV1::FrontierMismatch,
+        ));
+    }
+    let accumulator_epoch = accumulator.epoch();
+    let mutation_head_epoch = snapshot.current_epoch();
+    if accumulator_epoch != mutation_head_epoch
         || accumulator.root().history_commitment() != snapshot.current_root()
         || accumulator.tree_size() != snapshot.output_count()
     {
@@ -1378,7 +1395,7 @@ fn verify_fcmp_plus_plus_action_v1(
     let successor_state = snapshot
         .derive_fcmp_successor(&statement.outputs)
         .map_err(|_| fcmp_state_error(PrivacyFcmpStateFailureCodeV1::SuccessorDerivation))?;
-    let runtime_context = fcmp_runtime_context_hash_v1(envelope, context)?;
+    let runtime_context = fcmp_runtime_context_hash_v1(envelope, context);
     verify_fcmp_transaction_v1(
         runtime_context,
         proof.as_bytes(),
@@ -1857,7 +1874,7 @@ pub enum PrivacyVerificationErrorV1 {
     /// A native verifier returned the ledger effect of another role.
     #[error(transparent)]
     EffectRoleMismatch(Box<PrivacyEffectRoleMismatchFailureV1>),
-    /// Native VeRange decoding or verification failed.
+    /// Native `VeRange` decoding or verification failed.
     #[error(transparent)]
     NativeVeRange(Box<PrivacyVeRangeVerificationFailureV1>),
     /// Native Jindo decoding or verification failed.
@@ -2326,6 +2343,7 @@ pub use test_fixtures::{
 };
 #[cfg(test)]
 mod tests {
+    type FcmpStatementMutation = (&'static str, fn(&mut MoneroFcmpPlusPlusStatementV1));
     use super::test_fixtures::*;
     use super::*;
     use crate::{
@@ -2435,7 +2453,7 @@ mod tests {
             .map(|point| PrivacyP256PointV1::new(*point.as_bytes()))
             .collect();
         let context = PrivacyStatementContextV1 {
-            network_id: network_id.clone(),
+            network_id,
             action_index: 0,
             transaction_intent_digest: PrivacyTransactionIntentDigestV1::new([0xD1; 32]),
             parameter_id: compiled.parameter_id,
@@ -2484,8 +2502,9 @@ mod tests {
         .encode();
         (
             PrivacyProofEnvelopeV1 {
-                wire_magic: Default::default(),
-                catalog_commitment: Default::default(),
+                wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                catalog_commitment:
+                    iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                 protocol_id: compiled.protocol_id,
                 proof_system_id: compiled.proof_system_id,
                 engine_id: compiled.engine_id,
@@ -2553,7 +2572,7 @@ mod tests {
                 .unzip();
             let statement = IrohaJindoPolynomialCommitmentStatementV1 {
                 context: PrivacyStatementContextV1 {
-                    network_id: network_id.clone(),
+                    network_id,
                     action_index: 0,
                     transaction_intent_digest: PrivacyTransactionIntentDigestV1::new([0xd2; 32]),
                     parameter_id: compiled.parameter_id,
@@ -2587,8 +2606,9 @@ mod tests {
             assert_eq!(proof.len(), JINDO_NATIVE_PROOF_BYTES_V1);
             Self {
                 envelope: PrivacyProofEnvelopeV1 {
-                    wire_magic: Default::default(),
-                    catalog_commitment: Default::default(),
+                    wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                    catalog_commitment:
+                        iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                     protocol_id: compiled.protocol_id,
                     proof_system_id: compiled.proof_system_id,
                     engine_id: compiled.engine_id,
@@ -2653,7 +2673,7 @@ mod tests {
             let network_id = network_id(0xA7);
             let genesis_hash = [0xA7; 32];
             let context = PrivacyStatementContextV1 {
-                network_id: network_id.clone(),
+                network_id,
                 action_index: 0,
                 transaction_intent_digest: PrivacyTransactionIntentDigestV1::new([0xB4; 32]),
                 parameter_id: compiled.parameter_id,
@@ -2765,8 +2785,9 @@ mod tests {
             assert_eq!(proof.len(), BOOTLE_LANTERN_PROOF_BYTES_V1);
             Self {
                 envelope: PrivacyProofEnvelopeV1 {
-                    wire_magic: Default::default(),
-                    catalog_commitment: Default::default(),
+                    wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                    catalog_commitment:
+                        iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                     protocol_id: compiled.protocol_id,
                     proof_system_id: compiled.proof_system_id,
                     engine_id: compiled.engine_id,
@@ -2864,7 +2885,7 @@ mod tests {
                 AccountId::new(reserve_key.public_key().clone()),
             );
             let statement_context = PrivacyStatementContextV1 {
-                network_id: network_id.clone(),
+                network_id,
                 action_index: 0,
                 transaction_intent_digest: PrivacyTransactionIntentDigestV1::new([0x44; 32]),
                 parameter_id: compiled.parameter_id,
@@ -2922,8 +2943,9 @@ mod tests {
                 });
             let statement_digest = statement.digest().expect("Orchard statement digest");
             let envelope = PrivacyProofEnvelopeV1 {
-                wire_magic: Default::default(),
-                catalog_commitment: Default::default(),
+                wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                catalog_commitment:
+                    iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                 protocol_id: compiled.protocol_id,
                 proof_system_id: compiled.proof_system_id,
                 engine_id: compiled.engine_id,
@@ -3054,16 +3076,13 @@ mod tests {
                 self.statement.clone(),
             ))
         }
-        fn envelope(
-            &self,
-            statement: PqMaspStarkStatementV1,
-            proof: Vec<u8>,
-        ) -> PrivacyProofEnvelopeV1 {
+        fn envelope(statement: &PqMaspStarkStatementV1, proof: Vec<u8>) -> PrivacyProofEnvelopeV1 {
             let typed_statement = PrivacyStatementV1::PqMaspStarkV1(statement.clone());
             let statement_digest = typed_statement.digest().expect("PQ-MASP statement digest");
             PrivacyProofEnvelopeV1 {
-                wire_magic: Default::default(),
-                catalog_commitment: Default::default(),
+                wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                catalog_commitment:
+                    iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                 protocol_id: PrivacyProtocolIdV1::PqMaspStarkV1,
                 proof_system_id: PrivacyProofSystemIdV1::StarkFriSha3_384Goldilocks,
                 engine_id: PrivacyEngineIdV1::NativeGoldilocksSha3_384StarkFri,
@@ -3213,7 +3232,7 @@ mod tests {
             let declared_next_root = next_root_override.unwrap_or(next_root);
             let declared_next_epoch = next_epoch_override.unwrap_or(next_epoch);
             let statement_context = PrivacyStatementContextV1 {
-                network_id: network_id.clone(),
+                network_id,
                 action_index: 0,
                 transaction_intent_digest: PrivacyTransactionIntentDigestV1::new([0xD2; 32]),
                 parameter_id: compiled.parameter_id,
@@ -3281,8 +3300,9 @@ mod tests {
                 .expect("PGC payment proof")
                 .encode();
             let envelope = PrivacyProofEnvelopeV1 {
-                wire_magic: Default::default(),
-                catalog_commitment: Default::default(),
+                wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                catalog_commitment:
+                    iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                 protocol_id: compiled.protocol_id,
                 proof_system_id: compiled.proof_system_id,
                 engine_id: compiled.engine_id,
@@ -3399,14 +3419,14 @@ mod tests {
         label: &str,
     ) {
         assert!(
-            verify_privacy_envelope_v1(envelope, verification_context(activation, network_id))
+            verify_privacy_envelope_v1(envelope, &verification_context(activation, network_id))
                 .is_err(),
             "adversarial envelope `{label}` was accepted"
         );
     }
     fn assert_native_jindo_rejected(
         envelope: &PrivacyProofEnvelopeV1,
-        context: PrivacyVerificationContextV1<'_>,
+        context: &PrivacyVerificationContextV1<'_>,
         label: &str,
     ) {
         assert!(
@@ -3449,7 +3469,7 @@ mod tests {
             bootle_lantern_policy: None,
             vega_issuer_record: None,
         };
-        let batch_effects = verify_privacy_envelope_v1(&fixture.batch_envelope, context(0))
+        let batch_effects = verify_privacy_envelope_v1(&fixture.batch_envelope, &context(0))
             .expect("native ZK-AMS batch dispatch");
         let PrivacyStatementV1::IrohaZkAmsV1(batch_statement) = &fixture.batch_envelope.statement
         else {
@@ -3471,8 +3491,9 @@ mod tests {
             effect.registry_record_digest,
             batch_statement.registry_record_digest
         );
-        let provision_effects = verify_privacy_envelope_v1(&fixture.provision_envelope, context(0))
-            .expect("native ZK-AMS provision dispatch");
+        let provision_effects =
+            verify_privacy_envelope_v1(&fixture.provision_envelope, &context(0))
+                .expect("native ZK-AMS provision dispatch");
         let PrivacyStatementV1::IrohaZkAmsV1(provision_statement) =
             &fixture.provision_envelope.statement
         else {
@@ -3503,7 +3524,7 @@ mod tests {
         let middle = proof.bytes.len() / 2;
         proof.bytes[middle] ^= 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&corrupt_batch, context(0)),
+            verify_privacy_envelope_v1(&corrupt_batch, &context(0)),
             Err(PrivacyVerificationErrorV1::NativeZkAms(_))
         ));
         let mut rebound = fixture.provision_envelope.clone();
@@ -3521,13 +3542,13 @@ mod tests {
             .digest()
             .expect("mutated ZK-AMS statement remains canonical");
         assert!(matches!(
-            verify_privacy_envelope_v1(&rebound, context(0)),
+            verify_privacy_envelope_v1(&rebound, &context(0)),
             Err(PrivacyVerificationErrorV1::NativeZkAms(_))
         ));
         let mut wrong_action_proof = fixture.batch_envelope.clone();
         wrong_action_proof.proof = fixture.provision_envelope.proof.clone();
         assert!(matches!(
-            verify_privacy_envelope_v1(&wrong_action_proof, context(0)),
+            verify_privacy_envelope_v1(&wrong_action_proof, &context(0)),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
     }
@@ -3553,7 +3574,7 @@ mod tests {
             canonical_bytes
         );
         let effects =
-            verify_privacy_envelope_v1(&envelope, verification_context(&activation, &network_id))
+            verify_privacy_envelope_v1(&envelope, &verification_context(&activation, &network_id))
                 .expect("valid proof");
         assert_eq!(
             effects.protocol_id(),
@@ -3567,8 +3588,9 @@ mod tests {
     #[test]
     fn verified_pgc_effect_is_complete_exact_and_replay_becomes_stale() {
         let fixture = PgcFixture::new();
-        let effects = verify_privacy_envelope_v1(&fixture.envelope, fixture.verification_context())
-            .expect("valid PGC payment");
+        let effects =
+            verify_privacy_envelope_v1(&fixture.envelope, &fixture.verification_context())
+                .expect("valid PGC payment");
         assert_eq!(
             effects.protocol_id(),
             PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1
@@ -3626,7 +3648,7 @@ mod tests {
         let mut replay_context = fixture.verification_context();
         replay_context.pgc_state = Some(replay_state);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, replay_context),
+            verify_privacy_envelope_v1(&fixture.envelope, &replay_context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::StaleHead
         ));
@@ -3637,7 +3659,7 @@ mod tests {
         let mut missing = fixture.verification_context();
         missing.pgc_state = None;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, missing),
+            verify_privacy_envelope_v1(&fixture.envelope, &missing),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::MissingTrustedState
         ));
@@ -3646,7 +3668,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.pgc_state = Some(state);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code
                     == PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootNotRetained
@@ -3656,7 +3678,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.pgc_state = Some(state);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::StaleHead
         ));
@@ -3665,14 +3687,14 @@ mod tests {
         let mut context = fixture.verification_context();
         context.pgc_state = Some(fixture.pgc_state(&reordered));
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::AccountTableMismatch
         ));
         let mut context = fixture.verification_context();
         context.pgc_state = Some(fixture.pgc_state(&fixture.accounts[..15]));
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::AccountTableMismatch
         ));
@@ -3681,7 +3703,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.pgc_state = Some(fixture.pgc_state(&duplicate));
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::AccountTableMismatch
         ));
@@ -3690,7 +3712,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.pgc_state = Some(fixture.pgc_state(&changed_ciphertext));
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootMismatch
         ));
@@ -3699,7 +3721,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.pgc_state = Some(state);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::CurrentRootMismatch
         ));
@@ -3709,7 +3731,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.pgc_state = Some(changed_provenance);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::NativeAnonymousPgc(_))
         ));
         let mut altered_proof = fixture.envelope.clone();
@@ -3722,7 +3744,7 @@ mod tests {
         altered_proof.proof =
             PrivacyProofV1::AnonymousPgcKOutOfNV1(PrivacyProofBytesV1::new(proof_bytes));
         assert!(matches!(
-            verify_privacy_envelope_v1(&altered_proof, fixture.verification_context()),
+            verify_privacy_envelope_v1(&altered_proof, &fixture.verification_context()),
             Err(PrivacyVerificationErrorV1::NativeAnonymousPgc(_))
         ));
         let PrivacyProofV1::AnonymousPgcKOutOfNV1(valid_proof) = &fixture.envelope.proof else {
@@ -3740,14 +3762,14 @@ mod tests {
             invalid.proof =
                 PrivacyProofV1::AnonymousPgcKOutOfNV1(PrivacyProofBytesV1::new(invalid_bytes));
             assert!(matches!(
-                verify_privacy_envelope_v1(&invalid, fixture.verification_context()),
+                verify_privacy_envelope_v1(&invalid, &fixture.verification_context()),
                 Err(PrivacyVerificationErrorV1::NativeAnonymousPgc(_))
             ));
         }
         let mut empty = fixture.envelope.clone();
         empty.proof = PrivacyProofV1::AnonymousPgcKOutOfNV1(PrivacyProofBytesV1::new(Vec::new()));
         assert!(matches!(
-            verify_privacy_envelope_v1(&empty, fixture.verification_context()),
+            verify_privacy_envelope_v1(&empty, &fixture.verification_context()),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
         let mut all_zero = fixture.envelope.clone();
@@ -3756,7 +3778,7 @@ mod tests {
             valid_proof.as_bytes().len()
         ]));
         assert!(matches!(
-            verify_privacy_envelope_v1(&all_zero, fixture.verification_context()),
+            verify_privacy_envelope_v1(&all_zero, &fixture.verification_context()),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
         let mut duplicate_statement = fixture.envelope.clone();
@@ -3768,7 +3790,7 @@ mod tests {
         statement.anonymity_set_public_keys[1] = statement.anonymity_set_public_keys[0];
         refresh_statement_digest(&mut duplicate_statement);
         assert!(matches!(
-            verify_privacy_envelope_v1(&duplicate_statement, fixture.verification_context()),
+            verify_privacy_envelope_v1(&duplicate_statement, &fixture.verification_context()),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
         let forged_next_root =
@@ -3776,7 +3798,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &forged_next_root.envelope,
-                forged_next_root.verification_context(),
+                &forged_next_root.verification_context(),
             ),
             Err(PrivacyVerificationErrorV1::AnonymousPgcState(detail))
                 if detail.code == PrivacyAnonymousPgcStateFailureCodeV1::NextRootMismatch
@@ -3786,7 +3808,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &forged_next_epoch.envelope,
-                forged_next_epoch.verification_context(),
+                &forged_next_epoch.verification_context(),
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -3795,8 +3817,9 @@ mod tests {
     #[test]
     fn verified_orchard_effect_is_complete_and_derived_from_authoritative_frontier() {
         let fixture = orchard_fixture();
-        let effects = verify_privacy_envelope_v1(&fixture.envelope, fixture.verification_context())
-            .expect("valid Orchard action");
+        let effects =
+            verify_privacy_envelope_v1(&fixture.envelope, &fixture.verification_context())
+                .expect("valid Orchard action");
         assert_eq!(
             effects.protocol_id(),
             PrivacyProtocolIdV1::OrchardHalo2ActionsV1
@@ -3874,13 +3897,13 @@ mod tests {
         let original_context = fixture.verification_context();
         let original_genesis = original_context.genesis_hash;
         assert_ne!(original_genesis, [0; 32]);
-        verify_privacy_envelope_v1(&fixture.envelope, original_context)
+        verify_privacy_envelope_v1(&fixture.envelope, &original_context)
             .expect("Orchard fixture is valid under its proving genesis");
         let mut changed_context = fixture.verification_context();
         changed_context.genesis_hash[0] ^= 1;
         assert_ne!(changed_context.genesis_hash, [0; 32]);
         assert_ne!(changed_context.genesis_hash, original_genesis);
-        let error = verify_privacy_envelope_v1(&fixture.envelope, changed_context)
+        let error = verify_privacy_envelope_v1(&fixture.envelope, &changed_context)
             .expect_err("the exact Orchard envelope must not replay across genesis");
         assert!(
             matches!(
@@ -3898,7 +3921,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.orchard_state = None;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::OrchardState(detail))
                 if detail.code == PrivacyOrchardStateFailureCodeV1::MissingTrustedState
         ));
@@ -3917,7 +3940,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.orchard_state = Some(&other_pool);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::OrchardState(detail))
                 if detail.code == PrivacyOrchardStateFailureCodeV1::NamespaceMismatch
         ));
@@ -3933,7 +3956,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.orchard_state = Some(&wrong_asset);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::OrchardState(detail))
                 if detail.code == PrivacyOrchardStateFailureCodeV1::AssetMismatch
         ));
@@ -3946,7 +3969,7 @@ mod tests {
         let mut context = fixture.verification_context();
         context.orchard_state = Some(&wrong_scope);
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::OrchardState(detail))
                 if detail.code == PrivacyOrchardStateFailureCodeV1::PublicBalanceScopeMismatch
         ));
@@ -3956,14 +3979,14 @@ mod tests {
         statement.anchor_epoch += 1;
         refresh_statement_digest(&mut stale_anchor);
         assert!(matches!(
-            verify_privacy_envelope_v1(&stale_anchor, fixture.verification_context()),
+            verify_privacy_envelope_v1(&stale_anchor, &fixture.verification_context()),
             Err(PrivacyVerificationErrorV1::OrchardState(detail))
                 if detail.code == PrivacyOrchardStateFailureCodeV1::AnchorNotRetained
         ));
         let mut context = fixture.verification_context();
         context.current_height = 101;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::OrchardState(detail))
                 if detail.code == PrivacyOrchardStateFailureCodeV1::Expired
         ));
@@ -3973,7 +3996,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &invalid_commitment,
-                fixture.verification_context()
+                &fixture.verification_context()
             ),
             Err(PrivacyVerificationErrorV1::OrchardState(detail))
                 if detail.code == PrivacyOrchardStateFailureCodeV1::SuccessorDerivation
@@ -3984,7 +4007,7 @@ mod tests {
             .pop();
         refresh_statement_digest(&mut wrong_width);
         assert!(matches!(
-            verify_privacy_envelope_v1(&wrong_width, fixture.verification_context()),
+            verify_privacy_envelope_v1(&wrong_width, &fixture.verification_context()),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
         let public_mutations: [fn(&mut OrchardHalo2ActionsStatementV1); 7] = [
@@ -4002,7 +4025,7 @@ mod tests {
             refresh_statement_digest(&mut changed);
             assert!(
                 matches!(
-                    verify_privacy_envelope_v1(&changed, fixture.verification_context()),
+                    verify_privacy_envelope_v1(&changed, &fixture.verification_context()),
                     Err(PrivacyVerificationErrorV1::NativeOrchard(_))
                 ),
                 "every native public field must be proof/signature bound"
@@ -4015,7 +4038,7 @@ mod tests {
         };
         refresh_statement_digest(&mut changed_balance);
         assert!(matches!(
-            verify_privacy_envelope_v1(&changed_balance, fixture.verification_context()),
+            verify_privacy_envelope_v1(&changed_balance, &fixture.verification_context()),
             Err(PrivacyVerificationErrorV1::NativeOrchard(_))
         ));
         let PrivacyProofV1::OrchardHalo2ActionsV1(valid_proof) = &fixture.envelope.proof else {
@@ -4050,7 +4073,7 @@ mod tests {
             changed.proof =
                 PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(invalid_bytes));
             assert!(matches!(
-                verify_privacy_envelope_v1(&changed, fixture.verification_context()),
+                verify_privacy_envelope_v1(&changed, &fixture.verification_context()),
                 Err(PrivacyVerificationErrorV1::NativeOrchard(_))
             ));
         }
@@ -4060,7 +4083,7 @@ mod tests {
         let fixture = fcmp_fixture();
         let effects = verify_privacy_envelope_v1(
             &fixture.envelope,
-            fixture.verification_context(Some(&fixture.snapshot)),
+            &fixture.verification_context(Some(&fixture.snapshot)),
         )
         .expect("valid FCMP++ transaction");
         let statement = match &fixture.envelope.statement {
@@ -4118,7 +4141,7 @@ mod tests {
         let advanced = fixture.snapshot.with_fcmp_successor_for_test(&[unrelated]);
         let historical = verify_privacy_envelope_v1(
             &fixture.envelope,
-            fixture.verification_context(Some(&advanced)),
+            &fixture.verification_context(Some(&advanced)),
         )
         .expect("retained historical FCMP++ anchor");
         let historical_effect = match historical.ledger() {
@@ -4581,7 +4604,7 @@ mod tests {
                 .expect("authorization key digest");
         let mut statement = fixture.statement.clone();
         statement.authorization_key_digest = key_digest;
-        let unsigned = fixture.envelope(statement.clone(), Vec::new());
+        let unsigned = PqMaspPreflightFixture::envelope(&statement, Vec::new());
         let invalid_inner = vec![0xA5; 64];
         let genesis_hash = *statement.context.network_id.as_bytes();
         let consensus_binding = PrivacyNativeConsensusBindingV1::new(
@@ -4602,9 +4625,9 @@ mod tests {
             HedgedRngSeed::from_entropy([0xE8; 32]),
         )
         .expect("canonical PQA1 wrapper");
-        let envelope = fixture.envelope(statement.clone(), outer.clone());
+        let envelope = PqMaspPreflightFixture::envelope(&statement, outer.clone());
         let (_, activation) = active_profile();
-        let network_id = statement.context.network_id.clone();
+        let network_id = statement.context.network_id;
         let context = || PrivacyVerificationContextV1 {
             activation: &activation,
             consensus_limits: &TEST_CONSENSUS_LIMITS,
@@ -4664,7 +4687,7 @@ mod tests {
         );
         let mut changed_inner = outer.clone();
         *changed_inner.last_mut().expect("inner proof byte") ^= 1;
-        let changed_inner_envelope = fixture.envelope(statement.clone(), changed_inner);
+        let changed_inner_envelope = PqMaspPreflightFixture::envelope(&statement, changed_inner);
         assert!(matches!(
             verify_pq_masp_action_v1(
                 &statement,
@@ -4680,7 +4703,8 @@ mod tests {
         ));
         let mut changed_signature = outer.clone();
         changed_signature[2_000] ^= 1;
-        let changed_signature_envelope = fixture.envelope(statement.clone(), changed_signature);
+        let changed_signature_envelope =
+            PqMaspPreflightFixture::envelope(&statement, changed_signature);
         assert!(matches!(
             verify_pq_masp_action_v1(
                 &statement,
@@ -4711,7 +4735,7 @@ mod tests {
             HedgedRngSeed::from_entropy([0xEA; 32]),
         )
         .expect("wrong-key PQA1 wrapper");
-        let wrong_key_envelope = fixture.envelope(statement.clone(), wrong_key_outer);
+        let wrong_key_envelope = PqMaspPreflightFixture::envelope(&statement, wrong_key_outer);
         assert!(matches!(
             verify_pq_masp_action_v1(
                 &statement,
@@ -4730,7 +4754,7 @@ mod tests {
         let mut wrong_authorization_epoch = statement.clone();
         wrong_authorization_epoch.authorization_epoch += 1;
         let wrong_authorization_epoch_envelope =
-            fixture.envelope(wrong_authorization_epoch.clone(), outer.clone());
+            PqMaspPreflightFixture::envelope(&wrong_authorization_epoch, outer.clone());
         assert!(matches!(
             verify_pq_masp_action_v1(
                 &wrong_authorization_epoch,
@@ -4749,7 +4773,7 @@ mod tests {
         let mut wrong_epoch = statement.clone();
         wrong_epoch.anchor_epoch += 1;
         wrong_epoch.authorization_epoch += 1;
-        let wrong_epoch_envelope = fixture.envelope(wrong_epoch.clone(), outer.clone());
+        let wrong_epoch_envelope = PqMaspPreflightFixture::envelope(&wrong_epoch, outer.clone());
         assert!(matches!(
             verify_pq_masp_action_v1(
                 &wrong_epoch,
@@ -4764,7 +4788,7 @@ mod tests {
         let mut root = wrong_anchor.anchor.into_bytes();
         root[0] ^= 1;
         wrong_anchor.anchor = PrivacyRootV1::new(root);
-        let wrong_anchor_envelope = fixture.envelope(wrong_anchor.clone(), outer);
+        let wrong_anchor_envelope = PqMaspPreflightFixture::envelope(&wrong_anchor, outer);
         assert!(matches!(
             verify_pq_masp_action_v1(
                 &wrong_anchor,
@@ -4784,7 +4808,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(None)
+                &fixture.verification_context(None)
             ),
             Err(PrivacyVerificationErrorV1::FcmpState(detail))
                 if detail.code == PrivacyFcmpStateFailureCodeV1::MissingTrustedState
@@ -4803,7 +4827,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(Some(&other_namespace))
+                &fixture.verification_context(Some(&other_namespace))
             ),
             Err(PrivacyVerificationErrorV1::FcmpState(detail))
                 if detail.code == PrivacyFcmpStateFailureCodeV1::NamespaceMismatch
@@ -4821,7 +4845,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(Some(&wrong_asset))
+                &fixture.verification_context(Some(&wrong_asset))
             ),
             Err(PrivacyVerificationErrorV1::FcmpState(detail))
                 if detail.code == PrivacyFcmpStateFailureCodeV1::AssetMismatch
@@ -4830,7 +4854,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(Some(&no_current))
+                &fixture.verification_context(Some(&no_current))
             ),
             Err(PrivacyVerificationErrorV1::FcmpState(detail))
                 if detail.code == PrivacyFcmpStateFailureCodeV1::CurrentRootNotRetained
@@ -4841,7 +4865,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(Some(&inconsistent))
+                &fixture.verification_context(Some(&inconsistent))
             ),
             Err(PrivacyVerificationErrorV1::FcmpState(detail))
                 if detail.code == PrivacyFcmpStateFailureCodeV1::FrontierMismatch
@@ -4857,7 +4881,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(Some(&evicted))
+                &fixture.verification_context(Some(&evicted))
             ),
             Err(PrivacyVerificationErrorV1::FcmpState(detail))
                 if detail.code == PrivacyFcmpStateFailureCodeV1::AnchorNotRetained
@@ -4877,7 +4901,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &unknown_anchor,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::FcmpState(detail))
                 if detail.code == PrivacyFcmpStateFailureCodeV1::AnchorNotRetained
@@ -4897,7 +4921,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &corrupt_proof,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4910,7 +4934,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &corrupt_range_proof,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4923,7 +4947,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &mismatching_output_count,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4935,7 +4959,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &changed_commitment,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4947,7 +4971,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &omitted_output,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4959,7 +4983,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &reordered,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4972,7 +4996,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &changed_intent,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4982,7 +5006,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &tampered_ciphertext,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -4992,7 +5016,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &invalid_codec,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5003,7 +5027,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &invalid_ephemeral,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
@@ -5015,7 +5039,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &duplicate_output,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5039,7 +5063,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &too_many_inputs,
-                fixture.verification_context(Some(&fixture.snapshot))
+                &fixture.verification_context(Some(&fixture.snapshot))
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5063,14 +5087,14 @@ mod tests {
                 matches!(
                     verify_privacy_envelope_v1(
                         &changed,
-                        fixture.verification_context(Some(&fixture.snapshot))
+                        &fixture.verification_context(Some(&fixture.snapshot))
                     ),
                     Err(PrivacyVerificationErrorV1::NativeFcmp(_))
                 ),
                 "every authoritative O~/I~/R/C~/L component must be proof bound"
             );
         }
-        let statement_mutations: [(&str, fn(&mut MoneroFcmpPlusPlusStatementV1)); 4] = [
+        let statement_mutations: [FcmpStatementMutation; 4] = [
             ("output key", |statement| {
                 statement.outputs[0].output_key = statement.outputs[1].output_key;
                 statement.encrypted_outputs[0].output_id = statement.outputs[0].output_id();
@@ -5096,7 +5120,7 @@ mod tests {
                 matches!(
                     verify_privacy_envelope_v1(
                         &changed,
-                        fixture.verification_context(Some(&fixture.snapshot))
+                        &fixture.verification_context(Some(&fixture.snapshot))
                     ),
                     Err(PrivacyVerificationErrorV1::NativeFcmp(_))
                 ),
@@ -5111,7 +5135,7 @@ mod tests {
         cross_chain_context.network_id = &other_network;
         cross_chain_context.genesis_hash = *other_network.as_bytes();
         assert!(matches!(
-            verify_privacy_envelope_v1(&cross_chain, cross_chain_context),
+            verify_privacy_envelope_v1(&cross_chain, &cross_chain_context),
             Err(PrivacyVerificationErrorV1::NativeFcmp(_))
         ));
         let mut other_action = fixture.envelope.clone();
@@ -5119,7 +5143,7 @@ mod tests {
         refresh_statement_digest(&mut other_action);
         let mut other_action_context = fixture.verification_context(Some(&fixture.snapshot));
         other_action_context.expected_action_index = 1;
-        let action_error = verify_privacy_envelope_v1(&other_action, other_action_context)
+        let action_error = verify_privacy_envelope_v1(&other_action, &other_action_context)
             .expect_err("the first-release Taira action limit admits only index zero");
         assert!(
             matches!(
@@ -5144,8 +5168,7 @@ mod tests {
         let mut replay_context = fixture.verification_context(Some(&fixture.snapshot));
         replay_context.expected_action_index = 1;
         let replay_runtime_context =
-            fcmp_runtime_context_hash_v1(&fixture.envelope, &replay_context)
-                .expect("alternate action index hashes canonically");
+            fcmp_runtime_context_hash_v1(&fixture.envelope, &replay_context);
         let PrivacyStatementV1::MoneroFcmpPlusPlusV1(statement) = &fixture.envelope.statement
         else {
             unreachable!("FCMP++ fixture")
@@ -5200,7 +5223,7 @@ mod tests {
         let mut other_genesis_context = fixture.verification_context(Some(&fixture.snapshot));
         other_genesis_context.genesis_hash[0] ^= 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, other_genesis_context),
+            verify_privacy_envelope_v1(&fixture.envelope, &other_genesis_context),
             Err(PrivacyVerificationErrorV1::Context(detail))
                 if detail.code == PrivacyVerificationContextFailureCodeV1::NetworkGenesisMismatch
         ));
@@ -5214,7 +5237,7 @@ mod tests {
         let other_network = self::network_id(0xA8);
         let mut other_network_context = verification_context(&activation, &other_network);
         other_network_context.genesis_hash = *other_network.as_bytes();
-        let error = verify_privacy_envelope_v1(&envelope, other_network_context)
+        let error = verify_privacy_envelope_v1(&envelope, &other_network_context)
             .expect_err("wrong network");
         assert!(matches!(
             error,
@@ -5223,7 +5246,8 @@ mod tests {
         ));
         let mut context = verification_context(&activation, &network_id);
         context.expected_action_index = 1;
-        let error = verify_privacy_envelope_v1(&envelope, context).expect_err("wrong action index");
+        let error =
+            verify_privacy_envelope_v1(&envelope, &context).expect_err("wrong action index");
         assert!(matches!(
             error,
             PrivacyVerificationErrorV1::Context(detail)
@@ -5231,7 +5255,7 @@ mod tests {
         ));
         let mut context = verification_context(&activation, &network_id);
         context.genesis_hash = [0; 32];
-        let error = verify_privacy_envelope_v1(&envelope, context).expect_err("zero genesis");
+        let error = verify_privacy_envelope_v1(&envelope, &context).expect_err("zero genesis");
         assert!(matches!(
             error,
             PrivacyVerificationErrorV1::Context(detail)
@@ -5245,27 +5269,27 @@ mod tests {
         let mut malformed_envelope = envelope.clone();
         malformed_envelope.proof =
             PrivacyProofV1::ZkAcePqAuthorizationV1(envelope.proof.bytes().clone());
-        let mut altered_activation = activation.clone();
+        let mut altered_activation = activation;
         altered_activation.verifier_digest.0[0] ^= 1;
         let mut all_invalid_context = verification_context(&altered_activation, &wrong_network);
         all_invalid_context.genesis_hash = [0; 32];
         all_invalid_context.expected_action_index = 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&malformed_envelope, all_invalid_context),
+            verify_privacy_envelope_v1(&malformed_envelope, &all_invalid_context),
             Err(PrivacyVerificationErrorV1::CompiledActivation(_))
         ));
         let mut envelope_and_context_invalid = verification_context(&activation, &wrong_network);
         envelope_and_context_invalid.genesis_hash = [0; 32];
         envelope_and_context_invalid.expected_action_index = 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&malformed_envelope, envelope_and_context_invalid),
+            verify_privacy_envelope_v1(&malformed_envelope, &envelope_and_context_invalid),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
         let mut context_only_invalid = verification_context(&activation, &wrong_network);
         context_only_invalid.genesis_hash = [0; 32];
         context_only_invalid.expected_action_index = 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&envelope, context_only_invalid),
+            verify_privacy_envelope_v1(&envelope, &context_only_invalid),
             Err(PrivacyVerificationErrorV1::Context(detail))
                 if detail.code == PrivacyVerificationContextFailureCodeV1::ZeroGenesisHash
         ));
@@ -5278,7 +5302,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &envelope,
-                verification_context(&altered_activation, &network_id)
+                &verification_context(&altered_activation, &network_id)
             ),
             Err(PrivacyVerificationErrorV1::CompiledActivation(_))
         ));
@@ -5296,7 +5320,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &altered_statement,
-                verification_context(&activation, &network_id)
+                &verification_context(&activation, &network_id)
             ),
             Err(PrivacyVerificationErrorV1::NativeVeRange(_))
         ));
@@ -5309,14 +5333,14 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &altered_proof,
-                verification_context(&activation, &network_id)
+                &verification_context(&activation, &network_id)
             ),
             Err(PrivacyVerificationErrorV1::NativeVeRange(_))
         ));
         let mut context = verification_context(&activation, &network_id);
         context.genesis_hash[0] ^= 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&envelope, context),
+            verify_privacy_envelope_v1(&envelope, &context),
             Err(PrivacyVerificationErrorV1::Context(detail))
                 if detail.code == PrivacyVerificationContextFailureCodeV1::NetworkGenesisMismatch
         ));
@@ -5441,7 +5465,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &envelope,
-                verification_context(&proposed, &network_id)
+                &verification_context(&proposed, &network_id)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(detail))
                 if matches!(
@@ -5457,7 +5481,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &envelope,
-                verification_context(&future, &network_id)
+                &verification_context(&future, &network_id)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(detail))
                 if matches!(
@@ -5475,7 +5499,7 @@ mod tests {
         let mut replay_context = verification_context(&activation, &replay_network);
         replay_context.genesis_hash = *replay_network.as_bytes();
         assert!(matches!(
-            verify_privacy_envelope_v1(&replayed, replay_context),
+            verify_privacy_envelope_v1(&replayed, &replay_context),
             Err(PrivacyVerificationErrorV1::NativeVeRange(_))
         ));
         let mut replayed = envelope.clone();
@@ -5484,9 +5508,9 @@ mod tests {
         let mut context = verification_context(&activation, &network_id);
         context.expected_action_index = 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&replayed, context),
-            Err(PrivacyVerificationErrorV1::Envelope(_))
-                | Err(PrivacyVerificationErrorV1::NativeVeRange(_))
+            verify_privacy_envelope_v1(&replayed, &context),
+            Err(PrivacyVerificationErrorV1::Envelope(_)
+                | PrivacyVerificationErrorV1::NativeVeRange(_))
         ));
     }
     #[test]
@@ -5499,7 +5523,7 @@ mod tests {
         assert_eq!(proof.as_bytes().len(), JINDO_NATIVE_PROOF_BYTES_V1);
         let effects = verify_privacy_envelope_v1(
             &fixture.envelope,
-            fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+            &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
         )
         .expect("valid native Jindo proof");
         assert_eq!(
@@ -5517,7 +5541,7 @@ mod tests {
         exact_limit.max_proof_bytes_per_action = proof_len;
         verify_privacy_envelope_v1(
             &fixture.envelope,
-            fixture.verification_context(&exact_limit),
+            &fixture.verification_context(&exact_limit),
         )
         .expect("exact proof-byte boundary is admitted");
         let mut one_byte_below = exact_limit;
@@ -5525,7 +5549,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(&one_byte_below)
+                &fixture.verification_context(&one_byte_below)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5559,7 +5583,7 @@ mod tests {
             bytes.bytes.truncate(length);
             assert_native_jindo_rejected(
                 &candidate,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
                 &format!("truncated-{length}"),
             );
         }
@@ -5572,7 +5596,7 @@ mod tests {
             bytes.bytes.extend_from_slice(suffix);
             assert_native_jindo_rejected(
                 &candidate,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
                 &format!("trailing-{}", suffix.len()),
             );
         }
@@ -5585,7 +5609,7 @@ mod tests {
             bytes.bytes[offset] ^= 0x80;
             assert_native_jindo_rejected(
                 &candidate,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
                 &format!("bit-flip-{offset}"),
             );
         }
@@ -5595,7 +5619,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &empty,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5606,7 +5630,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &all_zero,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5617,7 +5641,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &cross_suite,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5630,7 +5654,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &stale_digest,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5641,7 +5665,7 @@ mod tests {
         refresh_statement_digest(&mut changed_intent);
         assert_native_jindo_rejected(
             &changed_intent,
-            fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+            &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
             "transaction-intent replay",
         );
         let mut changed_point = fixture.envelope.clone();
@@ -5649,7 +5673,7 @@ mod tests {
         refresh_statement_digest(&mut changed_point);
         assert_native_jindo_rejected(
             &changed_point,
-            fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+            &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
             "evaluation-point mutation",
         );
         let mut changed_claim = fixture.envelope.clone();
@@ -5657,7 +5681,7 @@ mod tests {
         refresh_statement_digest(&mut changed_claim);
         assert_native_jindo_rejected(
             &changed_claim,
-            fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+            &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
             "claimed-evaluation mutation",
         );
         let mut changed_commitment = fixture.envelope.clone();
@@ -5678,7 +5702,7 @@ mod tests {
         refresh_statement_digest(&mut changed_commitment);
         assert_native_jindo_rejected(
             &changed_commitment,
-            fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+            &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
             "commitment mutation",
         );
         let replay_network = network_id(0xA8);
@@ -5688,11 +5712,11 @@ mod tests {
         let mut replay_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
         replay_context.network_id = &replay_network;
         replay_context.genesis_hash = *replay_network.as_bytes();
-        assert_native_jindo_rejected(&changed_network, replay_context, "cross-network replay");
+        assert_native_jindo_rejected(&changed_network, &replay_context, "cross-network replay");
         let mut changed_genesis_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
         changed_genesis_context.genesis_hash[0] ^= 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, changed_genesis_context),
+            verify_privacy_envelope_v1(&fixture.envelope, &changed_genesis_context),
             Err(PrivacyVerificationErrorV1::Context(detail))
                 if detail.code
                     == PrivacyVerificationContextFailureCodeV1::NetworkGenesisMismatch
@@ -5705,9 +5729,9 @@ mod tests {
         let mut action_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
         action_context.expected_action_index = 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&changed_action, action_context),
-            Err(PrivacyVerificationErrorV1::Envelope(_))
-                | Err(PrivacyVerificationErrorV1::NativeJindo(_))
+            verify_privacy_envelope_v1(&changed_action, &action_context),
+            Err(PrivacyVerificationErrorV1::Envelope(_)
+                | PrivacyVerificationErrorV1::NativeJindo(_))
         ));
         let governed_mutations: [fn(&mut PrivacyProofEnvelopeV1); 5] = [
             |value| value.parameter_id.0[0] ^= 1,
@@ -5722,7 +5746,7 @@ mod tests {
             assert!(matches!(
                 verify_privacy_envelope_v1(
                     &candidate,
-                    fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                    &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
                 ),
                 Err(PrivacyVerificationErrorV1::Envelope(_))
             ));
@@ -5732,7 +5756,7 @@ mod tests {
         let mut context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
         context.activation = &altered_activation;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, context),
+            verify_privacy_envelope_v1(&fixture.envelope, &context),
             Err(PrivacyVerificationErrorV1::CompiledActivation(_))
         ));
     }
@@ -5745,7 +5769,7 @@ mod tests {
         assert_eq!(proof.as_bytes().len(), BOOTLE_LANTERN_PROOF_BYTES_V1);
         let effects = verify_privacy_envelope_v1(
             &fixture.envelope,
-            fixture.verification_context(&TEST_CONSENSUS_LIMITS),
+            &fixture.verification_context(&TEST_CONSENSUS_LIMITS),
         )
         .expect("valid Bootle/Lantern presentation");
         assert_eq!(
@@ -5764,7 +5788,7 @@ mod tests {
         exact_limit.max_proof_bytes_per_action = proof_len;
         verify_privacy_envelope_v1(
             &fixture.envelope,
-            fixture.verification_context(&exact_limit),
+            &fixture.verification_context(&exact_limit),
         )
         .expect("exact proof-byte boundary is admitted");
         let mut one_byte_below = exact_limit;
@@ -5772,7 +5796,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &fixture.envelope,
-                fixture.verification_context(&one_byte_below)
+                &fixture.verification_context(&one_byte_below)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5796,7 +5820,7 @@ mod tests {
                 matches!(
                     verify_privacy_envelope_v1(
                         &candidate,
-                        fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                        &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
                     ),
                     Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
                 ),
@@ -5812,7 +5836,7 @@ mod tests {
             assert!(matches!(
                 verify_privacy_envelope_v1(
                     &candidate,
-                    fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                    &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
                 ),
                 Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
             ));
@@ -5826,7 +5850,7 @@ mod tests {
             assert!(matches!(
                 verify_privacy_envelope_v1(
                     &candidate,
-                    fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                    &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
                 ),
                 Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
             ));
@@ -5840,7 +5864,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &noncanonical_residue,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
             ),
             Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
         ));
@@ -5851,7 +5875,7 @@ mod tests {
         assert!(matches!(
             verify_privacy_envelope_v1(
                 &cross_suite,
-                fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
             ),
             Err(PrivacyVerificationErrorV1::Envelope(_))
         ));
@@ -5876,7 +5900,7 @@ mod tests {
             assert!(matches!(
                 verify_privacy_envelope_v1(
                     &candidate,
-                    fixture.verification_context(&TEST_CONSENSUS_LIMITS)
+                    &fixture.verification_context(&TEST_CONSENSUS_LIMITS)
                 ),
                 Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
             ));
@@ -5891,13 +5915,13 @@ mod tests {
         replay_context.network_id = &replay_network;
         replay_context.genesis_hash = *replay_network.as_bytes();
         assert!(matches!(
-            verify_privacy_envelope_v1(&changed_network, replay_context),
+            verify_privacy_envelope_v1(&changed_network, &replay_context),
             Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
         ));
         let mut changed_genesis = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
         changed_genesis.genesis_hash[0] ^= 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, changed_genesis),
+            verify_privacy_envelope_v1(&fixture.envelope, &changed_genesis),
             Err(PrivacyVerificationErrorV1::Context(detail))
                 if detail.code == PrivacyVerificationContextFailureCodeV1::NetworkGenesisMismatch
         ));
@@ -5909,16 +5933,16 @@ mod tests {
         let mut action_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
         action_context.expected_action_index = 1;
         assert!(matches!(
-            verify_privacy_envelope_v1(&changed_action, action_context),
-            Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
-                | Err(PrivacyVerificationErrorV1::Envelope(_))
+            verify_privacy_envelope_v1(&changed_action, &action_context),
+            Err(PrivacyVerificationErrorV1::NativeBootleLantern(_)
+                | PrivacyVerificationErrorV1::Envelope(_))
         ));
         let mut altered_activation = fixture.activation;
         altered_activation.engine_manifest_digest.0[0] ^= 1;
         let mut activation_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
         activation_context.activation = &altered_activation;
         assert!(matches!(
-            verify_privacy_envelope_v1(&fixture.envelope, activation_context),
+            verify_privacy_envelope_v1(&fixture.envelope, &activation_context),
             Err(PrivacyVerificationErrorV1::CompiledActivation(_))
         ));
     }
@@ -6126,7 +6150,7 @@ pub mod test_fixtures {
             let statement =
                 PrivacyStatementV1::MoneroFcmpPlusPlusV1(MoneroFcmpPlusPlusStatementV1 {
                     context: PrivacyStatementContextV1 {
-                        network_id: network_id.clone(),
+                        network_id,
                         action_index: 0,
                         transaction_intent_digest: PrivacyTransactionIntentDigestV1::new(
                             [0xC2; 32],
@@ -6156,8 +6180,9 @@ pub mod test_fixtures {
                 });
             let statement_digest = statement.digest().expect("FCMP++ statement digest");
             let mut envelope = PrivacyProofEnvelopeV1 {
-                wire_magic: Default::default(),
-                catalog_commitment: Default::default(),
+                wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                catalog_commitment:
+                    iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                 protocol_id: compiled.protocol_id,
                 proof_system_id: compiled.proof_system_id,
                 engine_id: compiled.engine_id,
@@ -6185,8 +6210,7 @@ pub mod test_fixtures {
                 bootle_lantern_policy: None,
                 vega_issuer_record: None,
             };
-            let runtime_context = fcmp_runtime_context_hash_v1(&envelope, &verification_context)
-                .expect("FCMP++ runtime context");
+            let runtime_context = fcmp_runtime_context_hash_v1(&envelope, &verification_context);
             let output_openings = output_notes
                 .iter()
                 .map(FcmpWalletNoteV1::commitment_opening)
@@ -6255,7 +6279,7 @@ pub mod test_fixtures {
         FcmpRuntimeFixtureForTest {
             envelope: fixture.envelope.clone(),
             activation: fixture.activation,
-            network_id: fixture.network_id.clone(),
+            network_id: fixture.network_id,
             snapshot: fixture.snapshot.clone(),
             initial_output: fixture.initial_output,
             genesis_hash: [0xA7; 32],
@@ -6393,7 +6417,7 @@ pub mod test_fixtures {
                 },
             );
             let statement_context = |transaction_intent_byte: u8| PrivacyStatementContextV1 {
-                network_id: network_id.clone(),
+                network_id,
                 action_index: 0,
                 transaction_intent_digest: PrivacyTransactionIntentDigestV1::new(
                     [transaction_intent_byte; 32],
@@ -6472,8 +6496,9 @@ pub mod test_fixtures {
             )
             .expect("native ZK-AMS batch proof");
             let batch_envelope = PrivacyProofEnvelopeV1 {
-                wire_magic: Default::default(),
-                catalog_commitment: Default::default(),
+                wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                catalog_commitment:
+                    iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                 protocol_id: compiled.protocol_id,
                 proof_system_id: compiled.proof_system_id,
                 engine_id: compiled.engine_id,
@@ -6549,8 +6574,9 @@ pub mod test_fixtures {
             )
             .expect("native ZK-AMS provisioning proof");
             let provision_envelope = PrivacyProofEnvelopeV1 {
-                wire_magic: Default::default(),
-                catalog_commitment: Default::default(),
+                wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+                catalog_commitment:
+                    iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
                 protocol_id: compiled.protocol_id,
                 proof_system_id: compiled.proof_system_id,
                 engine_id: compiled.engine_id,
@@ -6586,7 +6612,7 @@ pub mod test_fixtures {
             batch_envelope: fixture.batch_envelope.clone(),
             provision_envelope: fixture.provision_envelope.clone(),
             activation: fixture.activation,
-            network_id: fixture.network_id.clone(),
+            network_id: fixture.network_id,
             genesis_hash: fixture.genesis_hash,
             current_height: fixture.current_height,
             block_timestamp_ms: fixture.block_timestamp_ms,

@@ -1,0 +1,86 @@
+"""Joint source reference for composed V0/V1, with caller output entanglement map."""
+from pathlib import Path
+import random
+from types import SimpleNamespace
+import unittest
+
+from bit_ir import bits,unpack
+from crt_machine import CrtReconstruction,Matrix,load_matrices
+from vole_columns import VoleColumns
+from vole_reconstruction import VoleReconstruction
+from mask_fold import load_moduli
+from schedule import load_predicate
+from test_prg_machine import ToyCipher
+from test_vole_machine import source_hidden_fold
+from test_vole_columns import reference_masks
+from test_crt_machine import padded,reference
+from test_hash_machine import apply
+
+ROOT=Path(__file__).resolve().parents[2]
+
+
+class VoleReconstructionTests(unittest.TestCase):
+    def toy(self):
+        geometry=SimpleNamespace(tau=2,k=2,tau1=0,depths=(1,1),leaves=4)
+        v=VoleColumns(geometry,256,(3,3),ToyCipher())
+        c=CrtReconstruction(v.ell,v.width_bits,Matrix(2,(1,2,3,0,3,2,1,3)),
+                            Matrix(2,padded((1,2,3))),Matrix(2,padded((2,1,3))),
+                            Matrix(8,padded((128,17,64,5,3))))
+        return VoleReconstruction(v,c)
+
+    def test_full_joint_map_source_reference_nonzero_output_and_cleanup(self):
+        machine=self.toy();p=machine.layout();v=machine.columns;c=machine.crt
+        rng=random.Random(128);regions=p['inputs']
+        inputs=[rng.randrange(2) for _ in range(machine.input_bits)]
+        selector_start=regions['selector'][0]
+        inputs[selector_start:selector_start+256]=bits(2,256)
+        for h in range(2):
+            start=regions['hidden'][0]+16*h
+            inputs[start:start+16]=bits(h,16)
+        def field(name):
+            start,width=regions[name];return unpack(inputs[start:start+width])
+        seeds=[(field('seeds')>>(i*256))&((1<<256)-1) for i in range(4)]
+        columns=[]
+        for instance in range(2):
+            columns+=source_hidden_fold(seeds[2*instance:2*instance+2],field('iv'),instance,1,
+                                       instance,v.row_bits,v.ell,0 if instance==0 else field('corrections'))
+        shares=reference_masks(columns,v.geometry.depths,v.moduli,v.ell)
+        crt_inputs=tuple(inputs[:1256])+tuple(bit for col in columns for bit in bits(col,v.width_bits))
+        crt_inputs+=tuple(bit for share in shares for bit in bits(share,c.share_width))
+        start,width=regions['mult_corrections'];crt_inputs+=tuple(inputs[start:start+width])
+        wanted,messages=reference(c,crt_inputs)
+        z=tuple(rng.randrange(2) for _ in range(machine.output_bits))
+        state=inputs+[0]*(p['output_start']-len(inputs))+list(z)
+        census,queries=apply(state,machine.emit_clean())
+        self.assertEqual(state[:machine.input_bits],inputs)
+        self.assertEqual(state[machine.input_bits:p['output_start']],[0]*(p['output_start']-machine.input_bits))
+        self.assertEqual(tuple(state[p['output_start']:]),tuple(a^b for a,b in zip(z,wanted)))
+        self.assertEqual(queries,[m for message in messages for m in (message,)*4])
+        cost=machine.resources()['gates']
+        for name in ('x','cx','ccx'):self.assertEqual(census[name],cost[name])
+        self.assertEqual(census['F'],cost['base_xor_oracle_calls'])
+        self.assertFalse(machine.resources()['complete_resource_vector'])
+
+    def test_actual_row_mapping_and_cost_composition_with_concrete_kernel_shape(self):
+        predicate=load_predicate(ROOT)
+        for row in ('candidate','comparator'):
+            geometry=predicate.row(row);matrices=load_matrices(ROOT,row)
+            for ell in (35840,53504):
+                v=VoleColumns(geometry,ell,load_moduli(ROOT,row),ToyCipher())
+                c=CrtReconstruction(ell,v.width_bits,matrices['G'],matrices['W_CRT'],matrices['W_TREE'],matrices['W_GATE'])
+                m=VoleReconstruction(v,c);p=m.layout()
+                self.assertEqual(sum(w for _,w in m.sources(p,'v0')),v.input_bits)
+                self.assertEqual(sum(w for _,w in m.sources(p,'v1')),c.input_bits)
+                resource=m.resources();v0=v.resources()['gates'];v1=c.resources()['gates']
+                for key in ('x','cx','ccx','base_xor_oracle_calls'):
+                    self.assertEqual(resource['gates'][key],2*v0[key]+v1[key])
+                self.assertEqual(resource['total_clean_work_bits'],v.output_bits+max(v.resources()['total_clean_work_bits'],3707))
+
+    def test_mismatched_joint_geometry_refused(self):
+        m=self.toy();c=m.crt
+        with self.assertRaises(ValueError):
+            VoleReconstruction(m.columns,CrtReconstruction(264,280,c.g_matrix,c.w_crt,c.w_tree,c.w_gate))
+        with self.assertRaises(ValueError):m.sources(m.layout(),'bad')
+
+
+if __name__=='__main__':unittest.main()

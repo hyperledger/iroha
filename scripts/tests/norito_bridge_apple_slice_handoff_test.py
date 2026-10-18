@@ -94,10 +94,10 @@ class NoritoBridgeAppleSliceHandoffTests(unittest.TestCase):
         with self.assertRaises(handoff.HandoffError):handoff.validate_common(common)
 
     def test_application_authority_is_exact_and_cannot_be_omitted(self):
-        for authority in ["bpng-taira-v7", "cbsi-release-v1"]:
+        for authority in ["bpng-taira-v7", "cbsi-release-v1", "application-release-v1"]:
             common=self.valid_common();common["build_environment"]["wallet_runtime_authority"]=authority
             handoff.validate_common(common)
-        for authority in [None, "", "bpng", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", 1, True, {}, []]:
+        for authority in [None, "", "bpng", "bpng-taira-v6", "BPNG-TAIRA-V7", "bpng-taira-v7\n", "application", "ApplicationReleaseV1", "APPLICATION-RELEASE-V1", "application-release-v1\n", " application-release-v1", 1, True, {}, []]:
             common=self.valid_common();common["build_environment"]["wallet_runtime_authority"]=authority
             with self.assertRaises(handoff.HandoffError):handoff.validate_common(common)
         common=self.valid_common();del common["build_environment"]["wallet_runtime_authority"]

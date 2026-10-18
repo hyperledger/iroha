@@ -30,37 +30,36 @@ use super::{
 use crate::privacy_engines::transparent_stark::GoldilocksFieldV1 as F;
 use thiserror::Error;
 /// Thirteen hash rows plus 91 serialized SPKI bytes, padded to log twelve with the complete cross-proof mask closure.
-pub(crate) const ZK_X509_CA_ACCUMULATOR_TRACE_ROWS_V1: usize = 4_096;
+pub const ZK_X509_CA_ACCUMULATOR_TRACE_ROWS_V1: usize = 4_096;
 /// One leaf call followed by twelve compact-tree node calls.
-pub(crate) const ZK_X509_CA_ACCUMULATOR_ACTIVE_ROWS_V1: usize =
-    1 + ZK_X509_CA_COMPACT_TREE_DEPTH_V1;
+pub const ZK_X509_CA_ACCUMULATOR_ACTIVE_ROWS_V1: usize = 1 + ZK_X509_CA_COMPACT_TREE_DEPTH_V1;
 /// One exact row per root-SPKI DER byte.
-pub(crate) const ZK_X509_CA_ACCUMULATOR_IO_ROWS_V1: usize = ZK_X509_CA_SPKI_DER_BYTES_V1;
+pub const ZK_X509_CA_ACCUMULATOR_IO_ROWS_V1: usize = ZK_X509_CA_SPKI_DER_BYTES_V1;
 /// First serialized root-SPKI byte row.
-pub(crate) const ZK_X509_CA_ACCUMULATOR_IO_START_V1: usize = ZK_X509_CA_ACCUMULATOR_ACTIVE_ROWS_V1;
+pub const ZK_X509_CA_ACCUMULATOR_IO_START_V1: usize = ZK_X509_CA_ACCUMULATOR_ACTIVE_ROWS_V1;
 /// All hash and serialized-byte rows before canonical padding.
-pub(crate) const ZK_X509_CA_ACCUMULATOR_NONPADDING_ROWS_V1: usize =
+pub const ZK_X509_CA_ACCUMULATOR_NONPADDING_ROWS_V1: usize =
     ZK_X509_CA_ACCUMULATOR_ACTIVE_ROWS_V1 + ZK_X509_CA_ACCUMULATOR_IO_ROWS_V1;
 /// Exact challenge-independent base width.
-pub(crate) const ZK_X509_CA_ACCUMULATOR_BASE_WIDTH_V1: usize = 695;
+pub const ZK_X509_CA_ACCUMULATOR_BASE_WIDTH_V1: usize = 695;
 /// Base-only residue count before the four-lane SHA-call products.
-pub(crate) const ZK_X509_CA_ACCUMULATOR_BASE_CONSTRAINT_COUNT_V1: usize = 1_219;
-pub(crate) const CA_CURRENT_START: usize = 0;
-pub(crate) const CA_SIBLING_START: usize = CA_CURRENT_START + 32;
-pub(crate) const CA_LEFT_START: usize = CA_SIBLING_START + 32;
-pub(crate) const CA_RIGHT_START: usize = CA_LEFT_START + 32;
-pub(crate) const CA_DIGEST_START: usize = CA_RIGHT_START + 32;
-pub(crate) const CA_INDEX_BITS_START: usize = CA_DIGEST_START + 32;
-pub(crate) const CA_DIRECTION: usize = CA_INDEX_BITS_START + ZK_X509_CA_COMPACT_TREE_DEPTH_V1;
-pub(crate) const CA_DIGEST_BYTE_BITS_START: usize = CA_DIRECTION + 1;
-pub(crate) const CA_SIBLING_BYTE_BITS_START: usize = CA_DIGEST_BYTE_BITS_START + 32 * 8;
-pub(crate) const CA_IO_BYTE: usize = CA_SIBLING_BYTE_BITS_START + 32 * 8;
-pub(crate) const CA_IO_WORD_ACC: usize = CA_IO_BYTE + 1;
-pub(crate) const CA_IO_BYTE_BITS_START: usize = CA_IO_WORD_ACC + 1;
+pub const ZK_X509_CA_ACCUMULATOR_BASE_CONSTRAINT_COUNT_V1: usize = 1_219;
+pub const CA_CURRENT_START: usize = 0;
+pub const CA_SIBLING_START: usize = CA_CURRENT_START + 32;
+pub const CA_LEFT_START: usize = CA_SIBLING_START + 32;
+pub const CA_RIGHT_START: usize = CA_LEFT_START + 32;
+pub const CA_DIGEST_START: usize = CA_RIGHT_START + 32;
+pub const CA_INDEX_BITS_START: usize = CA_DIGEST_START + 32;
+pub const CA_DIRECTION: usize = CA_INDEX_BITS_START + ZK_X509_CA_COMPACT_TREE_DEPTH_V1;
+pub const CA_DIGEST_BYTE_BITS_START: usize = CA_DIRECTION + 1;
+pub const CA_SIBLING_BYTE_BITS_START: usize = CA_DIGEST_BYTE_BITS_START + 32 * 8;
+pub const CA_IO_BYTE: usize = CA_SIBLING_BYTE_BITS_START + 32 * 8;
+pub const CA_IO_WORD_ACC: usize = CA_IO_BYTE + 1;
+pub const CA_IO_BYTE_BITS_START: usize = CA_IO_WORD_ACC + 1;
 /// Byte immediately before the 91-byte dynamic SPKI field in the leaf frame.
-pub(crate) const ZK_X509_CA_LEAF_SPKI_PREFIX_BYTE_V1: u8 = 91;
+pub const ZK_X509_CA_LEAF_SPKI_PREFIX_BYTE_V1: u8 = 91;
 /// First byte offset of the dynamic SPKI within the canonical leaf frame.
-pub(crate) const ZK_X509_CA_LEAF_SPKI_MESSAGE_OFFSET_V1: usize = 65;
+pub const ZK_X509_CA_LEAF_SPKI_MESSAGE_OFFSET_V1: usize = 65;
 const _: () = {
     assert!(ZK_X509_CA_COMPACT_TREE_CAPACITY_V1 == 1 << ZK_X509_CA_COMPACT_TREE_DEPTH_V1);
     assert!(ZK_X509_CA_ACCUMULATOR_ACTIVE_ROWS_V1 == 13);
@@ -70,14 +69,14 @@ const _: () = {
 /// Public statement selected by the verifier.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509CaAccumulatorStatementV1 {
+pub struct ZkX509CaAccumulatorStatementV1 {
     /// Governed compact trust-anchor root.
     pub(crate) governed_root: [u8; 32],
 }
 /// Exact private compact membership witness.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509CaAccumulatorWitnessV1 {
+pub struct ZkX509CaAccumulatorWitnessV1 {
     /// Exact canonical root-certificate SPKI DER.
     pub(crate) root_spki_der: [u8; ZK_X509_CA_SPKI_DER_BYTES_V1],
     /// Private sorted-leaf index and twelve leaf-to-root siblings.
@@ -85,7 +84,7 @@ pub(crate) struct ZkX509CaAccumulatorWitnessV1 {
 }
 /// Semantic kind of one fixed native row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509CaAccumulatorRowKindV1 {
+pub enum ZkX509CaAccumulatorRowKindV1 {
     /// Occupied-leaf SHA call.
     Leaf,
     /// Internal-node SHA call at the contained leaf-to-root level.
@@ -97,7 +96,7 @@ pub(crate) enum ZkX509CaAccumulatorRowKindV1 {
 }
 /// Verifier-owned location of one native row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509CaAccumulatorFixedRowV1 {
+pub struct ZkX509CaAccumulatorFixedRowV1 {
     /// Native row index.
     pub(crate) row: u16,
     /// Sole legal semantic row kind.
@@ -206,7 +205,7 @@ impl CaAccumulatorRowV1 {
 /// Complete compact accumulator witness and canonical SHA calls.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509CaAccumulatorTraceV1 {
+pub struct ZkX509CaAccumulatorTraceV1 {
     /// Verifier-bound governed root.
     pub(crate) statement: ZkX509CaAccumulatorStatementV1,
     /// Exact private source values.
@@ -329,7 +328,7 @@ impl From<ZkX509MerkleErrorV1> for ZkX509AccumulatorAirErrorV1 {
     }
 }
 /// Return the sole fixed row at one native index.
-pub(crate) fn ca_accumulator_fixed_row_v1(
+pub fn ca_accumulator_fixed_row_v1(
     index: usize,
 ) -> Result<ZkX509CaAccumulatorFixedRowV1, ZkX509AccumulatorAirErrorV1> {
     let kind = match index {
@@ -355,7 +354,7 @@ pub(crate) fn ca_accumulator_fixed_row_v1(
 }
 /// Compile and validate the sole compact membership trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_ca_accumulator_trace_v1(
+pub fn build_ca_accumulator_trace_v1(
     statement: ZkX509CaAccumulatorStatementV1,
     witness: ZkX509CaAccumulatorWitnessV1,
 ) -> Result<ZkX509CaAccumulatorTraceV1, ZkX509AccumulatorAirErrorV1> {
@@ -483,7 +482,7 @@ fn compile_ca_accumulator_trace_v1(
 /// SHA compression is intentionally external: the proof-facing adapter adds
 /// four-lane call-product transitions to these identities.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_ca_accumulator_base_constraints_v1(
+pub fn evaluate_ca_accumulator_base_constraints_v1(
     fixed: ZkX509CaAccumulatorFixedRowV1,
     row: &[F; ZK_X509_CA_ACCUMULATOR_BASE_WIDTH_V1],
     next: Option<&[F; ZK_X509_CA_ACCUMULATOR_BASE_WIDTH_V1]>,

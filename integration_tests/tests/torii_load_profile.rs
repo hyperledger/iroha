@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Ignored Torii HTTP hot-path load profile for focused performance validation.
 use eyre::{WrapErr, ensure, eyre};
 use futures_util::StreamExt as _;

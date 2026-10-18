@@ -11,8 +11,8 @@ use iroha_data_model::{
     permission::Permissions,
     sumeragi_amx::{AmxDebitApprovalProofV1, AmxDebitApprovalV1},
     sumeragi_finality::{
-        WorldStateElementKindV1, WorldStateSnapshotEntryV1, WorldStateSnapshotV1,
-        test_fixtures::NativeFinalityFixture, world_state_value_hash_v1,
+        VerifiedSumeragiBlock, WorldStateElementKindV1, WorldStateSnapshotEntryV1,
+        WorldStateSnapshotV1, test_fixtures::NativeFinalityFixture, world_state_value_hash_v1,
     },
 };
 use std::sync::{Arc, Mutex};
@@ -40,7 +40,31 @@ impl HttpTransport for Transport {
 
 #[tokio::test(flavor = "current_thread")]
 async fn amx_approval_async_read_authenticates_exact_body_and_rejects_stale_or_wrong_terms() {
-    let mut client = client_with_base_url("http://approval.invalid/provider/v1/".parse().unwrap());
+    assert_amx_approval_async_read("http://approval.invalid/provider/", "/provider/v1").await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn amx_approval_async_read_preserves_root_and_version_named_provider_prefixes() {
+    for (base, route_prefix) in [
+        ("http://approval.invalid/", "/v1"),
+        ("http://approval.invalid/provider/v1/", "/provider/v1/v1"),
+    ] {
+        assert_amx_approval_async_read(base, route_prefix).await;
+    }
+}
+
+struct ApprovalFixture {
+    approval: AmxDebitApprovalV1,
+    schema: Hash,
+    proof: AmxDebitApprovalProofV1,
+    verified: Box<VerifiedSumeragiBlock>,
+    later: Box<VerifiedSumeragiBlock>,
+}
+
+// Keep synchronous proof construction outside the async state machine and retain
+// its two authenticated cuts on the heap across HTTP suspension points.
+#[inline(never)]
+fn approval_fixture(client: &mut Client) -> ApprovalFixture {
     let parent = client.network_id;
     let ds = iroha_model_base::topology::DataSpaceId::new(7);
     let mut native = NativeFinalityFixture::start_with_scope(
@@ -103,16 +127,51 @@ async fn amx_approval_async_read_authenticates_exact_body_and_rejects_stale_or_w
     };
     let block = native.block_with_submitted_work(native.next_header());
     let certificate = native.certify_with_world_root(block, proof.world.root().unwrap());
-    let verified = native
-        .verifier()
-        .verify_retained_decision(&certificate)
-        .unwrap();
+    let verified = Box::new(
+        native
+            .verifier()
+            .verify_retained_decision(&certificate)
+            .unwrap(),
+    );
     let block = native.block_with_submitted_work(native.next_header());
     let later_certificate = native.certify_with_world_root(block, Hash::new(b"later bank cut"));
-    let later = native
-        .verifier()
-        .verify_retained_decision(&later_certificate)
-        .unwrap();
+    let later = Box::new(
+        native
+            .verifier()
+            .verify_retained_decision(&later_certificate)
+            .unwrap(),
+    );
+    ApprovalFixture {
+        approval,
+        schema,
+        proof,
+        verified,
+        later,
+    }
+}
+
+#[test]
+fn approval_read_future_keeps_authenticated_cuts_off_the_stack() {
+    let future =
+        assert_amx_approval_async_read("http://approval.invalid/provider/", "/provider/v1");
+    assert!(
+        std::mem::size_of_val(&future) <= 16_384,
+        "approval read future retains large authenticated cut values inline: {} bytes",
+        std::mem::size_of_val(&future),
+    );
+}
+
+async fn assert_amx_approval_async_read(base: &str, route_prefix: &str) {
+    // The entire configured URL is a provider directory. A literal terminal `v1`
+    // belongs to that directory and cannot be removed from the signed target.
+    let mut client = client_with_base_url(base.parse().unwrap());
+    let ApprovalFixture {
+        approval,
+        schema,
+        proof,
+        verified,
+        later,
+    } = approval_fixture(&mut client);
     for (code, media, wrong_terms, stale_proof, success) in [
         (200, APPLICATION_NORITO, false, false, true),
         (200, APPLICATION_NORITO, true, false, false),
@@ -150,8 +209,7 @@ async fn amx_approval_async_read_authenticates_exact_body_and_rejects_stale_or_w
         assert_eq!(
             request.url.path(),
             format!(
-                // The configured root path is an opaque prefix; the route adds its own /v1.
-                "/provider/v1/v1/amx/debit-approval/{}",
+                "{route_prefix}/amx/debit-approval/{}",
                 selected_block.height()
             )
         );

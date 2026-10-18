@@ -256,13 +256,13 @@ use crate::privacy_engines::{
 use iroha_data_model::privacy::PrivacyStatementV1;
 use iroha_data_model::privacy::{IrohaZkX509StarkP256StatementV1, PrivacyProtocolIdV1};
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) use main_aggregate::commit_zk_x509_main_base_phase_v1_with_rng;
+pub use main_aggregate::commit_zk_x509_main_base_phase_v1_with_rng;
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) use main_aggregate::main_joint::finish_joint_main_ca_v1;
-pub(crate) use main_aggregate::main_joint::{
+pub use main_aggregate::main_joint::finish_joint_main_ca_v1;
+pub use main_aggregate::main_joint::{
     MainJointVerifierOraclesV1, main_joint_auxiliary_from_proofs_v1,
 };
-pub(crate) use main_aggregate::zk_x509_main_pre_aux_from_proof_v1;
+pub use main_aggregate::zk_x509_main_pre_aux_from_proof_v1;
 #[cfg(test)]
 use main_aggregate::{
     MainOpenedProviderSetV1, MainOpenedRowEvaluatorV1, MainTraceColumnKindV1,
@@ -271,9 +271,7 @@ use main_aggregate::{
     main_opened_composition_value_v1, validate_main_fri_mixes_v1,
 };
 #[cfg(test)]
-pub(crate) use main_aggregate::{
-    ZkX509MainAwaitingCredentialBindingV1, ZkX509MainCompositionPhaseV1,
-};
+pub use main_aggregate::{ZkX509MainAwaitingCredentialBindingV1, ZkX509MainCompositionPhaseV1};
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 use main_aggregate::{p256_opened_residues_v1, p256_scalar_opened_residues_v1};
 #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -283,7 +281,7 @@ use thiserror::Error;
 /// Complete proof-system descriptor for the implemented aggregate adapters.
 ///
 /// The descriptor is transcript-bound and records the first-release geometry.
-pub(crate) const ZK_X509_SEGMENTED_STARK_DESCRIPTOR_V1: &[u8] = b"zk-x509-aggregate-stark-v1-incompatible:wire=outer-X5S1-containing-exactly-one-X5M1-main-and-one-X5C1-ca:X5M1-claim-free-key-openings-plus-length-delimited-aggregate-no-fixed-sidecar-no-legacy:exact-statement-derived-shape:goldilocks-fp4-w4=7:main-common-lde-log22:compact-ca-local-lde-log16:ordered-native-stride-logical-trace-groups-main-joined-base-and-aux-roots:verifier-owned-logical-adapter-registration:exact-column-ranges-widths-constraint-counts-and-degrees-transcript-bound:64-column-physical-budget-chunks:main-49-registrations-6-groups-logs5,8,15,16,18,19-80-chunks:compact-ca-dedicated-log12-13-chunks:sha3-384-opaque48-vector-row-merkle:p256-binding-sink-degree3-including-fixed-selectors:sha-capacity-and-call-degree6-including-fixed-selectors:sha-digest-address-polynomial-select:sha-fixed-algebraic-width472-verifier-derived-no-proof-bytes:p256-fixed-algebraic-width404-verifier-derived-no-proof-bytes:fixed-polynomials-verifier-derived-at-deep-point-and-native-translates:x5b1-shared-challenge-pre-aux=single-joined-main-base-root-then-ca-base-root+main-profile+ca-profile+main-public+ca-public+sample-exact272-goldilocks-post-base-challenges-in-11-family-order=sha-call28,rfc48,projection28,io20,der52,sha-word-memory16,sha-word-base-fold4,p256-value28,p256-cross16,p256-scalar20,p256-arithmetic-copy12+opaque-main-post-base-session:main-io=statement-compiled-40+5d-declarations-logical55922+4736d-active-rows-padded-to262144:rfc5280-output-role-products=9-normalized-producer+9-actual-consumer-four-lane-aux-accumulators+36-private-equalities+4-private-CA-governed-root-consumer-links+16-private-sha-bridges+20-quartic-joins:main-key-byte-joins=12-blocks647-equalities-root-powers2,8:main-sha-digest-joins=5-blocks40-u32-equalities-root-power32:main-sha-rfc-private-union=16-constant-native-bridges+16-segment-quartic-links+4-role-quartic-links-original-masks-no-extra-openings:rfc5280-calendar-and-numeric=base285-aux280-fixed147-constraints2145-degree4-basic-constraints-fixed3x12-signed-parent-complete-canonical-u32-and-32bit-nonwrapping-slack-source-node-root-kind-active-gated-helper-fixed-eight-equality-and-fifteen-embedded-endpoint-slots-complete-nonempty-original-node-spans-live-prefix-count-typed-copy-domains103-104-optional-slot-canonical-zero-exact-extension-oid-ordinal-ku-document-and-critical-cardinality-five-key-and-five-complete-spki-outputs-der-node-byte-lookups-key-length66-offset1-spki-content89-total91-offset0-nine-variable-tbs-crl-signature-byte-and-canonical-u16-in-eight-byte-length-pairs-live-prefix-count-node-continuity-source-start-helper-projection-leaf-serial-magnitude-sign-octet-nonzero-first-byte-big-endian-length-selected-original-subject-oid-value-provenance-with-complete-name-oid-census-three-original-classes-disjoint-document-stride12-keys1through48-six-bit-positive-gaps-uniqueness-nonempty-bounded-rdns-and-complete-original-value-census-country-printable-utf8-dfa-output-metadata-six-verifier-fixed-equations-authenticated72-time-census-73-relations-38bit-slack-affine-loglookup-39relation-bound:local-component-history:both-original-aux-roots-before-active-fp4-local-constraint-alphas:then192-private-endpoint-link-descriptors-and-fp4-link-alphas:then17-key-and-digest-join-descriptors-and-fp4-alphas:then20-private-sha-union-descriptors-and-fp4-alphas:then108-CA-private-link-descriptors-and-fp4-alphas:private-links-linear-and-quartic-quotients-original-masks-before-composition-commitment:one-fp4-composition-lane:main-six-composition-chunks:ca-four-composition-chunks:canonical-quotient-stride=fri-cap-minus137:independent-fp4-adjacent-chunk-masks137-before-composition-root:fri-rate9over64:binary-fri:ordered-low-high-pair-leaves:affine-batching-m3-binary-fold-arity2:136-uniform-distinct-queries-without-replacement:main-terminal1024-degree143:ca-terminal1024-degree143:main-mask1816-coefficients:ca-mask2100-coefficients:one-shared-transcript-derived-deep-point-current+next+MAIN24-CA108-original-openings-both-local-records-bound-before-mixes:MAIN31-derived-key-and-digest-openings-power2,8,32-admissibility-and-DEEP-authentication:ca-complete-fp4-local-air1363-plus-MAIN108-original-cross-equations-at-deep-current-only-queried-trace-rows:main-complete-fp4-air49-native-vanishing-and-six-chunk-recomposition-at-deep-current-only-queried-trace-rows:grinding20:p256-four-independent-base-field-bus-lanes-per-family:all-roots-transcript-ordered:subproof-machinery-complete:X5M1-codec-and-accounting-complete:full-main-production-provider-verifier=complete:activation=unavailable-independent-qualification";
+pub const ZK_X509_SEGMENTED_STARK_DESCRIPTOR_V1: &[u8] = b"zk-x509-aggregate-stark-v1-incompatible:wire=outer-X5S1-containing-exactly-one-X5M1-main-and-one-X5C1-ca:X5M1-claim-free-key-openings-plus-length-delimited-aggregate-no-fixed-sidecar-no-legacy:exact-statement-derived-shape:goldilocks-fp4-w4=7:main-common-lde-log22:compact-ca-local-lde-log16:ordered-native-stride-logical-trace-groups-main-joined-base-and-aux-roots:verifier-owned-logical-adapter-registration:exact-column-ranges-widths-constraint-counts-and-degrees-transcript-bound:64-column-physical-budget-chunks:main-49-registrations-6-groups-logs5,8,15,16,18,19-80-chunks:compact-ca-dedicated-log12-13-chunks:sha3-384-opaque48-vector-row-merkle:p256-binding-sink-degree3-including-fixed-selectors:sha-capacity-and-call-degree6-including-fixed-selectors:sha-digest-address-polynomial-select:sha-fixed-algebraic-width472-verifier-derived-no-proof-bytes:p256-fixed-algebraic-width404-verifier-derived-no-proof-bytes:fixed-polynomials-verifier-derived-at-deep-point-and-native-translates:x5b1-shared-challenge-pre-aux=single-joined-main-base-root-then-ca-base-root+main-profile+ca-profile+main-public+ca-public+sample-exact272-goldilocks-post-base-challenges-in-11-family-order=sha-call28,rfc48,projection28,io20,der52,sha-word-memory16,sha-word-base-fold4,p256-value28,p256-cross16,p256-scalar20,p256-arithmetic-copy12+opaque-main-post-base-session:main-io=statement-compiled-40+5d-declarations-logical55922+4736d-active-rows-padded-to262144:rfc5280-output-role-products=9-normalized-producer+9-actual-consumer-four-lane-aux-accumulators+36-private-equalities+4-private-CA-governed-root-consumer-links+16-private-sha-bridges+20-quartic-joins:main-key-byte-joins=12-blocks647-equalities-root-powers2,8:main-sha-digest-joins=5-blocks40-u32-equalities-root-power32:main-sha-rfc-private-union=16-constant-native-bridges+16-segment-quartic-links+4-role-quartic-links-original-masks-no-extra-openings:rfc5280-calendar-and-numeric=base285-aux280-fixed147-constraints2145-degree4-basic-constraints-fixed3x12-signed-parent-complete-canonical-u32-and-32bit-nonwrapping-slack-source-node-root-kind-active-gated-helper-fixed-eight-equality-and-fifteen-embedded-endpoint-slots-complete-nonempty-original-node-spans-live-prefix-count-typed-copy-domains103-104-optional-slot-canonical-zero-exact-extension-oid-ordinal-ku-document-and-critical-cardinality-five-key-and-five-complete-spki-outputs-der-node-byte-lookups-key-length66-offset1-spki-content89-total91-offset0-nine-variable-tbs-crl-signature-byte-and-canonical-u16-in-eight-byte-length-pairs-live-prefix-count-node-continuity-source-start-helper-projection-leaf-serial-magnitude-sign-octet-nonzero-first-byte-big-endian-length-selected-original-subject-oid-value-provenance-with-complete-name-oid-census-three-original-classes-disjoint-document-stride12-keys1through48-six-bit-positive-gaps-uniqueness-nonempty-bounded-rdns-and-complete-original-value-census-country-printable-utf8-dfa-output-metadata-six-verifier-fixed-equations-authenticated72-time-census-73-relations-38bit-slack-affine-loglookup-39relation-bound:local-component-history:both-original-aux-roots-before-active-fp4-local-constraint-alphas:then192-private-endpoint-link-descriptors-and-fp4-link-alphas:then17-key-and-digest-join-descriptors-and-fp4-alphas:then20-private-sha-union-descriptors-and-fp4-alphas:then108-CA-private-link-descriptors-and-fp4-alphas:private-links-linear-and-quartic-quotients-original-masks-before-composition-commitment:one-fp4-composition-lane:main-six-composition-chunks:ca-four-composition-chunks:canonical-quotient-stride=fri-cap-minus137:independent-fp4-adjacent-chunk-masks137-before-composition-root:fri-rate9over64:binary-fri:ordered-low-high-pair-leaves:affine-batching-m3-binary-fold-arity2:136-uniform-distinct-queries-without-replacement:main-terminal1024-degree143:ca-terminal1024-degree143:main-mask1816-coefficients:ca-mask2100-coefficients:one-shared-transcript-derived-deep-point-current+next+MAIN24-CA108-original-openings-both-local-records-bound-before-mixes:MAIN31-derived-key-and-digest-openings-power2,8,32-admissibility-and-DEEP-authentication:ca-complete-fp4-local-air1363-plus-MAIN108-original-cross-equations-at-deep-current-only-queried-trace-rows:main-complete-fp4-air49-native-vanishing-and-six-chunk-recomposition-at-deep-current-only-queried-trace-rows:grinding20:p256-four-independent-base-field-bus-lanes-per-family:all-roots-transcript-ordered:subproof-machinery-complete:X5M1-codec-and-accounting-complete:full-main-production-provider-verifier=complete:activation=unavailable-independent-qualification";
 const PROOF_MAGIC_V1: [u8; 4] = *b"X5S1";
 const SECURITY_LANES: usize = ZK_X509_COMPOSITION_LANES_V1 as usize;
 const QUERY_COUNT: usize = ZK_X509_FRI_QUERY_COUNT_V1 as usize;
@@ -450,17 +448,17 @@ const FRI_NODE_DOMAIN: &[u8] = b"iroha:privacy:zk-x509:stark:fri-node:v1";
 #[cfg(test)]
 const PUBLIC_DIGEST_DOMAIN: &[u8] = b"iroha:privacy:zk-x509:stark:io-public:v1";
 const QUERY_SEED_DOMAIN: &[u8] = b"iroha:privacy:zk-x509:stark:query-seed:v1";
-pub(crate) const ZK_X509_FIXED_DIGEST_CONTEXT_V1: TransparentStarkDigestContextV1 =
+pub const ZK_X509_FIXED_DIGEST_CONTEXT_V1: TransparentStarkDigestContextV1 =
     TransparentStarkDigestContextV1::new(
         PrivacyProtocolIdV1::IrohaZkX509StarkP256V1,
         b"iroha-zk-x509-stark-p256-release-profile-v1",
     );
 #[cfg(test)]
-pub(crate) const ZK_X509_DIGEST_CONTEXT_V1: TransparentStarkDigestContextV1 =
+pub const ZK_X509_DIGEST_CONTEXT_V1: TransparentStarkDigestContextV1 =
     TEST_PROOF_INSTANCE_V1.main_context_v1();
 #[cfg(test)]
 /// Construct one opaque 48-byte outer digest for cross-module zk-X509 tests.
-pub(crate) fn zk_x509_test_digest384_v1(seed: u8) -> PrivacyOuterDigestV1 {
+pub fn zk_x509_test_digest384_v1(seed: u8) -> PrivacyOuterDigestV1 {
     PrivacyOuterDigestV1::from_bytes([seed; 48])
 }
 #[cfg(test)]
@@ -493,9 +491,9 @@ const MAIN_KEY_OPENING_COUNT_V1: usize = 31;
 const MAIN_PROOF_AGGREGATE_LENGTH_OFFSET_V1: usize =
     MAIN_PROOF_KEY_OPENINGS_OFFSET_V1 + 32 * MAIN_KEY_OPENING_COUNT_V1;
 /// Exact canonical framing and original key openings around the inner X5S1.
-pub(crate) const ZK_X509_MAIN_PROOF_ENVELOPE_FIXED_BYTES_V1: usize =
+pub const ZK_X509_MAIN_PROOF_ENVELOPE_FIXED_BYTES_V1: usize =
     MAIN_PROOF_AGGREGATE_LENGTH_OFFSET_V1 + 4;
-pub(crate) const ZK_X509_MAIN_PROOF_DESCRIPTOR_V1: &[u8] = b"zk-x509-main-proof-v1-incompatible:wire=X5M1+version1+exact31-canonical-Fp4-key-and-digest-join-openings992+u32be-inner-X5S1-length+exact-X5S1:no-fixed-sidecar:no-omitted-reordered-duplicated-or-trailing-records:private-der-rfc8-and-p256184-linear-endpoint-quotients+rfc-normalized-private-producer-consumer36-equalities-and-four-private-CA-governed-root-consumer-links+16-private-native-constant-bridges+20-quartic-original-masked-column-sha-rfc-endpoint-joins-no-extra-openings:main-key-byte-joins=12-blocks647-equalities-root-powers2,8:main-sha-digest-joins=5-blocks40-u32-equalities-root-power32:main-sha-rfc-private-union=16-constant-native-bridges+16-segment-quartic-links+4-role-quartic-links-original-masks-no-extra-openings:fixed-openings-derived-by-verifier-only-after-main-transcript-grinding:no-proof-supplied-fixed-values:x5b1-shared-main-ca-pre-aux-challenges:local-component-history:both-original-aux-roots-then-active-local-constraint-alphas-then-192-ordered-private-link-descriptors-and-link-alphas-then-17-key-and-digest-join-descriptors-and-alphas-then-20-private-sha-union-descriptors-and-alphas-then-108-ordered-CA-private-link-descriptors-and-alphas:additional31-derived-openings-plus-ordered132-MAIN24-CA108-openings-and-both-local-DEEP-records-before-independent-key-DEEP-and-FRI-mixes:first-release-no-legacy";
+pub const ZK_X509_MAIN_PROOF_DESCRIPTOR_V1: &[u8] = b"zk-x509-main-proof-v1-incompatible:wire=X5M1+version1+exact31-canonical-Fp4-key-and-digest-join-openings992+u32be-inner-X5S1-length+exact-X5S1:no-fixed-sidecar:no-omitted-reordered-duplicated-or-trailing-records:private-der-rfc8-and-p256184-linear-endpoint-quotients+rfc-normalized-private-producer-consumer36-equalities-and-four-private-CA-governed-root-consumer-links+16-private-native-constant-bridges+20-quartic-original-masked-column-sha-rfc-endpoint-joins-no-extra-openings:main-key-byte-joins=12-blocks647-equalities-root-powers2,8:main-sha-digest-joins=5-blocks40-u32-equalities-root-power32:main-sha-rfc-private-union=16-constant-native-bridges+16-segment-quartic-links+4-role-quartic-links-original-masks-no-extra-openings:fixed-openings-derived-by-verifier-only-after-main-transcript-grinding:no-proof-supplied-fixed-values:x5b1-shared-main-ca-pre-aux-challenges:local-component-history:both-original-aux-roots-then-active-local-constraint-alphas-then-192-ordered-private-link-descriptors-and-link-alphas-then-17-key-and-digest-join-descriptors-and-alphas-then-20-private-sha-union-descriptors-and-alphas-then-108-ordered-CA-private-link-descriptors-and-alphas:additional31-derived-openings-plus-ordered132-MAIN24-CA108-openings-and-both-local-DEEP-records-before-independent-key-DEEP-and-FRI-mixes:first-release-no-legacy";
 const _: () = assert!(ZK_X509_MAIN_PROOF_ENVELOPE_FIXED_BYTES_V1 == 1_002);
 const _: () =
     assert!(ZK_X509_MAIN_PROOF_ENVELOPE_FIXED_BYTES_V1 == ZK_X509_MAIN_FRAME_BYTES_V1 as usize);
@@ -526,7 +524,7 @@ const AGGREGATE_DOMAINS_V1: aggregate::AggregateStarkDomainsV1 =
     main_domains_v1(TEST_PROOF_INSTANCE_V1);
 /// Verifier-fixed byte-channel statement for the implemented STARK segment.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509IoStarkStatementV1 {
+pub struct ZkX509IoStarkStatementV1 {
     declarations: Vec<ZkX509IoChannelDeclarationV1>,
 }
 impl ZkX509IoStarkStatementV1 {
@@ -659,7 +657,7 @@ impl From<P256AggregateAdapterErrorV1> for ZkX509StarkErrorV1 {
 }
 /// Decoded canonical MAIN frame borrowing its sole variable proof record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509MainProofEnvelopeV1<'a> {
+pub struct ZkX509MainProofEnvelopeV1<'a> {
     /// Exact ordered original-column evaluations at derived key-join DEEP points.
     pub(crate) key_openings: [E; MAIN_KEY_OPENING_COUNT_V1],
     /// Inner 49-registration aggregate X5S1 proof.
@@ -667,14 +665,12 @@ pub(crate) struct ZkX509MainProofEnvelopeV1<'a> {
 }
 /// Compute one MAIN frame length without allocation.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const fn zk_x509_main_proof_envelope_encoded_len_v1(
-    aggregate_bytes: usize,
-) -> Option<usize> {
+pub const fn zk_x509_main_proof_envelope_encoded_len_v1(aggregate_bytes: usize) -> Option<usize> {
     ZK_X509_MAIN_PROOF_ENVELOPE_FIXED_BYTES_V1.checked_add(aggregate_bytes)
 }
 /// Encode the sole canonical MAIN frame.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn encode_zk_x509_main_proof_envelope_v1(
+pub fn encode_zk_x509_main_proof_envelope_v1(
     key_openings: &[E; MAIN_KEY_OPENING_COUNT_V1],
     aggregate_proof: &[u8],
 ) -> Result<Vec<u8>, ZkX509StarkErrorV1> {
@@ -727,7 +723,7 @@ fn main_envelope_u32_v1(encoded: &[u8], offset: usize) -> Result<usize, ZkX509St
 }
 /// Decode exactly one MAIN frame, rejecting aliases, omissions, reordering,
 /// noncanonical fields, length mismatches, and suffixes.
-pub(crate) fn decode_zk_x509_main_proof_envelope_v1<'a>(
+pub fn decode_zk_x509_main_proof_envelope_v1<'a>(
     encoded: &'a [u8],
 ) -> Result<ZkX509MainProofEnvelopeV1<'a>, ZkX509StarkErrorV1> {
     if encoded.len() > ZK_X509_MAIN_AGGREGATE_MAX_PROOF_BYTES_V1 {
@@ -2038,7 +2034,8 @@ impl AggregateProofLayoutV1 {
                 || registration.base_start != 0
                 || registration.aux_start != 0
                 || group.is_none_or(|group| {
-                    group.native_trace_log2 != expected.trace_log2
+                    let native_trace_log2 = group.native_trace_log2;
+                    native_trace_log2 != expected.trace_log2
                         || group.base_width != expected.base_width
                         || group.aux_width != expected.aux_width
                         || group.column_chunks != registration.column_chunks
@@ -2113,7 +2110,7 @@ impl AggregateProofLayoutV1 {
 }
 /// Publicly inspectable census of the sole first-release MAIN registration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509MainRegistrationShapeV1 {
+pub struct ZkX509MainRegistrationShapeV1 {
     /// Exact logical adapter registrations.
     pub(crate) logical_registrations: usize,
     /// Exact equal-native-log trace groups.
@@ -2125,7 +2122,7 @@ pub(crate) struct ZkX509MainRegistrationShapeV1 {
 ///
 /// This is intentionally verifier-owned and accepts no witness-dependent dimensions. MAIN assembly
 /// calls it before handing material to the aggregate prover.
-pub(crate) fn validate_zk_x509_main_registration_shape_v1()
+pub fn validate_zk_x509_main_registration_shape_v1()
 -> Result<ZkX509MainRegistrationShapeV1, ZkX509StarkErrorV1> {
     let layout = AggregateProofLayoutV1::for_full_profile_v1()?;
     let physical_chunks = layout.trace_groups.iter().try_fold(0_usize, |sum, group| {
@@ -2161,14 +2158,14 @@ pub(super) fn main_diagnostic_transform_columns_v1() -> Result<usize, ZkX509Star
 /// constructed together. Fixed rows are evaluated from the manifest-bound
 /// algebraic schedules and never selected by a caller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509MainVerifierProfileV1 {
+pub struct ZkX509MainVerifierProfileV1 {
     /// Exact 49-registration topology.
     pub(crate) registration: ZkX509MainRegistrationShapeV1,
     /// Digest of the complete 29-field algebraic release manifest.
     pub(crate) compiled_profile_digest: [u8; 32],
 }
 /// Construct the sole MAIN verifier profile from independently pinned release material.
-pub(crate) fn construct_zk_x509_main_verifier_profile_v1()
+pub fn construct_zk_x509_main_verifier_profile_v1()
 -> Result<ZkX509MainVerifierProfileV1, ZkX509StarkErrorV1> {
     let registration = validate_zk_x509_main_registration_shape_v1()?;
     let compiled =
@@ -2179,7 +2176,7 @@ pub(crate) fn construct_zk_x509_main_verifier_profile_v1()
     })
 }
 /// Reject any supplied MAIN profile that differs from the verifier-owned release pins.
-pub(crate) fn validate_zk_x509_main_verifier_profile_v1(
+pub fn validate_zk_x509_main_verifier_profile_v1(
     supplied: ZkX509MainVerifierProfileV1,
 ) -> Result<(), ZkX509StarkErrorV1> {
     let expected = construct_zk_x509_main_verifier_profile_v1()?;
@@ -2196,7 +2193,7 @@ pub(crate) fn validate_zk_x509_main_verifier_profile_v1(
 /// Registration and fixed-polynomial diagnostics remain independently usable.
 /// Proof construction must pass this bounded geometry check before any entropy
 /// is consumed or a commitment is emitted.
-pub(crate) fn validate_zk_x509_main_proof_budget_v1() -> Result<(), ZkX509StarkErrorV1> {
+pub fn validate_zk_x509_main_proof_budget_v1() -> Result<(), ZkX509StarkErrorV1> {
     let layout = AggregateProofLayoutV1::for_full_profile_v1()?;
     let inner_bytes = aggregate::maximum_encoded_proof_with_deep_bytes_v1(
         AGGREGATE_PARAMETERS_V1,
@@ -4708,7 +4705,7 @@ fn composition_tree_v1(
     lane: usize,
     chunks: &[Vec<E>],
 ) -> Result<PrivacyOuterMerkleTreeV1, ZkX509StarkErrorV1> {
-    aggregate::composition_tree_v1(AGGREGATE_DOMAINS_V1, lane, chunks)
+    aggregate::composition_tree_v1(&AGGREGATE_DOMAINS_V1, lane, chunks)
         .map_err(map_aggregate_error_v1)
 }
 #[cfg(test)]
@@ -4718,7 +4715,7 @@ fn fri_tree_v1(
     values: &[E],
 ) -> Result<PrivacyOuterMerkleTreeV1, ZkX509StarkErrorV1> {
     aggregate::fri_tree_v1(
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         AGGREGATE_PARAMETERS_V1.fri_commitment_layout,
         lane,
         round,
@@ -4912,7 +4909,7 @@ fn absorb_aggregate_layout_v1(
     aggregate::absorb_layout_v1(
         transcript,
         layout.parameters_v1(),
-        main_domains_v1(proof_instance),
+        &main_domains_v1(proof_instance),
         layout_domain,
         &layout.as_shared()?,
     )
@@ -5827,7 +5824,7 @@ fn build_fri_lane_v1(
     let parameters = aggregate_layout.parameters_v1();
     aggregate::build_fri_lane_v1(
         parameters,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &aggregate_layout.as_shared()?,
         lane,
         base_values,
@@ -5918,7 +5915,7 @@ fn query_indices_v1(
     aggregate::query_indices_v1(
         transcript,
         layout.parameters_v1(),
-        main_domains_v1(proof_instance),
+        &main_domains_v1(proof_instance),
         &layout.as_shared()?,
     )
     .map_err(map_aggregate_error_v1)
@@ -5936,7 +5933,7 @@ fn absorb_grinding_nonce_v1(
 /// The injected fallible RNG is used by deterministic KATs and entropy-failure
 /// tests. Production callers of this currently internal API use `OsRng`.
 #[cfg(test)]
-pub(crate) fn prove_zk_x509_io_segmented_stark_v1_with_rng<R: TryRngCore>(
+pub fn prove_zk_x509_io_segmented_stark_v1_with_rng<R: TryRngCore>(
     statement: &ZkX509IoStarkStatementV1,
     witnesses: &[ZkX509IoChannelWitnessV1],
     rng: &mut R,
@@ -5970,7 +5967,7 @@ pub(crate) fn prove_zk_x509_io_segmented_stark_v1_with_rng<R: TryRngCore>(
         base_frontier: Vec::new(),
         aux_frontier: Vec::new(),
     }];
-    aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &trace_group_proofs)
+    aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &trace_group_proofs)
         .map_err(map_aggregate_error_v1)?;
     let io_challenges =
         derive_zk_x509_io_challenges_v1(&mut transcript).map_err(map_transparent_error_v1)?;
@@ -6001,7 +5998,7 @@ pub(crate) fn prove_zk_x509_io_segmented_stark_v1_with_rng<R: TryRngCore>(
         layout.lde_size(),
     )?;
     trace_group_proofs[0].aux_root = aux_tree.root();
-    aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &trace_group_proofs)
+    aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &trace_group_proofs)
         .map_err(map_aggregate_error_v1)?;
     let alphas = derive_constraint_alphas_v1(&mut transcript, &aggregate_layout)?;
     let fixed_lde = fixed_lde_columns_v1(&trace_material.fixed_columns, layout)?;
@@ -6023,13 +6020,13 @@ pub(crate) fn prove_zk_x509_io_segmented_stark_v1_with_rng<R: TryRngCore>(
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     let fri_masks = aggregate::build_fri_mask_oracles_v1(
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         rng,
     )
@@ -6041,7 +6038,7 @@ pub(crate) fn prove_zk_x509_io_segmented_stark_v1_with_rng<R: TryRngCore>(
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -6162,7 +6159,7 @@ pub(crate) fn prove_zk_x509_io_segmented_stark_v1_with_rng<R: TryRngCore>(
 /// This bounded proof constrains the projection trace itself. Its SHA and DER byte channels remain
 /// deliberately outside this proof until the aggregate cross-segment I/O registration is complete.
 #[cfg(test)]
-pub(crate) fn prove_zk_x509_projection_segmented_stark_v1_with_rng<R: TryRngCore>(
+pub fn prove_zk_x509_projection_segmented_stark_v1_with_rng<R: TryRngCore>(
     statement: &IrohaZkX509StarkP256StatementV1,
     witness: &ZkX509ProjectionWitnessV1,
     rng: &mut R,
@@ -6194,7 +6191,7 @@ pub(crate) fn prove_zk_x509_projection_segmented_stark_v1_with_rng<R: TryRngCore
         base_frontier: Vec::new(),
         aux_frontier: Vec::new(),
     }];
-    aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &trace_group_proofs)
+    aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &trace_group_proofs)
         .map_err(map_aggregate_error_v1)?;
     let projection_challenges = derive_projection_challenges_v1(&mut transcript)?;
     let material = build_projection_trace_material_v1(
@@ -6214,7 +6211,7 @@ pub(crate) fn prove_zk_x509_projection_segmented_stark_v1_with_rng<R: TryRngCore
         layout.lde_size(),
     )?;
     trace_group_proofs[0].aux_root = aux_tree.root();
-    aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &trace_group_proofs)
+    aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &trace_group_proofs)
         .map_err(map_aggregate_error_v1)?;
     let alphas = derive_constraint_alphas_v1(&mut transcript, &aggregate_layout)?;
     let fixed_lde = fixed_lde_columns_v1(&material.fixed_columns, layout)?;
@@ -6236,13 +6233,13 @@ pub(crate) fn prove_zk_x509_projection_segmented_stark_v1_with_rng<R: TryRngCore
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     let fri_masks = aggregate::build_fri_mask_oracles_v1(
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         rng,
     )
@@ -6254,7 +6251,7 @@ pub(crate) fn prove_zk_x509_projection_segmented_stark_v1_with_rng<R: TryRngCore
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -6419,7 +6416,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
         base_frontier: Vec::new(),
         aux_frontier: Vec::new(),
     }];
-    aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &trace_group_proofs)
+    aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &trace_group_proofs)
         .map_err(map_aggregate_error_v1)?;
     let challenges = derive_der_challenges_v1(&mut transcript)?;
     let public = derive_zk_x509_der_stark_public_terminals_v1(shape, challenges)
@@ -6450,7 +6447,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
     // degree-seven quotient coset.
     drop(trace);
     trace_group_proofs[0].aux_root = aux_commitment.commitment.root;
-    aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &trace_group_proofs)
+    aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &trace_group_proofs)
         .map_err(map_aggregate_error_v1)?;
     absorb_der_terminal_claims_v1(&mut transcript, claims)?;
     let alphas = derive_constraint_alphas_v1(&mut transcript, &aggregate_layout)?;
@@ -6472,7 +6469,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
     for (lane, composition) in compositions.iter().enumerate() {
         composition_roots.push(
             aggregate::streaming_composition_commitment_v1(
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 lane,
                 composition,
                 &[],
@@ -6484,13 +6481,13 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     let fri_masks = aggregate::build_fri_mask_oracles_v1(
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         rng,
     )
@@ -6502,7 +6499,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -6571,7 +6568,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
         fri_materials.push(
             aggregate::build_streaming_fri_lane_v1(
                 AGGREGATE_PARAMETERS_V1,
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 &shared_layout,
                 lane,
                 base_values,
@@ -6653,7 +6650,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
         .map_err(|_| ZkX509StarkErrorV1::AllocationFailure)?;
     for (lane, composition) in compositions.iter().enumerate() {
         let commitment = aggregate::streaming_composition_commitment_v1(
-            AGGREGATE_DOMAINS_V1,
+            &AGGREGATE_DOMAINS_V1,
             lane,
             composition,
             &composition_opening_indices,
@@ -6683,7 +6680,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
         fri_openings.push(
             aggregate::open_streaming_fri_lane_v1(
                 AGGREGATE_PARAMETERS_V1,
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 &shared_layout,
                 lane,
                 base_values,
@@ -11404,7 +11401,7 @@ impl MainOpenedGroupProviderV1<'_> {
 }
 /// Verify the exact canonical byte-memory segmented proof.
 #[cfg(test)]
-pub(crate) fn verify_zk_x509_io_segmented_stark_v1(
+pub fn verify_zk_x509_io_segmented_stark_v1(
     statement: &ZkX509IoStarkStatementV1,
     proof_bytes: &[u8],
 ) -> Result<(), ZkX509StarkErrorV1> {
@@ -11430,24 +11427,24 @@ pub(crate) fn verify_zk_x509_io_segmented_stark_v1(
         b"iroha:privacy:zk-x509:io-aggregate-layout:v1",
         &aggregate_layout,
     )?;
-    aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &proof.trace_groups)
+    aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;
     let io_challenges =
         derive_zk_x509_io_challenges_v1(&mut transcript).map_err(map_transparent_error_v1)?;
-    aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &proof.trace_groups)
+    aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;
     let alphas = derive_constraint_alphas_v1(&mut transcript, &aggregate_layout)?;
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &proof.composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &proof.fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -11467,7 +11464,7 @@ pub(crate) fn verify_zk_x509_io_segmented_stark_v1(
     let (fri_betas, terminal_fields) = aggregate::verify_fri_commitments_v1(
         &proof,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         &mut transcript,
     )
@@ -11486,7 +11483,7 @@ pub(crate) fn verify_zk_x509_io_segmented_stark_v1(
     aggregate::verify_all_merkle_openings_v1(
         &proof,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         &expected_indices,
     )
@@ -11522,7 +11519,7 @@ pub(crate) fn verify_zk_x509_io_segmented_stark_v1(
 }
 /// Verify the exact canonical registered strict-DER proof.
 #[cfg(test)]
-pub(crate) fn verify_zk_x509_der_segmented_stark_v1(
+pub fn verify_zk_x509_der_segmented_stark_v1(
     shape: &ZkX509DerStarkShapeV1,
     proof_bytes: &[u8],
 ) -> Result<(), ZkX509StarkErrorV1> {
@@ -11547,26 +11544,26 @@ pub(crate) fn verify_zk_x509_der_segmented_stark_v1(
         b"iroha:privacy:zk-x509:der-aggregate-layout:v1",
         &aggregate_layout,
     )?;
-    aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &proof.trace_groups)
+    aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;
     let challenges = derive_der_challenges_v1(&mut transcript)?;
     let public = derive_zk_x509_der_stark_public_terminals_v1(shape, challenges)
         .map_err(|_| ZkX509StarkErrorV1::TranscriptMismatch)?;
-    aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &proof.trace_groups)
+    aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;
     absorb_der_terminal_claims_v1(&mut transcript, claims)?;
     let alphas = derive_constraint_alphas_v1(&mut transcript, &aggregate_layout)?;
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &proof.composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &proof.fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -11586,7 +11583,7 @@ pub(crate) fn verify_zk_x509_der_segmented_stark_v1(
     let (fri_betas, terminal_fields) = aggregate::verify_fri_commitments_v1(
         &proof,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         &mut transcript,
     )
@@ -11605,7 +11602,7 @@ pub(crate) fn verify_zk_x509_der_segmented_stark_v1(
     aggregate::verify_all_merkle_openings_v1(
         &proof,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         &expected_indices,
     )
@@ -11635,7 +11632,7 @@ pub(crate) fn verify_zk_x509_der_segmented_stark_v1(
 }
 /// Verify the exact canonical registered projection proof.
 #[cfg(test)]
-pub(crate) fn verify_zk_x509_projection_segmented_stark_v1(
+pub fn verify_zk_x509_projection_segmented_stark_v1(
     statement: &IrohaZkX509StarkP256StatementV1,
     proof_bytes: &[u8],
 ) -> Result<(), ZkX509StarkErrorV1> {
@@ -11659,23 +11656,23 @@ pub(crate) fn verify_zk_x509_projection_segmented_stark_v1(
         b"iroha:privacy:zk-x509:projection-aggregate-layout:v1",
         &aggregate_layout,
     )?;
-    aggregate::absorb_base_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &proof.trace_groups)
+    aggregate::absorb_base_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;
     let projection_challenges = derive_projection_challenges_v1(&mut transcript)?;
-    aggregate::absorb_aux_roots_v1(&mut transcript, AGGREGATE_DOMAINS_V1, &proof.trace_groups)
+    aggregate::absorb_aux_roots_v1(&mut transcript, &AGGREGATE_DOMAINS_V1, &proof.trace_groups)
         .map_err(map_aggregate_error_v1)?;
     let alphas = derive_constraint_alphas_v1(&mut transcript, &aggregate_layout)?;
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &proof.composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &proof.fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -11695,7 +11692,7 @@ pub(crate) fn verify_zk_x509_projection_segmented_stark_v1(
     let (fri_betas, terminal_fields) = aggregate::verify_fri_commitments_v1(
         &proof,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         &mut transcript,
     )
@@ -11714,7 +11711,7 @@ pub(crate) fn verify_zk_x509_projection_segmented_stark_v1(
     aggregate::verify_all_merkle_openings_v1(
         &proof,
         AGGREGATE_PARAMETERS_V1,
-        AGGREGATE_DOMAINS_V1,
+        &AGGREGATE_DOMAINS_V1,
         &shared_layout,
         &expected_indices,
     )

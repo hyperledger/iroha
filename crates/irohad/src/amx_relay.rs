@@ -106,10 +106,10 @@ impl HandoffOrder {
         // a later unfinished recovery cursor on each source rescan. A process
         // restart discards this scheduling cursor and reauthenticates from H2.
         !position.boundary
-            || !self
+            || self
                 .pending
                 .get(&position.target)
-                .is_some_and(|pending| position.height < pending.height)
+                .is_none_or(|pending| position.height >= pending.height)
     }
     fn observed(&mut self, position: ScanPosition, applied: bool) {
         if !position.boundary {
@@ -489,9 +489,9 @@ impl Route {
 /// Validate all explicit routes, then start one supervised original-source worker per route.
 /// No routes means no signing, journal creation or background worker.
 pub fn start(
-    state: Arc<State>,
+    state: &Arc<State>,
     config: AmxRelay,
-    shutdown: ShutdownSignal,
+    shutdown: &ShutdownSignal,
 ) -> Result<Vec<Child>> {
     if config.routes.is_empty() {
         return Ok(Vec::new());
@@ -513,7 +513,7 @@ pub fn start(
         .into_values()
         .map(|route| {
             start_route(
-                Arc::clone(&state),
+                Arc::clone(state),
                 route,
                 config.max_source_heights_per_pass,
                 config.max_finality_proof_reads,

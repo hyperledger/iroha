@@ -270,7 +270,7 @@ impl Cluster {
                     } else {
                         let mut bytes = PayloadBytes::from_untrusted(payload).unwrap();
                         bytes.admit(&self.nodes[i].budget).unwrap();
-                        Some(bytes)
+                        Some(crate::testing::built_payload(bytes))
                     };
                     self.schedule(self.now + 1, i, Event::PayloadBuilt { req, payload });
                 }
@@ -310,6 +310,18 @@ impl Cluster {
                             config: crate::types::AppliedConfig::Continuation {
                                 after_next: crate::types::ConfigSlot::Ready(self.config()),
                             },
+                        },
+                    );
+                }
+                Action::RecoverProposalAdmission { req, body } => {
+                    self.schedule(
+                        self.now + 1,
+                        i,
+                        Event::ProposalAdmissionRecovered {
+                            req,
+                            admission: Some(
+                                crate::testing::built_payload(body.payload().clone()).admission,
+                            ),
                         },
                     );
                 }

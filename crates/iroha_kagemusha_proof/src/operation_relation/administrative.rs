@@ -60,18 +60,14 @@ pub fn bootstrap(
         core::ENABLED_CONTROLS,
         core::QUOTA_WINDOWS_ROOT,
         core::QUOTA_SHARE_EXPIRY,
-        core::BLACKLIST_VERSION,
-        core::BLACKLIST_ROOT,
-        core::BLACKLIST_ISSUED_AT,
         core::POLICY_EPOCH,
         core::TIME_FLOOR,
     ] {
         GlueChip::assert_constant(region, &fields[index], Fp::ZERO)?;
     }
-    for word in &state.rest()[rest::SCHEME_POLICY..rest::BLACKLIST_HISTORY] {
+    for word in &state.rest()[rest::SCHEME_POLICY..=rest::TIME_ANCHOR] {
         GlueChip::assert_constant(region, word, Fp::ZERO)?;
     }
-    GlueChip::assert_constant(region, &state.rest()[rest::BLACKLIST_HISTORY], empty)?;
     GlueChip::assert_constant(region, lineage.burned_total(), Fp::ZERO)?;
     GlueChip::assert_constant(region, lineage.pending_root(), empty)?;
     GlueChip::assert_constant(region, lineage.credit_root(), empty)

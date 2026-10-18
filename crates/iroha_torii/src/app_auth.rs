@@ -1158,7 +1158,7 @@ fn parse_account_header_value(
 /// redaction path. This classifier does not grant visibility or alter replay state.
 /// The pre-authentication State-view capacity refusal leaves nonce admission untouched;
 /// this helper alone makes no claim about nonce state for other errors.
-pub(crate) fn canonical_authentication_error(error: crate::Error) -> crate::Error {
+pub fn canonical_authentication_error(error: crate::Error) -> crate::Error {
     match error {
         crate::Error::Query(ValidationFail::NotPermitted(message)) => {
             crate::Error::AppUnauthorized {
@@ -1170,7 +1170,7 @@ pub(crate) fn canonical_authentication_error(error: crate::Error) -> crate::Erro
     }
 }
 
-pub(crate) fn authorization_view_error(error: iroha_core::state::StateViewError) -> crate::Error {
+pub fn authorization_view_error(error: iroha_core::state::StateViewError) -> crate::Error {
     match error {
         iroha_core::state::StateViewError::Busy(_) => canonical_request_capacity_error(),
         error => crate::Error::Query(ValidationFail::InternalError(error.to_string())),

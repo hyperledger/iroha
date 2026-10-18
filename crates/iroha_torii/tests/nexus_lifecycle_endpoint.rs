@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Router-level regressions for the read-only Nexus lifecycle status surface.
 #![cfg(feature = "app_api")]
 use axum::{

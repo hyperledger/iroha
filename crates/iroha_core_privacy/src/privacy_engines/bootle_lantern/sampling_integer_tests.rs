@@ -670,7 +670,7 @@ fn gaussian_retry_and_probability_error_budgets_have_integer_margins() {
     // A per-decision decay error below 2^-240 therefore aggregates below
     // 2^-203.  The 30-threshold CDT contributes less than 2^-214.
     assert_eq!(240 - 37, 203);
-    assert!(252 - 37 >= 214);
+    const { assert!(252 - 37 >= 214) };
 }
 #[test]
 fn decay_tables_initialize_on_a_bounded_native_thread_stack() {

@@ -103,6 +103,16 @@ impl AFramePlan {
             part_source_k,
         })
     }
+    /// Pins a variant whose A proves the own step relation directly (lean
+    /// lineage): no own sigma verifier exists. The part is the pinned trivial
+    /// Vesta filler, or, for a variant that consumes an incoming sigma, the k16
+    /// fold of its incoming-only `Q_sigma`; either way its source k is sixteen.
+    pub const fn inline(variant: Variant) -> Self {
+        Self {
+            variant,
+            part_source_k: 16,
+        }
+    }
     /// The fixed operation relation variant.
     pub const fn variant(self) -> Variant {
         self.variant

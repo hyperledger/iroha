@@ -124,6 +124,12 @@ const _: () = {
     assert!(canonical_padding::<KagemushaWalletReceiptV1>() == 0);
 };
 
+// Torii encodes the online ledger finality frame and native custody decodes it on every
+// phone target: its output row holds no inline u128, so the padding never depends on one.
+const _: () = {
+    assert!(canonical_padding::<KagemushaWalletLedgerFinalityV1>() == 0);
+};
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -133,10 +139,9 @@ mod tests {
     use super::*;
 
     fn vectors() -> Value {
-        norito::json::parse_value(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/kagemusha/wallet_v1_vectors.json"
-        )))
+        norito::json::parse_value(&crate::kagemusha::kagemusha_wallet_v1::test_fixture_read(
+            "fixtures/kagemusha/wallet_v1_vectors.json",
+        ))
         .expect("frozen wallet fixture")
     }
 

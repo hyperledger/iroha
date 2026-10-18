@@ -1,5 +1,5 @@
 //! Puppeteer for `irohad`, to create test networks
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 mod config;
 mod dedicated_read;
 #[cfg(unix)]
@@ -21,6 +21,7 @@ pub use disposable_rotation_ceremony::{
 };
 pub mod fslock_ports;
 pub mod genesis_support;
+mod retained_genesis;
 use color_eyre::eyre::{Context, Report, Result, eyre};
 pub use config::chain_id;
 pub use config::genesis_participant_committee_key_instructions;
@@ -103,6 +104,7 @@ pub use private_settlement_route_control::{
     PrivateSettlementRouteControlAction, PrivateSettlementRouteControlCommand,
     PrivateSettlementRouteControlPhase,
 };
+pub use retained_genesis::RetainedNetworkGenesis;
 use std::{
     borrow::Cow,
     collections::{BTreeSet, HashMap, HashSet, hash_map::DefaultHasher},
@@ -141,7 +143,6 @@ use toml::{Table, Value, map::Entry};
 use tracing::{Instrument, debug, error, info, info_span, warn};
 const TEST_SNS_LEASE_PAYMENT: &str = "0.5";
 const TEST_SNS_POLICY_VERSION: u16 = 1;
-const TEST_SNS_PAYMENT_ASSET_DEFINITION: &str = "61CtjvNd9T3THAR65GsMVHr82Bjc";
 const TEST_SNS_LEASE_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(120);
 const TEST_SNS_LEASE_VISIBILITY_POLL: Duration = Duration::from_millis(250);
 fn checked_key_pair_from_seed(seed: impl Into<Vec<u8>>, algorithm: Algorithm) -> KeyPair {
@@ -200,7 +201,8 @@ fn test_domain_setup_instruction(
     dataspace_id: DataSpaceId,
     owner: &AccountId,
 ) -> Result<EnsureAlias> {
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::Domain(AliasDomainIntentV1 {
@@ -237,7 +239,8 @@ pub fn dataspace_setup_instruction(
     let canonical_name = alias
         .parse()
         .wrap_err_with(|| format!("parse test dataspace alias `{alias}`"))?;
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::Dataspace(AliasDataSpaceIntentV1 {
@@ -265,7 +268,8 @@ pub fn account_alias_setup_instruction_in_dataspace(
     let canonical_name = alias_literal
         .parse::<AccountAliasName>()
         .wrap_err_with(|| format!("parse test account alias `{alias_literal}`"))?;
-    let payment_asset = AssetDefinitionId::parse_address_literal(TEST_SNS_PAYMENT_ASSET_DEFINITION)
+    let payment_asset = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()
         .wrap_err("parse test SNS payment asset definition")?;
     Ok(EnsureAlias::new(
         AliasIntentV1::AccountAlias(AliasAccountIntentV1 {
@@ -327,20 +331,46 @@ fn domain_alias_record_visible_to_client(client: &Client, domain: &DomainId) -> 
     }
 }
 fn domain_setup_ready_to_client(client: &Client, domain: &DomainId) -> Result<bool> {
-    let domain_exists = match client.client().query(FindDomains::new()).execute_all() {
-        Ok(domains) => match domains.into_iter().find(|existing| existing.id() == domain) {
-            Some(existing) if existing.owned_by() == client.client().account() => true,
-            Some(existing) => {
-                return Err(eyre!(
-                    "domain `{domain}` is owned by `{}`, not setup authority `{}`",
-                    existing.owned_by(),
-                    client.client().account()
-                ));
-            }
-            None => false,
-        },
-        Err(err) => {
-            let report = Report::from(err);
+    let read_domain = || -> Result<bool> {
+        use iroha::collections::{Collection, ListQuery, field};
+
+        // Account/domain query errors do not carry typed absence identities.
+        // Prove absence through a successful bounded exact-ID collection read.
+        let id = domain.to_string();
+        let page = client.list_page(
+            &Collection::Domains,
+            &ListQuery::new().filter(field("id").eq(id.clone())).limit(1),
+        )?;
+        if page.has_more()
+            || page.items.len() > 1
+            || page
+                .items
+                .iter()
+                .any(|row| row.get("id").and_then(JsonValue::as_str) != Some(id.as_str()))
+        {
+            return Err(eyre!(
+                "exact domain collection returned an unexpected row or continuation"
+            ));
+        }
+        if page.items.is_empty() {
+            return Ok(false);
+        }
+        let existing = client
+            .client()
+            .query_single(FindDomainById::new(domain.clone()))?;
+        if existing.id() != domain || existing.owned_by() != client.client().account() {
+            return Err(eyre!(
+                "domain `{domain}` requires the exact id and setup owner `{}`; found `{}` owned by `{}`",
+                client.client().account(),
+                existing.id(),
+                existing.owned_by()
+            ));
+        }
+        Ok(true)
+    };
+    let domain_exists = match read_domain() {
+        Ok(exists) => exists,
+        Err(report) => {
             if torii_request_error_is_transient(&report) {
                 debug!(
                     err = %report,
@@ -3299,7 +3329,7 @@ pub struct Network {
     sync_timeout_override: Option<Duration>,
     peer_startup_timeout_override: Option<Duration>,
     consensus_profile: ConsensusBootstrapProfile,
-    genesis_key_pair: KeyPair,
+    genesis_key_pair: Option<KeyPair>,
     genesis_isi: Vec<Vec<InstructionBox>>,
     genesis_post_topology_isi: Vec<Vec<InstructionBox>>,
     // Cache a single, deterministic genesis block per network instance to ensure
@@ -3308,6 +3338,8 @@ pub struct Network {
     // The generated manifest is retained with the cached signed block even
     // when file-backed policies require fresh native pre-execution on each call.
     generated_genesis_manifest: OnceLock<RawGenesisTransaction>,
+    // Exact externally signed originals; this branch has no genesis signing owner.
+    retained_genesis: Option<retained_genesis::RetainedGenesis>,
     // Only immutable, file-free policy inputs may reuse pre-execution validation.
     // File-backed policies retain the ordinary fresh-validation path.
     validated_genesis: Option<OnceLock<ValidatedNetworkGenesis>>,
@@ -3332,7 +3364,7 @@ struct ValidatedNetworkGenesis {
 /// this signed block before its serialized bytes are exposed to a subprocess.
 #[derive(Clone)]
 pub struct NativeGenesisProvisioningBundle {
-    /// Canonical JSON bytes of the retained raw genesis manifest.
+    /// Exact raw genesis manifest JSON bytes; generated recipes emit canonical JSON.
     pub manifest_json: Vec<u8>,
     /// SHA-256 of `manifest_json`, for asserting the staged file is unchanged.
     pub manifest_sha256: [u8; 32],
@@ -4225,6 +4257,12 @@ impl Network {
     /// The signed voting roster is rechecked against the guarded validator
     /// topology before any cached or newly generated block is returned.
     pub fn genesis(&self) -> GenesisBlock {
+        if let Some(retained) = &self.retained_genesis {
+            return self
+                .validate_retained_genesis(retained)
+                .expect("retained signed genesis must match the exact runtime configuration")
+                .block;
+        }
         let peer_topology: Vec<PeerId> = self.peers.iter().map(NetworkPeer::id).collect();
         if let Some(cache) = &self.validated_genesis {
             // `get_or_init` publishes only after every native validation succeeds;
@@ -4243,6 +4281,10 @@ impl Network {
     /// Custom genesis blocks have no generated raw manifest. An encoding or
     /// signed-manifest mismatch also fails before the bundle can be used.
     pub fn native_genesis_provisioning_bundle(&self) -> Result<NativeGenesisProvisioningBundle> {
+        if let Some(retained) = &self.retained_genesis {
+            self.validate_retained_genesis(retained)?;
+            return Ok(retained.originals());
+        }
         let peer_topology: Vec<PeerId> = self.peers.iter().map(NetworkPeer::id).collect();
         let validated = self.validated_genesis.as_ref().map_or_else(
             || self.prepare_validated_genesis(&peer_topology),
@@ -4263,7 +4305,12 @@ impl Network {
             .encode_wire()
             .map_err(|error| eyre!("encode exact signed genesis: {error}"))?;
         let block_hash = validated.block.0.hash();
-        let public_key = self.genesis_key_pair.public_key().clone();
+        let public_key = self
+            .genesis_key_pair
+            .as_ref()
+            .expect("generated genesis signer")
+            .public_key()
+            .clone();
         let verified = iroha_genesis::validate_prepared_genesis_bundle(
             &signed_wire,
             manifest,
@@ -4288,6 +4335,10 @@ impl Network {
     }
 
     fn prepare_validated_genesis(&self, peer_topology: &[PeerId]) -> ValidatedNetworkGenesis {
+        let genesis_key_pair = self
+            .genesis_key_pair
+            .as_ref()
+            .expect("generated genesis signer");
         let config_layers: Vec<Table> = self.config_layers().map(Cow::into_owned).collect();
         let actual_config = Some(resolve_final_actual_config(
             self.peers
@@ -4308,13 +4359,13 @@ impl Network {
         let confidential_policy_hash =
             Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let consensus_handshake_meta = consensus_handshake_parameter(&self.consensus_profile);
-        let genesis_account_id = AccountId::new(self.genesis_key_pair.public_key().clone());
+        let genesis_account_id = AccountId::new(genesis_key_pair.public_key().clone());
         let recompute_staged_hashes = |block: &GenesisBlock| {
             config::staged_genesis_policy_hashes(
                 block,
                 &genesis_account_id,
                 &peer_topology,
-                &self.genesis_key_pair,
+                genesis_key_pair,
                 pipeline_config.as_ref(),
                 nexus_config.as_ref(),
                 zk_config.as_ref(),
@@ -4346,7 +4397,7 @@ impl Network {
                 &self.genesis_isi,
                 &self.genesis_post_topology_isi,
                 &consensus_handshake_meta,
-                &self.genesis_key_pair,
+                genesis_key_pair,
                 da_proof_policies.as_ref(),
                 confidential_policy_hash,
             );
@@ -4354,7 +4405,7 @@ impl Network {
                 &mut augmented,
                 &genesis_account_id,
                 &peer_topology,
-                &self.genesis_key_pair,
+                genesis_key_pair,
                 pipeline_config.as_ref(),
                 nexus_config.as_ref(),
                 zk_config.as_ref(),
@@ -4376,7 +4427,7 @@ impl Network {
                 self.genesis_post_topology_isi.clone(),
                 self.peers.iter().map(NetworkPeer::id).collect(),
                 self.topology_entries.clone(),
-                self.genesis_key_pair.clone(),
+                genesis_key_pair.clone(),
                 self.chain_id(),
                 genesis_crypto,
                 da_proof_policies,
@@ -4387,6 +4438,7 @@ impl Network {
                 Some(consensus_handshake_meta),
                 None,
                 confidential_policy_hash,
+                None,
             );
         let validated = ValidatedNetworkGenesis::new(
             genesis,
@@ -5848,6 +5900,7 @@ pub struct NetworkBuilder {
     genesis_isi: Vec<Vec<InstructionBox>>,
     genesis_post_topology_isi: Vec<Vec<InstructionBox>>,
     custom_genesis: Option<GenesisBuilderFn>,
+    retained_genesis: Option<RetainedNetworkGenesis>,
     seed: Option<String>,
     genesis_key_pair: KeyPair,
     block_sync_gossip_period: Duration,
@@ -6732,6 +6785,7 @@ impl NetworkBuilder {
             genesis_isi: vec![vec![]],
             genesis_post_topology_isi: Vec::new(),
             custom_genesis: None,
+            retained_genesis: None,
             seed: None,
             genesis_key_pair: SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone(),
             block_sync_gossip_period: DEFAULT_BLOCK_SYNC,
@@ -7436,7 +7490,12 @@ impl NetworkBuilder {
         let permit = acquire_network_permit();
         self.build_with_permit(permit)
     }
-    fn build_with_permit(self, permit: NetworkPermit) -> Network {
+    fn build_with_permit(mut self, permit: NetworkPermit) -> Network {
+        if let Some(retained) = self.retained_genesis.take() {
+            return self
+                .build_retained_with_permit(retained, permit)
+                .expect("retained signed genesis network must validate without normalization");
+        }
         let NetworkBuilder {
             n_peers,
             max_validator_capacity,
@@ -7452,6 +7511,7 @@ impl NetworkBuilder {
             mut genesis_isi,
             mut genesis_post_topology_isi,
             custom_genesis,
+            retained_genesis: _,
             seed,
             genesis_key_pair,
             block_sync_gossip_period,
@@ -8135,6 +8195,13 @@ impl NetworkBuilder {
                             ConsensusMode::Npos => SumeragiConsensusMode::Npos,
                         }),
                         confidential_policy_hash,
+                        Some(
+                            std::num::NonZeroU64::new(
+                                u64::try_from(block_cadence.as_millis())
+                                    .expect("signed cadence fits u64 milliseconds"),
+                            )
+                            .expect("signed cadence is nonzero"),
+                        ),
                     );
                     assert_genesis_voting_roster_matches_network(&preview_genesis, &peer_topology);
                     (
@@ -8307,11 +8374,12 @@ impl NetworkBuilder {
             sync_timeout_override: sync_timeout,
             peer_startup_timeout_override: peer_startup_timeout,
             consensus_profile,
-            genesis_key_pair,
+            genesis_key_pair: Some(genesis_key_pair),
             genesis_isi,
             genesis_post_topology_isi,
             cached_genesis,
             generated_genesis_manifest: OnceLock::new(),
+            retained_genesis: None,
             validated_genesis: resolved_genesis_config.as_ref().and_then(|config| {
                 (config.nexus.registry.manifest_directory.is_none()
                     && config.nexus.registry.cache_directory.is_none()
@@ -10158,6 +10226,7 @@ impl PartialEq for NetworkPeer {
 pub struct NetworkPeerBuilder {
     mnemonic: String,
     seed: Option<Vec<u8>>,
+    validator_key: Option<KeyPair>,
     parliament_beacon_signer_mode: Option<ParliamentBeaconSignerMode>,
 }
 impl NetworkPeerBuilder {
@@ -10172,11 +10241,16 @@ impl NetworkPeerBuilder {
                 .collect::<Vec<_>>()
                 .join("_"),
             seed: None,
+            validator_key: None,
             parliament_beacon_signer_mode: None,
         }
     }
     pub fn with_seed(mut self, seed: Option<impl Into<Vec<u8>>>) -> Self {
         self.seed = seed.map(Into::into);
+        self
+    }
+    fn with_validator_key(mut self, key: KeyPair) -> Self {
+        self.validator_key = Some(key);
         self
     }
     fn with_parliament_beacon_signer_mode(
@@ -10193,6 +10267,7 @@ impl NetworkPeerBuilder {
         let NetworkPeerBuilder {
             mnemonic,
             seed,
+            validator_key,
             parliament_beacon_signer_mode,
         } = self;
         assert_eq!(
@@ -10220,7 +10295,9 @@ impl NetworkPeerBuilder {
                 pair
             },
         );
-        let bls_key = if let Some(mut seed_bytes) = seed.clone() {
+        let bls_key = if let Some(key) = validator_key {
+            key
+        } else if let Some(mut seed_bytes) = seed.clone() {
             seed_bytes.extend_from_slice(b":bls");
             checked_key_pair_from_seed(seed_bytes, Algorithm::BlsNormal)
         } else {
@@ -11916,7 +11993,10 @@ mod tests {
         assert!(
             signature
                 .signature()
-                .verify_hash(network.genesis_key_pair.public_key(), original_hash,)
+                .verify_hash(
+                    network.genesis_key_pair.as_ref().unwrap().public_key(),
+                    original_hash,
+                )
                 .is_ok()
         );
         assert_eq!(network.network_id(), original_network);
@@ -12685,9 +12765,16 @@ mod tests {
             .collect::<Vec<_>>();
         let staged = config::staged_genesis_policy_hashes(
             genesis,
-            &AccountId::new(network.genesis_key_pair.public_key().clone()),
+            &AccountId::new(
+                network
+                    .genesis_key_pair
+                    .as_ref()
+                    .unwrap()
+                    .public_key()
+                    .clone(),
+            ),
             &topology,
-            &network.genesis_key_pair,
+            network.genesis_key_pair.as_ref().unwrap(),
             Some(&actual.pipeline),
             Some(&actual.nexus),
             Some(&actual.zk),
@@ -15486,6 +15573,95 @@ mod tests {
             "signed handshake metadata must carry the explicit cadence"
         );
     }
+    #[test]
+    fn explicit_cadence_reaches_sccp_genesis_before_preview_execution() {
+        use iroha_data_model::{
+            isi::sccp::InitializeSccpV1,
+            parameter::{SumeragiParameter, governance_clock::GovernanceClockParametersV1},
+            sccp::params::{SCCP_MIN_EPOCH_MS_V1, SccpParametersV1},
+        };
+        use std::num::NonZeroU64;
+
+        init_instruction_registry();
+        let epoch = NonZeroU64::new(64).unwrap();
+        let cadence_ms = SCCP_MIN_EPOCH_MS_V1 / epoch.get();
+        let lag_ms = 2_000 + 4 * cadence_ms;
+        let clock = GovernanceClockParametersV1 {
+            due_work_max_lag_ms: lag_ms,
+            ..GovernanceClockParametersV1::default()
+        };
+        let npos = SumeragiNposParameters {
+            epoch_length_blocks: epoch,
+            max_validators: 4,
+            evidence_horizon_blocks: epoch.get() * 2,
+            slashing_delay_blocks: 1,
+            ..SumeragiNposParameters::default()
+        };
+        let builder = NetworkBuilder::new()
+            .with_peers(4)
+            .with_npos_consensus()
+            .with_npos_genesis_bootstrap(1_000_u64.into())
+            .with_block_cadence(Duration::from_millis(cadence_ms))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::MaxClockDriftMs(1_000),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::PayloadRetryIntervalMs(NonZeroU64::new(cadence_ms).unwrap()),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::DueWorkMaxLagMs(NonZeroU64::new(lag_ms).unwrap()),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Custom(CustomParameter::new(
+                GovernanceClockParametersV1::parameter_id().clone(),
+                norito::json::to_json(&clock)
+                    .unwrap()
+                    .parse::<iroha_primitives::json::Json>()
+                    .unwrap(),
+            ))))
+            .with_genesis_instruction(SetParameter::new(Parameter::Sumeragi(
+                SumeragiParameter::EpochLengthBlocks(epoch),
+            )))
+            .with_genesis_instruction(SetParameter::new(Parameter::Custom(
+                npos.into_custom_parameter(),
+            )))
+            .with_genesis_post_bootstrap_isi(vec![
+                InitializeSccpV1 {
+                    parameters: SccpParametersV1::taira_default(),
+                    reset_nonce: [0x6c; 32],
+                }
+                .into(),
+            ])
+            .with_config_layer(|layer| {
+                layer
+                    .write(
+                        ["nexus", "staking", "unbonding_delay_ms"],
+                        1_814_400_000_i64,
+                    )
+                    .write(["nexus", "staking", "max_slash_bps"], 1_i64)
+                    .write(
+                        ["nexus", "storage", "local_budget_bytes"],
+                        1_073_741_824_i64,
+                    );
+            });
+        // This construction executes both preview and final genesis, including the
+        // original SCCP one-hour guard and generated-policy fixed-point check.
+        let network = build_with_isolated_permit(builder);
+        let parameters = consensus_parameters_from_genesis(&network.genesis());
+        assert_eq!(parameters.sumeragi().epoch_length_blocks.get(), epoch.get());
+        let metadata = consensus_handshake_metadata(&network.genesis())
+            .expect("executed SCCP genesis must retain its signed consensus metadata");
+        assert_eq!(metadata.block_cadence_ms.get(), cadence_ms);
+        assert_eq!(
+            network
+                .consensus_bootstrap_profile()
+                .params
+                .block_cadence_ms
+                .get(),
+            cadence_ms
+        );
+        assert_eq!(epoch.get() * cadence_ms, SCCP_MIN_EPOCH_MS_V1);
+    }
+
     #[test]
     fn configured_block_cadence_reports_explicit_override() {
         let duration = Duration::from_secs(3);

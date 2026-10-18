@@ -118,6 +118,10 @@ pub struct Core {
     control_received: BTreeMap<PublicKey, Millis>,
     repropose: bool,
     resend_recorded: Option<Hash32>,
+    /// Original fresh source retained through backend refusal and first signing.
+    proposal_admission: Option<(Hash32, crate::proposal_admission::ProposalAdmission)>,
+    /// One bounded outstanding reacquisition of an unsigned recorded proposal.
+    proposal_recovery: Option<ProposalRecovery>,
     proposal_sent_at: Option<Millis>,
     /// Members re-pushed by the rebroadcast rule (§6.11 rebroadcast 2), once per view.
     repushed: BTreeSet<ValidatorIndex>,
@@ -249,7 +253,14 @@ struct Retx {
 struct FreshBuild {
     context: crate::api::ControlWitnessContext,
     payload: Option<crate::availability::PayloadBytes>,
+    admission: Option<crate::proposal_admission::ProposalAdmission>,
     authoring: Option<(BlockHeader, Option<TimeoutCert>)>,
+}
+
+struct ProposalRecovery {
+    req: u64,
+    block_hash: Hash32,
+    view: u64,
 }
 
 /// The leader's payload build state (§6.10). `req` is the outstanding request id (§6.0 `build`).
@@ -457,6 +468,9 @@ impl Core {
             } => self.on_executed(block_hash, req, &outcome),
             Event::BodyAvailable { block } => self.on_body(block),
             Event::PayloadAuthored { req, body } => self.on_payload_authored(req, body),
+            Event::ProposalAdmissionRecovered { req, admission } => {
+                self.on_proposal_admission_recovered(req, admission);
+            }
             Event::SigningFailed {
                 kind,
                 height,
@@ -511,6 +525,14 @@ impl Core {
         }
         self.application_control_context()
             .map(|source| (source, self.view))
+    }
+
+    /// Exact original builder request source, including a parent awaiting durable apply.
+    /// This read-only context grants no source or signing authority to a decoded payload.
+    pub fn fresh_proposal_context(&self, req: u64) -> Option<crate::api::ControlWitnessContext> {
+        matches!(self.build, Build::Requested { req: current, .. } if current == req)
+            .then(|| self.fresh_build.as_ref().map(|fresh| fresh.context))
+            .flatten()
     }
 
     /// Read-only diagnostics (§12.1 `status()`).

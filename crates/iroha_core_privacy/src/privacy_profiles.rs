@@ -712,11 +712,11 @@ fn compiled_ivm_private_note_profile_v1_with_randomness_policies(
 ) -> Result<CompiledPrivacyProfileV1, CompiledPrivacyProfileErrorV1> {
     let protocol_id = PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1;
     let profile_digest = proof_managed_note_stark_profile_digest_v1(
-        PRIVATE_NOTE_DOMAINS_V1,
+        &PRIVATE_NOTE_DOMAINS_V1,
         IVM_PRIVATE_NOTE_STARK_PROFILE_DESCRIPTOR_V1,
     )
     .map_err(|_| CompiledPrivacyProfileErrorV1::ProfileInitializationFailed { protocol_id })?;
-    let geometry_digest = proof_managed_note_stark_geometry_digest_v1(PRIVATE_NOTE_DOMAINS_V1)
+    let geometry_digest = proof_managed_note_stark_geometry_digest_v1(&PRIVATE_NOTE_DOMAINS_V1)
         .map_err(|_| CompiledPrivacyProfileErrorV1::ProfileInitializationFailed { protocol_id })?;
     let profile_digest_bytes = profile_digest.to_bytes();
     let geometry_digest_bytes = geometry_digest.to_bytes();
@@ -736,7 +736,8 @@ fn compiled_ivm_private_note_profile_v1_with_randomness_policies(
         || PRIVACY_IVM_PRIVATE_ENCRYPTED_OUTPUT_MAGIC_V1 != *b"IPNE"
         || IVM_PRIVATE_NOTE_MAX_PROOF_BYTES_V1
             > TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1 as usize
-        || profile_digest == Default::default()
+        || profile_digest
+            == crate::privacy_engines::transparent_stark::PrivacyOuterDigestV1::default()
         || validate_ivm_private_note_stark_profile_v1().is_err()
         || !IVM_PRIVATE_NOTE_ENGINE_DESCRIPTOR_V1
             .windows(CURVE_PROVER_RANDOMNESS_POLICY_V1.len())
@@ -908,11 +909,11 @@ fn compiled_pq_masp_profile_v1_with_schemas(
 ) -> Result<CompiledPrivacyProfileV1, CompiledPrivacyProfileErrorV1> {
     let protocol_id = PrivacyProtocolIdV1::PqMaspStarkV1;
     let profile_digest = proof_managed_note_stark_profile_digest_v1(
-        PQ_MASP_DOMAINS_V1,
+        &PQ_MASP_DOMAINS_V1,
         PQ_MASP_STARK_PROFILE_DESCRIPTOR_V1,
     )
     .map_err(|_| CompiledPrivacyProfileErrorV1::ProfileInitializationFailed { protocol_id })?;
-    let geometry_digest = proof_managed_note_stark_geometry_digest_v1(PQ_MASP_DOMAINS_V1)
+    let geometry_digest = proof_managed_note_stark_geometry_digest_v1(&PQ_MASP_DOMAINS_V1)
         .map_err(|_| CompiledPrivacyProfileErrorV1::ProfileInitializationFailed { protocol_id })?;
     let profile_digest_bytes = profile_digest.to_bytes();
     let geometry_digest_bytes = geometry_digest.to_bytes();
@@ -937,7 +938,8 @@ fn compiled_pq_masp_profile_v1_with_schemas(
             != TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1 as usize
         || PQ_MASP_MAX_STARK_PROOF_BYTES_V1 + PQ_MASP_AUTHORIZATION_HEADER_BYTES_V1
             != PQ_MASP_MAX_AUTHORIZATION_PROOF_BYTES_V1
-        || profile_digest == Default::default()
+        || profile_digest
+            == crate::privacy_engines::transparent_stark::PrivacyOuterDigestV1::default()
         || PQ_MASP_ENCRYPTED_OUTPUT_KAT_SHA256_V1 == [0; 32]
         || PQ_MASP_AUTHORIZATION_WIRE_KAT_SHA256_V1 == [0; 32]
         || validate_pq_masp_stark_profile_v1().is_err()

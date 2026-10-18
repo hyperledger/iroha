@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration coverage for repo and reverse-repo instructions.
 use eyre::{Result, eyre};
 use integration_tests::sandbox;
@@ -303,7 +302,7 @@ fn repo_roundtrip_transfers_balances_and_seals_agreement() -> Result<()> {
             RepoCollateralLeg::new(collateral_def_id.clone(), Quantity::from(1100_u64)),
             0,
             maturity_ms,
-            RepoGovernance::with_defaults(1_500, 86_400),
+            RepoGovernance::new(1_500, 86_400, false),
         ))
     };
     let repo_instruction = repo_instruction_template()?;
@@ -472,7 +471,7 @@ fn repo_roundtrip_transfers_balances_and_seals_agreement() -> Result<()> {
                 .as_millis(),
         )
         .expect("reverse maturity timestamp fits in u64"),
-        RepoGovernance::with_defaults(1_500, 3),
+        RepoGovernance::new(1_500, 3, false),
     );
     grant_repo_consents(&client, &reopened_repo, (&BOB_ID, &BOB_KEYPAIR))?;
     let reopened_tx = {
@@ -586,7 +585,7 @@ fn repo_margin_call_enforces_cadence_and_participant_rules() -> Result<()> {
         maturity_ms,
         // Use a generous margin cadence to avoid wall-clock flakiness in the
         // integration test network.
-        RepoGovernance::with_defaults(1_500, 300),
+        RepoGovernance::new(1_500, 300, false),
     );
     grant_repo_consents(&client, &repo_instruction, (&BOB_ID, &BOB_KEYPAIR))?;
     let repo_tx = {
@@ -740,7 +739,7 @@ fn repo_roundtrip_with_custodian_routes_collateral() -> Result<()> {
         RepoCollateralLeg::new(collateral_def_id.clone(), Quantity::from(1100_u64)),
         0,
         maturity_timestamp_ms,
-        RepoGovernance::with_defaults(1_500, 3),
+        RepoGovernance::new(1_500, 3, false),
     );
     grant_repo_consents(
         &client,

@@ -23,6 +23,7 @@ use super::*;
 mod acceptance;
 #[path = "full_catalog/mask_boundary.rs"]
 mod mask_boundary;
+pub(super) use mask_boundary::ImportedRows;
 #[path = "full_catalog/reuse.rs"]
 mod reuse;
 #[path = "full_catalog/transport.rs"]
@@ -269,10 +270,11 @@ fn complete_wallet_catalog_from_pinned_genesis() {
         msm_budget: MemoryBudget::DEFAULT,
     };
     eprintln!(
-        "WALLET_SOURCE_PHASE all52_route_compilation_started signed=false wallet_grant=false"
+        "WALLET_SOURCE_PHASE all22_route_compilation_started signed=false wallet_grant=false"
     );
     let candidates = reuse::intake(&mut originals).unwrap();
     let mut compiler = OfflineCompilerV1::new(scope, &mut originals, config, OUTPUT_BYTES).unwrap();
+    compiler.mask_rows = Some(ImportedRows::default());
     for (index, original) in candidates.into_iter().enumerate() {
         compiler.index_original(original).unwrap();
         eprintln!(
@@ -283,6 +285,11 @@ fn complete_wallet_catalog_from_pinned_genesis() {
     let draft = compiler
         .wallet_pack(*native.initial_epoch().network_id.as_bytes())
         .unwrap();
+    let mask_rows = compiler
+        .mask_rows
+        .take()
+        .expect("compact source row collection");
+    drop(compiler);
     let bytes = draft.producer_inventory();
     let inventory: ProducerInventoryV1 =
         norito::decode_canonical_with_limits(bytes, norito::canonical_decode_limits(bytes.len()))
@@ -296,9 +303,10 @@ fn complete_wallet_catalog_from_pinned_genesis() {
     .unwrap();
     // wallet_pack strictly imports both new and reused originals. Inspect the
     // public Omega/sigma and every private Q/A/W original, retaining the inventory on refusal.
-    mask_boundary::assert_final_omega(&inventory, &mut originals);
-    mask_boundary::assert_public_sigmas(&inventory, &mut originals);
-    mask_boundary::assert_private_roles(&inventory, &mut originals);
+    mask_rows.require_inventory(&inventory).unwrap();
+    mask_boundary::assert_final_omega(&inventory, &mut originals, &mask_rows);
+    mask_boundary::assert_public_sigmas(&inventory, &mut originals, &mask_rows);
+    mask_boundary::assert_private_roles(&inventory, &mut originals, &mask_rows);
     assert_eq!(inventory.routes.len(), compiled_routes().len());
     eprintln!(
         "WALLET_SOURCE_CATALOG routes={} programs={} terminal_keys={} originals={} stored_bytes={} signed=false qualified_wallet=false actual_receipt_proof=false",

@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration coverage for runtime upgrade endpoints.
 #![cfg(feature = "app_api")]
 use axum::{extract::Path as AxPath, response::IntoResponse as _};

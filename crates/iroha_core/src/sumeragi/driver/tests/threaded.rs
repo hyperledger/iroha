@@ -993,9 +993,10 @@ fn frame_limit_follows_committed_configurations() {
         !node.fakes.observer.frame_limits.lock().is_empty()
     });
     let exceeded = node.fakes.observer.frame_limits.lock()[0];
+    // A feasible sync response includes its own overhead and the outer transport envelope.
     assert_eq!(
         exceeded.needed,
-        (32 << 20) + u64::from(iroha_sumeragi::pacemaker::FRAME_OVERHEAD)
+        (32 << 20) + 2 * u64::from(iroha_sumeragi::pacemaker::FRAME_OVERHEAD)
     );
     assert_eq!(exceeded.limit, DriverConfig::default().frame_limit);
     node.running.shutdown();
@@ -1125,3 +1126,6 @@ fn storage_closure_refuses_buffered_dispatch_and_each_physical_send() {
 
 #[path = "threaded_transactions.rs"]
 mod transactions;
+
+#[path = "threaded_retirement.rs"]
+mod retirement_tests;

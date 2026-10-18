@@ -1,6 +1,6 @@
 # Parliament ballot B6 requirement audit
 
-Status, 2026-10-13: **no profile selected or qualified; production remains
+Status, 2026-10-14: **no profile selected or qualified; production remains
 gated**. This matrix maps the current [design](parliament_private_ballot_design.md)
 §5, §12.2 and §13 to retained evidence and remaining work. It is a source and
 requirements audit, not independent cryptographic review, owner acceptance,
@@ -25,6 +25,61 @@ below. A listed source test is not a claim of exhaustive coverage.
   source-derived algebra. The [candidate request-stage check](parliament_ballot_b6_request_accounting.md)
   justifies the coupled nominal request/query allowance across all roster sizes;
   full physical/reduction resources and unknown premises remain open.
+- [Bounded hybrid-driver proposal](parliament_ballot_b6_hybrid_driver.md):
+  explicit bounded exhaustion sampling, opening caches, persistent oracle
+  state and actual-IV component interfaces. A [fixed-opening H5 derivation](parliament_ballot_b6_h5_fixed_opening.md)
+  supplies a conditional initial transition at ideal-row entry, and the
+  [zero fallback](../docs/validation/parliament_ballot_zero_challenge/README.md)
+  is verified for both rows/roles. A [joint mask-coordinate derivation](parliament_ballot_b6_mask_coordinate.md)
+  now preserves the complete paired oracle state at an ideal-material public
+  endpoint. The [hidden-assignment deletion derivation](parliament_ballot_b6_hidden_assignment_deletion.md)
+  supplies conditional adaptive oracle removal at that same boundary. A distinct
+  [direct public sampler](parliament_ballot_b6_ideal_public_sampler.md) exactly
+  realizes the post-deletion public material under explicit fresh-slot premises,
+  using one source-shaped reconstruction. Primitive entry, acceptance of this
+  new simulator and full reduction resources remain open; equality to real-root
+  `Sim+` has not been established.
+  Its separate [executable logical accounting](parliament_ballot_b6_ideal_sampler_accounting.md)
+  checks bounded schedules, reads versus programming writes and persistent
+  chronological records with 30 controls. A separate [explicit reversible log](parliament_ballot_b6_oracle_log_circuit.md)
+  supplies conditional coherent lookup/append gate and wire bounds with 21
+  controls. Full quantum and physical resources remain open; request count is
+  not inferred from external query count, and base calls remain separately charged.
+  The [clean admissibility circuit](parliament_ballot_b6_admissibility_circuit.md)
+  separately prices the actual grinding/opening predicate with exact gates and
+  reusable work wires. It excludes challenge sampling, first-success selection,
+  the trial controller and every separate reconstruction pass.
+  The [clean field-product kernels](../docs/validation/parliament_ballot_gf_circuit/README.md)
+  separately price three source field APIs with exact reversible gates and
+  clean work. Supplied operands/output/work must be disjoint; the atomic request
+  composition below prices routing and cleanup within its declared boundary. These
+  kernels do not close the full simulator or physical verifier resource gates.
+- [Mathematical request machine](../docs/validation/parliament_ballot_request_machine/README.md):
+  explicit atomic generation, programming, return and cleanup, with content and
+  full-width length rejection families. Accepted-request gate/oracle/storage
+  observations are source-bound cases, not a family-wide maximum. Adaptive
+  lifetime accounting, primitive-entry assumptions, external review and native
+  workspace qualification remain open; no production gate changes.
+- [Conditional lifetime ledger](../docs/validation/parliament_ballot_lifetime_ledger/README.md):
+  common log/oracle contracts, supported event-cost composition and disjoint
+  retained-register accounting. Actual adaptive execution, unsupported families,
+  initialization and primitive resources remain open.
+- [Full-cap content observations](../docs/validation/parliament_ballot_content_resources/README.md):
+  four exact bounded-content cases include validation, controlled writes, returns
+  and cleanup. They do not establish a family maximum or extend the ledger's
+  supported inputs automatically. The separate [ContentFamily ledger extension](../docs/validation/parliament_ballot_content_lifetime/README.md)
+  adds their exact accounting with an explicit cap on all typed requests; valid-only
+  theorem T cannot bound arbitrary invalid invocations.
+- [Finite sequence composition](../docs/validation/parliament_ballot_sequence_composition/README.md):
+  concrete static relocation into shared persistent state and clean workspace, with
+  distinct retained interfaces and true reverse-call inverses. Adaptive selection,
+  preparation and a complete joint-state theorem remain open.
+- [Legal request domains](../docs/validation/parliament_ballot_family_domains/README.md) and
+  [component-family arithmetic](../docs/validation/parliament_ballot_component_families/README.md):
+  source-defined REG lengths and VOTE sizes, component bounds and explicit upstream
+  error/witness/application obligations. A full experiment resource certificate is
+  still absent. New frozen-source replay results do not qualify the changed current
+  Cargo manifest or native candidate.
 - [Standalone resource model](parliament_ballot_b6_standalone_resources.md):
   source-bound conditional requested-allocation ceilings and separated
   arithmetic/hash/loop counts, not complete work or process-memory bounds.
@@ -32,6 +87,60 @@ below. A listed source test is not a claim of exhaustive coverage.
   [120-call campaign](../docs/validation/parliament_ballot_resource_contract/README.md):
   fixed whole-call/actual-byte reservations and an enforced heap/native-stack
   mapping. Calibration, complete runtime coverage and qualification remain open.
+  The separate [in-memory entry](../docs/validation/parliament_ballot_memory_entry/README.md)
+  reserves the actual borrowed length after retrieval and passes its own 122
+  observations; original worker and disassembly evidence is not transferred.
+  Its [shared-control successor](../docs/validation/parliament_ballot_fatal_control/README.md)
+  fixes fatal stdout blockage and passes a fresh 122-observation campaign plus
+  real full/broken-output controls, with the extra page included in workspace.
+  [Fresh compiled stack captures](../docs/validation/parliament_ballot_fatal_stack_eon/README.md)
+  now decode both complete images without frame-analysis errors, while retaining
+  native/indirect/exceptional frontiers and recursion as unknown costs.
+  A [conditional adapter bound](../docs/validation/parliament_ballot_adapter_bound/README.md)
+  isolates 336 stack bytes, 5,298 issued instructions and one input block of at
+  most 524,288 bytes around the opaque verifier. Native and verifier costs remain
+  unresolved; 20 checker tests do not establish whole-call sufficiency. Subsequent
+  lockfile/allocator edits are recorded as current-source drift; the earlier
+  capture is retained and the live-input check refuses. Separate
+  [historical-input recovery](../docs/validation/parliament_ballot_adapter_source_recovery/README.md)
+  resolves all 2,081 original identities without replacing live files; twelve
+  fault controls cover missing/changed identities and refusal paths. Recovery
+  does not transfer the earlier bounds to the current checkout.
+  The [historical frontend bound](../docs/validation/parliament_ballot_frontend_bound/README.md)
+  adds conditional dispatcher/record contributions of 146 local instructions
+  and 2,160 owned stack bytes, plus a separate fixed-count parser lemma.
+  Twenty-seven checker tests pass; typed-decoder, crypto, allocator, cleanup and
+  native costs remain unknown.
+  Separate [profile](../docs/validation/parliament_ballot_profile_bound/README.md)
+  and [typed-decoder](../docs/validation/parliament_ballot_typed_decoder_bound/README.md)
+  checks now bound those outer coordinators with 18 and 24 passing tests. They
+  retain lower constructor/hash/allocator/native terms, source/ABI premises and
+  the registration trap continuation; no complete resource certificate follows.
+  A separate [opaque-field constructor check](../docs/validation/parliament_ballot_opaque_field_bound/README.md)
+  derives all four full-width length paths in both retained images, including
+  guarded requests of at most 256 bytes and a 48-byte own frame. Returning paths
+  cost 20/23/29 local instructions; the 18-instruction allocation-failure prefix
+  retains its final error call and outside-body continuation as unknown. Native
+  and complete workspace costs remain unresolved.
+  The [retained-image exception audit](../docs/validation/parliament_ballot_exception_coverage/README.md)
+  now checks compact/FDE mapping for all 228 LSDAs per mode and conservatively
+  seeds every table-listed landing pad of reached owners. Its 182 staged tests
+  and LLVM header comparison preserve a 46-instruction indirect-control gap
+  per image relative to the independent whole-function census. CFI execution,
+  loaded personality correspondence and exceptional stack/native costs remain
+  unknown; no complete resource or current-checkout qualification follows.
+  A [current-source rebuild](../docs/validation/parliament_ballot_current_candidate/README.md)
+  separately passes both worker modes, 122 observations, four output controls
+  and fresh stack diagnostics. The waker assertion correction passes 28 shared
+  and nine custody tests without runtime changes. The separate
+  [compiled correspondence check](../docs/validation/parliament_ballot_current_correspondence/README.md)
+  binds 24 code ranges and seven source deltas, then reruns the four unchanged
+  component analyzers on the new captures. Its 49 controls and 2,123 stable input
+  guards preserve the original premises and unresolved terms; complete
+  native/workspace costs remain open.
+  Subsequent root-lock drift makes the build, allocation and correspondence
+  results historical; exact originals remain archived. No qualification is
+  transferred to the later checkout.
 - Standalone source checks: [relations](../crates/iroha_parliament_ballot_proof/tests/relation.rs),
   [proofs](../crates/iroha_parliament_ballot_proof/tests/proofs.rs),
   [test decoder](../crates/iroha_parliament_ballot_proof/src/test_codec.rs),
@@ -71,7 +180,7 @@ continue engineering.
 | --- | --- | --- |
 | Complete envelope ≤262,144 bytes; shared list context ≤163,840 bytes | Raw proof sizes and standalone preimage/test-record formulas exist | Complete authenticated envelope and context accounting; owner/reviewer must resolve the sequencing obligation below |
 | Uncached verification ≤250 ms | Cold-input measurements start in a warm process; no named Xeon measurement | Owner-deferred Xeon Silver 4310 run: one physical core, 2.10 GHz, turbo off, idle SMT sibling, Linux x86-64; accelerated build judged against the limit |
-| Verifier workspace ≤64 MiB | Implemented bounded-copy/arena/stack proposal; 120 calls pass within the 41.09375 MiB mapping on this Mac. Conditional all-length source-model arena sufficiency and selected compiled layout/stack evidence retained | Complete compiled allocation correspondence and indirect/native/recursive stack bounds, runtime/System/TLS coverage, independent unsafe review, target execution and ingress allocation certificate; concurrency/caller scope is explicit |
+| Verifier workspace ≤64 MiB | Implemented bounded-copy/arena/stack proposal; original 120 calls and earlier 122 in-memory calls retained. A fatal stdout blockage is reproduced and fixed through a counted shared page; the new 122 calls and output controls pass with 41.109375 MiB reserved on this Mac. Conditional all-length source-model arena sufficiency and earlier image's selected compiled evidence retained | Complete compiled allocation correspondence and indirect/native/recursive stack bounds for the actual candidate, runtime/System/TLS coverage, independent unsafe review, target execution and ingress allocation certificate; concurrency/caller scope is explicit |
 | Phone proving p95 ≤10 s and peak ≤256 MiB | Supplementary iPhone 17 Pro Max and Samsung observations | Pixel 6a and iPhone SE third generation; native release apps, battery operation, sustained thermal runs and complete memory scope |
 | Both proofs, all three roster sizes and each path | Registration and votes at 3/500/1,000 on both rows and feature modes | Physical x86/ARM result/byte/error/charge parity and baseline measurements; scalar timing need not meet 250 ms |
 | Cold, warm, late-invalid and malformed measurements | Fresh list decoding/digest/transcript preparation, warm and canonical late-invalid samples retained; [malformed distributions/maxima](../docs/validation/parliament_ballot_b6/malformed-results.md) cover 164 selected classes per mode, with 31 repetitions each | Cold-process/cache methodology, complete malformed-input resource bounds and baseline qualification remain open; repeated selected mutants are not exhaustive coverage |
@@ -196,12 +305,12 @@ integration obligations, not new standalone work authorized by this audit.
 | Constructive valid-nonminimal-counter acceptance | Local component check complete: four tests and strict lint pass in each feature mode; [receipt](../docs/validation/parliament_ballot_b6/nonminimal-counter-receipt.json) pins the 92-file source scope and binaries. Vote cases use `S=3`; no production or hardware qualification inferred |
 | Malformed-encoding time/allocation distributions and maxima | Selected local campaign complete: 10,168 observations across both modes, expected refusal and 164-class input/outcome/diagnostic parity; [receipt](../docs/validation/parliament_ballot_b6/malformed-receipt.json) pins the new 225-file source scope. Shared warm-process observations only; complete malformed-input bounds and baseline qualification remain open |
 | Standalone charge and workspace contract | Owner-authorized research/proposal implemented: [fixed reservation and bounded worker](parliament_ballot_resource_contract.md), 10 Rust tests per mode, 33 supervisor tests and 120 source-bound worker calls pass. Full physical cost and runtime/workspace certificates remain open; the prior front-end inventory remains a distinct frozen worksheet |
-| Actual generator driver, remaining reductions and full resource vectors | Cryptographic author and independent reviewer; open. Reference games do not accept new premises |
+| Actual generator driver, remaining reductions and full resource vectors | Cryptographic author and independent reviewer; open. The [write-frame component](parliament_ballot_b6_write_framing.md) prices supplied-field preparation/cleanup, and the [admissibility circuit](parliament_ballot_b6_admissibility_circuit.md) prices the actual grinding/opening predicate. Source generation, controller, remaining reconstruction/primitive costs and full reductions remain unresolved. Reference games do not accept new premises |
 | Primitive/model qualification and independent attack-cost assessment | Independent cryptographic reviewers; open |
 | Both security weakenings, approved premises and envelope-order resolution | Design owner with required independent review; open |
 | Exact Xeon and named phone evidence, physical x86 parity, battery/thermal/cancellation conditions | Hardware/qualification owners; open; Intel run explicitly deferred by owner |
 | Capacity/admission derivation | Resource and governance-policy owners; open, using complete qualified worst-case costs; no policy parameter silently chosen |
-| SCCP start-phase source-contract mismatch | SCCP and Parliament integration owners; open. The [latest actual recheck](../docs/validation/parliament_ballot_resource_contract/source-contract.json) still fails after further concurrent hooks. Historical 1,115/92 totals and in-memory isolation describe their earlier source snapshot |
+| Current integration source-contract reconciliation | Scoped structural checkpoint complete. Queue/Kura, phase, construction, Torii release, daemon startup, beacon-witness and execution-result guards bind the reviewed owners and order. The full Python capture passed 1,755 tests on its recorded sources; a later constructor migration changed two observed Rust files. Their originals remain archived, and the [post-merge source check](../docs/validation/parliament_ballot_post_merge_source_check/README.md) passes across 402 stable inputs. Prior tests are not transferred to those changed files. Resolver/compiler/runtime premises remain; no Rust runtime or production qualification follows |
 | Production implementation, retirement and launch qualification | Postselection owners; gated by unmet selection conditions and eventual owner qualification record |
 
 The three focused accounting suites pass 38 tests and six subtests on the
@@ -211,8 +320,14 @@ with exact provenance; resource/front-end guards refuse the changed live input.
 The frozen reconstruction remains separate from these later sources. On the frozen source, the
 security check intentionally returns exit 2 with qualification false; the
 resource and front-end checks return exit 1 with complete certificates false.
-The actual source-contract guard still rejects the current Core start-phase
-ordering. New test-only work has separate source identities and receipts; the
+The [source-contract capture](../docs/validation/parliament_ballot_execution_result_guard/source-check.json)
+passed after scoped beacon borrowing and execution-result assertion repairs.
+The matching [complete regression capture](../docs/validation/parliament_ballot_source_guard_regressions/README.md)
+passed all 1,755 collected Python tests. Their source scope precedes two later
+constructor-migration edits; the separate post-merge source check passes on
+those changed inputs without transferring the full regression result. Earlier queue, Kura, start-phase,
+construction, Torii, daemon and execution-assertion failures remain historical evidence. New local work has
+separate source identities and receipts; the
 B6 artifact manifest records the final retained files. No full-workspace pass,
 independent human review or owner approval is asserted.
 

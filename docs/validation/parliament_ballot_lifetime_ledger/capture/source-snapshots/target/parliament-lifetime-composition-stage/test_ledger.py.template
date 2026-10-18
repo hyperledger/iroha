@@ -1,0 +1,304 @@
+"""Independent arithmetic, ownership and refusal controls for conditional ledger."""
+from dataclasses import FrozenInstanceError, replace
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from unittest.mock import patch
+import pytest
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+sys.path.insert(0,str(HERE))
+import ledger as l
+
+@pytest.fixture(scope='module')
+def catalog():
+    return l.Catalog(ROOT)
+
+
+def experiment(t=3,q=2,b=64,coins='classical-retained'):
+    return l.Experiment(t,q,b,l.MIN_MESSAGE,'one immutable F','agreed complete function',coins)
+
+
+def accepted(e,row='candidate',role='REG',name='accepted'):
+    body,contexts,n=(4096,(256,)*6,0) if role=='REG' else (0,(0,)*6,1000)
+    return l.AcceptedRequest(name,e.interface,row,role,body,contexts,n)
+
+
+def periodic_pop_sum(n):
+    return sum((n//(2 << b))*(1 << b)+max(0,n%(2 << b)-(1 << b))
+               for b in range(n.bit_length()))
+
+
+def independent_w(e,row,role):
+    # This formula is derived from the three scatter formats and controlled
+    # append ladder, without calling the production formula or factory.
+    n=e.interface.capacity;d=max(2,n.bit_length());k=e.length_bits+8*215150
+    tau,g=(33,704) if row=='candidate' else (22,696)
+    ell=35840 if role=='REG' else 53504
+    lens=[254+(tau-1)*ell//8+10*g//8,598+ell//8,410]
+    sx=[x.bit_count()+sum(v.bit_count() for v in b'PARL/FAEST/v1')+domain.bit_count()
+        for x,domain in zip(lens,[9,10,11])]
+    cx=[(x-14+v)*8 for x,v in zip(lens,[264,104,32])]
+    appx=4*sum(d-(i.bit_count()) for i in range(n)) if n<32 else 4*(d*n-periodic_pop_sum(n))
+    x=(l.M+2)*appx+2*(sx[0]+sx[1]+l.M*sx[2])+4+2*periodic_pop_sum(l.M)
+    c=(l.M+2)*(n+1)+2*(cx[0]+cx[1]+l.M*cx[2])+2*l.M
+    t=(l.M+2)*(n*(4*d-2+k+l.V)+(d-1)**2)
+    return l.Gates(x,c,t),1+k+l.V+d+32
+
+
+def test_catalog_pins_cases_and_immutable(catalog):
+    assert len(catalog.pins)==72 and len(catalog.cases)==4
+    assert dict(catalog.pins)[l.OBSERVATION]==l.OBSERVATION_SHA
+    with pytest.raises(FrozenInstanceError):
+        catalog.cases=()
+    with pytest.raises(FrozenInstanceError):
+        catalog.cases[0].public=0
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('role',['REG','VOTE'])
+def test_original_geometry_reproduces_observation(catalog,row,role):
+    raw=json.loads((ROOT/l.OBSERVATION).read_text())
+    old=next(x['resources'] for x in raw['source_cases'] if (x['row'],x['role'])==(row,role))
+    e=experiment(1 << 44)
+    result=l.account(catalog,e,(accepted(e,row,role),))
+    assert result['body_gates']==old['gates']
+    assert result['ownership']['known_allocated_bits']==old['total_logical_bits']
+    item=result['events'][0]
+    assert item['public_input_bits']+item['original_coin_bits']==old['original_input_bits']
+    assert item['caller_output_bits']==97+8*old['components']['returns']['proof_bytes']
+    assert item['return_encoding'].startswith('accepted-only')
+    assert item['actual_appends'] is None
+    assert result['capacity']['actual_occupancy'] is None
+
+
+@pytest.mark.parametrize('b',[23,64,4096])
+@pytest.mark.parametrize('t',[1,2,1 << 44,1 << 64])
+def test_rebase_allocation_and_w_formula(catalog,b,t):
+    e=experiment(t,b=b)
+    event=accepted(e)
+    result=l.account(catalog,e,(event,))
+    item=result['events'][0];cost,work=independent_w(e,'candidate','REG')
+    assert item['rebased_writes']==dict(gates=cost.report(),clean_work_bits=work,
+        counter_bits=e.interface.counter_bits,log_bits=e.interface.log_bits)
+    assert item['shared_work_bits']==max(catalog.accepted(event).generator_work,work,1)
+    assert result['ownership']['reusable_clean_bits']==item['retained_derived_bits']+item['shared_work_bits']
+    alloc=result['ownership']['allocations']; previous=0
+    for region in alloc:
+        assert region['start']==previous
+        previous+=region['bits']
+    assert previous==result['ownership']['known_allocated_bits']
+
+
+@pytest.mark.parametrize('n',[0,1,2,1001,65539,(1 << 32)+1,(1 << 64)-1])
+@pytest.mark.parametrize('row',['candidate','comparator'])
+def test_rejected_full_width_storage_and_no_log_effect(catalog,n,row):
+    e=experiment(1)
+    result=l.account(catalog,e,(l.RejectedVote('size-error',e.interface,row,n),))
+    item=result['events'][0]
+    assert item['public_input_bits']==3608+1024*n
+    assert item['caller_output_bits']==253+8*({'candidate':233012,'comparator':158074}[row])
+    assert item['gates']==l.Gates(569+2*n.bit_count(),872,888).report()
+    assert item['borrowed_list_bits']==1024*n and item['list_bits_read']==0
+    assert item['original_coin_bits']==item['actual_appends']==0
+    assert result['capacity']['reserved_upper']==0
+    assert result['ownership']['reusable_clean_bits']==519
+
+
+@pytest.mark.parametrize('t',[0,1,1 << 44])
+def test_query_cost_full_message_storage(catalog,t):
+    e=experiment(t)
+    out=l.account(catalog,e,(l.Query('full-query',e.interface,l.MIN_MESSAGE),))
+    n=e.interface.capacity;k=e.length_bits+8*l.W
+    expected=(l.Gates(4*k*n+4*n+2,4*k*n,n*(4*k+6+l.V)+l.V+2,2)
+              if n else l.Gates(ccx=l.V,f=2))
+    assert out['body_gates']==expected.report()
+    regions={v['name']:v['bits'] for v in out['ownership']['allocations']}
+    assert regions['event.full-query.query']==e.length_bits+8*l.MIN_MESSAGE
+    assert regions['event.full-query.enable']==1 and regions['event.full-query.response']==l.V
+    assert regions['persistent.counter']==e.interface.counter_bits
+    assert ('persistent.log' in regions)==bool(n)
+    assert out['ownership']['reusable_clean_bits']==(2*n+k+l.V+2 if n else l.V)
+
+
+def test_mixed_trace_sum_ownership_and_capacity(catalog):
+    e=experiment(3,2)
+    events=(accepted(e,name='first'),l.Query('q1',e.interface,l.MIN_MESSAGE),
+            l.RejectedVote('reject',e.interface,'candidate',2),
+            accepted(e,'comparator','VOTE','second'),l.Query('q2',e.interface,l.MIN_MESSAGE))
+    result=l.account(catalog,e,events)
+    one=[l.account(catalog,e,(event,)) for event in events]
+    for key in result['body_gates']:
+        assert result['body_gates'][key]==sum(x['body_gates'][key] for x in one)
+    assert result['body_gates']['base_xor_oracle_calls']==6200+5960+4
+    assert result['capacity']['reserved_upper']==2*(l.M+2)
+    assert result['capacity']['slots']==3*(l.M+2)
+    assert result['event_counts']==dict(requests=3,queries=2,generating=2)
+    assert [x['conservative_log_occupancy_upper'] for x in result['events']]==[
+        l.M+2,l.M+2,l.M+2,2*(l.M+2),2*(l.M+2)]
+    regions=result['ownership']['allocations']
+    assert len([x for x in regions if x['name']=='reusable.clean'])==1
+    expected=sum(x['ownership']['known_allocated_bits']-x['ownership']['persistent_log_bits']-
+                 x['ownership']['counter_bits']-x['ownership']['reusable_clean_bits'] for x in one)
+    expected+=e.interface.log_bits+e.interface.counter_bits+max(x['ownership']['reusable_clean_bits'] for x in one)
+    assert result['ownership']['known_allocated_bits']==expected
+
+
+def test_purification_cost_not_silently_folded(catalog):
+    plain=experiment(1); pure=replace(plain,coins='purified-retained')
+    a=l.account(catalog,plain,(accepted(plain),));b=l.account(catalog,pure,(accepted(pure),))
+    coins=b['events'][0]['original_coin_bits']
+    assert a['body_gates']==b['body_gates']
+    assert b['ownership']['known_allocated_bits']==a['ownership']['known_allocated_bits']+coins
+    assert b['coin_preparation']['hadamard']==b['coin_preparation']['cx']==coins
+    assert b['coin_preparation']['requires_clean_coin_and_purifier_inputs']
+    assert b['coin_preparation']['executed'] is False
+    assert a['coin_preparation']['cost'] is None
+
+
+def test_empty_trace_retains_only_explicit_global_log_counter(catalog):
+    e=experiment(0,0)
+    r=l.account(catalog,e,())
+    assert r['body_gates']==l.Gates().report()
+    assert r['ownership']['known_allocated_bits']==2
+    assert r['ownership']['reusable_clean_bits']==0
+    assert len(r['ownership']['allocations'])==1
+
+
+@pytest.mark.parametrize('change',[{'capacity':0},{'length_bits':63},{'oracle':'otherF'},{'completion':'other'}])
+def test_interface_mismatch_refused(catalog,change):
+    e=experiment();a=accepted(e)
+    with pytest.raises(ValueError,match='N/b/F/completion'):
+        l.account(catalog,e,(replace(a,interface=replace(e.interface,**change)),))
+
+
+def test_unsupported_shapes_content_family_and_arbitrary_cost_refused(catalog):
+    e=experiment()
+    for event in (replace(accepted(e),body_bytes=0),replace(accepted(e),list_count=1),
+                  replace(accepted(e,'candidate','VOTE'),list_count=3)):
+        with pytest.raises(ValueError,match='unsupported accepted shape'):
+            l.account(catalog,e,(event,))
+    with pytest.raises(ValueError,match='unsupported event type'):
+        l.account(catalog,e,({'gates':l.Gates()},))
+
+
+def test_caps_ids_message_envelope(catalog):
+    e=experiment(1,1);a=accepted(e)
+    with pytest.raises(ValueError,match='request cap'):
+        l.account(catalog,e,(a,replace(a,event_id='extra')))
+    q=l.Query('q',e.interface,l.MIN_MESSAGE)
+    with pytest.raises(ValueError,match='query capacity'):
+        l.account(catalog,e,(q,replace(q,event_id='extra')))
+    with pytest.raises(ValueError,match='duplicate event'):
+        l.account(catalog,e,(q,q))
+    with pytest.raises(ValueError,match='length envelope'):
+        l.account(catalog,e,(replace(q,message_bytes=l.MIN_MESSAGE+1),))
+
+
+def test_placement_overlap_size_missing_extra_and_relocation(catalog):
+    e=experiment(1);events=(accepted(e),)
+    original=l.account(catalog,e,events)
+    layout=tuple(l.Allocation(**x) for x in original['ownership']['allocations'])
+    moved=tuple(replace(x,start=x.start+123) for x in layout)
+    out=l.account(catalog,e,events,moved)
+    assert out['ownership']['known_allocated_bits']==original['ownership']['known_allocated_bits']
+    assert out['ownership']['address_span_bits']==original['ownership']['address_span_bits']+123
+    for bad in (layout[:-1],layout+(l.Allocation('extra',10**100,1),),
+                (replace(layout[0],bits=layout[0].bits+1),*layout[1:])):
+        with pytest.raises(ValueError,match='membership and widths'):
+            l.account(catalog,e,events,bad)
+    bad=(layout[0],replace(layout[1],start=0),*layout[2:])
+    with pytest.raises(ValueError,match='overlapping'):
+        l.account(catalog,e,events,bad)
+
+
+@pytest.mark.parametrize('value',[True,False,-1,0.0,'1',None])
+def test_strict_integer_refusal(value):
+    with pytest.raises(ValueError):l.Gates(x=value)
+    with pytest.raises(ValueError):l.Experiment(value,0,64,l.MIN_MESSAGE,'F','completion')
+    with pytest.raises(ValueError):l.Allocation('a',value,1)
+
+
+@pytest.mark.parametrize('n',[3,4,1000])
+def test_valid_list_count_cannot_be_rejected(n):
+    with pytest.raises(ValueError):l.RejectedVote('r',experiment().interface,'candidate',n)
+
+
+def test_popsum_independent_finite_and_large():
+    for n in range(257):
+        assert l.popsum(n)==sum(i.bit_count() for i in range(n))
+    for n in (1 << 64,(1 << 80)+3471):
+        assert l.popsum(n)==periodic_pop_sum(n)
+
+
+def test_source_drift_load_and_account_before_after(catalog):
+    original=l.digest
+    with patch.object(l,'digest',lambda p:'0'*64 if str(p).endswith('request_family.py') else original(p)):
+        with pytest.raises(ValueError,match='source drift'):l.Catalog(ROOT)
+    e=experiment(0,0)
+    calls=0
+    def changed_after_first_pass(path):
+        nonlocal calls
+        calls+=1
+        return '0'*64 if calls>len(catalog.pins) else original(path)
+    with patch.object(l,'digest',changed_after_first_pass):
+        with pytest.raises(ValueError,match='source drift'):
+            l.account(catalog,e,())
+
+
+def test_fail_closed_scope(catalog):
+    e=experiment(0,0);r=l.account(catalog,e,())
+    for key in ('full_quantum_joint_state_theorem_proved','full_adaptive_driver_executed',
+                'family_wide_resource_maximum_proved','complete_resource_vector',
+                'actual_input_primitive_bridge','independent_cryptographic_review',
+                'physical_workspace_bound','current_candidate_qualified','profile_qualified','production_gate_changed'):
+        assert r[key] is False
+    assert r['unknown_external_terms'] and all(v is None for v in r['unknown_external_terms'].values())
+    assert any('entire quantum support' in x for x in r['caller_assertions_not_verified'])
+
+
+def test_json_cli_normal_refusal_identical_and_invalid(tmp_path):
+    e=experiment(0,1)
+    value={'experiment':l.asdict(e),'events':[dict(kind='query',event_id='q',interface=l.asdict(e.interface),message_bytes=l.MIN_MESSAGE)]}
+    path=tmp_path/'events.json';path.write_text(json.dumps(value))
+    cmd=[sys.executable,'-B',str(HERE/'ledger.py'),'--root',str(ROOT),'--events',str(path)]
+    env={**os.environ,'PYTHONDONTWRITEBYTECODE':'1'}
+    normal=subprocess.run(cmd,env=env,capture_output=True)
+    refusal=subprocess.run(cmd+['--require-qualified'],env=env,capture_output=True)
+    assert normal.returncode==0 and refusal.returncode==2
+    assert normal.stdout==refusal.stdout and not normal.stderr and not refusal.stderr
+    value['events'][0]['interface']['oracle']='different';path.write_text(json.dumps(value))
+    invalid=subprocess.run(cmd,env=env,capture_output=True)
+    assert invalid.returncode==1 and not invalid.stdout and b'mismatch' in invalid.stderr
+
+
+def test_only_authenticated_observation_bytes_are_parsed():
+    original=Path.read_bytes
+    def replaced_read(path):
+        data=original(path)
+        if path==ROOT/l.OBSERVATION:
+            value=json.loads(data)
+            value['source_cases'][0]['resources']['original_input_bits']+=1
+            return json.dumps(value).encode()
+        return data
+    # A separately queried digest could still claim the expected original file;
+    # the constructor must hash its own exact parse buffer.
+    with patch.object(Path,'read_bytes',replaced_read), patch.object(l,'digest',lambda p:l.OBSERVATION_SHA):
+        with pytest.raises(ValueError,match='observation source drift'):
+            l.Catalog(ROOT)
+
+
+@pytest.mark.parametrize('events',[{},'',None,(),False,0])
+def test_json_event_collection_is_exact_array(events):
+    with pytest.raises(ValueError,match='JSON event array'):
+        l.parse_document(dict(experiment=l.asdict(experiment()),events=events))
+
+
+@pytest.mark.parametrize('ex',[[],None,'',False])
+def test_json_experiment_is_exact_object(ex):
+    with pytest.raises(ValueError,match='experiment object'):
+        l.parse_document(dict(experiment=ex,events=[]))

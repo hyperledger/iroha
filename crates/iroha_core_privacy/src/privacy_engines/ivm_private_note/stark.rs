@@ -88,15 +88,15 @@ const FIXED_VM_INSTRUCTION_TRANSITION: usize = FIXED_VM_COMMON_TRANSITION + 1;
 const FIXED_VM_ACTION_LIMB_ZERO_BYTE: usize = FIXED_VM_INSTRUCTION_TRANSITION + 1;
 const FIXED_VM_ACTION_LIMB_ONE_BYTE: usize = FIXED_VM_ACTION_LIMB_ZERO_BYTE + 1;
 const FIXED_VM_EXECUTION_EPOCH_BYTE: usize = FIXED_VM_ACTION_LIMB_ONE_BYTE + 1;
-pub(crate) const PRIVATE_NOTE_PROFILE_FIXED_WIDTH_V1: usize = FIXED_VM_EXECUTION_EPOCH_BYTE + 1;
-pub(crate) const PRIVATE_NOTE_PROFILE_AUX_WIDTH_V1: usize = 1;
-pub(crate) const PRIVATE_NOTE_PROFILE_CONSTRAINT_COUNT_V1: usize = 1_375;
+pub const PRIVATE_NOTE_PROFILE_FIXED_WIDTH_V1: usize = FIXED_VM_EXECUTION_EPOCH_BYTE + 1;
+pub const PRIVATE_NOTE_PROFILE_AUX_WIDTH_V1: usize = 1;
+pub const PRIVATE_NOTE_PROFILE_CONSTRAINT_COUNT_V1: usize = 1_375;
 /// Audited maximum algebraic degree across the complete shared/profile AIR.
-pub(crate) const PRIVATE_NOTE_PROFILE_CONSTRAINT_DEGREE_V1: u8 =
+pub const PRIVATE_NOTE_PROFILE_CONSTRAINT_DEGREE_V1: u8 =
     PROOF_MANAGED_NOTE_MAX_CONSTRAINT_DEGREE_V1;
 const PROFILE_AUX_VM_CARRY_BRIDGE: usize = 0;
 /// Relation-local descriptor combined with the shared proof-driver geometry.
-pub(crate) const IVM_PRIVATE_NOTE_STARK_PROFILE_DESCRIPTOR_V1: &[u8] = b"iroha-ivm-private-note-stark-v1:relation=proof-managed-note:wire=IPS1-v1:trace=2^14:base=556:profile-aux=1:profile-fixed=123:profile-constraints=1375:constraint-degree=4:max-proof=8388608:sha256-wide-air:public-digest=sha3-384-opaque48(canonical-statement,PrivacyNativeConsensusBindingDigestV1):tree-depth=32:vm=16x8:ciphertext=IPNE-v1:fee=separate:legacy=unrepresentable:governance=typed-lifecycle";
+pub const IVM_PRIVATE_NOTE_STARK_PROFILE_DESCRIPTOR_V1: &[u8] = b"iroha-ivm-private-note-stark-v1:relation=proof-managed-note:wire=IPS1-v1:trace=2^14:base=556:profile-aux=1:profile-fixed=123:profile-constraints=1375:constraint-degree=4:max-proof=8388608:sha256-wide-air:public-digest=sha3-384-opaque48(canonical-statement,PrivacyNativeConsensusBindingDigestV1):tree-depth=32:vm=16x8:ciphertext=IPNE-v1:fee=separate:legacy=unrepresentable:governance=typed-lifecycle";
 /// Exact first-release proof ceiling enforced by the private-note verifier.
 pub const IVM_PRIVATE_NOTE_MAX_PROOF_BYTES_V1: usize = 8 * 1024 * 1024;
 const PRIVATE_NOTE_PARAMETERS_V1: aggregate::AggregateStarkParametersV1 =
@@ -119,7 +119,7 @@ const PRIVATE_NOTE_PARAMETERS_V1: aggregate::AggregateStarkParametersV1 =
             + PRIVATE_NOTE_PROFILE_AUX_WIDTH_V1,
         maximum_proof_bytes: IVM_PRIVATE_NOTE_MAX_PROOF_BYTES_V1,
     };
-pub(crate) const PRIVATE_NOTE_DOMAINS_V1: aggregate::AggregateStarkDomainsV1 =
+pub const PRIVATE_NOTE_DOMAINS_V1: aggregate::AggregateStarkDomainsV1 =
     aggregate::AggregateStarkDomainsV1 {
         digest_context: TransparentStarkDigestContextV1::new(
             PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1,
@@ -152,8 +152,7 @@ fn private_note_protocol_v1() -> ProofManagedNoteStarkProtocolV1 {
     }
 }
 /// Validate the complete compiled proof-system and relation profile.
-pub(crate) fn validate_ivm_private_note_stark_profile_v1()
--> Result<(), ProofManagedNoteStarkErrorV1> {
+pub fn validate_ivm_private_note_stark_profile_v1() -> Result<(), ProofManagedNoteStarkErrorV1> {
     private_note_protocol_v1().validate()
 }
 fn map_air_error_v1(error: IvmPrivateNoteAirErrorV1) -> ProofManagedNoteStarkErrorV1 {
@@ -556,7 +555,7 @@ fn private_note_profile_constraint_residues_inner_v1(
 /// private-note geometry, fixed preprocessing, constraint evaluator, and
 /// prover-column compiler.
 #[derive(Clone, Copy)]
-pub(crate) struct PrivateNoteStarkRelationV1<'a> {
+pub struct PrivateNoteStarkRelationV1<'a> {
     statement: &'a IrohaIvmPrivateNoteStarkStatementV1,
     profile: PrivateNoteRelationProfileV1,
 }
@@ -813,7 +812,7 @@ pub(super) fn prove_private_note_stark_v1_with_rng<R: TryRngCore>(
     ))
 }
 /// Verify the exact private-note proof against the statement and consensus binding.
-pub(crate) fn verify_private_note_stark_v1(
+pub fn verify_private_note_stark_v1(
     statement: &IrohaIvmPrivateNoteStarkStatementV1,
     consensus_binding: &PrivacyNativeConsensusBindingV1,
     consensus_limits: &PrivacyConsensusLimitsV1,
@@ -1125,20 +1124,13 @@ mod tests {
         .expect("zero rows have the compiled profile shape");
         assert_eq!(residues.len(), PRIVATE_NOTE_PROFILE_CONSTRAINT_COUNT_V1);
         let profile_digest = proof_managed_note_stark_profile_digest_v1(
-            PRIVATE_NOTE_DOMAINS_V1,
+            &PRIVATE_NOTE_DOMAINS_V1,
             IVM_PRIVATE_NOTE_STARK_PROFILE_DESCRIPTOR_V1,
         )
         .expect("canonical IVM private-note profile digest");
         assert_ne!(profile_digest, PrivacyOuterDigestV1::default());
         let expected_descriptor = format!(
-            "iroha-ivm-private-note-stark-v1:relation=proof-managed-note:wire=IPS1-v1:trace=2^{}:base={}:profile-aux={}:profile-fixed={}:profile-constraints={}:constraint-degree={}:max-proof={}:sha256-wide-air:public-digest=sha3-384-opaque48(canonical-statement,PrivacyNativeConsensusBindingDigestV1):tree-depth=32:vm=16x8:ciphertext=IPNE-v1:fee=separate:legacy=unrepresentable:governance=typed-lifecycle",
-            PRIVATE_NOTE_TRACE_LOG2_V1,
-            PRIVATE_NOTE_BASE_WIDTH_V1,
-            PRIVATE_NOTE_PROFILE_AUX_WIDTH_V1,
-            PRIVATE_NOTE_PROFILE_FIXED_WIDTH_V1,
-            PRIVATE_NOTE_PROFILE_CONSTRAINT_COUNT_V1,
-            PRIVATE_NOTE_PROFILE_CONSTRAINT_DEGREE_V1,
-            IVM_PRIVATE_NOTE_MAX_PROOF_BYTES_V1,
+            "iroha-ivm-private-note-stark-v1:relation=proof-managed-note:wire=IPS1-v1:trace=2^{PRIVATE_NOTE_TRACE_LOG2_V1}:base={PRIVATE_NOTE_BASE_WIDTH_V1}:profile-aux={PRIVATE_NOTE_PROFILE_AUX_WIDTH_V1}:profile-fixed={PRIVATE_NOTE_PROFILE_FIXED_WIDTH_V1}:profile-constraints={PRIVATE_NOTE_PROFILE_CONSTRAINT_COUNT_V1}:constraint-degree={PRIVATE_NOTE_PROFILE_CONSTRAINT_DEGREE_V1}:max-proof={IVM_PRIVATE_NOTE_MAX_PROOF_BYTES_V1}:sha256-wide-air:public-digest=sha3-384-opaque48(canonical-statement,PrivacyNativeConsensusBindingDigestV1):tree-depth=32:vm=16x8:ciphertext=IPNE-v1:fee=separate:legacy=unrepresentable:governance=typed-lifecycle",
         );
         assert_eq!(
             IVM_PRIVATE_NOTE_STARK_PROFILE_DESCRIPTOR_V1,

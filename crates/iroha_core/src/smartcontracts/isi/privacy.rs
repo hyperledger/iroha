@@ -684,11 +684,7 @@ impl Execute for PublishPrivacyRootV1 {
         }
         let head_key = PrivacyRootHeadKeyV1::new(self.publication.namespace, self.publication.role)
             .map_err(invalid_privacy_parameter)?;
-        let current_head = state_transaction
-            .world
-            .privacy_root_heads
-            .get(&head_key)
-            .copied();
+        let current_head = state_transaction.world.privacy_root_heads.get(&head_key);
         match (self.publication.role.management(), current_head) {
             (PrivacyRootManagementV1::ProofManaged, Some(_)) => {
                 return Err(invalid_privacy_parameter(
@@ -713,7 +709,7 @@ impl Execute for PublishPrivacyRootV1 {
                 head.root(),
             )
             .map_err(invalid_privacy_parameter)?;
-            if state_transaction.world.privacy_roots.get(&retained_head) != Some(&head.provenance())
+            if state_transaction.world.privacy_roots.get(&retained_head) != Some(head.provenance())
             {
                 return Err(Error::InvariantViolation(
                     "privacy root head is inconsistent with retained history".into(),
@@ -771,7 +767,7 @@ impl Execute for PublishPrivacyRootV1 {
         let next_head = PrivacyRootHeadRecordV1::new(
             self.publication.epoch,
             self.publication.root,
-            provenance,
+            provenance.clone(),
             retention_anchor,
         )
         .map_err(invalid_privacy_parameter)?;
@@ -929,7 +925,7 @@ impl Execute for BootstrapPrivacyOrchardPoolV1 {
         let root_head = PrivacyRootHeadRecordV1::new(
             pool_state.epoch(),
             pool_state.root(),
-            root_provenance,
+            root_provenance.clone(),
             None,
         )
         .map_err(invalid_privacy_parameter)?;
@@ -1244,9 +1240,13 @@ impl Execute for BootstrapPrivacyProofManagedPoolV1 {
         .map_err(invalid_privacy_parameter)?;
         let root_key = PrivacyRootKeyV1::new(namespace, root_role, INITIAL_EPOCH, initial_root)
             .map_err(invalid_privacy_parameter)?;
-        let root_head =
-            PrivacyRootHeadRecordV1::new(INITIAL_EPOCH, initial_root, root_provenance, None)
-                .map_err(invalid_privacy_parameter)?;
+        let root_head = PrivacyRootHeadRecordV1::new(
+            INITIAL_EPOCH,
+            initial_root,
+            root_provenance.clone(),
+            None,
+        )
+        .map_err(invalid_privacy_parameter)?;
         let removals = plan_privacy_root_history_update_v1(
             &state_transaction.world.privacy_roots,
             &[root_key],
@@ -1432,7 +1432,7 @@ impl Execute for BootstrapPrivacyZkAmsRegistryV1 {
         let root_head = PrivacyRootHeadRecordV1::new(
             self.bootstrap.initial_registry_epoch,
             self.bootstrap.initial_registry_root,
-            root_provenance,
+            root_provenance.clone(),
             None,
         )
         .map_err(invalid_privacy_parameter)?;
@@ -1732,7 +1732,7 @@ impl Execute for BootstrapPrivacyPgcAccountsV1 {
         let root_head = PrivacyRootHeadRecordV1::new(
             self.bootstrap.initial_epoch,
             self.bootstrap.initial_root,
-            root_provenance,
+            root_provenance.clone(),
             None,
         )
         .map_err(invalid_privacy_parameter)?;
@@ -1800,10 +1800,6 @@ struct PlannedZkX509RootAppendV1 {
     next_head: PrivacyRootHeadRecordV1,
     removals: Vec<PrivacyRootKeyV1>,
 }
-#[expect(
-    clippy::large_types_passed_by_value,
-    reason = "the validated provenance becomes the owned root-head record"
-)]
 fn plan_zk_x509_root_append_v1(
     publication: PrivacyRootPublicationV1,
     provenance: PrivacyRootProvenanceV1,
@@ -1824,11 +1820,7 @@ fn plan_zk_x509_root_append_v1(
     .map_err(invalid_privacy_parameter)?;
     let head_key = PrivacyRootHeadKeyV1::new(publication.namespace, publication.role)
         .map_err(invalid_privacy_parameter)?;
-    let current_head = state_transaction
-        .world
-        .privacy_root_heads
-        .get(&head_key)
-        .copied();
+    let current_head = state_transaction.world.privacy_root_heads.get(&head_key);
     match current_head {
         None if publication.epoch != 1 => {
             return Err(invalid_privacy_parameter(
@@ -1857,7 +1849,7 @@ fn plan_zk_x509_root_append_v1(
                 head.root(),
             )
             .map_err(invalid_privacy_parameter)?;
-            if state_transaction.world.privacy_roots.get(&retained_head) != Some(&head.provenance())
+            if state_transaction.world.privacy_roots.get(&retained_head) != Some(head.provenance())
             {
                 return Err(Error::InvariantViolation(
                     "X.509 root head is inconsistent with retained history".into(),
@@ -1902,7 +1894,7 @@ fn plan_zk_x509_root_append_v1(
     let next_head = PrivacyRootHeadRecordV1::new(
         publication.epoch,
         publication.root,
-        provenance,
+        provenance.clone(),
         retention_anchor,
     )
     .map_err(invalid_privacy_parameter)?;
@@ -4630,7 +4622,7 @@ impl PreparedPrivacySubmissionV1 {
                 });
         let effects = verify_privacy_envelope_v1(
             &self.envelope,
-            PrivacyVerificationContextV1 {
+            &PrivacyVerificationContextV1 {
                 activation: &activation,
                 consensus_limits: &state_transaction
                     .world
@@ -4904,7 +4896,7 @@ impl PreparedPrivacySubmissionV1 {
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.successor_state().epoch(),
                     effect.successor_state().root(),
-                    root_provenance,
+                    root_provenance.clone(),
                     retention_anchor,
                 )
                 .map_err(invalid_privacy_parameter)?;
@@ -5318,7 +5310,7 @@ impl PreparedPrivacySubmissionV1 {
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),
-                    root_provenance,
+                    root_provenance.clone(),
                     retention_anchor,
                 )
                 .map_err(invalid_privacy_parameter)?;
@@ -5640,7 +5632,7 @@ impl PreparedPrivacySubmissionV1 {
                 let root_head = PrivacyRootHeadRecordV1::new(
                     expected_next_epoch,
                     computed_next_root,
-                    root_provenance,
+                    root_provenance.clone(),
                     retention_anchor,
                 )
                 .map_err(invalid_privacy_parameter)?;
@@ -5922,7 +5914,7 @@ impl PreparedPrivacySubmissionV1 {
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),
-                    root_provenance,
+                    root_provenance.clone(),
                     retention_anchor,
                 )
                 .map_err(invalid_privacy_parameter)?;
@@ -6972,7 +6964,7 @@ mod tests {
                 snapshot.current_root(),
             )
             .expect("FCMP++ bootstrap root key"),
-            root_provenance,
+            root_provenance.clone(),
         );
         world.privacy_root_heads.insert(
             PrivacyRootHeadKeyV1::new(namespace, snapshot.root_role())
@@ -7221,7 +7213,7 @@ mod tests {
         transaction
             .world
             .privacy_roots
-            .insert(root_key, root_provenance);
+            .insert(root_key, root_provenance.clone());
         transaction.world.privacy_root_heads.insert(
             PrivacyRootHeadKeyV1::new(snapshot.namespace(), snapshot.root_role())
                 .expect("private-IVM head key"),
@@ -8167,7 +8159,7 @@ mod tests {
                 fixture.current_root,
             )
             .expect("ZK-AMS prestate root key"),
-            prestate_provenance,
+            prestate_provenance.clone(),
         );
         let head_key = PrivacyRootHeadKeyV1::new(namespace, PrivacyRootRoleV1::AccountRegistry)
             .expect("ZK-AMS root-head key");
@@ -8216,7 +8208,6 @@ mod tests {
             .world
             .privacy_root_heads
             .get(&head_key)
-            .copied()
             .expect("ZK-AMS successor root head");
         assert_eq!(
             (head_after_batch.epoch(), head_after_batch.root()),
@@ -8257,7 +8248,6 @@ mod tests {
             .world
             .privacy_root_heads
             .get(&head_key)
-            .copied()
             .expect("committed ZK-AMS successor root head");
         assert_eq!(
             (committed_head.epoch(), committed_head.root()),
@@ -8324,7 +8314,7 @@ mod tests {
             .world
             .privacy_root_heads
             .get(&head_key)
-            .copied()
+            .cloned()
             .expect("committed ZK-AMS registry head");
         bind_submit_privacy_instruction(&mut transaction, &provision_instruction);
         let replay_error = provision_instruction
@@ -8350,7 +8340,7 @@ mod tests {
             "ZK-AMS replay rejection must preserve key-image provenance"
         );
         assert_eq!(
-            transaction.world.privacy_root_heads.get(&head_key).copied(),
+            transaction.world.privacy_root_heads.get(&head_key).cloned(),
             Some(head_before_replay),
             "ZK-AMS replay rejection must preserve the registry head"
         );
@@ -8823,7 +8813,7 @@ mod tests {
         let head = PrivacyRootHeadRecordV1::new(
             instruction.bootstrap.initial_epoch,
             instruction.bootstrap.initial_root,
-            root_provenance,
+            root_provenance.clone(),
             None,
         )
         .expect("root head");
@@ -8854,10 +8844,13 @@ mod tests {
                     transaction
                         .world
                         .privacy_roots
-                        .insert(root_key, root_provenance);
+                        .insert(root_key, root_provenance.clone());
                 }
                 Orphan::Head => {
-                    transaction.world.privacy_root_heads.insert(head_key, head);
+                    transaction
+                        .world
+                        .privacy_root_heads
+                        .insert(head_key, head.clone());
                 }
             }
             let counts_before = privacy_map_counts(&transaction);

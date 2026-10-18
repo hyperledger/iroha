@@ -136,7 +136,7 @@ fn commit_original_columns_v1(
 
 /// Original CA trace commitments ready for joint auxiliary-root binding.
 /// Only masked coefficients cross this boundary; full local LDEs are dropped.
-pub(crate) struct CaAwaitingMainAuxiliaryV1 {
+pub struct CaAwaitingMainAuxiliaryV1 {
     public: ZkX509CaAccumulatorStarkPublicV1,
     schedule: ZkX509ShaCallScheduleV1,
     base: CaOriginalMaskedColumnsV1,
@@ -306,7 +306,7 @@ impl CaAwaitingMainAuxiliaryV1 {
 
 /// Commit original CA base and auxiliary polynomials around the shared X5B1.
 /// The caller owns one health-checked cryptographic session for the whole proof.
-pub(crate) fn commit_ca_through_auxiliary_v1<R: TryRngCore>(
+pub fn commit_ca_through_auxiliary_v1<R: TryRngCore>(
     trace: &ZkX509CaAccumulatorTraceV1,
     schedule: &ZkX509ShaCallScheduleV1,
     main_pre_aux: ZkX509CredentialMainPreAuxV1,
@@ -346,8 +346,12 @@ pub(crate) fn commit_ca_through_auxiliary_v1<R: TryRngCore>(
         aux_frontier: Vec::new(),
     }];
     let mut transcript = new_ca_transcript_v1(proof_instance, public, schedule, &layout)?;
-    aggregate::absorb_base_roots_v1(&mut transcript, ca_domains_v1(proof_instance), &trace_roots)
-        .map_err(map_aggregate_proof_error_v1)?;
+    aggregate::absorb_base_roots_v1(
+        &mut transcript,
+        &ca_domains_v1(proof_instance),
+        &trace_roots,
+    )
+    .map_err(map_aggregate_proof_error_v1)?;
     let binding = derive_zk_x509_credential_pre_aux_binding_v1(
         main_pre_aux,
         ca_profile_digest_v1()?,
@@ -363,8 +367,12 @@ pub(crate) fn commit_ca_through_auxiliary_v1<R: TryRngCore>(
         rng,
     )?;
     trace_roots[0].aux_root = commit_original_columns_v1(proof_instance, &auxiliary)?;
-    aggregate::absorb_aux_roots_v1(&mut transcript, ca_domains_v1(proof_instance), &trace_roots)
-        .map_err(map_aggregate_proof_error_v1)?;
+    aggregate::absorb_aux_roots_v1(
+        &mut transcript,
+        &ca_domains_v1(proof_instance),
+        &trace_roots,
+    )
+    .map_err(map_aggregate_proof_error_v1)?;
     let phase = CaAwaitingMainAuxiliaryV1 {
         public,
         schedule: schedule.clone(),
@@ -548,11 +556,11 @@ fn ca_local_vanishing_inverses_v1(root: F) -> Result<[F; 16], ZkX509CaAccumulato
 }
 
 #[path = "accumulator_joint_prover.rs"]
-pub(crate) mod joint;
+pub mod joint;
 
 /// CA working owners fit inside, never above, the MAIN joint arithmetic plan.
 /// Original retained coefficient owners are charged separately by that plan.
-pub(crate) const CA_JOINT_WORKING_CAP_V1: usize = 640 << 20;
+pub const CA_JOINT_WORKING_CAP_V1: usize = 640 << 20;
 
 /// Reject overflow and excess actual capacity before the next working phase.
 fn check_ca_working_payload_v1(parts: &[usize]) -> Result<usize, ZkX509CaAccumulatorProofErrorV1> {

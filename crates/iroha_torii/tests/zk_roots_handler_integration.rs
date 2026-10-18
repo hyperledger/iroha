@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration test for /v1/zk/roots using a minimal in-memory state.
 #![allow(clippy::too_many_lines)]
 use axum::{Router, routing::post};

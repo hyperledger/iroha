@@ -7,7 +7,7 @@ use packet::Event;
 
 #[derive(Clone)]
 struct Fixture {
-    rows: Box<[[F; WIDTH]; PHASES]>,
+    rows: [Box<[F; WIDTH]>; PHASES],
     schedule: Schedule,
 }
 fn set_port(row: &mut [F; WIDTH], slot: usize, fields: [F; packet::WIDTH]) {
@@ -43,8 +43,8 @@ fn word_event(index: u32, clock: u32, before: u64, after: u64, write: bool) -> [
         0,
         index,
         clock,
-        (before as u128).to_le_bytes(),
-        (after as u128).to_le_bytes(),
+        u128::from(before).to_le_bytes(),
+        u128::from(after).to_le_bytes(),
         [0, 0],
         write,
     )
@@ -63,7 +63,7 @@ impl Fixture {
         let mut dispatch = dispatch_tests::Fixture::new(program, 0, false, 0);
         dispatch.schedule = schedule.dispatch();
         let instruction = program.words[0];
-        let base = address.wrapping_sub(i64::from(wide::imm8(instruction)) as u64);
+        let base = address.wrapping_sub(i64::cast_unsigned(i64::from(wide::imm8(instruction))));
         let value = if wide::rs1(instruction) == 0 {
             0
         } else if wide::rs1(instruction) == wide::rd(instruction) {
@@ -84,7 +84,7 @@ impl Fixture {
         dispatch_tests::carries(
             &mut dispatch.row[super::super::CARRIES + 8..super::super::CARRIES + 12],
             base,
-            i64::from(wide::imm8(instruction)) as u64,
+            i64::cast_unsigned(i64::from(wide::imm8(instruction))),
             false,
         );
         for (slot, index, value, tag) in [
@@ -158,7 +158,7 @@ impl Fixture {
             },
         );
         let tracked = decision.initialized_write == F::ONE;
-        let mut rows = Box::new([[F::ZERO; WIDTH]; PHASES]);
+        let mut rows = dispatch_tests::zeroed_rows::<PHASES, WIDTH>();
         rows[0][..super::super::WIDTH].copy_from_slice(&dispatch.row);
         for i in 0..21 {
             set_port(&mut rows[0], i, dispatch.packets.fields[i]);
@@ -271,7 +271,7 @@ impl Fixture {
             }
         }
         let frame = frame_access::tests::Fixture::new(false, 0, 0, 8, true, [0; 10], 0);
-        let mut rows = Box::new([[F::ZERO; WIDTH]; PHASES]);
+        let mut rows = dispatch_tests::zeroed_rows::<PHASES, WIDTH>();
         rows[0][..super::super::WIDTH].copy_from_slice(&dispatch.row);
         for i in 0..21 {
             set_port(&mut rows[0], i, dispatch.packets.fields[i]);
@@ -296,7 +296,7 @@ impl Fixture {
     }
     fn borrowed(&self) -> Rows<'_> {
         Rows {
-            phases: core::array::from_fn(|i| &self.rows[i]),
+            phases: core::array::from_fn(|i| self.rows[i].as_ref()),
         }
     }
     fn residues(&self, program: &Program) -> Vec<F> {
@@ -362,7 +362,7 @@ fn every_original_port_and_carry_join_rejects_single_field_substitution() {
     assert!(padding.accepts(&program));
     for phase in 0..PHASES {
         let mut mixed = original.clone();
-        mixed.rows[phase] = padding.rows[phase];
+        mixed.rows[phase].copy_from_slice(padding.rows[phase].as_ref());
         assert!(
             !mixed.accepts(&program),
             "substituted padding phase {phase}"

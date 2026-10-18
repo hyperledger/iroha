@@ -5,10 +5,9 @@ Purpose
     Every mutation of §13.4 exists in the crate only as a `cfg(sumeragi_mutation = "<ID>")`
     switch, compiled in when the crate feature `mutation-testing` is on and the environment
     variable `SUMERAGI_MUTATION=<ID>` is set (see `crates/iroha_sumeragi/build.rs`). For each
-    mutation this script builds the mutated crate and runs
-
-        SUMERAGI_MUTATION=<ID> cargo test --locked -p iroha_sumeragi --release \\
-            --features mutation-testing,sim --lib -- <named det test(s)>
+    mutation this script builds the owning library test executable once with Cargo's
+    capture-only target runner, then invokes that original executable directly with
+    the named deterministic controls,
 
     expecting a FAILURE, then (unless --fast) the mutation's randomized scenario(s) with
     SUMERAGI_SIM_SEEDS=200, again expecting a failure. It also runs the unmutated build once
@@ -23,13 +22,24 @@ Purpose
                                declared control. A process failure is not a mutation kill.
 
     Deadlines classify execution as an error. After a deadline the runner waits for
-    its owned Cargo child to exit naturally and retains the output without sending
+    its owned child to exit naturally and retains the output without sending
     termination signals. A late completed result never counts as a mutation kill.
     Each step discovers its actual filtered test names first and accounts for every
     terminal result and the complete libtest summary. Discovery and execution share
     the original step deadline; ignored or incomplete controls cannot establish a kill.
     A named step is a mutation's exact selector tuple. Baselines run each distinct
     tuple once; baseline and mutant randomized steps run one distinct scenario each.
+    Cargo JSON identifies the exact owning libtest; every discovery/runtime must
+    retain its original build executable identity and bytes before and after execution.
+    A capture-only Cargo target runner records the owning package directory and
+    whitelisted runtime/loader environment without executing tests. Every native
+    phase then invokes the captured executable directly; it never re-enters Cargo.
+    The compiler is selected by RUSTC, then CARGO_BUILD_RUSTC, then PATH rustc;
+    the build pins that selection instead of inheriting Cargo build.rustc config.
+    Its queried native host is the explicit target for baseline and mutants.
+    This intentionally separates Cargo host/target units.
+    Capture preparation shares the original build deadline; native phases retain
+    the default stack. Cargo envelopes are interpreted only during the build.
     Qualified selectors require their exact full test path; leaf selectors require
     every exact final path segment in discovery. Cargo substring-selected extras
     remain fully accounted, but their failures cannot replace a declared control.
@@ -48,8 +58,10 @@ Purpose
     `SUMERAGI_SDK_MUTATION` and `SUMERAGI_DEPLOY_MUTATION`.
     `--torii` selects Torii canonical-outcome custody unit tests in the test profile
     with `SUMERAGI_TORII_MUTATION`.
-    `--norito` selects canonical decode-origin unit tests in the test profile
+    `--norito` selects canonical decode-origin and JSON resource unit tests in the test profile
     with `SUMERAGI_NORITO_MUTATION`.
+    `--p2p` selects receive-credit transport custody unit tests in the test profile
+    with `SUMERAGI_P2P_MUTATION`.
     Each test-only feature guards only its own crate, without mutating dependencies.
 
 Prerequisites
@@ -61,7 +73,11 @@ Prerequisites
 
 Outputs
     <target-dir>/report.json   per-mutation results and a summary
-    <target-dir>/logs/*.log    full cargo output of every step
+    <target-dir>/logs/*.log    exact combined Cargo/native bytes of every step
+    <target-dir>/logs/*.runtime.json  capture-only Cargo runner cwd/environment
+    <target-dir>/logs/*.compiler.log  selected compiler native-host query
+    <target-dir>/logs/*.artifact.json  emitted executable metadata, original identity/hash,
+                               before/after checks and command/deadline for each phase
 
 Exit status
     0 when the baseline passes and no mutation survived or errored; 1 otherwise. With --strict
@@ -76,15 +92,18 @@ Examples
     scripts/sumeragi_mutation_gate.py --daemon --only HC93 --strict --jobs 1
     scripts/sumeragi_mutation_gate.py --torii --only TOR1 --strict --jobs 1
     scripts/sumeragi_mutation_gate.py --norito --strict --jobs 1
+    scripts/sumeragi_mutation_gate.py --p2p --strict --jobs 1
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
 import re
+import stat
 import subprocess
 import sys
 import threading
@@ -180,6 +199,30 @@ def m(mid, site, tests, scenarios=(), *, causes=()):
 
 # id, site and change, named deterministic test(s), randomized scenario(s) — mirrors §13.4.
 MUTATIONS = [
+    m("MS79", "replace a live original-body proposal admission request on cadence ticks",
+      ["machine::tests::signing::det_ct3_unsigned_proposal_restart_recovers_original_admission_before_signing"],
+      causes=(ExpectedFailure("a live original-body admission request must survive cadence ticks without replacement",
+          "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
+    m("MS75", "omit original proposal clock admission at a delayed first signature",
+      ["machine::tests::signing::det_ct3_proposal_signing_rechecks_original_clock_after_backend_refusal"],
+      causes=(ExpectedFailure("a delayed first proposal signature must recheck the original timestamp against the current wall clock",
+          "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
+    m("MS76", "publish a successful proposal signature before its durable record",
+      ["machine::tests::signing::det_ct3_successful_proposal_signature_is_durable_before_publication"],
+      causes=(ExpectedFailure("a successful proposal signature must be durable before any proposal publication",
+          "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
+    m("MS77", "restore a checksummed fabricated successful proposal signature",
+      ["machine::tests::signing::det_ct3_restore_authenticates_stored_successful_proposal_signature"],
+      causes=(ExpectedFailure("a checksummed record with a forged successful proposal signature must fail closed",
+          "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
+    m("MS78", "sign an unsigned proposal reservation without reacquiring original admission",
+      ["machine::tests::signing::det_ct3_unsigned_proposal_restart_recovers_original_admission_before_signing"],
+      causes=(ExpectedFailure("an unsigned proposal reservation must reacquire original admission before its first signature",
+          "crates/iroha_sumeragi/src/machine/tests/signing.rs"),)),
+    m("MS74", "omit CT1 rewind admission at the retained World first signature",
+      ["sim::world::clock_guard::tests::det_ct1_world_retained_execution_rechecks_rewind_before_first_prepare"],
+      causes=(ExpectedFailure("a retained World result must not sign after its actual wall clock rewinds beyond the original drift",
+          "crates/iroha_sumeragi/src/sim/world/clock_guard/tests.rs"),)),
     m("MS71", "first Prepare signs without consulting its original application admission",
       ["machine::tests::signing::det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time",
        "sim::world::clock_guard::tests::det_ct5_world_retained_execution_rechecks_clock_at_first_prepare"], [], causes=(
@@ -532,6 +575,56 @@ MUTATIONS = [
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
 CORE_MUTATIONS = [
+    m("HC381", "retain a discarded original proposal recovery through its decode refund",
+      ["sumeragi::driver::tests::proposal_recovery::proposal_recovery_discard_retires_original_waiter_before_decode_refund"],
+      causes=(ExpectedFailure("discarded proposal recovery must not reacquire its original body after decode refund",
+          "crates/iroha_core/src/sumeragi/driver/tests/proposal_recovery.rs"),)),
+    m("HC380", "halt consensus when original completed proposal input custody retires",
+      ["sumeragi::executor::payload_owner::tests::completed_original_payload_cannot_adopt_clear_and_readmission_during_original_build"],
+      causes=(ExpectedFailure("withdrawn original input custody must retry instead of halting consensus",
+          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),)),
+    m("HC377", "omit original native proposal clock admission after worker or restart waits",
+      ["sumeragi::executor::proposal_publication::tests::native_original_proposal_rechecks_clock_after_worker_wait_and_restart",
+       "sumeragi::lanes::executor::tests::lane_first_proposal_retains_timestamp_admission_through_authoring_and_recovery"],
+      causes=(ExpectedFailure("native first proposal must recheck the clock after original worker custody",
+          "crates/iroha_core/src/sumeragi/executor/proposal_publication.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),
+          ExpectedFailure("lane first proposal must retain its original timestamp through authoring",
+          "crates/iroha_core/src/sumeragi/lanes/executor.rs"))),
+    m("HC378", "publish a stale proposal recovery after its original request is replaced",
+      ["sumeragi::driver::tests::proposal_recovery::proposal_recovery_replacement_rejects_stale_worker_and_retains_only_latest_body"],
+      causes=(ExpectedFailure("stale proposal recovery must not publish an admission for a replaced original body",
+          "crates/iroha_core/src/sumeragi/driver/tests/proposal_recovery.rs"),)),
+    m("HC379", "discard the original terminal proposal recovery failure after replacement",
+      ["sumeragi::driver::tests::proposal_recovery::proposal_recovery_terminal_original_propagates_even_after_request_replacement"],
+      causes=(ExpectedFailure("terminal proposal recovery must preserve the original failure after request replacement",
+          "crates/iroha_core/src/sumeragi/driver/tests/proposal_recovery.rs"),)),
+    m("HC382", "omit original native CT1 clock resampling at first Prepare",
+      ["sumeragi::executor::prepare_admission_tests::ct1_native_first_prepare_rechecks_original_clock_after_execution",
+       "sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead"],
+      causes=(ExpectedFailure("native first Prepare must recheck the original drift after a wall-clock rewind",
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          worker_thread="ct5-paid-original",
+          join_source="crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          join_message="called `Result::unwrap()` on an `Err` value: Any { .. }"),
+          ExpectedFailure("ordinary native first Prepare must recheck the clock after cached Valid",
+          "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"))),
+    m("HC383", "omit pinned native lane CT1 clock resampling at first Prepare",
+      ["sumeragi::lanes::executor::native_decode_tests::native_lane_first_prepare_rechecks_pinned_clock_after_execution"],
+      causes=(ExpectedFailure("native lane first Prepare must recheck the pinned drift after a wall-clock rewind",
+          "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs"),)),
+    m("HC384", "recheck fresh proposal progress against its deterministic input floor",
+      ["sumeragi::payload::work_tests::fresh_proposal_progress_recheck_uses_captured_time_with_original_signed_input"],
+      causes=(ExpectedFailure("fresh proposal progress must use captured time without replacing signed input",
+          "crates/iroha_core/src/sumeragi/payload/work_tests.rs"),)),
     m("HC343", "Private root role removal: omit canonical local role deletion",
       ["sumeragi::amx::native::tests::paid_borrowed_custody::read_roles::native_private_read_role_removal_preserves_debit_and_survives_certified_restart"],
       causes=(ExpectedFailure("bank management must delete its dedicated read role through ordinary native authorization",
@@ -541,7 +634,10 @@ CORE_MUTATIONS = [
       ["sumeragi::executor::prepare_admission_tests::ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_original_decode",
        "sumeragi::executor::clock_tests::sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry"],
       causes=(ExpectedFailure("time-sensitive effects must be locally deferred after the last encoding wait",
-          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          worker_thread="ct5-paid-original",
+          join_source="crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          join_message="called `Result::unwrap()` on an `Err` value: Any { .. }"),
           ExpectedFailure("CT5 must resample after completing the original execution before returning Valid",
           "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
           worker_thread="sumeragi-publication-test",
@@ -550,15 +646,24 @@ CORE_MUTATIONS = [
 
     m("HC335", "reuse cached native Valid without checking the actual wall clock",
       ["sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source"], causes=(ExpectedFailure("cached native Valid cannot bypass a fresh local clock check",
-          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)),
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          worker_thread="ct5-paid-original",
+          join_source="crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          join_message="called `Result::unwrap()` on an `Err` value: Any { .. }"),)),
     m("HC336", "allow a first-Prepare request to substitute the original native result",
       ["sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source"], causes=(ExpectedFailure("a certificate flag cannot substitute another result",
-          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),)),
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          worker_thread="ct5-paid-original",
+          join_source="crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          join_message="called `Result::unwrap()` on an `Err` value: Any { .. }"),)),
     m("HC337", "omit native first-signing freshness after execution",
       ["sumeragi::executor::prepare_admission_tests::ct5_cached_native_valid_rechecks_freshness_and_exact_signing_source",
        "sumeragi::executor::clock_tests::sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate"],
       causes=(ExpectedFailure("native first signing must recheck the actual wall clock after execution",
-          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs"),
+          "crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          worker_thread="ct5-paid-original",
+          join_source="crates/iroha_core/src/sumeragi/executor/prepare_admission_tests.rs",
+          join_message="called `Result::unwrap()` on an `Err` value: Any { .. }"),
           ExpectedFailure("CT5 must resample the original clock at Prepare signing after Valid was delivered",
           "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
           worker_thread="sumeragi-publication-test",
@@ -785,7 +890,7 @@ CORE_MUTATIONS = [
       ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer']),
     m("HC68", "retained multisig proposal: accept an unapproved body or rebound physical row",
       ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
-       'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
+       'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals',
        'queue::router::tests::persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission',
        'state::deserialize::decode_tests::restored_multisig_proposals_require_exact_body_and_preserve_local_read_refusal']),
     m("HC69", "multisig cancellation and expiry: treat unfinished custom decoding as a nonmatch",
@@ -1256,6 +1361,194 @@ CORE_MUTATIONS = [
       causes=tuple(ExpectedFailure('original geometry watch must wait for all physical owners', path)
           for path in ['crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/state/geometry_completion_tests.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs', 'crates/iroha_core/src/kura/lane_geometry_tests/08_raw_attempt.rs'])),
 
+    m("HC355", "Native frame reads: notify original physical waiters under sibling storage fences",
+      ['kura::native_frame_release_tests::original_native_frame_metadata_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_absence_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_partial_refusals_retain_exact_storage_errors', 'kura::native_frame_release_tests::original_native_frame_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original native frame notice must wait for every storage fence',
+          'crates/iroha_core/src/kura/native_frame_release_tests.rs') for _ in range(7))),
+
+    m("HC356", "Recovery capacity: notify original physical waiters before sibling fences and refusal accounting retire",
+      ['kura::capacity_release_tests::original_capacity_recovery_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_restore_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_recovery_capacity_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_prune_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_canonical_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_accounting_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original capacity recovery notice must follow all fences and final accounting',
+          'crates/iroha_core/src/kura/capacity_release_tests.rs') for _ in range(7))),
+
+    m("HC357", "Durable append: notify original physical waiters beneath enclosing writer and sibling fences",
+      ['kura::tests::original_durable_release_tests::original_durable_append_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_retry_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_refusal_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_debug_append_notifies_after_outer_writer_retires'],
+      causes=tuple(ExpectedFailure('original durable publication notice must wait for every storage fence',
+          'crates/iroha_core/src/kura/tests/15_remaining_physical_writer_tests.rs') for _ in range(4))),
+
+    m("HC358", "Retained FASTPQ artifacts: notify original physical waiters beneath sibling storage fences",
+      ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original FASTPQ artifact notice must wait for every storage fence',
+          'crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs') for _ in range(8))),
+
+    m("HC359", "Queued diagnostics: notify original physical waiters before outer fences and retry queues retire",
+      ['kura::original_queued_sidecar_release_tests::original_direct_pipeline_success_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_direct_pipeline_io_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_queued_pipeline_writer_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_writer_notifies_after_attachment_publication', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_retry_and_exhaustion_finalize_before_notice', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_hash_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_standalone_fastpq_flush_notifies_after_retry_queue_finalizes', 'kura::original_queued_sidecar_release_tests::original_queued_sidecar_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original queued sidecar notice must follow outer fences and finalized queues',
+          'crates/iroha_core/src/kura/queued_sidecar_release_tests.rs') for _ in range(8))),
+
+    m("HC360", "Emergency Fast startup reads: notify original physical waiters beneath sibling storage fences",
+      ['kura::tests::original_snapshot_release_tests::original_snapshot_boundary_empty_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_boundary_native_hash_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_empty_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_native_bytes_notifies_after_storage_fences', 'kura::tests::original_snapshot_release_tests::original_snapshot_mapping_height_refusal_retains_exact_journals', 'kura::tests::original_snapshot_release_tests::original_snapshot_corrupt_journal_refusal_retains_exact_error_and_bytes', 'kura::tests::original_snapshot_release_tests::original_snapshot_partial_refusals_preserve_storage_and_mode_errors', 'kura::tests::original_snapshot_release_tests::original_snapshot_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original snapshot boundary notice must wait for all storage fences',
+          'crates/iroha_core/src/kura/tests/snapshot_release_tests.rs') for _ in range(8))),
+
+    m("HC361", "Physical inventory reconciliation: wake original callbacks before outer fences and final family accounting",
+      ['kura::original_inventory_release_tests::original_inventory_absent_artifacts_publish_before_source_notice', 'kura::original_inventory_release_tests::original_inventory_retained_artifacts_publish_exact_counts_before_notice', 'kura::original_inventory_release_tests::original_inventory_artifact_refusal_invalidates_every_family_before_notice', 'kura::original_inventory_release_tests::original_inventory_tree_refusal_invalidates_every_family_before_notice', 'kura::original_inventory_release_tests::original_inventory_busy_owner_refusal_invalidates_before_prefix_notice', 'kura::original_inventory_release_tests::original_inventory_acquired_prefix_refusal_invalidates_before_notice', 'kura::original_inventory_release_tests::original_inventory_unwind_notifies_after_each_acquired_prefix'],
+      causes=tuple(ExpectedFailure('original inventory notice must follow all fences and final family accounting',
+          'crates/iroha_core/src/kura/inventory_release_tests.rs') for _ in range(7))),
+
+    m("HC362", "Completed recovery: substitute optional or cached capacity accounting for durable journal authentication",
+      ['kura::capacity_release_tests::original_capacity_recovery_canonical_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_cached_boundary_cannot_mask_corrupt_journals', 'kura::capacity_release_tests::original_capacity_recovery_poisoned_boundary_cannot_publish_accounting'],
+      causes=tuple(ExpectedFailure("original capacity recovery notice must follow all fences and final accounting",
+          "crates/iroha_core/src/kura/capacity_release_tests.rs") for _ in range(3))),
+
+    m("HC363", "Native lane evidence: recapture an instance namespace or skip its original late custody join",
+      ['sumeragi::evidence_history::lane::tests::lane_proof_original_namespace_survives_funded_refusal_and_identical_replacement', 'sumeragi::evidence_history::lane::tests::completed_lane_proof_rejoins_original_namespace_before_attribution', 'sumeragi::lanes::evidence::frame::tests::funded_lane_frame_late_namespace_refusal_retains_completed_original_body'],
+      causes=(ExpectedFailure("original native lane namespace must remain retained",
+          "crates/iroha_core/src/sumeragi/evidence_history/lane/tests.rs"),
+          ExpectedFailure("original native lane namespace must remain retained",
+          "crates/iroha_core/src/sumeragi/evidence_history/lane/tests.rs"),
+          ExpectedFailure("original native lane namespace must remain retained",
+          "crates/iroha_core/src/sumeragi/lanes/evidence/frame/tests.rs"))),
+
+    m("HC366", "SNS native maintenance: publish failed renewal witness outside its child owner",
+      ['sns::native_maintenance_tests::original_sns_late_fee_refusal_drops_witness_before_retry_metadata'],
+      causes=(ExpectedFailure('original SNS late refusal must drop its prepared witness before retry metadata', "crates/iroha_core/src/sns/native_maintenance_tests.rs"),)),
+
+    m("HC367", "SNS native maintenance: select total native E after retail has retained its share",
+      ['retail_fee_tests::original_time_sns_sweep_uses_only_capacity_left_by_exact_retail_prefix'],
+      causes=(ExpectedFailure('native capacity deferral must preserve the exact unselected renewal', "crates/iroha_core/src/retail_fee_tests.rs"),)),
+
+    m("HC368", "Frozen semantic capture: repeat completed selector work after a later grant refusal",
+      ['state::authority_registry::leaf::paired::retained_semantic::tests::ordinal_encoder_admits_count_before_backing_and_retains_refused_planning_work'],
+      causes=(ExpectedFailure('completed selector must survive insufficient cumulative grants',
+          "crates/iroha_core/src/state/authority_registry/leaf/paired/retained_semantic_tests.rs"),)),
+
+    m("HC369", "Retained semantic capture: repeat completed sort geometry after a later grant refusal",
+      ['state::authority_registry::leaf::paired::retained_semantic::tests::retained_sort_geometry_survives_exact_cumulative_work_refusal'],
+      causes=(ExpectedFailure('completed sort geometry must survive insufficient cumulative grants',
+          "crates/iroha_core/src/state/authority_registry/leaf/paired/retained_semantic_tests.rs"),)),
+
+    m("HC370", "Original Musubi lookup: forget paid comparison while its native row reborrow refuses",
+      ["state::publication::retained_rows::lookup::tests::retained_lookup_keeps_paid_geometry_and_comparison_across_native_refusal"],
+      causes=(ExpectedFailure("original comparison admission must survive native reborrow refusal",
+          "crates/iroha_core/src/state/publication/retained_rows/lookup/tests.rs"),)),
+
+    m("HC371", "Original Musubi scheduling: retry native reads before retained minimum demand is covered",
+      ["state::publication::retained_musubi_group::retry_tests::retry_demand_waits_without_granting_charging_or_forgetting_the_original_field"],
+      causes=(ExpectedFailure("retained retry demand must wait for independently granted work",
+          "crates/iroha_core/src/state/publication/retained_musubi_group.rs"),)),
+
+    m("HC372", "Original State capture grants: reconstruct cumulative allowance from consumed work",
+      ["state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::semantic_tests::configured_work_grants_accumulate_independently_of_consumed_source_work"],
+      causes=(ExpectedFailure("configured grants must accumulate from prior authority, never consumed work",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/semantic_tests.rs"),)),
+
+    m("HC373", "Original publication: stop source grants after retained semantic completion",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_grants_native_work_after_semantics_complete"],
+      causes=(ExpectedFailure("completed semantics must still receive independent native grants for materialization",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC374", "Original publication: discard canonical nodes while retiring original source readers",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_retires_sources_but_retains_canonical_nodes_after_late_refusal"],
+      causes=(ExpectedFailure("canonical nodes must survive original source-reader retirement",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC375", "Original publication: reread paid source rows while encoding demand remains unmet",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_encoding_wait_does_not_repeat_paid_source_reborrows"],
+      causes=(ExpectedFailure("unmet encoding demand must wait without repeating paid original source reborrows",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC376", "Original publication: reopen retired source descriptors after an outside-reader refusal",
+      ["state::publication::retained_musubi_group::semantic::production_tests::real_publication_reader_retirement_refusal_resumes_without_reopening_source"],
+      causes=(ExpectedFailure("reader retirement must resume directly after source descriptors retire",
+          "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
+
+    m("HC385", "State construction: omit original prepaid World pool identity preflight",
+      ["state::world_acquisition::pool_identity_tests::fresh_state_refuses_a_foreign_pool_before_resource_admission"],
+      causes=(ExpectedFailure("fresh State must reject the original foreign pool before admission",
+          "crates/iroha_core/src/state/world_acquisition/pool_identity_tests.rs"),)),
+
+    m("HC386", "SCCP write set: omit the destination pending-generation index",
+      ["state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets"],
+      causes=(ExpectedFailure("every changed SCCP index must appear in its canonical delta",
+          "crates/iroha_core/src/state/tests.rs"),)),
+
+    m("HC387", "SCCP write set: omit the reconciliation deadline index",
+      ["state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets"],
+      causes=(ExpectedFailure("every changed SCCP index must appear in its canonical delta",
+          "crates/iroha_core/src/state/tests.rs"),)),
+
+    m("HC388", "Snapshot restore: let a direct local policy relax the fixed structural depth",
+      ["snapshot::tests::snapshot_scanner_direct_policy_cannot_relax_fixed_structural_depth",
+       "snapshot::tests::signed_snapshot_reader_refuses_depth_before_state_decode_with_direct_policy"],
+      causes=(ExpectedFailure("direct snapshot policy must not relax the fixed structural depth",
+          "crates/iroha_core/src/snapshot/support_policy_tests.rs"),
+          ExpectedFailure("signed snapshot depth must refuse before typed State decoding",
+          "crates/iroha_core/src/snapshot/support_policy_tests.rs"))),
+
+    m("HC389", "Lane durable tip: reacquire original I/O state before bounded wait",
+      ["sumeragi::lanes::store::retirement_probe_tests::durable_tip_zero_wait_does_not_acquire_original_io_state"],
+      causes=(ExpectedFailure("a zero-time durable-tip observation must complete while the original I/O state remains held",
+          "crates/iroha_core/src/sumeragi/lanes/store/retirement_probe_tests.rs"),)),
+
+    m("HC390", "Retired lane publication: omit original continuation after driver shutdown",
+      ["sumeragi::lanes::registry::tests::retired_reconcile_finishes_original_publication_after_create_refusal",
+       "sumeragi::lanes::registry::tests::retired_reconcile_finishes_original_publication_after_directory_sync_refusal"],
+      causes=(ExpectedFailure("retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),
+          ExpectedFailure("retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),)),
+
+    m("HC391", "Lane registry Debug: retain original map through formatter callbacks",
+      ["sumeragi::lanes::registry::tests::registry_debug_releases_original_map_before_field_callback"],
+      causes=(ExpectedFailure("registry Debug field callbacks must not retain the original map lock",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),)),
+
+    m("HC392", "Lane runner Debug: retain original map through formatter callbacks",
+      ["sumeragi::lanes::registry::tests::runner_debug_releases_original_map_before_field_callback"],
+      causes=(ExpectedFailure("runner Debug field callbacks must not retain the original map lock",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),)),
+
+    m("HC393", "Lane shutdown: synchronously join original workers in lifecycle polling",
+      ["sumeragi::driver::tests::threaded::retirement_tests::retiring_executor_does_not_block_other_lane_transaction_delivery"],
+      causes=(ExpectedFailure("retired worker joins must not block the actual lane lifecycle turn",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC394", "Lane shutdown: admit a new incarnation before its same-lane original finishes",
+      ["sumeragi::driver::tests::threaded::retirement_tests::retiring_incarnation_blocks_same_lane_start_until_original_workers_finish"],
+      causes=(ExpectedFailure("a new incarnation must not acquire startup authority before its same-lane predecessor physically finishes",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC395", "Lane shutdown: resume original publication while its retiring driver remains owned",
+      ["sumeragi::driver::tests::threaded::retirement_tests::pending_publication_waits_for_its_original_retiring_driver"],
+      causes=(ExpectedFailure("a still-owned retiring driver must exclude its original pending publication from lifecycle continuation",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC365", "Retail idle maintenance: omit original native receipt-purpose admission",
+      ['retail_fee_tests::original_idle_sweep_admits_exact_native_receipts_before_carrier_execution', 'retail_fee_tests::original_idle_sweep_keeps_bounded_month_prefix_and_fair_native_share', 'retail_fee_tests::original_one_entry_native_policy_alternates_retail_and_sns_admission'],
+      causes=(
+          ExpectedFailure('original idle sweep must admit its own receipt purpose', "crates/iroha_core/src/retail_fee_tests.rs"),
+          ExpectedFailure('original native pool must admit a fair exact retail prefix', "crates/iroha_core/src/retail_fee_tests.rs"),
+          ExpectedFailure('one finite native slot alternates by height', "crates/iroha_core/src/retail_fee_tests.rs"),
+      )),
+
+    m("HC364", "Lane recovery: hold the shared registry through original native recovery",
+      ['sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_allows_ready_disjoint_owner_during_native_sync', 'sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_retains_in_flight_historical_join_through_retirement', 'sumeragi::lanes::registry::tests::isolation_tests::original_lane_recovery_runtime_refusal_cancels_only_after_active_owner_returns'],
+      causes=tuple(ExpectedFailure("original lane recovery must release the shared registry before native I/O",
+          "crates/iroha_core/src/sumeragi/lanes/registry/isolation_tests.rs") for _ in range(3))),
+
+    m("HC354", "Geometry recovery: notify original physical waiters under sibling fences",
+      ['kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_partial_refusals_keep_exact_errors_and_release_sources', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_unwind_notifies_after_every_acquired_fence'],
+      causes=tuple(ExpectedFailure("original geometry recovery notice must wait for every physical fence",
+          "crates/iroha_core/src/kura/lane_geometry_tests/09_recovery_releases.rs")
+          for _ in range(8))),
+
+    m("HC353", "Native lane authority: notify original State readers under scan and registry locks",
+      ['sumeragi::lanes::registry::tests::original_native_history_reader_success_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_absence_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_error_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_reentry_preserves_concurrent_ready_owner', 'sumeragi::lanes::registry::tests::original_native_history_partial_reader_refusal_retains_exact_source_after_unlock', 'sumeragi::lanes::registry::tests::original_authority_recheck_retains_reentrant_opening_and_historical_interest'],
+      causes=tuple(ExpectedFailure("original State reader notices must follow scan and registry unlock",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs")
+          for _ in range(6))),
+
     m("HC351", "Native lane history: refund original authenticated scan owners under the scan mutex",
       ['sumeragi::runtime_availability::refund_tests::original_history_scan_progress_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_finish_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_cancellation_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_stale_cut_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_terminal_cleanup_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_cancelled_error_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_invalid_prefix_refunds_after_scan_unlock', 'sumeragi::runtime_availability::refund_tests::original_history_scan_refused_retry_refunds_after_scan_unlock'],
       causes=tuple(ExpectedFailure("original history refund must wait for scan unlock",
@@ -1339,12 +1632,18 @@ CORE_MUTATIONS = [
     m("HC328", "Fresh proposer: omit captured time while retaining original signed inputs",
       ["sumeragi::executor::payload_owner::tests::fresh_view_refreshes_authenticated_block_time_without_replacing_signed_input"],
       causes=(ExpectedFailure("fresh view must refresh certified time without another signed transaction",
-          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs"),)),
+          "crates/iroha_core/src/sumeragi/executor/payload_owner.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),)),
 
     m("HC329", "Native execution: reject authenticated proposer time above the required floor",
       ["sumeragi::executor::clock_tests::authenticated_proposer_time_above_floor_executes_and_replays_without_restamping"],
-      causes=(ExpectedFailure("authenticated proposer time above the input floor must execute",
-          "crates/iroha_core/src/sumeragi/executor/clock_tests.rs"),)),
+      causes=(ExpectedFailure("authenticated proposer time above the input floor must execute: Ok(Some(Invalid))",
+          "crates/iroha_core/src/sumeragi/executor/clock_tests.rs",
+          worker_thread="sumeragi-publication-test",
+          join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+          join_message="publication worker fixture: Any { .. }"),)),
 
     m("HC327", "Routing lane: lend retained payload after its original Queue admission retires",
       ["sumeragi::lanes::executor::queue_lease_tests::lane_original_queue_lease_retires_expiry_and_withdrawal_during_clock_wait",
@@ -1812,6 +2111,19 @@ MODEL_MUTATIONS = [
       ["sumeragi_amx::tests::time_tests::sumeragi_amx_time_expiry_preserves_all_pending_rows_on_writer_refusal"], causes=(ExpectedFailure("failed witness publication cannot prune time-expired obligations",
           "crates/iroha_data_model/src/sumeragi_amx/time_tests.rs"),)),
 
+    m("DM41", "compute price bounds: cap the observed delta to the bound domain",
+      ["compute::tests::price_delta_bounds_keep_full_width_before_comparison"],
+      causes=(ExpectedFailure("price updates must compare full-width deltas before applying bounds",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM42", "compute sponsor bounds: saturate daily usage before comparison",
+      ["compute::tests::sponsor_caps_keep_exact_daily_total_and_per_call_precedence"],
+      causes=(ExpectedFailure("the full daily sum must retain per-call refusal precedence",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM43", "compute price bounds: saturate the percentage numerator to u64",
+      ["compute::tests::price_delta_wide_numerator_rejects_extreme_reduction"],
+      causes=(ExpectedFailure("price percentage must widen the numerator before multiplication",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+
 ]
 
 
@@ -1934,11 +2246,62 @@ NORITO_MUTATIONS = [
        "json::tests::direct_json_parser_retains_unscoped_fields_and_same_input_retry"]),
     m("NC5", "JSON resource conversion: turn malformed input into allocator refusal",
       ["json::tests::non_resource_core_errors_cannot_become_json_allocator_refusals"]),
+    m("NC6", "JSON depth: omit original active relative structural depth admission",
+      ["json::decode_depth_tests::typed_and_fast_documents_preserve_exact_and_short_active_depth",
+       "json::decode_depth_tests::borrowed_and_skipped_values_check_the_peak_before_advancing_the_cursor",
+       "json::value_depth_tests::native_value_and_aggregate_conversions_enforce_exact_and_short_depth"]),
+    m("NC7", "Fast JSON entry: construct the structural tape before original depth refusal",
+      ["json_parse_string_allocations::fast_depth_order::active_depth_refuses_before_structural_tape_allocation",
+       "json_parse_string_allocations::fast_depth_order::fixed_depth_refuses_before_structural_tape_allocation"],
+      causes=(ExpectedFailure("active depth refusal must precede structural tape allocation",
+          "crates/norito/src/../tests/json_parse_string_allocations.rs"),
+          ExpectedFailure("fixed depth refusal must precede structural tape allocation",
+          "crates/norito/src/../tests/json_parse_string_allocations.rs"))),
+    m("NC8", "Native JSON Value: restore uncharged clone of original owners",
+      ["json_from_value_fast::resource_budget::native_value_clone_charges_strings_arrays_and_object_owners"]),
+    m("NC9", "Native JSON Vec<T>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::vec_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC10", "Native JSON std::collections::BTreeSet<T>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::btree_set_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC11", "Native JSON std::collections::HashSet<T>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::hash_set_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC12", "Native JSON std::collections::BTreeMap<K, V>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::btree_map_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC13", "Native JSON std::collections::HashMap<K, V>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::hash_map_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC14", "Decoded JSON fields: omit original UTF-8 byte admission",
+      ["json_parse_string_allocations::field_budget::owned_strings_check_decoded_field_before_allocation",
+       "json_parse_string_allocations::field_budget::parser_reference_fields_refuse_before_escape_scratch",
+       "json_parse_string_allocations::field_budget::tape_reference_fields_refuse_before_escape_scratch",
+       "json_parse_string_allocations::field_budget::native_string_copies_and_hex_fields_use_decoded_utf8_length",
+       "json_parse_string_allocations::field_budget::borrowed_and_buffered_keys_preserve_field_admission_and_colon_progress",
+       "json_parse_string_allocations::field_budget::key_hash_fields_preserve_hash_last_key_and_tape_cursor",
+       "json_parse_string_allocations::field_budget::direct_numeric_map_keys_cannot_bypass_field_limit",
+       "json_parse_string_allocations::field_budget::field_refusal_preserves_scope_identity_retry_and_cumulative_charge"]),
+    m("NC15", "Owned JSON cleanup: replace iterative ownership release with recursive drop",
+      ["json_cleanup_stack_tests::array_comb_cleanup_survives_default_stack_child",
+       "json_cleanup_stack_tests::object_comb_cleanup_survives_default_stack_child"],
+      causes=(ExpectedFailure("original JSON cleanup must not overflow the default-stack child",
+          "crates/norito/src/json_cleanup_stack_tests.rs"),
+          ExpectedFailure("original JSON cleanup must not overflow the default-stack child",
+          "crates/norito/src/json_cleanup_stack_tests.rs"))),
+
+]
+
+
+P2P_MUTATIONS = [
+    m("NET1", "Receive-credit constructor: release the original source before rejected I/O closes",
+      ["peer::receive_credit::stream::constructor_tests::constructor_peer_mismatch_closes_io_before_source_reuse",
+       "peer::receive_credit::stream::constructor_tests::constructor_writer_refusal_closes_io_before_source_reuse"],
+      causes=(ExpectedFailure("source cannot be rebound while either I/O half remains alive",
+                  "crates/iroha_p2p/src/peer/receive_credit/stream.rs"),) * 2),
 ]
 
 
 def package_options(args):
     """Select the actual implementation owner without propagating a mutation to dependencies."""
+    if getattr(args, "p2p", False):
+        return "iroha_p2p", "mutation-testing", "SUMERAGI_P2P_MUTATION"
     if getattr(args, "norito", False):
         return "norito", "mutation-testing", "SUMERAGI_NORITO_MUTATION"
     if getattr(args, "torii", False):
@@ -2042,62 +2405,339 @@ class Step:
     discovery_log: str = ""
     panics: dict = field(default_factory=dict)
     panic_owners_valid: bool = False
+    artifact: dict | None = None
+    custody: dict = field(default_factory=dict)
 
 
-def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no_run=False):
-    """Run `cargo test` for the crate; returns (returncode or None on timeout, output)."""
+def executable_identity(path, target_dir):
+    """Hash the actual emitted regular executable without following path aliases."""
+    path, target_dir = Path(path), Path(target_dir)
+    if (not path.is_absolute() or path.resolve(strict=True) != path
+            or target_dir.resolve(strict=True) != target_dir
+            or target_dir not in path.parents):
+        raise ValueError("executable is outside the original canonical target directory")
+
+    def identity(value):
+        return {"device": value.st_dev, "inode": value.st_ino, "size": value.st_size,
+                "mtime_ns": value.st_mtime_ns, "ctime_ns": value.st_ctime_ns,
+                "mode": value.st_mode, "links": value.st_nlink}
+
+    named = path.lstat()
+    if not stat.S_ISREG(named.st_mode) or not named.st_size or not os.access(path, os.X_OK):
+        raise ValueError("emitted executable is not a nonempty executable regular file")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as source:
+        opened = identity(os.fstat(source.fileno()))
+        if opened != identity(named):
+            raise ValueError("executable changed while opening the original")
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+        if opened != identity(os.fstat(source.fileno())) or opened != identity(path.lstat()):
+            raise ValueError("executable changed while hashing the original")
+    return {"path": str(path), "sha256": digest.hexdigest(), **opened}
+
+
+def cargo_observation(raw, args, target_dir, mutation):
+    """Separate only Cargo's pre-harness envelopes and bind its one owning libtest."""
+    native, records, finished = [], [], []
+    reasons = {"compiler-artifact", "compiler-message", "build-script-executed", "build-finished"}
+    for line in raw.splitlines(keepends=True):
+        record = None
+        if not finished and line.startswith("{"):
+            try:
+                candidate = json.loads(line)
+            except ValueError:
+                candidate = None
+            if isinstance(candidate, dict) and candidate.get("reason") in reasons:
+                record = candidate
+        if record is None:
+            native.append(line)
+        else:
+            records.append(record)
+            if record["reason"] == "build-finished":
+                finished.append(record)
+    observation = {"artifact": None, "errors": [], "compiler_errors": [
+        record.get("message", {}).get("rendered", "") for record in records
+        if record["reason"] == "compiler-message"
+        and isinstance(record.get("message"), dict)
+        and record["message"].get("level") == "error"]}
+    try:
+        if len(finished) != 1 or finished[0].get("success") is not True:
+            raise ValueError("Cargo did not emit one successful build-finished record")
+        emitted = [record for record in records if record["reason"] == "compiler-artifact"
+                   and record.get("executable") is not None]
+        if len(emitted) != 1:
+            raise ValueError("Cargo did not emit exactly one executable artifact")
+        record = emitted[0]
+        crate, features, _ = package_options(args)
+        directory = "irohad" if crate == "irohad_lib" else crate
+        owner = REPO / "crates" / directory
+        target = record.get("target")
+        profile = record.get("profile")
+        if not isinstance(target, dict) or not isinstance(profile, dict):
+            raise ValueError("Cargo executable target/profile metadata is malformed")
+        expected_name = "irohad" if crate == "irohad_lib" else crate
+        if (record.get("manifest_path") != str(owner / "Cargo.toml")
+                or not isinstance(record.get("package_id"), str)
+                or not record["package_id"].startswith("path+" + owner.as_uri() + "#")
+                or target.get("kind") != ["lib"] or target.get("crate_types") != ["lib"]
+                or target.get("name") != expected_name
+                or target.get("src_path") != str(owner / "src/lib.rs")
+                or target.get("test") is not True or profile.get("test") is not True
+                or not isinstance(record.get("features"), list)
+                or not all(isinstance(value, str) for value in record["features"])
+                or len(set(record["features"])) != len(record["features"])
+                or not set(features.split(",")).issubset(record["features"])
+                or not isinstance(record.get("filenames"), list)
+                or record["executable"] not in record["filenames"]):
+            raise ValueError("Cargo executable does not belong to the exact owning libtest")
+        artifact = {key: record[key] for key in
+                    ("package_id", "manifest_path", "target", "profile", "features", "executable")}
+        artifact["mutation"] = mutation
+        artifact["identity"] = executable_identity(record["executable"], target_dir)
+        observation["artifact"] = artifact
+    except (OSError, ValueError, TypeError) as error:
+        observation["errors"].append(str(error))
+    return "".join(native), observation
+
+
+# Only Cargo's public runtime metadata and loader paths may enter retained receipts.
+# Owner build scripts currently emit no rustc-env fields. Add an explicit reviewed
+# field here if an owner introduces one; never capture the whole parent environment.
+CARGO_RUNTIME_FIELDS = (
+    "CARGO", "CARGO_MANIFEST_DIR", "CARGO_MANIFEST_PATH", "CARGO_PKG_NAME",
+    "CARGO_PKG_VERSION", "CARGO_PKG_VERSION_MAJOR", "CARGO_PKG_VERSION_MINOR",
+    "CARGO_PKG_VERSION_PATCH", "CARGO_PKG_VERSION_PRE", "CARGO_PKG_AUTHORS",
+    "CARGO_PKG_DESCRIPTION", "CARGO_PKG_HOMEPAGE", "CARGO_PKG_REPOSITORY",
+    "CARGO_PKG_LICENSE", "CARGO_PKG_LICENSE_FILE", "CARGO_PKG_RUST_VERSION",
+    "CARGO_PKG_README", "OUT_DIR", "PATH", "LD_LIBRARY_PATH",
+    "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LIBPATH",
+)
+
+
+def capture_runtime(arguments):
+    """Cargo target runner: retain its runtime context without executing the harness."""
+    if len(arguments) != 3:
+        raise ValueError("runtime capture requires one output, owner and executable")
+    output, owner, executable = map(Path, arguments)
+    if (not output.is_absolute() or not owner.is_absolute()
+            or not executable.is_absolute() or Path.cwd() != owner
+            or os.environ.get("CARGO_MANIFEST_DIR") != str(owner)
+            or os.environ.get("CARGO_MANIFEST_PATH") != str(owner / "Cargo.toml")):
+        raise ValueError("runtime capture does not belong to the owning package")
+    if "RUST_MIN_STACK" in os.environ:
+        raise ValueError("mutation qualification requires the default native stack")
+    runtime = {"argv": [str(executable)], "cwd": str(owner), "environment": {
+        key: os.environ.get(key) for key in CARGO_RUNTIME_FIELDS}}
+    # A second runner invocation cannot overwrite the first and then claim success.
+    with output.open("x", encoding="utf-8") as destination:
+        json.dump(runtime, destination, ensure_ascii=True, sort_keys=True)
+        destination.write("\n")
+    return 0
+
+
+def artifact_digest(artifact):
+    """Bind retained Cargo metadata and captured context to the original executable."""
+    payload = {key: value for key, value in artifact.items() if key != "binding_sha256"}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def runtime_loader_key():
+    """Name the loader field Cargo supplies on the current native platform."""
+    if os.name == "nt":
+        return "PATH"
+    if sys.platform == "darwin":
+        return "DYLD_FALLBACK_LIBRARY_PATH"
+    return "LIBPATH" if sys.platform.startswith("aix") else "LD_LIBRARY_PATH"
+
+
+def validate_runtime(artifact):
+    """Require the sole captured invocation of the exact Cargo-owned package."""
+    runtime = artifact["runtime"]
+    owner = str(Path(artifact["manifest_path"]).parent)
+    environment = runtime.get("environment")
+    if (set(runtime) != {"argv", "cwd", "environment"}
+            or runtime["argv"] != [artifact["executable"]] or runtime["cwd"] != owner
+            or not isinstance(environment, dict)
+            or set(environment) != set(CARGO_RUNTIME_FIELDS)
+            or any(value is not None and not isinstance(value, str)
+                   for value in environment.values())
+            or environment["CARGO_MANIFEST_DIR"] != owner
+            or environment["CARGO_MANIFEST_PATH"] != artifact["manifest_path"]
+            or not environment["CARGO"]
+            or not environment[runtime_loader_key()]
+            or environment["CARGO_PKG_NAME"] != (
+                "irohad_lib" if Path(owner).name == "irohad" else Path(owner).name)):
+        raise ValueError("captured runtime does not match the original owning executable")
+    return runtime
+
+
+def cargo_build_options(args):
+    """Keep the same owning package, feature set and named profile in every phase."""
+    crate, features, _ = package_options(args)
+    profile = ("test" if any(getattr(args, owner, False) for owner in
+                           ("model", "sdk", "deploy", "torii", "norito", "p2p")) else
+               (getattr(args, "core_profile", None) or "test") if getattr(args, "core", False) else None)
+    profile_options = ["--profile", profile] if profile else ["--release"]
+    return ["cargo", "test", "--locked", "-p", crate, *profile_options,
+            "--features", features, "--lib", "--message-format=json-render-diagnostics"]
+
+
+def capture_build_command(args, env, log_path, started, timeout):
+    """Select the native compiler host and one capture-only Cargo target runner."""
+    compiler = env.get("RUSTC") or env.get("CARGO_BUILD_RUSTC") or "rustc"
+    probe_command = [compiler, "-vV"]
+    remaining = max(0.0, timeout - (time.monotonic() - started)) if timeout else None
+    if remaining == 0:
+        raise ValueError("native host preparation exhausted the original build deadline")
+    probe = subprocess.Popen(probe_command, cwd=REPO, env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, start_new_session=True)
+    expired = False
+    try:
+        raw, _ = probe.communicate(timeout=remaining)
+    except subprocess.TimeoutExpired:
+        raw, _ = probe.communicate()
+        expired = True
+    probe_path = log_path.with_suffix(".compiler.log")
+    probe_path.write_bytes(raw)
+    hosts = re.findall(r"^host: ([A-Za-z0-9_-]+)$", raw.decode("utf-8"), re.MULTILINE)
+    if expired or probe.returncode != 0 or len(hosts) != 1:
+        raise ValueError("selected compiler did not identify one native host within the build deadline")
+    host = hosts[0]
+    crate, _, _ = package_options(args)
+    owner = REPO / "crates" / ("irohad" if crate == "irohad_lib" else crate)
+    capture_path = log_path.with_suffix(".runtime.json")
+    if capture_path.exists() or capture_path.is_symlink():
+        raise ValueError("runtime capture output already exists")
+    runner = [str(Path(sys.executable).resolve()), "-I", str(Path(__file__).resolve()),
+              "--capture-runtime", str(capture_path), str(owner)]
+    # Cargo accepts a runner string as whitespace-separated arguments. A scalar
+    # CLI value replaces ambient runners instead of concatenating array arguments.
+    if any(not argument or any(character.isspace() for character in argument) for argument in runner):
+        raise ValueError("capture runner paths must not contain whitespace")
+    # An explicit native target prevents an ambient cross target or runner from
+    # executing a test during capture. Host/target units are intentionally separate.
+    # Pin the compiler we queried instead of consulting a different build.rustc.
+    env["RUSTC"] = compiler
+    cmd = [*cargo_build_options(args),
+           "--target", host, "--config", "build.rustc=" + json.dumps(compiler),
+           "--config", "target." + host + ".runner=" + json.dumps(" ".join(runner))]
+    preparation = {"compiler_command": probe_command, "compiler_log": str(probe_path),
+                   "compiler_log_sha256": hashlib.sha256(raw).hexdigest(),
+                   "native_host": host, "capture_path": str(capture_path),
+                   "runner": runner, "explicit_native_target": True}
+    return cmd, preparation
+
+
+def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no_run=False,
+               expected_artifact=None):
+    """Build once with Cargo capture; launch only that original libtest thereafter."""
     env = dict(os.environ)
-    env.pop("SUMERAGI_MUTATION", None)
-    env.pop("SUMERAGI_CORE_MUTATION", None)
-    env.pop("SUMERAGI_DAEMON_MUTATION", None)
-    env.pop("SUMERAGI_MODEL_MUTATION", None)
-    env.pop("SUMERAGI_SDK_MUTATION", None)
-    env.pop("SUMERAGI_DEPLOY_MUTATION", None)
-    env.pop("SUMERAGI_TORII_MUTATION", None)
-    env.pop("SUMERAGI_NORITO_MUTATION", None)
-    crate, features, mutation_env = package_options(args)
-    env.pop("SUMERAGI_SIM_SEED", None)
-    env.pop("SUMERAGI_SIM_SEED_BASE", None)
+    for key in ("SUMERAGI_MUTATION", "SUMERAGI_CORE_MUTATION", "SUMERAGI_DAEMON_MUTATION",
+                "SUMERAGI_MODEL_MUTATION", "SUMERAGI_SDK_MUTATION", "SUMERAGI_DEPLOY_MUTATION",
+                "SUMERAGI_TORII_MUTATION", "SUMERAGI_NORITO_MUTATION", "SUMERAGI_P2P_MUTATION",
+                "SUMERAGI_SIM_SEED", "SUMERAGI_SIM_SEED_BASE", "SUMERAGI_SIM_SEEDS",
+                "NORITO_JSON_CLEANUP_TEST_CHILD"):
+        env.pop(key, None)
+    _, _, mutation_env = package_options(args)
     if mutation:
         env[mutation_env] = mutation
     if seeds is not None:
         env["SUMERAGI_SIM_SEEDS"] = str(seeds)
-    else:
-        env.pop("SUMERAGI_SIM_SEEDS", None)
     env["CARGO_TARGET_DIR"] = str(target_dir)
-    profile = ("test" if any(getattr(args, owner, False) for owner in ("model", "sdk", "deploy", "torii", "norito")) else
-               (getattr(args, "core_profile", None) or "test") if getattr(args, "core", False) else None)
-    profile_options = ["--profile", profile] if profile else ["--release"]
-    cmd = ["cargo", "test", "--locked", "-p", crate, *profile_options, "--features", features, "--lib"]
-    if no_run:
-        cmd.append("--no-run")
-    else:
-        cmd += ["--"] + list(filters)
     started = time.monotonic()
-    # Own this child session, but never signal Cargo when a deadline is missed.
-    proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    before, errors, raw, code, launched = None, [], b"", None, False
+    cmd, cwd, preparation = [], REPO, None
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        out, _ = proc.communicate(timeout=timeout or None)
-        code = proc.returncode
-    except subprocess.TimeoutExpired:
-        # Keep the deadline verdict even if the naturally completed harness later
-        # passes or reports a failed test; neither can qualify a late mutation.
-        out, _ = proc.communicate()
-        code = None
+        if "RUST_MIN_STACK" in env:
+            raise ValueError("mutation qualification requires the default native stack")
+        if no_run:
+            cmd, preparation = capture_build_command(args, env, log_path, started, timeout)
+        else:
+            if expected_artifact is None or expected_artifact.get("mutation") != mutation:
+                raise ValueError("native invocation lacks its original same-mutation build artifact")
+            before = executable_identity(expected_artifact["executable"], target_dir)
+            if before != expected_artifact["identity"]:
+                raise ValueError("original executable changed before native invocation")
+            if expected_artifact.get("binding_sha256") != artifact_digest(expected_artifact):
+                raise ValueError("original Cargo metadata or captured runtime changed before native invocation")
+            if expected_artifact["build_options"] != cargo_build_options(args):
+                raise ValueError("native invocation changed its original build owner/profile/features")
+            runtime = validate_runtime(expected_artifact)
+            for key, value in runtime["environment"].items():
+                if value is None:
+                    env.pop(key, None)
+                else:
+                    env[key] = value
+            cwd = Path(runtime["cwd"])
+            cmd = [expected_artifact["executable"], *filters]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        errors.append(str(error))
+    remaining = max(0.0, timeout - (time.monotonic() - started)) if timeout else None
+    if not errors and remaining != 0:
+        try:
+            proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
+            launched = True
+            try:
+                raw, _ = proc.communicate(timeout=remaining)
+                code = proc.returncode
+            except subprocess.TimeoutExpired:
+                raw, _ = proc.communicate()
+                code = None
+        except OSError as error:
+            errors.append(str(error))
+    elif remaining == 0:
+        errors.append("preparation exhausted the original phase deadline")
+    log_path.write_bytes(raw)
+    receipt = {"artifact": None, "errors": [], "compiler_errors": []}
+    try:
+        out = raw.decode("utf-8")
+        if no_run:
+            out, receipt = cargo_observation(out, args, target_dir, mutation)
+            if receipt["artifact"] is not None:
+                if code != 0 or preparation is None or receipt["compiler_errors"]:
+                    raise ValueError("Cargo capture build did not complete successfully")
+                capture_raw = Path(preparation["capture_path"]).read_bytes()
+                preparation["capture_sha256"] = hashlib.sha256(capture_raw).hexdigest()
+                runtime = json.loads(capture_raw.decode("utf-8"))
+                artifact = receipt["artifact"]
+                artifact["runtime"] = runtime
+                artifact["build_options"] = cargo_build_options(args)
+                validate_runtime(artifact)
+                artifact["binding_sha256"] = artifact_digest(artifact)
+        elif launched:
+            # Native stdout is native data, including JSON that resembles Cargo.
+            receipt["artifact"] = expected_artifact
+    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError) as error:
+        if isinstance(error, UnicodeDecodeError):
+            out = ""
+        receipt["errors"].append(str(error))
+        receipt["artifact"] = None
+    receipt["errors"][:0] = errors
+    receipt["before"] = before
+    if expected_artifact is not None:
+        try:
+            receipt["after"] = executable_identity(expected_artifact["executable"], target_dir)
+            if receipt["after"] != before:
+                receipt["errors"].append("original executable changed during native invocation")
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            receipt["errors"].append(str(error))
     elapsed = time.monotonic() - started
-    # Spawning and completion processing also belong to this original deadline.
-    # Keep all output, but a naturally completed late command cannot qualify.
     if timeout and elapsed > timeout:
         code = None
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, "w") as f:
-        f.write(f"$ {' '.join(cmd)}\n# {mutation_env}={mutation or ''} "
-                f"SUMERAGI_SIM_SEEDS={seeds or ''} CARGO_TARGET_DIR={target_dir}\n")
-        f.write(out or "")
-        f.write(f"\n# exit {code} after {elapsed:.1f}s\n")
-    return code, out or "", elapsed
-
+    receipt.update(command=cmd, cwd=str(cwd), mutation=mutation, seeds=seeds,
+                   target_dir=str(target_dir), preparation=preparation,
+                   original_deadline_seconds=timeout, deadline_exceeded=bool(timeout and elapsed >= timeout),
+                   exit_code=code, seconds=elapsed, launched=launched,
+                   raw_log=str(log_path), raw_log_sha256=hashlib.sha256(raw).hexdigest())
+    receipt_path = log_path.with_suffix(".artifact.json")
+    receipt["receipt"] = str(receipt_path)
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+    return code, out, elapsed, receipt
 
 def test_selector_matches(selector, name):
     """Resolve a full test path or every exact leaf, without a substring substitute."""
@@ -2110,21 +2750,31 @@ def required_test_failures(filters, failed):
                   if any(test_selector_matches(selector, name) for selector in filters))
 
 
-def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
+def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path, artifact=None):
     """Account for the actual substring selection within one original deadline."""
     started = time.monotonic()
     discovery_log = log_path.with_name(log_path.stem + ".discovery" + log_path.suffix)
-    discovery_code, listing, discovery_elapsed = cargo_test(
+    discovery_code, listing, discovery_elapsed, discovery_custody = cargo_test(
         args, target_dir, mutation, [*filters, "--list", "--format", "pretty", "--color", "never"],
-        seeds, timeout, discovery_log)
+        seeds, timeout, discovery_log, expected_artifact=artifact)
     selected = TEST_LIST.findall(listing)
     declared = TEST_LIST_COMPLETION.findall(listing)
     elapsed = max(time.monotonic() - started, discovery_elapsed)
     step = Step(status="pass", seconds=round(elapsed, 1), selected=selected,
-                log=str(log_path), discovery_log=str(discovery_log))
+                log=str(log_path), discovery_log=str(discovery_log), artifact=artifact,
+                custody={"discovery": discovery_custody})
+    if (discovery_custody["errors"] and not discovery_custody.get("launched", True)
+            and not discovery_custody.get("deadline_exceeded", False)):
+        step.status = "execution-error"
+        step.detail.extend(discovery_custody["errors"])
+        return step
     if discovery_code is None or (timeout and elapsed >= timeout):
         step.status = "timeout"
         step.detail.append(f"discovery exhausted the original {timeout}s deadline")
+        return step
+    if discovery_custody["errors"]:
+        step.status = "execution-error"
+        step.detail.extend(discovery_custody["errors"])
         return step
     if discovery_code != 0 or declared != [(str(len(selected)), "0")] or len(selected) != len(set(selected)):
         step.status = "execution-error"
@@ -2139,10 +2789,10 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
     required = {name for name in selected
                 if any(test_selector_matches(selector, name) for selector in filters)}
     remaining = max(0.0, timeout - elapsed) if timeout else 0
-    code, out, runtime_elapsed = cargo_test(
+    code, out, runtime_elapsed, runtime_custody = cargo_test(
         args, target_dir, mutation,
         [*filters, "--test-threads=1", "--format", "pretty", "--color", "never"],
-        seeds, remaining, log_path)
+        seeds, remaining, log_path, expected_artifact=artifact)
     elapsed = max(time.monotonic() - started, discovery_elapsed + runtime_elapsed)
     terminals, terminal_owners_valid = serial_test_terminals(out)
     results = [(name, verdict) for name, verdict, _, _ in terminals]
@@ -2151,14 +2801,22 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
     panics, panic_owners_valid = captured_test_panics(out)
     step = Step(status="pass", seconds=round(elapsed, 1), failed=failed, ran=ran,
                 selected=selected, log=str(log_path), discovery_log=str(discovery_log),
-                panics=panics, panic_owners_valid=panic_owners_valid)
+                panics=panics, panic_owners_valid=panic_owners_valid, artifact=artifact,
+                custody={"discovery": discovery_custody, "runtime": runtime_custody})
     missing = sorted(required - set(ran))
-    if code is None or (timeout and elapsed > timeout):
+    if (runtime_custody["errors"] and not runtime_custody.get("launched", True)
+            and not runtime_custody.get("deadline_exceeded", False)):
+        step.status = "execution-error"
+        step.detail.extend(runtime_custody["errors"])
+    elif code is None or (timeout and elapsed > timeout):
         step.status = "timeout"
         step.detail.append(f"timed out after {timeout}s")
-    elif "error[E" in out or "could not compile" in out:
+    elif runtime_custody["compiler_errors"] or "error[E" in out or "could not compile" in out:
         step.status = "build-error"
         step.detail = [line for line in out.splitlines() if line.startswith("error")][:5]
+    elif runtime_custody["errors"]:
+        step.status = "execution-error"
+        step.detail.extend(runtime_custody["errors"])
     elif code not in (0, 101) or (code != 0 and not failed):
         step.status = "execution-error"
         step.detail.append(f"cargo exited {code} without a normal completed test failure")
@@ -2195,19 +2853,22 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
 
 
 def build(args, target_dir, mutation, log_path):
-    code, out, elapsed = cargo_test(args, target_dir, mutation, [], None, args.timeout_build,
+    code, out, elapsed, custody = cargo_test(args, target_dir, mutation, [], None, args.timeout_build,
                                     log_path, no_run=True)
-    ok = code == 0
+    ok = code == 0 and not custody["errors"]
     detail = [] if ok else ([line for line in out.splitlines() if line.startswith("error")][:5]
                             or ["timeout" if code is None else f"cargo exited {code}"])
     return Step(status="pass" if ok else "build-error", seconds=round(elapsed, 1),
-                detail=detail, log=str(log_path))
+                detail=detail + custody["errors"], log=str(log_path), artifact=custody["artifact"],
+                custody={"build": custody})
 
 
-def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=False, torii=False, norito=False):
-    if sum((core, daemon, model, sdk, deploy, torii, norito)) > 1:
+def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=False, torii=False, norito=False, p2p=False):
+    if sum((core, daemon, model, sdk, deploy, torii, norito, p2p)) > 1:
         raise ValueError("a mutation has exactly one implementation owner")
-    if norito:
+    if p2p:
+        cfg, source = "sumeragi_p2p_mutation", REPO / "crates" / "iroha_p2p" / "src"
+    elif norito:
         cfg, source = "sumeragi_norito_mutation", REPO / "crates" / "norito" / "src"
     elif torii:
         cfg, source = "sumeragi_torii_mutation", REPO / "crates" / "iroha_torii" / "src"
@@ -2227,7 +2888,7 @@ def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=
 
 
 
-def run_grouped_steps(args, target_dir, mutation, groups, seeds, timeout, logs, stem):
+def run_grouped_steps(args, target_dir, mutation, groups, seeds, timeout, logs, stem, artifact=None):
     """Retain every invocation and refuse an aggregate pass or kill on any step error."""
     steps = []
     for index, filters in enumerate(groups):
@@ -2235,7 +2896,7 @@ def run_grouped_steps(args, target_dir, mutation, groups, seeds, timeout, logs, 
         if not filters:
             step = Step(status="missing-test", detail=["no selectors for this invocation"], log=str(log))
         else:
-            step = run_step(args, target_dir, mutation, filters, seeds, timeout, log)
+            step = run_step(args, target_dir, mutation, filters, seeds, timeout, log, artifact)
         steps.append({"filters": list(filters), "deadline_seconds": timeout,
                       "seeds": seeds, **step.__dict__,
                       "required_failed": required_test_failures(filters, step.failed)})
@@ -2259,7 +2920,9 @@ def evaluate(args, target_dir, mu):
         result.update(verdict="error", reason="no named test selectors")
         return result
     started = time.monotonic()
-    if getattr(args, "norito", False):
+    if getattr(args, "p2p", False):
+        present = has_switch(mu.id, p2p=True)
+    elif getattr(args, "norito", False):
         present = has_switch(mu.id, norito=True)
     elif getattr(args, "torii", False):
         present = has_switch(mu.id, torii=True)
@@ -2282,7 +2945,7 @@ def evaluate(args, target_dir, mu):
         result.update(verdict="error", reason="mutant does not build")
         return result
     named = run_step(args, target_dir, mu.id, mu.tests, None, args.timeout_test,
-                     logs / f"{mu.id}.named.log")
+                     logs / f"{mu.id}.named.log", b.artifact)
     named_failed = required_test_failures(mu.tests, named.failed)
     result["named"] = {**named.__dict__, "required_failed": named_failed}
     killed_by_test = named.status == "fail" and bool(named_failed)
@@ -2299,7 +2962,7 @@ def evaluate(args, target_dir, mu):
     if mu.scenarios and not args.fast:
         groups = [(scenario,) for scenario in dict.fromkeys(SCENARIOS[s] for s in mu.scenarios)]
         scen = run_grouped_steps(args, target_dir, mu.id, groups, args.seeds,
-                                 args.timeout_scenario, logs, f"{mu.id}.scenario")
+                                 args.timeout_scenario, logs, f"{mu.id}.scenario", b.artifact)
         result["scenario"] = scen
     killed_by_scenario = scen is not None and scen["status"] == "fail" and bool(scen["required_failed"])
     if named.status not in ("pass", "fail"):
@@ -2335,13 +2998,13 @@ def evaluate_baseline(args, target_dir, mutations):
     # The baseline de-duplicates tuples, rather than merging unrelated steps.
     groups = sorted({tuple(mu.tests) for mu in mutations})
     named = run_grouped_steps(args, target_dir, None, groups, None, args.timeout_test,
-                             logs, "baseline.named")
+                             logs, "baseline.named", b.artifact)
     result["named"] = named
     ok = named["status"] == "pass"
     scenarios = sorted({SCENARIOS[s] for mu in mutations for s in mu.scenarios})
     if scenarios and not args.fast:
         scen = run_grouped_steps(args, target_dir, None, [(s,) for s in scenarios],
-                                 args.seeds, args.timeout_scenario, logs, "baseline.scenario")
+                                 args.seeds, args.timeout_scenario, logs, "baseline.scenario", b.artifact)
         result["scenario"] = scen
         ok = ok and scen["status"] == "pass"
     result["verdict"] = "pass" if ok else "fail"
@@ -2368,7 +3031,9 @@ def main():
     owner.add_argument("--torii", action="store_true",
                        help="qualify registered Torii canonical-outcome custody rules with owning unit tests in the test profile")
     owner.add_argument("--norito", action="store_true",
-                       help="qualify registered Norito decode-origin rules with owning unit tests in the test profile")
+                       help="qualify registered Norito decode-origin and JSON resource rules with owning unit tests in the test profile")
+    owner.add_argument("--p2p", action="store_true",
+                       help="qualify registered P2P receive-credit custody rules with owning unit tests in the test profile")
     parser.add_argument("--only", help="comma-separated mutation ids (default: all)")
     parser.add_argument("--jobs", type=int, default=1,
                         help="parallel jobs, each with its own target sub-directory")
@@ -2377,7 +3042,7 @@ def main():
     parser.add_argument("--seeds", type=int, default=200,
                         help="SUMERAGI_SIM_SEEDS for the scenarios (default 200)")
     parser.add_argument("--target-dir", type=Path,
-                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants; --model: target/sumeragi-model-mutants; --sdk: target/sumeragi-sdk-mutants; --deploy: target/sumeragi-deploy-mutants; --torii: target/sumeragi-torii-mutants; --norito: target/sumeragi-norito-mutants)")
+                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants; --model: target/sumeragi-model-mutants; --sdk: target/sumeragi-sdk-mutants; --deploy: target/sumeragi-deploy-mutants; --torii: target/sumeragi-torii-mutants; --norito: target/sumeragi-norito-mutants; --p2p: target/sumeragi-p2p-mutants)")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="do not run the unmutated build")
     parser.add_argument("--strict", action="store_true",
@@ -2400,7 +3065,8 @@ def main():
     if args.strict and args.skip_baseline:
         parser.error("--strict requires the unmutated baseline")
     if args.target_dir is None:
-        name = ("sumeragi-norito-mutants" if args.norito else
+        name = ("sumeragi-p2p-mutants" if args.p2p else
+                "sumeragi-norito-mutants" if args.norito else
                 "sumeragi-torii-mutants" if args.torii else
                 "sumeragi-sdk-mutants" if args.sdk else
                 "sumeragi-deploy-mutants" if args.deploy else
@@ -2411,7 +3077,7 @@ def main():
     args.target_dir = args.target_dir.resolve()
     if args.core_profile is not None and not args.core:
         parser.error("--core-profile requires --core; protocol and daemon qualification use release")
-    table = (NORITO_MUTATIONS if args.norito else TORII_MUTATIONS if args.torii else SDK_MUTATIONS if args.sdk else DEPLOY_MUTATIONS if args.deploy else
+    table = (P2P_MUTATIONS if args.p2p else NORITO_MUTATIONS if args.norito else TORII_MUTATIONS if args.torii else SDK_MUTATIONS if args.sdk else DEPLOY_MUTATIONS if args.deploy else
              MODEL_MUTATIONS if args.model else DAEMON_MUTATIONS if args.daemon else
              CORE_MUTATIONS if args.core else MUTATIONS)
     by_id = index_mutations(table)
@@ -2498,7 +3164,7 @@ def main():
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "command": sys.argv,
         "package": package_options(args)[0],
-        "profile": ("test" if args.model or args.sdk or args.deploy or args.torii or args.norito else
+        "profile": ("test" if args.model or args.sdk or args.deploy or args.torii or args.norito or args.p2p else
                     (args.core_profile or "test") if args.core else "release"),
         "seeds": None if args.fast else args.seeds,
         "fast": args.fast,
@@ -2517,4 +3183,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(capture_runtime(sys.argv[2:]) if sys.argv[1:2] == ["--capture-runtime"] else main())

@@ -1,19 +1,5 @@
 //! "Actual" layer of Iroha configuration parameters. It contains strongly-typed validated
 //! structures in a way that is efficient for Iroha internally.
-#![allow(
-    clippy::doc_markdown,
-    clippy::doc_link_with_quotes,
-    clippy::missing_errors_doc,
-    clippy::too_many_lines,
-    clippy::cast_lossless,
-    clippy::manual_abs_diff,
-    clippy::cast_possible_truncation,
-    clippy::struct_field_names,
-    clippy::missing_fields_in_debug,
-    clippy::struct_excessive_bools,
-    clippy::assertions_on_constants,
-    clippy::too_many_arguments
-)]
 use error_stack::{Report, ResultExt};
 use iroha_config_base::{WithOrigin, read::ConfigReader, toml::TomlSource, util::Bytes};
 use iroha_crypto::{
@@ -232,7 +218,7 @@ impl RuntimeProviderBroker {
     /// # Errors
     ///
     /// Rejects unknown fields, a zero memory bound, an invalid endpoint, or an
-    /// observer-operation duration outside 1..=15_000 milliseconds.
+    /// observer-operation duration outside `1..=15_000` milliseconds.
     pub fn from_toml_source(src: TomlSource) -> Result<Self, FromTomlSourceError> {
         ConfigReader::new()
             .without_env()
@@ -316,7 +302,7 @@ impl_default!(Lifecycle => {
 pub enum NodeSecretFile {
     /// Validator BLS private key.
     Validator,
-    /// SoraNet transport Ed25519 private key.
+    /// `SoraNet` transport Ed25519 private key.
     Transport,
     /// Streaming identity Ed25519 private key.
     Streaming,
@@ -328,7 +314,7 @@ pub enum NodeSecretFile {
     FaucetAuthority,
     /// Onboarding authority private key.
     OnboardingAuthority,
-    /// SoraFS council authority private key.
+    /// `SoraFS` council authority private key.
     ///
     /// TODO(P2): reserved for the deploy engine's network-authority keys (spec §7.2); no
     /// configuration key reads it yet, so the node never opens it.
@@ -602,7 +588,7 @@ pub enum MusubiPinTransactionAuthority {
 /// Non-secret paid-pin inputs resolved against the live publication service identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MusubiPublicationPaidPinPolicy {
-    /// Storage tier in the canonical SoraFS manifest.
+    /// Storage tier in the canonical `SoraFS` manifest.
     pub storage_class: SorafsStorageClass,
     /// Lifetime beyond the finalized submission epoch, in seconds.
     pub retention_horizon_secs: u64,
@@ -728,6 +714,10 @@ impl SoracloudRuntime {
 }
 /// Cache budgets for hydrated Soracloud runtime artifacts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Each independent cache budget names its byte unit to preserve configuration clarity."
+)]
 pub struct SoracloudRuntimeCacheBudgets {
     /// Cache budget for executable service bundles.
     pub bundle_bytes: NonZeroU64,
@@ -1110,7 +1100,7 @@ impl<G> Root<G> {
     pub fn uses_multilane_catalogs(&self) -> bool {
         self.nexus.uses_multilane_catalogs()
     }
-    /// Apply safe SoraFS defaults without changing the parsed Nexus geometry.
+    /// Apply safe `SoraFS` defaults without changing the parsed Nexus geometry.
     ///
     /// Discovery requires a parsed admission trust policy. This does not
     /// manufacture trust roots or an embedded storage-provider role.
@@ -1122,7 +1112,7 @@ impl<G> Root<G> {
                 Some(PathBuf::from(defaults::tiered_state::DEFAULT_DA_STORE_ROOT));
         }
     }
-    /// Apply the bundled Sora Nexus geometry and safe SoraFS defaults.
+    /// Apply the bundled Sora Nexus geometry and safe `SoraFS` defaults.
     ///
     /// Existing non-default geometry remains intact. TOML-backed callers must
     /// use [`crate::sora_profile::SoraProfileSelection`] to also preserve explicit
@@ -1237,6 +1227,10 @@ impl<G> Root<G> {
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Each component cap records bytes, distinct from the basis-point allocation weights."
+)]
 struct NexusStorageComponentCaps {
     kura_bytes: u64,
     wsv_cold_bytes: u64,
@@ -1269,6 +1263,10 @@ impl NexusStorageComponentCaps {
     }
 }
 #[derive(Clone, Copy, Debug)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Field names retain the exact source configuration cap and byte unit."
+)]
 pub(crate) struct NexusStorageConfiguredComponentCaps {
     kura_max_disk_usage_bytes: Bytes,
     wsv_cold_max_bytes: Bytes,
@@ -1545,7 +1543,7 @@ pub struct Common {
     pub chain: ChainId,
     /// Key pair for signing transactions and blocks.
     pub key_pair: KeyPair,
-    /// Dedicated Ed25519 key pair for the SoraNet transport handshake.
+    /// Dedicated Ed25519 key pair for the `SoraNet` transport handshake.
     pub soranet_transport_key_pair: KeyPair,
     /// Local peer description.
     pub peer: Peer,
@@ -1618,7 +1616,7 @@ impl Crypto {
         }
     }
 }
-/// Parsed SoraNet handshake configuration.
+/// Parsed `SoraNet` handshake configuration.
 #[derive(Clone)]
 pub struct SoranetHandshake {
     /// Descriptor commitment advertised by the node (32 bytes).
@@ -1635,10 +1633,10 @@ pub struct SoranetHandshake {
     pub sig_id: u8,
     /// Optional resume hash advertised to peers.
     pub resume_hash: Option<WithOrigin<Vec<u8>>>,
-    /// PoW parameters for circuit admission.
+    /// `PoW` parameters for circuit admission.
     pub pow: SoranetPow,
 }
-/// Runtime knobs controlling the SoraNet privacy telemetry pipeline.
+/// Runtime knobs controlling the `SoraNet` privacy telemetry pipeline.
 #[derive(Debug, Clone, Copy)]
 pub struct SoranetPrivacy {
     /// Duration of each telemetry bucket in seconds.
@@ -1699,7 +1697,7 @@ impl_default!(SoranetPrivacy => {
             event_buffer_capacity: defaults::soranet::privacy::EVENT_BUFFER_CAPACITY,
         }
 });
-/// Derived VPN configuration for the native SoraNet tunnel.
+/// Derived VPN configuration for the native `SoraNet` tunnel.
 #[derive(Clone)]
 pub struct SoranetVpn {
     /// Whether the VPN surface is enabled.
@@ -1864,7 +1862,7 @@ impl SoranetPuzzle {
             lanes,
         }
     }
-    /// Default Argon2 puzzle used for handshake PoW challenges.
+    /// Default Argon2 puzzle used for handshake `PoW` challenges.
     pub const fn default_const() -> Self {
         Self {
             memory_kib: NonZeroU32::new(64 * 1024).unwrap(),
@@ -1885,7 +1883,7 @@ impl SoranetPow {
     /// committee authenticate directly without serializing topology formation.
     pub const DEFAULT_PUZZLE_WORK_CAPACITY_PER_DIRECTION: NonZeroUsize =
         NonZeroUsize::new(3).unwrap();
-    /// Construct a PoW policy with explicit parameters.
+    /// Construct a `PoW` policy with explicit parameters.
     #[allow(clippy::too_many_arguments)]
     pub const fn new(
         difficulty: u8,
@@ -2078,11 +2076,11 @@ pub struct Network {
     pub relay_hub_addresses: Vec<SocketAddr>,
     /// Hop limit for relayed frames.
     pub relay_ttl: u8,
-    /// SoraNet handshake capabilities to advertise.
+    /// `SoraNet` handshake capabilities to advertise.
     pub soranet_handshake: SoranetHandshake,
     /// Privacy telemetry configuration advertised to collectors.
     pub soranet_privacy: SoranetPrivacy,
-    /// VPN tunnel configuration for the native SoraNet bridge.
+    /// VPN tunnel configuration for the native `SoraNet` bridge.
     pub soranet_vpn: SoranetVpn,
     /// Lane profile preset controlling connection and throttle defaults.
     pub lane_profile: LaneProfile,
@@ -2723,7 +2721,7 @@ pub struct Governance {
     pub bond_escrow_account: AccountId,
     /// Account that receives slashed governance bonds (may mirror escrow).
     pub slash_receiver_account: AccountId,
-    /// Slash percentage for double-vote attempts (basis points, 0–10_000).
+    /// Slash percentage for double-vote attempts (basis points, `0–10_000`).
     pub slash_double_vote_bps: u16,
     /// Slash percentage applied when ballot proofs are invalid (basis points).
     pub slash_invalid_proof_bps: u16,
@@ -2741,17 +2739,17 @@ pub struct Governance {
     pub runtime_upgrade_provenance: RuntimeUpgradeProvenancePolicy,
     /// Viral incentive policy for social rewards.
     pub viral_incentives: ViralIncentives,
-    /// SoraFS pin policy constraints enforced during manifest admission.
+    /// `SoraFS` pin policy constraints enforced during manifest admission.
     pub sorafs_pin_policy: SorafsPinPolicyConstraints,
-    /// Asset definition used to collect public SoraFS pin fees.
+    /// Asset definition used to collect public `SoraFS` pin fees.
     pub sorafs_pin_fee_asset_id: AssetDefinitionId,
-    /// Treasury account that receives public SoraFS pin fees.
+    /// Treasury account that receives public `SoraFS` pin fees.
     pub sorafs_pin_fee_treasury_account: AccountId,
-    /// SoraFS pricing schedule and credit policy.
+    /// `SoraFS` pricing schedule and credit policy.
     pub sorafs_pricing: PricingScheduleRecord,
-    /// SoraFS under-delivery penalty policy applied to provider credits.
+    /// `SoraFS` under-delivery penalty policy applied to provider credits.
     pub sorafs_penalty: SorafsPenaltyPolicy,
-    /// SoraFS telemetry authentication/replay safeguards.
+    /// `SoraFS` telemetry authentication/replay safeguards.
     pub sorafs_telemetry: SorafsTelemetryPolicy,
     /// Trusted provider→owner bindings seeded only before the first block.
     pub sorafs_provider_owners: BTreeMap<ProviderId, AccountId>,
@@ -2927,6 +2925,10 @@ impl Concurrency {
         }
     }
     /// Validate stack sizes to ensure they are non-zero and within sane bounds.
+    ///
+    /// # Errors
+    /// Returns [`ParseError::InvalidConcurrencyConfig`] when the Tokio or Sumeragi stack size
+    /// is outside its configured bounds, or the scheduler or prover stack size is zero.
     pub fn validate(&self) -> core::result::Result<(), Report<ParseError>> {
         if self.tokio_stack_bytes < defaults::concurrency::TOKIO_STACK_BYTES_MIN
             || self.tokio_stack_bytes > defaults::concurrency::TOKIO_STACK_BYTES_MAX
@@ -3088,7 +3090,7 @@ pub struct NexusStaking {
     pub max_pending_unbonds_per_share: NonZeroU32,
     /// Minimum delay between scheduling and finalising an unbond (milliseconds).
     pub unbonding_delay: Duration,
-    /// Maximum slash ratio allowed (basis points, 10_000 = 100%).
+    /// Maximum slash ratio allowed (basis points, `10_000` = 100%).
     pub max_slash_bps: u16,
     /// Asset definition used for staking bonds (string form).
     pub stake_asset_id: String,
@@ -3399,7 +3401,7 @@ pub enum NexusStorageBudgetComponent {
     Kura,
     /// Tiered-state cold or DA-backed cold storage.
     WsvCold,
-    /// SoraFS storage root.
+    /// `SoraFS` storage root.
     Sorafs,
 }
 impl NexusStorageBudgetComponent {
@@ -3507,7 +3509,7 @@ pub struct NexusStorage {
     pub(crate) configured_component_caps: Option<NexusStorageConfiguredComponentCaps>,
 }
 impl NexusStorage {
-    /// Return the resolved source SoraFS capacity before Nexus budget clamping.
+    /// Return the resolved source `SoraFS` capacity before Nexus budget clamping.
     ///
     /// `None` means no aggregate Nexus storage budget has captured component caps yet. This
     /// source value can be an explicit operator value or the generic default. The accessor lets
@@ -3545,6 +3547,7 @@ impl fmt::Debug for NexusStorage {
                 &self.consensus_stake_index_bytes,
             )
             .field("disk_budget_weights", &self.disk_budget_weights)
+            .field("configured_component_caps", &self.configured_component_caps)
             .finish()
     }
 }
@@ -3565,12 +3568,16 @@ impl_default!(NexusStorage => {
 });
 /// Basis-point budget weights for Nexus storage subsystems.
 #[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "All allocation weights explicitly name their basis-point unit."
+)]
 pub struct NexusStorageWeights {
     /// Budget share for Kura block storage (basis points).
     pub kura_blocks_bps: u16,
     /// Budget share for tiered-state cold snapshots (basis points).
     pub wsv_snapshots_bps: u16,
-    /// Budget share for SoraFS storage (basis points).
+    /// Budget share for `SoraFS` storage (basis points).
     pub sorafs_bps: u16,
 }
 impl NexusStorageWeights {
@@ -4025,6 +4032,10 @@ fn nexus_consensus_unit_ratio_bits(
 /// budgets, relay-worker scheduling, manifest filesystem paths, and compliance filesystem
 /// locations are intentionally excluded because path placement is not a protocol input; loaded
 /// compliance and lane-manifest policy-set digests are bound separately.
+///
+/// # Errors
+/// Rejects invalid floating-point policy or an enabled compliance policy, since
+/// this helper supplies no authenticated compliance-policy digest.
 #[cfg(test)]
 pub fn nexus_consensus_policy_digest(
     nexus: &Nexus,
@@ -4035,6 +4046,10 @@ pub fn nexus_consensus_policy_digest(
 ///
 /// `compliance_policy_digest` is required whenever [`LaneCompliance::enabled`] is true so two
 /// validators cannot execute the same transaction against different filesystem policy bundles.
+///
+/// # Errors
+/// Rejects invalid floating-point policy or an enabled compliance policy without
+/// its authenticated digest, as in [`nexus_consensus_policy_digest_with_runtime_policies`].
 #[cfg(test)]
 pub fn nexus_consensus_policy_digest_with_compliance(
     nexus: &Nexus,
@@ -4047,6 +4062,10 @@ pub fn nexus_consensus_policy_digest_with_compliance(
 /// Passing `None` for a policy set commits that absence, so it cannot match a validator that loaded
 /// a concrete registry digest. Runtime callers should always pass the installed lane-manifest
 /// digest, including for an empty registry.
+///
+/// # Errors
+/// Rejects invalid floating-point policy or an enabled compliance policy with no authenticated
+/// policy-set digest, as required by [`nexus_consensus_policy_preimage_with_runtime_policies`].
 pub fn nexus_consensus_policy_digest_with_runtime_policies(
     nexus: &Nexus,
     compliance_policy_digest: Option<[u8; 32]>,
@@ -5628,6 +5647,62 @@ impl DaRotation {
         self.max_hits_per_window.get()
     }
 }
+/// Node-local scheduling and input-work policy for original State capture.
+///
+/// Zero refuses the corresponding work. These ceilings never determine transaction
+/// validity, protocol gas or allocation credit. Every pending capture pins its
+/// policy beside the original source; completed work and charged scratch survive
+/// local exhaustion. Native work is granted by scheduled attempts, not inferred
+/// from output lengths or already consumed work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateCapture {
+    /// Maximum visited containers, variants and nested entries across original source shapes.
+    pub source_elements: u64,
+    /// Maximum visited variable text, key and signature input bytes; no allocation credit.
+    pub source_variable_bytes: u64,
+    /// Maximum row visits across the explicitly enumerated semantic passes.
+    pub source_table_pass_rows: u64,
+    /// Maximum original fixed-key evidence index population admitted for semantic lookup.
+    pub source_lookup_index_entries: u64,
+    /// Maximum explicitly planned model-validation and hash invocations.
+    pub source_model_operations: u64,
+    /// Maximum signature verifications, counting repeated provider edges.
+    pub source_signature_checks: u64,
+    /// Additional native resolve/comparison work granted per scheduled capture attempt.
+    pub native_work_per_attempt: usize,
+    /// Maximum selected tables in each canonical builder; each semantic builder selects one table.
+    pub table_count: usize,
+    /// Maximum canonical rows per table, matching the ordered-tree row geometry by default.
+    pub table_rows: u64,
+    /// Maximum emitted payload bytes per key or value; the encoder also enforces its key bound.
+    pub table_payload_bytes: usize,
+    /// Maximum retained ordered framing per table, matching the canonical ordered-tree bound by default.
+    pub table_ordered_bytes: usize,
+    /// Maximum aggregate canonical value bytes across both encoding passes per table.
+    pub table_streamed_value_bytes: u64,
+    /// Maximum canonical rows across the three captured semantic tables.
+    pub total_table_rows: u64,
+    /// Additional canonical encoding work per scheduled attempt, independent of native source work.
+    pub encoding_work_per_attempt: usize,
+}
+impl_default!(StateCapture => {
+    Self {
+        source_elements: defaults::pipeline::state_capture::SOURCE_ELEMENTS,
+        source_variable_bytes: defaults::pipeline::state_capture::SOURCE_VARIABLE_BYTES,
+        source_table_pass_rows: defaults::pipeline::state_capture::SOURCE_TABLE_PASS_ROWS,
+        source_lookup_index_entries: defaults::pipeline::state_capture::SOURCE_LOOKUP_INDEX_ENTRIES,
+        source_model_operations: defaults::pipeline::state_capture::SOURCE_MODEL_OPERATIONS,
+        source_signature_checks: defaults::pipeline::state_capture::SOURCE_SIGNATURE_CHECKS,
+        native_work_per_attempt: defaults::pipeline::state_capture::NATIVE_WORK_PER_ATTEMPT,
+        table_count: defaults::pipeline::state_capture::TABLE_COUNT,
+        table_rows: defaults::pipeline::state_capture::TABLE_ROWS,
+        table_payload_bytes: defaults::pipeline::state_capture::TABLE_PAYLOAD_BYTES,
+        table_ordered_bytes: defaults::pipeline::state_capture::TABLE_ORDERED_BYTES,
+        table_streamed_value_bytes: defaults::pipeline::state_capture::TABLE_STREAMED_VALUE_BYTES,
+        total_table_rows: defaults::pipeline::state_capture::TOTAL_TABLE_ROWS,
+        encoding_work_per_attempt: defaults::pipeline::state_capture::ENCODING_WORK_PER_ATTEMPT,
+    }
+});
 /// Pipeline settings controlling execution behavior.
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_excessive_bools)]
@@ -5647,7 +5722,7 @@ pub struct Pipeline {
     /// Use BinaryHeap-based ready queue in the deterministic scheduler.
     /// Default is per-wave sort; this switch is for benchmarking and development.
     pub ready_queue_heap: bool,
-    /// Optional GPU key bucketing (stable radix on (key, tx_idx, rw_flag)) for scheduler prepass.
+    /// Optional GPU key bucketing (stable radix on (key, `tx_idx`, `rw_flag`)) for scheduler prepass.
     /// Deterministic CPU fallback is always available. Off by default.
     pub gpu_key_bucket: bool,
     /// Emit scheduler input/output traces for deterministic tie-break debugging.
@@ -5670,6 +5745,8 @@ pub struct Pipeline {
     pub ivm_cache_max_bytes: usize,
     /// Finite active IVM allocation budget, distinct from idle retention (zero denies allocation).
     pub ivm_execution_max_bytes: usize,
+    /// Original State capture work policy, independent of allocation and committed validity.
+    pub state_capture: StateCapture,
     /// Rayon worker cap for prover/trace verification (0 = physical cores).
     pub ivm_prover_threads: usize,
     /// Maximum instructions allowed per overlay (0 = unlimited).
@@ -5727,6 +5804,7 @@ impl_default!(Pipeline => {
             ivm_cache_max_decoded_ops: defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
             ivm_cache_max_bytes: defaults::pipeline::IVM_CACHE_MAX_BYTES,
             ivm_execution_max_bytes: defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+            state_capture: StateCapture::default(),
             ivm_prover_threads: defaults::pipeline::IVM_PROVER_THREADS,
             overlay_max_instructions: defaults::pipeline::OVERLAY_MAX_INSTRUCTIONS,
             overlay_max_bytes: defaults::pipeline::OVERLAY_MAX_BYTES,
@@ -6189,6 +6267,7 @@ impl fmt::Debug for Oracle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Oracle")
             .field("history_depth", &self.history_depth)
+            .field("economics", &self.economics)
             .field("governance", &self.governance)
             .field("twitter_binding", &self.twitter_binding)
             .finish()
@@ -6262,6 +6341,10 @@ pub struct Content {
 }
 /// Content gateway SLO targets and rate limits.
 #[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "These are independently configured target objectives, not measured service results."
+)]
 pub struct ContentSlo {
     /// Target p50 latency (milliseconds) for content responses.
     pub target_p50_latency_ms: NonZeroU32,
@@ -6285,13 +6368,17 @@ pub struct ContentLimits {
 /// Proof-of-work guard configuration for content fetches.
 #[derive(Debug, Clone)]
 pub struct ContentPow {
-    /// Difficulty in leading zero bits (0 disables PoW).
+    /// Difficulty in leading zero bits (0 disables `PoW`).
     pub difficulty_bits: u8,
-    /// Header name expected to carry PoW tokens.
+    /// Header name expected to carry `PoW` tokens.
     pub header_name: String,
 }
 impl Compute {
     /// Apply a governance price-family update with bounds enforcement.
+    ///
+    /// # Errors
+    /// Returns the original governance refusal for an unknown family, missing risk
+    /// policy, changed unit label, or a price delta above its configured bound.
     pub fn apply_price_update(
         &mut self,
         family: &Name,
@@ -6339,6 +6426,10 @@ pub struct ComputeEconomics {
 }
 impl ComputeEconomics {
     /// Apply a governance price update after validating bounds.
+    ///
+    /// # Errors
+    /// Returns the original lookup, unit-label or full-width price-delta refusal
+    /// without changing `price_families`.
     pub fn apply_price_update(
         &self,
         family: &Name,
@@ -6359,36 +6450,20 @@ impl ComputeEconomics {
             .price_bounds
             .get(risk_class)
             .ok_or_else(|| ComputeGovernanceError::MissingRiskBounds { class: *risk_class })?;
-        if baseline.unit_label != new_weights.unit_label {
-            return Err(ComputeGovernanceError::UnitLabelChanged {
-                family: family.clone(),
-                from: baseline.unit_label.clone(),
-                to: new_weights.unit_label.clone(),
-            });
-        }
-        let cycles_delta = delta_bps(new_weights.cycles_per_unit, baseline.cycles_per_unit);
-        if cycles_delta > bounds.max_cycles_delta_bps.get() {
-            return Err(ComputeGovernanceError::CyclesDeltaExceeded {
-                family: family.clone(),
-                delta_bps: cycles_delta,
-                max_bps: bounds.max_cycles_delta_bps.get(),
-            });
-        }
-        let egress_delta = delta_bps(
-            new_weights.egress_bytes_per_unit,
-            baseline.egress_bytes_per_unit,
-        );
-        if egress_delta > bounds.max_egress_delta_bps.get() {
-            return Err(ComputeGovernanceError::EgressDeltaExceeded {
-                family: family.clone(),
-                delta_bps: egress_delta,
-                max_bps: bounds.max_egress_delta_bps.get(),
-            });
-        }
+        iroha_data_model::compute::validate_price_family_update(
+            family,
+            baseline,
+            &new_weights,
+            bounds,
+        )?;
         price_families.insert(family.clone(), new_weights);
         Ok(())
     }
     /// Validate that a requested sponsor allocation fits the configured caps.
+    ///
+    /// # Errors
+    /// Returns [`ComputeGovernanceError::SponsorCapExceeded`] when the request
+    /// exceeds the per-call or daily cap.
     pub fn validate_sponsor_allocation(
         &self,
         requested_cu: u64,
@@ -6396,45 +6471,28 @@ impl ComputeEconomics {
         self.validate_sponsor_allocation_with_usage(requested_cu, 0)
     }
     /// Validate sponsor allocation against per-call and daily caps.
+    ///
+    /// # Errors
+    /// Returns [`ComputeGovernanceError::SponsorCapExceeded`], checking the per-call
+    /// cap before the exact accumulated daily usage.
     pub fn validate_sponsor_allocation_with_usage(
         &self,
         requested_cu: u64,
         consumed_today: u64,
     ) -> core::result::Result<(), ComputeGovernanceError> {
-        let per_call_cap = self.sponsor_policy.max_cu_per_call.get();
-        if requested_cu > per_call_cap {
-            return Err(ComputeGovernanceError::SponsorCapExceeded {
-                requested: requested_cu,
-                limit: per_call_cap,
-            });
-        }
-        let running = consumed_today.saturating_add(requested_cu);
-        let daily_cap = self.sponsor_policy.max_daily_cu.get();
-        if running > daily_cap {
-            return Err(ComputeGovernanceError::SponsorCapExceeded {
-                requested: running,
-                limit: daily_cap,
-            });
-        }
-        Ok(())
+        iroha_data_model::compute::enforce_sponsor_policy(
+            &self.sponsor_policy,
+            requested_cu,
+            consumed_today,
+        )
     }
-}
-fn delta_bps(value: NonZeroU64, baseline: NonZeroU64) -> u16 {
-    let base = baseline.get() as u128;
-    let value = value.get() as u128;
-    let diff = if value > base {
-        value - base
-    } else {
-        base - value
-    };
-    (diff.saturating_mul(10_000) / base) as u16
 }
 /// Cursor handling mode for server-facing iterable queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryCursorMode {
     /// Return only the first batch; do not store a server-side cursor.
     Ephemeral,
-    /// Store a cursor in the LiveQueryStore and allow continuation.
+    /// Store a cursor in the `LiveQueryStore` and allow continuation.
     Stored,
 }
 /// Committed gas fee projection: accepted assets, conversion mapping, and receiver.
@@ -6557,6 +6615,10 @@ pub struct KuraMembershipStoragePolicy {
 }
 /// Immutable storage limits for opaque FASTPQ artifacts; these limits confer no proof authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Fields distinguish maximum per-artifact bytes, artifact count, and aggregate bytes."
+)]
 pub struct KuraFastpqArtifactPolicy {
     /// Maximum complete artifact bytes, including its nominal encoded wrapper.
     pub max_artifact_bytes: NonZeroUsize,
@@ -6880,7 +6942,7 @@ pub struct TrustedPeers {
     pub myself: Peer,
     /// Other trusted peers.
     pub others: UniqueVec<Peer>,
-    /// Proof-of-Possession (PoP) for validator BLS keys, keyed by public key.
+    /// Proof-of-Possession (`PoP`) for validator BLS keys, keyed by public key.
     /// Only BLS trusted peers with explicit valid entries form the validator
     /// roster. An empty map yields no validators, and entries cannot introduce
     /// peers outside the trusted-peer set.
@@ -6900,7 +6962,7 @@ impl TrustedPeers {
     pub fn contains_other_trusted_peers(&self) -> bool {
         !self.others.is_empty()
     }
-    /// Return the validator roster size resolved by the bootstrap PoP policy.
+    /// Return the validator roster size resolved by the bootstrap `PoP` policy.
     #[must_use]
     pub fn validator_roster_len(&self) -> usize {
         if self.pops.is_empty() {
@@ -6929,12 +6991,16 @@ impl_default!(LiveQueryStore => {
 });
 /// Block synchronization parameters.
 #[derive(Debug, Clone, Copy)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "These configuration fields name the block-sync gossip mechanism they control."
+)]
 pub struct BlockSync {
     /// Block gossip interval.
     pub gossip_period: Duration,
     /// Maximum block gossip interval (idle backoff ceiling).
     pub gossip_max_period: Duration,
-    /// Fanout cap for block-sync gossip (peer samples, block sync updates, availability votes, and NEW_VIEW gossip).
+    /// Fanout cap for block-sync gossip (peer samples, block sync updates, availability votes, and `NEW_VIEW` gossip).
     pub gossip_size: NonZeroU32,
 }
 /// Dataspace-aware transaction gossip targeting policy.
@@ -7194,6 +7260,10 @@ impl_default!(Push => {
 });
 /// Torii API configuration.
 #[derive(Clone)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Authentication, diagnostics, webhooks, attachments, and the prover are independent configuration policies."
+)]
 pub struct Torii {
     /// API listening address.
     pub address: WithOrigin<SocketAddr>,
@@ -7257,7 +7327,7 @@ pub struct Torii {
     pub api_fee_amount: Option<Quantity>,
     /// Optional fee policy: receiver account id (canonical I105 literal).
     pub api_fee_receiver: Option<String>,
-    /// SoraNet privacy ingestion guard rails (auth/rate/namespace).
+    /// `SoraNet` privacy ingestion guard rails (auth/rate/namespace).
     pub soranet_privacy_ingest: SoranetPrivacyIngest,
     /// Optional authenticated native Bootle/Lantern blind-issuance service.
     pub privacy_bootle_lantern_issuer: Option<ToriiBootleLanternIssuer>,
@@ -7297,7 +7367,7 @@ pub struct Torii {
     /// Optional queued-transaction threshold above which Torii rejects new stream admissions.
     /// When `None`, Torii uses its internal stream default.
     pub api_high_load_stream_threshold: Option<usize>,
-    /// Optional queued-transaction threshold above which Torii rejects new subscription WebSockets.
+    /// Optional queued-transaction threshold above which Torii rejects new subscription `WebSockets`.
     /// When `None`, Torii uses the streaming threshold.
     pub api_high_load_subscription_threshold: Option<usize>,
     /// Capacity of the broadcast channel used for events/SSE/webhooks.
@@ -7364,19 +7434,19 @@ pub struct Torii {
     pub transaction_ingress: TransactionIngress,
     /// Data-availability ingest configuration.
     pub da_ingest: DaIngest,
-    /// SoraFS discovery cache configuration.
+    /// `SoraFS` discovery cache configuration.
     pub sorafs_discovery: SorafsDiscovery,
-    /// Embedded SoraFS storage configuration.
+    /// Embedded `SoraFS` storage configuration.
     pub sorafs_storage: SorafsStorage,
-    /// Repair scheduler configuration for SoraFS.
+    /// Repair scheduler configuration for `SoraFS`.
     pub sorafs_repair: SorafsRepair,
-    /// GC scheduler configuration for SoraFS.
+    /// GC scheduler configuration for `SoraFS`.
     pub sorafs_gc: SorafsGc,
-    /// Quota configuration for SoraFS control-plane endpoints.
+    /// Quota configuration for `SoraFS` control-plane endpoints.
     pub sorafs_quota: SorafsQuota,
     /// Alias cache policy shared across gateways and SDKs.
     pub sorafs_alias_cache: SorafsAliasCachePolicy,
-    /// Gateway policy and automation configuration for SoraFS delivery.
+    /// Gateway policy and automation configuration for `SoraFS` delivery.
     pub sorafs_gateway: SorafsGateway,
     /// Proof-of-Retrievability coordinator configuration.
     pub sorafs_por: SorafsPor,
@@ -7625,11 +7695,11 @@ pub struct ToriiOperatorAuth {
     pub burst: Option<NonZeroU32>,
     /// Per-kind capacity for expiry-bound operator-auth state.
     pub ephemeral_state_capacity: NonZeroUsize,
-    /// Maximum number of persisted operator WebAuthn credentials.
+    /// Maximum number of persisted operator `WebAuthn` credentials.
     pub credential_capacity: NonZeroUsize,
     /// Temporary lockout policy for repeated failures.
     pub lockout: OperatorAuthLockout,
-    /// WebAuthn configuration (when enabled).
+    /// `WebAuthn` configuration (when enabled).
     pub webauthn: Option<OperatorWebAuthnConfig>,
 }
 impl fmt::Debug for ToriiOperatorAuth {
@@ -7686,20 +7756,20 @@ impl_default!(OperatorAuthLockout => {
             duration: Duration::from_secs(defaults::torii::operator_auth::LOCKOUT_DURATION_SECS),
         }
 });
-/// WebAuthn configuration required for operator auth.
+/// `WebAuthn` configuration required for operator auth.
 #[derive(Debug, Clone)]
 pub struct OperatorWebAuthnConfig {
-    /// RP ID used for WebAuthn (domain).
+    /// RP ID used for `WebAuthn` (domain).
     pub rp_id: String,
-    /// RP display name used in WebAuthn options.
+    /// RP display name used in `WebAuthn` options.
     pub rp_name: String,
-    /// Allowed WebAuthn origins.
+    /// Allowed `WebAuthn` origins.
     pub origins: Vec<Url>,
-    /// User identifier injected into WebAuthn registration options.
+    /// User identifier injected into `WebAuthn` registration options.
     pub user_id: Vec<u8>,
-    /// User name injected into WebAuthn registration options.
+    /// User name injected into `WebAuthn` registration options.
     pub user_name: String,
-    /// User display name injected into WebAuthn registration options.
+    /// User display name injected into `WebAuthn` registration options.
     pub user_display_name: String,
     /// Challenge TTL for registration/assertion options.
     pub challenge_ttl: Duration,
@@ -7707,10 +7777,10 @@ pub struct OperatorWebAuthnConfig {
     pub session_ttl: Duration,
     /// Require user verification during assertions.
     pub require_user_verification: bool,
-    /// Allowed WebAuthn algorithms.
+    /// Allowed `WebAuthn` algorithms.
     pub allowed_algorithms: Vec<OperatorWebAuthnAlgorithm>,
 }
-/// Supported WebAuthn algorithms for operator auth.
+/// Supported `WebAuthn` algorithms for operator auth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatorWebAuthnAlgorithm {
     /// COSE alg -7 (ES256 / P-256).
@@ -7762,7 +7832,7 @@ impl_default!(ToriiPeerGeo => {
             endpoint: defaults::torii::peer_geo::endpoint(),
         }
 });
-/// Ingress controls for SoraNet privacy telemetry endpoints.
+/// Ingress controls for `SoraNet` privacy telemetry endpoints.
 #[derive(Debug, Clone)]
 pub struct SoranetPrivacyIngest {
     /// Master enable switch for the `/v1/soranet/privacy/*` endpoints.
@@ -7975,7 +8045,7 @@ pub struct ToriiFaucet {
     pub pow_scrypt_r: u32,
     /// Scrypt parallelization parameter for faucet proof-of-work.
     pub pow_scrypt_p: u32,
-    /// Maximum age of an accepted faucet PoW anchor, measured in committed blocks.
+    /// Maximum age of an accepted faucet `PoW` anchor, measured in committed blocks.
     pub pow_max_anchor_age_blocks: NonZeroU64,
     /// Number of recent committed blocks to scan for prior faucet claims when adapting difficulty.
     pub pow_adaptive_lookback_blocks: u64,
@@ -8135,7 +8205,7 @@ pub struct DaIngest {
     pub replay_cache_max_sequence_lag: u64,
     /// Directory used to persist replay cursors across restarts.
     pub replay_cache_store_dir: PathBuf,
-    /// Directory where canonical DA manifests are queued for SoraFS orchestration.
+    /// Directory where canonical DA manifests are queued for `SoraFS` orchestration.
     pub manifest_store_dir: PathBuf,
     /// Maximum number of concurrent CPU-intensive DA ingest jobs.
     pub max_concurrent_compute_jobs: NonZeroUsize,
@@ -8147,7 +8217,7 @@ pub struct DaIngest {
     pub governance_metadata_key: Option<[u8; 32]>,
     /// Optional label advertised inside encrypted governance metadata envelopes.
     pub governance_metadata_key_label: Option<String>,
-    /// Optional SoraNS anchor delivery configuration for Taikai envelopes.
+    /// Optional `SoraNS` anchor delivery configuration for Taikai envelopes.
     pub taikai_anchor: Option<DaTaikaiAnchor>,
     /// Replication policy enforced for each blob class.
     pub replication_policy: DaReplicationPolicy,
@@ -8193,7 +8263,7 @@ impl fmt::Debug for DaIngest {
             .finish()
     }
 }
-/// Configuration describing how Torii should publish Taikai artefacts to SoraNS.
+/// Configuration describing how Torii should publish Taikai artefacts to `SoraNS`.
 #[derive(Clone)]
 pub struct DaTaikaiAnchor {
     /// HTTP(S) endpoint that accepts Taikai envelope uploads.
@@ -8241,7 +8311,7 @@ impl_default!(DaIngest => {
             telemetry_cluster_label: None,
         }
 });
-/// Torii-side SoraFS discovery configuration.
+/// Torii-side `SoraFS` discovery configuration.
 #[derive(Debug, Clone)]
 pub struct SorafsDiscovery {
     /// Whether the discovery API is active.
@@ -8254,7 +8324,7 @@ pub struct SorafsDiscovery {
     pub replay_checkpoint_max_entries: NonZeroUsize,
     /// Optional admission registry configuration.
     pub admission: Option<SorafsAdmission>,
-    /// Optional publish peer discovery hints served to SoraFS deploy clients.
+    /// Optional publish peer discovery hints served to `SoraFS` deploy clients.
     pub publish: SorafsPublishDiscovery,
 }
 impl_default!(SorafsDiscovery => {
@@ -8269,11 +8339,11 @@ impl_default!(SorafsDiscovery => {
             publish: SorafsPublishDiscovery::default(),
         }
 });
-/// Governance admission registry configuration for SoraFS providers.
+/// Governance admission registry configuration for `SoraFS` providers.
 #[derive(Debug, Clone, Copy)]
 pub struct SorafsAdmission;
 
-/// Config-backed SoraFS publish peer hints exposed by Torii.
+/// Config-backed `SoraFS` publish peer hints exposed by Torii.
 #[derive(Debug, Clone, Default)]
 pub struct SorafsPublishDiscovery {
     /// Public gateway base URL deploy clients should verify after pinning.
@@ -8281,15 +8351,15 @@ pub struct SorafsPublishDiscovery {
     /// Torii URLs deploy clients should pin storage to after registering a paid pin.
     pub pin_torii_urls: Vec<SorafsPublishBaseUrl>,
 }
-/// Canonical HTTP(S) origin advertised to SoraFS deploy clients.
+/// Canonical HTTP(S) origin advertised to `SoraFS` deploy clients.
 ///
 /// The validated representation has no credentials, query, fragment, or non-root path. Its
 /// canonical configuration and wire spelling omits the root-path slash.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SorafsPublishBaseUrl(Url);
-/// Maximum encoded length of one SoraFS publish origin.
+/// Maximum encoded length of one `SoraFS` publish origin.
 pub const SORAFS_PUBLISH_BASE_URL_MAX_BYTES_V1: usize = 2_048;
-/// Maximum number of pin Torii origins exposed by SoraFS publish discovery.
+/// Maximum number of pin Torii origins exposed by `SoraFS` publish discovery.
 pub const SORAFS_PUBLISH_PIN_TORII_URLS_MAX_V1: usize = 500;
 impl SorafsPublishBaseUrl {
     /// Return the canonical origin spelling without a trailing root-path slash.
@@ -8374,7 +8444,7 @@ impl FromStr for SorafsPublishBaseUrl {
         Ok(Self(url))
     }
 }
-/// Reason a configured SoraFS publish origin is invalid.
+/// Reason a configured `SoraFS` publish origin is invalid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum SorafsPublishBaseUrlError {
     /// No URL was supplied.
@@ -8477,9 +8547,9 @@ impl_default!(SorafsGc => {
 pub struct SorafsPor {
     /// Enable the verified coordinator runtime.
     pub enabled: bool,
-    /// Exact public bindings for the production PoTR signer and finalized-reader boundary.
+    /// Exact public bindings for the production `PoTR` signer and finalized-reader boundary.
     pub potr_runtime: Option<SorafsPotrRuntimeBinding>,
-    /// Duration of a PoR epoch (seconds).
+    /// Duration of a `PoR` epoch (seconds).
     pub epoch_interval_secs: u64,
     /// Window granted to providers to submit proofs (seconds).
     pub response_window_secs: u64,
@@ -8520,7 +8590,7 @@ impl_default!(SorafsPor => {
             .expect("default PoR auditor signature threshold must be non-zero"),
         }
 });
-/// Exact non-secret production boundary for PoTR signing and finalized policy reads.
+/// Exact non-secret production boundary for `PoTR` signing and finalized policy reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorafsPotrRuntimeBinding {
     /// Independently administered gateway signer binding.
@@ -8538,7 +8608,7 @@ pub struct SorafsPotrRuntimeBinding {
     /// Exact baseline finalized provider-admission policy.
     pub baseline_admission_policy: SorafsPotrAdmissionPolicyBinding,
 }
-/// Public identity and qualification of one PoTR runtime signer.
+/// Public identity and qualification of one `PoTR` runtime signer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorafsPotrRuntimeSignerBinding {
     /// Stable opaque authenticated external signer handle.
@@ -8550,7 +8620,7 @@ pub struct SorafsPotrRuntimeSignerBinding {
     /// Exact non-zero digest of the signer's public policy.
     pub policy_digest: [u8; 32],
 }
-/// Exact finalized provider-admission policy pinned at PoTR startup.
+/// Exact finalized provider-admission policy pinned at `PoTR` startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SorafsPotrAdmissionPolicyBinding {
     /// Provider governed by this admission revision.
@@ -8568,7 +8638,7 @@ pub struct SorafsPotrAdmissionPolicyBinding {
     /// Digest of the exact council-verified admission envelope.
     pub admission_envelope_digest: [u8; 32],
 }
-/// Pinned drand chain and hardened HTTP client configuration for SoraFS PoR.
+/// Pinned drand chain and hardened HTTP client configuration for `SoraFS` `PoR`.
 #[derive(Debug, Clone)]
 pub struct SorafsPorDrand {
     /// Exact supported drand scheme identifier.
@@ -8622,7 +8692,7 @@ impl_default!(SorafsPorDrand => {
             state_path: super::defaults::sorafs::por::drand_state_path(),
         }
 });
-/// SoraFS appeal-finance settlement submitter configuration.
+/// `SoraFS` appeal-finance settlement submitter configuration.
 #[derive(Debug, Clone)]
 pub struct SorafsAppealFinanceSettlement {
     /// Exact governed asset definition accepted by the appeal-finance APIs.
@@ -8970,7 +9040,7 @@ pub struct SorafsModerationQuarantineKeyProviderBinding {
     /// Exact non-zero digest of the provider's public policy.
     pub policy_digest: [u8; 32],
 }
-/// Exact public identity and qualification of one native SoraFS transaction signer.
+/// Exact public identity and qualification of one native `SoraFS` transaction signer.
 ///
 /// A credential path explicitly selects daemon-owned software custody; omission resolves
 /// the handle through deployment-owned runtime injection. Secret bytes never enter config.
@@ -8991,7 +9061,7 @@ pub struct SorafsNativeTransactionSignerBinding {
     /// Exact non-zero digest of the provider's public policy.
     pub policy_digest: [u8; 32],
 }
-/// Role-separated public bindings for native SoraFS transaction signers.
+/// Role-separated public bindings for native `SoraFS` transaction signers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SorafsNativeTransactionSignerBindings {
     /// Proof-outcome transaction signer binding.
@@ -9030,7 +9100,7 @@ impl Default for SorafsSignerJournalInventory {
         }
     }
 }
-/// Embedded SoraFS storage configuration (Torii-owned).
+/// Embedded `SoraFS` storage configuration (Torii-owned).
 #[derive(Debug, Clone)]
 pub struct SorafsStorage {
     /// Whether the storage worker is enabled.
@@ -9045,7 +9115,7 @@ pub struct SorafsStorage {
     pub max_parallel_fetches: usize,
     /// Maximum number of pinned manifests accepted before back-pressure.
     pub max_pins: usize,
-    /// One configured inventory resource pool shared by all SoraFS signer purposes.
+    /// One configured inventory resource pool shared by all `SoraFS` signer purposes.
     pub signer_journal_inventory: SorafsSignerJournalInventory,
     /// Periodic Proof-of-Retrievability sampling cadence (seconds).
     pub por_sample_interval_secs: u64,
@@ -9061,14 +9131,14 @@ pub struct SorafsStorage {
     pub moderation_screening_authority_bundle_digest: Option<[u8; 32]>,
     /// Exact public identity and policy of the runtime quarantine-key provider.
     pub moderation_quarantine_key_provider: Option<SorafsModerationQuarantineKeyProviderBinding>,
-    /// Governed PoP credential-service policy. Runtime key material is injected
+    /// Governed `PoP` credential-service policy. Runtime key material is injected
     /// separately and is never represented in configuration.
     pub pop_credentials: Option<SorafsPopCredentialService>,
     /// Finalized-chain moderation orchestration policy. Transaction signing,
     /// finalized reads, and terminal sinks remain runtime-injected.
     pub moderation_orchestrator: Option<SorafsModerationOrchestrator>,
     /// Production case-bound SFM-4b3 evidence-viewer policy. Finalized reads,
-    /// WebAuthn, rotating grants, erasure, and receipt signing remain
+    /// `WebAuthn`, rotating grants, erasure, and receipt signing remain
     /// runtime-injected.
     pub evidence_viewer: Option<SorafsEvidenceViewer>,
     /// Finalized-ledger reputation projection and external publication policy.
@@ -9079,7 +9149,7 @@ pub struct SorafsStorage {
     /// Restart-safe finalized reserve-event feed into the durable
     /// transparency source index.
     pub reserve_transparency_runtime: Option<SorafsReserveTransparencyRuntime>,
-    /// Authenticated immutable archive used to retain compacted finalized PoR
+    /// Authenticated immutable archive used to retain compacted finalized `PoR`
     /// replay records.
     ///
     /// The archive implementation and its Ed25519 signing key remain
@@ -9140,7 +9210,7 @@ pub struct SorafsStorage {
     /// Governance DAG public service and shared sealed producer-state binding.
     pub governance_dag_service: SorafsGovernanceDagService,
 }
-/// Non-secret qualification and worker policy for finalized PoR replay archival.
+/// Non-secret qualification and worker policy for finalized `PoR` replay archival.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorafsPorReplayArchive {
     /// Stable deployment-owned runtime-provider handle.
@@ -9164,6 +9234,10 @@ pub struct SorafsPorReplayArchive {
 }
 /// Governance DAG public-service configuration and shared sealed producer state.
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Service activation and each transport, endpoint, and bootstrap permission are independent policies."
+)]
 pub struct SorafsGovernanceDagService {
     /// Whether filesystem feeds are reconciled to the public endpoint continuously.
     pub enabled: bool,
@@ -9345,7 +9419,7 @@ impl SorafsGovernanceDagServiceView {
             .change_context(FromTomlSourceError)
     }
 }
-/// Retention and checkpoint bounds for auxiliary embedded SoraFS runtime state.
+/// Retention and checkpoint bounds for auxiliary embedded `SoraFS` runtime state.
 #[derive(Debug, Clone, Copy)]
 pub struct SorafsRuntimeRetention {
     /// Maximum replay events retained for each local event stream.
@@ -9485,7 +9559,7 @@ pub struct SorafsEvidenceViewer {
     pub session_ttl: Duration,
     /// Rotating grant lifetime.
     pub grant_ttl: Duration,
-    /// WebAuthn challenge lifetime.
+    /// `WebAuthn` challenge lifetime.
     pub challenge_ttl: Duration,
     /// Maximum authenticated plaintext range.
     pub max_range_bytes: Bytes,
@@ -9499,15 +9573,15 @@ pub struct SorafsEvidenceViewer {
     pub max_idempotency_records: usize,
     /// Retention interval after the last session expires.
     pub retention_after_expiry: Duration,
-    /// WebAuthn relying-party identifier.
+    /// `WebAuthn` relying-party identifier.
     pub webauthn_rp_id: String,
-    /// Exact HTTPS origins accepted by WebAuthn.
+    /// Exact HTTPS origins accepted by `WebAuthn`.
     pub webauthn_allowed_origins: Vec<String>,
-    /// Identity-pinned WebAuthn runtime handle.
+    /// Identity-pinned `WebAuthn` runtime handle.
     pub webauthn_handle: String,
-    /// Exact non-zero WebAuthn adapter and public-policy revision.
+    /// Exact non-zero `WebAuthn` adapter and public-policy revision.
     pub webauthn_revision: u64,
-    /// Exact WebAuthn adapter public-policy digest.
+    /// Exact `WebAuthn` adapter public-policy digest.
     pub webauthn_policy_digest: [u8; 32],
     /// Identity-pinned rotating-grant runtime handle.
     pub grant_handle: String,
@@ -9552,7 +9626,7 @@ pub struct SorafsEvidenceViewer {
     /// Exact Ed25519 transparency-head verification key.
     pub transparency_publisher_public_key: [u8; 32],
 }
-/// Non-secret production policy for the supervised SoraFS hedging/billing runtime.
+/// Non-secret production policy for the supervised `SoraFS` hedging/billing runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorafsHedgingBillingRuntime {
     /// Private directory containing the canonical projector checkpoint.
@@ -9608,7 +9682,7 @@ pub struct SorafsHedgingBillingRuntime {
     /// Maximum admitted finalized-head lag before readiness fails closed.
     pub max_finalized_lag_blocks: u64,
 }
-/// Durable completion-outbox policy for supervised SoraFS provider ingest.
+/// Durable completion-outbox policy for supervised `SoraFS` provider ingest.
 #[derive(Debug, Clone, Copy)]
 pub struct SorafsProviderIngestOutbox {
     /// Maximum non-terminal ingest jobs. Active work is never pruned.
@@ -9715,7 +9789,7 @@ pub struct SorafsProviderIngestFinalizedArchive {
     /// External authority required before any retention checkpoint is installed.
     pub retention_authority: Option<SorafsProviderIngestFinalizedArchiveRetentionAuthority>,
 }
-/// Non-secret production policy for supervised SoraFS provider ingest.
+/// Non-secret production policy for supervised `SoraFS` provider ingest.
 ///
 /// The opaque handles identify qualified providers. An owner-only credential path explicitly
 /// selects native software custody; secret bytes and fetched payloads stay outside configuration.
@@ -10099,7 +10173,7 @@ impl_default!(SorafsEvidenceViewerAuditSchedule => {
                 defaults::sorafs::storage::evidence_viewer_audits::PUBLISH_DELAY_SECONDS,
         }
 });
-/// Under-delivery penalty policy enforced for SoraFS providers.
+/// Under-delivery penalty policy enforced for `SoraFS` providers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SorafsPenaltyPolicy {
     /// Minimum utilisation ratio (basis points) required before a strike is counted.
@@ -10116,7 +10190,7 @@ pub struct SorafsPenaltyPolicy {
     pub cooldown_windows: u32,
     /// Maximum PDP failures tolerated within a telemetry window before forcing a strike (0 = none).
     pub max_pdp_failures: u32,
-    /// Maximum PoTR SLA breaches tolerated within a telemetry window before forcing a strike (0 = none).
+    /// Maximum `PoTR` SLA breaches tolerated within a telemetry window before forcing a strike (0 = none).
     pub max_potr_breaches: u32,
 }
 impl SorafsPenaltyPolicy {
@@ -10138,7 +10212,7 @@ impl_default!(SorafsPenaltyPolicy => {
             max_potr_breaches: defaults::governance::sorafs_penalty::MAX_POTR_BREACHES,
         }
 });
-/// Telemetry authentication and replay policy for SoraFS capacity windows.
+/// Telemetry authentication and replay policy for `SoraFS` capacity windows.
 #[derive(Debug, Clone)]
 pub struct SorafsTelemetryPolicy {
     /// Require telemetry submissions to originate from a configured allow-list.
@@ -10256,9 +10330,9 @@ include!("actual_sorafs_gateway.rs");
 pub struct SorafsAdvertOverrides {
     /// Optional governance stake pointer advertised alongside the provider ID.
     pub stake_pointer: Option<String>,
-    /// Availability tier advertised in QoS hints.
+    /// Availability tier advertised in `QoS` hints.
     pub availability: String,
-    /// Maximum retrieval latency (milliseconds) advertised in QoS hints.
+    /// Maximum retrieval latency (milliseconds) advertised in `QoS` hints.
     pub max_latency_ms: u32,
     /// Rendezvous topics broadcast for discovery.
     pub topics: Vec<String>,
@@ -10271,7 +10345,7 @@ impl_default!(SorafsAdvertOverrides => {
             topics: defaults::sorafs::storage::advert_topics(),
         }
 });
-/// One governed Ed25519 signer authorized to approve SoraFS pin manifests.
+/// One governed Ed25519 signer authorized to approve `SoraFS` pin manifests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorafsPinApprovalSigner {
     /// Stable payload-free signer identifier.
@@ -10293,7 +10367,7 @@ impl SorafsPinApprovalSigner {
                 .is_none_or(|revoked_at| block_height < revoked_at)
     }
 }
-/// Governance-defined constraints enforced on SoraFS pin policies.
+/// Governance-defined constraints enforced on `SoraFS` pin policies.
 #[derive(Debug, Clone)]
 pub struct SorafsPinPolicyConstraints {
     /// Minimum number of replicas required for an approved manifest.
@@ -10449,7 +10523,7 @@ pub struct IsoBridgeProfile {
     pub rail: String,
     /// Optional profile-level embedded XML signature policy.
     pub embedded_signature_policy: Option<String>,
-    /// SHA-256 pins for accepted XMLDSig signer public-key bytes.
+    /// SHA-256 pins for accepted `XMLDSig` signer public-key bytes.
     pub signature_public_key_sha256_pins: Vec<String>,
     /// SHA-256 pins for accepted X.509 trust-anchor certificate DER bytes.
     pub x509_trust_anchor_sha256_pins: Vec<String>,
@@ -10463,7 +10537,7 @@ pub struct IsoBridgeProfile {
     pub x509_require_ocsp_revocation_check: bool,
     /// Base64 DER OCSP responses accepted as rail-profile revocation material.
     pub x509_ocsp_response_der_base64: Vec<String>,
-    /// SHA-256 pins of DER XMLDSig X.509 certificates denied by this profile.
+    /// SHA-256 pins of DER `XMLDSig` X.509 certificates denied by this profile.
     pub revoked_certificate_sha256: Vec<String>,
     /// Required reference datasets for this profile.
     pub required_reference_datasets: Vec<String>,
@@ -10483,7 +10557,7 @@ pub struct IsoMessageProfile {
     pub business_services: Vec<String>,
     /// Whether a Business Application Header is required.
     pub require_app_header: bool,
-    /// Whether BizSvc must be present.
+    /// Whether `BizSvc` must be present.
     pub require_business_service: bool,
     /// Whether UETR must be present.
     pub require_uetr: bool,
@@ -10510,7 +10584,7 @@ pub struct IsoBridgeSigner {
     /// Private key used to sign generated transactions.
     pub private_key: PrivateKey,
 }
-/// Account alias mapping (IBAN -> AccountId).
+/// Account alias mapping (IBAN -> `AccountId`).
 #[derive(Debug, Clone)]
 pub struct IsoAccountAlias {
     /// External IBAN representation.
@@ -10649,6 +10723,10 @@ pub struct Zk {
 }
 /// SCCP proof-admission and deterministic verifier-work limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Each maximum independently bounds a named SCCP resource and transaction or block scope."
+)]
 pub struct Sccp {
     /// Maximum closed SCCP proofs in one transaction.
     pub max_proofs_per_transaction: NonZeroU32,
@@ -10740,7 +10818,7 @@ pub struct StreamingCodec {
     pub cabac_mode: CabacMode,
     /// Trellis-enabled block sizes (empty until claim-avoidance ships).
     pub trellis_block_sizes: Vec<u16>,
-    /// Path to the deterministic SignedRansTablesV1 artefact.
+    /// Path to the deterministic `SignedRansTablesV1` artefact.
     pub rans_tables_path: PathBuf,
     /// Entropy mode advertised by manifests/headers.
     pub entropy_mode: EntropyMode,
@@ -10753,10 +10831,12 @@ impl StreamingCodec {
     /// Construct codec toggles from repository defaults.
     #[must_use]
     pub fn from_defaults() -> Self {
-        assert!(
-            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-            "Bundled rANS is mandatory; rebuild with ENABLE_RANS_BUNDLES=1"
-        );
+        const {
+            assert!(
+                norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+                "Bundled rANS is mandatory; rebuild with ENABLE_RANS_BUNDLES=1"
+            );
+        }
         Self {
             cabac_mode: CabacMode::Disabled,
             trellis_block_sizes: defaults::streaming::codec::trellis_blocks(),
@@ -10921,7 +11001,7 @@ impl_default!(DiagnosticTrace => {
 pub struct Stark {
     /// Enable native STARK verification (requires `zk-stark` build feature).
     pub enabled: bool,
-    /// Maximum accepted outer STARK OpenVerifyEnvelope length (bytes).
+    /// Maximum accepted outer STARK `OpenVerifyEnvelope` length (bytes).
     pub max_envelope_bytes: usize,
     /// Maximum accepted proof payload length (bytes).
     pub max_proof_bytes: usize,
@@ -11024,7 +11104,7 @@ pub struct Telemetry {
     pub telegram_chat_id: Option<String>,
     /// Optional minimum level for Telegram alerts (e.g., "WARN", "ERROR").
     pub telegram_min_level: Option<String>,
-    /// Optional list of target prefixes to include (e.g., ["p2p", "network"]). If empty or None, include all.
+    /// Optional list of target prefixes to include (e.g., `["p2p", "network"]`). If empty or `None`, include all.
     pub telegram_targets: Option<Vec<String>>,
     /// Optional alerts rate limit (messages per minute).
     pub telegram_rate_per_minute: Option<NonZeroU32>,

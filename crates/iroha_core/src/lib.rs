@@ -4,49 +4,6 @@
 //! Borrowed query views retain distinct nominal identities and explicitly project
 //! to the owned result's frame; payload serialization does not choose an identity.
 #![allow(unexpected_cfgs)]
-// Nested `if` blocks remain intentional for readability/instrumentation; Clippy's
-// `collapsible_if` lint would force let-chains that obscure the control flow.
-#![allow(clippy::collapsible_if)]
-#![allow(
-    clippy::cast_lossless,
-    clippy::cloned_instead_of_copied,
-    clippy::clone_on_copy,
-    clippy::collapsible_else_if,
-    clippy::doc_markdown,
-    clippy::explicit_iter_loop,
-    clippy::identity_op,
-    clippy::if_not_else,
-    clippy::if_same_then_else,
-    clippy::ignored_unit_patterns,
-    clippy::iter_overeager_cloned,
-    clippy::iter_with_drain,
-    clippy::large_enum_variant,
-    clippy::map_unwrap_or,
-    clippy::match_same_arms,
-    clippy::missing_const_for_thread_local,
-    clippy::needless_borrows_for_generic_args,
-    clippy::needless_continue,
-    clippy::needless_pass_by_value,
-    clippy::needless_return,
-    clippy::option_if_let_else,
-    clippy::ptr_arg,
-    clippy::question_mark,
-    clippy::redundant_closure_for_method_calls,
-    clippy::redundant_pub_crate,
-    clippy::result_large_err,
-    clippy::return_self_not_must_use,
-    clippy::single_match_else,
-    clippy::struct_excessive_bools,
-    clippy::struct_field_names,
-    clippy::too_many_arguments,
-    clippy::too_many_lines,
-    clippy::type_complexity,
-    clippy::unnecessary_wraps,
-    clippy::unused_self,
-    clippy::useless_conversion,
-    clippy::useless_let_if_seq
-)]
-#![cfg_attr(test, allow(clippy::large_stack_arrays))]
 #[cfg(not(feature = "zk-ipa-native"))]
 compile_error!(
     "Native IPA helpers must remain enabled; `zk-ipa-native` is required for all builds"
@@ -563,6 +520,9 @@ mod frame_identity_tests;
 pub(crate) mod ivm_test_support;
 #[cfg(any(test, feature = "iroha-core-tests"))]
 pub(crate) mod manifest_signing_test_support;
+#[cfg(test)]
+#[path = "../tests/common/native_validation.rs"]
+mod native_validation;
 #[cfg(test)]
 pub(crate) mod unit_test_support;
 // Governance height/custody fixtures use explicit synthetic publication,

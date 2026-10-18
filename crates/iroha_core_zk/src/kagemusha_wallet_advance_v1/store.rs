@@ -14,17 +14,33 @@
 //!   is `NotPublished` before file creation, with no fallback name.
 //! - **pair** ([`KagemushaWalletDurableStoreV1::write_new_pair`]): two staged files, two
 //!   syncs, two create-new renames and one parent sync; the outcome is reported per name.
+//! - **batch** ([`KagemushaWalletDurableStoreV1::publish_batch`]): any number of distinct
+//!   names in one directory, in chunks of at most [`KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1`]
+//!   live staged files: each chunk's files are staged and synced, then renamed (create-new, or
+//!   replacing for a fresh-inode adoption of identical bytes); one parent sync follows the last
+//!   chunk. One outcome covers the batch: `Published` only after that sync, `NotPublished`
+//!   for a failure before the first rename, `Uncertain` for any failure after it. Every
+//!   file's data is synced before its rename, so after power loss each name is absent or holds
+//!   its exact bytes, whichever renames survive.
 //! - **same-content rewrite** ([`KagemushaWalletDurableStoreV1::rewrite_same`]): publishes
 //!   byte-identical content on a fresh inode with an atomic replacing rename, so a file whose
 //!   earlier sync reported (and lost) a writeback error becomes durable.
+//! - **archive retirement** ([`KagemushaWalletDurableStoreV1::retain_retired_files`]): move exact
+//!   originals to unique graves and sync their absence. The archive journal durably records
+//!   Pending before this move and Complete before reaping, so recovery needs no boot API.
 //! - **removal** ([`KagemushaWalletDurableStoreV1::remove_file`]): unlink, then parent sync;
-//!   an already-absent name is synced as absent. Empty directories are removed the same way
+//!   an already-absent file gets a parent sync, which cannot repair a previously lost unlink
+//!   writeback. Archive records therefore use retirement. An absent empty directory is
+//!   recreated and removed to reissue its namespace mutation before syncing
 //!   ([`KagemushaWalletDurableStoreV1::remove_dir`]).
 //! - **reads and listings** report only initial native-open absence as `Absent`;
 //!   later custody/read failures are unavailable, and any entry error fails a whole listing.
 //!
 //! The mutating primitives are private to the provider: other code gets custody only through
 //! the provider's operations.
+//!
+//! Every primitive counts its calls, and times its syncs by class, in the calling thread's
+//! [`super::KagemushaWalletStorageCountersV1`]. The counters only observe; no outcome reads them.
 //!
 //! [`KagemushaWalletStdFsV1`] uses retained native Unix/Windows custody. `KagemushaWalletSimFsV1`
 //! (tests and the `test-utils` feature) keeps visible and durable state separately for file
@@ -33,10 +49,11 @@
 // Native descriptor custody is provided by `iroha_fs::PrivateDirectory`; this adapter keeps
 // the G2 split write/sync/rename boundaries used by the deterministic fault simulator.
 
-use std::io;
+use std::{collections::BTreeSet, io};
 
 use super::{
     KagemushaWalletProviderErrorV1,
+    counters::{self, EventV1, SyncClassV1},
     layout::{
         KagemushaWalletCustodyDirV1, KagemushaWalletEntryNameV1,
         kagemusha_wallet_is_staging_name_v1, kagemusha_wallet_require_removed_v1,
@@ -131,6 +148,58 @@ impl<T> std::ops::Deref for StagedV1<T> {
     }
 }
 
+/// Most staged files one batch publication keeps live (open and retained through its rename)
+/// at once. A batch stages, syncs and renames its names in chunks of at most this many, so the
+/// descriptors and memory it holds stay bounded whatever its size.
+pub(super) const KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1: usize = 64;
+
+/// How a batch publication puts one name in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum KagemushaWalletBatchActionV1 {
+    /// Create-new rename: the name must be absent (`EEXIST` refuses it, never replaces).
+    New,
+    /// Fresh-inode adoption: a replacing rename over a name that the caller read, under the
+    /// same custody lock, to hold exactly these bytes. The name holds them on every outcome.
+    Replace,
+}
+
+/// One name of a batch publication and the exact bytes it is to hold.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct KagemushaWalletBatchEntryV1<'a> {
+    /// Name inside the batch directory.
+    pub(super) name: &'a KagemushaWalletEntryNameV1,
+    /// Exact bytes the name holds once published.
+    pub(super) bytes: &'a [u8],
+    /// How the name is put in place.
+    pub(super) action: KagemushaWalletBatchActionV1,
+}
+
+/// Outcome of a batch that failed at one step. Before the first rename took effect the step's
+/// own outcome stands (`NotPublished` leaves every name unchanged). After one, renamed names
+/// may be visible without being durable, so the whole batch is `Uncertain`.
+fn batch_failure(
+    renamed_any: bool,
+    outcome: KagemushaWalletPublishOutcomeV1,
+) -> KagemushaWalletPublishOutcomeV1 {
+    match outcome {
+        KagemushaWalletPublishOutcomeV1::NotPublished(reason) if renamed_any => {
+            KagemushaWalletPublishOutcomeV1::Uncertain(match reason {
+                KagemushaWalletNotPublishedV1::Failed(reason) => reason,
+                // As for a paired publication without its parent sync: no native code applies
+                // to the batch as a whole.
+                KagemushaWalletNotPublishedV1::DestinationExists
+                | KagemushaWalletNotPublishedV1::DestinationAbsent
+                | KagemushaWalletNotPublishedV1::ContentMismatch
+                | KagemushaWalletNotPublishedV1::NoSpace
+                | KagemushaWalletNotPublishedV1::NoReplaceUnsupported => {
+                    KagemushaWalletUnavailableV1::Io(0)
+                }
+            })
+        }
+        other => other,
+    }
+}
+
 impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
     /// Store over `fs`.
     pub(super) fn new(fs: F) -> Self {
@@ -150,6 +219,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         name: &KagemushaWalletEntryNameV1,
         bytes: &[u8],
     ) -> KagemushaWalletPublishOutcomeV1 {
+        counters::count(EventV1::WriteNew(1));
         let staged = match self.stage(dir, bytes) {
             Ok(staged) => staged,
             Err(reason) => return KagemushaWalletPublishOutcomeV1::NotPublished(reason),
@@ -167,6 +237,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         first: (&KagemushaWalletEntryNameV1, &[u8]),
         second: (&KagemushaWalletEntryNameV1, &[u8]),
     ) -> [KagemushaWalletPublishOutcomeV1; 2] {
+        counters::count(EventV1::WriteNew(2));
         let first_staged = match self.stage(dir, first.1) {
             Ok(staged) => staged,
             Err(reason) => return [KagemushaWalletPublishOutcomeV1::NotPublished(reason); 2],
@@ -185,7 +256,10 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         let synced = steps
             .iter()
             .any(|step| matches!(step, RenameStepV1::Renamed))
-            .then(|| self.fs.sync_dir(dir).map_err(|error| unavailable(&error)));
+            .then(|| {
+                counters::sync(SyncClassV1::Publish, || self.fs.sync_dir(dir))
+                    .map_err(|error| unavailable(&error))
+            });
         steps.map(|step| match (step, synced) {
             (RenameStepV1::Done(outcome), _) => outcome,
             (RenameStepV1::Renamed, Some(Ok(()))) => KagemushaWalletPublishOutcomeV1::Published,
@@ -196,6 +270,114 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
                 KagemushaWalletPublishOutcomeV1::Uncertain(KagemushaWalletUnavailableV1::Io(0))
             }
         })
+    }
+
+    /// Publish every entry of `entries` in `dir` behind one parent sync; one outcome covers
+    /// the whole batch.
+    ///
+    /// In chunks of at most [`KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1`] names, each name's bytes
+    /// are staged on an exclusive staging file, written and synced (`fsync`; `F_FULLFSYNC` on
+    /// Apple), and only then is every staged file of the chunk renamed into place through its
+    /// retained original: create-new for [`KagemushaWalletBatchActionV1::New`], replacing for
+    /// [`KagemushaWalletBatchActionV1::Replace`]. After the last chunk `dir` is synced once.
+    /// Each file's data is durable before its rename, so after power loss every name is absent
+    /// or holds its exact bytes, whichever subset of the renames survives; no name is torn.
+    ///
+    /// - `Published`: every rename and the final parent sync succeeded.
+    /// - `NotPublished`: a failure before the first rename took effect; the chunk's staged
+    ///   files are discarded and no name changed (`DestinationExists` for an occupied `New`
+    ///   name, as [`Self::write_new`]).
+    /// - `Uncertain`: an indeterminate first rename, or any failure after a rename (the
+    ///   remaining staged files are discarded; the parent is not synced). Renamed names may be
+    ///   visible and not durable: the caller poisons its handle, reconciles from disk and
+    ///   republishes the identical bytes, adopting every visible name on a fresh inode.
+    ///
+    /// Names must be distinct: a repeated name is `NotPublished` before any filesystem step.
+    /// An empty batch is `Published` without a step. The provider's archive drain publishes
+    /// every staged record copy, and a checkpoint's copies, through it.
+    pub(super) fn publish_batch(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletBatchEntryV1<'_>],
+    ) -> KagemushaWalletPublishOutcomeV1 {
+        self.publish_chunks(dir, entries, KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1)
+    }
+
+    /// [`Self::publish_batch`] with at most `live` staged files per chunk (tests use small
+    /// chunks to cross chunk boundaries with few names).
+    #[cfg(test)]
+    pub(super) fn publish_batch_chunked(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletBatchEntryV1<'_>],
+        live: usize,
+    ) -> KagemushaWalletPublishOutcomeV1 {
+        self.publish_chunks(dir, entries, live)
+    }
+
+    fn publish_chunks(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletBatchEntryV1<'_>],
+        live: usize,
+    ) -> KagemushaWalletPublishOutcomeV1 {
+        if entries.is_empty() {
+            return KagemushaWalletPublishOutcomeV1::Published;
+        }
+        let mut distinct = BTreeSet::new();
+        if !entries.iter().all(|entry| distinct.insert(entry.name)) {
+            return KagemushaWalletPublishOutcomeV1::NotPublished(
+                KagemushaWalletNotPublishedV1::Failed(KagemushaWalletUnavailableV1::Io(0)),
+            );
+        }
+        let total = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
+        let replaced = entries
+            .iter()
+            .filter(|entry| entry.action == KagemushaWalletBatchActionV1::Replace)
+            .count();
+        counters::count(EventV1::BatchPublish);
+        counters::count(EventV1::BatchNames(total(entries.len())));
+        counters::count(EventV1::WriteNew(total(entries.len() - replaced)));
+        for _ in 0..replaced {
+            counters::count(EventV1::RewriteSame);
+        }
+        let mut renamed_any = false;
+        for chunk in entries.chunks(live.max(1)) {
+            // Data barrier: every file of the chunk is written and synced before any rename.
+            let mut staged: Vec<StagedV1<F::StagedFile>> = Vec::with_capacity(chunk.len());
+            for entry in chunk {
+                match self.stage(dir, entry.bytes) {
+                    Ok(file) => staged.push(file),
+                    Err(reason) => {
+                        for file in &staged {
+                            self.discard_staged(dir, file);
+                        }
+                        return batch_failure(
+                            renamed_any,
+                            KagemushaWalletPublishOutcomeV1::NotPublished(reason),
+                        );
+                    }
+                }
+            }
+            for (index, (entry, file)) in chunk.iter().zip(&staged).enumerate() {
+                let step = if entry.action == KagemushaWalletBatchActionV1::New {
+                    self.rename_new(dir, file, entry.name.as_str())
+                } else {
+                    self.rename_replacing(dir, file, entry.name.as_str())
+                };
+                if let RenameStepV1::Done(outcome) = step {
+                    // The failed name's own staging file is already discarded.
+                    for rest in &staged[index + 1..] {
+                        self.discard_staged(dir, rest);
+                    }
+                    return batch_failure(renamed_any, outcome);
+                }
+                renamed_any = true;
+            }
+            // The chunk's originals are released only after all of its renames.
+            drop(staged);
+        }
+        self.sync_after_publish(dir)
     }
 
     /// Republish the byte-identical content of `name` on a fresh inode (atomic replace).
@@ -226,9 +408,21 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         expected: &[u8],
         bytes: &[u8],
     ) -> KagemushaWalletPublishOutcomeV1 {
+        counters::count(if expected == bytes {
+            EventV1::RewriteSame
+        } else {
+            EventV1::ReplaceExact
+        });
         match self.read(dir, name, expected.len()) {
-            KagemushaWalletReadV1::Present(existing) if existing == expected => {}
-            KagemushaWalletReadV1::Present(_) | KagemushaWalletReadV1::Oversized => {
+            KagemushaWalletReadV1::Present(existing) => {
+                let existing = zeroize::Zeroizing::new(existing);
+                if existing.as_slice() != expected {
+                    return KagemushaWalletPublishOutcomeV1::NotPublished(
+                        KagemushaWalletNotPublishedV1::ContentMismatch,
+                    );
+                }
+            }
+            KagemushaWalletReadV1::Oversized => {
                 return KagemushaWalletPublishOutcomeV1::NotPublished(
                     KagemushaWalletNotPublishedV1::ContentMismatch,
                 );
@@ -248,31 +442,22 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
             Ok(staged) => staged,
             Err(reason) => return KagemushaWalletPublishOutcomeV1::NotPublished(reason),
         };
-        if let Err(error) = self.fs.rename_replace(dir, &staged, name.as_str()) {
-            self.discard_staged(dir, &staged);
-            return match classify(&error) {
-                FailureClassV1::NoSpace => KagemushaWalletPublishOutcomeV1::NotPublished(
-                    KagemushaWalletNotPublishedV1::NoSpace,
-                ),
-                FailureClassV1::Definitive
-                | FailureClassV1::Exists
-                | FailureClassV1::Unsupported => KagemushaWalletPublishOutcomeV1::NotPublished(
-                    KagemushaWalletNotPublishedV1::Failed(unavailable(&error)),
-                ),
-                FailureClassV1::Indeterminate => {
-                    KagemushaWalletPublishOutcomeV1::Uncertain(unavailable(&error))
-                }
-            };
+        match self.rename_replacing(dir, &staged, name.as_str()) {
+            RenameStepV1::Renamed => self.sync_after_publish(dir),
+            RenameStepV1::Done(outcome) => outcome,
         }
-        self.sync_after_publish(dir)
     }
 
-    /// Durably remove `name` from `dir`; an absent name is synced as absent.
+    /// Unlink a visible file and sync its parent. An absent name receives a parent sync.
+    /// This completes pending unlinks, but cannot reissue a lost unlink writeback once the
+    /// original is invisible. Callers requiring durable absence after that failure must use
+    /// `retain_retired_files` with exact retained originals and durable journal-qualified recovery.
     pub(super) fn remove_file(
         &self,
         dir: &KagemushaWalletCustodyDirV1,
         name: &KagemushaWalletEntryNameV1,
     ) -> KagemushaWalletRemoveOutcomeV1 {
+        counters::count(EventV1::Removal);
         match self.fs.unlink(dir, name.as_str()) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -284,10 +469,112 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
                 };
             }
         }
-        match self.fs.sync_dir(dir) {
+        match counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir)) {
             Ok(()) => KagemushaWalletRemoveOutcomeV1::Removed,
             Err(error) => KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error)),
         }
+    }
+
+    /// A fresh nonce for a retirement incarnation, from the filesystem's fallible staging
+    /// entropy source. No file is created and no existing grave name is reused.
+    pub(super) fn retirement_nonce(&self) -> Result<String, KagemushaWalletUnavailableV1> {
+        let staged = self
+            .fs
+            .staging_name()
+            .map_err(|error| unavailable(&error))?;
+        if !kagemusha_wallet_is_staging_name_v1(&staged) {
+            return Err(KagemushaWalletUnavailableV1::Io(0));
+        }
+        Ok(staged[super::layout::KAGEMUSHA_WALLET_STAGING_PREFIX_V1.len()..].to_owned())
+    }
+
+    /// Move originals through unique graves, retaining them until the caller commits completion.
+    /// The caller must have durably published a Pending journal for these exact names before
+    /// invoking this method. Existing graves are never overwritten: a collision refuses.
+    /// Removed means original names are durably absent; it does not remove the retained graves.
+    pub(super) fn retain_retired_files(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        pairs: &[(&KagemushaWalletEntryNameV1, &KagemushaWalletEntryNameV1)],
+    ) -> KagemushaWalletRemoveOutcomeV1 {
+        let mut moved = false;
+        for (name, grave) in pairs {
+            counters::count(EventV1::Removal);
+            let result = match self
+                .fs
+                .rename_entry_noreplace(dir, name.as_str(), grave.as_str())
+            {
+                Ok(()) => Ok(true),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    match self
+                        .fs
+                        .rename_entry_noreplace(dir, grave.as_str(), name.as_str())
+                    {
+                        Ok(()) => {
+                            moved = true;
+                            self.fs
+                                .rename_entry_noreplace(dir, name.as_str(), grave.as_str())
+                                .map(|()| true)
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+                        Err(error) => Err(error),
+                    }
+                }
+                Err(error) => Err(error),
+            };
+            match result {
+                Ok(true) => {
+                    moved = true;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    return if !moved
+                        && matches!(
+                            classify(&error),
+                            FailureClassV1::Definitive
+                                | FailureClassV1::Exists
+                                | FailureClassV1::Unsupported
+                                | FailureClassV1::NoSpace
+                        ) {
+                        KagemushaWalletRemoveOutcomeV1::NotRemoved(unavailable(&error))
+                    } else {
+                        KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error))
+                    };
+                }
+            }
+        }
+        if !moved {
+            return KagemushaWalletRemoveOutcomeV1::Removed;
+        }
+        if let Err(error) = counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir)) {
+            return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+        }
+        // Keep every exact inode until the caller durably publishes Complete. Reaping here
+        // would let a lost Complete writeback strand a Pending journal without its originals.
+        KagemushaWalletRemoveOutcomeV1::Removed
+    }
+
+    /// Reap graves only after a durable Complete journal, or when they are unreferenced.
+    /// Never restores any record name. Cleanup writeback failure cannot reverse completion;
+    /// journal recovery can safely repeat this garbage-only operation after any restart.
+    pub(super) fn reap_retired_files(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        graves: &[&KagemushaWalletEntryNameV1],
+    ) -> KagemushaWalletRemoveOutcomeV1 {
+        for grave in graves {
+            match self.fs.unlink(dir, grave.as_str()) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+                }
+            }
+        }
+        if !graves.is_empty() {
+            let _ = counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir));
+        }
+        KagemushaWalletRemoveOutcomeV1::Removed
     }
 
     /// Durably create directory `name` in `parent`. An existing entry is reported as
@@ -300,7 +587,9 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         match self.fs.mkdir(parent, name.as_str()) {
             Ok(()) => self.sync_after_publish(parent),
             Err(error) => match classify(&error) {
-                FailureClassV1::Exists => match self.fs.sync_dir(parent) {
+                FailureClassV1::Exists => match counters::sync(SyncClassV1::Dir, || {
+                    self.fs.sync_dir(parent)
+                }) {
                     Ok(()) => KagemushaWalletPublishOutcomeV1::NotPublished(
                         KagemushaWalletNotPublishedV1::DestinationExists,
                     ),
@@ -321,16 +610,26 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         }
     }
 
-    /// Durably remove the empty directory `name` from `parent`; an absent name is synced as
-    /// absent. A directory that holds entries is never removed (`NotRemoved`).
+    /// Durably remove the empty directory `name` from `parent`; an absent empty directory
+    /// is recreated and removed to reissue a lost writeback. Nonempty directories are refused.
     pub(super) fn remove_dir(
         &self,
         parent: &KagemushaWalletCustodyDirV1,
         name: &KagemushaWalletEntryNameV1,
     ) -> KagemushaWalletRemoveOutcomeV1 {
+        counters::count(EventV1::Removal);
         match self.fs.remove_dir(parent, name.as_str()) {
             Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // Reissue a possibly lost rmdir writeback using the exact empty object.
+                // Once mkdir succeeds, every later failure has an uncertain outcome.
+                if let Err(error) = self.fs.mkdir(parent, name.as_str()) {
+                    return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+                }
+                if let Err(error) = self.fs.remove_dir(parent, name.as_str()) {
+                    return KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error));
+                }
+            }
             Err(error) => {
                 return if classify(&error) == FailureClassV1::Definitive {
                     KagemushaWalletRemoveOutcomeV1::NotRemoved(unavailable(&error))
@@ -339,7 +638,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
                 };
             }
         }
-        match self.fs.sync_dir(parent) {
+        match counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(parent)) {
             Ok(()) => KagemushaWalletRemoveOutcomeV1::Removed,
             Err(error) => KagemushaWalletRemoveOutcomeV1::Uncertain(unavailable(&error)),
         }
@@ -355,8 +654,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         dir: &KagemushaWalletCustodyDirV1,
         name: &KagemushaWalletEntryNameV1,
     ) -> Result<(), KagemushaWalletUnavailableV1> {
-        self.fs
-            .sync_named(dir, name.as_str())
+        counters::sync(SyncClassV1::File, || self.fs.sync_named(dir, name.as_str()))
             .map_err(|error| unavailable(&error))
     }
 
@@ -369,7 +667,8 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         &self,
         dir: &KagemushaWalletCustodyDirV1,
     ) -> Result<(), KagemushaWalletUnavailableV1> {
-        self.fs.sync_dir(dir).map_err(|error| unavailable(&error))
+        counters::sync(SyncClassV1::Dir, || self.fs.sync_dir(dir))
+            .map_err(|error| unavailable(&error))
     }
 
     /// Read `name` with a bound of `max` bytes.
@@ -379,8 +678,12 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         name: &KagemushaWalletEntryNameV1,
         max: usize,
     ) -> KagemushaWalletReadV1 {
+        counters::count(EventV1::Read);
         match self.fs.read(dir, name.as_str(), max.saturating_add(1)) {
-            Ok(bytes) if bytes.len() > max => KagemushaWalletReadV1::Oversized,
+            Ok(bytes) if bytes.len() > max => {
+                drop(zeroize::Zeroizing::new(bytes));
+                KagemushaWalletReadV1::Oversized
+            }
             Ok(bytes) => KagemushaWalletReadV1::Present(bytes),
             Err(error) if error.kind() == io::ErrorKind::NotFound => KagemushaWalletReadV1::Absent,
             Err(error) => KagemushaWalletReadV1::Unavailable(unavailable(&error)),
@@ -392,6 +695,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         &self,
         dir: &KagemushaWalletCustodyDirV1,
     ) -> KagemushaWalletProbeV1<Vec<KagemushaWalletListedEntryV1>> {
+        counters::count(EventV1::Listing);
         match self.fs.list(dir) {
             Ok(mut entries) => {
                 entries.sort_by(|left, right| left.name.cmp(&right.name));
@@ -436,6 +740,15 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         let Some(entries) = self.list(dir).into_result()? else {
             return Ok(0);
         };
+        self.remove_listed_staging(dir, &entries)
+    }
+
+    /// Remove staging files from one complete custody listing already taken by reconciliation.
+    pub(super) fn remove_listed_staging(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        entries: &[KagemushaWalletListedEntryV1],
+    ) -> Result<usize, KagemushaWalletProviderErrorV1> {
         let mut removed = 0_usize;
         for entry in entries {
             if entry.kind != KagemushaWalletEntryKindV1::File
@@ -485,7 +798,7 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         let result = self
             .fs
             .write_all(&mut file, bytes)
-            .and_then(|()| self.fs.sync_staged(&file))
+            .and_then(|()| counters::sync(SyncClassV1::Staged, || self.fs.sync_staged(&file)))
             .map_err(|error| not_published(&error));
         if let Err(reason) = result {
             drop(file);
@@ -529,11 +842,39 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         RenameStepV1::Done(outcome)
     }
 
+    // Atomically rename a staged file over `name` (fresh-inode publication of its content).
+    fn rename_replacing(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        staged: &str,
+        name: &str,
+    ) -> RenameStepV1 {
+        let Err(error) = self.fs.rename_replace(dir, staged, name) else {
+            return RenameStepV1::Renamed;
+        };
+        let outcome = match classify(&error) {
+            FailureClassV1::NoSpace => KagemushaWalletPublishOutcomeV1::NotPublished(
+                KagemushaWalletNotPublishedV1::NoSpace,
+            ),
+            FailureClassV1::Definitive | FailureClassV1::Exists | FailureClassV1::Unsupported => {
+                KagemushaWalletPublishOutcomeV1::NotPublished(
+                    KagemushaWalletNotPublishedV1::Failed(unavailable(&error)),
+                )
+            }
+            FailureClassV1::Indeterminate => {
+                KagemushaWalletPublishOutcomeV1::Uncertain(unavailable(&error))
+            }
+        };
+        // Removing the staging name is safe on every outcome: after a rename it is absent.
+        self.discard_staged(dir, staged);
+        RenameStepV1::Done(outcome)
+    }
+
     fn sync_after_publish(
         &self,
         dir: &KagemushaWalletCustodyDirV1,
     ) -> KagemushaWalletPublishOutcomeV1 {
-        match self.fs.sync_dir(dir) {
+        match counters::sync(SyncClassV1::Publish, || self.fs.sync_dir(dir)) {
             Ok(()) => KagemushaWalletPublishOutcomeV1::Published,
             Err(error) => KagemushaWalletPublishOutcomeV1::Uncertain(unavailable(&error)),
         }
@@ -691,7 +1032,6 @@ mod std_fs {
             &self,
             dir: &KagemushaWalletCustodyDirV1,
         ) -> io::Result<Arc<PrivateDirectory>> {
-            self.root.revalidate().map_err(custody_changed)?;
             // Serialize cache selection with any consuming child-removal transition.
             let mut cache = self.directories.lock().map_err(|_| poisoned())?;
             #[cfg(windows)]
@@ -706,6 +1046,14 @@ mod std_fs {
                     "child removal requires fresh runtime reconciliation",
                 ));
             }
+            if let Some(held) = cache.get(dir.components()) {
+                // The retained directory validates its complete native ancestor chain.
+                // Revalidate it on every selection without repeating the same walk for
+                // each cached prefix; no validation result survives this operation.
+                held.revalidate().map_err(custody_changed)?;
+                return Ok(Arc::clone(held));
+            }
+            self.root.revalidate().map_err(custody_changed)?;
             let mut current = Arc::clone(&self.root);
             let mut prefix = Vec::new();
             for component in dir.components() {
@@ -742,7 +1090,9 @@ mod std_fs {
                 .ok_or_else(|| {
                     io::Error::other("publication requires the live original staged file")
                 })?;
-            self.directory(dir)?.revalidate()?;
+            // `directory` revalidates the complete retained chain of `dir`, and the original's
+            // own rename revalidates it again before the native rename.
+            self.directory(dir)?;
             let mut held = original.lock().map_err(|_| poisoned())?;
             held.as_mut()
                 .ok_or_else(|| io::Error::other("staged original was consumed"))?
@@ -751,7 +1101,7 @@ mod std_fs {
     }
     #[cfg(unix)]
     pub(super) fn root_is_private(uid: u32, mode: u32) -> bool {
-        uid == rustix::process::geteuid().as_raw() && mode & 0o077 == 0
+        uid == rustix::process::geteuid().as_raw() && mode.trailing_zeros() >= 6
     }
     #[cfg(all(unix, test))]
     pub(super) const NOFOLLOW: i32 = {
@@ -811,6 +1161,23 @@ mod std_fs {
             to: &str,
         ) -> io::Result<()> {
             self.rename(dir, from, to, PublishMode::Replace)
+        }
+        fn rename_entry_noreplace(
+            &self,
+            dir: &KagemushaWalletCustodyDirV1,
+            from: &str,
+            to: &str,
+        ) -> io::Result<()> {
+            let directory = self.directory(dir)?;
+            let original = directory
+                .open_retained_private_optional(from)
+                .map_err(custody_changed)?
+                .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+            let expected = original.identity()?;
+            // Windows transfers DELETE access inside the existing native identity-checked
+            // directory primitive. Do not retain a conflicting read handle across that call.
+            drop(original);
+            directory.rename_custody_file(from, to, expected, PublishMode::CreateNew)
         }
         fn unlink(&self, dir: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()> {
             let directory = self.directory(dir)?;
@@ -966,7 +1333,22 @@ mod std_fs {
             let file = self
                 .root
                 .open_ownership_lock(KAGEMUSHA_WALLET_LOCK_NAME_V1)?;
-            match file.try_lock() {
+            // Rust 1.93.1's std file-lock implementation excludes Android. Use
+            // its kernel flock on the same authenticated descriptor; never reopen
+            // by path or substitute process-scoped fcntl record locks.
+            #[cfg(target_os = "android")]
+            let locked =
+                rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+                    .map_err(|error| {
+                        if error == rustix::io::Errno::WOULDBLOCK {
+                            TryLockError::WouldBlock
+                        } else {
+                            TryLockError::Error(error.into())
+                        }
+                    });
+            #[cfg(not(target_os = "android"))]
+            let locked = file.try_lock();
+            match locked {
                 Ok(()) => {
                     self.root.revalidate().map_err(custody_changed)?;
                     Ok(KagemushaWalletStdFsLockV1 {
@@ -1025,6 +1407,8 @@ mod sim {
         RenameNoReplace,
         /// Replacing rename.
         RenameReplace,
+        /// Identity-checked no-replace move of an existing custody file.
+        RenameEntry,
         /// Unlink.
         Unlink,
         /// Directory sync.
@@ -1743,6 +2127,36 @@ mod sim {
             state.finish(gate, ())
         }
 
+        fn rename_entry_noreplace(
+            &self,
+            dir: &KagemushaWalletCustodyDirV1,
+            from: &str,
+            to: &str,
+        ) -> io::Result<()> {
+            let mut state = self.state();
+            let gate = state.begin(KagemushaWalletSimStepV1::RenameEntry)?;
+            if gate != GateV1::Run && gate != GateV1::RunThenCrash {
+                return Err(io::Error::other("simulated I/O error"));
+            }
+            if !state.noreplace_supported {
+                return Err(io::Error::from(io::ErrorKind::Unsupported));
+            }
+            let directory = state.dir_mut(dir.components())?;
+            match directory.visible.get(from) {
+                Some(SimNodeV1::File(_)) => {}
+                Some(_) => return Err(io::Error::from(io::ErrorKind::InvalidData)),
+                None => return Err(not_found()),
+            }
+            if directory.visible.contains_key(to) {
+                return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+            }
+            let node = directory.visible.remove(from).ok_or_else(not_found)?;
+            directory.visible.insert(to.to_owned(), node);
+            directory
+                .pending
+                .push(SimDirOpV1::Rename(from.to_owned(), to.to_owned()));
+            state.finish(gate, ())
+        }
         fn unlink(&self, dir: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()> {
             let mut state = self.state();
             let gate = state.begin(KagemushaWalletSimStepV1::Unlink)?;

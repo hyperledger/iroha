@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Sumeragi on real peers (`specs/sumeragi_goals.md` S4): four validators over P2P commit
 //! transactions, restart, survive a crashed leader, and recover a held observer transport.
 #[path = "kagemusha_network_setup.rs"]

@@ -494,3 +494,79 @@ fn identifier_originals_borrowed_encoding_and_correlation_preserve_both_rows() {
         "foreign family"
     );
 }
+
+#[test]
+fn retail_originals_borrowed_encoding_preserves_exact_rows_and_request_scope() {
+    let asset = AssetDefinitionId::derive_from_components(
+        iroha_model_base::domain::DomainId::try_new("retail", "universal").unwrap(),
+        "unit".parse().unwrap(),
+    );
+    let (request, original) = account_fixture();
+    let mut request = request.clone();
+    request.selector = NativeAuthorityOriginalsSelectorV1::RetailPolicy {
+        asset: asset.clone(),
+        dataspace: DataSpaceId::new(41),
+    };
+    let wire = request.canonical_wire().unwrap();
+    assert_eq!(
+        decode_native_authority_originals_request_v1(&wire).unwrap(),
+        request
+    );
+    let mut response = correlated(&request, original.clone());
+    // Publication carries data; the consumer must authenticate and decode these rows.
+    response.originals =
+        NativeAuthorityOriginalsFamilyV1::RetailPolicy(NativeRetailPolicyStateV1 {
+            policy_wire: vec![1, 3, 5],
+            activation_wire: vec![2, 4, 6],
+        });
+    response.validate_request_correlation(&request).unwrap();
+    let NativeAuthorityOriginalsFamilyV1::RetailPolicy(state) = &response.originals else {
+        unreachable!()
+    };
+    let borrowed = NativeAuthorityOriginalsRefV1::new(
+        &response.request_sha256,
+        &response.selector,
+        &response.attestation,
+        &response.world_snapshot,
+        NativeAuthorityOriginalsFamilyRefV1::RetailPolicy(NativeRetailPolicyStateRefV1::new(
+            &state.policy_wire,
+            &state.activation_wire,
+        )),
+    );
+    let wire = norito::encode_canonical(&response).unwrap();
+    assert_eq!(norito::encode_canonical(&borrowed).unwrap(), wire);
+    assert_eq!(
+        norito::json::to_json(&borrowed).unwrap(),
+        norito::json::to_json(&response).unwrap()
+    );
+    assert_eq!(
+        decode_unverified_native_authority_originals_v1(&wire).unwrap(),
+        response
+    );
+    assert!(norito::json::to_json_bounded(&borrowed, 4).is_err());
+    let mut changed = request.clone();
+    changed.selector = NativeAuthorityOriginalsSelectorV1::RetailPolicy {
+        asset,
+        dataspace: DataSpaceId::new(42),
+    };
+    assert!(response.validate_request_correlation(&changed).is_err());
+    if let NativeAuthorityOriginalsSelectorV1::RetailPolicy { dataspace, .. } =
+        &mut changed.selector
+    {
+        *dataspace = DataSpaceId::UNIVERSAL;
+    }
+    assert!(changed.canonical_wire().is_err());
+    for mode in 0..4 {
+        let mut changed = response.clone();
+        let NativeAuthorityOriginalsFamilyV1::RetailPolicy(state) = &mut changed.originals else {
+            unreachable!()
+        };
+        match mode {
+            0 => state.policy_wire.clear(),
+            1 => state.activation_wire.clear(),
+            2 => state.policy_wire = vec![1; NATIVE_AUTHORITY_ORIGINALS_MAX_ROW_BYTES_V1 + 1],
+            _ => state.activation_wire = vec![1; NATIVE_AUTHORITY_ORIGINALS_MAX_ROW_BYTES_V1 + 1],
+        }
+        assert!(changed.validate_request_correlation(&request).is_err());
+    }
+}

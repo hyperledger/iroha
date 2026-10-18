@@ -20,6 +20,15 @@ pub enum SigningError {
     Refused,
     /// The signing backend rejected its local input.
     InvalidInput,
+    /// The original authenticated timestamp is ahead of the current local clock.
+    ClockAhead {
+        /// Original authenticated block timestamp.
+        block_time_ms: u64,
+        /// Fresh injected wall-clock observation.
+        observed_ms: u64,
+        /// Committed allowance captured from the original parent or lane configuration.
+        max_clock_drift_ms: u64,
+    },
     /// The original time-sensitive execution is too old for a first Prepare.
     StaleExecution {
         /// Original authenticated block timestamp.
@@ -36,6 +45,9 @@ impl core::fmt::Display for SigningError {
         f.write_str(match self {
             Self::Refused => "local signing refused",
             Self::InvalidInput => "local signing input rejected",
+            Self::ClockAhead { .. } => {
+                "original block timestamp is ahead of the local signing clock"
+            }
             Self::StaleExecution { .. } => "original execution is stale for first Prepare",
         })
     }
@@ -63,8 +75,9 @@ impl std::error::Error for AggregationError {}
 
 /// A local, non-blocking signing key (§12.1). `sign` runs inside `handle`. It MUST be
 /// deterministic (the same key and preimage always give the same bytes, as BLS does): after a
-/// restart the core re-creates proposals, Commits and timeouts from their recorded preimages.
-/// Prepare instead reuses its authenticated persisted signature (§6.10 rule 0, §7.4).
+/// restart the core re-creates Commits and timeouts from their recorded preimages. Proposals
+/// and Prepares instead reuse authenticated persisted successful signatures. Unsigned
+/// reservations reacquire original application admission before signing (§6.10 rule 0, §7.4).
 pub trait Signer: Send + Sync {
     /// The consensus public key.
     fn public_key(&self) -> &PublicKey;
@@ -73,6 +86,28 @@ pub trait Signer: Send + Sync {
     /// # Errors
     /// A local backend refusal; callers retain durable reservations and publish no message.
     fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
+    /// Sign the original fresh proposal only after its application owner admits publication.
+    ///
+    /// # Errors
+    /// A local source, publication-clock or backend refusal, preserving original custody.
+    fn sign_proposal(
+        &self,
+        request: &crate::proposal_admission::ProposalSigningRequest,
+        admission: &crate::proposal_admission::ProposalAdmission,
+    ) -> Result<Signature, SigningError> {
+        #[cfg(not(sumeragi_mutation = "MS75"))]
+        admission.check(request)?;
+        #[cfg(sumeragi_mutation = "MS75")]
+        let _ = admission;
+        self.sign(&crate::preimage::prop_preimage(
+            &request.instance(),
+            &request.epoch(),
+            request.height(),
+            request.view(),
+            &request.block_hash(),
+            &request.attachments_digest(),
+        ))
+    }
     /// Sign a first Prepare only after the original application owner admits this source.
     /// The preimage is derived from the core-owned request, never supplied independently.
     ///
@@ -559,15 +594,27 @@ mod tests {
 
     #[test]
     fn local_crypto_errors_have_owned_object_safe_diagnostics() {
-        let failures: [Box<dyn std::error::Error + Send + Sync>; 4] = [
+        let failures: [Box<dyn std::error::Error + Send + Sync>; 6] = [
             Box::new(SigningError::Refused),
             Box::new(SigningError::InvalidInput),
+            Box::new(SigningError::ClockAhead {
+                block_time_ms: 2,
+                observed_ms: 0,
+                max_clock_drift_ms: 1,
+            }),
+            Box::new(SigningError::StaleExecution {
+                block_time_ms: 0,
+                observed_ms: 2,
+                max_lag_ms: 1,
+            }),
             Box::new(AggregationError::Refused),
             Box::new(AggregationError::InvalidInput),
         ];
         let expected = [
             "local signing refused",
             "local signing input rejected",
+            "original block timestamp is ahead of the local signing clock",
+            "original execution is stale for first Prepare",
             "local aggregation refused",
             "local aggregation input rejected",
         ];

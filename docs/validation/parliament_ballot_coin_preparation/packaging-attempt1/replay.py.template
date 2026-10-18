@@ -1,0 +1,93 @@
+"""Restore frozen inputs and replay exactly the 31 owned + 37 independent tests.
+
+Execute with Python3.11/pytest9.1.0. This does not rerun the full-cap observer.
+"""
+import argparse
+import hashlib
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--package', type=Path, required=True)
+    parser.add_argument('--request-machine', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--manifest-sha256', required=True)
+    args = parser.parse_args()
+    package = args.package.absolute()
+    output = args.output.absolute()
+    require(not output.exists(), 'replay output already exists')
+    require(output.parent.is_dir(), 'replay output parent must exist')
+    require(not any(p.is_symlink() for p in (output, *output.parents)), 'symlink output')
+    loader = SourceFileLoader('coin_restore', str(package/'package-tools/restore.py.template'))
+    module = module_from_spec(spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    # Validate every package/dependency input before creating the output parent.
+    own = module.package(package, args.manifest_sha256)
+    plan = json.loads(own['restore-plan.json'])
+    module.package(args.request_machine, plan['dependency']['manifest_sha256'])
+    output.mkdir()
+    root = output/'execution-root'
+    restored = module.restore(package, args.request_machine, root, args.manifest_sha256, True)
+    pins = restored['source_sha256']
+    (output/'restore-receipt.json').write_text(json.dumps(restored, indent=2, sort_keys=True)+'\n')
+    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+                       PYTEST_ADDOPTS='', PYTEST_PLUGINS='', PYTHONPATH='')
+    executions = []
+    for label, directory, original, expected in (
+        ('owned', 'parliament-coin-preparation-stage', 'final-capture/receipt.json', 31),
+        ('independent', 'parliament-coin-preparation-review', 'review/final-capture/receipt.json', 37)):
+        original_receipt = json.loads(own[original])
+        report_path = output/(label+'-tests.json')
+        command = [sys.executable, '-B', 'target/'+directory+'/run_tests.py',
+                   '--report', str(report_path), '--temporary', str(output/(label+'-temporary'))]
+        if label == 'independent':
+            command += ['--junit', str(output/'independent-junit.xml')]
+        result = subprocess.run(command, cwd=root, env=environment, capture_output=True)
+        (output/(label+'.stdout')).write_bytes(result.stdout)
+        (output/(label+'.stderr')).write_bytes(result.stderr)
+        require(result.returncode == 0, 'test process: '+label)
+        report = json.loads(report_path.read_bytes())
+        calls = [r['nodeid'] for r in report['reports'] if r['when'] == 'call']
+        require(report['collected'] == calls == original_receipt['exact_ordered_membership'] and
+                len(calls) == expected, 'exact ordered test membership: '+label)
+        require(all(r['outcome'] == 'passed' for r in report['reports']), 'all reports pass: '+label)
+        require(all(pins.get(name) == h for name,h in report['loaded_repository_modules'].items()),
+                'loaded modules within restored inventory: '+label)
+        executions.append(dict(label=label, command=command, tests=expected,
+                               exact_ordered_membership=report['collected'],
+                               loaded_repository_modules=report['loaded_repository_modules'],
+                               runtime=report['runtime']))
+    after = {name: digest((root/name).read_bytes()) for name in pins}
+    require(pins == after, 'restored inputs remained stable')
+    require(module.package(package, args.manifest_sha256) == own, 'package remained stable')
+    outputs = {p.name: digest(p.read_bytes()) for p in output.iterdir() if p.is_file()}
+    receipt = dict(status='PASS', supplied_package_manifest_sha256=args.manifest_sha256,
+        dependency_manifest_sha256=plan['dependency']['manifest_sha256'], input_count=175,
+        source_sha256_before=pins, source_sha256_after=after, executions=executions,
+        tests=68, outputs_sha256=outputs, full_cap_observer_rerun=False,
+        source_dependency_closure_authenticated=False, physical_preparation_executed=False,
+        full_joint_quantum_theorem=False, current_candidate_qualified=False,
+        profile_qualified=False, production_gate_changed=False)
+    raw = (json.dumps(receipt, indent=2, sort_keys=True)+'\n').encode()
+    (output/'receipt.json').write_bytes(raw)
+    print(json.dumps(dict(status='PASS', inputs=175, tests=68, receipt_sha256=digest(raw))))
+
+
+if __name__ == '__main__':
+    main()

@@ -47,6 +47,9 @@ fn validate_initial_permission_payload_constraints(
         }};
     }
     match permission.name() {
+        "CanReadCertifiedOriginals" => {
+            validate_exact_unit_permission!(executor_permission::query::CanReadCertifiedOriginals)
+        }
         "CanUseContractPermission" => validate_exact_deployment_permission!(
             executor_permission::smart_contract::CanUseContractPermission
         ),
@@ -438,6 +441,14 @@ fn initial_permission_capability_root_authority(
         };
     }
     let result = match permission.name() {
+        "CanReadCertifiedOriginals" => {
+            let _ = decode!(executor_permission::query::CanReadCertifiedOriginals);
+            authority_has_permission(
+                &state_transaction.world,
+                authority,
+                &executor_permission::query::CanReadAllLedgerData.into(),
+            )?
+        }
         "CanUnregisterDomain" => {
             let token = decode!(executor_permission::domain::CanUnregisterDomain);
             authority_owns_domain(&state_transaction.world, authority, &token.domain)?
@@ -953,6 +964,7 @@ fn initial_permission_delegation_allowed(
             permission.name(),
             "CanManageSmartContractCode"
                 | "CanReadAccountData"
+                | "CanReadCertifiedOriginals"
                 | "CanResolveAccountAlias"
                 | "CanIssueSoranetVpnQuote"
                 | "CanExecuteSettlement"
@@ -1657,6 +1669,39 @@ fn initial_native_instruction_is_explicitly_admitted(instruction: &InstructionBo
         iroha_data_model::isi::escrow::CancelAssetLock,
         iroha_data_model::isi::escrow::ExpireAssetLock,
     ) {
+        return true;
+    }
+    // Conditional escrows fund custody only from the signed opener's own
+    // balance. Core accepts an attestation only from the exact configured
+    // attestor, in strict sequence and strictly before the committed expiry,
+    // and releases to the immutable beneficiary after the final condition.
+    // Refund at or after expiry is permissionless and always returns custody
+    // to the opener. Admit every terminal path while retaining those checks.
+    if is_any!(
+        iroha_data_model::isi::escrow::OpenConditionalEscrow,
+        iroha_data_model::isi::escrow::AttestEscrowCondition,
+        iroha_data_model::isi::escrow::ExpireConditionalEscrow,
+    ) {
+        return true;
+    }
+    // The repo lifecycle is admitted only through its registered outer box;
+    // leaf wire identifiers stay unregistered. Core requires the initiator to
+    // be the signer and to hold both exact whole-proposal settlement consents,
+    // and accepts reverse and margin calls only from recorded participants.
+    if is_any!(iroha_data_model::isi::repo::RepoInstructionBox) {
+        return true;
+    }
+    // The bond-servicing kernel is admitted only through its registered outer
+    // box; leaf wire identifiers stay unregistered. Core binds registration,
+    // calls, paying-agent replacement and treasury retirement (a burn of the
+    // issuer's own balance) to the issuer owning the scale-0 definition,
+    // closing and defaults to the registered paying agent, funding to
+    // the paying agent or issuer debiting its own balance, and claims to the
+    // holder or a paying-agent push that always pays the holder. Recording is
+    // open to any signer: the books are closed from the record date, so the
+    // recorded entitlements do not depend on who records or when. Committed block
+    // time gates every date.
+    if is_any!(iroha_data_model::isi::bond::BondInstructionBox) {
         return true;
     }
     // Admit the complete native VPN escrow lifecycle so every lease retains
@@ -3067,6 +3112,7 @@ const INITIAL_EXECUTOR_PERMISSION_NAMES: &[&str] = &[
     "CanDelegateAccountAliasResolution",
     "CanResolveAccountAlias",
     "CanReadAllLedgerData",
+    "CanReadCertifiedOriginals",
     "CanReadAccountData",
     "CanReadRestrictedDataspace",
     "CanMintAssetWithDefinition",

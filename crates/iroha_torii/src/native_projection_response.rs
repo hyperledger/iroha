@@ -102,7 +102,7 @@ pub fn current_global_tip(
 }
 
 /// Authenticate the current cut of the independently selected native root.
-pub(crate) fn current_root_tip(
+pub fn current_root_tip(
     view: &impl StateReadOnly,
     height: u64,
     scope: iroha_data_model::block::consensus::SumeragiRootScope,

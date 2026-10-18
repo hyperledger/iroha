@@ -182,6 +182,111 @@ mod canonical_codec_tests {
         assert_eq!(decode_canonical::<[[u64; 32]; 32]>(&frame).unwrap(), value);
     }
 
+    struct RefusalCleanupProbe {
+        writer: std::sync::Mutex<()>,
+        decoded_drops: std::cell::Cell<usize>,
+        writer_free: std::cell::Cell<bool>,
+    }
+
+    std::thread_local! {
+        static REFUSAL_CLEANUP_PROBE: std::cell::RefCell<
+            Option<std::rc::Rc<RefusalCleanupProbe>>
+        > = const { std::cell::RefCell::new(None) };
+    }
+
+    // Deliberately normalize the decoded value so canonical authentication rejects only
+    // after the original TypedFieldSlot owns it. This exercises failure cleanup, not a
+    // wire-format fixture or a substitute decoder used by production.
+    #[derive(crate::NoritoSchema)]
+    #[norito_schema(name = "norito::canonical_codec_tests::RejectedCleanupValue")]
+    struct RejectedCleanupValue(u8);
+
+    impl SerializePayload for RejectedCleanupValue {
+        fn serialize(&self, encoder: &mut core::Encoder<'_>) -> Result<(), Error> {
+            self.0.serialize(encoder)
+        }
+    }
+
+    impl<'de> DeserializePayload<'de> for RejectedCleanupValue {
+        fn deserialize(_: &'de core::Archived<Self>) -> Self {
+            Self(0)
+        }
+    }
+
+    impl Drop for RejectedCleanupValue {
+        fn drop(&mut self) {
+            if self.0 == 0 {
+                REFUSAL_CLEANUP_PROBE.with(|slot| {
+                    let probe = slot.borrow();
+                    let probe = probe.as_ref().expect("original cleanup observation");
+                    probe.decoded_drops.set(probe.decoded_drops.get() + 1);
+                    // Probe the real guard without blocking the test on the defective order.
+                    probe.writer_free.set(probe.writer.try_lock().is_ok());
+                });
+            }
+        }
+    }
+
+    fn rejected_consumer_capture_cleanup(prepared: bool) {
+        let frame = encode_canonical(&RejectedCleanupValue(7)).unwrap();
+        let probe = std::rc::Rc::new(RefusalCleanupProbe {
+            writer: std::sync::Mutex::new(()),
+            decoded_drops: std::cell::Cell::new(0),
+            writer_free: std::cell::Cell::new(false),
+        });
+        REFUSAL_CLEANUP_PROBE.with(|slot| {
+            assert!(slot.borrow_mut().replace(probe.clone()).is_none());
+        });
+        let called = std::cell::Cell::new(false);
+        let writer = probe.writer.lock().unwrap();
+        let finish = |_: RejectedCleanupValue| {
+            let _original_writer = writer;
+            called.set(true);
+        };
+        let pool = iroha_allocation::AllocationBudget::new(65_536);
+        let error = if prepared {
+            let mut original = pool
+                .try_reserve_layouts(PreparedCanonicalDecode::allocation_layouts())
+                .unwrap();
+            let decoder = PreparedCanonicalDecode::from_reservation(
+                frame.len(),
+                canonical_decode_limits(frame.len()),
+                &mut original,
+            )
+            .unwrap();
+            drop(original);
+            decoder.decode_into(&frame, finish)
+        } else {
+            decode_canonical_for_admission_into(
+                &frame,
+                canonical_decode_limits(frame.len()),
+                finish,
+            )
+        }
+        .unwrap_err();
+        REFUSAL_CLEANUP_PROBE.with(|slot| drop(slot.borrow_mut().take()));
+        assert_eq!(error.kind(), core::DecodeAttemptErrorKind::Invalid);
+        assert!(matches!(error.error(), Error::LengthMismatch));
+        assert!(!called.get());
+        assert_eq!(probe.decoded_drops.get(), 1);
+        assert!(
+            probe.writer_free.get(),
+            "rejected decoded-value cleanup must follow uncalled consumer capture release"
+        );
+        assert!(probe.writer.try_lock().is_ok());
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn canonical_consuming_refusal_releases_consumer_capture_before_decoded_cleanup() {
+        rejected_consumer_capture_cleanup(false);
+    }
+
+    #[test]
+    fn prepared_consuming_refusal_releases_consumer_capture_before_decoded_cleanup() {
+        rejected_consumer_capture_cleanup(true);
+    }
+
     #[test]
     fn canonical_scalar_and_unit_roundtrip() {
         let scalar = encode_canonical(&1_u8).expect("encode canonical scalar");

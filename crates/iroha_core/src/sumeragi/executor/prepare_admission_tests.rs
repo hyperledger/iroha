@@ -53,6 +53,107 @@ fn with_paid_begin(
 }
 
 #[test]
+fn ct1_native_first_prepare_rechecks_original_clock_after_execution() {
+    with_paid_begin(|worker, block, hash, fee_asset, clock, block_time_ms| {
+        let drift = worker
+            .state
+            .view()
+            .world()
+            .parameters()
+            .sumeragi()
+            .max_clock_drift_ms();
+        let boundary = block_time_ms
+            .checked_sub(drift)
+            .expect("fixture exceeds drift");
+        let Ok(Some(ExecOutcome::Valid { result, admission })) =
+            worker.execute(&block, hash, false)
+        else {
+            panic!("actual original Begin executes before the clock rewind")
+        };
+        let request = |block_hash, certified| {
+            iroha_sumeragi::testing::prepare_signing_request(
+                block.header().instance,
+                block.header().epoch,
+                block.header().height,
+                block.header().origin_view,
+                block_hash,
+                result,
+                certified,
+            )
+        };
+        let live = worker.live.as_ref().unwrap();
+        let overlay = std::ptr::from_ref(&**live.overlay.as_ref().unwrap());
+        let original_fee = live
+            .overlay
+            .as_ref()
+            .unwrap()
+            .world()
+            .assets()
+            .get(&fee_asset)
+            .unwrap()
+            .as_ref()
+            .clone();
+        let original_amx = live
+            .overlay
+            .as_ref()
+            .unwrap()
+            .world()
+            .sumeragi_amx()
+            .clone();
+        let reserved = worker.state.ivm_execution_budget().reserved_bytes();
+        assert_eq!(admission.check(&request(hash, false)), Ok(()));
+        clock.set(Duration::from_millis(boundary - 1));
+        for _ in 0..2 {
+            assert_eq!(
+                admission.check(&request(hash, false)),
+                Err(SigningError::ClockAhead {
+                    block_time_ms,
+                    observed_ms: boundary - 1,
+                    max_clock_drift_ms: drift,
+                }),
+                "native first Prepare must recheck the original drift after a wall-clock rewind"
+            );
+            let retained = worker.live.as_ref().unwrap();
+            assert_eq!(
+                std::ptr::from_ref(&**retained.overlay.as_ref().unwrap()),
+                overlay
+            );
+            assert_eq!(
+                retained
+                    .overlay
+                    .as_ref()
+                    .unwrap()
+                    .world()
+                    .assets()
+                    .get(&fee_asset)
+                    .unwrap()
+                    .as_ref(),
+                &original_fee
+            );
+            assert_eq!(
+                retained.overlay.as_ref().unwrap().world().sumeragi_amx(),
+                &original_amx
+            );
+            assert_eq!(
+                worker.state.ivm_execution_budget().reserved_bytes(),
+                reserved
+            );
+        }
+        assert_eq!(admission.check(&request(hash, true)), Ok(()));
+        assert_eq!(
+            admission.check(&request(Hash32::ZERO, true)),
+            Err(SigningError::InvalidInput)
+        );
+        clock.set(Duration::from_millis(boundary));
+        assert_eq!(
+            admission.check(&request(hash, false)),
+            Ok(()),
+            "the inclusive original drift boundary resumes the same retained execution"
+        );
+    });
+}
+
+#[test]
 fn ct5_post_encoding_clock_advance_rolls_back_actual_begin_and_fees_with_original_decode() {
     with_paid_begin(|worker, block, hash, fee_asset, clock, block_time_ms| {
         let view = worker.state.view();

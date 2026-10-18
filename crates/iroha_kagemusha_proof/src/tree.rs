@@ -1,7 +1,7 @@
 //! Native references of the trees the step relations open (wire record
 //! `specs/kagemusha_wallet_wire_v1.md` sections 3.2 and 3.3; proposal
-//! sections 3 and 7): the blacklist gap tree, the quota-window tree and the
-//! depth-32 indexed Merkle tree of the wallet maps, with their domains,
+//! sections 3 and 7): the quota-window tree and the depth-32 indexed Merkle
+//! tree of the wallet maps, with their domains,
 //! leaves, nodes, openings and small builders for witnesses and tests.
 //!
 //! These are the in-circuit values of `crate::control_circuit`, computed
@@ -12,12 +12,6 @@
 //!
 //! # Which σ opens which tree
 //!
-//! - `sigma_send` with the blacklist control: one gap opening of the
-//!   Request's receiver account digest in the payer's blacklist gap tree
-//!   ([`BlacklistTree`], depth 16), against the head-committed
-//!   `blacklist_root`.
-//! - `sigma_recv` with the blacklist control: one gap opening of the
-//!   Request's payer account digest in the receiver's gap tree.
 //! - `sigma_send` with the quota control: openings of the quota-window tree
 //!   ([`QuotaWindowTree`], depth 6) and aligned value updates in the
 //!   quota-usage array ([`QuotaUsageTree`], depth 6), against the head-committed
@@ -25,27 +19,12 @@
 //!
 //! The lineage relation opens every other map (consumed-credit,
 //! pending-outgoing, load/redeem recovery, fee-claim) and the credit-digest
-//! tree; no σ opens them (proposal section 3).
+//! tree; no σ opens them (proposal section 3). A wallet's blacklist is local
+//! only and no relation opens it (owner decision 2026-10-17).
 
 use std::collections::BTreeMap;
 
 use iroha_pasta::poseidon::{PoseidonField, hash_with_domain};
-use iroha_plonk_gadgets::statement::digest_fields;
-
-/// Blacklist gap-leaf domain `kgwblkl1` (G1
-/// `KAGEMUSHA_WALLET_BLACKLIST_LEAF_DOMAIN_V1`).
-pub const BLACKLIST_LEAF_DOMAIN: u64 = u64::from_le_bytes(*b"kgwblkl1");
-/// Blacklist node domain `kgwblkn1` (G1
-/// `KAGEMUSHA_WALLET_BLACKLIST_NODE_DOMAIN_V1`).
-pub const BLACKLIST_NODE_DOMAIN: u64 = u64::from_le_bytes(*b"kgwblkn1");
-/// Depth of the blacklist gap tree (65,536 gap leaves).
-pub const BLACKLIST_DEPTH: usize = 16;
-/// The lowest blacklist sentinel `00..00`.
-pub const BLACKLIST_SENTINEL_LOW: [u8; 32] = [0; 32];
-/// The highest blacklist sentinel `FF..FF`.
-pub const BLACKLIST_SENTINEL_HIGH: [u8; 32] = [0xff; 32];
-/// The most blacklist entries (G1 `KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1`).
-pub const BLACKLIST_ENTRIES_MAX: usize = 65_535;
 
 /// Quota-window leaf domain `kgwqwin1` (G1
 /// `KAGEMUSHA_WALLET_QUOTA_WINDOW_DOMAIN_V1`).
@@ -79,14 +58,6 @@ pub const QUOTA_USAGE_DOMAIN: u64 = u64::from_le_bytes(*b"kgwquse1");
 /// Quota-usage array node domain `kgwqusn1` (B5).
 pub const QUOTA_USAGE_NODE_DOMAIN: u64 = u64::from_le_bytes(*b"kgwqusn1");
 
-/// Whether `left < right` in the blacklist's limb order (owner answer A4):
-/// `int(a) = hi * 2^128 + lo`, the 32 bytes read as one little-endian
-/// integer.
-#[must_use]
-pub fn limb_less(left: &[u8; 32], right: &[u8; 32]) -> bool {
-    left.iter().rev().cmp(right.iter().rev()) == core::cmp::Ordering::Less
-}
-
 /// Whether `left < right` as integers in `[0, p)`.
 #[must_use]
 pub fn field_less<F: PoseidonField>(left: &F, right: &F) -> bool {
@@ -109,188 +80,6 @@ pub fn path_root<F: PoseidonField>(node_domain: u64, node: F, index: u64, siblin
         };
     }
     current
-}
-
-// ---------------------------------------------------------------------------
-// Blacklist gap tree (wire record section 3.3)
-// ---------------------------------------------------------------------------
-
-/// The gap leaf `P(kgwblkl1, limbs(lower) || limbs(upper))`.
-#[must_use]
-pub fn blacklist_leaf<F: PoseidonField>(lower: &[u8; 32], upper: &[u8; 32]) -> F {
-    let [lower_lo, lower_hi] = digest_fields::<F>(lower);
-    let [upper_lo, upper_hi] = digest_fields::<F>(upper);
-    hash_with_domain(
-        BLACKLIST_LEAF_DOMAIN,
-        &[lower_lo, lower_hi, upper_lo, upper_hi],
-    )
-}
-
-/// A blacklist non-membership opening: the gap leaf `(lower, upper)` at
-/// `leaf_index` and its 16 siblings (a local witness, never transmitted).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BlacklistGap<F> {
-    /// The gap leaf index.
-    pub leaf_index: u32,
-    /// The lower sentinel or entry of the gap.
-    pub lower: [u8; 32],
-    /// The upper entry or sentinel of the gap.
-    pub upper: [u8; 32],
-    /// The siblings, height 0 first.
-    pub siblings: [F; BLACKLIST_DEPTH],
-}
-
-impl<F: PoseidonField> BlacklistGap<F> {
-    /// The all-zero opening of a relation whose list is not enforced.
-    #[must_use]
-    pub fn unused() -> Self {
-        Self {
-            leaf_index: 0,
-            lower: [0; 32],
-            upper: [0; 32],
-            siblings: [F::ZERO; BLACKLIST_DEPTH],
-        }
-    }
-
-    /// The gap leaf.
-    #[must_use]
-    pub fn leaf(&self) -> F {
-        blacklist_leaf(&self.lower, &self.upper)
-    }
-
-    /// The root the opening recomputes.
-    #[must_use]
-    pub fn root(&self) -> F {
-        path_root(
-            BLACKLIST_NODE_DOMAIN,
-            self.leaf(),
-            u64::from(self.leaf_index),
-            &self.siblings,
-        )
-    }
-
-    /// Whether `account` lies strictly inside the gap in limb order.
-    #[must_use]
-    pub fn brackets(&self, account: &[u8; 32]) -> bool {
-        limb_less(&self.lower, account) && limb_less(account, &self.upper)
-    }
-
-    /// Whether the opening proves `account` absent from the tree `root`.
-    #[must_use]
-    pub fn proves_absent(&self, root: &F, account: &[u8; 32]) -> bool {
-        self.brackets(account) && self.root() == *root
-    }
-}
-
-/// A blacklist gap tree over sorted entries (the G1
-/// `kagemusha_wallet_blacklist_root_v1` construction).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BlacklistTree {
-    entries: Vec<[u8; 32]>,
-}
-
-impl BlacklistTree {
-    /// The tree of `entries`, sorted here into limb order (`None` for a
-    /// duplicate, a sentinel value or too many entries).
-    #[must_use]
-    pub fn new(mut entries: Vec<[u8; 32]>) -> Option<Self> {
-        entries.sort_by(|left, right| left.iter().rev().cmp(right.iter().rev()));
-        let duplicate = entries.windows(2).any(|pair| pair[0] == pair[1]);
-        let sentinel = entries
-            .iter()
-            .any(|entry| *entry == BLACKLIST_SENTINEL_LOW || *entry == BLACKLIST_SENTINEL_HIGH);
-        (!duplicate && !sentinel && entries.len() <= BLACKLIST_ENTRIES_MAX)
-            .then_some(Self { entries })
-    }
-
-    /// The entries in limb order.
-    #[must_use]
-    pub fn entries(&self) -> &[[u8; 32]] {
-        &self.entries
-    }
-
-    /// Every level (gap leaves first, the root last) and the padding root of
-    /// every height.
-    fn levels<F: PoseidonField>(&self) -> (Vec<Vec<F>>, [F; BLACKLIST_DEPTH + 1]) {
-        let mut padding = [F::ZERO; BLACKLIST_DEPTH + 1];
-        padding[0] = blacklist_leaf(&BLACKLIST_SENTINEL_HIGH, &BLACKLIST_SENTINEL_HIGH);
-        for height in 0..BLACKLIST_DEPTH {
-            padding[height + 1] =
-                hash_with_domain(BLACKLIST_NODE_DOMAIN, &[padding[height], padding[height]]);
-        }
-        let mut level = Vec::with_capacity(self.entries.len() + 1);
-        let mut lower = &BLACKLIST_SENTINEL_LOW;
-        for entry in &self.entries {
-            level.push(blacklist_leaf(lower, entry));
-            lower = entry;
-        }
-        level.push(blacklist_leaf(lower, &BLACKLIST_SENTINEL_HIGH));
-        let mut levels = Vec::with_capacity(BLACKLIST_DEPTH + 1);
-        for pad in padding.iter().take(BLACKLIST_DEPTH) {
-            let next = level
-                .chunks(2)
-                .map(|pair| {
-                    hash_with_domain(
-                        BLACKLIST_NODE_DOMAIN,
-                        &[pair[0], *pair.get(1).unwrap_or(pad)],
-                    )
-                })
-                .collect();
-            levels.push(level);
-            level = next;
-        }
-        levels.push(level);
-        (levels, padding)
-    }
-
-    /// The gap-tree root.
-    #[must_use]
-    pub fn root<F: PoseidonField>(&self) -> F {
-        let (levels, _) = self.levels::<F>();
-        levels
-            .last()
-            .and_then(|root| root.first())
-            .copied()
-            .unwrap_or(F::ZERO)
-    }
-
-    /// The gap opening of an absent `account` (`None` when it is listed or a
-    /// sentinel).
-    #[must_use]
-    pub fn gap<F: PoseidonField>(&self, account: &[u8; 32]) -> Option<BlacklistGap<F>> {
-        if *account == BLACKLIST_SENTINEL_LOW || *account == BLACKLIST_SENTINEL_HIGH {
-            return None;
-        }
-        let index = self
-            .entries
-            .partition_point(|entry| limb_less(entry, account));
-        let upper = self
-            .entries
-            .get(index)
-            .copied()
-            .unwrap_or(BLACKLIST_SENTINEL_HIGH);
-        if upper == *account {
-            return None;
-        }
-        let lower = index
-            .checked_sub(1)
-            .and_then(|previous| self.entries.get(previous))
-            .copied()
-            .unwrap_or(BLACKLIST_SENTINEL_LOW);
-        let (levels, padding) = self.levels::<F>();
-        let mut siblings = [F::ZERO; BLACKLIST_DEPTH];
-        let mut position = index;
-        for ((sibling, level), pad) in siblings.iter_mut().zip(&levels).zip(&padding) {
-            *sibling = level.get(position ^ 1).copied().unwrap_or(*pad);
-            position >>= 1;
-        }
-        Some(BlacklistGap {
-            leaf_index: u32::try_from(index).ok()?,
-            lower,
-            upper,
-            siblings,
-        })
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -779,8 +568,6 @@ mod tests {
 
     #[test]
     fn domains_are_the_g1_ones() {
-        assert_eq!(BLACKLIST_LEAF_DOMAIN.to_le_bytes(), *b"kgwblkl1");
-        assert_eq!(BLACKLIST_NODE_DOMAIN.to_le_bytes(), *b"kgwblkn1");
         assert_eq!(QUOTA_WINDOW_DOMAIN.to_le_bytes(), *b"kgwqwin1");
         assert_eq!(QUOTA_NODE_DOMAIN.to_le_bytes(), *b"kgwqwnd1");
         assert_eq!(INDEXED_LEAF_DOMAIN.to_le_bytes(), *b"kgwimlf1");
@@ -789,44 +576,9 @@ mod tests {
     }
 
     #[test]
-    fn limb_order_reads_the_digest_as_one_little_endian_integer() {
-        let mut low_hi = [0_u8; 32];
-        low_hi[31] = 1;
-        let mut high_lo = [0_u8; 32];
-        high_lo[0] = 0xff;
-        // Byte order says high_lo > low_hi; limb order the reverse.
-        assert!(limb_less(&high_lo, &low_hi));
-        assert!(!limb_less(&low_hi, &high_lo));
-        assert!(!limb_less(&low_hi, &low_hi));
-        assert!(limb_less(&BLACKLIST_SENTINEL_LOW, &high_lo));
-        assert!(limb_less(&low_hi, &BLACKLIST_SENTINEL_HIGH));
+    fn field_order_reads_canonical_limbs() {
         assert!(field_less(&Fp::from(3_u64), &Fp::from(4_u64)));
         assert!(!field_less(&-Fp::ONE, &Fp::from(4_u64)));
-    }
-
-    #[test]
-    fn gap_openings_reach_the_root_and_bracket_only_absent_accounts() {
-        let entries = vec![[0x30; 32], [0x10; 32], [0x20; 32]];
-        let tree = BlacklistTree::new(entries).expect("tree");
-        assert_eq!(tree.entries()[0], [0x10; 32]);
-        let root: Fp = tree.root();
-        for account in [[0x01; 32], [0x15; 32], [0x25; 32], [0x40; 32]] {
-            let gap: BlacklistGap<Fp> = tree.gap(&account).expect("absent");
-            assert!(gap.proves_absent(&root, &account), "{account:?}");
-            assert!(!gap.proves_absent(&(root + Fp::ONE), &account));
-        }
-        assert!(tree.gap::<Fp>(&[0x20; 32]).is_none());
-        assert!(tree.gap::<Fp>(&BLACKLIST_SENTINEL_HIGH).is_none());
-        // A gap does not bracket its own bounds.
-        let gap: BlacklistGap<Fq> = tree.gap(&[0x15; 32]).expect("absent");
-        assert!(!gap.brackets(&gap.lower) && !gap.brackets(&gap.upper));
-        assert!(BlacklistTree::new(vec![[1; 32], [1; 32]]).is_none());
-        assert!(BlacklistTree::new(vec![BLACKLIST_SENTINEL_HIGH]).is_none());
-        // The empty list is one gap from sentinel to sentinel.
-        let empty = BlacklistTree::new(Vec::new()).expect("empty");
-        let gap: BlacklistGap<Fp> = empty.gap(&[0x77; 32]).expect("absent");
-        assert_eq!(gap.leaf_index, 0);
-        assert!(gap.proves_absent(&empty.root(), &[0x77; 32]));
     }
 
     #[test]

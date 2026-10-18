@@ -1150,7 +1150,7 @@ mod tests {
     #[test]
     fn degree_and_rows() {
         let mut cs = ConstraintSystem::<Fp>::new();
-        assert_eq!(cs.degree(), 3);
+        assert_eq!(cs.degree(), 4);
         assert_eq!(cs.blinding_factors(), 5);
         let a = cs.advice_column();
         let table = cs.lookup_table_column();
@@ -1158,9 +1158,9 @@ mod tests {
             let a = meta.query_advice(a, Rotation::cur());
             vec![(a.clone() * a, table)]
         });
-        assert_eq!(cs.degree(), 5);
+        assert_eq!(cs.degree(), 8);
         cs.set_minimum_degree(7);
-        assert_eq!(cs.degree(), 7);
+        assert_eq!(cs.degree(), 8);
         assert_eq!(cs.minimum_degree(), Some(7));
         cs.create_gate("deep", |meta| {
             let a0 = meta.query_advice(a, Rotation::cur());

@@ -260,7 +260,7 @@ fn actual_stripe_inverse_plan_is_canonical_and_bounded() {
         table.inverses.capacity() * core::mem::size_of::<F>() + core::mem::size_of_val(&table),
         ShaUnionEndpointDenominatorsV1::payload_charge_v1()
     );
-    for row in [0, 1, 137, 480287, 521951, NATIVE_ROWS_V1 - 1] {
+    for row in [0, 1, 137, 480_287, 521_951, NATIVE_ROWS_V1 - 1] {
         let x = stripe.shift.mul(stripe.root.pow(row as u128));
         for endpoint in 0..5 {
             assert_eq!(
@@ -528,7 +528,7 @@ fn quartic_replay_degree_work_and_scoped_residency_fit_unchanged_limits() {
     let n = 1_usize << 19;
     assert_eq!(MainShaUnionPlanV1::COEFFICIENT_COUNT_V1, 526_104);
     assert_eq!(MainShaUnionPlanV1::UNION_DEGREE_V1, 2_104_411);
-    assert!(MainShaUnionPlanV1::UNION_DEGREE_V1 < 2_155_224);
+    const { assert!(MainShaUnionPlanV1::UNION_DEGREE_V1 < 2_155_224) };
     assert_eq!(4 * 8, 32); // original columns generated and IFFT'd once
     assert_eq!(4 * 8 * 8, 256); // lanes, stripes, original columns
     assert_eq!(32 * (n / 2) * 19, 159_383_552);

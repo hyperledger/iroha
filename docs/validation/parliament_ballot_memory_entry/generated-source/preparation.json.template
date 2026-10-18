@@ -1,0 +1,30 @@
+{
+  "schema": "parliament-memory-entry-preparation-v1",
+  "source_files": {
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs": "8cd6365e2df3bcf644ebb647b3fee3be31a57f3c4250137f6b96447e496d7b25",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/driver.rs": "8fe13091714b9150e84a67edb3a217bcbc20a9619b27bbe9566cefae4bfb1591",
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/staging.rs": "fcfebbbdfdc26bc40fa85c8f400fa987bc609693966f3c19f4a269d3fea226f0",
+    "Cargo.toml": "68762cc6829702719a382b83f1013a241cdb962a5a8459846c429e99c7ae68b6",
+    "Cargo.lock": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db",
+    "rust-toolchain.toml": "b1de581368035db80c693eda64567b0e59252e3584d3749361d837c757b809e7",
+    "scripts/prepare_parliament_ballot_memory_entry.py": "209726d5e21f86002c60c118b3ba8e819bc9782b9d8192c077a5f182fdddded0"
+  },
+  "source_changes": {},
+  "generated_files": {
+    "Cargo.lock": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db",
+    "Cargo.toml": "208b95630d90d631cb10d0e276064bb41e1ce80af222693deb97541af3f48332",
+    "driver.rs": "5712c763f70ab00939625f1986c2f6c235ddea59aac451939849a926e431ba4e",
+    "generated_workspace.rs": "b2fa791c7dd1a9073a28215cef6dcb6177feb3cfd055eecbc93b38e120595b78",
+    "root-Cargo.lock.template": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db",
+    "staging.rs": "fcfebbbdfdc26bc40fa85c8f400fa987bc609693966f3c19f4a269d3fea226f0",
+    "workspace.diff": "70256af6de2dda33bf4a5376a95785c46c6a808e3eca2bd9dec9da815d24c110"
+  },
+  "root": "/Users/mtakemiya/dev/iroha",
+  "output": "/private/tmp/parliament-memory-entry/worker-src-1",
+  "root_lock_modified": false,
+  "profile_qualified": false,
+  "complete_workspace_certificate": false
+}

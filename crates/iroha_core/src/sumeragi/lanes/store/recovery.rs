@@ -34,10 +34,10 @@ impl LaneStoreOpen {
         let outcome = FileLaneBlockStore::with_original_refunds(&budget, || {
             self.progress()?;
             *self.store.state.lock() = StoreState {
-                tip: self.target,
                 read: None,
                 write: None,
             };
+            *self.store.tip.lock() = self.target;
             Ok(())
         });
         match outcome {

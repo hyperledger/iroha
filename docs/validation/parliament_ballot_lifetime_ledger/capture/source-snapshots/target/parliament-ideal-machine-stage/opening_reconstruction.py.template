@@ -1,0 +1,152 @@
+"""B0 -> B1 -> V0/V1 clean material reconstruction at an admissible selector.
+
+No classical PRP challenge, sampled oracle replacement, secret RAM, or public
+projection shortcut occurs here. Inputs are a matching prepared public prefix,
+an admissible selected challenge, and fixed private independent material coins.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost,require
+from opening import Opening
+from reconstruction import Reconstruction
+from vole_reconstruction import VoleReconstruction
+
+
+@dataclass(frozen=True)
+class OpeningReconstruction:
+    """Output opening||hidden_u16||commitment64||Delta||Q||q_masks (clean XOR).
+
+    The selector is256 bits. Its source meaningful challenge prefix must be
+    admissible; all remaining bits are zero for smaller test geometries. Real
+    production geometries have256 challenge bits. This component wires the same
+    selected bits into B0 and V1, so decoded indices cannot become independent
+    caller assertions. An S0-to-this-component join must prove admissibility.
+    """
+    opening: Opening
+    bavc: Reconstruction
+    vole: VoleReconstruction
+
+    def __post_init__(self):
+        g=self.opening.kernel.geometry
+        require(self.opening.kernel.inputs<=256,'selector width')
+        for other in (self.bavc.geometry,self.vole.columns.geometry):
+            require(all(getattr(g,n)==getattr(other,n) for n in ('tau','k','tau1','depths','leaves')),
+                    'opening reconstruction vector geometry mismatch')
+        require(g.opening_limit==self.bavc.geometry.opening_limit,'opening slot mismatch')
+        require(sum(g.depths)==self.vole.crt.n_delta,'selector residue width mismatch')
+
+    @property
+    def geometry(self):return self.opening.kernel.geometry
+    @property
+    def opening_bits(self):return 896*self.geometry.tau+256*self.geometry.opening_limit
+    @property
+    def hidden_bits(self):return 16*self.geometry.tau
+    @property
+    def output_bits(self):return self.opening_bits+self.hidden_bits+512+self.vole.output_bits
+
+    def input_regions(self):
+        g=self.geometry;result={};cursor=0
+        for name,width in (('namespace',616),('iv',128),('salt',256),('selector',256),
+                           ('hidden_commitment_coins',896*g.tau),('frontier_key_coins',256*g.opening_limit),
+                           ('corrections',(g.tau-1)*self.vole.columns.ell),
+                           ('mult_corrections',10*self.vole.crt.gates)):
+            result[name]=(cursor,width);cursor+=width
+        return result,cursor
+
+    @property
+    def input_bits(self):return self.input_regions()[1]
+
+    def output_regions(self):
+        result={};cursor=0
+        for name,width in (('opening',self.opening_bits),('hidden',self.hidden_bits),('commitment',512),
+                           ('verifier_material',self.vole.output_bits)):
+            result[name]=(cursor,width);cursor+=width
+        return result
+
+    def layout(self):
+        b=self.opening.block()
+        inputs,cursor=self.input_regions()
+        b0=(cursor,len(b.outputs));cursor+=b0[1]
+        b1=(cursor,self.bavc.output_bits);cursor+=b1[1]
+        plans={'b0':dict(output_start=b.inputs+b.derived+b.work,size=b.inputs+b.derived+b.work+len(b.outputs)),
+               'b1':self.bavc.layout(),'vole':self.vole.layout()}
+        input_widths={'b0':b.inputs,'b1':self.bavc.input_bits,'vole':self.vole.input_bits}
+        work=max(plans[n]['output_start']-input_widths[n] for n in plans)
+        return dict(block=b,inputs=inputs,input_widths=input_widths,retained={'b0':b0,'b1':b1},
+                    scratch_start=cursor,scratch_bits=work,plans=plans,output_start=cursor+work,
+                    size=cursor+work+self.output_bits)
+
+    def sources(self,p,name):
+        source=p['inputs'];b0,b1=p['retained']['b0'][0],p['retained']['b1'][0]
+        g=self.geometry
+        if name=='b0':
+            pieces=((source['selector'][0],self.opening.kernel.inputs),source['hidden_commitment_coins'],
+                    source['frontier_key_coins'])
+        elif name=='b1':
+            pieces=(source['namespace'],source['iv'],(b0+self.opening_bits+self.hidden_bits,2*g.leaves-1),
+                    (b0+896*g.tau,256*g.opening_limit),(b0,896*g.tau))
+        elif name=='vole':
+            pieces=tuple(source[n] for n in ('namespace','iv','salt','selector'))
+            pieces+=((b1+512,256*g.leaves),(b0+self.opening_bits,self.hidden_bits),
+                     source['corrections'],source['mult_corrections'])
+        else:raise ValueError('unknown opening reconstruction stage')
+        pieces=tuple((a,w) for a,w in pieces if w)
+        require(sum(w for _,w in pieces)==p['input_widths'][name],'opening reconstruction map width')
+        ordered=sorted(pieces)
+        require(all(type(a) is int and type(w) is int and a>=0 and w>0 for a,w in pieces)
+                and all(a+w<=b for (a,w),(b,_) in zip(ordered,ordered[1:])),
+                'opening reconstruction input aliases')
+        return pieces
+
+    def emit_clean(self):
+        p=self.layout();outs=self.output_regions()
+        def run(name):
+            plan=p['plans'][name];n=p['input_widths'][name];local_out=plan['output_start']
+            output=(p['output_start']+outs['verifier_material'][0] if name=='vole'
+                    else p['retained'][name][0])
+            boundaries=[];cursor=0
+            for start,width in self.sources(p,name):
+                boundaries.append((cursor+width,start-cursor));cursor+=width
+            boundaries=tuple(boundaries)
+            def wire(w):
+                require(type(w) is int and 0<=w<plan['size'],'opening reconstruction component wire')
+                if w<n:
+                    for end,delta in boundaries:
+                        if w<end:return w+delta
+                    raise ValueError('unreachable opening reconstruction input')
+                if w<local_out:return p['scratch_start']+w-n
+                return output+w-local_out
+            gates=(p['block'].emit_clean() if name=='b0' else
+                   self.bavc.emit_clean() if name=='b1' else self.vole.emit_clean())
+            for gate in gates:yield (gate[0],*(wire(w) for w in gate[1:]))
+        yield from run('b0')
+        yield from run('b1')
+        yield from run('vole')
+        for name,source in (('opening',p['retained']['b0'][0]),
+                            ('hidden',p['retained']['b0'][0]+self.opening_bits),
+                            ('commitment',p['retained']['b1'][0])):
+            offset,width=outs[name]
+            for bit in range(width):yield ('cx',source+bit,p['output_start']+offset+bit)
+        yield from run('b1')
+        yield from run('b0')
+
+    def resources(self):
+        p=self.layout()
+        vectors={'b0':self.opening.resources(),'b1':self.bavc.resources(),'vole':self.vole.resources()}
+        def cost(name):
+            g=vectors[name]['gates'];return Cost(g['x'],g['cx'],g['ccx'],g['base_xor_oracle_calls'])
+        total=cost('b0').times(2)+cost('b1').times(2)+cost('vole')
+        total+=Cost(cx=self.opening_bits+self.hidden_bits+512)
+        require(total.base_calls==8*self.geometry.tau+12+4*self.vole.crt.gates,'joined base query count')
+        return dict(gates=total.as_dict(),input_bits=self.input_bits,output_bits=self.output_bits,
+                    components=vectors,output_regions=self.output_regions(),
+                    retained_stage_output_bits=sum(width for _,width in p['retained'].values()),
+                    shared_clean_work_bits=p['scratch_bits'],total_clean_work_bits=p['output_start']-self.input_bits,
+                    exact_for_defined_lazy_emitter=True,selected_admissible_challenge_required=True,
+                    namespace_and_IV_from_matching_public_request_required=True,
+                    fixed_material_coin_distribution_required=True,
+                    same_selector_drives_opening_and_CRT=True,hidden_index_wire_relation_established=True,
+                    conditional_on_concrete_kernels_and_one_shared_immutable_F=True,
+                    B0_B1_V0_V1_clean_composition_implemented=True,whole_request_composition_implemented=False,
+                    complete_simulator_coverage=False,complete_resource_vector=False,
+                    actual_input_entry_bridge=False,profile_qualified=False,production_gate_changed=False)

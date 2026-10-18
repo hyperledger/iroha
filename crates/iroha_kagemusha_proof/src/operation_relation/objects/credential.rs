@@ -63,13 +63,13 @@ impl CredentialCells {
             return Err(Error::Synthesis);
         }
         let mut checks = vec![object.structural_valid().clone()];
-        for index in [1, 2, 3, 4, 8, 14, 20, 24] {
+        for index in [1, 2, 3, 4, 8, 14, 20, 23] {
             checks.push(nonzero(uint.glue(), region, object.identifier(index)?)?);
         }
         checks.push(nonzero(
             uint.glue(),
             region,
-            core::slice::from_ref(object.word(28)?),
+            core::slice::from_ref(object.word(27)?),
         )?);
         let kinds = [1, 2, 3]
             .map(|kind| is_constant(uint.glue(), region, object.word(7)?, kind))
@@ -88,14 +88,14 @@ impl CredentialCells {
         let android = uint.glue().assert_bool(region, &android_word)?;
         for (index, enrollment) in [(10, true), (16, false)] {
             let facts = bits32(uint, region, object.word(index)?)?;
-            let undefined = facts[12..]
-                .iter()
+            let undefined = core::iter::once(&facts[9])
+                .chain(facts[12..].iter())
                 .map(|bit| uint.glue().not(region, bit))
                 .collect::<Result<Vec<_>, _>>()?;
             checks.push(all(uint.glue(), region, &undefined)?);
             for (kind, forbidden) in [
                 (&android, &[6_usize, 7, 8][..]),
-                (&kinds[2], &[0_usize, 1, 2, 3, 4, 5, 9][..]),
+                (&kinds[2], &[0_usize, 1, 2, 3, 4, 5][..]),
             ] {
                 for index in forbidden {
                     let absent = uint.glue().not(region, &facts[*index])?;
@@ -120,7 +120,7 @@ impl CredentialCells {
                 checks.push(implies(uint.glue(), region, &kinds[0], &no_strongbox)?);
             }
         }
-        let first = is_constant(uint.glue(), region, object.word(26)?, 0)?;
+        let first = is_constant(uint.glue(), region, object.word(25)?, 0)?;
         for index in 8..14 {
             let unchanged = equal(
                 uint.glue(),
@@ -131,29 +131,25 @@ impl CredentialCells {
             checks.push(implies(uint.glue(), region, &first, &unchanged)?);
         }
         checks.push(le64(uint, region, object.word(9)?, object.word(15)?)?);
+        // Regulatory controls: QUOTAS bit 0 and ATTESTATION_LEASE bit 1, both
+        // time dependent; every higher bit is undefined.
         let controls = bits32(uint, region, object.word(21)?)?;
-        let undefined = controls[3..]
+        let undefined = controls[2..]
             .iter()
             .map(|bit| uint.glue().not(region, bit))
             .collect::<Result<Vec<_>, _>>()?;
         checks.push(all(uint.glue(), region, &undefined)?);
-        let has_age = nonzero(uint.glue(), region, core::slice::from_ref(object.word(22)?))?;
-        checks.push(implies(uint.glue(), region, &has_age, &controls[0])?);
-        let time_rules = [
-            controls[1].word().clone(),
-            controls[2].word().clone(),
-            has_age.word().clone(),
-        ];
+        let time_rules = [controls[0].word().clone(), controls[1].word().clone()];
         let time_required = nonzero(uint.glue(), region, &time_rules)?;
-        let response = nonzero(uint.glue(), region, core::slice::from_ref(object.word(23)?))?;
+        let response = nonzero(uint.glue(), region, core::slice::from_ref(object.word(22)?))?;
         checks.push(
             uint.glue()
                 .is_equal(region, time_required.word(), response.word())?,
         );
-        let lease = nonzero(uint.glue(), region, core::slice::from_ref(object.word(27)?))?;
+        let lease = nonzero(uint.glue(), region, core::slice::from_ref(object.word(26)?))?;
         checks.push(
             uint.glue()
-                .is_equal(region, controls[2].word(), lease.word())?,
+                .is_equal(region, controls[1].word(), lease.word())?,
         );
         let valid = all(uint.glue(), region, &checks)?;
         Ok(Self {
@@ -250,9 +246,8 @@ impl CredentialCells {
         }
         for (field, expected) in [
             (21, &state.rest()[rest_index::PERMITTED]),
-            (22, &core[core_index::BLACKLIST_MAX_AGE]),
-            (23, &core[core_index::TIME_ANCHOR_MAX_RESPONSE]),
-            (27, &core[core_index::LEASE_EXPIRY]),
+            (22, &core[core_index::TIME_ANCHOR_MAX_RESPONSE]),
+            (26, &core[core_index::LEASE_EXPIRY]),
         ] {
             checks.push(
                 uint.glue()
@@ -288,8 +283,8 @@ impl CredentialCells {
         previous: &Self,
     ) -> Result<Bit<Fp>, Error> {
         let mut checks = vec![self.valid.clone(), previous.valid.clone()];
-        for index in 0..29 {
-            if (14..20).contains(&index) || [25, 26, 27, 28].contains(&index) {
+        for index in 0..28 {
+            if (14..20).contains(&index) || [24, 25, 26, 27].contains(&index) {
                 continue;
             }
             checks.push(equal(
@@ -303,10 +298,10 @@ impl CredentialCells {
         // unbounded field sum cannot wrap Fp, so max-u32 has no successor.
         let successor = uint
             .glue()
-            .add_constant(region, previous.object.word(26)?, Fp::ONE)?;
+            .add_constant(region, previous.object.word(25)?, Fp::ONE)?;
         checks.push(
             uint.glue()
-                .is_equal(region, self.object.word(26)?, &successor)?,
+                .is_equal(region, self.object.word(25)?, &successor)?,
         );
         all(uint.glue(), region, &checks)
     }

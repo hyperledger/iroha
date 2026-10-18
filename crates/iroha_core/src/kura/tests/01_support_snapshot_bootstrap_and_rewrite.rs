@@ -323,11 +323,13 @@ fn blank_kura_applies_staged_pre_genesis_nexus_geometry() {
     let kura = Kura::new_temporary_with_configured_lane_catalog(&config, &lane_config, &catalog)
         .expect("open the exact configured startup baseline");
     let store_root = kura.store_root().clone();
+    let constructor_world = World::default();
     let mut state = State::try_new_with_chain(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
-        World::default(),
+        constructor_world
+            .sccp_committee_generations
+            .allocation_budget()
+            .clone(),
+        constructor_world,
         Arc::clone(&kura),
         LiveQueryStore::start_test(),
         ChainId::from("staged-genesis-geometry"),

@@ -34,17 +34,14 @@ pub enum ReceiveResultTag {
     Signatures = 3,
     /// Unique authenticated consumed-credit search proves absence.
     Nonmembership = 4,
-    /// Recorded blacklist pair, history search and exact sigma selector.
-    Blacklist = 5,
 }
 impl ReceiveResultTag {
     /// Canonical complete terminal set; it is never selected by witness data.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 4] = [
         Self::Proofs,
         Self::Objects,
         Self::Signatures,
         Self::Nonmembership,
-        Self::Blacklist,
     ];
 
     /// Stable code within a separately framed result namespace.
@@ -59,7 +56,6 @@ impl ReceiveResultTag {
             Self::Objects => OperationTask::ReceiveObjects,
             Self::Signatures => OperationTask::ReceiveSignatures,
             Self::Nonmembership => OperationTask::ReceiveNonmembership,
-            Self::Blacklist => OperationTask::ReceiveBlacklist,
         }
     }
 }
@@ -71,10 +67,10 @@ impl ReceiveResultTag {
 /// callers cannot independently relabel a result's owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReceiveResultPlan {
-    owners: [u32; 5],
+    owners: [u32; 4],
 }
 impl ReceiveResultPlan {
-    /// Derive all five result owners from a complete Receive task schedule.
+    /// Derive all four result owners from a complete Receive task schedule.
     ///
     /// # Errors
     /// Wrong variant, missing/duplicate tasks, or malformed stage ordering.
@@ -104,7 +100,7 @@ impl ReceiveResultPlan {
         {
             return Err(Error::Synthesis);
         }
-        let mut owners = [0; 5];
+        let mut owners = [0; 4];
         for (owner, tag) in owners.iter_mut().zip(ReceiveResultTag::ALL) {
             *owner = u32::try_from(
                 groups
@@ -122,16 +118,16 @@ impl ReceiveResultPlan {
         self.owners[tag as usize - 1]
     }
 
-    /// Canonical `(tag, owner stage)` pairs to frame before the five values.
+    /// Canonical `(tag, owner stage)` pairs to frame before the four values.
     /// Stage ordinals are zero-based checked u32 values. The context must frame
-    /// this list with [`RECEIVE_RESULTS_DOMAIN`] and its fixed count of five;
+    /// this list with [`RECEIVE_RESULTS_DOMAIN`] and its fixed count of four;
     /// platform-sized integer encodings are not part of the schema.
-    pub fn schema(self) -> [(u8, u32); 5] {
+    pub fn schema(self) -> [(u8, u32); 4] {
         ReceiveResultTag::ALL.map(|tag| (tag.code(), self.owner(tag)))
     }
 }
 
-/// Five boolean claims retained by the original split context.
+/// Four boolean claims retained by the original split context.
 ///
 /// This object is a commitment to proposed results, never evidence that any
 /// predicate holds. It exposes no acceptance verdict. Every typed owning task
@@ -140,7 +136,7 @@ impl ReceiveResultPlan {
 #[derive(Clone, Debug)]
 pub struct ReceiveResultClaims {
     plan: ReceiveResultPlan,
-    values: [Bit<Fp>; 5],
+    values: [Bit<Fp>; 4],
     opening: Option<FoldInputCells<Ep>>,
 }
 impl ReceiveResultClaims {
@@ -157,14 +153,14 @@ impl ReceiveResultClaims {
         }
         GlueChip::assert_equal(region, self.values[tag as usize - 1].word(), derived.word())
     }
-    /// Commit exactly five proposed results in the plan's fixed canonical order.
+    /// Commit exactly four proposed results in the plan's fixed canonical order.
     /// # Errors
     /// Layout failure. This constructor does not validate the proposed results.
     pub fn assign(
         glue: &mut GlueChip<Fp>,
         region: &mut Region<'_, Fp>,
         plan: ReceiveResultPlan,
-        values: [Value<bool>; 5],
+        values: [Value<bool>; 4],
     ) -> Result<Self, Error> {
         let values = values
             .iter()
@@ -179,7 +175,7 @@ impl ReceiveResultClaims {
         })
     }
 
-    pub(super) fn values(&self, plan: ReceiveResultPlan) -> Result<&[Bit<Fp>; 5], Error> {
+    pub(super) fn values(&self, plan: ReceiveResultPlan) -> Result<&[Bit<Fp>; 4], Error> {
         if self.plan != plan {
             return Err(Error::Synthesis);
         }
@@ -191,7 +187,7 @@ impl ReceiveResultClaims {
     /// verifier output, even when its validity bit is false. This constructor
     /// alone does not certify that equality or decide the pending claim.
     /// # Errors
-    /// Anything except a checked finite canonical full-k16 original claim.
+    /// Anything except a checked canonical full-group full-k16 original claim.
     pub fn with_opening(mut self, opening: &FoldInputCells<Ep>) -> Result<Self, Error> {
         if opening.source() != FoldSource::Fixed(16) {
             return Err(Error::Synthesis);
@@ -259,7 +255,7 @@ mod tests {
             let columns = core::array::from_fn(|_| meta.advice_column());
             let constant = meta.fixed_column();
             let glue = GlueConfig::configure(meta, columns, constant);
-            let public = meta.instance_column(5);
+            let public = meta.instance_column(4);
             meta.enable_equality(public);
             Config { glue, public }
         }
@@ -302,19 +298,15 @@ mod tests {
 
     fn groups() -> Vec<Vec<OperationTask>> {
         use OperationTask::{
-            ReceiveAuthorization, ReceiveBlacklist, ReceiveConsumedEffects, ReceiveCreditEffects,
-            ReceiveEffects, ReceiveNonmembership, ReceiveObjects, ReceiveOwnProof,
-            ReceiveProofDigest, ReceiveProofs, ReceiveSignatures,
+            ReceiveAuthorization, ReceiveConsumedEffects, ReceiveCreditEffects, ReceiveEffects,
+            ReceiveNonmembership, ReceiveObjects, ReceiveProofDigest, ReceiveProofs,
+            ReceiveSignatures, ReceiveTransition,
         };
         vec![
-            vec![ReceiveOwnProof, ReceiveProofDigest],
+            vec![ReceiveProofDigest, ReceiveTransition],
             vec![ReceiveProofs],
             vec![ReceiveObjects, ReceiveNonmembership],
-            vec![
-                ReceiveBlacklist,
-                ReceiveConsumedEffects,
-                ReceiveCreditEffects,
-            ],
+            vec![ReceiveConsumedEffects, ReceiveCreditEffects],
             vec![ReceiveSignatures, ReceiveAuthorization, ReceiveEffects],
         ]
     }
@@ -323,8 +315,8 @@ mod tests {
     fn complete_result_set_has_exact_named_owners_for_both_receive_variants() {
         for variant in [Variant::Receive, Variant::ReceiveRenewed] {
             let plan = ReceiveResultPlan::from_tasks(variant, &groups()).unwrap();
-            assert_eq!(plan.schema(), [(1, 1), (2, 2), (3, 4), (4, 2), (5, 3)]);
-            assert_eq!(ReceiveResultTag::ALL.len(), 5);
+            assert_eq!(plan.schema(), [(1, 1), (2, 2), (3, 4), (4, 2)]);
+            assert_eq!(ReceiveResultTag::ALL.len(), 4);
         }
         assert!(ReceiveResultPlan::from_tasks(Variant::Send, &groups()).is_err());
         assert!(ReceiveResultPlan::from_tasks(Variant::Receive, &[]).is_err());
@@ -343,7 +335,7 @@ mod tests {
                 duplicate[0].sort_unstable();
                 assert!(ReceiveResultPlan::from_tasks(Variant::Receive, &duplicate).is_err());
                 let mut relabelled = honest.clone();
-                relabelled[stage][index] = OperationTask::SendProof;
+                relabelled[stage][index] = OperationTask::SendTransition;
                 relabelled[stage].sort_unstable();
                 assert!(ReceiveResultPlan::from_tasks(Variant::Receive, &relabelled).is_err());
             }
@@ -367,14 +359,14 @@ mod tests {
 
     #[test]
     fn every_committed_result_is_boolean_bound_and_cannot_change_owner() {
-        for mask in 0..32 {
+        for mask in 0..16 {
             let circuit = Claims {
                 mask,
                 known: true,
                 wrong_plan: false,
             };
             let public = vec![
-                (0..5)
+                (0..4)
                     .map(|i| Fp::from(u64::from(mask & (1 << i) != 0)))
                     .collect::<Vec<_>>(),
             ];
@@ -383,7 +375,7 @@ mod tests {
                     .unwrap()
                     .is_satisfied()
             );
-            for index in 0..5 {
+            for index in 0..4 {
                 let mut forged = public.clone();
                 forged[0][index] = Fp::ONE - forged[0][index];
                 assert!(
@@ -447,7 +439,7 @@ mod tests {
                     meta, 4,
                 )
                 .unwrap();
-            let public = meta.instance_column(5);
+            let public = meta.instance_column(4);
             meta.enable_equality(public);
             OpeningConfig { verifier, public }
         }
@@ -476,15 +468,15 @@ mod tests {
                         chip.uint().glue(),
                         &mut region,
                         plan,
-                        [value; 5],
+                        [value; 4],
                     )?;
-                    let expected_g = chip.constant_point(&mut region, &generator::<Ep>())?;
+                    let expected_g = chip.constant_generator(&mut region, &generator::<Ep>())?;
                     let point = if self.point_mutation {
                         -generator::<Ep>()
                     } else {
                         generator::<Ep>()
                     };
-                    let actual_g = chip.constant_point(&mut region, &point)?;
+                    let actual_g = chip.constant_generator(&mut region, &point)?;
                     let mut expected = Vec::new();
                     let mut actual = Vec::new();
                     for i in 0..16 {
@@ -545,7 +537,7 @@ mod tests {
                         claims.with_opening(&actual)?
                     };
                     let words = claims.context_words(plan)?;
-                    assert_eq!(words.len(), 40);
+                    assert_eq!(words.len(), 39);
                     // The same unconditional equality is used by the real Proofs
                     // owner against its actual soft verifier output. No verdict
                     // gates a coordinate or challenge, including on failure.
@@ -554,7 +546,7 @@ mod tests {
                         claims.opening()?,
                         &expected,
                     )?;
-                    Ok(words[..5].to_vec())
+                    Ok(words[..4].to_vec())
                 },
             )?;
             for (i, word) in output.iter().enumerate() {
@@ -568,7 +560,7 @@ mod tests {
             check_circuit(
                 self,
                 16,
-                &[vec![Fp::from(u64::from(self.soft)); 5]],
+                &[vec![Fp::from(u64::from(self.soft)); 4]],
                 CheckMode::Strict,
             )
             .is_ok_and(|r| r.is_satisfied())

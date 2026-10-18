@@ -82,9 +82,12 @@ hex = { workspace = true }
 p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa", "pkcs8", "hash2curve", "expose-field"] }
 rand = { workspace = true }
 rand_core_06 = { workspace = true }
+# Bounded route-qualification workers during opening, on the shared global pool.
+rayon = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 zeroize = { version = "1.8.2", default-features = false, features = ["alloc", "std"] }
+zstd = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs", "process", "time"] }

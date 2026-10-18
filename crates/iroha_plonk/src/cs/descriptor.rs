@@ -55,9 +55,9 @@ pub const MAX_COUNT: usize = 65_535;
 /// Largest stack depth while evaluating a postfix expression.
 pub const MAX_EXPRESSION_STACK: usize = 1_024;
 /// Smallest circuit degree.
-pub const MIN_DEGREE: usize = 3;
-/// Largest circuit degree (format cap; gadget chips stay at 6 or below).
-pub const MAX_DEGREE: usize = 9;
+pub const MIN_DEGREE: usize = 4;
+/// Largest circuit degree of the first-release norm-product protocol.
+pub const MAX_DEGREE: usize = 14;
 
 /// The proof curve.
 #[derive(
@@ -364,7 +364,7 @@ pub struct CircuitDescriptorV1 {
     pub degree: u8,
     /// The blinding factors `b`.
     pub blinding_factors: u16,
-    /// Columns per permutation set, `d - 2`.
+    /// Columns per permutation set, `floor((d - 2) / 2)`.
     pub permutation_chunk_len: u8,
     /// Quotient pieces, `d - 1`.
     pub quotient_pieces: u8,
@@ -1031,7 +1031,7 @@ impl CircuitDescriptorV1 {
             proof_suffix: config.proof_suffix,
             degree,
             blinding_factors,
-            permutation_chunk_len: degree.checked_sub(2).ok_or(DescriptorRule::Degree)?,
+            permutation_chunk_len: degree.checked_sub(2).ok_or(DescriptorRule::Degree)? / 2,
             quotient_pieces: degree.checked_sub(1).ok_or(DescriptorRule::Degree)?,
             lookup_kind: LookupKindV1::Halo2Permuted,
             num_fixed_columns: bounded_u32(cs.num_fixed_columns())?,
@@ -1109,7 +1109,7 @@ impl CircuitDescriptorV1 {
         1_usize.checked_shl(k).ok_or(DescriptorRule::Bounds)
     }
 
-    /// The number of permutation sets `n_z = ceil(m / (d - 2))`.
+    /// The number of permutation sets `n_z = ceil(m / floor((d - 2) / 2))`.
     fn permutation_sets(&self) -> usize {
         let chunk = usize::from(self.permutation_chunk_len).max(1);
         self.permutation.len().div_ceil(chunk)
@@ -1182,7 +1182,7 @@ impl CircuitDescriptorV1 {
     fn check_degree(&self) -> Result<usize, DescriptorRule> {
         let degree = usize::from(self.degree);
         if !(MIN_DEGREE..=MAX_DEGREE).contains(&degree)
-            || usize::from(self.permutation_chunk_len) != degree - 2
+            || usize::from(self.permutation_chunk_len) != (degree - 2) / 2
             || usize::from(self.quotient_pieces) != degree - 1
         {
             return Err(DescriptorRule::Degree);
@@ -1296,7 +1296,7 @@ impl CircuitDescriptorV1 {
             for table in &lookup.tables {
                 table_degree = table_degree.max(expression_degree(table, &context)?);
             }
-            let required = 4.max(input_degree + table_degree + 2);
+            let required = 6.max(2 * input_degree + 2 * table_degree + 2);
             if required > degree {
                 return Err(DescriptorRule::Lookup);
             }
@@ -1459,13 +1459,58 @@ impl CircuitDescriptorV1 {
             &descriptions,
             usize::from(self.degree),
             cancellation,
-        )
-        .map_err(|error| match error {
+        );
+        self.require_selector_plan(plan, cancellation)
+    }
+
+    /// Recheck a canonical packed VK suffix with the identical selector planner.
+    pub(crate) fn check_packed_selector_plan_cancellable(
+        &self,
+        activations: &[u8],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), DescriptorError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
+        let entries = &self.selectors.entries;
+        let n = self.n()?;
+        let width = n.div_ceil(8);
+        if width.checked_mul(entries.len()) != Some(activations.len()) {
+            return Err(DescriptorRule::Selectors.into());
+        }
+        let mut descriptions = Vec::with_capacity(entries.len());
+        for (selector, (rows, entry)) in activations.chunks_exact(width).zip(entries).enumerate() {
+            iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
+            if n % 8 != 0 && rows[width - 1] >> (n % 8) != 0 {
+                return Err(DescriptorRule::Selectors.into());
+            }
+            descriptions.push(selector_compression::PackedSelectorDescription {
+                selector,
+                activations: rows,
+                max_degree: usize::from(entry.max_degree),
+            });
+        }
+        if !self.selectors.compress {
+            return Ok(());
+        }
+        let plan = selector_compression::plan_packed_cancellable(
+            &descriptions,
+            usize::from(self.degree),
+            cancellation,
+        );
+        self.require_selector_plan(plan, cancellation)
+    }
+
+    fn require_selector_plan(
+        &self,
+        plan: Result<Vec<Vec<usize>>, selector_compression::CompressionError>,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), DescriptorError> {
+        let plan = plan.map_err(|error| match error {
             selector_compression::CompressionError::Cancelled => {
                 DescriptorError::from(CsError::Cancelled)
             }
             _ => DescriptorError::from(DescriptorRule::Selectors),
         })?;
+        let entries = &self.selectors.entries;
         for (combination, members) in plan.iter().enumerate() {
             iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(CsError::from)?;
             for (member, selector) in members.iter().enumerate() {
@@ -1657,8 +1702,8 @@ mod tests {
         let d = sample_descriptor(true);
         assert_eq!(d.protocol_version, 1);
         assert_eq!(d.k, 6);
-        assert_eq!(d.degree, 5, "the lookup c * a needs degree 5");
-        assert_eq!((d.permutation_chunk_len, d.quotient_pieces), (3, 4));
+        assert_eq!(d.degree, 8, "the norm lookup c * a needs degree 8");
+        assert_eq!((d.permutation_chunk_len, d.quotient_pieces), (3, 7));
         assert_eq!(d.blinding_factors, 5);
         assert_eq!(d.instance_lengths, vec![3]);
         assert_eq!(d.num_advice_columns, 2);
@@ -1807,8 +1852,12 @@ mod tests {
                 |d| {
                     let poly = d.gates[0][0].clone();
                     let mut squared = poly.clone();
-                    squared.extend(poly);
+                    squared.extend(poly.clone());
                     squared.push(ExprNodeV1::Product);
+                    for _ in 0..d.degree {
+                        squared.extend(poly.clone());
+                        squared.push(ExprNodeV1::Product);
+                    }
                     d.gates[0][0] = squared;
                 },
                 DescriptorRule::ExpressionDegree,

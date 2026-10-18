@@ -176,7 +176,7 @@ pub const MAX_GAUSSIAN_COEFFICIENT_ATTEMPTS_V1: u32 = 4_096;
 /// label deliberately does not claim that the full BLNS main-construction security reduction
 /// applies to the specialization. The portable Falcon key-generation and recursive ffSampling core
 /// is derived from the pinned Unlicense `rust-fn-dsa` workspace revision; the holder sampler and
-/// Lantern proof relation follow the pinned LaZeR revision.
+/// Lantern proof relation follow the pinned `LaZeR` revision.
 pub const SOURCE_PROFILE_V1: &[u8] = b"BLNS-specialization-no-main-construction-reduction:eprint-2023-560|LaZeR-10eafeca4cd53ff4fc54193dce904dbd0026fefd|rust-fn-dsa-workspace-0.3-daf14859b5aa3f8d75c42966ba7de83e6eb59997-Unlicense|portable-safe-rust-no-SIMD";
 #[cfg(test)]
 mod tests {
@@ -244,8 +244,8 @@ mod tests {
             u16::from(CHALLENGE_NORM_ROOT_DEGREE_V1)
         );
         assert!(CHALLENGE_NORM_POWER_V1.is_power_of_two());
-        assert!(MAX_UNIFORM_REJECTION_ATTEMPTS_V1 > 0);
-        assert!(MAX_CHALLENGE_CANDIDATE_ATTEMPTS_V1 > 0);
+        const { assert!(MAX_UNIFORM_REJECTION_ATTEMPTS_V1 > 0) };
+        const { assert!(MAX_CHALLENGE_CANDIDATE_ATTEMPTS_V1 > 0) };
     }
     #[test]
     fn rejection_constants_use_exact_inputs_and_one_sided_q256_rounding() {

@@ -101,7 +101,7 @@ fn authority(
     let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
     ncore::to_bytes(&(
         DOMAIN.to_vec(),
-        network.clone(),
+        *network,
         sender.clone(),
         receiver.clone(),
         session,
@@ -325,23 +325,27 @@ mod tests {
         assert_eq!(local.binding.outgoing, remote.binding.incoming);
         assert_eq!(local.outbound_maximum, [1; CLASS_COUNT]);
         let mut stream = CreditStream::<ChaCha20Poly1305, Fixture>::new(
-            local.transport.read,
-            local.transport.write,
-            local.transport.source,
+            negotiation::OwnedTransport {
+                read: local.transport.read,
+                write: local.transport.write,
+                source: local.transport.source,
+            },
             local.binding,
             crypto,
             b,
             101,
-            crate::network::TopicFrameCaps::uniform(1024),
-            local.outbound_maximum,
-            OutboundFrameQueueLimits::new_with_progress_reserve(
-                256 * 1024,
-                128 * 1024,
-                256 * 1024,
-                32,
-                32,
-            ),
-            Duration::from_secs(20),
+            stream::CreditStreamConfig {
+                caps: crate::network::TopicFrameCaps::uniform(1024),
+                maximum: local.outbound_maximum,
+                limits: OutboundFrameQueueLimits::new_with_progress_reserve(
+                    256 * 1024,
+                    128 * 1024,
+                    256 * 1024,
+                    32,
+                    32,
+                ),
+                idle_timeout: Duration::from_secs(20),
+            },
         )
         .unwrap();
         let (post, mut ack) = post(Fixture::Payload(99));

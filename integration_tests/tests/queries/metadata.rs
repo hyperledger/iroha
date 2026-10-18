@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests querying metadata via `FindAccounts`.
 use integration_tests::sandbox;
 use iroha::{client::QueryError, data_model::prelude::*};

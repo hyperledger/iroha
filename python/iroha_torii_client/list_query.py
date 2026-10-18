@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import Enum
@@ -427,7 +428,7 @@ def _require_path(path: Any) -> str:
 FilterLike = Union["Filter", str]
 
 
-class Filter:
+class Filter(ABC):
     """A filter expression; build with :data:`F`, :func:`parse_filter` or the node classes.
 
     Combine with ``&`` (and), ``|`` (or) and ``~`` (not). Python's ``and``,
@@ -461,6 +462,7 @@ class Filter:
         )
 
     # -- identity ----------------------------------------------------------
+    @abstractmethod
     def _key(self) -> Tuple[Any, ...]:  # pragma: no cover - overridden
         raise NotImplementedError
 
@@ -510,6 +512,7 @@ class Filter:
             )
         return str(self)
 
+    @abstractmethod
     def to_json(self) -> Dict[str, Any]:
         """Canonical JSON form: ``{"op": ..., "args": [...]}``."""
 
@@ -775,6 +778,7 @@ class Field:
     """
 
     __slots__ = ("_path",)
+    _path: str
 
     def __init__(self, path: str) -> None:
         object.__setattr__(self, "_path", _require_path(path))
@@ -1944,7 +1948,7 @@ class ListQuery:
         if self.filter is not None and not isinstance(self.filter, (Filter, str)):
             raise TypeError("ListQuery.filter must be a Filter, a text filter or None")
         try:
-            sort_keys = _sort_keys(self.sort)  # type: ignore[arg-type]
+            sort_keys = _sort_keys(self.sort)
         except FilterError as error:
             raise ListQueryError("sort", str(error)) from None
         object.__setattr__(self, "sort", sort_keys)
@@ -2317,7 +2321,7 @@ class Page(Generic[T]):
         if "total" in payload and (total is None or total < len(items)):
             raise ValueError("`total` must be an integer at least as large as the current page")
         converted = tuple(items) if item is None else tuple(item(entry) for entry in items)
-        return cls(converted, next_cursor, total)  # type: ignore[arg-type]
+        return cls(converted, next_cursor, total)
 
 
 def iter_pages(fetch: Callable[[ListQuery], Page[T]], query: ListQuery) -> Iterator[Page[T]]:

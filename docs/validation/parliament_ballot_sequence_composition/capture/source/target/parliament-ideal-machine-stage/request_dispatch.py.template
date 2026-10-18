@@ -1,0 +1,106 @@
+"""Typed vote-header rejection before selecting a fixed content family.
+
+The input length is the authenticated metadata of the same Vec<Commitment>,
+represented here as a64-bit usize word. This circuit does not parse a wire
+request, validate a pointer/length descriptor or read the list's contents.
+Row and role are Rust typed API choices; no fictitious invalid-row error exists.
+"""
+from dataclasses import dataclass
+from functools import lru_cache
+import hashlib
+from pathlib import Path
+
+from bit_ir import Builder, integer, require
+
+SOURCE_PINS = {
+    'crates/iroha_parliament_ballot_proof/src/vote.rs': '0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3',
+    'crates/iroha_parliament_ballot_proof/src/sealed_list.rs': '769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0',
+    'crates/iroha_parliament_ballot_proof/src/proving.rs': '717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051',
+}
+
+
+def less_constant(builder, wires, value):
+    """Unsigned little-endian word < public constant, with explicit bit gates."""
+    require(type(builder) is Builder,'comparison builder')
+    require(type(wires) is tuple and 1<=len(wires)<=64, 'comparison word')
+    integer(value,0,(1 << len(wires))-1,'comparison constant')
+    # Validate against the pre-call inventory. Allocating the initial equal/less
+    # flags first would accidentally legitimize a caller's out-of-range wire.
+    for wire in wires:integer(wire,0,builder.cursor-1,'comparison source wire')
+    equal, less = builder.bit('one'), builder.bit('zero')
+    for j in range(len(wires)-1,-1,-1):
+        wire = wires[j]
+        if (value >> j)&1:
+            lower_here = builder.bit('and',equal,builder.bit('not',wire))
+            less = builder.bit('xor',less,lower_here)  # disjoint first-difference events
+            equal = builder.bit('and',equal,wire)
+        else:
+            equal = builder.bit('and',equal,builder.bit('not',wire))
+    return less
+
+
+@lru_cache(maxsize=1)
+def header_block():
+    """Build the one fixed72-input/76-output header circuit."""
+    builder = Builder(72)
+    vote, length = tuple(range(8)),tuple(range(8,72))
+    vote_ok = less_constant(builder,vote,3)
+    too_small = less_constant(builder,length,3)
+    at_most_max = less_constant(builder,length,1001)
+    size_ok = builder.bit('and',builder.bit('not',too_small),at_most_max)
+    proceed = builder.bit('and',vote_ok,size_ok)
+    vote_error = builder.bit('not',vote_ok)
+    size_error = builder.bit('and',vote_ok,builder.bit('not',size_ok))
+    code = (vote_error,size_error,builder.bit('zero'))
+    actual = tuple(builder.bit('and',size_error,bit) for bit in length)
+    value = tuple(builder.bit('and',vote_error,bit) for bit in vote)
+    return builder.finish((proceed,*code,*actual,*value))
+
+
+@dataclass(frozen=True)
+class VoteHeaderDispatch:
+    """Clean XOR header decision; continuation means P0 must still run.
+
+Input is vote8 || actual_length64. Output is continuation1 || error_code3 ||
+actual_length64 || vote_value8. Codes0,1,2 mean content-family dispatch,
+VoteValue and List::Size. This is a mathematical register, not Rust enum layout.
+Arbitrary output targets are XORed; inputs and zero work are restored.
+"""
+    inputs = 72
+    outputs = 76
+
+    @property
+    def block(self): return header_block()
+
+    def output_regions(self):
+        return dict(dispatch_to_content=(0,1),error_code=(1,3),actual_length=(4,64),vote_value=(68,8))
+
+    def emit_clean(self): yield from self.block.emit_clean()
+
+    def resources(self):
+        result = self.block.clean_resources()
+        result.update(input_regions=dict(vote=(0,8),actual_length=(8,64)),
+            output_regions=self.output_regions(),actual_length_payload_bits=64,
+            source_native_usize64_descriptor_premise=True,
+            same_typed_payload_and_length_authenticated_upstream=True,
+            first_error_order=('VoteValue','List::Size','continue content validation'),
+            continuation_list_count_range=(3,1000),source_list_content_bits_read=0,
+            source_backend_reads=0,persistent_log_or_counter_touched=False,
+            content_validation_performed=False,typed_row_and_role_selection_external=True,
+            raw_request_codec_or_length_authentication_implemented=False,
+            complete_fixed_family_dispatch_composed=False,
+            complete_simulator_coverage=False,complete_resource_vector=False,
+            actual_input_entry_bridge=False,profile_qualified=False,production_gate_changed=False)
+        return result
+
+
+def source_bound_dispatch(root):
+    """Authenticate selected source semantics before returning the fixed circuit."""
+    root = Path(root)
+    before = {p:hashlib.sha256((root/p).read_bytes()).hexdigest() for p in SOURCE_PINS}
+    require(before == SOURCE_PINS,'vote dispatch source changed')
+    circuit = VoteHeaderDispatch()
+    circuit.resources()
+    after = {p:hashlib.sha256((root/p).read_bytes()).hexdigest() for p in SOURCE_PINS}
+    require(before == after,'vote dispatch source drift')
+    return circuit

@@ -34,6 +34,8 @@ use mv::storage::StorageReadOnly;
 mod catalog;
 #[path = "table_capture/frozen.rs"]
 pub(in crate::state) mod frozen;
+#[path = "table_capture/frozen_musubi.rs"]
+pub(in crate::state) mod frozen_musubi;
 use super::transaction_membership::{
     CapturedMembershipCompanion, MembershipCaptureError, MembershipWorkLimits,
     capture_membership_group_once,
@@ -964,6 +966,8 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
         capture: capture_repo_agreements_once,
     },
     native_world::capture_settlement_receipts_once::MATERIALIZER,
+    native_world::capture_bonds_once::MATERIALIZER,
+    native_world::capture_bond_entitlements_once::MATERIALIZER,
     native_world::capture_public_lane_validators_once::MATERIALIZER,
     native_world::capture_public_lane_stake_shares_once::MATERIALIZER,
     capture_public_lane_stake_custody_once::MATERIALIZER,
@@ -1367,6 +1371,8 @@ mod tests {
             "world.soradns_release_signers",
             "world.repo_agreements",
             "world.settlement_receipts",
+            "world.bonds",
+            "world.bond_entitlements",
             "world.public_lane_validators",
             "world.public_lane_stake_shares",
             "world.public_lane_stake_custody",

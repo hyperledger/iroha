@@ -1,5 +1,5 @@
 //! End-to-end test for Kotodama pointer ABI asset operations.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::explicit_into_iter_loop, clippy::map_unwrap_or)]
 use iroha_core::{
     kura::Kura,

@@ -13,14 +13,25 @@ use p256::ecdsa::{Signature, SigningKey, signature::Signer as _};
 
 use iroha_data_model::{
     account::AccountId,
-    asset::AssetDefinitionId,
+    asset::{AssetDefinitionId, AssetId},
+    bond::{
+        BondCallTerms, BondDayCount, BondIdentifiers, BondScheduleRequest, BondTerms,
+        fixed_rate_bullet_schedule,
+    },
     confidential::{
         CONFIDENTIAL_MEMO_MAX_CIPHERTEXT_BYTES_V1, CONFIDENTIAL_MEMO_RECIPIENT_SLOTS_V1,
         CONFIDENTIAL_MEMO_WIRE_MAGIC_V1, CONFIDENTIAL_MEMO_WRAPPED_KEY_BYTES_V1,
         CONFIDENTIAL_MEMO_XCHACHA_NONCE_BYTES_V1, CONFIDENTIAL_MEMO_XCHACHA_TAG_BYTES_V1,
         ConfidentialMemoEnvelopeV1, ConfidentialMemoRecipientSlotV1, ConfidentialMemoSuiteV1,
     },
-    isi::repo::{RepoInstructionBox, RepoIsi, RepoMarginCallIsi, ReverseRepoIsi},
+    isi::{
+        bond::{
+            BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
+            FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
+            RetireBondTreasuryUnits,
+        },
+        repo::{RepoInstructionBox, RepoIsi, RepoMarginCallIsi, ReverseRepoIsi},
+    },
     kagemusha::kagemusha_wallet_v1::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
     privacy::{
         GoldilocksDigest384V1, PRIVACY_PROOF_WIRE_MAGIC_BYTES_V1,
@@ -313,7 +324,7 @@ fn repo_values(rows: &mut Vec<Value>) {
         RepoCollateralLeg::new(asset("bond"), 1_100u32),
         250,
         1_704_000_000_000,
-        RepoGovernance::with_defaults(1_500, 86_400),
+        RepoGovernance::new(1_500, 86_400, false),
     );
     let initiation_consent = initiate.initiation_intent_hash();
     let maturity_consent = initiate.maturity_intent_hash();
@@ -343,20 +354,112 @@ fn repo_values(rows: &mut Vec<Value>) {
     family(rows, "repo_instruction_box", &values);
 }
 
-#[test]
-fn manual_protocol_frames_match_capture() {
+fn bond_values(rows: &mut Vec<Value>) {
+    let account = |seed| {
+        let key = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).unwrap();
+        AccountId::new(key.public_key().clone())
+    };
+    let domain = DomainId::try_new("wonderland", "universal").unwrap();
+    let asset = |name: &str| {
+        AssetDefinitionId::derive_from_components(domain.clone(), name.parse().unwrap())
+    };
+    let bond = asset("slo_2028");
+    // 2026-01-15 to 2028-01-15, semi-annual 6.50 % on a 50 denomination.
+    let (issue, maturity) = (1_768_435_200_000, 1_831_507_200_000);
+    let cashflows = fixed_rate_bullet_schedule(&BondScheduleRequest {
+        denomination: "50".parse().unwrap(),
+        coupon_rate_bps: 650,
+        coupon_frequency: 2,
+        issue_date_ms: issue,
+        maturity_date_ms: maturity,
+        redemption_price_bps: 10_000,
+        record_offset_ms: 86_400_000,
+    })
+    .unwrap();
+    let terms = BondTerms {
+        issuer: account(0x11),
+        paying_agent: account(0x22),
+        payment_asset: asset("eur"),
+        denomination: "50".parse().unwrap(),
+        coupon_rate_bps: 650,
+        coupon_frequency: 2,
+        day_count: BondDayCount::ActActIcma,
+        issue_date_ms: issue,
+        maturity_date_ms: maturity,
+        redemption_price_bps: 10_000,
+        payment_grace_ms: 7 * 86_400_000,
+        call: Some(BondCallTerms {
+            first_call_date_ms: 1_799_971_200_000,
+            price_bps: 10_100,
+            notice_ms: 30 * 86_400_000,
+        }),
+        cashflows,
+        identifiers: BondIdentifiers {
+            isin: Some("SI0031234567".to_owned()),
+            cfi: Some("DBFTFB".to_owned()),
+            issuer_lei: Some("5299000DI3047E2LIV03".to_owned()),
+            bdt_version: "bdt-1.0".to_owned(),
+            bdt_document_sha256: Some([0x5D; 32]),
+        },
+        terms_sha256: [0x7E; 32],
+    };
+    terms.validate().unwrap();
+    let values = [
+        BondInstructionBox::from(RegisterBond::new(bond.clone(), terms)),
+        BondInstructionBox::from(RecordBondCashflow::new(bond.clone(), 2)),
+        BondInstructionBox::from(FundBondCashflow::new(
+            bond.clone(),
+            2,
+            AssetId::new(asset("eur"), account(0x22)),
+        )),
+        BondInstructionBox::from(ClaimBondCashflow::new(bond.clone(), 2, account(0x33))),
+        BondInstructionBox::from(CloseBondCashflow::new(bond.clone(), 2)),
+        BondInstructionBox::from(CallBond::new(bond.clone(), 1_799_971_200_000)),
+        BondInstructionBox::from(DeclareBondDefault::new(bond.clone(), 3, [0xDE; 32])),
+        BondInstructionBox::from(ReplaceBondPayingAgent::new(bond.clone(), account(0x44))),
+        BondInstructionBox::from(RetireBondTreasuryUnits::new(bond, 9_000_u32)),
+    ];
+    for (tag, value) in (0u32..9).zip(&values) {
+        assert_eq!(&value.encode()[..4], &tag.to_le_bytes());
+        let mut unknown = value.encode();
+        unknown[..4].copy_from_slice(&9_u32.to_le_bytes());
+        reject_payload::<BondInstructionBox>(&unknown);
+    }
+    for length in 0..4 {
+        reject_payload::<BondInstructionBox>(&values[1].encode()[..length]);
+    }
+    // Like the repo box, this owner has a binary instruction-registry contract.
+    family(rows, "bond_instruction_box", &values);
+}
+
+fn manual_protocol_evidence() -> Value {
     let mut rows = Vec::new();
     privacy_values(&mut rows);
     memo_values(&mut rows);
     kagemusha_values(&mut rows);
     repo_values(&mut rows);
-    assert_eq!(rows.len(), 47);
-    let evidence = norito::json!({
+    bond_values(&mut rows);
+    assert_eq!(rows.len(), 68);
+    norito::json!({
         "format_version": 1,
-        "purpose": "seven public manual protocol owners before identity declaration",
+        "purpose": "eight public manual protocol owners before identity declaration",
         "default_encode_flags": (ncore::default_encode_flags()),
         "rows": rows,
-    });
+    })
+}
+
+#[test]
+#[ignore = "explicit maintenance capture of the manual protocol owner frames"]
+fn print_manual_protocol_frames() {
+    println!(
+        "MANUAL_PROTOCOL_IDENTITY_FRAMES={}",
+        norito::json::to_json(&manual_protocol_evidence()).unwrap()
+    );
+}
+
+#[test]
+fn manual_protocol_frames_match_capture() {
+    let evidence = manual_protocol_evidence();
     let expected: Value = norito::json::from_json(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/manual_protocol_identity_frames.json"

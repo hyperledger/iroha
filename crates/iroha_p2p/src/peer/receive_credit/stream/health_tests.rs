@@ -33,23 +33,27 @@ impl Fixture {
         let (wire, socket) = tokio::io::duplex(4096);
         let (read, write) = tokio::io::split(socket);
         let stream = HealthStream::new(
-            Box::new(read),
-            Box::new(write),
-            pool.bind(remote.id()).unwrap(),
+            negotiation::OwnedTransport {
+                read: Box::new(read),
+                write: Box::new(write),
+                source: pool.bind(remote.id()).unwrap(),
+            },
             binding,
             cipher,
             remote,
             200,
-            crate::network::TopicFrameCaps::uniform(1024),
-            [1024; CLASS_COUNT],
-            OutboundFrameQueueLimits::new_with_progress_reserve(
-                256 * 1024,
-                128 * 1024,
-                256 * 1024,
-                32,
-                32,
-            ),
-            IDLE,
+            CreditStreamConfig {
+                caps: crate::network::TopicFrameCaps::uniform(1024),
+                maximum: [1024; CLASS_COUNT],
+                limits: OutboundFrameQueueLimits::new_with_progress_reserve(
+                    256 * 1024,
+                    128 * 1024,
+                    256 * 1024,
+                    32,
+                    32,
+                ),
+                idle_timeout: IDLE,
+            },
         )
         .unwrap();
         Self {

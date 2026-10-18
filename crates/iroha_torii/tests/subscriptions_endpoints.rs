@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for Torii subscription endpoints.
 #![cfg(feature = "app_api")]
 use axum::{

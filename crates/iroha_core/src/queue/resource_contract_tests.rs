@@ -476,12 +476,7 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     // A transaction within the global budget needs no policy read, so nothing defers it.
     let roomy = resource_contract_state(global + 1);
     let within = norito::with_decode_limits_scope(starved_limits(), || check(&roomy));
-    assert_eq!(
-        (within)
-            .as_ref()
-            .expect("the operation must complete successfully"),
-        &(())
-    );
+    within.expect("the operation must complete successfully");
 }
 
 /// The current defaults carry the full inclusive 10 MiB transaction cap in the
@@ -497,6 +492,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     );
     let cap = limits.max_tx_bytes().get();
     assert_eq!(cap, 10_485_760);
+    let cap_bytes = usize::try_from(cap).expect("10 MiB fixture cap fits usize");
     assert_eq!(parameters.sumeragi().max_block_bytes.get(), 16_777_216);
     let reserve = iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES;
     assert!(u64::from(reserve) + cap <= u64::from(parameters.sumeragi().max_block_bytes.get()));
@@ -575,7 +571,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     // previously admitted under a looser cap. Current ingress already refuses it above.
     let refused = resource_contract_accept(over_cap, resource_contract_limits(cap + 1), &time)
         .expect("only the prior admission fixture has one extra byte of allowance");
-    assert_eq!(refused.encoded_len(), cap as usize + 1);
+    assert_eq!(refused.encoded_len(), cap_bytes + 1);
     let failure = queue
         .push(refused, state.view())
         .expect_err("committed cap is authoritative");
@@ -615,7 +611,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     // selection window still distinguishes the exact signed size from one byte less.
     let global_budget =
         usize::try_from(parameters.sumeragi().max_block_bytes.get() - reserve).unwrap();
-    assert!(global_budget > cap as usize);
+    assert!(global_budget > cap_bytes);
     let budget = usize::try_from(includable).unwrap();
     let selected = crate::sumeragi::payload::select(
         &state.view(),
@@ -631,7 +627,10 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         largest.hash_as_entrypoint()
     );
     assert_eq!(selected[0].encoded_len(), budget);
-    assert_eq!(selected[0].entrypoint_bytes().as_slice(), largest.entrypoint_bytes().as_slice());
+    assert_eq!(
+        selected[0].entrypoint_bytes().as_slice(),
+        largest.entrypoint_bytes().as_slice()
+    );
     assert!(
         crate::sumeragi::payload::select(
             &state.view(),

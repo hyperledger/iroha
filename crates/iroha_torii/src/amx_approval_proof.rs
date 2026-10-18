@@ -228,6 +228,10 @@ fn with_approval<R>(
     consume(&approval)
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn relay(
     app: &SharedAppState,
     headers: &HeaderMap,
@@ -236,7 +240,7 @@ fn relay(
     body: &[u8],
 ) -> Result<(AccountId, crate::history_producer::HistoryProducerOwner), Error> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error);
@@ -374,7 +378,7 @@ fn finish_disclosure(
     Ok(response)
 }
 
-pub(crate) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::Path(height): axum::extract::Path<String>,
     headers: HeaderMap,

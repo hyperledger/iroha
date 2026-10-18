@@ -1,0 +1,57 @@
+"""Load the separately reviewed and frozen concrete public AES construction."""
+from dataclasses import dataclass
+import hashlib
+import importlib.util
+from pathlib import Path
+import sys
+
+from bit_ir import Cost, require
+
+AES_PATH = "target/parliament-aes-machine-stage/aes256.py"
+AES_SHA256 = "d81dc27d120b759260a07e51479f56d621d1f8e771431096ad7c7ffc8f0be3e2"
+IR_SHA256 = "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+
+
+@dataclass(frozen=True)
+class PinnedAESKernel:
+    """Snapshot validated metadata; delegate the unchanged authenticated gates.
+
+    This avoids repeatedly traversing the same 201,587-node IR merely to read
+    its metadata. It changes no circuit gate, workspace or primitive interface.
+    Python runtime/module integrity remains the execution premise.
+    """
+    delegate: object
+    work: int
+    cost: Cost
+    name: str = "concrete-fips197-aes256"
+    inputs: int = 384
+    outputs: int = 128
+
+    def evaluate(self, values):
+        return self.delegate.evaluate(values)
+
+    def emit(self, inputs, outputs, work):
+        yield from self.delegate.emit(inputs, outputs, work)
+
+
+def load_aes(root):
+    """Exact selected implementation and loaded IR, not a native AES attestation."""
+    root = Path(root).resolve()
+    path = root / AES_PATH
+    ir_path = Path(sys.modules["bit_ir"].__file__).resolve()
+    require(ir_path == Path(__file__).resolve().parent / "bit_ir.py", "loaded IR path differs")
+    require(hashlib.sha256(ir_path.read_bytes()).hexdigest() == IR_SHA256, "loaded IR source changed")
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == AES_SHA256, "AES source changed")
+    name = "parliament_ideal_machine_authenticated_aes"
+    spec = importlib.util.spec_from_file_location(name, path)
+    require(spec is not None and spec.loader is not None, "AES loader")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == AES_SHA256
+            and hashlib.sha256(ir_path.read_bytes()).hexdigest() == IR_SHA256, "AES/IR load changed")
+    kernel = module.AES256Kernel()
+    work, cost = kernel.work, kernel.cost
+    require((work, cost.x, cost.cx, cost.ccx, cost.base_calls)
+            == (201587, 2222, 521630, 141312, 0), "AES captured geometry/cost differs")
+    return PinnedAESKernel(kernel, work, cost)

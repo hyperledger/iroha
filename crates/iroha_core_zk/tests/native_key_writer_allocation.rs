@@ -170,7 +170,7 @@ fn complete_public_cap_is_checked_before_output_allocation() {
     let mut low = 0;
     let mut high = key.len();
     while low < high {
-        let middle = (low + high + 1) / 2;
+        let middle = low + (high - low).div_ceil(2);
         if norito::encode_canonical(&owned(&[], &key[..middle]))
             .unwrap()
             .len()
@@ -187,9 +187,9 @@ fn complete_public_cap_is_checked_before_output_allocation() {
         native_key_carrier::encode(&[], &key[..low]).unwrap(),
         admitted
     );
-    let over = norito::encode_canonical(&owned(&[], &key[..low + 1])).unwrap();
+    let over = norito::encode_canonical(&owned(&[], &key[..=low])).unwrap();
     let (error, refusals) = denying(MAX_KEY_BYTES, || {
-        native_key_carrier::encode(&[], &key[..low + 1])
+        native_key_carrier::encode(&[], &key[..=low])
     });
     assert_eq!(refusals, 0);
     let owner = VerificationRefusal::initialization(error.unwrap_err());

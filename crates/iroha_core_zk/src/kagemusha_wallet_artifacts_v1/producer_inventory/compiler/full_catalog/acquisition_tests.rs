@@ -1,4 +1,4 @@
-//! Genuine complete-catalog Q/Omega acquisition controls, without additional proofs.
+//! Genuine complete-catalog sigma/Q/Omega acquisition controls, without additional proofs.
 //!
 //! This child runs only after the production complete-source qualifier returned its
 //! opaque grant. Faults wrap original streams; they never mutate retained files,
@@ -10,8 +10,11 @@ use super::*;
 use iroha_kagemusha_proof::a_relation::schedule::compiled::OperationRoute;
 use iroha_pasta::CancellationToken;
 
+// Test-only acquisition selector; the Q route stays inline.
+#[allow(variant_size_differences)]
 #[derive(Clone, Copy)]
 enum Selection {
+    Sigma(u8),
     Q(OperationRoute, usize),
     Omega,
 }
@@ -19,6 +22,7 @@ enum Selection {
 impl Selection {
     fn original(self, qualified: &QualifiedWalletSourcesV1) -> OriginalV1 {
         let index = match self {
+            Self::Sigma(selector) => qualified.inventory().sigma[usize::from(selector)],
             Self::Q(route, stage) => {
                 let (_, _, program) = qualified.route(route).unwrap().identity();
                 qualified.inventory().operations[usize::try_from(program).unwrap()].q[stage]
@@ -30,6 +34,7 @@ impl Selection {
 
     fn rows(self, qualified: &QualifiedWalletSourcesV1) -> usize {
         match self {
+            Self::Sigma(selector) => qualified.sigmas().key(selector).unwrap().binding().n(),
             Self::Q(route, stage) => qualified.q(route).unwrap().keys()[stage].binding().n(),
             Self::Omega => qualified.omega().key().binding().n(),
         }
@@ -43,6 +48,18 @@ impl Selection {
         cancellation: Option<&CancellationToken>,
     ) -> Result<(), WalletSourcesErrorV1> {
         match self {
+            Self::Sigma(selector) => {
+                let owner =
+                    qualified.import_sigma_cancellable(selector, source, config, cancellation)?;
+                // The key rebuilt under the qualified seal retains exactly the
+                // installed descriptor and VK; nothing is imported from the PK.
+                let expected = qualified.sigmas().key(selector).unwrap();
+                assert_eq!(owner.proving_key().binding(), expected.binding());
+                assert_eq!(
+                    owner.proving_key().vk().to_bytes(),
+                    expected.key().to_bytes()
+                );
+            }
             Self::Q(route, stage) => {
                 let owner =
                     qualified.import_q_cancellable(route, stage, source, config, cancellation)?;
@@ -85,7 +102,7 @@ impl Selection {
         assert!(!error.is_cancelled());
         assert!(!error.is_unavailable());
         match self {
-            Self::Q(..) => assert!(matches!(
+            Self::Sigma(_) | Self::Q(..) => assert!(matches!(
                 error,
                 WalletSourcesErrorV1::Original(Error::Inventory)
             )),
@@ -100,7 +117,7 @@ impl Selection {
         assert!(!error.is_cancelled());
         assert!(error.is_unavailable());
         match self {
-            Self::Q(..) => assert!(matches!(
+            Self::Sigma(_) | Self::Q(..) => assert!(matches!(
                 error,
                 WalletSourcesErrorV1::Original(Error::Unavailable)
             )),
@@ -181,14 +198,18 @@ fn exercise(
         assert!(!hashes[..index].contains(digest), "distinct original roles");
     }
     let rows = selected.rows(qualified);
-    let extent = usize::try_from(roles.iter().map(|role| role.bytes).max().unwrap()).unwrap();
+    let pk_bytes = usize::try_from(original.proving_key.bytes).unwrap();
     assert!(rows > 0 && config.maximum_rows >= rows);
-    assert!(extent > 0 && config.maximum_bytes >= extent);
+    assert!(pk_bytes > 0 && config.maximum_bytes >= pk_bytes);
 
-    // Establish successful acquisition of these exact originals before faults.
+    // The caller's byte cap bounds the PK; descriptor/VK have independent protocol
+    // limits. A compact PK can be smaller than its descriptor (notably Omega).
+    // Admit at the exact PK limit, then refuse one byte below it before any I/O.
+    let mut exact_pk_cap = config;
+    exact_pk_cap.maximum_bytes = pk_bytes;
     let mut observed = Observed::new(source, None);
     selected
-        .acquire(qualified, &mut observed, config, None)
+        .acquire(qualified, &mut observed, exact_pk_cap, None)
         .unwrap();
     assert_eq!(observed.opens, hashes);
     assert!(!observed.flipped.get());
@@ -197,7 +218,7 @@ fn exercise(
     let mut row_cap = config;
     row_cap.maximum_rows = rows - 1;
     let mut byte_cap = config;
-    byte_cap.maximum_bytes = extent - 1;
+    byte_cap.maximum_bytes = pk_bytes - 1;
     for cap in [row_cap, byte_cap] {
         let mut observed = Observed::new(source, None);
         selected.require_inventory(
@@ -267,14 +288,19 @@ pub(super) fn run(
         .next()
         .expect("complete canonical routes");
     assert!(qualified.q(route).unwrap().keys().len() >= 2);
-    // Canonical Q0/Q1 exercise the two actual dispatcher variants, and the sole
-    // complete-catalog Omega uses its separately qualified terminal graph.
-    for selected in [
+    // Every sigma selector rebuilds from its qualified seal only after these same
+    // caps and reads (no strict re-import exists). Canonical Q0/Q1 exercise the two
+    // actual dispatcher variants, and the sole complete-catalog Omega uses its
+    // separately qualified terminal graph.
+    let sigmas = u8::try_from(qualified.inventory().sigma.len()).unwrap();
+    let mut selections: Vec<_> = (0..sigmas).map(Selection::Sigma).collect();
+    selections.extend([
         Selection::Q(route, 0),
         Selection::Q(route, 1),
         Selection::Omega,
-    ] {
-        exercise(selected, qualified, source, config);
+    ]);
+    for selected in &selections {
+        exercise(*selected, qualified, source, config);
     }
-    3
+    selections.len()
 }

@@ -136,6 +136,7 @@ impl WorkerRefusalExchange {
             ActionV1::Complete => 1,
             ActionV1::Recover => 2,
             ActionV1::Inspect => 3,
+            ActionV1::RecheckRevocation => return Err(Invalid),
         };
         Ok(Self {
             action,

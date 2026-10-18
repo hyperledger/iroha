@@ -1,8 +1,9 @@
 //! Native history production under the request's original complete memory owner.
 //!
 //! A byte counter is not an allocation permit. This module joins the existing query-pool
-//! reservation to one cumulative native codec context and one original cold-frame pool. Every
-//! clone shares those same owners. Synchronous scopes restore thread state before returning;
+//! reservation to one cumulative native codec context and one original cold-frame pool.
+//! Finality prepays that entire grant once, then Core reuses a bounded live-graph working set.
+//! Every clone shares those same owners. Synchronous scopes restore thread state before returning;
 //! no native allocation scope survives an await or moves to an unrelated request.
 
 use std::cell::RefCell;
@@ -23,10 +24,14 @@ pub struct ProducerBudget {
     envelope: QueryFanoutMemoryEnvelope,
     pool_generation: u64,
     cold_frames: AllocationBudget,
+    /// Finality's bounded live graphs use the portion of the original producer
+    /// grant outside the cold-frame corridor, prepaid through `allocations`.
+    finality_graphs: AllocationBudget,
     /// Physical response-wrapper layouts occupy the remaining encoder corridor. They grant
     /// neither decoder credit nor source admission, and all clones keep this original pool.
     response_metadata: AllocationBudget,
     allocations: DecodeBudgetContext,
+    allocation_limits: DecodeLimits,
 }
 
 impl ProducerBudget {
@@ -38,7 +43,7 @@ impl ProducerBudget {
         envelope: QueryFanoutMemoryEnvelope,
         pool_generation: u64,
     ) -> Result<ChargedShared<Self>, Error> {
-        // History retains one raw source, cumulative native block/result graphs, compact selected
+        // Generic history retains one raw source, cumulative native block/result graphs, compact selected
         // rows and cursor scratch, then the exact response. Request representations and their
         // decode phase stay outside this corridor. Counting allocations cumulatively is stricter
         // than live-byte accounting: freeing a traversed ancestor does not reset this allowance.
@@ -52,6 +57,8 @@ impl ProducerBudget {
         // the original seven signed plus one verified representation, rather than
         // asserting no request retention. The shared prebody denominator already
         // admits precisely this floor. Measured envelopes retain their exact bytes.
+        // Original bodyless-finality admission explicitly sets request decode to zero,
+        // so it has no request-retention floor. Existing envelopes are never reinterpreted.
         let retained_request = if envelope.request_bytes == 0 {
             envelope
                 .request_decode_allocated_bytes
@@ -72,17 +79,20 @@ impl ProducerBudget {
             .filter(|bytes| *bytes >= envelope.final_body_bytes)
             .ok_or_else(capacity)?;
         let response_metadata = AllocationBudget::new(envelope.candidate_encoded_bytes);
-        let allocations = DecodeBudgetContext::try_new_owned(
-            DecodeLimits::new(
-                envelope.decode_allocated_bytes,
-                envelope.route_body_bytes,
-                allocated,
-                allocated,
-                norito::core::MAX_VALUE_NESTING_DEPTH,
-            ),
-            &response_metadata,
-        )
-        .map_err(|_| capacity())?;
+        let allocation_limits = DecodeLimits::new(
+            envelope.decode_allocated_bytes,
+            envelope.route_body_bytes,
+            allocated,
+            allocated,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        );
+        let allocations = DecodeBudgetContext::try_new_owned(allocation_limits, &response_metadata)
+            .map_err(|_| capacity())?;
+        let finality_graphs = AllocationBudget::new(
+            allocated
+                .checked_sub(envelope.route_body_bytes)
+                .ok_or_else(capacity)?,
+        );
         let mut reservation = response_metadata
             .try_reserve(ChargedShared::<Self>::allocation_layout())
             .map_err(|_| capacity())?;
@@ -90,8 +100,10 @@ impl ProducerBudget {
             envelope,
             pool_generation,
             cold_frames: AllocationBudget::new(envelope.route_body_bytes),
+            finality_graphs,
             response_metadata,
             allocations,
+            allocation_limits,
         };
         ChargedShared::from_reservation(budget, &mut reservation).map_err(|_| capacity())
     }
@@ -102,7 +114,7 @@ impl ProducerBudget {
 pub struct HistoryProducerOwner {
     // Reclaim all native producer controls before the last query lease releases credit.
     budget: ChargedShared<ProducerBudget>,
-    reservation: QueryFanoutMemoryReservation,
+    _reservation: QueryFanoutMemoryReservation,
 }
 
 thread_local! {
@@ -129,6 +141,21 @@ impl HistoryProducerOwner {
         Self::from_reservation(admission._fanout_memory.as_ref().ok_or_else(capacity)?)
     }
 
+    /// A present outer capability may never disappear into a fresh, wider finality
+    /// admission. The generic asynchronous lookup filters foreign generations;
+    /// compare actual pool custody as well before selecting the bodyless path.
+    pub(crate) fn validate_finality_inheritance(
+        admission: &QueryAdmissionPermit,
+    ) -> Result<(), Error> {
+        if let Some(inherited) = Self::current_if_admitted()? {
+            let admitted = Self::from_admission(admission)?;
+            if !inherited.cold_frames().same_pool(admitted.cold_frames()) {
+                return Err(capacity());
+            }
+        }
+        Ok(())
+    }
+
     /// Response-only tokens and a different admission generation cannot grant production.
     pub(crate) fn from_reservation(
         reservation: &QueryFanoutMemoryReservation,
@@ -141,7 +168,7 @@ impl HistoryProducerOwner {
             return Err(capacity());
         }
         Ok(Self {
-            reservation: reservation.clone(),
+            _reservation: reservation.clone(),
             budget: budget.clone(),
         })
     }
@@ -174,6 +201,13 @@ impl HistoryProducerOwner {
 
     /// Retain one cumulative context across all synchronous source and projection phases.
     pub(crate) fn scope<R>(&self, work: impl FnOnce() -> R) -> R {
+        self.physical_scope(|| self.budget.allocations.with(work))
+    }
+
+    /// Install only original admission custody for a separately prepaid producer.
+    /// Any enclosing decoder scopes remain active; none is cleared or replaced.
+    /// Finality uses this while Core owns its finite live-graph working set.
+    pub(crate) fn physical_scope<R>(&self, work: impl FnOnce() -> R) -> R {
         struct Restore(Option<HistoryProducerOwner>);
         impl Drop for Restore {
             fn drop(&mut self) {
@@ -185,7 +219,7 @@ impl HistoryProducerOwner {
         let _restore = Restore(
             PHYSICAL_HISTORY_OWNER.with(|current| current.borrow_mut().replace(self.clone())),
         );
-        self.budget.allocations.with(work)
+        work()
     }
 
     /// Exact native backing pool used by cold canonical frame and shared shell allocation.
@@ -198,6 +232,29 @@ impl HistoryProducerOwner {
         iroha_core::state::CanonicalHistoryReadBudget::new(
             self.budget.cold_frames.clone(),
             self.budget.allocations.clone(),
+        )
+    }
+
+    /// Prepay finality's complete source/output and graph corridors from this
+    /// request's original cumulative grant. Generic decoded graphs must not spend
+    /// the cold-frame portion while exact finality destinations retain it.
+    pub(crate) fn finality_budget(
+        &self,
+    ) -> Result<iroha_core::sumeragi::finality::NativeFinalityProofBudget, Error> {
+        self.budget
+            .allocations
+            .with(|| {
+                norito::core::reserve_decode_allocation(
+                    self.budget.allocation_limits.max_total_allocated_bytes(),
+                )
+            })
+            .map_err(|_| capacity())?;
+        Ok(
+            iroha_core::sumeragi::finality::NativeFinalityProofBudget::new(
+                self.budget.cold_frames.clone(),
+                self.budget.finality_graphs.clone(),
+                self.budget.allocation_limits,
+            ),
         )
     }
 
@@ -234,11 +291,6 @@ impl HistoryProducerOwner {
     /// The final body remains inside the existing response corridor.
     pub(crate) fn response_bytes(&self) -> usize {
         self.budget.envelope.final_body_bytes
-    }
-
-    /// Preserve the same real permit until the last response byte is dropped.
-    pub(crate) fn response(&self, response: axum::response::Response) -> axum::response::Response {
-        crate::hold_query_fanout_memory_in_response_body(response, self.reservation.clone())
     }
 
     /// Admit exact native collection backing before allocation, without geometric overgrowth.
@@ -358,6 +410,157 @@ mod tests {
     }
 
     #[test]
+    fn finality_physical_scope_preserves_inherited_limits_and_restores_after_unwind() {
+        let owner = owner(48_000_000);
+        let inherited = DecodeBudgetContext::new(DecodeLimits::new(1024, 1024, 1024, 64, 16));
+        inherited.with(|| {
+            owner.physical_scope(|| {
+                assert!(
+                    HistoryProducerOwner::current()
+                        .unwrap()
+                        .cold_frames()
+                        .same_pool(owner.cold_frames())
+                );
+                norito::core::reserve_decode_allocation(64).unwrap();
+                assert!(norito::core::reserve_decode_allocation(1).is_err());
+            });
+        });
+        assert_eq!(inherited.consumed_allocated_bytes(), 64);
+        assert_eq!(owner.allocation_context().consumed_allocated_bytes(), 0);
+        assert!(HistoryProducerOwner::current().is_err());
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            owner.physical_scope(|| panic!("physical finality worker interrupted"));
+        }));
+        assert!(HistoryProducerOwner::current().is_err());
+        assert!(!norito::core::decode_limits_active());
+    }
+
+    #[test]
+    fn finality_graph_prepayment_cannot_duplicate_the_original_history_grant() {
+        let owner = owner(48_000_000);
+        let graph_bytes = owner.budget.finality_graphs.limit_bytes();
+        let frames = owner.cold_frames().limit_bytes();
+        assert_eq!(
+            graph_bytes + frames,
+            owner.budget.allocation_limits.max_total_allocated_bytes()
+        );
+        let finality = owner.finality_budget().unwrap();
+        assert_eq!(
+            owner.allocation_context().consumed_allocated_bytes(),
+            (graph_bytes + frames) as u64
+        );
+        assert!(owner.clone().finality_budget().is_err());
+        assert!(
+            owner
+                .scope(|| norito::core::reserve_decode_allocation(1))
+                .is_err()
+        );
+        drop(finality);
+        assert!(
+            owner.finality_budget().is_err(),
+            "drop cannot reset the original prepaid grant"
+        );
+        let used = self::owner(48_000_000);
+        used.scope(|| norito::core::reserve_decode_allocation(1))
+            .unwrap();
+        assert!(
+            used.finality_budget().is_err(),
+            "finality cannot overwrite prior generic consumption"
+        );
+    }
+
+    #[test]
+    fn bodyless_finality_releases_only_absent_request_phases_inside_the_same_working_set() {
+        let working = 48_000_000;
+        let prebody = QueryFanoutMemoryEnvelope::for_body_admission(working).unwrap();
+        let bodyless = QueryFanoutMemoryEnvelope::for_bodyless_finality(working).unwrap();
+        assert!(bodyless.phases_fit());
+        assert_eq!(bodyless.working_set_bytes, prebody.working_set_bytes);
+        assert_eq!(bodyless.route_body_bytes, prebody.route_body_bytes);
+        assert_eq!(bodyless.final_body_bytes, prebody.final_body_bytes);
+        assert_eq!(
+            bodyless.candidate_encoded_bytes,
+            prebody.candidate_encoded_bytes
+        );
+        assert_eq!(bodyless.request_bytes, 0);
+        assert_eq!(bodyless.request_decode_allocated_bytes, 0);
+        let original = owner(working);
+        let bodyless_budget = ProducerBudget::from_admitted(bodyless, 7).unwrap();
+        let absent_request = prebody.request_decode_allocated_bytes
+            * (1 + crate::QUERY_FANOUT_SIGNED_REQUEST_REPRESENTATIONS
+                + crate::QUERY_FANOUT_VERIFIED_REQUEST_REPRESENTATIONS);
+        assert_eq!(
+            bodyless_budget.finality_graphs.limit_bytes(),
+            original.budget.finality_graphs.limit_bytes() + absent_request
+        );
+        assert_eq!(
+            original.budget.envelope, prebody,
+            "existing owners retain their original geometry"
+        );
+    }
+
+    #[test]
+    fn larger_initial_finality_working_set_reduces_slots_inside_the_same_aggregate_pool() {
+        let aggregate = 512_000_000;
+        let geometry = crate::query_memory_geometry(aggregate, 192_000_000, 64_000_000, 64)
+            .expect("explicit initial query capacity");
+        assert_eq!(geometry.fanout_working_set_bytes, 192_000_000);
+        assert_eq!(geometry.fanout_pool_bytes, 384_000_000);
+        assert_eq!(geometry.fanout_slots.get(), 2);
+        assert_eq!(geometry.ingress_slots.get(), 4);
+        assert_eq!(
+            geometry.fanout_working_set_bytes * geometry.fanout_slots.get(),
+            geometry.fanout_pool_bytes
+        );
+        let envelope =
+            QueryFanoutMemoryEnvelope::for_bodyless_finality(geometry.fanout_working_set_bytes)
+                .unwrap();
+        let budget = ProducerBudget::from_admitted(envelope, 7).unwrap();
+        assert_eq!(budget.cold_frames.limit_bytes(), 12_162_487);
+        assert_eq!(budget.finality_graphs.limit_bytes(), 158_112_848);
+        assert_eq!(
+            budget.allocation_limits.max_total_allocated_bytes(),
+            170_275_335
+        );
+        assert_eq!(budget.allocation_limits.max_field_bytes(), 12_162_487);
+        assert_eq!(budget.allocation_limits.max_sequence_elements(), 12_162_487);
+        // This is a new initial reservation. A smaller inherited request keeps
+        // its exact original owner and cannot acquire these larger corridors.
+        let smaller = owner(48_000_000);
+        assert_eq!(smaller.budget.envelope.working_set_bytes, 48_000_000);
+    }
+
+    #[test]
+    fn finality_rejects_missing_or_replaced_present_outer_admission() {
+        let inherited = owner(48_000_000);
+        let foreign = owner(48_000_000);
+        let query = Arc::new(tokio::sync::Semaphore::new(1));
+        let mut admission = QueryAdmissionPermit {
+            _query: Arc::clone(&query).try_acquire_owned().unwrap(),
+            _heavy: None,
+            _body: None,
+            _fanout_memory: None,
+        };
+        inherited.physical_scope(|| {
+            assert!(HistoryProducerOwner::validate_finality_inheritance(&admission).is_err());
+            admission._fanout_memory = Some(foreign._reservation.clone());
+            assert!(HistoryProducerOwner::validate_finality_inheritance(&admission).is_err());
+            admission._fanout_memory = Some(inherited._reservation.clone());
+            HistoryProducerOwner::validate_finality_inheritance(&admission).unwrap();
+            assert_eq!(
+                admission
+                    ._fanout_memory
+                    .as_ref()
+                    .unwrap()
+                    .admission
+                    .unwrap()
+                    .envelope,
+                inherited.budget.envelope
+            );
+        });
+    }
+
+    #[test]
     fn native_history_refuses_response_only_and_foreign_generation_tokens() {
         let permit = Arc::new(tokio::sync::Semaphore::new(1))
             .try_acquire_owned()
@@ -366,7 +569,7 @@ mod tests {
             HistoryProducerOwner::from_reservation(&QueryFanoutMemoryReservation::new(permit))
                 .is_err()
         );
-        let mut original = owner(48 * 1024 * 1024).reservation;
+        let mut original = owner(48 * 1024 * 1024)._reservation;
         original.admission.as_mut().unwrap().pool_generation += 1;
         assert!(HistoryProducerOwner::from_reservation(&original).is_err());
     }

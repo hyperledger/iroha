@@ -5,6 +5,37 @@ use ivm::{ProgramMetadata, encoding::wide as enc};
 use packet::{Event, Space};
 use std::sync::Arc;
 
+/// Allocate each fixed-width proof row directly on the heap.
+pub(super) fn zeroed_rows<const ROWS: usize, const COLUMNS: usize>() -> [Box<[F; COLUMNS]>; ROWS] {
+    core::array::from_fn(|_| {
+        vec![F::ZERO; COLUMNS]
+            .into_boxed_slice()
+            .try_into()
+            .expect("the allocated proof row has exactly the requested width")
+    })
+}
+
+#[test]
+fn zeroed_rows_keep_phases_and_cloned_mutations_independent() {
+    let mut rows = zeroed_rows::<4, 4_096>();
+    assert!(
+        rows.iter()
+            .all(|row| row.iter().all(|value| *value == F::ZERO))
+    );
+    rows[1][4_095] = F::ONE;
+    let mut cloned = rows.clone();
+    cloned[1][4_095] = F(2);
+    cloned[3][0] = F(3);
+    assert_eq!(rows[1][4_095], F::ONE);
+    assert_eq!(rows[3][0], F::ZERO);
+    assert_eq!(cloned[1][4_095], F(2));
+    assert_eq!(cloned[3][0], F(3));
+    assert_eq!(cloned[0][0], F::ZERO);
+    assert_eq!(cloned[2][4_095], F::ZERO);
+    assert!(zeroed_rows::<0, 1>().is_empty());
+    assert!(zeroed_rows::<2, 0>().iter().all(|row| row.is_empty()));
+}
+
 fn contract_artifact(body: &[u32], max_cycles: u64, mode: u8) -> Arc<[u8]> {
     contract_artifact_with_frame(body, max_cycles, mode, 0)
 }
@@ -143,7 +174,7 @@ pub(super) fn bits(row: &mut [F], value: u64) {
     }
 }
 pub(super) fn bytes(value: u64) -> [u8; 16] {
-    (value as u128).to_le_bytes()
+    u128::from(value).to_le_bytes()
 }
 pub(super) fn event(
     space: Space,
@@ -240,7 +271,7 @@ impl Fixture {
             0
         };
         let imm = if memory {
-            i64::from(wide::imm8(w)) as u64
+            i64::cast_unsigned(i64::from(wide::imm8(w)))
         } else {
             0
         };
@@ -601,7 +632,7 @@ fn canonical_load_fixture_owns_one_atomic_destination_and_keeps_r0_memory_reads(
         if destination == 0 {
             assert!(output.iter().all(|field| *field == F::ZERO));
         } else {
-            assert_eq!(output[INDEX], F(destination as u64));
+            assert_eq!(output[INDEX], F(u64::from(destination)));
             assert_eq!(output[WRITE], F::ONE);
             assert_eq!(output[AFTER_TAG], F::ZERO);
             if destination == 2 {
@@ -619,7 +650,8 @@ fn every_original_packet_field_mutation_and_activity_substitution_rejects() {
     let program = program();
     for fixture in (0..4)
         .map(|slot| Fixture::new(&program, slot, false, 3))
-        .chain([Fixture::new(&program, 3, true, 0), Fixture::padding()])
+        .chain(core::iter::once_with(|| Fixture::new(&program, 3, true, 0)))
+        .chain(core::iter::once_with(Fixture::padding))
     {
         for slot in 0..PORTS {
             for field in 0..packet::WIDTH {
@@ -725,7 +757,7 @@ fn unique_global_clocks_and_exact_original_history_ports_are_required() {
     for slot in 0..PORTS {
         assert!(core::ptr::eq(
             fixture.packets.producer(slot).unwrap(),
-            &fixture.packets.fields[slot]
+            &raw const fixture.packets.fields[slot]
         ));
     }
 }
@@ -905,7 +937,7 @@ fn dispatcher_witness_tail_uses_its_own_width_and_constrains_both_alignment_bits
     for delta in 0..4 {
         let fixture = Fixture::new(&program, 3, false, delta);
         assert_eq!(fixture.row.get(RETURN_DELTA..SCALAR).unwrap().len(), 2);
-        assert!(RETURN_DELTA > packet::WIDTH);
+        const { assert!(RETURN_DELTA > packet::WIDTH) };
         assert!(fixture.accepts(&program));
         for index in RETURN_DELTA..WIDTH {
             let mut invalid = fixture.clone();
@@ -963,7 +995,10 @@ fn protected_depth_refuses_coherent_overflow_underflow_and_wrong_root_identity()
             "slot={slot} root={root} {before}->{after}"
         );
     }
-    for fixture in [Fixture::new(&program, 0, false, 0), Fixture::padding()] {
+    for slot in [Some(0), None] {
+        let fixture = slot.map_or_else(Fixture::padding, |slot| {
+            Fixture::new(&program, slot, false, 0)
+        });
         for index in DEPTH_BITS..RETURN_DELTA {
             let mut invalid = fixture.clone();
             invalid.row[index] = F(2);

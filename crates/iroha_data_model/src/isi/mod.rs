@@ -1974,6 +1974,8 @@ pub mod alias_setup;
 pub mod asset_alias;
 /// Asset-scoped outbound transfer control instructions.
 pub mod asset_transfer_control;
+/// Native bond-servicing kernel instructions.
+pub mod bond;
 /// Confidential registry management instructions. Bridge proof ingestion instructions.
 pub mod bridge;
 /// Shared chain-level due-work maintenance.
@@ -2824,6 +2826,11 @@ pub mod prelude {
             SetAssetHoldingLimit, SetAssetTransferAvailability, SetAssetTransferBlacklist,
             SetAssetTransferControl,
         },
+        bond::{
+            BondInstructionBox, CallBond, ClaimBondCashflow, CloseBondCashflow, DeclareBondDefault,
+            FundBondCashflow, RecordBondCashflow, RegisterBond, ReplaceBondPayingAgent,
+            RetireBondTreasuryUnits,
+        },
         bridge::{RecordBridgeReceipt, SubmitBridgeProof},
         confidential::{
             PublishPedersenParams, PublishPoseidonParams, SetPedersenParamsLifecycle,
@@ -2888,8 +2895,9 @@ pub mod prelude {
             RwaInstructionBox, SetRwaControls, TransferRwa, UnfreezeRwa,
         },
         settlement::{
-            ATOMIC_SETTLEMENT_MAX_MOVEMENTS, ATOMIC_SETTLEMENT_MIN_MOVEMENTS,
-            AtomicSettlementDetails, AtomicSettlementMovement, AtomicSettlementMovements, DvpIsi,
+            ATOMIC_SETTLEMENT_MAX_ESCROWS, ATOMIC_SETTLEMENT_MAX_MOVEMENTS,
+            ATOMIC_SETTLEMENT_MIN_LEGS, AtomicSettlementDetails, AtomicSettlementEscrow,
+            AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, DvpIsi,
             DvpSettlementDetails, FundFxCorridorEscrow, FxCorridorId, FxCorridorOracleEvidence,
             FxCorridorPolicy, FxCorridorPolicyRegistry, FxCorridorPricingContext,
             FxCorridorSettlementDetails, FxCorridorUsage, PvpIsi, PvpSettlementDetails,

@@ -1,0 +1,139 @@
+"""Retain one scoped GF circuit check; never build Rust or replace evidence."""
+import argparse
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+ROOT = Path.cwd().resolve()
+STAGE = ROOT / "target/parliament-gf-circuit-stage"
+OUT = STAGE / "capture"
+TEMP = STAGE / "capture-pytest-tmp"
+HELPER = STAGE / "scripts/parliament_ballot_gf_circuit.py"
+TEST = STAGE / "scripts/tests/parliament_ballot_gf_circuit_test.py"
+README = STAGE / "README.md"
+PYTEST = Path("/opt/homebrew/bin/pytest")
+PINS = {
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "docs/validation/parliament_ballot_ideal_sampler_accounting/report.json": "32f13e842ac39f7f3c3d08ae2135a8ebdffd442acc776002e2229c36610ad043",
+    "specs/parliament_ballot_b6_ideal_sampler_accounting.md": "c022d1f76360dfe4bdd6934fe352d5d87e7b9f63df3828608230f759cb1e22c5",
+    "specs/parliament_ballot_b6_oracle_log_circuit.md": "de33b603bfc281238b348f082a2316a645f1d236894e7837ee95078ddbc1d673",
+}
+FALSE_FLAGS = (
+    "actual_simulator_execution", "complete_resource_vector", "whole_program_quantum_gate_bound",
+    "compiled_memory_or_allocator_bound", "physical_workspace_qualified", "actual_input_collision_bridge",
+    "primitive_advantage_assumed", "independent_cryptographic_review", "profile_qualified", "production_gate_changed",
+)
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def save(name, value):
+    with (OUT / name).open("x") as stream:
+        stream.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+for name in ("helper", "test", "readme"):
+    parser.add_argument("--" + name + "-sha", required=True)
+parser.add_argument("--expected-test-cases", type=int, required=True)
+args = parser.parse_args()
+if args.expected_test_cases <= 0:
+    parser.error("expected testcase count must be positive")
+if OUT.exists() or TEMP.exists():
+    raise RuntimeError("refuse an existing capture or temporary directory")
+for path, expected in ((HELPER, args.helper_sha), (TEST, args.test_sha), (README, args.readme_sha)):
+    if sha(path) != expected:
+        raise RuntimeError("reviewed staged source differs: " + str(path))
+for name, expected in PINS.items():
+    if sha(ROOT / name) != expected:
+        raise RuntimeError("selected source/evidence changed: " + name)
+paths = [HELPER, TEST, README, *(ROOT / name for name in PINS), ROOT / "pytest.ini", Path(__file__).resolve()]
+conftests = [p / "conftest.py" for p in TEST.parent.parents if p == ROOT or p.is_relative_to(ROOT)]
+conftests.append(TEST.parent / "conftest.py")
+paths += [p for p in conftests if p.is_file()]
+absent = [str(p) for p in conftests if not p.exists()]
+if any(p.exists() and not p.is_file() for p in conftests):
+    raise RuntimeError("conftest is not a regular file")
+before = {str(p): sha(p) for p in paths}
+runtime_paths = [PYTEST, Path(PYTEST.read_text().splitlines()[0][2:]).resolve(), Path(sys.executable).resolve()]
+runtime = {str(p): sha(p) for p in runtime_paths}
+env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+           PYTEST_ADDOPTS="", PYTEST_PLUGINS="", PYTHONPATH="", PYTHONOPTIMIZE="0")
+commands = [
+    ("tests", [str(PYTEST), "-c", str(ROOT / "pytest.ini"), "-o", "addopts=",
+               "--confcutdir=" + str(ROOT), "--import-mode=importlib", "-p", "no:cacheprovider",
+               "--maxfail=0", "--tb=short", "--basetemp=" + str(TEMP),
+               "-q", str(TEST), "--junitxml=" + str(OUT / "tests.xml")], 0),
+    ("analysis", [sys.executable, "-B", str(HELPER), "--root", str(ROOT), "--out", str(OUT / "analysis.json")], 0),
+    ("require-qualified", [sys.executable, "-B", str(HELPER), "--root", str(ROOT), "--out", str(OUT / "refusal.json"), "--require-qualified"], 2),
+]
+OUT.mkdir()
+(OUT / "sources").mkdir()
+records, snapshots, error = [], {}, None
+try:
+    for index, path in enumerate(paths):
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != before[str(path)]:
+            raise RuntimeError("source changed during snapshot")
+        name = f"sources/{index:02}-{path.name}.template"
+        with (OUT / name).open("xb") as stream:
+            stream.write(data)
+        snapshots[str(path)] = {"path": name, "sha256": before[str(path)]}
+    for name, command, expected in commands:
+        started = time.monotonic()
+        with (OUT / (name + ".stdout.txt")).open("x") as stdout, (OUT / (name + ".stderr.txt")).open("x") as stderr:
+            result = subprocess.run(command, cwd=ROOT, env=env, stdout=stdout, stderr=stderr)
+        after = {p: sha(Path(p)) if Path(p).is_file() else None for p in before}
+        record = dict(name=name, command=command, exit_code=result.returncode, expected_exit_code=expected,
+                      seconds=time.monotonic() - started, source_after=after)
+        records.append(record)
+        save(name + ".command.json", record)
+        if after != before or any(Path(p).exists() for p in absent):
+            raise RuntimeError("source/config drift; actual command outputs retained")
+        if result.returncode != expected:
+            raise RuntimeError("unexpected exit; actual command outputs retained")
+    cases = list(ET.parse(OUT / "tests.xml").getroot().iter("testcase"))
+    if len(cases) != args.expected_test_cases or any(c.find(tag) is not None for c in cases for tag in ("failure", "error", "skipped")):
+        raise RuntimeError("JUnit does not establish all focused cases passing")
+    if (OUT / "analysis.json").read_bytes() != (OUT / "refusal.json").read_bytes():
+        raise RuntimeError("qualification refusal changed report")
+    report = json.loads((OUT / "analysis.json").read_text())
+    if (report["verdict"] != "PASS_UNDER_STATED_PREMISES" or report["checked_component_construction"] is not True
+            or report["source_sha256_before"] != PINS or report["source_sha256_after"] != PINS
+            or report["selected_source_count"] != 4):
+        raise RuntimeError("conditional report failed or drifted")
+    for key in FALSE_FLAGS:
+        if report[key] is not False:
+            raise RuntimeError("unexpected scope promotion")
+except Exception as exc:
+    error = f"{type(exc).__name__}: {exc}"
+after = {p: sha(Path(p)) if Path(p).is_file() else None for p in before}
+runtime_after = {p: sha(Path(p)) if Path(p).is_file() else None for p in runtime}
+if after != before or runtime_after != runtime or any(Path(p).exists() for p in absent):
+    error = error or "late source/runtime/config drift"
+outputs = {str(p.relative_to(OUT)): sha(p) for p in sorted(OUT.rglob("*")) if p.is_file() and not p.is_symlink()}
+receipt = dict(schema="parliament-gf-circuit-stage-capture-v1", status="PASS" if error is None else "FAIL",
+               error=error, recorded_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+               source_before=before, source_after=after, source_snapshots=snapshots, absent_conftests=absent,
+               runtime_before=runtime, runtime_after=runtime_after, capture_python_version=sys.version,
+               command_line=sys.argv, commands=records, output_sha256=outputs,
+               expected_test_cases=args.expected_test_cases, selected_component_inputs=PINS,
+               environment_overrides={k: env[k] for k in ("PYTHONDONTWRITEBYTECODE", "PYTEST_DISABLE_PLUGIN_AUTOLOAD", "PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONPATH", "PYTHONOPTIMIZE")},
+               scope="Ignored staged circuit helper/tests and four selected inputs, not a full compiler, dependency or prior-accounting closure. Non-atomic observations; Python/pytest dependencies, bytecode-cache coherence and unobserved child reads remain trusted. Pytest temporary files remain separate ignored scratch, not frozen evidence. No Rust build, native verifier, full simulator or qualification.",
+               **{key: False for key in FALSE_FLAGS})
+save("receipt.json", receipt)
+with (OUT / "SHA256SUMS").open("x") as stream:
+    for path in sorted(p for p in OUT.rglob("*") if p.is_file() and not p.is_symlink() and p.name != "SHA256SUMS"):
+        stream.write(sha(path) + "  " + str(path.relative_to(ROOT)) + "\n")
+print(json.dumps({"status": receipt["status"], "error": error, "receipt_sha256": sha(OUT / "receipt.json"),
+                  "manifest_sha256": sha(OUT / "SHA256SUMS")}))
+if error is not None:
+    raise SystemExit(1)

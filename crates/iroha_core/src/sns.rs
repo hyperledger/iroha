@@ -976,6 +976,8 @@ fn process_alias_auto_renew_storage_key(
         return Ok(());
     }
     let mut transaction = state_block.try_transaction()?;
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC366")))]
+    let witness = crate::exec_witness::begin_exec_witness_overlay();
     let attempt = alias_auto_renew_attempt(&mut transaction, scope, &state, &config, now_ms);
     transaction.require_storage_admission()?;
     // A nested completed boundary may already have exported the original. Forward it
@@ -1008,8 +1010,20 @@ fn process_alias_auto_renew_storage_key(
             let target = updated.target.clone();
             match persist_alias_auto_renew_state(&mut transaction, &updated) {
                 Ok(()) => {
-                    transaction.apply();
-                    iroha_logger::info!(target = %target, now_ms, "alias lease auto-renewed");
+                    #[cfg(all(test, sumeragi_core_mutation = "HC366"))]
+                    {
+                        transaction.apply();
+                        iroha_logger::info!(target = %target, now_ms, "alias lease auto-renewed");
+                    }
+                    #[cfg(not(all(test, sumeragi_core_mutation = "HC366")))]
+                    match transaction.apply_sns_maintenance(witness) {
+                        Ok(()) => {
+                            iroha_logger::info!(target = %target, now_ms, "alias lease auto-renewed")
+                        }
+                        Err(error) => {
+                            iroha_logger::error!(target = %target, %error, "alias renewal publication refused")
+                        }
+                    }
                 }
                 Err(error) => {
                     if let SnsError::Deferred(reason) = error {
@@ -1023,10 +1037,14 @@ fn process_alias_auto_renew_storage_key(
         }
         AliasAutoRenewAttempt::Suspend(reason) => {
             drop(transaction);
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC366")))]
+            drop(witness);
             suspend_alias_auto_renew(state_block, state, reason)?;
         }
         AliasAutoRenewAttempt::Retry(error) => {
             drop(transaction);
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC366")))]
+            drop(witness);
             record_alias_auto_renew_failure(state_block, state, &config, now_ms, &error)?;
         }
     }
@@ -1034,6 +1052,8 @@ fn process_alias_auto_renew_storage_key(
 }
 /// Process a bounded, fair slice of enabled alias auto-renew records at block time.
 ///
+/// Selection consumes only the native entries left after the bounded retail prefix.
+/// An exhausted shared pool leaves both cursor and renewal retry state unchanged.
 /// Individual payment failures update deterministic retry/suspension state;
 /// a local World admission refusal returns to the original output owner.
 pub(crate) fn process_alias_auto_renewals(
@@ -1058,7 +1078,7 @@ pub(crate) fn process_alias_auto_renewals(
     let storage_keys = alias_auto_renew_candidate_keys(
         &state_block.world,
         cursor.as_ref().map(|cursor| &cursor.last_storage_key),
-        ALIAS_AUTO_RENEW_SWEEP_LIMIT.min(state_block.native_maintenance_invocation_limit()),
+        ALIAS_AUTO_RENEW_SWEEP_LIMIT.min(scope.invocation_limit()),
     );
     let now_ms =
         u64::try_from(state_block._curr_block.creation_time().as_millis()).unwrap_or(u64::MAX);
@@ -3220,4 +3240,12 @@ fn sns_genesis_read_error(
             SnsError::Deferred(reason)
         }
     }
+}
+
+#[cfg(test)]
+/// Read the canonical cursor through its owning decoder for integration controls.
+pub(crate) fn alias_auto_renew_cursor_for_testing(
+    world: &impl WorldReadOnly,
+) -> Result<Option<StatePath>, SnsError> {
+    Ok(alias_auto_renew_cursor(world)?.map(|cursor| cursor.last_storage_key))
 }

@@ -24,6 +24,7 @@ use iroha_data_model::{
     },
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -39,9 +40,10 @@ fn prepared(
     manifest.authority_context_height = 1;
     let mut materials = (0..2)
         .map(|index| {
+            let ordinal = u8::try_from(index).expect("two-leg fixture index fits u8");
             let mut material = template.clone();
             let route = manifest.legs[index].route;
-            let (authority, _) = existing::finalization_authority_v1(route, index as u8);
+            let (authority, _) = existing::finalization_authority_v1(route, ordinal);
             let mut policy = template.audit_policy.body.clone();
             policy.dataspace_id = route.dataspace_id;
             policy.activation_height = 1;
@@ -53,18 +55,19 @@ fn prepared(
         .collect::<Vec<_>>();
     manifest.bundle_id = manifest.computed_bundle_id().unwrap();
     for (index, material) in materials.iter_mut().enumerate() {
+        let ordinal = u8::try_from(index).expect("two-leg fixture index fits u8");
         let leg = &manifest.legs[index];
         let mut delta = existing::finalization_delta_v1(&manifest, index);
         let aad = &mut material.audit_capsule.aad;
         aad.bundle_id = manifest.bundle_id;
-        aad.leg_ordinal = index as u8;
+        aad.leg_ordinal = ordinal;
         aad.route = leg.route;
         aad.authority_context_height = manifest.authority_context_height;
         aad.authority_digest = material.committee_authority.digest().unwrap();
         aad.audit_policy_digest = material.audit_policy.policy_digest;
         let statement = &mut material.statement;
         statement.bundle_id = manifest.bundle_id;
-        statement.leg_ordinal = index as u8;
+        statement.leg_ordinal = ordinal;
         statement.route = leg.route;
         statement.authority_context_height = manifest.authority_context_height;
         statement.pool_id = leg.pool_id;
@@ -82,7 +85,7 @@ fn prepared(
         delta.capsule_digest = statement.audit_capsule_digest;
         material.delta = delta;
         material.availability_body.bundle_id = manifest.bundle_id;
-        material.availability_body.leg_ordinal = index as u8;
+        material.availability_body.leg_ordinal = ordinal;
         material.availability_body.route = leg.route;
         material.availability_body.authority_context_height = manifest.authority_context_height;
         material.availability_body.authority_digest =
@@ -156,13 +159,14 @@ fn phase_certificates(
         .iter()
         .enumerate()
         .map(|(index, material)| {
+            let ordinal = u8::try_from(index).expect("fixture leg ordinal fits u8");
             let (authority, keys) =
-                existing::finalization_authority_v1(material.statement.route, index as u8);
+                existing::finalization_authority_v1(material.statement.route, ordinal);
             let body =
-                expected_phase_body_v1(manifest, index as u8, &authority, phase, digest).unwrap();
+                expected_phase_body_v1(manifest, ordinal, &authority, phase, digest).unwrap();
             aggregate_phase_votes_v1(
                 &body,
-                index as u8,
+                ordinal,
                 &authority,
                 &existing::phase_votes_v1(&authority, &keys, &body, &[0, 1, 2]),
             )
@@ -171,7 +175,10 @@ fn phase_certificates(
         .collect()
 }
 fn complete_round(journal: &mut WorkflowJournalV1, index: usize, bytes: Vec<u8>) {
-    let round_id = crate::workflow::round_identity(&journal.id(), index as u32);
+    let round_id = crate::workflow::round_identity(
+        &journal.id(),
+        u32::try_from(index).expect("fixture workflow step index fits u32"),
+    );
     journal
         .apply_round(index, RoundInputV1::Intent { round_id })
         .unwrap();
@@ -270,10 +277,10 @@ fn certified(
                 completions: Vec::new(),
             })],
             0,
-            Default::default(),
+            BTreeMap::default(),
             Vec::new(),
             AxtPolicySnapshot::default(),
-            Default::default(),
+            BTreeSet::default(),
             &ExecutionOutputLimits {
                 max_outputs: 16,
                 max_output_bytes: 16 * 1024 * 1024,
@@ -284,9 +291,9 @@ fn certified(
         .unwrap();
     let mut verifier = native.verifier();
     let proof = native.certify(block);
-    let verified = verifier.verify(&proof).unwrap();
-    let evidence = observation::evidence(verified.block(), 0).unwrap();
-    (verified, evidence)
+    let authenticated = verifier.verify(&proof).unwrap();
+    let evidence = observation::evidence(authenticated.block(), 0).unwrap();
+    (authenticated, evidence)
 }
 
 #[test]
@@ -415,6 +422,71 @@ fn private_settlement_verified_receipt_requires_successful_exact_final_tip_execu
         assert!(
             VerifiedPrivateSettlementReceipt::verify_recovered(&block, &barrier, changed).is_err()
         );
+    }
+}
+
+#[tokio::test]
+async fn private_settlement_receipt_locator_recovers_only_successful_matching_finalization() {
+    use crate::{client::evidence_http_tests::with_mock_http, http::Response};
+
+    for rejected in [false, true] {
+        let mut native = NativeFinalityFixture::start("private-settlement-receipt-locator");
+        let verifier = native.verifier();
+        let mut client = client_with_base_url(base_url());
+        client.network_id = native.network_id();
+        let (request, certificates) = prepared(&client);
+        let journal = checkpoint(&request, &certificates);
+        let (barrier, bundle) = bundle(&request, &journal);
+        let (block, _) = certified(&mut native, &client, bundle.clone(), rejected);
+        // The public locator claims success in both cases. Only authenticated execution
+        // of the exact matching finalization may establish a successful receipt.
+        let receipt = PrivateSettlementBundleReceiptResponseV1::Finalized(
+            bundle.into_receipt(block.height()),
+        );
+        let proofs = BTreeMap::from([
+            (1, native.genesis_proof().clone()),
+            (block.height(), native.latest().clone()),
+        ]);
+        let transport = with_mock_http(
+            move |http| {
+                let path = http.url.path();
+                let (content_type, body) = if path.ends_with("/receipt") {
+                    ("application/json", norito::json::to_vec(&receipt)?)
+                } else {
+                    let height = path.rsplit('/').next().unwrap().parse::<u64>()?;
+                    (
+                        "application/x-norito",
+                        norito::encode_canonical(&proofs[&height])?,
+                    )
+                };
+                Ok(Response::builder()
+                    .status(200)
+                    .header("content-type", content_type)
+                    .body(body)?)
+            },
+            |transport| transport,
+        );
+        let client = client.with_test_http_transport(transport);
+        crate::client::evidence_http_tests::mark_data_model_compatible(&client);
+        let ledger = SettlementLedger::new(
+            client.account_client().unwrap(),
+            request,
+            Arc::new(Mutex::new(Some(PublicContext {
+                barrier: barrier.clone(),
+                phase: FINALIZE,
+            }))),
+            verifier,
+            Arc::new(tokio::sync::Semaphore::new(1)),
+        );
+        ledger.begin_call(2).unwrap();
+        let recovered = ledger.recover_business(&journal).await;
+        if rejected {
+            assert!(matches!(recovered, Err(PrivateSettlementError::Binding)));
+        } else {
+            let recovered = recovered.unwrap().unwrap();
+            assert_eq!(recovered.receipt().manifest, barrier.manifest);
+            assert_eq!(recovered.receipt().finalized_height, block.height());
+        }
     }
 }
 
@@ -891,4 +963,43 @@ fn private_settlement_advanced_material_accessor_borrows_exact_public_encrypted_
     }
     // The closed material type has no wallet witness, spending secret or plaintext audit
     // field. This accessor does not alter that schema or grant proof/finality authority.
+}
+
+#[test]
+fn private_settlement_network_indices_preserve_binding_error_classification() {
+    assert_eq!(observation::network_index(0).unwrap(), 0);
+    let maximum = usize::try_from(u32::MAX).expect("supported pointer width represents u32");
+    assert_eq!(observation::network_index(maximum).unwrap(), u32::MAX);
+    if let Some(overflow) = maximum.checked_add(1) {
+        assert!(matches!(
+            observation::network_index(overflow),
+            Err(PrivateSettlementError::Binding)
+        ));
+        assert!(matches!(
+            observation::network_index(usize::MAX),
+            Err(PrivateSettlementError::Binding)
+        ));
+    }
+}
+
+#[test]
+fn private_settlement_step_failure_keeps_binding_and_local_resource_codes() {
+    for (error, code) in [
+        (
+            PrivateSettlementError::Binding,
+            WorkflowErrorCode::BindingMismatch,
+        ),
+        (
+            PrivateSettlementError::Worker,
+            WorkflowErrorCode::LocalResourceUnavailable,
+        ),
+        (
+            PrivateSettlementError::ReadBudget,
+            WorkflowErrorCode::LocalResourceUnavailable,
+        ),
+    ] {
+        let converted = failure(&error);
+        assert_eq!(converted.code, code);
+        assert_eq!(converted.detail, error.to_string());
+    }
 }

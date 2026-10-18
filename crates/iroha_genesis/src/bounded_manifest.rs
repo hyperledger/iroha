@@ -11,7 +11,7 @@ use std::{
 pub const GENESIS_MANIFEST_JSON_MAX_BYTES_V1: usize = 16 * 1024 * 1024;
 /// First-release byte limit for one compiled IVM program referenced by genesis.
 pub const GENESIS_IVM_BYTECODE_MAX_BYTES_V1: usize =
-    iroha_config::parameters::defaults::transaction::ivm_bytecode_size().get() as usize;
+    iroha_config::parameters::defaults::transaction::IVM_BYTECODE_MAX_BYTES;
 /// Maximum JSON values, object keys, and containers admitted before parsing.
 pub const GENESIS_MANIFEST_JSON_MAX_TOKENS_V1: usize = 262_144;
 /// Maximum encoded byte length of one JSON string literal.
@@ -639,6 +639,7 @@ mod tests {
     }
     #[test]
     fn ivm_limit_matches_transaction_admission_default() {
+        assert_eq!(GENESIS_IVM_BYTECODE_MAX_BYTES_V1, 4 * 1024 * 1024);
         assert_eq!(
             GENESIS_IVM_BYTECODE_MAX_BYTES_V1 as u64,
             iroha_config::parameters::defaults::transaction::ivm_bytecode_size().get()
@@ -690,11 +691,11 @@ mod tests {
         .expect("complete bounded signed-genesis fixture")
         .with_consensus_meta()
         .expect("valid fixture consensus parameters");
-        let block = manifest
+
+        manifest
             .build_and_sign(&crate::checked_genesis_fixture_keypair())
             .expect("sign bounded signed-genesis fixture")
-            .0;
-        block
+            .0
     }
     #[test]
     fn signed_genesis_decoder_roundtrips_canonical_wire() {

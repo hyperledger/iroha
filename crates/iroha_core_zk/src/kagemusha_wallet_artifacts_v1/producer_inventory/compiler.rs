@@ -19,7 +19,6 @@ use iroha_kagemusha_proof::{
     q_signature::QSignaturePlan,
 };
 use iroha_plonk::{
-    ProvingKey,
     frontend::Circuit,
     keys::{CosetCachePolicy, KeyError, KeygenConfigV2, keygen_pk_v2, pk::artifact::ReadConfig},
     pcs::ipa::PinnedParams,
@@ -134,11 +133,11 @@ impl<C: PastaCurve> CompiledKeyV1<C> {
 
 /// Fixed global selector order established only by the compiled sigma constructors.
 pub struct CompiledSigmasV1 {
-    keys: [CompiledKeyV1<Eq>; 16],
+    keys: [CompiledKeyV1<Eq>; 11],
 }
 impl CompiledSigmasV1 {
-    /// The exact ordered sixteen source originals; callers cannot reorder this owner.
-    pub const fn keys(&self) -> &[CompiledKeyV1<Eq>; 16] {
+    /// The exact ordered eleven source originals; callers cannot reorder this owner.
+    pub const fn keys(&self) -> &[CompiledKeyV1<Eq>; 11] {
         &self.keys
     }
 }
@@ -209,6 +208,25 @@ pub struct OfflineCompilerV1<'a> {
     bytes: u64,
     blobs: BTreeMap<[u8; 32], u64>,
     candidates: BTreeMap<[u8; 32], OriginalV1>,
+    pallas_parameters: BTreeMap<u32, PinnedParams<Ep>>,
+    vesta_parameters: BTreeMap<u32, PinnedParams<Eq>>,
+    // Only the full-catalogue engineering test retains sparse authenticated rows.
+    #[cfg(test)]
+    mask_rows: Option<full_catalog::ImportedRows>,
+}
+
+// Transparent generators and their private computed-commitment cache belong to
+// this compilation only. Clones share immutable arrays; no global cache, decoded
+// metadata or candidate original can choose or populate the parameter bases.
+fn parameters<C: PastaCurve>(
+    cache: &mut BTreeMap<u32, PinnedParams<C>>,
+    k: u32,
+    phase: CompilationPhaseV1,
+) -> Result<PinnedParams<C>, CompilationErrorV1> {
+    if let std::collections::btree_map::Entry::Vacant(entry) = cache.entry(k) {
+        entry.insert(source(PinnedParams::derive(k), phase)?);
+    }
+    cache.get(&k).cloned().ok_or(CompilationErrorV1::Closure)
 }
 
 fn source<T, E>(result: Result<T, E>, phase: CompilationPhaseV1) -> Result<T, CompilationErrorV1> {
@@ -267,7 +285,42 @@ impl<'a> OfflineCompilerV1<'a> {
             bytes: 0,
             blobs: BTreeMap::new(),
             candidates: BTreeMap::new(),
+            pallas_parameters: BTreeMap::new(),
+            vesta_parameters: BTreeMap::new(),
+            #[cfg(test)]
+            mask_rows: None,
         })
+    }
+
+    fn import_original<C: PastaCurve, S: Circuit<C::ScalarExt>>(
+        &mut self,
+        record: OriginalV1,
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &S,
+    ) -> Result<iroha_plonk::keys::SourceBoundVerifyingKeyV2<C>, CompilationErrorV1> {
+        #[cfg(test)]
+        if let Some(rows) = &mut self.mask_rows {
+            if !rows.contains(record) {
+                return source(
+                    rows.import(record, original, binding, params, circuit, self.config),
+                    CompilationPhaseV1::StrictOriginalImport,
+                );
+            }
+        }
+        // Repeated closure imports still check the exact circuit and every VK
+        // commitment. A captured row set never substitutes for native admission.
+        let _ = record;
+        Ok(
+            iroha_plonk::keys::SourceBoundVerifyingKeyV2::from_masked_artifact_v2(
+                original,
+                binding,
+                params,
+                circuit,
+                self.config,
+            )?,
+        )
     }
 
     fn publish(&mut self, bytes: &[u8], cap: usize) -> Result<BlobV1, CompilationErrorV1> {
@@ -300,12 +353,11 @@ impl<'a> OfflineCompilerV1<'a> {
             return self.import_candidate(original, &fingerprint, circuit, params);
         }
         let key = keygen_pk_v2(params, circuit, cfg)?;
-        let d = key.binding().descriptor();
-        let expected = (d.num_fixed_columns as usize)
-            .checked_add(d.permutation.len())
-            .and_then(|n| n.checked_mul(key.binding().n()))
-            .and_then(|n| n.checked_mul(32))
-            .and_then(|n| n.checked_add(76 + key.vk().to_bytes().len()))
+        let expected = key
+            .vk()
+            .to_bytes()
+            .len()
+            .checked_add(108)
             .ok_or(Error::Inventory)?;
         if expected > self.config.maximum_bytes {
             return Err(Error::Inventory.into());
@@ -334,17 +386,11 @@ impl<'a> OfflineCompilerV1<'a> {
         )?);
         let original = read(self.sink, record.proving_key, self.config.maximum_bytes)?;
         let imported = source(
-            ProvingKey::from_artifact_v2(
-                &original,
-                metadata.binding(),
-                params,
-                circuit,
-                self.config,
-            ),
+            self.import_original(record, &original, metadata.binding(), params, circuit),
             CompilationPhaseV1::StrictOriginalImport,
         )?;
         source(
-            metadata.require_prover(&imported),
+            metadata.require_source_bound(&imported.view()),
             CompilationPhaseV1::ImportedIdentity,
         )?;
         drop(imported);
@@ -372,32 +418,34 @@ impl<'a> OfflineCompilerV1<'a> {
         }
         let original = read(self.sink, record.proving_key, self.config.maximum_bytes)?;
         let imported = source(
-            ProvingKey::from_artifact_v2(
+            self.import_original(
+                record,
                 &original,
                 expected.metadata.binding(),
                 params,
                 circuit,
-                self.config,
             ),
             CompilationPhaseV1::StrictOriginalImport,
         )?;
         source(
-            expected.metadata.require_prover(&imported),
+            expected.metadata.require_source_bound(&imported.view()),
             CompilationPhaseV1::ImportedIdentity,
         )?;
         Ok(expected.clone())
     }
 
-    /// Build and reimport the fixed sixteen sigma sources, one original at a time.
+    /// Build and reimport the fixed eleven sigma sources, one original at a time.
     /// # Errors
     /// Any fixed source capacity, publication, key generation or exact import failure.
     pub fn sigmas(&mut self) -> Result<CompiledSigmasV1, CompilationErrorV1> {
-        let p12 = source(
-            PinnedParams::derive(12),
+        let p12 = parameters(
+            &mut self.vesta_parameters,
+            12,
             CompilationPhaseV1::SigmaParameters,
         )?;
-        let p14 = source(
-            PinnedParams::derive(14),
+        let p14 = parameters(
+            &mut self.vesta_parameters,
+            14,
             CompilationPhaseV1::SigmaParameters,
         )?;
         let cfg = config(
@@ -405,15 +453,15 @@ impl<'a> OfflineCompilerV1<'a> {
             true,
             self.config,
         );
-        let mut keys = Vec::with_capacity(16);
-        for selector in 0..16 {
+        let mut keys = Vec::with_capacity(11);
+        for selector in 0..11 {
             let key = match selector {
                 0 => self.key(&BootstrapProver::source_circuit(), &p12, &cfg)?,
                 1 => self.key(&LoadProver::source_circuit(), &p12, &cfg)?,
-                12 => self.key(&ArchiveProver::source_circuit(), &p12, &cfg)?,
-                13 => self.key(&UnloadProver::source_circuit(), &p12, &cfg)?,
-                14 => self.key(&RefreshProver::source_circuit(), &p12, &cfg)?,
-                15 => self.key(&RetiringProver::source_circuit(), &p12, &cfg)?,
+                7 => self.key(&ArchiveProver::source_circuit(), &p12, &cfg)?,
+                8 => self.key(&UnloadProver::source_circuit(), &p12, &cfg)?,
+                9 => self.key(&RefreshProver::source_circuit(), &p12, &cfg)?,
+                10 => self.key(&RetiringProver::source_circuit(), &p12, &cfg)?,
                 _ => {
                     let shape = sigma::monetary_shape(selector)?;
                     self.key(
@@ -441,17 +489,52 @@ impl<'a> OfflineCompilerV1<'a> {
         sigmas: &CompiledSigmasV1,
     ) -> Result<CompiledQV1, CompilationErrorV1> {
         let metadata = core::array::from_fn(|i| sigmas.keys[i].metadata.clone());
+        let vesta12 = parameters(
+            &mut self.vesta_parameters,
+            12,
+            CompilationPhaseV1::QParameters,
+        )?;
+        let vesta14 = parameters(
+            &mut self.vesta_parameters,
+            14,
+            CompilationPhaseV1::QParameters,
+        )?;
+        let vesta16 = parameters(
+            &mut self.vesta_parameters,
+            16,
+            CompilationPhaseV1::QParameters,
+        )?;
         let (q, signatures) = source(
-            q_source_recipe(self.scope, variant, own, incoming, &metadata),
+            q::q_source_recipe_with_parameters(
+                self.scope,
+                variant,
+                own,
+                incoming,
+                &metadata,
+                &|k| match k {
+                    12 => Ok(vesta12.clone()),
+                    14 => Ok(vesta14.clone()),
+                    16 => Ok(vesta16.clone()),
+                    _ => Err(QQualificationErrorV1::Source),
+                },
+            ),
             CompilationPhaseV1::QRecipe,
         )?;
-        let params = source(PinnedParams::derive(16), CompilationPhaseV1::QParameters)?;
-        let circuit = source(q.source_circuit(), CompilationPhaseV1::SigmaQSource)?;
-        let mut keys = vec![self.key(
-            &circuit,
-            &params,
-            &config(QSigmaPlan::instance_types().to_vec(), true, self.config),
-        )?];
+        let params = parameters(
+            &mut self.pallas_parameters,
+            16,
+            CompilationPhaseV1::QParameters,
+        )?;
+        // A route whose A proves the own step directly has no Q_sigma key.
+        let mut keys = Vec::with_capacity(signatures.len() + 1);
+        if let Some(q) = &q {
+            let circuit = source(q.source_circuit(), CompilationPhaseV1::SigmaQSource)?;
+            keys.push(self.key(
+                &circuit,
+                &params,
+                &config(QSigmaPlan::instance_types().to_vec(), true, self.config),
+            )?);
+        }
         for signature in &signatures {
             keys.push(self.key(
                 &source(
@@ -464,7 +547,7 @@ impl<'a> OfflineCompilerV1<'a> {
         }
         let recipe = source(
             QProgramRecipeV1::from_metadata(
-                q.plan().clone(),
+                q.as_ref().map(|q| q.plan().clone()),
                 signatures,
                 keys.iter().map(|k| k.metadata.clone()).collect(),
             ),
@@ -510,7 +593,10 @@ impl<'a> OfflineCompilerV1<'a> {
         if operation.scope != self.scope
             || operation.own != q.own
             || operation.incoming != q.incoming
-            || operation.q.len() != q.keys.len()
+        {
+            return Err(CompilationErrorV1::Closure);
+        }
+        if operation.q.len() != q.keys.len()
             || operation
                 .q
                 .iter()
@@ -561,8 +647,16 @@ impl<'a> OfflineCompilerV1<'a> {
             operation::require_route(&template, route),
             CompilationPhaseV1::RouteClasses,
         )?;
-        let eq = source(PinnedParams::derive(16), CompilationPhaseV1::AParameters)?;
-        let ep = source(PinnedParams::derive(16), CompilationPhaseV1::WParameters)?;
+        let eq = parameters(
+            &mut self.vesta_parameters,
+            16,
+            CompilationPhaseV1::AParameters,
+        )?;
+        let ep = parameters(
+            &mut self.pallas_parameters,
+            16,
+            CompilationPhaseV1::WParameters,
+        )?;
         let acfg = config(vec![InstanceType::Bounded], false, self.config);
         let wcfg = config(OmegaPlan::instance_types().to_vec(), true, self.config);
         macro_rules! stages {
@@ -625,17 +719,42 @@ impl<'a> OfflineCompilerV1<'a> {
             }};
         }
         let (context, a, w) = if route.variant == Variant::Bootstrap {
-            if omega.is_some() {
+            // Bootstrap is one unsplit terminal A: no W source follows it.
+            if omega.is_some() || originals.is_some_and(|old| old.a.len() != 1 || !old.w.is_empty())
+            {
                 return Err(CompilationErrorV1::Closure);
             }
-            stages!(source(
-                bootstrap::plan(self.scope, &q.recipe),
-                CompilationPhaseV1::BootstrapRecipe
-            )?)
+            let plan = source(
+                bootstrap::plan_with_parameters(self.scope, &q.recipe, ep.clone(), eq.clone()),
+                CompilationPhaseV1::BootstrapRecipe,
+            )?;
+            let circuit = source(plan.source_circuit(), CompilationPhaseV1::ASource)?;
+            let key = if let Some(old) = originals {
+                self.import(&old.a[0], &circuit, &eq)?
+            } else {
+                self.key(&circuit, &eq, &acfg)
+                    .map_err(|error| stage_error(error, route, 0, false))?
+            };
+            (
+                plan.context()
+                    .schema()
+                    .iter()
+                    .map(PrimeField::to_repr)
+                    .collect(),
+                vec![key],
+                Vec::new(),
+            )
         } else {
             let key = omega.ok_or(CompilationErrorV1::Closure)?;
             let plan = source(
-                operation::plan(route, self.scope, &q.recipe, &key.metadata),
+                operation::plan_with_parameters(
+                    route,
+                    self.scope,
+                    &q.recipe,
+                    &key.metadata,
+                    ep.clone(),
+                    eq.clone(),
+                ),
                 CompilationPhaseV1::OperationRecipe,
             )?;
             match plan {
@@ -678,12 +797,14 @@ impl<'a> OfflineCompilerV1<'a> {
         {
             return Err(CompilationErrorV1::Closure);
         }
-        let ep = source(
-            PinnedParams::derive(16),
+        let ep = parameters(
+            &mut self.pallas_parameters,
+            16,
             CompilationPhaseV1::OmegaParameters,
         )?;
-        let eq = source(
-            PinnedParams::derive(16),
+        let eq = parameters(
+            &mut self.vesta_parameters,
+            16,
             CompilationPhaseV1::OmegaParameters,
         )?;
         let program = source(

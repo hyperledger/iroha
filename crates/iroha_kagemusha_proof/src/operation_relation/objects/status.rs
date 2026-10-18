@@ -50,7 +50,7 @@ pub struct ReceiveEvidenceInputs<'a> {
     /// Digest of the exact retained Payment.
     pub payment_digest: &'a Word<Fp>,
     /// Same-tape `P_bytes(kgwstep1, LE32 sigma.len || sigma)` bound to the
-    /// incoming Q slot. Its key selection uses the Request's recorded blacklist.
+    /// incoming Q slot.
     pub proof_digest: &'a Word<Fp>,
 }
 

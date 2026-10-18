@@ -6,10 +6,11 @@ from pathlib import Path
 
 import pytest
 from iroha_native import require_account_codec_v1
+from iroha_torii_client import _account_id
+
 from iroha_python import AccountAddress
 from iroha_python.address import AddressClass, AddressHeader, CurveId, MultisigMember
 from iroha_python.crypto import AccountId
-from iroha_torii_client import _account_id
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = json.loads((ROOT / "fixtures/account/multisig_wire_v1.json").read_text())
@@ -141,6 +142,7 @@ def test_complete_native_owner_rejects_all_twelve_malformed_keys(curve, key):
 def test_loaded_native_owner_rejects_replaced_or_removed_module(monkeypatch):
     import sys
     import types
+
     from iroha_native import NativeUnavailableError
 
     native = require_account_codec_v1()
@@ -165,8 +167,8 @@ def test_public_controller_key_coercion_is_bounded_before_allocation():
     # An integer is a byte allocation request to bytes(), never a public key.
     for key in (64 * 1024 * 1024, iter((1, 2, 3)), bytes(65536)):
         for constructor in (
-            lambda: ControllerPayload(0, CurveId.ED25519, key),
-            lambda: MultisigMember(CurveId.ED25519, key, 1),
+            lambda key=key: ControllerPayload(0, CurveId.ED25519, key),
+            lambda key=key: MultisigMember(CurveId.ED25519, key, 1),
         ):
             with pytest.raises(ValueError, match="bytes-like|positive u16"):
                 constructor()

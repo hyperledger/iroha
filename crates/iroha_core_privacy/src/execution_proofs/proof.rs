@@ -183,7 +183,7 @@ pub(super) const RACE_PROFILE_SOURCES_V1: &[(&str, &[u8])] = &[
         include_bytes!("stark/proof_managed_note_stark_execution_fixed.rs"),
     ),
 ];
-/// Commitment to the complete frozen RaceV1 verifier and native outcome semantics.
+/// Commitment to the complete frozen `RaceV1` verifier and native outcome semantics.
 ///
 /// The source commitment binds the compiled transition, outcome and verifier implementation.
 /// This first release has one implementation; obsolete development drafts have no dispatch entry.
@@ -259,9 +259,7 @@ pub fn race_state_root_v1(network: &NetworkId, state: &RaceStateV1) -> Hash {
 }
 
 /// Validate application-neutral manifest bounds against its exact compiled relation.
-pub(crate) fn validate_race_manifest_v1(
-    manifest: &GameManifestV1,
-) -> Result<(), ExecutionProofErrorV1> {
+pub fn validate_race_manifest_v1(manifest: &GameManifestV1) -> Result<(), ExecutionProofErrorV1> {
     if manifest.version != 1
         || manifest.profile_id != race_profile_id_v1()
         || manifest.min_participants != 2
@@ -285,7 +283,7 @@ fn decode_track(manifest: &GameManifestV1) -> Result<RaceTrackV1, ExecutionProof
     Ok(track)
 }
 /// Validate opaque application participant data through the compiled adapter.
-pub(crate) fn validate_race_participant_v1(
+pub fn validate_race_participant_v1(
     manifest: &GameManifestV1,
     data: &[u8],
 ) -> Result<(), ExecutionProofErrorV1> {
@@ -319,7 +317,7 @@ fn validate_race_admission_v1(
     Ok(())
 }
 /// Validate opaque input batches through the compiled adapter, before accepting commitments/reveals.
-pub(crate) fn validate_race_input_v1(
+pub fn validate_race_input_v1(
     manifest: &GameManifestV1,
     input: &[u8],
 ) -> Result<(), ExecutionProofErrorV1> {
@@ -334,7 +332,7 @@ pub(crate) fn validate_race_input_v1(
     Ok(())
 }
 /// Compute the compiled application's prescribed initial state commitment.
-pub(crate) fn initial_race_manifest_state_root_v1(
+pub fn initial_race_manifest_state_root_v1(
     network: &NetworkId,
     manifest: &GameManifestV1,
     player_count: u8,
@@ -382,7 +380,7 @@ fn race_payload_from_request_v1(
     })
 }
 /// Verify a compiled execution envelope and return only the adapter-authenticated generic outcome.
-pub(crate) fn verify_race_outcome_v1(
+pub fn verify_race_outcome_v1(
     envelope: &ExecutionProofEnvelopeV1,
 ) -> Result<GameOutcomeV1, ExecutionProofErrorV1> {
     let payload = decode_payload(envelope)?;
@@ -414,8 +412,9 @@ fn validate_payload(
     }
     let relation = &payload.relation_inputs;
     let expected_outcome = race_game_outcome_v1(&payload.final_state)?;
+    let race_session_id = relation.race_id;
     if statement.network_id != relation.network_id
-        || statement.session_id != relation.race_id
+        || statement.session_id != race_session_id
         || statement.roster_hash != relation.roster_hash
         || statement.roster_hash
             != game_roster_hash_v1(
@@ -655,7 +654,7 @@ impl ProofManagedNoteStarkAdapterV1 for RaceAdapterV1<'_> {
         _: &[Vec<F>],
         _: &[Vec<F>],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<Vec<F>>, ProofManagedNoteStarkErrorV1> {
         Ok(vec![])
     }
@@ -667,7 +666,7 @@ impl ProofManagedNoteStarkAdapterV1 for RaceAdapterV1<'_> {
         _: &[F],
         fixed: &[F],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<F>, ProofManagedNoteStarkErrorV1> {
         Ok(self.compiled.residues(
             &current[NOTE_COPY_WIDTH_V1..],
@@ -749,7 +748,7 @@ pub fn verify_race_proof_v1(
 }
 
 /// Verify semantic execution and exact retained checkpoint, forced inputs, and removals.
-pub(crate) fn verify_race_proof_for_history_v1(
+pub fn verify_race_proof_for_history_v1(
     envelope: &ExecutionProofEnvelopeV1,
     manifest: &GameManifestV1,
     outcome: &GameOutcomeV1,

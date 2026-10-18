@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 use super::super::table_assets::read_u64_le;
-use super::flr::FLR;
+use super::flr::Flr;
 // ========================================================================
 // Floating-point polynomials
 // ========================================================================
@@ -11,7 +11,7 @@ use super::flr::FLR;
 //
 //   - The "normal representation" of f = \sum_{i=0}^{n-1} f_i*X^i is
 //     the sequence (f_0, f_1, f_2, ... f_{n-1}) as a slice of size n.
-//     Elements are FLR instances.
+//     Elements are Flr instances.
 //
 //   - The "FFT representation" consists of n/2 complex numbers; the
 //     first n/2 elements are the real parts, and for i = 0 to n/2-1,
@@ -26,12 +26,12 @@ use super::flr::FLR;
 //     has n/2 elements; the remaining n/2 (the imaginary parts of the
 //     FFT coefficients) are implicitly zero and are omitted.
 // Complex multiplication.
-#[inline(always)]
-pub(crate) fn flc_mul(x_re: FLR, x_im: FLR, y_re: FLR, y_im: FLR) -> (FLR, FLR) {
+#[inline]
+pub fn flc_mul(x_re: Flr, x_im: Flr, y_re: Flr, y_im: Flr) -> (Flr, Flr) {
     (x_re * y_re - x_im * y_im, x_re * y_im + x_im * y_re)
 }
 // Convert a polynomial from normal representation to FFT.
-pub(crate) fn FFT(logn: u32, f: &mut [FLR]) {
+pub fn FFT(logn: u32, f: &mut [Flr]) {
     // First iteration of the FFT algorithm would compute
     // f[j] + i*f[j + n/2] for all j < n/2; since this is exactly our
     // storage format for complex numbers in the FFT representation,
@@ -48,7 +48,7 @@ pub(crate) fn FFT(logn: u32, f: &mut [FLR]) {
             let ht = t >> 1;
             let mut j0 = 0;
             for i in 0..hm {
-                let s_re = GM[((m + i) << 1) + 0];
+                let s_re = GM[(m + i) << 1];
                 let s_im = GM[((m + i) << 1) + 1];
                 for j in 0..ht {
                     let j1 = j0 + j;
@@ -70,7 +70,7 @@ pub(crate) fn FFT(logn: u32, f: &mut [FLR]) {
     }
 }
 // Convert a polynomial from FFT representation to normal.
-pub(crate) fn iFFT(logn: u32, f: &mut [FLR]) {
+pub fn iFFT(logn: u32, f: &mut [Flr]) {
     // This is the reverse of FFT. We use the fact that if
     // w = exp(i*k*pi/N), then 1/w is the conjugate of w; thus, we can
     // get inverses from the table GM[] itself by simply negating the
@@ -89,7 +89,7 @@ pub(crate) fn iFFT(logn: u32, f: &mut [FLR]) {
             let dt = t << 1;
             let mut j0 = 0;
             for i in 0..(hm >> 1) {
-                let s_re = GM[((hm + i) << 1) + 0];
+                let s_re = GM[(hm + i) << 1];
                 let s_im = -GM[((hm + i) << 1) + 1];
                 for j in 0..t {
                     let j1 = j0 + j;
@@ -112,19 +112,19 @@ pub(crate) fn iFFT(logn: u32, f: &mut [FLR]) {
         }
         // We have logn-1 delayed halvings to perform, i.e. we must divide
         // all returned values by n/2.
-        FLR::slice_div2e(&mut f[..n], logn - 1);
+        Flr::slice_div2e(&mut f[..n], logn - 1);
     }
 }
 // Set polynomial d from polynomial f with small coefficients.
-pub(crate) fn poly_set_small(logn: u32, d: &mut [FLR], f: &[i8]) {
+pub fn poly_set_small(logn: u32, d: &mut [Flr], f: &[i8]) {
     {
         for i in 0..(1usize << logn) {
-            d[i] = FLR::from_i32(f[i] as i32);
+            d[i] = Flr::from_i32(i32::from(f[i]));
         }
     }
 }
 // Add polynomial b to polynomial a.
-pub(crate) fn poly_add(logn: u32, a: &mut [FLR], b: &[FLR]) {
+pub fn poly_add(logn: u32, a: &mut [Flr], b: &[Flr]) {
     {
         for i in 0..(1usize << logn) {
             a[i] += b[i];
@@ -132,7 +132,7 @@ pub(crate) fn poly_add(logn: u32, a: &mut [FLR], b: &[FLR]) {
     }
 }
 // Subtract polynomial b from polynomial a.
-pub(crate) fn poly_sub(logn: u32, a: &mut [FLR], b: &[FLR]) {
+pub fn poly_sub(logn: u32, a: &mut [Flr], b: &[Flr]) {
     {
         for i in 0..(1usize << logn) {
             a[i] -= b[i];
@@ -140,16 +140,16 @@ pub(crate) fn poly_sub(logn: u32, a: &mut [FLR], b: &[FLR]) {
     }
 }
 // Negate polynomial a.
-pub(crate) fn poly_neg(logn: u32, a: &mut [FLR]) {
+pub fn poly_neg(logn: u32, a: &mut [Flr]) {
     {
-        for i in 0..(1usize << logn) {
-            a[i] = -a[i];
+        for coefficient in &mut a[..(1usize << logn)] {
+            *coefficient = -*coefficient;
         }
     }
 }
 // Multiply polynomial a with polynomial b. The polynomials must be in
 // FFT representation.
-pub(crate) fn poly_mul_fft(logn: u32, a: &mut [FLR], b: &[FLR]) {
+pub fn poly_mul_fft(logn: u32, a: &mut [Flr], b: &[Flr]) {
     {
         let hn = 1usize << (logn - 1);
         for i in 0..hn {
@@ -161,7 +161,7 @@ pub(crate) fn poly_mul_fft(logn: u32, a: &mut [FLR], b: &[FLR]) {
 }
 // Multiply polynomial a with the adjoint of polynomial b. The polynomials
 // must be in FFT representation.
-pub(crate) fn poly_muladj_fft(logn: u32, a: &mut [FLR], b: &[FLR]) {
+pub fn poly_muladj_fft(logn: u32, a: &mut [Flr], b: &[Flr]) {
     {
         let hn = 1usize << (logn - 1);
         for i in 0..hn {
@@ -174,20 +174,20 @@ pub(crate) fn poly_muladj_fft(logn: u32, a: &mut [FLR], b: &[FLR]) {
 // Multiply polynomial a with its own adjoint. The polynomial must be in
 // FFT representation. Since the result is a self-adjoint polynomial,
 // coefficients n/2 to n-1 are set to zero.
-pub(crate) fn poly_mulownadj_fft(logn: u32, a: &mut [FLR]) {
+pub fn poly_mulownadj_fft(logn: u32, a: &mut [Flr]) {
     {
         let hn = 1usize << (logn - 1);
         for i in 0..hn {
             a[i] = a[i].square() + a[i + hn].square();
-            a[i + hn] = FLR::ZERO;
+            a[i + hn] = Flr::ZERO;
         }
     }
 }
 // Multiply polynomial a with a real constant x.
-pub(crate) fn poly_mulconst(logn: u32, a: &mut [FLR], x: FLR) {
+pub fn poly_mulconst(logn: u32, a: &mut [Flr], x: Flr) {
     {
-        for i in 0..(1usize << logn) {
-            a[i] *= x;
+        for coefficient in &mut a[..(1usize << logn)] {
+            *coefficient *= x;
         }
     }
 }
@@ -200,7 +200,7 @@ pub(crate) fn poly_mulconst(logn: u32, a: &mut [FLR], x: FLR) {
 // respectively. Like g11, d11 is self-adjoint and uses only n/2
 // coefficients. g00 is unmodified. All polynomials are in FFT
 // representation.
-pub(crate) fn poly_LDL_fft(logn: u32, g00: &[FLR], g01: &mut [FLR], g11: &mut [FLR]) {
+pub fn poly_LDL_fft(logn: u32, g00: &[Flr], g01: &mut [Flr], g11: &mut [Flr]) {
     {
         let hn = 1usize << (logn - 1);
         for i in 0..hn {
@@ -208,7 +208,7 @@ pub(crate) fn poly_LDL_fft(logn: u32, g00: &[FLR], g01: &mut [FLR], g11: &mut [F
             let g00_re = g00[i];
             let (g01_re, g01_im) = (g01[i], g01[i + hn]);
             let g11_re = g11[i];
-            let inv_g00_re = FLR::ONE / g00_re;
+            let inv_g00_re = Flr::ONE / g00_re;
             let (mu_re, mu_im) = (g01_re * inv_g00_re, g01_im * inv_g00_re);
             let zo_re = mu_re * g01_re + mu_im * g01_im;
             g11[i] = g11_re - zo_re;
@@ -220,7 +220,7 @@ pub(crate) fn poly_LDL_fft(logn: u32, g00: &[FLR], g01: &mut [FLR], g11: &mut [F
 // Split operation on a polynomial: for input polynomial f, half-size
 // polynomials f0 and f1 (modulo X^(n/2)+1) are such that
 // f = f0(x^2) + x*f1(x^2). All polynomials are in FFT representation.
-pub(crate) fn poly_split_fft(logn: u32, f0: &mut [FLR], f1: &mut [FLR], f: &[FLR]) {
+pub fn poly_split_fft(logn: u32, f0: &mut [Flr], f1: &mut [Flr], f: &[Flr]) {
     // If logn = 1 then the loop is entirely skipped.
     if logn == 1 {
         f0[0] = f[0];
@@ -231,18 +231,13 @@ pub(crate) fn poly_split_fft(logn: u32, f0: &mut [FLR], f1: &mut [FLR], f: &[FLR
         let hn = 1usize << (logn - 1);
         let qn = hn >> 1;
         for i in 0..qn {
-            let (a_re, a_im) = (f[(i << 1) + 0], f[(i << 1) + 0 + hn]);
+            let (a_re, a_im) = (f[i << 1], f[(i << 1) + hn]);
             let (b_re, b_im) = (f[(i << 1) + 1], f[(i << 1) + 1 + hn]);
             let (t_re, t_im) = (a_re + b_re, a_im + b_im);
             f0[i] = t_re.half();
             f0[i + qn] = t_im.half();
             let (t_re, t_im) = (a_re - b_re, a_im - b_im);
-            let (u_re, u_im) = flc_mul(
-                t_re,
-                t_im,
-                GM[((i + hn) << 1) + 0],
-                -GM[((i + hn) << 1) + 1],
-            );
+            let (u_re, u_im) = flc_mul(t_re, t_im, GM[(i + hn) << 1], -GM[((i + hn) << 1) + 1]);
             f1[i] = u_re.half();
             f1[i + qn] = u_im.half();
         }
@@ -251,24 +246,24 @@ pub(crate) fn poly_split_fft(logn: u32, f0: &mut [FLR], f1: &mut [FLR], f: &[FLR
 // Specialized version of poly_split_fft() when the source polynomial
 // is self-adjoint (i.e. all its FFT coefficients are real). On output,
 // f0 is self-adjoint, but f1 is not necessarily self-adjoint.
-pub(crate) fn poly_split_selfadj_fft(logn: u32, f0: &mut [FLR], f1: &mut [FLR], f: &[FLR]) {
+pub fn poly_split_selfadj_fft(logn: u32, f0: &mut [Flr], f1: &mut [Flr], f: &[Flr]) {
     // If logn = 1 then the loop is entirely skipped.
     if logn == 1 {
         f0[0] = f[0];
-        f1[0] = FLR::ZERO;
+        f1[0] = Flr::ZERO;
         return;
     }
     {
         let hn = 1usize << (logn - 1);
         let qn = hn >> 1;
         for i in 0..qn {
-            let a_re = f[(i << 1) + 0];
+            let a_re = f[i << 1];
             let b_re = f[(i << 1) + 1];
             let t_re = a_re + b_re;
             f0[i] = t_re.half();
-            f0[i + qn] = FLR::ZERO;
+            f0[i + qn] = Flr::ZERO;
             let t_re = (a_re - b_re).half();
-            f1[i] = t_re * GM[((i + hn) << 1) + 0];
+            f1[i] = t_re * GM[(i + hn) << 1];
             f1[i + qn] = t_re * -GM[((i + hn) << 1) + 1];
         }
     }
@@ -276,7 +271,7 @@ pub(crate) fn poly_split_selfadj_fft(logn: u32, f0: &mut [FLR], f1: &mut [FLR], 
 // Merge operation on a polynomial: for input half-size polynomials f0
 // and f1 (modulo X^(n/2)+1), compute f = f0(x^2) + x*f1(x^2). All
 // polynomials are in FFT representation.
-pub(crate) fn poly_merge_fft(logn: u32, f: &mut [FLR], f0: &[FLR], f1: &[FLR]) {
+pub fn poly_merge_fft(logn: u32, f: &mut [Flr], f0: &[Flr], f1: &[Flr]) {
     // If logn = 1 then the loop is entirely skipped.
     if logn == 1 {
         f[0] = f0[0];
@@ -291,11 +286,11 @@ pub(crate) fn poly_merge_fft(logn: u32, f: &mut [FLR], f0: &[FLR], f1: &[FLR]) {
             let (b_re, b_im) = flc_mul(
                 f1[i],
                 f1[i + qn],
-                GM[((i + hn) << 1) + 0],
+                GM[(i + hn) << 1],
                 GM[((i + hn) << 1) + 1],
             );
-            f[(i << 1) + 0] = a_re + b_re;
-            f[(i << 1) + 0 + hn] = a_im + b_im;
+            f[i << 1] = a_re + b_re;
+            f[(i << 1) + hn] = a_im + b_im;
             f[(i << 1) + 1] = a_re - b_re;
             f[(i << 1) + 1 + hn] = a_im - b_im;
         }
@@ -309,17 +304,17 @@ pub(crate) fn poly_merge_fft(logn: u32, f: &mut [FLR], f0: &[FLR], f1: &[FLR]) {
 // obtained from Sage, which employs sufficient precision to get an exact
 // rounding. Specifically, we round x = cos(j*pi/1024) by looking for the
 // integer n such that abs(x)*2^n is in [2^52, 2^53[, and make the value
-// as round(x*2^n)/2^n (with FLR::scaled()).
-// A test makes sure that the generated FLR constants have exactly the
+// as round(x*2^n)/2^n (with Flr::scaled()).
+// A test makes sure that the generated Flr constants have exactly the
 // expected values.
 //
 // GM[0] and GM[1] (corresponding to k = 0) are unused and left to zero.
-const fn mkflr(bits: u64) -> FLR {
-    FLR::from_bits(bits)
+const fn mkflr(bits: u64) -> Flr {
+    Flr::from_bits(bits)
 }
 const SIGN_GM_BYTES: &[u8; 16_384] = include_bytes!("../assets/sign_gm_binary64le_v1.bin");
-const fn decode_gm(bytes: &[u8; 16_384]) -> [FLR; 2048] {
-    let mut table = [FLR::ZERO; 2048];
+const fn decode_gm(bytes: &[u8; 16_384]) -> [Flr; 2048] {
+    let mut table = [Flr::ZERO; 2048];
     let mut index = 0;
     while index < table.len() {
         table[index] = mkflr(read_u64_le(bytes, index * 8));
@@ -327,4 +322,146 @@ const fn decode_gm(bytes: &[u8; 16_384]) -> [FLR; 2048] {
     }
     table
 }
-pub(crate) const GM: [FLR; 2048] = decode_gm(SIGN_GM_BYTES);
+pub const GM: [Flr; 2048] = decode_gm(SIGN_GM_BYTES);
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+
+    fn assert_integers(actual: &[Flr], expected: &[i32]) {
+        assert_eq!(actual.len(), expected.len());
+        for (value, &integer) in actual.iter().zip(expected) {
+            assert_eq!(value.rint(), i64::from(integer));
+        }
+    }
+
+    #[test]
+    fn complex_products_and_prefix_scaling_match_independent_integer_arithmetic() {
+        for left in [-3, -1, 0, 2, 7] {
+            for right in [-5, -1, 0, 1, 4] {
+                let (real, imaginary) = flc_mul(
+                    Flr::from_i32(left),
+                    Flr::from_i32(-left),
+                    Flr::from_i32(right),
+                    Flr::from_i32(right + 1),
+                );
+                assert_eq!(real.rint(), i64::from(left) * i64::from(2 * right + 1));
+                assert_eq!(imaginary.rint(), i64::from(left));
+            }
+        }
+        let mut coefficients = [-32768, -2, 0, 3, 91, -93].map(Flr::from_i32);
+        poly_neg(2, &mut coefficients);
+        assert_integers(&coefficients, &[32768, 2, 0, -3, 91, -93]);
+        poly_mulconst(2, &mut coefficients, Flr::from_i32(-3));
+        assert_integers(&coefficients, &[-98304, -6, 0, 9, 91, -93]);
+    }
+
+    #[test]
+    fn fft_products_match_integer_negacyclic_convolution_at_every_degree() {
+        for logn in 1..=10 {
+            let degree = 1_usize << logn;
+            let left: Vec<_> = (0..degree)
+                .map(|index| i32::try_from(index % 5).expect("small residue") - 2)
+                .collect();
+            let right: Vec<_> = (0..degree)
+                .map(|index| i32::try_from(index % 7).expect("small residue") - 3)
+                .collect();
+            let mut expected = vec![0_i64; degree];
+            for (left_index, &left_value) in left.iter().enumerate() {
+                for (right_index, &right_value) in right.iter().enumerate() {
+                    let index = left_index + right_index;
+                    let product = i64::from(left_value) * i64::from(right_value);
+                    if index < degree {
+                        expected[index] += product;
+                    } else {
+                        expected[index - degree] -= product;
+                    }
+                }
+            }
+            let mut transformed_left: Vec<_> = left.iter().copied().map(Flr::from_i32).collect();
+            let mut transformed_right: Vec<_> = right.iter().copied().map(Flr::from_i32).collect();
+            transformed_left.extend([Flr::from_i32(91), Flr::from_i32(-93)]);
+            transformed_right.extend([Flr::from_i32(91), Flr::from_i32(-93)]);
+            FFT(logn, &mut transformed_left);
+            FFT(logn, &mut transformed_right);
+            assert_integers(&transformed_left[degree..], &[91, -93]);
+            assert_integers(&transformed_right[degree..], &[91, -93]);
+            let mut roundtrip = transformed_left.clone();
+            iFFT(logn, &mut roundtrip);
+            assert_integers(&roundtrip[..degree], &left);
+            assert_integers(&roundtrip[degree..], &[91, -93]);
+            poly_mul_fft(logn, &mut transformed_left, &transformed_right);
+            assert_integers(&transformed_left[degree..], &[91, -93]);
+            iFFT(logn, &mut transformed_left);
+            for (actual, integer) in transformed_left[..degree].iter().zip(expected) {
+                assert_eq!(actual.rint(), integer, "logn={logn}");
+            }
+            assert_integers(&transformed_left[degree..], &[91, -93]);
+        }
+    }
+
+    #[test]
+    fn fft_split_and_merge_preserve_even_odd_coefficients_and_all_tails() {
+        for logn in 2..=10 {
+            let degree = 1_usize << logn;
+            let half = degree / 2;
+            let coefficients: Vec<_> = (0..degree)
+                .map(|index| i32::try_from(index % 9).expect("small residue") - 4)
+                .collect();
+            let mut transformed: Vec<_> = coefficients.iter().copied().map(Flr::from_i32).collect();
+            transformed.push(Flr::from_i32(91));
+            FFT(logn, &mut transformed);
+            let mut even = vec![Flr::from_i32(-93); half + 1];
+            let mut odd = vec![Flr::from_i32(95); half + 1];
+            poly_split_fft(logn, &mut even, &mut odd, &transformed);
+            assert_integers(&even[half..], &[-93]);
+            assert_integers(&odd[half..], &[95]);
+            let mut merged = vec![Flr::from_i32(-97); degree + 1];
+            poly_merge_fft(logn, &mut merged, &even, &odd);
+            iFFT(logn, &mut merged);
+            assert_integers(&merged[..degree], &coefficients);
+            assert_integers(&merged[degree..], &[-97]);
+            iFFT(logn - 1, &mut even);
+            iFFT(logn - 1, &mut odd);
+            let expected_even: Vec<_> = coefficients.iter().copied().step_by(2).collect();
+            let expected_odd: Vec<_> = coefficients.iter().copied().skip(1).step_by(2).collect();
+            assert_integers(&even[..half], &expected_even);
+            assert_integers(&odd[..half], &expected_odd);
+            assert_integers(&even[half..], &[-93]);
+            assert_integers(&odd[half..], &[95]);
+            assert_integers(&transformed[degree..], &[91]);
+        }
+    }
+
+    #[test]
+    fn selfadjoint_split_matches_full_split_and_retains_real_spectral_values() {
+        for logn in 1..=10 {
+            let degree = 1_usize << logn;
+            let half = degree / 2;
+            let real: Vec<_> = (0..half)
+                .map(|index| i32::try_from(index % 7).expect("small residue") - 3)
+                .collect();
+            let mut full: Vec<_> = real.iter().copied().map(Flr::from_i32).collect();
+            full.resize(degree, Flr::ZERO);
+            let mut even = vec![Flr::from_i32(91); half + 1];
+            let mut odd = vec![Flr::from_i32(-93); half + 1];
+            let mut general_even = even.clone();
+            let mut general_odd = odd.clone();
+            poly_split_selfadj_fft(logn, &mut even, &mut odd, &full[..half]);
+            poly_split_fft(logn, &mut general_even, &mut general_odd, &full);
+            for (actual, general) in even[..half].iter().zip(&general_even[..half]) {
+                assert_eq!(actual.rint(), general.rint());
+            }
+            for (actual, general) in odd[..half].iter().zip(&general_odd[..half]) {
+                assert_eq!(actual.rint(), general.rint());
+            }
+            let mut merged = vec![Flr::from_i32(95); degree + 1];
+            poly_merge_fft(logn, &mut merged, &even, &odd);
+            assert_integers(&merged[..half], &real);
+            assert_integers(&merged[half..degree], &vec![0; half]);
+            assert_integers(&merged[degree..], &[95]);
+            assert_integers(&even[half..], &[91]);
+            assert_integers(&odd[half..], &[-93]);
+        }
+    }
+}

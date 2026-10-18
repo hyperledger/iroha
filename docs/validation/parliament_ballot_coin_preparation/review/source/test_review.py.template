@@ -1,0 +1,393 @@
+"""Independent finite quantum, ownership, and source-schema controls.
+
+The interpreter and density construction are independent of the owner's tests.
+No full-cap quantum stream, adaptive driver, or physical preparation is tested.
+"""
+from collections import Counter
+from dataclasses import FrozenInstanceError, replace
+import hashlib
+import json
+from itertools import product
+from math import sqrt
+from pathlib import Path
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(ROOT/'target/parliament-coin-preparation-stage'),
+               str(ROOT/'target/parliament-sequential-composition-stage'),
+               str(ROOT/'target/parliament-ideal-machine-stage')]
+
+from bit_ir import Builder
+from public_machine import PublicShape
+from purification import (CoinInterval, PurifiedSequence, SCHEMA_PINS,
+                          authenticate_schema_sources, source_generator_coins, source_schema)
+from request_generator import Generator
+from sequence import Call, Geometry, Sequence
+from stage_plan import CleanMap, Invocation, RetainedPlan
+from test_request_transition import synthetic
+
+
+def simulate(vector, gates):
+    """Sparse amplitudes; H is a signed linear map, remaining gates permute."""
+    vector = dict(vector)
+    for gate in gates:
+        op, *wires = gate
+        assert op in ('h', 'x', 'cx', 'ccx')
+        assert len(wires) == {'h': 1, 'x': 1, 'cx': 2, 'ccx': 3}[op]
+        assert len(set(wires)) == len(wires)
+        result = {}
+        if op == 'h':
+            flag = 1 << wires[0]
+            for label, amplitude in vector.items():
+                for value in (0, 1):
+                    out = (label & ~flag) | (value << wires[0])
+                    sign = -1 if value and label & flag else 1
+                    result[out] = result.get(out, 0j)+sign*amplitude/sqrt(2)
+        else:
+            mask = sum(1 << w for w in wires[:-1])
+            for label, amplitude in vector.items():
+                out = label ^ (1 << wires[-1]) if label & mask == mask else label
+                result[out] = result.get(out, 0j)+amplitude
+        vector = {label: value for label, value in result.items() if abs(value) > 1e-12}
+    return vector
+
+
+def trace_out(vector, discarded):
+    """Density on every retained wire, including external spectator wires."""
+    mask = sum(1 << w for w in discarded)
+    result = {}
+    for left, a in vector.items():
+        for right, b in vector.items():
+            if left & mask == right & mask:
+                key = left & ~mask, right & ~mask
+                result[key] = result.get(key, 0j)+a*b.conjugate()
+    return {key: value for key, value in result.items() if abs(value) > 1e-12}
+
+
+def reduced(vector, kept):
+    mask = sum(1 << w for w in kept)
+    result = {}
+    for left, a in vector.items():
+        for right, b in vector.items():
+            if left & ~mask == right & ~mask:
+                i = sum(((left >> w) & 1) << j for j, w in enumerate(kept))
+                k = sum(((right >> w) & 1) << j for j, w in enumerate(kept))
+                result[i, k] = result.get((i, k), 0j)+a*b.conjugate()
+    return {key: value for key, value in result.items() if abs(value) > 1e-12}
+
+
+def close(actual, expected):
+    assert set(actual) == set(expected)
+    assert all(abs(actual[key]-value) < 1e-10 for key, value in expected.items())
+
+
+def pure_density(vector):
+    return {(a, b): x*y.conjugate() for a, x in vector.items() for b, y in vector.items()}
+
+
+def pairs(wrapper):
+    return tuple((part.coin+i, part.purifier+i) for part in wrapper.intervals for i in range(part.bits))
+
+
+def fixture(names=('first', 'second'), bits=1, split=False):
+    original = synthetic()
+    request = replace(original, writes=replace(original.writes, capacity=4*len(names)),
+                      generator=replace(original.generator, original_private_coin_bits=bits))
+    fields = {n: (start, width) for n, (_, start, width) in request.generator.fields}
+    start = fields['challenge_1'][0]
+    intervals = ((CoinInterval('first_bit', start, 1), CoinInterval('remaining', start+1, bits-1))
+                 if split else (CoinInterval('challenge_bits', start, bits),))
+    body = Sequence(Geometry(4*len(names), 4, 8, 256, 'fixed synthetic F', 'same completion'),
+                    tuple(Call(name, request) for name in names))
+    wrapper = PurifiedSequence(body, toy_coin_intervals=tuple((name, intervals) for name in names))
+    allocation = {n: (offset, width) for n, offset, width in wrapper.allocations}
+    label = 0
+    for name in names:
+        begin = allocation['event.'+name+'.input'][0]
+        for field, value in (('namespace_digest', 1), ('mu', 2), ('primary_flags', 1)):
+            offset, width = fields[field]
+            assert value < 1 << width
+            label |= value << (begin+offset)
+    return wrapper, label, allocation
+
+
+@pytest.mark.parametrize('coin_basis', range(8))
+def test_every_three_pair_basis_obeys_independent_hadamard_formula(coin_basis):
+    wrapper, label, _ = fixture(('event',), bits=3, split=True)
+    positions = pairs(wrapper)
+    gates = tuple(wrapper.emit_preparation())
+    # Nonzero purifiers and coins are legal unitary inputs, not fresh-coin inputs.
+    for purifier_basis in range(8):
+        initial = label
+        for i, (coin, purifier) in enumerate(positions):
+            initial |= ((coin_basis >> i) & 1) << coin
+            initial |= ((purifier_basis >> i) & 1) << purifier
+        expected = {}
+        for output in range(8):
+            basis = label
+            for i, (coin, purifier) in enumerate(positions):
+                basis |= ((output >> i) & 1) << coin
+                basis |= (((purifier_basis ^ output) >> i) & 1) << purifier
+            expected[basis] = (-1 if (coin_basis & output).bit_count() % 2 else 1)/sqrt(8)
+        state = simulate({initial: 1+0j}, gates)
+        close(state, expected)
+        close(simulate(state, wrapper.emit_preparation(inverse=True)), {initial: 1+0j})
+    assert tuple(wrapper.emit_preparation(inverse=True)) == tuple(reversed(gates))
+
+
+def test_arbitrary_complex_coin_purifier_spectator_state_round_trips():
+    wrapper, label, _ = fixture(('event',), bits=3, split=True)
+    positions = pairs(wrapper)
+    wires = tuple(w for pair in positions for w in pair)+(wrapper.size,)
+    amplitudes = (1+2j, -3+1j, 2-4j, -1-1j)
+    norm = sqrt(sum(abs(a)**2 for a in amplitudes))
+    initial = {}
+    for word, amplitude in zip((0, 19, 87, 126), amplitudes):
+        basis = label | sum(((word >> i) & 1) << w for i, w in enumerate(wires))
+        initial[basis] = amplitude/norm
+    state = simulate(initial, wrapper.emit_preparation())
+    assert abs(sum(abs(a)**2 for a in state.values())-1) < 1e-10
+    close(simulate(state, wrapper.emit_preparation(inverse=True)), initial)
+
+
+def test_prior_coin_purifier_bell_entanglement_is_not_fresh_initialization():
+    wrapper, label, _ = fixture(('event',))
+    coin, purifier = pairs(wrapper)[0]
+    bad = {label: 1/sqrt(2), label ^ (1 << coin) ^ (1 << purifier): 1/sqrt(2)}
+    after = simulate(bad, wrapper.emit_preparation())
+    # H then CX transforms pre-existing Bell correlation to a four-amplitude state.
+    close(reduced(after, (coin, purifier)), pure_density({0: .5, 1: -.5, 2: .5, 3: .5}))
+    assert reduced(after, (coin, purifier)) != pure_density({0: 1/sqrt(2), 3: 1/sqrt(2)})
+    close(simulate(after, wrapper.emit_preparation(inverse=True)), bad)
+    assert wrapper.resources()['initial_quantum_state_checked'] is False
+    assert wrapper.resources()['requires_zero_private_coin_and_purifier_inputs'] is True
+
+
+def test_uniform_coin_marginal_does_not_imply_independence_from_external_state():
+    wrapper, label, _ = fixture(('event',))
+    coin, purifier = pairs(wrapper)[0]
+    spectator = wrapper.size
+    # Initially coin and external spectator form Bell+, while purifier is zero.
+    bad = {label: 1/sqrt(2), label ^ (1 << coin) ^ (1 << spectator): 1/sqrt(2)}
+    after = simulate(bad, wrapper.emit_preparation())
+    close(reduced(after, (coin,)), {(0, 0): .5, (1, 1): .5})
+    close(reduced(after, (spectator,)), {(0, 0): .5, (1, 1): .5})
+    joint = reduced(after, (coin, spectator))
+    # A product of the two uniform marginals would have no off-diagonal entries.
+    assert abs(joint[0, 2]-.25) < 1e-10 and abs(joint[1, 3]+.25) < 1e-10
+    assert joint != {(i, i): .25 for i in range(4)}
+    close(simulate(after, wrapper.emit_preparation(inverse=True)), bad)
+    assert wrapper.resources()['initial_quantum_state_checked'] is False
+
+
+def test_full_joint_reduced_body_equals_mixture_with_entangled_complement():
+    wrapper, label, allocation = fixture()
+    complement = allocation['event.first.input'][0]+7
+    spectator = wrapper.size
+    initial = {label: 1/sqrt(2), label ^ (1 << complement) ^ (1 << spectator): 1j/sqrt(2)}
+    positions = pairs(wrapper)
+    body = tuple(wrapper.sequence.emit())
+    state = simulate(initial, wrapper.emit())
+    expected = {}
+    # Classical mixture over all four independent toy coin assignments, keeping
+    # every original/output/log/work/spectator register in the density operator.
+    for assignment in product((0, 1), repeat=len(positions)):
+        mask = sum(value << coin for value, (coin, _) in zip(assignment, positions))
+        branch = simulate({basis | mask: a for basis, a in initial.items()}, body)
+        for key, value in pure_density(branch).items():
+            expected[key] = expected.get(key, 0j)+value/(1 << len(positions))
+    close(trace_out(state, tuple(p for _, p in positions)), expected)
+    close(simulate(state, wrapper.emit(inverse=True)), initial)
+    assert simulate(state, wrapper.emit_preparation(inverse=True)) != initial
+    # The component's optimized inverse can reorder commuting gates; the wrapper
+    # must call that inverse before unpreparation, not require lexical reversal.
+    assert tuple(wrapper.emit(inverse=True)) == (tuple(wrapper.sequence.emit(inverse=True))+
+                                                tuple(wrapper.emit_preparation(inverse=True)))
+    clean_start, clean_bits = allocation['reusable.clean']
+    assert all((basis >> clean_start) & ((1 << clean_bits)-1) == 0 for basis in state)
+
+
+def test_future_private_pair_is_jointly_fresh_only_under_noninterference():
+    wrapper, label, _ = fixture()
+    positions = pairs(wrapper)
+    future_coin, future_purifier = positions[1]
+    first = tuple(wrapper.sequence.emit_call(0))
+    forbidden = {future_coin, *(purifier for _, purifier in positions)}
+    assert all(not forbidden.intersection(gate[1:]) for gate in first)
+    entered = simulate({label: 1+0j}, wrapper.emit_preparation())
+    after = simulate(entered, first)
+    bell = pure_density({0: 1/sqrt(2), 3: 1/sqrt(2)})
+    close(reduced(after, (future_coin, future_purifier)), bell)
+    # Explicit unauthorized interaction breaks the future pair's product premise
+    # while still leaving its coin alone maximally mixed.
+    interfering = simulate(after, [('cx', future_coin, wrapper.size)])
+    close(reduced(interfering, (future_coin,)), {(0, 0): .5, (1, 1): .5})
+    assert reduced(interfering, (future_coin, future_purifier)) != bell
+    assert wrapper.resources()['requires_private_future_register_noninterference'] is True
+
+
+def test_global_namespace_allocation_and_immutable_resources():
+    names = ('persistent.log', 'purifier.other', 'event.persistent.log.input', 'reusable.clean')
+    wrapper, _, _ = fixture(names, bits=3, split=True)
+    original = wrapper.sequence.allocations
+    assert wrapper.allocations[:len(original)] == original
+    assert len({name for name, _, _ in wrapper.allocations}) == len(wrapper.allocations)
+    assert wrapper.allocations[len(original):] == tuple(
+        ('purifier.'+name, wrapper.sequence.size+3*i, 3) for i, name in enumerate(names))
+    ordered = sorted((start, start+width) for _, start, width in wrapper.allocations)
+    assert ordered[0][0] == 0 and ordered[-1][1] == wrapper.size
+    assert all(end == start for (_, end), (start, _) in zip(ordered, ordered[1:]))
+    assert len({wire for pair in pairs(wrapper) for wire in pair}) == 24
+    assert all(coin < wrapper.sequence.size <= purifier for coin, purifier in pairs(wrapper))
+    for value, attribute, bad in ((wrapper, 'coins', 7), (wrapper.intervals[0], 'purifier', 0),
+                                 (wrapper.sequence, 'size', 0)):
+        with pytest.raises(FrozenInstanceError):
+            setattr(value, attribute, bad)
+    before = wrapper.resources()
+    changed = wrapper.resources()
+    changed['body_gates']['cx'] = -1
+    changed['preparation_gates']['h'] = -1
+    changed['aggregate_gate_vector']['cx'] = -1
+    changed['selected_schema_sha256']['forged'] = 'forged'
+    assert wrapper.resources() == before
+    body = wrapper.sequence.resources()['gates']
+    assert before['body_gates'] == body
+    assert before['preparation_gates'] == Counter(gate[0] for gate in wrapper.emit_preparation())
+    assert before['non_h_elementary_gates'] == body['elementary_gates']+12
+    assert before['aggregate_gate_vector'] == dict(h=12, x=body['x'], cx=body['cx']+12,
+                                                  ccx=body['ccx'], base_xor_oracle_calls=body['base_xor_oracle_calls'])
+    assert before['original_coin_and_purifier_zero_bits_required'] == 24
+    assert before['logical_bits'] == before['body_logical_bits']+12
+
+
+@pytest.mark.parametrize('row,role,trials', tuple(product(('candidate', 'comparator'), ('REG', 'VOTE'), (1, 1 << 20))))
+def test_source_partition_is_original_coin_suffix_with_independently_summed_fields(row, role, trials):
+    shape = (PublicShape(role, row=row, body_bytes=4095, context_bytes=(255,)*6) if role == 'REG'
+             else PublicShape(role, row=row, list_count=999))
+    schema = source_schema(ROOT, shape, trials)
+    # Source-specific dimensions: inputs at request_generator.py:109-114;
+    # original regions at public_machine.py:199-210; schedule tapes at S0.
+    public = (8*(4095+6*255+192) if role == 'REG' else 8*(451+128*999))
+    tau, opening, gates = (33, 229, 704) if row == 'candidate' else (22, 225, 696)
+    witness = 35840 if role == 'REG' else 53504
+    widths = (128, 256, 256*trials, 256*trials, 896*tau, 256*opening,
+              (tau-1)*witness, 10*gates, 2112, 1024, witness, 832, 1536)
+    assert tuple(part.bits for part in schema.coins) == widths
+    cursor = public
+    for part in schema.coins:
+        assert part.start == cursor
+        cursor += part.bits
+    assert schema.public_bits == public
+    assert schema.coin_bits == sum(widths)
+    assert schema.input_bits == cursor == sum(width for _, width in schema.inputs)
+    assert schema.coins[0].name == 'iv_pre' and schema.coins[1].name == 'salt'
+    # Structural acceptance intentionally cannot authenticate callback semantics.
+    b = Builder(1)
+    stage = Invocation('fake_semantics', CleanMap.block(b.finish((0,))), (('public_preparation', 0, 1),))
+    mock = Generator(RetainedPlan(schema.inputs, (stage,)), (), shape, trials, schema.coin_bits)
+    assert source_generator_coins(ROOT, mock) == schema.coins
+
+
+def test_source_guard_detects_mutation_during_schema_construction(tmp_path, monkeypatch):
+    for relative, expected in SCHEMA_PINS.items():
+        raw = (ROOT/relative).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == expected
+        dest = tmp_path/relative
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(raw)
+    original = PublicShape.input_regions
+    chosen = tmp_path/'target/parliament-ideal-machine-stage/request_generator.py'
+    def mutate_after_entry(shape):
+        result = original(shape)
+        chosen.write_bytes(chosen.read_bytes()+b'\n# independent drift control\n')
+        return result
+    monkeypatch.setattr(PublicShape, 'input_regions', mutate_after_entry)
+    with pytest.raises(ValueError, match='source identity'):
+        source_schema(tmp_path, PublicShape('REG'), 1)
+    with pytest.raises(ValueError, match='source identity'):
+        authenticate_schema_sources(tmp_path)
+
+
+@pytest.mark.parametrize('relative', tuple(SCHEMA_PINS))
+def test_each_selected_schema_source_refuses_drift(relative, tmp_path):
+    for name in SCHEMA_PINS:
+        dest = tmp_path/name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes((ROOT/name).read_bytes())
+    assert authenticate_schema_sources(tmp_path) == tuple(sorted(SCHEMA_PINS.items()))
+    target = tmp_path/relative
+    target.write_bytes(target.read_bytes()+b'\n// independent byte drift\n')
+    with pytest.raises(ValueError, match='source identity'):
+        source_schema(tmp_path, PublicShape('REG'), 1)
+
+
+def test_qualification_flags_do_not_promote_finite_controls():
+    wrapper, _, _ = fixture(('event',))
+    result = wrapper.resources()
+    for flag in ('initial_quantum_state_checked', 'physical_entropy_or_reset_implemented',
+                 'dependency_closure_authenticated', 'full_cap_stream_executed',
+                 'full_adaptive_driver_implemented', 'full_joint_quantum_theorem_proved',
+                 'complete_resource_vector', 'physical_workspace_qualification',
+                 'independent_cryptographic_review', 'current_candidate_qualified',
+                 'profile_qualified', 'production_gate_changed'):
+        assert result[flag] is False
+    assert result['source_schema_is_not_generator_semantics_authentication'] is True
+    assert result['public_input_and_descriptor_preparation_external'] is True
+    assert result['private_purifiers_retained'] is True
+    assert 'physical_initialization_and_private_environment' in result['remaining_unknown_terms']
+
+
+def test_frozen_full_cap_metadata_addition_and_original_coin_coordinates():
+    record = ROOT/'target/parliament-coin-preparation-stage/capture'
+    raw = (record/'receipt.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == '6228c39f04d63e16112925779d90cf8cadb00b205e302d2a293cada2781fd555'
+    receipt = json.loads(raw)
+    selected = receipt['source_sha256_before']
+    assert len(selected) == 169 and selected == receipt['captured_source_sha256_after']
+    for name, expected in selected.items():
+        assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest() == expected
+    raw = (record/'observation.stdout').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == '80b0e8ce18ba2254a886606b052dd367397a961c3b23057b0bbda8e5f5c3464e'
+    observation = json.loads(raw)
+    assert observation['source_sha256_before'] == observation['source_sha256_after']
+    assert len(observation['source_sha256_before']) == 159
+    loaded = observation['loaded_frozen_repository_modules']
+    assert len(loaded) == 38 and all(selected[name] == value for name, value in loaded.items())
+    assert len(receipt['loaded_test_repository_modules']) == 37
+    assert receipt['parent_tests'] == len(receipt['exact_ordered_membership']) == 31
+    r = observation['purification_resources']
+    source = source_schema(ROOT, PublicShape('VOTE', row='candidate', list_count=3), 1 << 20)
+    assert source.coin_bits == 538737664
+    assert r['retained_purifier_bits'] == r['original_coin_bits'] == source.coin_bits
+    allocations = {name: (start, width) for name, start, width in r['allocations']}
+    begin, input_bits = allocations['event.content.input']
+    assert input_bits == source.input_bits
+    expected = []
+    purifier = r['body_logical_bits']
+    for part in source.coins:
+        expected.append(['content', part.name, begin+part.start, purifier, part.bits])
+        purifier += part.bits
+    assert r['original_coin_and_purifier_intervals'] == expected
+    assert len(expected) == 13 and expected[0][2] == begin+6680
+    assert r['logical_bits'] == purifier == r['body_logical_bits']+source.coin_bits
+    assert r['preparation_gates'] == dict(h=source.coin_bits, cx=source.coin_bits)
+    assert r['aggregate_gate_vector']['cx'] == r['body_gates']['cx']+source.coin_bits
+    for field in ('x', 'ccx', 'base_xor_oracle_calls'):
+        assert r['aggregate_gate_vector'][field] == r['body_gates'][field]
+    assert r['non_h_elementary_gates'] == r['body_gates']['elementary_gates']+source.coin_bits
+    assert r['aggregate_gate_vector']['h'] == source.coin_bits
+    assert observation['observed_forward_preparation_prefix'] == [
+        ['h', expected[0][2]], ['cx', expected[0][2], expected[0][3]],
+        ['h', expected[0][2]+1], ['cx', expected[0][2]+1, expected[0][3]+1]]
+    last_coin, last_purifier = expected[-1][2]+expected[-1][4]-1, purifier-1
+    assert observation['observed_inverse_preparation_prefix'] == [
+        ['cx', last_coin, last_purifier], ['h', last_coin],
+        ['cx', last_coin-1, last_purifier-1], ['h', last_coin-1]]
+    assert observation['source_schema_only_not_semantic_origin_attestation'] is True
+    for field in ('full_stream_executed', 'initial_state_checked', 'full_adaptive_driver',
+                  'full_joint_quantum_theorem', 'complete_resource_vector',
+                  'physical_preparation_executed', 'current_candidate_qualified',
+                  'profile_qualified', 'production_gate_changed'):
+        assert observation[field] is False

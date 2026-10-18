@@ -111,28 +111,27 @@ mod variable_output;
 use binding::numeric_lookup_event_v1;
 /// Stable identity of the native RFC adapter integrated only through MAIN.
 #[cfg(test)]
-pub(crate) const ZK_X509_RFC5280_STARK_DESCRIPTOR_V1: &[u8] = b"zk-x509-rfc5280-stark-v1-incompatible:native-log19:base285:aux280:fixed147:constraints2145:degree4:source-node-root-kind-active-gated-helper-fixed-eight-equality-and-fifteen-embedded-endpoint-slots-complete-nonempty-original-node-spans-live-prefix-count-typed-copy-domains103-104-optional-slot-canonical-zero-exact-extension-oid-ordinal-ku-document-and-critical-cardinality-eku-canonical-profile-uuid-oids:output-metadata-six-verifier-fixed-equations:five-key-and-five-complete-spki-outputs-der-node-byte-lookups-key-length66-offset1-spki-content89-total91-offset0-nine-variable-tbs-crl-signature-byte-and-canonical-u16-in-eight-byte-big-endian-length-pairs-live-prefix-count-node-continuity-source-start-helper:projection-leaf-serial-magnitude-sign-octet-nonzero-first-byte-big-endian-length-selected-original-subject-oid-value-provenance-with-complete-name-oid-census-three-original-classes-disjoint-document-stride12-keys1through48-six-bit-positive-gaps-uniqueness-nonempty-bounded-rdns-and-complete-original-value-census-country-printable-utf8-dfa:max-private-active-rows246673:fixed-public-nonpadding-rows292206:four-copy-lanes:zero-sized-public-shape:constant-registration-transcript:no-private-depth-length-count-or-family-boundary-disclosure:committed-family-active-prefixes-except-verifier-fixed-temporal-basic-constraints-and-complete-copy-slot-census:inactive-rows-canonical-zero:four-fixed-top-document-slots:top-document-max4096:optional-certificate-slot2-boolean-provenance-bound:depth2-slot2-zero-byte-zero-node-dummy:certificate-slot-active-output-channel:source-byte-and-node-private-joined-der-endpoints:canonical-parent-child-tag-ordinal-grammar:closed-leaf-five-ca-four-extension-cardinality-and-ordinal-bound-critical-positions:no-host-role-labels:extension-embedded-exact-copy:algorithm-and-profile-fixed-byte-rows:decimal-calendar-to-unix-arithmetic:gregorian-euclidean-year-quotients-and-exact-leap-bit:utc1970-2049-generalized2050-9999-actual-der-tag-and-raw-year-bound:fixed72-authenticated-document-role-instance-time-slots:complete-der-time-node-census:fixed15-decimal-byte-rows-including-z-and-zero-utc-padding:fixed73-two-phase-relations-with-verifier-public-operands-and-only-next-update-strict:entry-count-equals64-boolean-entry-census:38-bit-nonwrapping-timestamp-and-slack:range-byte-before-after-transition-bound:four-lane-affine-one-plus-tuple-logarithmic-lookup-domains100-101:singular-inverse-zero-and-exact-singular-count:bounded-public-presentation-window:private-certificate-validity-covers-window:private-crl-interval-covers-window:basic-constraints-fixed-three-slots-twelve-rows-original-signed-extension-ordinal3-complete-bytes-eight-canonical-u32-integer-variants-32bit-pathlen-and-nonwrapping-slack-at-least-subordinate-count:ku-eku-bc:serial-positive-max20:complete-crl-max64:fixed-two-phase-serial-comparator-layout:fixed-seven-phase-calendar-copy-layout:max-serial-comparisons127:max-serial-comparator-logical-rows2667:max-serial-comparator-physical-rows5334:max-serial-source-rows5334:leaf-vs-every-entry-nonmembership:adjacent-revoked-serial-strict-increasing-unsigned-magnitude:length-then-byte-lexicographic:active-prefix-count-and-zero-padding:first-magnitude-byte-nonzero:first-difference-range-checked:der-integer-optional-sign-octet-bound:serial-source-node-and-byte-zero-safe-log-lookups-with-singular-count-equality:serial-decimal-relation-to-comparator-calendar-range-four-lane-grand-product:one-compressed-factor-per-physical-row:zero-product-factors-total-no-prover-abort:full-input-affine-degree-audit:issuer-name-and-aki-ski-byte-equality:fixed-five-document-sha-call-sources:fixed-three-certificate-signature-key-slots:depth2-third-tbs-signature-key-canonical-dummy:full-signed-crl-commitment-and-tbs-p256-message-distinct:producer-and-consumer-terminals-enumerated:thirty-nine-relation-four-lane-union-bound-at-least170-bits:canonical-base-fixed-aux-column-provider:eighteen-verifier-fixed-output-role-endpoint-selectors:nine-independent-normalized-producer-and-nine-actual-consumer-four-lane-products:governed-root-spki-and-certificate-slot-active-products-air-bound:four-private-governed-root-consumer-to-original-CA-polynomial-links:private-normalized-producer-to-consumer36-final-equalities:16-native-constant-private-sha-bridge-columns:16-sha-quartic-endpoint-plus4-rfc-quartic-union-main-joins:endpoint-map6,2,2,2,3,3,2,4,3:direction0:instance0:typed-family-role-endpoint-lane-addresses:no-der-public-claim-slots:der-rfc8-private-linear-quotients:verifier-original-polynomial-private-link-replay:no-public-terminal-products:sha-terminal-ca-call-family-lane-addresses-fixed:compact-ca-call-role-and-order-fixed:verifier-committed-sha-terminal-replay:five-p256-witnesses-native-rust-fixed-certificate-crl-wallet-order:p256348-private-products-no-public-codec:p256184-private-linear-links:four-certificate-or-crl-then-wallet-role-order:p256-bus-cross-start-terminal-and-sink-addresses-fixed:canonical-goldilocks-big-endian:verifier-authenticated-p256-private-oods-link-equations:compact-ca-subproof-dedicated-x5c1-x5c2-complete:ca-claim-free-frame10bytes-main-frame1002-joint132-Fp4-openings4224:ca-single-log12-trace4096-base695-aux128-fixed80-constraints1363-degree3-4chunks:ca-local-lde-log16-mask2100-deep52800-fri136-rounds6-terminal1024-degree143-grinding20:shared-x5b1-single-joined-main-base-root-plus-ca-base-root-challenge-schedule:ca-public-profile-and-root-bound:ca-prover-self-verifies-independent-verifier-and-resource-gates:integration=complete-via-main-aggregate:standalone-activation=not-applicable";
+pub const ZK_X509_RFC5280_STARK_DESCRIPTOR_V1: &[u8] = b"zk-x509-rfc5280-stark-v1-incompatible:native-log19:base285:aux280:fixed147:constraints2145:degree4:source-node-root-kind-active-gated-helper-fixed-eight-equality-and-fifteen-embedded-endpoint-slots-complete-nonempty-original-node-spans-live-prefix-count-typed-copy-domains103-104-optional-slot-canonical-zero-exact-extension-oid-ordinal-ku-document-and-critical-cardinality-eku-canonical-profile-uuid-oids:output-metadata-six-verifier-fixed-equations:five-key-and-five-complete-spki-outputs-der-node-byte-lookups-key-length66-offset1-spki-content89-total91-offset0-nine-variable-tbs-crl-signature-byte-and-canonical-u16-in-eight-byte-big-endian-length-pairs-live-prefix-count-node-continuity-source-start-helper:projection-leaf-serial-magnitude-sign-octet-nonzero-first-byte-big-endian-length-selected-original-subject-oid-value-provenance-with-complete-name-oid-census-three-original-classes-disjoint-document-stride12-keys1through48-six-bit-positive-gaps-uniqueness-nonempty-bounded-rdns-and-complete-original-value-census-country-printable-utf8-dfa:max-private-active-rows246673:fixed-public-nonpadding-rows292206:four-copy-lanes:zero-sized-public-shape:constant-registration-transcript:no-private-depth-length-count-or-family-boundary-disclosure:committed-family-active-prefixes-except-verifier-fixed-temporal-basic-constraints-and-complete-copy-slot-census:inactive-rows-canonical-zero:four-fixed-top-document-slots:top-document-max4096:optional-certificate-slot2-boolean-provenance-bound:depth2-slot2-zero-byte-zero-node-dummy:certificate-slot-active-output-channel:source-byte-and-node-private-joined-der-endpoints:canonical-parent-child-tag-ordinal-grammar:closed-leaf-five-ca-four-extension-cardinality-and-ordinal-bound-critical-positions:no-host-role-labels:extension-embedded-exact-copy:algorithm-and-profile-fixed-byte-rows:decimal-calendar-to-unix-arithmetic:gregorian-euclidean-year-quotients-and-exact-leap-bit:utc1970-2049-generalized2050-9999-actual-der-tag-and-raw-year-bound:fixed72-authenticated-document-role-instance-time-slots:complete-der-time-node-census:fixed15-decimal-byte-rows-including-z-and-zero-utc-padding:fixed73-two-phase-relations-with-verifier-public-operands-and-only-next-update-strict:entry-count-equals64-boolean-entry-census:38-bit-nonwrapping-timestamp-and-slack:range-byte-before-after-transition-bound:four-lane-affine-one-plus-tuple-logarithmic-lookup-domains100-101:singular-inverse-zero-and-exact-singular-count:bounded-public-presentation-window:private-certificate-validity-covers-window:private-crl-interval-covers-window:basic-constraints-fixed-three-slots-twelve-rows-original-signed-extension-ordinal3-complete-bytes-eight-canonical-u32-integer-variants-32bit-pathlen-and-nonwrapping-slack-at-least-subordinate-count:ku-eku-bc:serial-positive-max20:complete-crl-max64:fixed-two-phase-serial-comparator-layout:fixed-seven-phase-calendar-copy-layout:max-serial-comparisons127:max-serial-comparator-logical-rows2667:max-serial-comparator-physical-rows5334:max-serial-source-rows5334:leaf-vs-every-entry-nonmembership:adjacent-revoked-serial-strict-increasing-unsigned-magnitude:length-then-byte-lexicographic:active-prefix-count-and-zero-padding:first-magnitude-byte-nonzero:first-difference-range-checked:der-integer-optional-sign-octet-bound:serial-source-node-and-byte-zero-safe-log-lookups-with-singular-count-equality:serial-decimal-relation-to-comparator-calendar-range-four-lane-grand-product:one-compressed-factor-per-physical-row:zero-product-factors-total-no-prover-abort:full-input-affine-degree-audit:issuer-name-and-aki-ski-byte-equality:fixed-five-document-sha-call-sources:fixed-three-certificate-signature-key-slots:depth2-third-tbs-signature-key-canonical-dummy:full-signed-crl-commitment-and-tbs-p256-message-distinct:producer-and-consumer-terminals-enumerated:thirty-nine-relation-four-lane-union-bound-at-least170-bits:canonical-base-fixed-aux-column-provider:eighteen-verifier-fixed-output-role-endpoint-selectors:nine-independent-normalized-producer-and-nine-actual-consumer-four-lane-products:governed-root-spki-and-certificate-slot-active-products-air-bound:four-private-governed-root-consumer-to-original-CA-polynomial-links:private-normalized-producer-to-consumer36-final-equalities:16-native-constant-private-sha-bridge-columns:16-sha-quartic-endpoint-plus4-rfc-quartic-union-main-joins:endpoint-map6,2,2,2,3,3,2,4,3:direction0:instance0:typed-family-role-endpoint-lane-addresses:no-der-public-claim-slots:der-rfc8-private-linear-quotients:verifier-original-polynomial-private-link-replay:no-public-terminal-products:sha-terminal-ca-call-family-lane-addresses-fixed:compact-ca-call-role-and-order-fixed:verifier-committed-sha-terminal-replay:five-p256-witnesses-native-rust-fixed-certificate-crl-wallet-order:p256348-private-products-no-public-codec:p256184-private-linear-links:four-certificate-or-crl-then-wallet-role-order:p256-bus-cross-start-terminal-and-sink-addresses-fixed:canonical-goldilocks-big-endian:verifier-authenticated-p256-private-oods-link-equations:compact-ca-subproof-dedicated-x5c1-x5c2-complete:ca-claim-free-frame10bytes-main-frame1002-joint132-Fp4-openings4224:ca-single-log12-trace4096-base695-aux128-fixed80-constraints1363-degree3-4chunks:ca-local-lde-log16-mask2100-deep52800-fri136-rounds6-terminal1024-degree143-grinding20:shared-x5b1-single-joined-main-base-root-plus-ca-base-root-challenge-schedule:ca-public-profile-and-root-bound:ca-prover-self-verifies-independent-verifier-and-resource-gates:integration=complete-via-main-aggregate:standalone-activation=not-applicable";
 /// SHA-256 of [`ZK_X509_RFC5280_STARK_DESCRIPTOR_V1`].
 #[cfg(test)]
-pub(crate) const ZK_X509_RFC5280_STARK_DESCRIPTOR_SHA256_V1: [u8; 32] = [
+pub const ZK_X509_RFC5280_STARK_DESCRIPTOR_SHA256_V1: [u8; 32] = [
     0x34, 0x1c, 0x8f, 0x9f, 0x2a, 0xb8, 0x46, 0xc1, 0x81, 0x68, 0x73, 0x90, 0x8c, 0x39, 0x68, 0x41,
     0x3a, 0x76, 0x1e, 0x55, 0x82, 0x38, 0x1a, 0xd3, 0x2e, 0xd7, 0x21, 0x5b, 0x6e, 0x86, 0x75, 0x60,
 ];
 /// Native trace logarithm after the 4 KiB X.509 admission cap.
-pub(crate) const ZK_X509_RFC5280_STARK_TRACE_LOG2_V1: u8 = 19;
+pub const ZK_X509_RFC5280_STARK_TRACE_LOG2_V1: u8 = 19;
 /// Native trace size.
-pub(crate) const ZK_X509_RFC5280_STARK_TRACE_SIZE_V1: usize =
-    1 << ZK_X509_RFC5280_STARK_TRACE_LOG2_V1;
+pub const ZK_X509_RFC5280_STARK_TRACE_SIZE_V1: usize = 1 << ZK_X509_RFC5280_STARK_TRACE_LOG2_V1;
 /// Base columns, including committed private row-activity and chain-depth selectors.
-pub(crate) const ZK_X509_RFC5280_STARK_BASE_WIDTH_V1: usize = 285;
+pub const ZK_X509_RFC5280_STARK_BASE_WIDTH_V1: usize = 285;
 /// Six shared-bus product pairs, eighteen independent output-role products, one serial-copy product
 /// pair, and two zero-safe DER-backed byte/node lookups in four lanes,
 /// shared by serial, semantic and fixed public-key output queries.
-pub(crate) const ZK_X509_RFC5280_STARK_AUX_WIDTH_V1: usize = 280;
+pub const ZK_X509_RFC5280_STARK_AUX_WIDTH_V1: usize = 280;
 /// Verifier-preprocessed family, boundary, address, and output-role columns.
-pub(crate) const ZK_X509_RFC5280_STARK_FIXED_WIDTH_V1: usize = 147;
+pub const ZK_X509_RFC5280_STARK_FIXED_WIDTH_V1: usize = 147;
 /// Exact opened-row residue inventory.
-pub(crate) const ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1: usize = {
+pub const ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1: usize = {
     let mut total = 51;
     let mut index = 0;
     while index < RFC5280_RESIDUE_SECTIONS_V1.len() {
@@ -182,23 +181,23 @@ const RFC5280_RESIDUE_SECTIONS_V1: [(&str, usize); 20] = [
     ("grammar-lookups", 144),
 ];
 /// Maximum committed-column degree.
-pub(crate) const ZK_X509_RFC5280_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
+pub const ZK_X509_RFC5280_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
 /// Copy/call bus challenge lanes. This must remain equal to strict DER.
-pub(crate) const ZK_X509_RFC5280_STARK_BUS_LANES_V1: usize = 4;
+pub const ZK_X509_RFC5280_STARK_BUS_LANES_V1: usize = 4;
 /// Maximum compressed events in any one relation.
-pub(crate) const ZK_X509_RFC5280_STARK_RELATION_EVENT_BOUND_V1: usize =
+pub const ZK_X509_RFC5280_STARK_RELATION_EVENT_BOUND_V1: usize =
     ZK_X509_RFC5280_STARK_TRACE_SIZE_V1;
 /// Conservatively union-bounded compressed relations, including the
 /// DER-byte/DER-node serial/key-source lookups, serial copy bus, and the unified
 /// authenticated temporal/numeric lookup, plus nine normalized output role equalities.
-pub(crate) const ZK_X509_RFC5280_STARK_COMPRESSED_RELATIONS_V1: usize = 39;
+pub const ZK_X509_RFC5280_STARK_COMPRESSED_RELATIONS_V1: usize = 39;
 /// Conservative remaining collision-security bits.
 ///
 /// For Goldilocks `p = 2^64 - 2^32 + 1`, `p - 1 > 2^63`.  Each lane's
 /// collision polynomial has degree at most `N = 2^19`; four independent lanes
 /// therefore fail with probability `< (2^19 / 2^63)^4 = 2^-176`.  A union
 /// over at most thirty-nine relations is `< 39 * 2^-176 < 2^-170`.
-pub(crate) const ZK_X509_RFC5280_STARK_COPY_SOUNDNESS_BITS_V1: u16 = 170;
+pub const ZK_X509_RFC5280_STARK_COPY_SOUNDNESS_BITS_V1: u16 = 170;
 const RFC_TUPLE_CHALLENGE_LABELS_V1: [&[u8]; 12] = [
     b"zk-x509-rfc5280-bus-tuple-slot-00-v1",
     b"zk-x509-rfc5280-bus-tuple-slot-01-v1",
@@ -362,7 +361,7 @@ fn serial_source_descriptor_v1(
 /// Fixed row families in canonical schedule order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum ZkX509Rfc5280StarkFamilyV1 {
+pub enum ZkX509Rfc5280StarkFamilyV1 {
     SourceByte = 0,
     SourceNode = 1,
     EmbeddedCopy = 2,
@@ -387,7 +386,7 @@ const FAMILY_COUNT_V1: usize = ZkX509Rfc5280StarkFamilyV1::Padding as usize + 1;
 /// Topology-neutral purpose of a producer/consumer output event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
-pub(crate) enum ZkX509Rfc5280OutputRoleV1 {
+pub enum ZkX509Rfc5280OutputRoleV1 {
     Projection = 1,
     CertificateTbsSha = 2,
     CrlTbsP256Message = 3,
@@ -419,7 +418,7 @@ fn output_role_from_index_v1(index: usize) -> Option<ZkX509Rfc5280OutputRoleV1> 
 /// Private witness geometry.  None of these values is transcript material.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280StarkPrivateShapeV1 {
+pub struct ZkX509Rfc5280StarkPrivateShapeV1 {
     pub(crate) chain_depth: u8,
     /// Committed selector copied to fixed certificate slot two.
     pub(crate) certificate_slot_2_active: F,
@@ -682,7 +681,7 @@ impl ZkX509Rfc5280StarkPrivateShapeV1 {
 /// CRL-entry count, and all DER bytes remain absent.  The values retained
 /// here are exactly those needed to regenerate public fixed columns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280StarkShapeV1 {
+pub struct ZkX509Rfc5280StarkShapeV1 {
     presentation_not_before_unix_seconds: u64,
     presentation_not_after_unix_seconds: u64,
     leaf_key_usage: u16,
@@ -847,11 +846,11 @@ impl ZkX509Rfc5280StarkShapeV1 {
 }
 /// Four post-base tuple-compression lanes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280StarkChallengesV1 {
+pub struct ZkX509Rfc5280StarkChallengesV1 {
     pub(crate) tuple: [[F; 12]; ZK_X509_RFC5280_STARK_BUS_LANES_V1],
 }
 impl ZkX509Rfc5280StarkChallengesV1 {
-    pub(crate) fn validate(self) -> Result<(), ZkX509Rfc5280StarkErrorV1> {
+    pub(crate) fn validate(&self) -> Result<(), ZkX509Rfc5280StarkErrorV1> {
         for lane in 0..ZK_X509_RFC5280_STARK_BUS_LANES_V1 {
             for (index, value) in self.tuple[lane].iter().copied().enumerate() {
                 if value == F::ZERO
@@ -870,7 +869,7 @@ impl ZkX509Rfc5280StarkChallengesV1 {
         Ok(())
     }
 }
-pub(crate) fn derive_zk_x509_rfc5280_stark_challenges_v1(
+pub fn derive_zk_x509_rfc5280_stark_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<ZkX509Rfc5280StarkChallengesV1, TransparentStarkErrorV1> {
     let mut challenges = ZkX509Rfc5280StarkChallengesV1 {
@@ -1370,7 +1369,7 @@ fn direct_parent_from_spans_v1(
 /// the DER builder. Parent links and child ordinals are recomputed from spans,
 /// and the role/instance pair is then derived by the closed transition table.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn validate_zk_x509_rfc5280_provenance_v1(
+pub fn validate_zk_x509_rfc5280_provenance_v1(
     trace: &ZkX509Rfc5280TraceV1,
 ) -> Result<(), ZkX509Rfc5280StarkErrorV1> {
     let source_documents = source_documents_v1(trace).collect::<Vec<_>>();
@@ -1492,12 +1491,12 @@ fn compress_tuple_v1<A: PolynomialAirFieldV1>(values: [A; 12], challenge: [F; 12
 /// Exact strict-DER source terminals consumed by this adapter.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280DerSourceTerminalsV1 {
+pub struct ZkX509Rfc5280DerSourceTerminalsV1 {
     pub(crate) input_byte: [F; ZK_X509_RFC5280_STARK_BUS_LANES_V1],
     pub(crate) node: [F; ZK_X509_RFC5280_STARK_BUS_LANES_V1],
 }
 #[cfg(test)]
-pub(crate) fn zk_x509_rfc5280_der_source_terminals_v1(
+pub fn zk_x509_rfc5280_der_source_terminals_v1(
     trace: &ZkX509Rfc5280TraceV1,
     challenges: ZkX509DerStarkChallengesV1,
 ) -> Result<ZkX509Rfc5280DerSourceTerminalsV1, ZkX509Rfc5280StarkErrorV1> {
@@ -1653,7 +1652,7 @@ fn output_factor_v1(
     value: u8,
     is_write: bool,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<F, ZkX509Rfc5280StarkErrorV1> {
     zk_x509_rfc5280_opened_output_factor_v1(
         role,
@@ -1673,7 +1672,7 @@ fn output_factor_v1(
 /// guarantees an identical typed tuple and challenge domain on both sides of the RFC relation.
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
-pub(crate) fn zk_x509_rfc5280_opened_output_factor_v1(
+pub fn zk_x509_rfc5280_opened_output_factor_v1(
     role: ZkX509Rfc5280OutputRoleV1,
     channel: F,
     endpoint: ZkX509IoEndpointV1,
@@ -1681,7 +1680,7 @@ pub(crate) fn zk_x509_rfc5280_opened_output_factor_v1(
     value: F,
     is_write: F,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<F, ZkX509Rfc5280StarkErrorV1> {
     zk_x509_rfc5280_opened_output_factor_fields_v1(
         F(role as u64),
@@ -1702,7 +1701,7 @@ pub(crate) fn zk_x509_rfc5280_opened_output_factor_v1(
 /// prefer [`zk_x509_rfc5280_opened_output_factor_v1`].
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
-pub(crate) fn zk_x509_rfc5280_opened_output_factor_fields_v1(
+pub fn zk_x509_rfc5280_opened_output_factor_fields_v1(
     role: F,
     channel: F,
     endpoint_role: F,
@@ -1711,7 +1710,7 @@ pub(crate) fn zk_x509_rfc5280_opened_output_factor_fields_v1(
     value: F,
     is_write: F,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<F, ZkX509Rfc5280StarkErrorV1> {
     challenges.validate()?;
     zk_x509_rfc5280_opened_output_factor_fields_after_challenge_validation_v1(
@@ -1732,7 +1731,7 @@ pub(crate) fn zk_x509_rfc5280_opened_output_factor_fields_v1(
 /// This avoids repeating the full 48-scalar validation on every row and lane
 /// of a multi-million-row adapter. The lane bound remains checked here.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn zk_x509_rfc5280_opened_output_factor_fields_after_challenge_validation_v1<
+pub fn zk_x509_rfc5280_opened_output_factor_fields_after_challenge_validation_v1<
     A: PolynomialAirFieldV1,
 >(
     role: A,
@@ -1743,7 +1742,7 @@ pub(crate) fn zk_x509_rfc5280_opened_output_factor_fields_after_challenge_valida
     value: A,
     is_write: A,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<A, ZkX509Rfc5280StarkErrorV1> {
     let challenge = challenges
         .tuple
@@ -1771,7 +1770,7 @@ pub(crate) fn zk_x509_rfc5280_opened_output_factor_fields_after_challenge_valida
 /// Exact per-purpose producer and fixed-consumer terminal products.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280OutputTerminalsV1 {
+pub struct ZkX509Rfc5280OutputTerminalsV1 {
     pub(crate) producer: [[F; ZK_X509_RFC5280_STARK_BUS_LANES_V1]; OUTPUT_ROLE_COUNT_V1],
     pub(crate) consumer: [[F; ZK_X509_RFC5280_STARK_BUS_LANES_V1]; OUTPUT_ROLE_COUNT_V1],
     pub(crate) producer_events: [u32; OUTPUT_ROLE_COUNT_V1],
@@ -1783,9 +1782,9 @@ pub(crate) struct ZkX509Rfc5280OutputTerminalsV1 {
 /// direction, so they are not equated to one another inside this adapter.
 /// Each downstream numeric adapter must expose the matching role terminal.
 #[cfg(test)]
-pub(crate) fn zk_x509_rfc5280_output_terminals_v1(
+pub fn zk_x509_rfc5280_output_terminals_v1(
     trace: &ZkX509Rfc5280TraceV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<ZkX509Rfc5280OutputTerminalsV1, ZkX509Rfc5280StarkErrorV1> {
     challenges.validate()?;
     let witnesses = rfc5280_io_witnesses_v1(trace, 0)?;
@@ -1899,7 +1898,7 @@ const KEY_USAGE_CRL_SIGN_V1: u16 = 1 << 6;
 /// One exact byte address read by a semantic predicate.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ZkX509Rfc5280SourceCellV1 {
+pub struct ZkX509Rfc5280SourceCellV1 {
     pub(crate) document: u8,
     pub(crate) address: u16,
     pub(crate) value: u8,
@@ -1907,7 +1906,7 @@ pub(crate) struct ZkX509Rfc5280SourceCellV1 {
 /// One fixed-profile byte equality.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280FixedByteV1 {
+pub struct ZkX509Rfc5280FixedByteV1 {
     pub(crate) source: ZkX509Rfc5280SourceCellV1,
     pub(crate) source_node: ZkX509Rfc5280NodeProvenanceV1,
     pub(crate) expected: u8,
@@ -1920,7 +1919,7 @@ pub(crate) struct ZkX509Rfc5280FixedByteV1 {
 /// One two-source equality byte.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280EqualByteV1 {
+pub struct ZkX509Rfc5280EqualByteV1 {
     pub(crate) left: ZkX509Rfc5280SourceCellV1,
     pub(crate) right: ZkX509Rfc5280SourceCellV1,
     pub(crate) purpose: u16,
@@ -1930,7 +1929,7 @@ pub(crate) struct ZkX509Rfc5280EqualByteV1 {
 /// Explicit numeric operands for one admitted scalar predicate.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280NumericRelationV1 {
+pub struct ZkX509Rfc5280NumericRelationV1 {
     /// Stable relation code fixed by schedule order.
     pub(crate) relation: u16,
     pub(crate) instance: u16,
@@ -1944,7 +1943,7 @@ pub(crate) struct ZkX509Rfc5280NumericRelationV1 {
 /// Verifier-fixed purpose of one serial comparison.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum ZkX509Rfc5280SerialComparisonKindV1 {
+pub enum ZkX509Rfc5280SerialComparisonKindV1 {
     /// The leaf magnitude must differ from one active revoked magnitude.
     LeafNonMembership = 0,
     /// Two adjacent revoked magnitudes must be strictly increasing.
@@ -1953,7 +1952,7 @@ pub(crate) enum ZkX509Rfc5280SerialComparisonKindV1 {
 /// One fixed-width serial comparison, including length and padded octets.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280SerialComparisonV1 {
+pub struct ZkX509Rfc5280SerialComparisonV1 {
     pub(crate) kind: ZkX509Rfc5280SerialComparisonKindV1,
     pub(crate) left_instance: u16,
     pub(crate) right_instance: u16,
@@ -1963,7 +1962,7 @@ pub(crate) struct ZkX509Rfc5280SerialComparisonV1 {
 /// One canonical DER-backed producer frame for a comparator endpoint.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280SerialSourceV1 {
+pub struct ZkX509Rfc5280SerialSourceV1 {
     pub(crate) logical_id: u16,
     pub(crate) node: ZkX509Rfc5280NodeProvenanceV1,
     pub(crate) frame: [u8; SERIAL_COMPARISON_WIDTH_V1],
@@ -1974,7 +1973,7 @@ pub(crate) struct ZkX509Rfc5280SerialSourceV1 {
 /// fixed-family range; none is reduced to a host Boolean digest.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280SemanticWitnessV1 {
+pub struct ZkX509Rfc5280SemanticWitnessV1 {
     pub(crate) fixed_bytes: Vec<ZkX509Rfc5280FixedByteV1>,
     pub(crate) equal_bytes: Vec<ZkX509Rfc5280EqualByteV1>,
     pub(crate) decimal_cells: Vec<ZkX509Rfc5280SourceCellV1>,
@@ -2311,7 +2310,7 @@ fn validate_serial_source_manifest_v1(
 /// Exact DER-table multiplicity for one serial-source node lookup key.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ZkX509Rfc5280SerialNodeMultiplicityV1 {
+pub struct ZkX509Rfc5280SerialNodeMultiplicityV1 {
     pub(crate) document: u8,
     pub(crate) node: u16,
     pub(crate) required_multiplicity: u16,
@@ -2633,7 +2632,7 @@ fn find_embedded_inner_role_v1(
 }
 /// Build every semantic operand and reject malformed or inconsistent paths.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_rfc5280_semantic_witness_v1(
+pub fn build_zk_x509_rfc5280_semantic_witness_v1(
     trace: &ZkX509Rfc5280TraceV1,
 ) -> Result<ZkX509Rfc5280SemanticWitnessV1, ZkX509Rfc5280StarkErrorV1> {
     validate_zk_x509_rfc5280_provenance_v1(trace)?;
@@ -3095,7 +3094,7 @@ pub(crate) fn build_zk_x509_rfc5280_semantic_witness_v1(
 /// Unique source address and the exact number of semantic consumers.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280SourceMultiplicityV1 {
+pub struct ZkX509Rfc5280SourceMultiplicityV1 {
     pub(crate) source: ZkX509Rfc5280SourceCellV1,
     pub(crate) required_multiplicity: u16,
 }
@@ -3152,7 +3151,7 @@ pub(super) fn zk_x509_rfc5280_semantic_source_multiplicities_v1(
 }
 /// Compile and validate all private geometry from an owner trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_rfc5280_stark_private_shape_v1(
+pub fn build_zk_x509_rfc5280_stark_private_shape_v1(
     trace: &ZkX509Rfc5280TraceV1,
 ) -> Result<ZkX509Rfc5280StarkPrivateShapeV1, ZkX509Rfc5280StarkErrorV1> {
     let semantic = build_zk_x509_rfc5280_semantic_witness_v1(trace)?;
@@ -3287,15 +3286,15 @@ pub(crate) fn build_zk_x509_rfc5280_stark_private_shape_v1(
 /// Return the constant public registration shape after validating the private
 /// witness geometry.  No private count is copied into the transcript.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_rfc5280_stark_shape_v1(
+pub fn build_zk_x509_rfc5280_stark_shape_v1(
     trace: &ZkX509Rfc5280TraceV1,
 ) -> Result<ZkX509Rfc5280StarkShapeV1, ZkX509Rfc5280StarkErrorV1> {
     build_zk_x509_rfc5280_stark_private_shape_v1(trace)?;
     ZkX509Rfc5280StarkShapeV1::from_statement(&trace.statement)
 }
-pub(crate) type ZkX509Rfc5280StarkBaseRowV1<A = F> = [A; ZK_X509_RFC5280_STARK_BASE_WIDTH_V1];
-pub(crate) type ZkX509Rfc5280StarkAuxRowV1<A = F> = [A; ZK_X509_RFC5280_STARK_AUX_WIDTH_V1];
-pub(crate) type ZkX509Rfc5280StarkFixedRowV1<A = F> = [A; ZK_X509_RFC5280_STARK_FIXED_WIDTH_V1];
+pub type ZkX509Rfc5280StarkBaseRowV1<A = F> = [A; ZK_X509_RFC5280_STARK_BASE_WIDTH_V1];
+pub type ZkX509Rfc5280StarkAuxRowV1<A = F> = [A; ZK_X509_RFC5280_STARK_AUX_WIDTH_V1];
+pub type ZkX509Rfc5280StarkFixedRowV1<A = F> = [A; ZK_X509_RFC5280_STARK_FIXED_WIDTH_V1];
 /// One byte in the verifier-owned closed-profile pattern table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ZkX509Rfc5280ProfileByteEntryV1 {
@@ -3663,7 +3662,7 @@ fn compile_output_topology_v1(
 /// Exact producer rows for the five keys and the optional-certificate selector.
 /// Only the public statement shape and existing fixed output topology are consumed.
 /// Every key block is the original 65-byte SEC1 source, before P-256 dummy selection.
-pub(crate) fn zk_x509_rfc_key_join_rows_v1(
+pub fn zk_x509_rfc_key_join_rows_v1(
     shape: ZkX509Rfc5280StarkShapeV1,
 ) -> Result<([usize; 6], [u32; 6], usize, usize), ZkX509Rfc5280StarkErrorV1> {
     shape.validate()?;
@@ -3729,14 +3728,14 @@ pub(crate) fn zk_x509_rfc_key_join_rows_v1(
 
 /// Verifier-owned family ranges. It stores only O(1) boundaries, never `2^18` fixed rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280StarkFixedScheduleV1 {
+pub struct ZkX509Rfc5280StarkFixedScheduleV1 {
     pub(crate) shape: ZkX509Rfc5280StarkShapeV1,
     counts: [usize; FAMILY_COUNT_V1],
     starts: [usize; FAMILY_COUNT_V1],
     profile_byte_table: Vec<ZkX509Rfc5280ProfileByteEntryV1>,
     output_topology: Vec<ZkX509Rfc5280OutputTopologyEntryV1>,
 }
-pub(crate) fn compile_zk_x509_rfc5280_stark_fixed_schedule_v1(
+pub fn compile_zk_x509_rfc5280_stark_fixed_schedule_v1(
     shape: ZkX509Rfc5280StarkShapeV1,
 ) -> Result<ZkX509Rfc5280StarkFixedScheduleV1, ZkX509Rfc5280StarkErrorV1> {
     shape.validate()?;
@@ -4050,7 +4049,7 @@ impl ZkX509Rfc5280StarkFixedScheduleV1 {
 /// At log19 this allocates about 4 MiB per field column and never constructs
 /// the full base+aux+fixed matrix.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_rfc5280_stark_column_v1(
+pub fn build_zk_x509_rfc5280_stark_column_v1(
     width: usize,
     column: usize,
     mut cell: impl FnMut(usize, usize) -> Result<F, ZkX509Rfc5280StarkErrorV1>,
@@ -4489,7 +4488,7 @@ const fn output_role_aux_column_v1(role_index: usize, consumer: bool, lane: usiz
         + lane
 }
 /// Actual normalized governed-root consumer columns, in compression-lane order.
-pub(crate) fn zk_x509_rfc_governed_root_columns_v1() -> [usize; 4] {
+pub fn zk_x509_rfc_governed_root_columns_v1() -> [usize; 4] {
     core::array::from_fn(|lane| {
         output_role_aux_column_v1(
             ZkX509Rfc5280OutputRoleV1::GovernedTrustAnchor as usize - 1,
@@ -4501,7 +4500,7 @@ pub(crate) fn zk_x509_rfc_governed_root_columns_v1() -> [usize; 4] {
 /// Closed local columns for the private SHA union bridge. The first matrix
 /// owns one constant column per physical SHA segment and compression lane;
 /// the second selects the four actual RFC consumer roles joined to SHA.
-pub(crate) fn zk_x509_rfc_sha_union_columns_v1() -> ([[usize; 4]; 4], [[usize; 4]; 4]) {
+pub fn zk_x509_rfc_sha_union_columns_v1() -> ([[usize; 4]; 4], [[usize; 4]; 4]) {
     let bridge = core::array::from_fn(|segment| {
         core::array::from_fn(|lane| AUX_SHA_UNION_CENTERS + segment * 4 + lane)
     });
@@ -4521,19 +4520,19 @@ pub(crate) fn zk_x509_rfc_sha_union_columns_v1() -> ([[usize; 4]; 4], [[usize; 4
 
 /// One canonical external consumer product; private producers have no wire value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280OutputRoleTerminalClaimsV1 {
+pub struct ZkX509Rfc5280OutputRoleTerminalClaimsV1 {
     pub(crate) role: ZkX509Rfc5280OutputRoleV1,
     pub(crate) consumer_products: [F; ZK_X509_RFC5280_STARK_BUS_LANES_V1],
 }
 /// Full local RFC relation with only the four public root-SPKI claims removed.
 /// The36 private producer/consumer equalities remain in the local relation.
-pub(crate) const ZK_X509_RFC5280_LOCAL_CONSTRAINT_COUNT_V1: usize =
+pub const ZK_X509_RFC5280_LOCAL_CONSTRAINT_COUNT_V1: usize =
     ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1 - 4;
 
 /// The four-lane governed-root consumer product. DER handoffs and all normalized
 /// producer/consumer equalities are proved using committed private endpoints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280StarkTerminalClaimsV1 {
+pub struct ZkX509Rfc5280StarkTerminalClaimsV1 {
     output_roles: [ZkX509Rfc5280OutputRoleTerminalClaimsV1; PUBLIC_OUTPUT_ROLES_V1.len()],
 }
 impl ZkX509Rfc5280StarkTerminalClaimsV1 {
@@ -4634,7 +4633,7 @@ const _: () = assert!(P256_TERMINAL_CLAIM_RECORDS_V1 == 348);
 /// Private prover products for one certificate-or-CRL P-256 equation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509P256CertificatePrivateProductsV1 {
+pub struct ZkX509P256CertificatePrivateProductsV1 {
     /// Eight role-ordered four-lane bus terminals.
     pub(crate) buses: P256BusTerminalClaimsV1,
     /// Four verifier-owned cross-source roles, each with start and terminal.
@@ -4646,7 +4645,7 @@ pub(crate) struct ZkX509P256CertificatePrivateProductsV1 {
 /// Private prover products for the wallet-ownership P-256 equation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509P256WalletPrivateProductsV1 {
+pub struct ZkX509P256WalletPrivateProductsV1 {
     /// Eight role-ordered four-lane bus terminals.
     pub(crate) buses: P256BusTerminalClaimsV1,
     /// Five verifier-owned cross-source roles, including wallet low-S.
@@ -4659,7 +4658,7 @@ pub(crate) struct ZkX509P256WalletPrivateProductsV1 {
 /// These values have no wire codec and never enter MAIN's public statement or transcript.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509P256PrivateProductsV1 {
+pub struct ZkX509P256PrivateProductsV1 {
     /// Certificate slots zero through two followed by the signed CRL.
     pub(crate) certificate_or_crl:
         [ZkX509P256CertificatePrivateProductsV1; P256_X5S1_CERTIFICATE_OR_CRL_SIGNATURES_V1],
@@ -4967,7 +4966,7 @@ impl ZkX509P256PrivateProductsV1 {
 /// Compare two private synthetic product fixtures without a serialized claim path.
 /// The first fixture must satisfy the complete bus and source-chain equalities.
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_p256_terminal_claim_residues_v1(
+pub fn evaluate_zk_x509_p256_terminal_claim_residues_v1(
     committed: ZkX509P256PrivateProductsV1,
     claims: ZkX509P256PrivateProductsV1,
 ) -> Result<[F; P256_TERMINAL_CLAIM_RECORDS_V1], ZkX509Rfc5280StarkErrorV1> {
@@ -5042,7 +5041,7 @@ fn assert_residue_section_v1(
 /// This authenticates event metadata. The five key and five SPKI producers and
 /// nine variable TBS/CRL/signature byte-and-length pairs are separately bound to
 /// DER below, as are the canonical leaf serial magnitude and selected original
-/// Subject/OID/value bytes. The NamePolicy and NameValue families separately bind
+/// Subject/OID/value bytes. The `NamePolicy` and `NameValue` families separately bind
 /// the complete original OID/value census, OID uniqueness and closed string policy.
 /// TODO: finish end-to-end adversarial qualification of full parser equivalence.
 /// The family selectors and activity remain field-valued at OOD points, so the
@@ -5071,7 +5070,7 @@ fn output_metadata_residues_v1<A: PolynomialAirFieldV1>(
 }
 /// Authenticate fixed key and complete SPKI outputs to DER byte/node queries.
 /// The verifier-fixed source kind selects a 65-byte key or exact 91-byte DER SPKI.
-/// BASE_D is committed before challenges; optional selection does not increase
+/// `BASE_D` is committed before challenges; optional selection does not increase
 /// the lookup recurrence degree. All selectors remain polynomials.
 fn output_source_residues_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
@@ -5227,7 +5226,7 @@ fn active_family_gate_v1<A: PolynomialAirFieldV1>(
 fn output_row_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5251,14 +5250,14 @@ fn output_row_factor_v1<A: PolynomialAirFieldV1>(
 /// every output topology entry; channel and offset identify the exact byte.
 const OUTPUT_CONSUMER_ENDPOINTS_V1: [u64; OUTPUT_ROLE_COUNT_V1] = [6, 2, 2, 2, 3, 3, 2, 4, 3];
 /// Compress a producer byte with its fixed receiver's tags. Consumer products
-/// retain their actual metadata, already bound by output_metadata_residues_v1.
+/// retain their actual metadata, already bound by `output_metadata_residues_v1`.
 /// Reusing existing producer auxiliary owners adds neither openings nor columns.
 fn output_role_product_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     role_index: usize,
     consumer: bool,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     if consumer {
         return output_row_factor_v1(current, lane, challenges);
@@ -5287,7 +5286,7 @@ fn serial_copy_factor_v1(
     offset: F,
     value: F,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> F {
     compress_tuple_v1(
         [
@@ -5310,7 +5309,7 @@ fn serial_copy_factor_v1(
 fn normalized_copy_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5335,7 +5334,7 @@ fn serial_byte_lookup_factor_v1<A: PolynomialAirFieldV1>(
     address: A,
     value: A,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5358,7 +5357,7 @@ fn serial_byte_lookup_factor_v1<A: PolynomialAirFieldV1>(
 fn profile_byte_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5381,7 +5380,7 @@ fn profile_byte_factor_v1<A: PolynomialAirFieldV1>(
 fn profile_topology_source_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5404,7 +5403,7 @@ fn profile_topology_source_factor_v1<A: PolynomialAirFieldV1>(
 fn profile_topology_query_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5427,7 +5426,7 @@ fn profile_topology_query_factor_v1<A: PolynomialAirFieldV1>(
 fn serial_node_lookup_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5453,7 +5452,7 @@ fn node_query_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     fixed: &ZkX509Rfc5280StarkFixedRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     serial_node_lookup_factor_v1(current, lane, challenges).add(
         family_gate_v1(fixed, ZkX509Rfc5280StarkFamilyV1::OutputProducer).mul(
@@ -5472,7 +5471,7 @@ fn node_query_factor_v1<A: PolynomialAirFieldV1>(
 fn grammar_rule_table_factor_v1<A: PolynomialAirFieldV1>(
     fixed: &ZkX509Rfc5280StarkFixedRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5495,7 +5494,7 @@ fn grammar_rule_table_factor_v1<A: PolynomialAirFieldV1>(
 fn grammar_rule_query_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5526,7 +5525,7 @@ fn grammar_rule_query_factor_v1<A: PolynomialAirFieldV1>(
 fn grammar_parent_table_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5549,7 +5548,7 @@ fn grammar_parent_table_factor_v1<A: PolynomialAirFieldV1>(
 fn grammar_parent_query_factor_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5575,7 +5574,7 @@ fn grammar_ordinal_factor_v1<A: PolynomialAirFieldV1>(
     child: A,
     child_count: A,
     lane: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> A {
     compress_tuple_v1(
         [
@@ -5604,7 +5603,7 @@ fn grammar_ordinal_factor_v1<A: PolynomialAirFieldV1>(
 /// owner never allocates the full `2^19 × 285` matrix.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280StarkBaseMaterialV1 {
+pub struct ZkX509Rfc5280StarkBaseMaterialV1 {
     pub(crate) private_shape: ZkX509Rfc5280StarkPrivateShapeV1,
     pub(crate) schedule: ZkX509Rfc5280StarkFixedScheduleV1,
     family_rows: [source_rows::FamilyRowsV1; FAMILY_COUNT_V1],
@@ -6087,7 +6086,7 @@ fn populate_ordinal_gap_v1(
 /// Compile every canonical base family from the strict-DER owner trace.
 #[allow(clippy::too_many_lines)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_rfc5280_stark_base_material_v1(
+pub fn build_zk_x509_rfc5280_stark_base_material_v1(
     trace: &ZkX509Rfc5280TraceV1,
 ) -> Result<ZkX509Rfc5280StarkBaseMaterialV1, ZkX509Rfc5280StarkErrorV1> {
     validate_zk_x509_rfc5280_provenance_v1(trace)?;
@@ -7040,10 +7039,10 @@ fn selected_output_role_preflight_v1(
 }
 /// Compile only the governed-root consumer products; all other products stay private.
 #[cfg(test)]
-pub(crate) fn compile_zk_x509_rfc5280_stark_terminal_claims_v1(
+pub fn compile_zk_x509_rfc5280_stark_terminal_claims_v1(
     material: &ZkX509Rfc5280StarkBaseMaterialV1,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<ZkX509Rfc5280StarkTerminalClaimsV1, ZkX509Rfc5280StarkErrorV1> {
     der_challenges.validate()?;
     challenges.validate()?;
@@ -7075,7 +7074,7 @@ pub(crate) fn compile_zk_x509_rfc5280_stark_terminal_claims_v1(
     Ok(claims)
 }
 /// Exact RFC auxiliary columns linked privately to the strict-DER final row.
-pub(crate) const fn zk_x509_rfc_der_terminal_columns_v1() -> [usize; 8] {
+pub const fn zk_x509_rfc_der_terminal_columns_v1() -> [usize; 8] {
     [
         AUX_DER_BYTE_AFTER,
         AUX_DER_BYTE_AFTER + 1,
@@ -7090,7 +7089,7 @@ pub(crate) const fn zk_x509_rfc_der_terminal_columns_v1() -> [usize; 8] {
 /// Prove each role's normalized producer equals its consumer at the private
 /// final auxiliary row, then bind the five consumers needed by other adapters.
 /// No endpoint ratio or inverse is used: zero factors retain normal semantics.
-pub(crate) fn evaluate_zk_x509_rfc5280_terminal_claim_residues_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_rfc5280_terminal_claim_residues_v1<A: PolynomialAirFieldV1>(
     last_aggregate: A,
     aux: &ZkX509Rfc5280StarkAuxRowV1<A>,
     claims: ZkX509Rfc5280StarkTerminalClaimsV1,
@@ -7330,16 +7329,16 @@ mod numeric_replay;
 
 /// Named scratch for the bounded RFC auxiliary batch; destinations are caller-owned.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const fn zk_x509_rfc_aux_replay_scratch_bytes_v1() -> usize {
+pub const fn zk_x509_rfc_aux_replay_scratch_bytes_v1() -> usize {
     aux_replay::scratch_payload_bytes_v1()
 }
 
 /// Replay one challenge-dependent auxiliary column with bounded memory.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_rfc5280_stark_aux_column_v1(
+pub fn build_zk_x509_rfc5280_stark_aux_column_v1(
     material: &ZkX509Rfc5280StarkBaseMaterialV1,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     column: usize,
     sha_union: &ZkX509ShaUnionCentersV1,
 ) -> Result<Vec<F>, ZkX509Rfc5280StarkErrorV1> {
@@ -7370,7 +7369,7 @@ pub(crate) fn build_zk_x509_rfc5280_stark_aux_column_v1(
 /// Private native SHA centers. Only the actual four bound SHA sources can
 /// construct a production owner; no wire codec, Copy or raw-array factory exists.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509ShaUnionCentersV1 {
+pub struct ZkX509ShaUnionCentersV1 {
     products: [[F; 4]; 4],
     present: u8,
     binding: Option<ZkX509CredentialPreAuxBindingV1>,
@@ -7483,7 +7482,7 @@ impl Drop for ZkX509ShaUnionCentersV1 {
 /// products are replayed from the same canonical material. Terminal claims
 /// remain in the original masked polynomials and their private join relations.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct ZkX509Rfc5280StarkColumnProviderV1<'a> {
+pub struct ZkX509Rfc5280StarkColumnProviderV1<'a> {
     material: &'a ZkX509Rfc5280StarkBaseMaterialV1,
     der_challenges: ZkX509DerStarkChallengesV1,
     challenges: ZkX509Rfc5280StarkChallengesV1,
@@ -7516,7 +7515,7 @@ impl<'a> ZkX509Rfc5280StarkColumnProviderV1<'a> {
     fn with_centers_v1(
         material: &'a ZkX509Rfc5280StarkBaseMaterialV1,
         der_challenges: ZkX509DerStarkChallengesV1,
-        challenges: ZkX509Rfc5280StarkChallengesV1,
+        challenges: &ZkX509Rfc5280StarkChallengesV1,
         sha_union: ZkX509ShaUnionCentersV1,
     ) -> Result<Self, ZkX509Rfc5280StarkErrorV1> {
         der_challenges.validate()?;
@@ -7525,7 +7524,7 @@ impl<'a> ZkX509Rfc5280StarkColumnProviderV1<'a> {
         Ok(Self {
             material,
             der_challenges,
-            challenges,
+            challenges: *challenges,
             sha_union,
         })
     }
@@ -7534,7 +7533,7 @@ impl<'a> ZkX509Rfc5280StarkColumnProviderV1<'a> {
     pub(crate) fn fixture_v1(
         material: &'a ZkX509Rfc5280StarkBaseMaterialV1,
         der_challenges: ZkX509DerStarkChallengesV1,
-        challenges: ZkX509Rfc5280StarkChallengesV1,
+        challenges: &ZkX509Rfc5280StarkChallengesV1,
     ) -> Result<Self, ZkX509Rfc5280StarkErrorV1> {
         Self::with_centers_v1(
             material,
@@ -7590,7 +7589,7 @@ impl<'a> ZkX509Rfc5280StarkColumnProviderV1<'a> {
         aux_replay::fill_columns_v1(
             self.material,
             self.der_challenges,
-            self.challenges,
+            &self.challenges,
             first,
             outputs,
             &self.sha_union,
@@ -7603,7 +7602,7 @@ impl<'a> ZkX509Rfc5280StarkColumnProviderV1<'a> {
         build_zk_x509_rfc5280_stark_aux_column_v1(
             self.material,
             self.der_challenges,
-            self.challenges,
+            &self.challenges,
             column,
             &self.sha_union,
         )
@@ -7615,7 +7614,7 @@ impl<'a> ZkX509Rfc5280StarkColumnProviderV1<'a> {
         compile_zk_x509_rfc5280_stark_terminal_claims_v1(
             self.material,
             self.der_challenges,
-            self.challenges,
+            &self.challenges,
         )
     }
 }
@@ -7625,14 +7624,14 @@ impl<'a> ZkX509Rfc5280StarkColumnProviderV1<'a> {
 /// inventory on every row, so neither witness values nor roles can alter the composition shape.
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_rfc5280_stark_residues_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_rfc5280_stark_residues_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     next: &ZkX509Rfc5280StarkBaseRowV1<A>,
     current_aux: &ZkX509Rfc5280StarkAuxRowV1<A>,
     next_aux: &ZkX509Rfc5280StarkAuxRowV1<A>,
     fixed: &ZkX509Rfc5280StarkFixedRowV1<A>,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     terminal_claims: ZkX509Rfc5280StarkTerminalClaimsV1,
 ) -> Result<Vec<A>, ZkX509Rfc5280StarkErrorV1> {
     evaluate_rfc5280_relation_v1(
@@ -7649,14 +7648,14 @@ pub(crate) fn evaluate_zk_x509_rfc5280_stark_residues_v1<A: PolynomialAirFieldV1
 
 /// Complete local RFC relation, retaining all36 private output equalities.
 /// Only the four governed-root consumers require the joint original CA links.
-pub(crate) fn evaluate_zk_x509_rfc5280_local_residues_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_rfc5280_local_residues_v1<A: PolynomialAirFieldV1>(
     current: &ZkX509Rfc5280StarkBaseRowV1<A>,
     next: &ZkX509Rfc5280StarkBaseRowV1<A>,
     current_aux: &ZkX509Rfc5280StarkAuxRowV1<A>,
     next_aux: &ZkX509Rfc5280StarkAuxRowV1<A>,
     fixed: &ZkX509Rfc5280StarkFixedRowV1<A>,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
 ) -> Result<Vec<A>, ZkX509Rfc5280StarkErrorV1> {
     evaluate_rfc5280_relation_v1(
         current,
@@ -7678,7 +7677,7 @@ fn evaluate_rfc5280_relation_v1<A: PolynomialAirFieldV1>(
     next_aux: &ZkX509Rfc5280StarkAuxRowV1<A>,
     fixed: &ZkX509Rfc5280StarkFixedRowV1<A>,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     terminal_claims: Option<ZkX509Rfc5280StarkTerminalClaimsV1>,
 ) -> Result<Vec<A>, ZkX509Rfc5280StarkErrorV1> {
     der_challenges.validate()?;
@@ -8984,7 +8983,7 @@ fn evaluate_rfc5280_relation_v1<A: PolynomialAirFieldV1>(
         first,
         continue_gate,
         last,
-        challenges.tuple,
+        &challenges.tuple,
     ));
     debug_assert_eq!(residues.len() - numeric_start, numeric::LOOKUP_RESIDUES_V1);
     if residues.len() != expected_count {
@@ -9015,7 +9014,7 @@ mod tests {
                     &next_aux,
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     terminal_claims_v1(),
                 )
                 .unwrap();
@@ -9026,7 +9025,7 @@ mod tests {
                     &next_aux,
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                 )
                 .unwrap();
                 let begin = RFC5280_RESIDUE_SECTIONS_V1[..13]
@@ -9079,6 +9078,123 @@ mod tests {
             }),
         }
     }
+    #[test]
+    fn borrowed_rfc_challenges_preserve_exact_tuple_compression_and_refusals() {
+        let challenges = challenges_v1();
+        let original = challenges;
+        let values = [
+            F(80),
+            F(1),
+            F(2),
+            F(3),
+            F(4),
+            F(5),
+            F(6),
+            F(7),
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+            F::ZERO,
+        ];
+        for lane in 0..ZK_X509_RFC5280_STARK_BUS_LANES_V1 {
+            let integer = values
+                .iter()
+                .zip(&challenges.tuple[lane])
+                .map(|(value, coefficient)| u128::from(value.0) * u128::from(coefficient.0))
+                .sum::<u128>()
+                % u128::from(GOLDILOCKS_MODULUS_V1);
+            assert_eq!(
+                zk_x509_rfc5280_opened_output_factor_fields_v1(
+                    values[1],
+                    values[2],
+                    values[3],
+                    values[4],
+                    values[5],
+                    values[6],
+                    values[7],
+                    lane,
+                    &challenges,
+                ),
+                Ok(F(u64::try_from(integer).expect("canonical residue")))
+            );
+        }
+        assert_eq!(challenges, original);
+        for (lane, slot, replacement) in [
+            (0, 0, F::ZERO),
+            (0, 0, F(GOLDILOCKS_MODULUS_V1)),
+            (0, 1, challenges.tuple[0][0]),
+            (1, 0, challenges.tuple[0][0]),
+        ] {
+            let mut invalid = challenges;
+            invalid.tuple[lane][slot] = replacement;
+            let before = invalid;
+            assert_eq!(
+                invalid.validate(),
+                Err(ZkX509Rfc5280StarkErrorV1::Challenge)
+            );
+            assert_eq!(
+                zk_x509_rfc5280_opened_output_factor_fields_v1(
+                    values[1], values[2], values[3], values[4], values[5], values[6], values[7], 0,
+                    &invalid,
+                ),
+                Err(ZkX509Rfc5280StarkErrorV1::Challenge)
+            );
+            assert_eq!(invalid, before);
+        }
+        assert_eq!(
+            zk_x509_rfc5280_opened_output_factor_fields_v1(
+                values[1],
+                values[2],
+                values[3],
+                values[4],
+                values[5],
+                values[6],
+                values[7],
+                ZK_X509_RFC5280_STARK_BUS_LANES_V1,
+                &challenges,
+            ),
+            Err(ZkX509Rfc5280StarkErrorV1::Challenge)
+        );
+    }
+
+    #[test]
+    fn column_provider_retains_its_validated_challenge_owner() {
+        let trace = canonical_trace_v1();
+        let material = build_zk_x509_rfc5280_stark_base_material_v1(&trace).expect("base material");
+        let expected = challenges_v1();
+        let provider = {
+            let mut caller_owned = expected;
+            let provider = ZkX509Rfc5280StarkColumnProviderV1::fixture_v1(
+                &material,
+                der_challenges_v1(),
+                &caller_owned,
+            )
+            .expect("validated independent owner");
+            caller_owned.tuple[0][0] = F::ZERO;
+            assert_eq!(
+                caller_owned.validate(),
+                Err(ZkX509Rfc5280StarkErrorV1::Challenge)
+            );
+            assert_eq!(provider.challenges, expected);
+            provider
+        };
+        assert_eq!(provider.challenges, expected);
+        assert_eq!(provider.challenges.validate(), Ok(()));
+        let mut invalid = expected;
+        invalid.tuple[0][0] = F::ZERO;
+        let mut invalid_centers = ZkX509ShaUnionCentersV1::identity_fixture_v1();
+        invalid_centers.present = 0;
+        assert!(matches!(
+            ZkX509Rfc5280StarkColumnProviderV1::with_centers_v1(
+                &material,
+                der_challenges_v1(),
+                &invalid,
+                invalid_centers,
+            ),
+            Err(ZkX509Rfc5280StarkErrorV1::Challenge)
+        ));
+    }
+
     fn der_challenges_v1() -> ZkX509DerStarkChallengesV1 {
         ZkX509DerStarkChallengesV1 {
             tuple: core::array::from_fn(|lane| {
@@ -9368,7 +9484,7 @@ mod tests {
         let mut current_aux = neutral_aux_v1();
         let mut next_aux = neutral_aux_v1();
         for lane in 0..ZK_X509_RFC5280_STARK_BUS_LANES_V1 {
-            let factor = normalized_copy_factor_v1(current, lane, challenges);
+            let factor = normalized_copy_factor_v1(current, lane, &challenges);
             let after = F::ONE.add(current[BASE_COPY_CONSUMER_ACTIVE].mul(factor.sub(F::ONE)));
             current_aux[AUX_SERIAL_CONSUMER_AFTER + lane] = after;
             next_aux[AUX_SERIAL_CONSUMER_BEFORE + lane] = after;
@@ -9377,7 +9493,7 @@ mod tests {
     }
     fn serial_source_aux_v1(
         current: &ZkX509Rfc5280StarkBaseRowV1,
-        challenges: ZkX509Rfc5280StarkChallengesV1,
+        challenges: &ZkX509Rfc5280StarkChallengesV1,
     ) -> (ZkX509Rfc5280StarkAuxRowV1, ZkX509Rfc5280StarkAuxRowV1) {
         let mut current_aux = neutral_aux_v1();
         let mut next_aux = neutral_aux_v1();
@@ -9558,7 +9674,7 @@ mod tests {
                 + (18_203 - copy_census::CONSUMER_ROWS - copy_census::EQUALITY_ROWS),
             MAX_ACTIVE_ROWS_V1
         );
-        assert!(MAX_ACTIVE_ROWS_V1 < ZK_X509_RFC5280_STARK_TRACE_SIZE_V1);
+        const { assert!(MAX_ACTIVE_ROWS_V1 < ZK_X509_RFC5280_STARK_TRACE_SIZE_V1) };
         let schedule =
             compile_zk_x509_rfc5280_stark_fixed_schedule_v1(ZkX509Rfc5280StarkShapeV1::default())
                 .expect("schedule");
@@ -9699,7 +9815,7 @@ mod tests {
             compile_zk_x509_rfc5280_stark_terminal_claims_v1(
                 &material,
                 der_challenges_v1(),
-                challenges_v1()
+                &challenges_v1()
             ),
             Err(ZkX509Rfc5280StarkErrorV1::TerminalClaim)
         );
@@ -9802,7 +9918,7 @@ mod tests {
                 next_aux,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 changed_claims,
             )
             .unwrap()[start..end]
@@ -9885,7 +10001,7 @@ mod tests {
         let provider = ZkX509Rfc5280StarkColumnProviderV1::with_centers_v1(
             &material,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             ZkX509ShaUnionCentersV1::identity_fixture_v1(),
         )
         .unwrap();
@@ -9932,7 +10048,7 @@ mod tests {
                 &neutral_aux_v1(),
                 &material.fixed_row(last).unwrap(),
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 claims,
             )
             .unwrap()[local_start..local_end]
@@ -10081,7 +10197,7 @@ mod tests {
         let provider = ZkX509Rfc5280StarkColumnProviderV1::with_centers_v1(
             &material,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             ZkX509ShaUnionCentersV1::identity_fixture_v1(),
         )
         .unwrap();
@@ -10172,7 +10288,7 @@ mod tests {
         let provider = ZkX509Rfc5280StarkColumnProviderV1::with_centers_v1(
             &material,
             der_challenges,
-            challenges,
+            &challenges,
             ZkX509ShaUnionCentersV1::identity_fixture_v1(),
         )
         .expect("canonical RFC column provider");
@@ -10227,7 +10343,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges,
-            challenges,
+            &challenges,
             claims,
         )
         .expect("canonical opened-row evaluation");
@@ -10243,7 +10359,7 @@ mod tests {
                 &next_aux,
                 &fixed,
                 der_challenges,
-                challenges,
+                &challenges,
                 claims,
             )
             .expect("mutated opened-row evaluation")[8],
@@ -10260,7 +10376,7 @@ mod tests {
                 &next_aux,
                 &fixed,
                 der_challenges,
-                challenges,
+                &challenges,
                 claims,
             )
             .expect("mutated helper evaluation")[25],
@@ -10280,7 +10396,7 @@ mod tests {
             );
             assert_eq!(*values.last().unwrap(), private_der_fields[slot]);
         }
-        let output = zk_x509_rfc5280_output_terminals_v1(&trace, challenges)
+        let output = zk_x509_rfc5280_output_terminals_v1(&trace, &challenges)
             .expect("independent output terminals");
         for (role_index, role) in OUTPUT_ROLES_V1.into_iter().enumerate() {
             if let Some(public) = claims.output_role_products_v1(role) {
@@ -10336,7 +10452,7 @@ mod tests {
             &root_next_aux,
             &root_fixed,
             der_challenges,
-            challenges,
+            &challenges,
             claims,
         )
         .expect("canonical per-role root-SPKI recurrence");
@@ -10351,7 +10467,7 @@ mod tests {
                 &wrong_root_next_aux,
                 &root_fixed,
                 der_challenges,
-                challenges,
+                &challenges,
                 claims,
             )
             .expect("mutated per-role root-SPKI recurrence")[role_residue_offset],
@@ -10368,7 +10484,7 @@ mod tests {
                 &root_next_aux,
                 &wrong_root_fixed,
                 der_challenges,
-                challenges,
+                &challenges,
                 claims,
             )
             .expect("mutated verifier-fixed root selector")[role_residue_offset],
@@ -10484,7 +10600,7 @@ mod tests {
                 3,
                 true,
                 0,
-                challenges,
+                &challenges,
             )
             .expect("zero product factor is not a completeness error"),
             F::ZERO
@@ -10615,8 +10731,7 @@ mod tests {
             ZK_X509_RFC5280_STARK_COMPRESSED_RELATIONS_V1
         );
         assert!(temporal_air.contains(&format!(
-            "-constraints{}-",
-            ZK_X509_RFC5280_LOCAL_CONSTRAINT_COUNT_V1
+            "-constraints{ZK_X509_RFC5280_LOCAL_CONSTRAINT_COUNT_V1}-"
         )));
         assert_eq!(ZK_X509_RFC5280_STARK_COPY_SOUNDNESS_BITS_V1, 170);
     }
@@ -10636,7 +10751,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             claims,
         )
         .expect("total evaluator");
@@ -10651,7 +10766,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             claims,
         )
         .expect("mutated evaluator");
@@ -10665,7 +10780,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             claims,
         )
         .expect("high-column padding mutation evaluator");
@@ -10712,10 +10827,10 @@ mod tests {
         const SAMPLE_POINTS: u64 = 9;
         let mut maximum_degrees = vec![0_usize; ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1];
         for seed in [3_u64, 5, 11] {
-            let mut samples = vec![
-                Vec::with_capacity(SAMPLE_POINTS as usize);
-                ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1
-            ];
+            let sample_points = usize::try_from(SAMPLE_POINTS).expect("sample count fits usize");
+            let mut samples = (0..ZK_X509_RFC5280_STARK_CONSTRAINT_COUNT_V1)
+                .map(|_| Vec::with_capacity(sample_points))
+                .collect::<Vec<_>>();
             for point in 0..SAMPLE_POINTS {
                 let current =
                     core::array::from_fn(|column| affine_value_v1(seed, 1, column, point));
@@ -10732,7 +10847,7 @@ mod tests {
                     &next_aux,
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     terminal_claims_v1(),
                 )
                 .expect("affine degree evaluator is total");
@@ -10810,7 +10925,7 @@ mod tests {
                 &next_aux,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 terminal_claims_v1(),
             )
             .expect("helper mutation evaluator");
@@ -10830,7 +10945,7 @@ mod tests {
                 &next_aux,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 terminal_claims_v1(),
             )
             .expect("ordinal helper mutation evaluator");
@@ -10863,7 +10978,7 @@ mod tests {
             &next_aux,
             &serial_fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .expect("serial left phase evaluator");
@@ -10877,7 +10992,7 @@ mod tests {
             &next_aux,
             &serial_fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .expect("serial phase mutation evaluator");
@@ -10910,7 +11025,7 @@ mod tests {
             &next_aux,
             &calendar_fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .expect("calendar phase evaluator");
@@ -10924,7 +11039,7 @@ mod tests {
             &next_aux,
             &calendar_fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .expect("calendar phase mutation evaluator");
@@ -10964,11 +11079,11 @@ mod tests {
         challenges.tuple[0][0] = F::ZERO
             .sub(non_domain_sum.mul(tuple[0].inv().expect("copy domain separator is nonzero")));
         challenges.validate().expect("forced-zero copy challenges");
-        assert_eq!(normalized_copy_factor_v1(&current, 0, challenges), F::ZERO);
+        assert_eq!(normalized_copy_factor_v1(&current, 0, &challenges), F::ZERO);
         let mut current_aux = neutral_aux_v1();
         let mut next_aux = neutral_aux_v1();
         for lane in 0..ZK_X509_RFC5280_STARK_BUS_LANES_V1 {
-            let factor = normalized_copy_factor_v1(&current, lane, challenges);
+            let factor = normalized_copy_factor_v1(&current, lane, &challenges);
             let after = F::ONE.add(current[BASE_COPY_CONSUMER_ACTIVE].mul(factor.sub(F::ONE)));
             current_aux[AUX_SERIAL_CONSUMER_AFTER + lane] = after;
             next_aux[AUX_SERIAL_CONSUMER_BEFORE + lane] = after;
@@ -10981,7 +11096,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges,
+            &challenges,
             terminal_claims_v1(),
         )
         .expect("zero copy factor never invokes an inverse");
@@ -11206,7 +11321,7 @@ mod tests {
                     &neutral_aux_v1(),
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     terminal_claims_v1(),
                 )
                 .expect("original evaluator")
@@ -11307,7 +11422,7 @@ mod tests {
                 .fixed_row(start + offset)
                 .expect("source fixed row");
             let current = normalized_row_v1(*source_row, &fixed);
-            let (current_aux, next_aux) = serial_source_aux_v1(&current, challenges_v1());
+            let (current_aux, next_aux) = serial_source_aux_v1(&current, &challenges_v1());
             let residues = evaluate_zk_x509_rfc5280_stark_residues_v1(
                 &current,
                 next,
@@ -11315,7 +11430,7 @@ mod tests {
                 &next_aux,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 terminal_claims_v1(),
             )
             .expect("source evaluator");
@@ -11346,7 +11461,7 @@ mod tests {
                 current[BASE_ADDRESS],
                 current[SERIAL_SOURCE_QUERY_VALUE],
                 0,
-                challenges,
+                &challenges,
             ),
             F::ZERO
         );
@@ -11356,7 +11471,7 @@ mod tests {
         let index = schedule.starts[ZkX509Rfc5280StarkFamilyV1::SerialSource as usize] + 1;
         let fixed = schedule.fixed_row(index).expect("source fixed row");
         let current = normalized_row_v1(current, &fixed);
-        let (current_aux, next_aux) = serial_source_aux_v1(&current, challenges);
+        let (current_aux, next_aux) = serial_source_aux_v1(&current, &challenges);
         let residues = evaluate_zk_x509_rfc5280_stark_residues_v1(
             &current,
             &next,
@@ -11364,7 +11479,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges,
+            &challenges,
             terminal_claims_v1(),
         )
         .expect("zero-safe source evaluator");
@@ -11378,7 +11493,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges,
+            &challenges,
             terminal_claims_v1(),
         )
         .expect("corrupted zero-safe source evaluator");
@@ -11402,7 +11517,7 @@ mod tests {
                         F(u64::try_from(offset).expect("offset fits")),
                         F(u64::from(value)),
                         lane,
-                        challenges,
+                        &challenges,
                     ));
                 }
             }
@@ -11419,7 +11534,7 @@ mod tests {
                             F(u64::try_from(offset).expect("offset fits")),
                             F(u64::from(value)),
                             lane,
-                            challenges,
+                            &challenges,
                         ));
                     }
                 }
@@ -11467,14 +11582,14 @@ mod tests {
             canonical_row[1][BASE_ADDRESS],
             canonical_row[1][SERIAL_SOURCE_QUERY_VALUE],
             0,
-            challenges_v1(),
+            &challenges_v1(),
         );
         let shadow_query_factor = serial_byte_lookup_factor_v1(
             shadow_row[BASE_DOCUMENT],
             shadow_row[BASE_ADDRESS],
             shadow_row[SERIAL_SOURCE_QUERY_VALUE],
             0,
-            challenges_v1(),
+            &challenges_v1(),
         );
         assert_ne!(
             table_factor, shadow_query_factor,
@@ -11493,8 +11608,8 @@ mod tests {
         moved[BASE_CONTENT_END] = moved[BASE_CONTENT_END].add(F::ONE);
         moved[BASE_ADDRESS] = moved[BASE_ADDRESS].add(F::ONE);
         assert_ne!(
-            serial_node_lookup_factor_v1(&canonical, 0, challenges_v1()),
-            serial_node_lookup_factor_v1(&moved, 0, challenges_v1()),
+            serial_node_lookup_factor_v1(&canonical, 0, &challenges_v1()),
+            serial_node_lookup_factor_v1(&moved, 0, &challenges_v1()),
             "a self-consistently moved source span no longer matches the DER node table"
         );
         assert_ne!(
@@ -11503,14 +11618,14 @@ mod tests {
                 canonical[BASE_ADDRESS],
                 canonical[SERIAL_SOURCE_QUERY_VALUE],
                 0,
-                challenges_v1(),
+                &challenges_v1(),
             ),
             serial_byte_lookup_factor_v1(
                 moved[BASE_DOCUMENT],
                 moved[BASE_ADDRESS],
                 moved[SERIAL_SOURCE_QUERY_VALUE],
                 0,
-                challenges_v1(),
+                &challenges_v1(),
             ),
             "a moved content address no longer matches the DER byte table"
         );
@@ -11547,7 +11662,7 @@ mod tests {
                     &next_aux,
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     terminal_claims_v1(),
                 )
                 .expect("serial evaluator");
@@ -11641,7 +11756,7 @@ mod tests {
             &next_aux,
             &wrong_fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .expect("reordered comparator evaluator");
@@ -11676,7 +11791,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .expect("mutated comparator evaluator");
@@ -11705,7 +11820,7 @@ mod tests {
             &next_aux,
             &fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .expect("mutated transition evaluator");
@@ -11741,7 +11856,7 @@ mod tests {
                 &next_aux,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 terminal_claims_v1(),
             )
             .expect("mutated comparator evaluator");
@@ -11871,7 +11986,7 @@ mod tests {
                     &neutral_aux_v1(),
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     terminal_claims_v1(),
                 )
                 .unwrap();
@@ -11936,7 +12051,7 @@ mod tests {
             &aux,
             &fixed,
             der_challenges_v1(),
-            challenges_v1(),
+            &challenges_v1(),
             terminal_claims_v1(),
         )
         .unwrap();

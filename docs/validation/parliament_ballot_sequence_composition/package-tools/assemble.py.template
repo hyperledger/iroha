@@ -1,0 +1,69 @@
+"""Prepare a reviewable evidence package without touching the shared docs tree."""
+import hashlib
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+OUT = HERE/'publication'
+CAP = ROOT/'target/parliament-sequential-composition-stage/capture'
+REV = ROOT/'target/parliament-sequential-composition-review'
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def require(ok, reason):
+    if not ok:
+        raise ValueError(reason)
+
+
+def main():
+    require(not OUT.exists(), 'publication destination exists')
+    inputs = []
+    for source, expected in ((CAP, 'b3033bbf656d63500fdfef5136d384bf9e042110f03d75a0e29b9f4a95f1d367'),
+                             (REV, 'c9bbdf89f9a3539f7fd32587096f9f6bbdd8335ed054939e0a801d58c8119729'),
+                             (REV/'supplemental', '20776ce0b7ed4377aec4d9ee2996361a219f0fc9296783cfc72718463480abbb')):
+        manifest = (source/'SHA256SUMS').read_bytes()
+        require(sha(manifest) == expected, 'manifest identity')
+        prefix = 'capture' if source == CAP else ('review' if source == REV else 'review/supplemental')
+        for line in manifest.decode().splitlines():
+            digest, name = line.split('  ', 1)
+            relative = Path(name)
+            require(not relative.is_absolute() and '..' not in relative.parts, 'manifest relative path')
+            data = (source/relative).read_bytes()
+            require(sha(data) == digest, 'manifest member drift: '+name)
+            destination = Path(prefix)/relative
+            if destination.suffix in ('.py', '.rs'):
+                destination = Path(str(destination)+'.template')
+            inputs.append((source/relative, destination, data))
+        inputs.append((source/'SHA256SUMS', Path(prefix)/'SHA256SUMS', manifest))
+    # Preserve original failure diagnostic without pretending the abandoned
+    # preflight's overwritten source file was captured atomically.
+    preflight = ROOT/'target/parliament-sequential-composition-stage/preflight-snapshot'
+    for name in ('observation.stderr', 'observation.json'):
+        inputs.append((preflight/name, Path('preflight-attempt-1')/name, (preflight/name).read_bytes()))
+    source = HERE/'README.md'
+    inputs.append((source, Path('README.md'), source.read_bytes()))
+    source = Path(__file__).resolve()
+    inputs.append((source, Path('package-tools/assemble.py.template'), source.read_bytes()))
+    require(len({name.as_posix() for _, name, _ in inputs}) == len(inputs), 'unique package paths')
+    OUT.mkdir()
+    inventory = []
+    for source, relative, data in inputs:
+        destination = OUT/relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        inventory.append(dict(path=relative.as_posix(), source=source.relative_to(ROOT).as_posix(), sha256=sha(data)))
+    for source, _, data in inputs:
+        require(source.read_bytes() == data, 'packaging input drift: '+str(source))
+    (OUT/'inventory.json').write_text(json.dumps(inventory, indent=2, sort_keys=True)+'\n')
+    files = sorted(p for p in OUT.rglob('*') if p.is_file())
+    (OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+    print(json.dumps(dict(files=len(files)+1, manifest_entries=len(files),
+        manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()))))
+
+
+if __name__ == '__main__':
+    main()

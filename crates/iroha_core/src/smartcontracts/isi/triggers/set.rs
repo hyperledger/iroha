@@ -394,6 +394,7 @@ enum DataTriggerFamily {
     GameSession,
     Sccp,
     KagemushaLoadCommitted,
+    Bond,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -409,6 +410,7 @@ enum DataTriggerSubjectKind {
     Rwa,
     Trigger,
     GameSession,
+    Bond,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -614,6 +616,10 @@ fn data_trigger_filter_index_keys(filter: &DataEventFilter) -> Vec<DataTriggerIn
         DataEventFilter::KagemushaLoadCommitted(_) => {
             family(DataTriggerFamily::KagemushaLoadCommitted)
         }
+        DataEventFilter::Bond(bond) => bond.as_ref().map_or_else(
+            || family(DataTriggerFamily::Bond),
+            |bond| vec![data_trigger_subject_key(DataTriggerSubjectKind::Bond, bond)],
+        ),
     }
 }
 
@@ -782,6 +788,13 @@ fn data_event_index_keys(event: &DataEvent) -> BTreeSet<DataTriggerIndexKey> {
         DataEvent::KagemushaLoadCommitted(_) => {
             keys.insert(DataTriggerIndexKey::Family(
                 DataTriggerFamily::KagemushaLoadCommitted,
+            ));
+        }
+        DataEvent::Bond(event) => {
+            keys.insert(DataTriggerIndexKey::Family(DataTriggerFamily::Bond));
+            keys.insert(data_trigger_subject_key(
+                DataTriggerSubjectKind::Bond,
+                event.bond(),
             ));
         }
     }

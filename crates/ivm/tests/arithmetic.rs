@@ -1,7 +1,7 @@
 //! Arithmetic instruction coverage and regression checks.
-use ivm::{IVM, VMError, encoding, instruction};
-mod common;
+use crate::common;
 use common::assemble;
+use ivm::{IVM, VMError, encoding, instruction};
 const HALT_WORD: u32 = encoding::wide::encode_halt();
 #[test]
 fn check_wide_add_opcode_is_valid() {

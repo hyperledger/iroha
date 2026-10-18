@@ -125,17 +125,17 @@ fn load_recovery(
     super::monetary::insertion(&insertion)
 }
 
-/// Verified original field projection; Q proofs remain mandatory independent inputs.
+/// Verified original field projection; the signature Q proof remains a mandatory
+/// independent input. A proves the Bootstrap transition directly (lean lineage),
+/// so no sigma original is a native input.
 pub(crate) struct BootstrapFoldFieldsV1 {
     pub(crate) state: BootstrapWitness,
-    pub(crate) sigma: Vec<u8>,
     pub(crate) objects: [Vec<u8>; 3],
 }
 impl BootstrapFoldFieldsV1 {
-    pub(crate) fn with_q(self, q: [bootstrap::QInput; 2]) -> bootstrap::Inputs {
+    pub(crate) fn with_q(self, q: [bootstrap::QInput; 1]) -> bootstrap::Inputs {
         bootstrap::Inputs {
             state: self.state,
-            sigma: self.sigma,
             objects: self.objects,
             q,
         }
@@ -145,17 +145,17 @@ impl BootstrapFoldFieldsV1 {
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
 pub(crate) struct LoadFoldFieldsV1 {
     pub(crate) state: LoadWitness,
-    pub(crate) sigma: Vec<u8>,
     pub(crate) receipt: [u8; 282],
-    pub(crate) objects: [Vec<u8>; 3],
+    pub(crate) objects: [Vec<u8>; 1],
+    /// Native source of the payment key for the own-receipt leaf; not a circuit object.
+    pub(crate) credential: Vec<u8>,
     pub(crate) insertion: IndexedInsert<Fp>,
     pub(crate) predecessor: load::PredecessorInput,
 }
 impl LoadFoldFieldsV1 {
-    pub(crate) fn with_q(self, q: [load::QInput; 3]) -> load::Inputs {
+    pub(crate) fn with_q(self, q: [load::QInput; 1]) -> load::Inputs {
         load::Inputs {
             state: self.state,
-            sigma: self.sigma,
             receipt: self.receipt,
             objects: self.objects,
             insertion: self.insertion,
@@ -168,18 +168,16 @@ impl LoadFoldFieldsV1 {
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
 pub(crate) struct ConsumingFoldFieldsV1 {
     pub(crate) state: ConsumingWitness,
-    pub(crate) sigma: Vec<u8>,
-    pub(crate) omega: Vec<u8>,
-    pub(crate) objects: [Vec<u8>; 3],
+    pub(crate) objects: [Vec<u8>; 1],
+    /// Native source of the payment key for the own-receipt leaf; not a circuit object.
+    pub(crate) credential: Vec<u8>,
     pub(crate) recovery: Option<IndexedInsert<Fp>>,
     pub(crate) predecessor: consuming::PredecessorInput,
 }
 impl ConsumingFoldFieldsV1 {
-    pub(crate) fn with_q(self, q: [consuming::QInput; 2]) -> consuming::Inputs {
+    pub(crate) fn with_q(self, q: [consuming::QInput; 1]) -> consuming::Inputs {
         consuming::Inputs {
             state: self.state,
-            sigma: self.sigma,
-            omega: self.omega,
             objects: self.objects,
             recovery: self.recovery,
             predecessor: self.predecessor,
@@ -192,7 +190,7 @@ impl PreparationV1<'_> {
     /// Build complete native Load input from the retained ordinary receipt/finality
     /// and the capsule's authenticated low-leaf/empty-slot insertion. Original Qs
     /// and both predecessor claims are moved unchanged into the mandatory native
-    /// plan, which verifies the receipt-bound Advance and all four A owners.
+    /// plan, which verifies the receipt-bound Advance and both A owners.
     /// This method grants no funding or catalog authority by itself.
     ///
     /// # Errors
@@ -206,7 +204,7 @@ impl PreparationV1<'_> {
         step: &ReleasedStep,
         predecessor: &FoldedStateV1,
         public: &KagemushaWalletLineagePublicV1,
-        q: [load::QInput; 3],
+        q: [load::QInput; 1],
         budget: MemoryBudget,
     ) -> Result<load::Inputs, wallet_state::Error> {
         self.load_fold_fields(owner, step, predecessor, public, budget)
@@ -237,9 +235,9 @@ impl PreparationV1<'_> {
         ))?;
         Ok(LoadFoldFieldsV1 {
             state: fields.state,
-            sigma: fields.sigma,
             receipt: fields.receipt,
             objects: fields.objects,
+            credential: fields.credential,
             insertion,
             predecessor: load::PredecessorInput {
                 proof: predecessor.proof.clone(),
@@ -250,9 +248,10 @@ impl PreparationV1<'_> {
     }
 
     /// Build Bootstrap's native input from its authenticated released source and
-    /// the exact two retained Q originals, without selecting any proving artifact.
-    /// The installed native `bootstrap::Plan::prepare` and complete A/W chain must
-    /// still verify the Q proofs and bind all three original signed tapes.
+    /// the exact retained signature Q original, without selecting any proving
+    /// artifact. The installed native `bootstrap::Plan::prepare` and the unsplit
+    /// terminal A must still verify the Q proof and bind all three original
+    /// signed tapes.
     ///
     /// # Errors
     /// Rejects another operation, extraneous map witnesses, invalid retained
@@ -262,14 +261,14 @@ impl PreparationV1<'_> {
         owner: &AuthenticatedCredentialV1,
         step: &ReleasedStep,
         public: &KagemushaWalletLineagePublicV1,
-        q: [bootstrap::QInput; 2],
+        q: [bootstrap::QInput; 1],
         budget: MemoryBudget,
     ) -> Result<bootstrap::Inputs, Error> {
         self.bootstrap_fold_fields(owner, step, public, budget)
             .map(|fields| fields.with_q(q))
     }
 
-    /// Reconstruct the exact native source before its independent Q proofs exist.
+    /// Reconstruct the exact native source before its independent Q proof exists.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn bootstrap_fold_fields(
         &self,
@@ -282,7 +281,6 @@ impl PreparationV1<'_> {
         let fields = self.bootstrap_fields(owner, step, public, budget)?;
         Ok(BootstrapFoldFieldsV1 {
             state: fields.state,
-            sigma: fields.sigma,
             objects: fields.objects,
         })
     }
@@ -302,7 +300,7 @@ impl PreparationV1<'_> {
         step: &ReleasedStep,
         predecessor: &FoldedStateV1,
         public: &KagemushaWalletLineagePublicV1,
-        q: [consuming::QInput; 2],
+        q: [consuming::QInput; 1],
         budget: MemoryBudget,
     ) -> Result<consuming::Inputs, Error> {
         self.consuming_fold_fields(owner, step, predecessor, public, budget)
@@ -340,9 +338,8 @@ impl PreparationV1<'_> {
         )?;
         Ok(ConsumingFoldFieldsV1 {
             state: fields.state,
-            sigma: fields.sigma,
-            omega: predecessor.lineage.bytes(),
             objects: fields.objects,
+            credential: fields.credential,
             recovery,
             predecessor: consuming::PredecessorInput {
                 proof: predecessor.proof.clone(),

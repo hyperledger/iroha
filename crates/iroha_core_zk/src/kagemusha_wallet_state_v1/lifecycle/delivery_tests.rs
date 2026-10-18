@@ -19,7 +19,7 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
     }
     let offer = offer.unwrap();
     let request = request.unwrap();
-    assert_eq!(request.signed(), payment.request);
+    assert_eq!(request.signed(), payment.signed_request().unwrap());
     payment
         .verify(
             &fixture("KagemushaWalletSchemeV1"),
@@ -34,7 +34,7 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
         KagemushaWalletCreditedV1::from_receive(archive::decode(&received.output).unwrap())
             .unwrap();
     let credited = archive::encode(&credited).unwrap();
-    wallet.wallet_id = payment.request.body.payer_wallet_id;
+    wallet.wallet_id = payment.signed_request().unwrap().body.payer_wallet_id;
     wallet.archive.wallet = wallet.wallet_id;
     // Explicit metadata fixture has an indexed head but no historical Send step/capsule.
     // Completion authority is supplied only by the test custody outcomes below.

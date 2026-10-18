@@ -1,0 +1,68 @@
+"""Dependency, retained register, inverse and resource tests for stage wiring."""
+from collections import Counter
+from itertools import product
+
+import pytest
+
+from bit_ir import Builder, Cost, apply_gates
+from stage_plan import CleanMap, Invocation, RetainedPlan
+
+
+def example():
+    a = Builder(2)
+    s = a.bit('xor', 0, 1)
+    first = CleanMap.block(a.finish((s, 0)))
+    b = Builder(3)
+    t = b.bit('and', 0, 1)
+    u = b.bit('xor', t, 2)
+    second = CleanMap.block(b.finish((u,)))
+    return RetainedPlan((('original', 2), ('coin', 1)), (
+        Invocation('first', first, (('original', 0, 2),)),
+        Invocation('second', second, (('first', 0, 2), ('coin', 0, 1))),
+    ))
+
+
+def test_retained_joint_map_and_reverse_with_copied_external_output():
+    plan = example(); p = plan.layout()
+    for values in product((0,1), repeat=3):
+        state = list(values)+[0]*(p['size']-3)+[1]
+        apply_gates(state, plan.emit())
+        first, second = p['registers']['first'][0], p['registers']['second'][0]
+        assert state[first:first+2] == [values[0]^values[1], values[0]]
+        result = ((values[0]^values[1])&values[0])^values[2]
+        assert state[second] == result and not any(state[p['scratch']:-1])
+        state[-1] ^= state[second]
+        apply_gates(state, plan.emit(inverse=True))
+        assert state == list(values)+[0]*(p['size']-3)+[1^result]
+
+
+def test_actual_forward_reverse_census_and_missing_inverse_control():
+    plan = example(); r = plan.resources(); p = plan.layout()
+    counts = Counter()
+    for inverse in (False, True):
+        counts.update(g[0] for g in plan.emit(inverse=inverse))
+    assert all(counts[k] == r['forward_and_inverse_gates'][k] for k in ('x','cx','ccx'))
+    state = [1,0,1]+[0]*(p['size']-3)
+    apply_gates(state, plan.emit())
+    assert any(state[3:p['scratch']])  # dropping derived material is not clean uncompute
+    assert r['original_input_bits'] == 3 and r['retained_derived_bits'] == 3
+
+
+def test_public_interval_metadata_stays_lazy_for_huge_stages():
+    c = CleanMap(1, 1 << 60, 1 << 70, Cost(x=1), lambda: iter((('x', 1+(1 << 70)),)))
+    p = RetainedPlan((('input',1),), (Invocation('huge',c,(('input',0,1),)),))
+    assert p.layout()['size'] == 1+(1 << 60)+(1 << 70)
+    assert next(p.emit()) == ('x',1)
+
+
+def test_refuse_aliases_forward_dependencies_and_bad_component_wires():
+    plan = example(); circuit = plan.stages[0].circuit
+    for sources in ((('original',0,1),('original',0,1)), (('original',1,2),), (('future',0,2),)):
+        with pytest.raises(ValueError):
+            RetainedPlan((('original',2),), (Invocation('stage',circuit,sources),))
+    with pytest.raises(ValueError):
+        RetainedPlan((('original',2),), (Invocation('original',circuit,(('original',0,2),)),))
+    with pytest.raises(ValueError): list(plan.emit(inverse=1))
+    bad = CleanMap(1,1,0,Cost(),lambda: iter((('x',2),)))
+    bad_plan = RetainedPlan((('in',1),),(Invocation('out',bad,(('in',0,1),)),))
+    with pytest.raises(ValueError): list(bad_plan.emit())

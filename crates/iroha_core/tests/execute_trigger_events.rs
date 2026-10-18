@@ -1,5 +1,5 @@
 //! Validate that by-call trigger execution emits both the trigger event and resulting data events.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::sumeragi::test_chain::{CertifiedTestChain, Signers, TestChainConfig};
 use iroha_core::{
     smartcontracts::triggers::{
@@ -10,6 +10,7 @@ use iroha_core::{
 };
 use iroha_data_model::prelude::*;
 use iroha_model_base::domain::DomainId;
+use iroha_sumeragi::types::ControlWitness;
 use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};
 use mv::storage::StorageReadOnly;
 use std::sync::Arc;
@@ -99,7 +100,7 @@ fn register_trigger(
     .sign(ALICE_KEYPAIR.private_key());
     let proposal = chain.proposal(None, vec![register_tx]);
     let mut pending = chain
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, ControlWitness::default())
         .expect("native registration executes");
     let fragments = pending
         .inspect(|execution| execution.state.committed_fragment_count())
@@ -139,7 +140,7 @@ fn execute_trigger(
     chain.take_events().unwrap();
     let proposal = chain.proposal(None, vec![exec_tx]);
     let mut pending = chain
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, ControlWitness::default())
         .expect("native trigger executes");
     let fragments = pending
         .inspect(|execution| execution.state.committed_fragment_count())

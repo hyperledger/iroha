@@ -1,8 +1,12 @@
 # Native prover known-answer vectors
 
-`kats_v1.json` pins the behaviour of the vendored halo2 stack that the
-Iroha-native crates (`iroha_pasta`, `iroha_plonk`, `iroha_plonk_gadgets`) must
-reproduce. These vectors stay after `vendor/halo2-axiom`,
+`kats_v1.json` retains the behaviour of its recorded vendored halo2 source.
+Unchanged arithmetic, parameter and RP57-constant components remain parity
+anchors. The current total challenge roles, norm-product equations and
+committed-mask construction require new source-bound full-proof captures;
+historical proof bytes are not authority for the changed protocol. Retained
+fixtures do not enable a shipping seeded prover or compatibility decoder.
+These vectors stay after `vendor/halo2-axiom`,
 `vendor/halo2curves-axiom`, `vendor/halo2-base`, `halo2-ecc` and
 `snark-verifier` are deleted. The migration plan and consumer list are in
 `specs/native_prover_migration_inventory.md`.
@@ -13,7 +17,7 @@ Field elements are canonical little-endian `to_repr` hex. Points are compressed
 | Section | Contents |
 | --- | --- |
 | `oracle_baseline` | Commits, crate versions and toolchain the vectors were recorded from. |
-| `golden_proofs` | Proof SHA-256 tables of `vendor/halo2-axiom/tests/golden_proof_bytes.rs` (Blake2b, regenerated) and of the eight KAGEMUSHA Poseidon-transcript goldens (`iroha_core_zk_kagemusha`). This file is the pinned authority for the KAGEMUSHA table: it was recorded from `crates/iroha_core_zk/src/prover_golden_tests.rs` at `oracle_baseline.repository_head`, and the generator carries it over unchanged, checking only its case names and digest format. |
+| `golden_proofs` | Proof SHA-256 tables of `vendor/halo2-axiom/tests/golden_proof_bytes.rs` (Blake2b, regenerated) and of the eight KAGEMUSHA Poseidon-transcript goldens (`iroha_core_zk_kagemusha`). This file is the historical authority for that source's KAGEMUSHA table: it was recorded from `crates/iroha_core_zk/src/prover_golden_tests.rs` at `oracle_baseline.repository_head`, and the generator carries it over unchanged, checking only its case names and digest format. |
 | `params_ipa` | `ParamsIPA::new(k).write` length and SHA-256 for k = 6..=16 on Eq and Ep, plus digests of the `g` and `g_lagrange` sections. |
 | `generators` | The first 64 `Halo2-Parameters` hash-to-curve generators, and `w` and `u`, per curve. |
 | `blake2b_transcript` | `Blake2bWrite` with `Challenge255`: per-operation challenges, absorbed bytes, written stream, decoding rejections. |
@@ -42,20 +46,43 @@ re-derives every output from the pinned RP57 constants. The native Core_zk test
 checks the same corpus without importing the retired prover. The corpus and
 its mutation tests remain after oracle deletion.
 
-## Regenerate and check
+## Capture and check
 
-The generator is `crates/iroha_plonk_oracle/tests/native_prover_kats.rs`. By
-default it rebuilds every vector from the vendored stack and requires the file
-to match. A changed vector means the vendored behaviour changed. Review that
-change before you regenerate. The pinned KAGEMUSHA golden table is the one
-exception: the generator reads it from this file and writes it back
-unchanged, so rewriting needs the existing file.
+The retained `kats_v1.json` baseline was emitted by the retired oracle's
+`native_prover_kats.rs` test. That source and its original revision describe
+provenance, not a current workspace command or a shipping proof engine. Keep
+unchanged arithmetic/parameter/Poseidon KATs separate from proof corpora whose
+protocol has changed.
+
+The maintained native capture owner is
+`captured_goldens::export::export_current_native_corpora` in `iroha_plonk`'s
+unit-test build. After the source and shared build hold is released, the
+bootstrap capture uses the existing worktree lane:
 
 ```sh
-cargo test -p iroha_plonk_oracle --test native_prover_kats
-cargo test --release -p iroha_plonk_oracle --test native_prover_kats -- --include-ignored  # adds k = 15 and 16
-IROHA_UPDATE_NATIVE_PROVER_KATS=1 cargo test --release -p iroha_plonk_oracle --test native_prover_kats native_prover_kats_match_fixture
+IROHA_NATIVE_PROVER_CAPTURE_DIR=/absolute/new/private/capture-directory \
+  scripts/cargo_fast.sh --target-slot kagemusha-cohort --stable-local-metadata -- \
+  test --locked --release -p iroha_plonk --lib \
+  captured_goldens::export::export_current_native_corpora -- \
+  --exact --ignored --nocapture --test-threads=1
 ```
+
+Choose a new absolute directory outside the checkout, beneath an existing
+owner-only parent. The producer
+writes `golden_sources_v1.json`, `succinct_v1.json`, `capture-start.json` and
+`capture-result.json`; it does not install canonical fixtures. The golden
+matrix retains all 42 Sigma/Wide cases and the succinct matrix all eight cases.
+Ordinary native framing, full proof and generator decisions, exact replay,
+1/2/4/7-worker checks and adversarial assertions remain required. Native-generated
+bytes are regression evidence, not an independent implementation oracle.
+The producer, receipts, output hashes and exact source must be reviewed together
+before installation. Admission also requires the actual successful test exit,
+unchanged original output pins and the terminal marker
+`NATIVE_CORPUS_CAPTURE_COMPLETE golden_cases=42 succinct_cases=8`. The complete
+compiled source census includes bootstrap seed fixtures and catalog DATA; those
+inputs do not qualify a final source/catalog candidate. Review captures before
+installation, then freeze and rebuild that final candidate. This command is a
+capture recipe, not a completed run.
 
 `verify_kats_v1.py` is an independent check that uses only the Python standard
 library. It re-derives every Blake2b challenge, every Poseidon hash and
@@ -72,52 +99,59 @@ python3 fixtures/native_prover/verify_kats_v1.py
 
 ## Succinct verifier and BGH19 obligations
 
-`succinct_v1.json` freezes eight independently captured snark-verifier results:
-Sigma at k6 and Wide at k8, on both Pasta curves, with prover seeds 42 and 43.
-Each record retains the complete original proof, native descriptor and processed
-key, public inputs, historical transcript scalar, every squeezed challenge, and
-the returned generator point and round challenges. The corpus names its original
-snark-verifier revision and source hashes. It covers these generic golden
-circuits, not the deleted private KAGEMUSHA operation circuits or a current
-source-qualified operation catalog.
+The selected `succinct_v1.json` consumer requires eight current native cases:
+Sigma at k6 and Wide at k8, both Pasta curves, with test seeds 42 and 43. Each
+retains the complete proof, descriptor, processed key, public inputs, raw squeeze
+schedule, generator point and mapped round challenges. Fixed streams are confined
+to the native unit-test capture; they are not a production randomness API.
+The current format is `iroha.native_prover.succinct.v1`. Its challenge tape records
+scalars after transcript field conversion and before role maps; each IPA round
+uses `u = nz(raw)`. It does not record raw base-field Theta values. The recorded
+transcript representation must equal the descriptor-bound value and never
+authorizes an override.
 
-The oracle compares every challenge with the original Halo2 full verifier and
-compares the returned generator obligation with native succinct verification.
-Both generator decisions must pass. Five mutations per record retain the exact
-original outcome: wrong instance, changed proof point, changed suffix, trailing
-byte and truncation. The original native loader panics on a false group equation;
-its reader accepts a valid prefix followed by trailing bytes (DEV-05). These
-outcomes are recorded rather than hidden by a wrapper. The native verifier must
-reject all five normally. A cheap verification result alone is never acceptance.
-The separate PIPA-AS-v1 accumulation transcript is intentionally different and is
-not a byte-parity claim of this corpus.
+The prior snark-verifier corpus belongs to its recorded source and equations.
+Replacing it requires actual generation and replay of the complete current matrix,
+full generator decisions and the existing wrong-instance, changed-point,
+changed-suffix, extension and truncation controls. A well-formed false generator
+claim must still fail its independent decision. No cheap verification result alone
+is acceptance. Preserve predecessor originals and provenance outside the selected
+fixture; never promote them by changing a format label or source hash.
 
-```sh
-RUSTFLAGS='--cfg iroha_plonk_oracle' cargo test --release -p iroha_plonk_oracle --test vendored_goldens succinct_parity::
-cargo test --release -p iroha_plonk captured_succinct_tests::
-```
-
-The second command links no retired prover. It replays all eight exact retained
-proofs through native verification, checks the complete case matrix and retained
-hashes, compares each generator and round vector, and then decides the claim.
-A separately mutated well-formed accumulator must fail its decision. These tests
-and the frozen originals remain after temporary-oracle retirement. Fixture changes
-require an independently reviewed recapture; ordinary tests never rewrite it.
+`pytests/scripts/native_prover_reference_test.py` also reads `succinct_v1.json`.
+Installing the native corpus therefore requires the independent Python reader and
+its equations to match that corpus, with all prior mutation assertions retained.
+The new native capture alone cannot establish that Python suite passes.
 
 ## Independent full-proof verification
 
-`reference_v1.json` retains 46 genuine full proofs, both Pasta curves, all three
-transcript profiles and ten pinned parameter sets at k6 through k10. The
-standard-library-only implementation in `reference_verifier/` checks the complete
-PLONK, multiopen and IPA equations, including the generator decision. Its
-production entry point has no historical oracle fallback. The separate explicit
-oracle entry point checks retained original proofs.
+`reference_v1.json` currently retains the ancestor's 46 full proofs and ten
+parameter sets at k6 through k10. The selected standard-library verifier implements
+the current total challenge roles, norm-product constraints and scoped-generator
+rule, with one descriptor-bound verification API and no transcript override.
+Current-source full-proof validation still requires an actual native 46-case
+capture. The separate maintained owner is
+`native_reference_capture::export_current_reference_corpus`; the 42/8 exporter
+does not produce this document.
+
+The [reference README](reference_verifier/README.md) gives the exact matrix,
+current capture command, external-file check and artifact requirements. The fast
+role/equation/codec controls can run before genuine proof recapture:
+
+```sh
+python3 -I -B -S pytests/scripts/test_native_reference_roles.py
+```
+
+After matching current reference and succinct fixtures are independently checked
+and installed together, run:
 
 ```sh
 python3 -I -B -S fixtures/native_prover/verify_reference_v1.py
 python3 -B -m pytest -q pytests/scripts/native_prover_reference_test.py
 ```
 
-The exact matrix, genuine recapture command, adversarial coverage and limits are
-documented in [the reference README](reference_verifier/README.md). This evidence
-does not establish batch, recursive, full-catalog or physical-phone acceptance.
+The pytest suite consumes both the 46-case reference and the eight-case succinct
+corpus. The succinct records must agree with the independent reader’s scalar
+squeeze tapes and mapped rounds. No recapture, native/Python parity, batch,
+recursive, full-catalog or physical-phone acceptance is established by these
+source changes alone.

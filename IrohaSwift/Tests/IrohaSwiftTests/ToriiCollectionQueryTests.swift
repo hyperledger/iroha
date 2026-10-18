@@ -1105,11 +1105,12 @@ final class ToriiCollectionClientTests: XCTestCase {
          "collateral_leg":{"asset_definition_id":"bond","quantity":"110.5","metadata":{"isin":"X"}},
          "collateral_custody_asset":"bond","rate_bps":250,"maturity_timestamp_ms":3,"initiated_timestamp_ms":1,
          "last_margin_check_timestamp_ms":2,"settlement_timestamp_ms":null,
-         "governance":{"haircut_bps":500,"margin_frequency_secs":60}}
+         "governance":{"haircut_bps":500,"margin_frequency_secs":60,"allow_early_repayment":true}}
         """.utf8))
         XCTAssertEqual(repo.collateralLeg?.quantity?.canonicalString, "110.5")
         XCTAssertNil(repo.custodian)
         XCTAssertEqual(repo.governance?.haircutBps, 500)
+        XCTAssertEqual(repo.governance?.allowEarlyRepayment, true)
 
         let holder = try decoder.decode(ToriiAssetHolder.self, from: Data("""
         {"account_id":"a","asset":"62Fk4FPcMuLvW5QjDGNF2a4jAmjM","scope":"dataspace:1","quantity":"0"}
@@ -1491,6 +1492,103 @@ final class ToriiEventStreamPolicyTests: XCTestCase {
         let event = try await iterator.next()
         XCTAssertNil(event)
     }
+
+    private static let historyAccount = "testuﾛ1PiiHﾛWﾔﾋADｼoQﾏ22AｷﾒﾅﾗRﾋﾂｿrDSHVVmRTﾅﾋtｸS5GJ593"
+
+    private static func historyRow(height: Int, movement: Int, direction: String = "incoming") -> String {
+        #"{"id":"h\#(height)-m\#(movement)","block_height":\#(height),"block_index":0,"movement_index":\#(movement),"direction":"\#(direction)","account_id":"\#(historyAccount)","amount":"20","tx_hash":"\#(String(repeating: "ab", count: 32))","type":"TRANSFER","status":"SUCCESS"}"#
+    }
+
+    func testStreamAccountHistoryOpensThenDecodesMovementsInOrder() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            XCTAssertTrue(components?.percentEncodedPath.hasPrefix("/v1/accounts/") == true)
+            XCTAssertTrue(components?.percentEncodedPath.hasSuffix("/history/sse") == true)
+            XCTAssertEqual(components?.queryItems, [URLQueryItem(name: "filter", value: #"direction = "incoming""#)])
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
+            let stream = """
+            : heartbeat
+
+            event: movement
+            data: \(Self.historyRow(height: 7, movement: 0))
+
+            event: future_kind
+            data: {}
+
+            event: movement
+            data: \(Self.historyRow(height: 7, movement: 1, direction: "outgoing"))
+
+            """
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "text/event-stream"])!, Data(stream.utf8))
+        }
+        var events: [ToriiAccountHistoryStreamEvent] = []
+        for try await event in client(baseURL: baseURL).streamAccountHistory(
+            accountId: Self.historyAccount,
+            filter: ToriiField("direction") == "incoming"
+        ) {
+            events.append(event)
+        }
+        guard events.count == 3, case .opened = events[0],
+              case let .movement(first) = events[1], case let .movement(second) = events[2] else {
+            return XCTFail("unexpected events \(events)")
+        }
+        XCTAssertEqual([first.movementIndex, second.movementIndex], [0, 1])
+        XCTAssertEqual([first.direction, second.direction], ["incoming", "outgoing"])
+        XCTAssertEqual(first.blockHeight, 7)
+    }
+
+    func testStreamAccountHistoryThrowsTheTerminalStreamError() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            let stream = """
+            event: stream_error
+            data: {"code":"stream_lagged","message":"lost","dropped_messages":3,"replay_available":false}
+
+            """
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                    headerFields: ["Content-Type": "text/event-stream"])!, Data(stream.utf8))
+        }
+        var iterator = client(baseURL: baseURL).streamAccountHistory(accountId: Self.historyAccount).makeAsyncIterator()
+        guard case .opened = try await iterator.next() else {
+            return XCTFail("the stream opens first")
+        }
+        await XCTAssertThrowsErrorAsync(try await iterator.next()) { error in
+            XCTAssertEqual((error as? ToriiClientError)?.code, "stream_lagged")
+        }
+    }
+
+    func testStreamAccountHistoryRejectsStructuredLiteralsBeforeConnecting() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            XCTFail("no request may be sent")
+            return jsonResponse(request, "{}")
+        }
+        let torii = client(baseURL: baseURL)
+        var structured = torii.streamAccountHistory(
+            accountId: Self.historyAccount,
+            filter: ToriiField.metadata("tags") == ToriiFilterValue.array(["a"])
+        ).makeAsyncIterator()
+        await XCTAssertThrowsErrorAsync(try await structured.next()) { error in
+            XCTAssertEqual((error as? ToriiClientError)?.code, "invalid_filter")
+        }
+    }
+
+    func testCancellingTheConsumerFinishesTheAccountHistoryStream() async throws {
+        let baseURL = CollectionQueryStubProtocol.register { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                             headerFields: ["Content-Type": "text/event-stream"])!,
+             Data(": heartbeat\n\n".utf8))
+        }
+        let consumer = Task {
+            var count = 0
+            for try await _ in self.client(baseURL: baseURL).streamAccountHistory(accountId: Self.historyAccount) {
+                count += 1
+            }
+            return count
+        }
+        consumer.cancel()
+        _ = try? await consumer.value
+        XCTAssertTrue(consumer.isCancelled)
+    }
 }
 
 // MARK: - Event payloads
@@ -1615,7 +1713,7 @@ final class ToriiSDKFootgunTests: XCTestCase {
         XCTAssertThrowsError(try AccountId.make(publicKey: Data([1, 2, 3])))
     }
 
-    func testTransferDescriptionsAreRejectedInsteadOfDropped() throws {
+    func testTransferDescriptionsArePreservedInSignedMetadata() throws {
         let keypair = try Keypair(privateKeyBytes: Data(repeating: 0x2A, count: 32))
         let authority = try AccountId.make(publicKey: keypair.publicKey)
         let transfer = TransferRequest(networkId: TestNetworkIds.canonical,
@@ -1625,15 +1723,21 @@ final class ToriiSDKFootgunTests: XCTestCase {
                                        destination: authority,
                                        description: "invoice 42",
                                        feePayment: .authority(chargeLimits: [], gasLimit: nil))
-        XCTAssertThrowsError(
-            try SwiftTransactionEncoder.encodeTransfer(
-                transfer: transfer,
-                signingKey: SigningKey.ed25519(privateKey: keypair.privateKeyBytes),
-                creationTimeMs: 1
-            )
-        ) { error in
-            XCTAssertEqual(error as? TransactionInputError, .transferDescriptionUnsupported)
+        let envelope = try SwiftTransactionEncoder.encodeTransfer(
+            transfer: transfer,
+            signingKey: SigningKey.ed25519(privateKey: keypair.privateKeyBytes),
+            creationTimeMs: 1)
+        let payload = try XCTUnwrap(InstructionTransactionV1.unsignedPayloadJSON(envelope, chainDiscriminant: AccountId.defaultNetworkPrefix))
+        XCTAssertEqual(payload["metadata"], .object(["memo": .string("invoice 42")]))
+        let unsigned = try IrohaSDK.buildTransferPayload(transfer: transfer, creationTimeMs: 1)
+        let independentlySigned = try InstructionTransactionV1.envelope(payload: unsigned,
+            signature: keypair.sign(InstructionTransactionV1.signingMessage(payload: unsigned)),
+            ed25519PublicKey: keypair.publicKey)
+        for wire in [envelope.norito, independentlySigned.norito] {
+            XCTAssertEqual(try ToriiCanonicalTransactionDraft.transactionPayload(
+                fromVersionedSignedTransaction: wire, context: "transfer description"), unsigned)
         }
+        XCTAssertEqual(envelope.transactionHash, independentlySigned.transactionHash)
     }
 
     func testConcurrentStatusSnapshotsDoNotRace() async throws {

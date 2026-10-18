@@ -1,0 +1,28 @@
+pub(crate) async fn start_with_runtime_deps(
+        build: CompiledBuildMetadata,
+        config: Config,
+        genesis: Option<GenesisBlock>,
+        logger: LoggerHandle,
+        shutdown_signal: ShutdownSignal,
+        runtime_deps: IrohaRuntimeDeps,
+        musubi_publication_factory: Option<
+            Box<dyn musubi_publication_service::MusubiPublicationPrivateServiceFactoryV1>,
+        >,
+    ) -> ReportResult<
+        (
+            Self,
+            impl Future<Output = iroha_futures::supervisor::Result<()>>,
+        ),
+        StartError,
+    > {
+        let prepared = PreparedStartup::prepare(config, genesis).await?;
+        Self::activate_with_runtime_deps(
+            build,
+            prepared,
+            logger,
+            shutdown_signal,
+            runtime_deps,
+            musubi_publication_factory,
+        )
+        .await
+    }

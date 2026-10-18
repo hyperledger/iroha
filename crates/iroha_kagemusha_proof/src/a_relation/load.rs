@@ -1,7 +1,10 @@
-//! Ordinary finalized Load receipt, own signatures and recovery-map composition.
+//! Ordinary finalized Load receipt, own Advance signature and recovery-map composition.
 //!
 //! The receipt terms come from one exact byte tape. Native verifies genesis-rooted
 //! BLS finality before requesting the Advance signature bound to this receipt.
+//! A proves the Load transition directly (lean lineage): there is no own sigma
+//! verifier, and the credential digest and payment key are carried by continuity
+//! from the predecessor's lineage, so the credential is not re-verified here.
 
 use ff::Field;
 use iroha_pasta::{Ep, Fp};
@@ -10,10 +13,10 @@ use iroha_plonk_gadgets::{GlueChip, UintChip, bytes::tape::BytesChip};
 use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierChip};
 
 use super::{
-    SigmaBindingCells, SignatureProofCells,
+    SignatureProofCells,
     context::{ContextObjectCells, ContextObjectSpec},
     load_receipt::LoadReceiptCells,
-    own::{CurrentAuthorization, OwnPolicy, authenticate_current},
+    own::OwnPolicy,
 };
 use crate::{
     operation_relation::{
@@ -22,16 +25,17 @@ use crate::{
             ObjectKind, SignedObjectCells,
             receipt::{self, ReceiptContext},
         },
+        statement::StatementCells,
     },
     q_signature::SignatureKey,
 };
 
-/// Ordinary ledger receipt, own Advance receipt, Enrollment certificate and credential.
+/// Ordinary ledger receipt and own Advance receipt.
 #[derive(Clone, Debug)]
 pub struct LoadObjects {
     receipt: LoadReceiptCells,
-    objects: [SignedObjectCells; 3],
-    context: [ContextObjectCells; 4],
+    objects: [SignedObjectCells; 1],
+    context: [ContextObjectCells; 2],
 }
 /// State and authenticated Q outputs consumed by Load's signed-object relation.
 #[derive(Clone, Copy)]
@@ -40,9 +44,9 @@ pub struct LoadInputs<'a> {
     pub predecessor: MapState<'a>,
     /// Canonical successor state and public prefix retained by A.
     pub successor: MapState<'a>,
-    /// Own exact statement and sigma-only proof digest from the Q-bound tape.
-    pub sigma: &'a SigmaBindingCells,
-    /// Own Advance receipt slot, or current credential/Enrollment certificate slots.
+    /// Own exact statement, committed by the stage context.
+    pub statement: &'a StatementCells,
+    /// Own Advance receipt slot, present only in the receipt stage.
     pub signatures: &'a [SignatureProofCells],
 }
 impl LoadObjects {
@@ -50,31 +54,28 @@ impl LoadObjects {
     ///
     /// # Errors
     /// An impossible size conversion in the fixed schema.
-    pub fn context_specs() -> Result<[ContextObjectSpec; 4], Error> {
-        let mut out = vec![ContextObjectSpec {
-            tag: 1,
-            capacity: u32::try_from(LoadReceiptCells::BYTES).map_err(|_| Error::BoundsFailure)?,
-        }];
-        for (tag, kind) in [
-            (2, ObjectKind::Receipt),
-            (3, ObjectKind::Certificate),
-            (4, ObjectKind::Credential),
-        ] {
-            out.push(ContextObjectSpec {
-                tag,
-                capacity: u32::try_from(kind.body_len() + 64).map_err(|_| Error::BoundsFailure)?,
-            });
-        }
-        out.try_into().map_err(|_| Error::Synthesis)
+    pub fn context_specs() -> Result<[ContextObjectSpec; 2], Error> {
+        Ok([
+            ContextObjectSpec {
+                tag: 1,
+                capacity: u32::try_from(LoadReceiptCells::BYTES)
+                    .map_err(|_| Error::BoundsFailure)?,
+            },
+            ContextObjectSpec {
+                tag: 2,
+                capacity: u32::try_from(ObjectKind::Receipt.body_len() + 64)
+                    .map_err(|_| Error::BoundsFailure)?,
+            },
+        ])
     }
-    /// Parse the ordinary receipt and all three signed objects from their exact tapes.
+    /// Parse the ordinary receipt and the own Advance receipt from their exact tapes.
     /// # Errors
     /// Wrong fixed lengths, malformed canonical fields or circuit layout failure.
     pub fn decode(
         chip: &mut VerifierChip<Ep>,
         bytes: &mut BytesChip<Fp>,
         region: &mut Region<'_, Fp>,
-        source: [&[Value<u8>]; 4],
+        source: [&[Value<u8>]; 2],
     ) -> Result<Self, Error> {
         let specs = Self::context_specs()?;
         let run = bytes.run(
@@ -85,54 +86,33 @@ impl LoadObjects {
         )?;
         let (mut uint, hash) = chip.uint_and_hasher()?;
         let receipt = LoadReceiptCells::from_run(&mut uint, hash, region, &run)?;
-        let mut context = vec![ContextObjectCells::from_exact_run(
-            chip,
+        let receipt_context =
+            ContextObjectCells::from_exact_run(chip, region, specs[0], receipt.digest(), &run)?;
+        let kind = ObjectKind::Receipt;
+        let run = bytes.run(
             region,
-            specs[0],
-            receipt.digest(),
+            source[1],
+            &kind.primary_segments(),
+            &kind.secondary_segments(),
+        )?;
+        let lanes = chip.operation_lanes()?;
+        let object = SignedObjectCells::from_run(
+            &mut UintChip::new(lanes.glue, lanes.range),
+            lanes.hash,
+            region,
+            kind,
             &run,
-        )?];
-        let mut objects = Vec::new();
-        for ((kind, source), spec) in [
-            ObjectKind::Receipt,
-            ObjectKind::Certificate,
-            ObjectKind::Credential,
-        ]
-        .into_iter()
-        .zip(&source[1..])
-        .zip(&specs[1..])
-        {
-            let run = bytes.run(
-                region,
-                source,
-                &kind.primary_segments(),
-                &kind.secondary_segments(),
-            )?;
-            let lanes = chip.operation_lanes()?;
-            let object = SignedObjectCells::from_run(
-                &mut UintChip::new(lanes.glue, lanes.range),
-                lanes.hash,
-                region,
-                kind,
-                &run,
-            )?;
-            context.push(ContextObjectCells::from_exact_run(
-                chip,
-                region,
-                *spec,
-                object.digest(),
-                &run,
-            )?);
-            objects.push(object);
-        }
+        )?;
+        let object_context =
+            ContextObjectCells::from_exact_run(chip, region, specs[1], object.digest(), &run)?;
         Ok(Self {
             receipt,
-            objects: objects.try_into().map_err(|_| Error::Synthesis)?,
-            context: context.try_into().map_err(|_| Error::Synthesis)?,
+            objects: [object],
+            context: [receipt_context, object_context],
         })
     }
     /// Same-tape object commitments rebound by every split stage.
-    pub const fn context(&self) -> &[ContextObjectCells; 4] {
+    pub const fn context(&self) -> &[ContextObjectCells; 2] {
         &self.context
     }
     /// Exact ordinary receipt parsed from the immutable stage context.
@@ -149,7 +129,7 @@ impl LoadObjects {
         region: &mut Region<'_, Fp>,
         input: LoadInputs<'_>,
     ) -> Result<(), Error> {
-        let statement = input.sigma.hard_statement()?;
+        let statement = input.statement;
         if statement.variant() != Variant::Load {
             return Err(Error::Synthesis);
         }
@@ -180,8 +160,13 @@ impl LoadObjects {
         Ok(())
     }
     /// Authenticate the own Advance receipt under the hard predecessor payment key.
+    ///
+    /// Λ proves the Load transition directly, so the receipt's sigma-only
+    /// `proof_digest` names a proof Λ does not consume: it is taken from the
+    /// signed receipt body itself, which the signature authenticates, and must
+    /// still be nonzero.
     /// # Errors
-    /// Wrong slot or operation; signature and exact sigma/statement bindings are hard.
+    /// Wrong slot or operation; the signature and statement bindings are hard.
     pub fn authenticate(
         &self,
         chip: &mut VerifierChip<Ep>,
@@ -189,7 +174,7 @@ impl LoadObjects {
         policy: OwnPolicy,
         input: LoadInputs<'_>,
     ) -> Result<(), Error> {
-        let statement = input.sigma.hard_statement()?;
+        let statement = input.statement;
         if statement.variant() != Variant::Load
             || input.signatures.len() != 1
             || input.signatures[0].key_policy() != SignatureKey::Variable
@@ -213,6 +198,7 @@ impl LoadObjects {
         let valid = self.objects[0].bind_signature(region, &input.signatures[0], &payment_key)?;
         GlueChip::assert_constant(region, valid.word(), Fp::ONE)?;
         let zero = uint.glue().constant(region, Fp::ZERO)?;
+        let proof_digest = self.objects[0].word(9)?.clone();
         let lanes = chip.operation_lanes()?;
         let valid = receipt::bind(
             &mut UintChip::new(lanes.glue, lanes.range),
@@ -223,43 +209,15 @@ impl LoadObjects {
                 wallet: &wallet,
                 provider: &provider,
                 statement,
-                proof_digest: input.sigma.step_digest()?,
+                proof_digest: &proof_digest,
                 payment_digest: &zero,
             },
         )?;
         GlueChip::assert_constant(region, valid.word(), Fp::ONE)
     }
-    /// Reverify the current credential and its Enrollment certificate for this step.
-    /// # Errors
-    /// Wrong signature count/root/scope, wrong own state, or layout failure.
-    pub fn authenticate_current(
-        &self,
-        chip: &mut VerifierChip<Ep>,
-        region: &mut Region<'_, Fp>,
-        policy: OwnPolicy,
-        input: LoadInputs<'_>,
-    ) -> Result<(), Error> {
-        if input.signatures.len() != 2 || input.sigma.hard_statement()?.variant() != Variant::Load {
-            return Err(Error::Synthesis);
-        }
-        authenticate_current(
-            chip,
-            region,
-            policy,
-            CurrentAuthorization {
-                credential: &self.objects[2],
-                certificate: &self.objects[1],
-                credential_proof: &input.signatures[0],
-                certificate_proof: &input.signatures[1],
-                current: input.predecessor,
-                statement: input.sigma.hard_statement()?,
-            },
-        )
-    }
     /// Prove the exact recovery insertion, arithmetic and unchanged-field rules.
     ///
-    /// This hard map obligation can occupy a separate fixed split stage from
-    /// object authentication, provided its state/statement is rebound by context.
+    /// This is the Load transition itself; no sigma proof is verified for it.
     ///
     /// # Errors
     /// Wrong statement/variant or layout error; incorrect paths are unsatisfiable.
@@ -269,7 +227,7 @@ impl LoadObjects {
         input: LoadInputs<'_>,
         insertion: &InsertCells,
     ) -> Result<(), Error> {
-        let statement = input.sigma.hard_statement()?;
+        let statement = input.statement;
         if statement.variant() != Variant::Load {
             return Err(Error::Synthesis);
         }
@@ -292,14 +250,15 @@ pub struct LoadStagePlan {
     context: super::context::ContextPlan,
 }
 impl LoadStagePlan {
-    /// Require recovery, receipt-term binding, own receipt authorization and current-credential
-    /// authorization exactly once, with hard signature Q slots1 and2 respectively.
+    /// Require recovery and the receipt-term binding with own receipt authorization
+    /// exactly once, the latter with the single hard own-receipt signature Q slot0.
     /// # Errors
     /// Wrong variant/task set, signature-Q count or stage assignment.
     pub fn new(context: super::context::ContextPlan) -> Result<Self, Error> {
         use super::schedule::OperationTask;
         if context.operation().frame().variant() != Variant::Load
-            || context.operation().q_count() != 3
+            || !context.operation().is_inline()
+            || context.operation().q_count() != 1
             || context.object_specs() != LoadObjects::context_specs()?
         {
             return Err(Error::Synthesis);
@@ -310,11 +269,9 @@ impl LoadStagePlan {
         OperationTask::validate(Variant::Load, &groups)?;
         let required = vec![
             vec![OperationTask::LoadRecovery],
-            vec![],
             vec![OperationTask::LoadReceipt],
-            vec![OperationTask::LoadCurrentAuthorization],
         ];
-        let partitions = [vec![], vec![0], vec![1], vec![2]];
+        let partitions = [vec![], vec![0]];
         if groups != required
             || context.predecessor_stage() != Some(0)
             || partitions
@@ -326,18 +283,13 @@ impl LoadStagePlan {
         }
 
         for (stage, tasks) in groups.iter().enumerate() {
-            for (task, q) in [
-                (OperationTask::LoadReceipt, 1),
-                (OperationTask::LoadCurrentAuthorization, 2),
-            ] {
-                if tasks.contains(&task)
-                    && !context
-                        .q_partition(stage)
-                        .ok_or(Error::Synthesis)?
-                        .contains(&q)
-                {
-                    return Err(Error::Synthesis);
-                }
+            if tasks.contains(&OperationTask::LoadReceipt)
+                && !context
+                    .q_partition(stage)
+                    .ok_or(Error::Synthesis)?
+                    .contains(&0)
+            {
+                return Err(Error::Synthesis);
             }
         }
         Ok(Self { context })
@@ -369,13 +321,7 @@ impl LoadStagePlan {
         if tasks.contains(&OperationTask::LoadRecovery) != insertion.is_some() {
             return Err(Error::Synthesis);
         }
-        let owning_q = if tasks.contains(&OperationTask::LoadReceipt) {
-            Some(1)
-        } else if tasks.contains(&OperationTask::LoadCurrentAuthorization) {
-            Some(2)
-        } else {
-            None
-        };
+        let owning_q = tasks.contains(&OperationTask::LoadReceipt).then_some(0);
         if owning_q.is_some() != signature.is_some() {
             return Err(Error::Synthesis);
         }
@@ -401,9 +347,6 @@ impl LoadStagePlan {
                 OperationTask::LoadReceipt => {
                     objects.bind_finalized_terms(region, input)?;
                     objects.authenticate(chip, region, policy, input)?;
-                }
-                OperationTask::LoadCurrentAuthorization => {
-                    objects.authenticate_current(chip, region, policy, input)?
                 }
                 _ => return Err(Error::Synthesis),
             }

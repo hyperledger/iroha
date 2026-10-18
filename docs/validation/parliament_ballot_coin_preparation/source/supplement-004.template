@@ -1,0 +1,111 @@
+"""Reconstruct one frozen full-cap source case; observe metadata and prefixes only."""
+import argparse
+import hashlib
+from itertools import islice
+import json
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+PREVIOUS = ROOT/'target/parliament-sequential-composition-stage/capture'
+RECEIPT_SHA = '5472577d2daca72943bd173bb0f1fdff0b47b62b4542e0007a68d61abde70498'
+OBSERVATION_SHA = '5d927aeb43f75a219243893e34eb9e593bf0fb11c0564455c34bfca18c63c008'
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def checked(path, expected):
+    data = path.read_bytes()
+    require(hashlib.sha256(data).hexdigest() == expected, 'input identity: '+str(path))
+    return data
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source-root', type=Path, required=True)
+    args = parser.parse_args()
+    source = args.source_root.resolve()
+    prior = json.loads(checked(PREVIOUS/'receipt.json', RECEIPT_SHA))
+    prior_observation = json.loads(checked(PREVIOUS/'observation.stdout', OBSERVATION_SHA))
+    pins = prior['source_sha256_before']
+    require(len(pins) == 159, 'source input membership')
+    for name, expected in pins.items():
+        checked(source/name, expected)
+    owned = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in (HERE/'purification.py', HERE/'observe.py')}
+    sys.path[:0] = [str(source/'target/parliament-sequential-composition-stage'),
+                   str(source/'target/parliament-ideal-machine-stage')]
+    from content_request import actual_content_request
+    from l0_machine import actual_lookup
+    from public_machine import PublicShape
+    from purification import PurifiedSequence
+    from request_family import ContentFamily, actual_rejected_vote
+    from sequence import Call, Geometry, Sequence
+
+    t, m, b, c = 1 << 44, 1 << 20, 64, 6882996
+    content = ContentFamily(actual_content_request(source,
+        PublicShape('VOTE', row='candidate', list_count=3), t, trials=m, length_bits=b))
+    lookup = actual_lookup(source, t, c, b)
+    rejection = actual_rejected_vote(source, 'candidate', 1001)
+    body = Sequence(Geometry(t*(m+2), b, 215150, 2112, 'one supplied F', 'agreed total completion'),
+                   (Call('content', content), Call('lookup', lookup), Call('rejected', rejection)))
+    require(json.loads(json.dumps(body.resources())) == prior_observation['sequence_resources'],
+            'exact prior body metadata')
+    wrapper = PurifiedSequence(body, source_root=source)
+    r = wrapper.resources()
+    require(r['original_coin_bits'] == 538737664, 'candidate VOTE coin count')
+    require(r['body_gates'] == body.resources()['gates'], 'unchanged body vector')
+    require(r['logical_bits'] == body.size+538737664, 'one retained purifier per coin')
+    require(r['preparation_gates'] == dict(h=538737664, cx=538737664), 'full-cap preparation cost')
+    p = wrapper.intervals
+    require(len(p) == 13 and p[0].field == 'iv_pre' and p[0].bits == 128
+            and p[1].field == 'salt' and p[1].coin == p[0].coin+128 and p[1].bits == 256,
+            'original private public-preparation fields')
+    require(p[0].coin == body.mappings[0].span(6680, 128), 'original iv_pre offset')
+    forward = list(islice(wrapper.emit_preparation(), 4))
+    inverse = list(islice(wrapper.emit_preparation(inverse=True), 4))
+    body_prefixes = [list(islice(body.emit_call(i), 4)) for i in range(3)]
+    require(json.loads(json.dumps(body_prefixes)) == prior_observation['observed_gate_prefixes'],
+            'unchanged body prefixes')
+    require(forward == [('h', p[0].coin), ('cx', p[0].coin, p[0].purifier),
+                        ('h', p[0].coin+1), ('cx', p[0].coin+1, p[0].purifier+1)], 'forward prefix')
+    last_coin, last_purifier = p[-1].coin+p[-1].bits-1, p[-1].purifier+p[-1].bits-1
+    require(inverse == [('cx', last_coin, last_purifier), ('h', last_coin),
+                        ('cx', last_coin-1, last_purifier-1), ('h', last_coin-1)], 'inverse prefix')
+    for name, expected in pins.items():
+        checked(source/name, expected)
+    require(owned == {name: hashlib.sha256((HERE/name).read_bytes()).hexdigest() for name in owned},
+            'owned implementation changed')
+    loaded = {}
+    for module in tuple(sys.modules.values()):
+        filename = getattr(module, '__file__', None)
+        if filename:
+            path = Path(filename).resolve()
+            if path.is_relative_to(source) and path.is_file():
+                relative = path.relative_to(source).as_posix()
+                loaded[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    selected = dict(pins)
+    if HERE.is_relative_to(source):
+        selected.update({(HERE/name).relative_to(source).as_posix(): h for name, h in owned.items()})
+    require(all(selected.get(name) == h for name, h in loaded.items()), 'loaded frozen modules selected')
+    report = dict(status='PASS', source_sha256_before=pins, source_sha256_after=pins,
+        owned_sources_sha256=owned, loaded_frozen_repository_modules=loaded,
+        selected_execution_sources_sha256=selected,
+        prior_body_observation_sha256=OBSERVATION_SHA,
+        parameters=prior_observation['parameters'], purification_resources=r,
+        observed_forward_preparation_prefix=forward, observed_inverse_preparation_prefix=inverse,
+        observed_body_prefixes=body_prefixes, source_schema_only_not_semantic_origin_attestation=True,
+        full_stream_executed=False, full_cap_quantum_state_allocated=False,
+        physical_preparation_executed=False, initial_state_checked=False,
+        full_adaptive_driver=False, full_joint_quantum_theorem=False,
+        complete_resource_vector=False, current_candidate_qualified=False,
+        profile_qualified=False, production_gate_changed=False)
+    print(json.dumps(report, indent=2, sort_keys=True))
+
+
+if __name__ == '__main__':
+    main()

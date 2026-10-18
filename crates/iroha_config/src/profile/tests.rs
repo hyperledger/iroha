@@ -582,9 +582,10 @@ fn digests_are_pinned() {
     let profile = sora();
     // The first-release profile admits complete 17 MiB transaction-gossip frames.
     // Pipeline fee and ZK validity policies belong to committed parameters.
+    // The static SCCP staking policy binds 21-day unbonding and 10000-bps maximum slashing.
     assert_eq!(
         profile.consensus_digest(4).unwrap().to_string(),
-        "a4b90a9c3e3cbb2c70690511bf4296ebeecafa1dc427274b4d9fc75f53e1476b"
+        "79d3b3663e8c5f6349852e8c90f15130a2c73e31f58ee1f0b1bd80d750990449"
     );
     // The retired Torii KAGEMUSHA command policy is absent from this canonical input.
     // Native proof-backend selection above does not change this separate policy input.
@@ -592,6 +593,63 @@ fn digests_are_pinned() {
         profile.policy_digest().unwrap().to_string(),
         "cd24824ed35812f798b8c01ed965b23fdfd535795a4c402de87d0d4fd41e47a7"
     );
+}
+
+#[test]
+fn compiled_sccp_staking_policy_is_bound_into_consensus_digest() {
+    let profile = sora();
+    let consensus = profile.consensus_digest(4).unwrap();
+    let policy = profile.policy_digest().unwrap();
+    for (key, required, altered) in [
+        (
+            "nexus.staking.unbonding_delay_ms",
+            1_814_400_000,
+            1_814_399_999,
+        ),
+        ("nexus.staking.max_slash_bps", 10_000, 9_999),
+    ] {
+        assert_eq!(integer_at(&profile.static_config, key), required, "{key}");
+        // Change one typed consensus input at a time without changing any policy leaf.
+        // This clone tests hashing sensitivity; it is never admitted as a node profile.
+        let mut changed = profile.clone();
+        set(
+            &mut changed.static_config,
+            key,
+            toml::Value::Integer(altered),
+        );
+        assert_ne!(changed.consensus_digest(4).unwrap(), consensus, "{key}");
+        assert_eq!(changed.policy_digest().unwrap(), policy, "{key}");
+    }
+
+    // Causal input control for the stale golden: removing exactly the two newly committed
+    // leaves recovers the old preimage's digest. This deliberately altered test clone is not
+    // a supported profile, startup path, or compatibility decoder.
+    let mut omitted = profile.clone();
+    let staking = omitted
+        .static_config
+        .get_mut("nexus")
+        .unwrap()
+        .as_table_mut()
+        .unwrap()
+        .get_mut("staking")
+        .unwrap()
+        .as_table_mut()
+        .unwrap();
+    assert_eq!(
+        staking.remove("unbonding_delay_ms"),
+        Some(toml::Value::Integer(1_814_400_000))
+    );
+    assert_eq!(
+        staking.remove("max_slash_bps"),
+        Some(toml::Value::Integer(10_000))
+    );
+    assert_eq!(
+        omitted.consensus_digest(4).unwrap().to_string(),
+        "a4b90a9c3e3cbb2c70690511bf4296ebeecafa1dc427274b4d9fc75f53e1476b",
+        "only the two signed staking leaves account for this digest change"
+    );
+    assert_ne!(omitted.consensus_digest(4).unwrap(), consensus);
+    assert_eq!(omitted.policy_digest().unwrap(), policy);
 }
 
 #[test]

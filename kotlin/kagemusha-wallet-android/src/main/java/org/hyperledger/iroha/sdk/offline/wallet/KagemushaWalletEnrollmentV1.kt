@@ -31,8 +31,8 @@ internal interface KagemushaWalletEnrollmentDriverV1 {
 }
 internal object NativeEnrollmentDriver : KagemushaWalletEnrollmentDriverV1 {
     override fun call(handle: Long, selector: Int, first: ByteArray, second: ByteArray, third: ByteArray, certificates: Array<ByteArray>) =
-        KagemushaWalletNativeV1.enrollment(handle, selector, first, second, third, certificates)
-    override fun close(handle: Long) = KagemushaWalletNativeV1.close(handle)
+        KagemushaWalletNativeCallsV1.enrollment(handle, selector, first, second, third, certificates)
+    override fun close(handle: Long) = KagemushaWalletNativeCallsV1.close(handle)
 }
 /**
  * Design §3.2 abandonment result. Both forms are durable on the phone before they are returned,
@@ -86,6 +86,8 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
         const val RESULT_MAX_BYTES = 262_144
         const val DISPATCH_MAX_BYTES = 16_384
         const val PERMIT_MAX_BYTES = 2_048
+        /** Bound of the issuer-signed proof for an expired Accepted/no-Slot attempt. */
+        const val EXPIRY_PROOF_MAX_BYTES = 4_096
         /** Bound of the retained signed Abandonment frame (marker form). */
         const val ABANDONMENT_MAX_BYTES = 1_024
         /** Android E5 chain bounds: 2–8 DER certificates, each 1–16,384 bytes, at most 65,536 bytes. */
@@ -104,7 +106,7 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
     private fun call(selector: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf(), third: ByteArray = byteArrayOf(), certificates: List<ByteArray> = emptyList()): KagemushaWalletCallV1 {
         if (retired) throw closeFailure ?: KagemushaWalletExceptionV1(-2)
         if (owner == 0L) throw KagemushaWalletExceptionV1(-2)
-        val limits = when (selector) { 0 -> listOf(32,4096,1024); 1,5 -> listOf(64,0,0); 2,3,7,10,16,18,20 -> listOf(0,0,0); 4 -> listOf(32,65536,4096); 6 -> listOf(RESULT_MAX_BYTES,0,0); 9 -> listOf(PERMIT_MAX_BYTES,0,0); 19 -> listOf(16384,4096,16384); else -> throw IllegalArgumentException("selector") }
+        val limits = when (selector) { 0 -> listOf(32,4096,1024); 1,5 -> listOf(64,0,0); 2,3,7,10,16,18,20 -> listOf(0,0,0); 4 -> listOf(32,65536,4096); 6 -> listOf(RESULT_MAX_BYTES,0,0); 9 -> listOf(PERMIT_MAX_BYTES,0,0); 19 -> listOf(16384,4096,16384); 21 -> listOf(EXPIRY_PROOF_MAX_BYTES,0,0); else -> throw IllegalArgumentException("selector") }
         require(listOf(first,second,third).zip(limits).all { (bytes,bound) -> bytes.size <= bound })
         // Android evidence is the leaf-first KeyMint chain only: no token or verdict rides along.
         require(if (selector == 3) certificates.size in CHAIN_MIN_CERTIFICATES..CHAIN_MAX_CERTIFICATES &&
@@ -112,7 +114,7 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
             else certificates.isEmpty()) { "Android E5 evidence is 2-8 DER certificates, each 1-16,384 bytes, at most 65,536 bytes" }
         val value = driver.call(owner,selector,first.copyOf(),second.copyOf(),third.copyOf(),certificates.map { it.copyOf() }.toTypedArray()) ?: throw KagemushaWalletExceptionV1(-100)
         if (value.status < 0) throw KagemushaWalletExceptionV1(value.status,value.reason,value.platformCode)
-        val expected = when (selector) { 0 -> setOf(27); 1,2 -> setOf(19,20,21,22); 3,4 -> setOf(23,24); 5 -> setOf(24); 6 -> setOf(25); 7 -> setOf(26); 9 -> setOf(18); 10 -> setOf(KagemushaWalletCallV1.ENROLLMENT_ABANDONMENT, KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED); 16 -> setOf(20,24); 18 -> setOf(20,25); 19 -> setOf(39); 20 -> setOf(58,59); else -> emptySet() }
+        val expected = when (selector) { 0 -> setOf(27); 1,2 -> setOf(19,20,21,22); 3,4 -> setOf(23,24); 5 -> setOf(24); 6 -> setOf(25); 7 -> setOf(26); 9 -> setOf(18); 10 -> setOf(KagemushaWalletCallV1.ENROLLMENT_ABANDONMENT, KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED); 16 -> setOf(20,24); 18 -> setOf(20,25); 19 -> setOf(39); 20 -> setOf(58,59); 21 -> setOf(KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED); else -> emptySet() }
         val bound = when (value.status) { 18,23 -> 32; 19 -> 161; 24 -> REQUEST_MAX_BYTES; 25 -> RESULT_MAX_BYTES; 27 -> DISPATCH_MAX_BYTES; 28 -> ABANDONMENT_MAX_BYTES; 59 -> 65_536; else -> 0 }
         val size = value.bytes().size
         if (value.status !in expected || value.sequenceLow != owner || value.sequenceHigh != 0L || value.detail != 0 ||
@@ -175,18 +177,26 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
     /** Exact authenticated durable E6, including issuer evidence, for interrupted delivery.
      * Only Native's explicit absence outcome permits null; provider errors are preserved. */
     @Synchronized fun retainedResult(): ByteArray? = call(18).let { if (it.status == 25) it.bytes() else null }
-    /** Qualify all installed sources before transferring this handle to original wallet open. */
+    /** Transfer the same qualified Native owner to original wallet open after durable enrollment. */
     @Synchronized fun loadRuntime(): KagemushaWalletRuntimeV1 {
         exact(call(7),26)
         val runtime = KagemushaWalletRuntimeV1(owner, platformOwner)
         owner = 0
         return runtime
     }
+    /** Transfer the enrolled owner, including its qualified sources and platform custody, once.
+     * Closing this enrollment after transfer cannot close the returned owner. Original E6 and
+     * existing-account admission are still required before a wallet can be opened. */
+    fun loadInstalledRuntime(): KagemushaWalletInstalledRuntimeV1 {
+        KagemushaWalletInstalledRuntimeV1.requireNoUnreleasedAdmissions()
+        return KagemushaWalletInstalledRuntimeV1.adoptEnrolled(loadRuntime())
+    }
     /**
      * Permanently abandon this unused enrollment (design §3.2), for example after an E1 refusal,
      * an ineligible pre-E5 check or an interruption that cannot resume. Native chooses the form
      * from the slot's durable state: [KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned] when
-     * no marker exists (nothing to submit), otherwise the exact retained signed
+     * the authenticated retained Client has no accepted permit or selected slot, or no marker
+     * exists in a selected slot (nothing to submit), otherwise the exact retained signed
      * [KagemushaWalletEnrollmentAbandonmentV1.Abandonment] frame, byte for byte on every retry.
      * Native refuses once Bootstrap is selected; a returned frame does not mean the ledger
      * accepted it. A fresh enrollment may start as soon as this returns.
@@ -206,6 +216,17 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
     @Synchronized fun abandonmentLedgerInstruction(): ByteArray? {
         val value = call(20)
         return if (value.status == KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED) null else value.bytes()
+    }
+    /**
+     * Permanently release an Accepted/no-Slot attempt after Native authenticates the exact
+     * issuer-signed expiry [proof] and durably retains its immutable Expired marker. This path
+     * never handles a selected Slot or emits a ledger instruction. Native refusal or uncertain
+     * storage remains an error, never a completed abandonment.
+     */
+    @Synchronized fun abandonExpired(proof: ByteArray): KagemushaWalletEnrollmentAbandonmentV1 {
+        require(proof.size in 1..EXPIRY_PROOF_MAX_BYTES)
+        exact(call(21, proof), KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED)
+        return KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned
     }
     @Synchronized override fun close() { closeFailure?.let { throw it }; closeAttempt() }
     @Synchronized override fun retryCleanup() { closeAttempt() }

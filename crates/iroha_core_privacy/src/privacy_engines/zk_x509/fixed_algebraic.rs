@@ -36,7 +36,7 @@ use thiserror::Error;
 #[path = "fixed_algebraic_oods_tests.rs"]
 mod oods_tests;
 /// Exact first-release semantics committed alongside every schedule digest.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_DESCRIPTOR_V1: &[u8] = b"zk-x509-fixed-algebraic-v1-incompatible:verifier-derived-only:no-proof-fixed-material:no-artifact:no-merkle:additive-canonical-atoms=affine-range+repeated-affine-stride+sparse:overlap=goldilocks-field-addition:exact-duplicate-atoms-rejected:semantically-equivalent-alternate-decompositions-have-distinct-descriptor-digests:goldilocks-modulus=0xffffffff00000001:native-root-domain:generator-shifted-lde-coset:coset-disjoint-from-lde-subgroup:query-index-derived-point:residue-grouped-barycentric-lagrange:batch-inverted-native-denominators:cyclic-prefix-affine-sums:repeated-sums=generic-gcd-cycles+reduced-stride-modular-inverse+cyclic-weight-and-ordinal-prefixes+per-stride-min-direct-occurrence-work-vs-native-prefix-work:one-column-native-streaming:no-native-times-width-or-lde-table:bounded-native20-lde25-blowup8-width472-atoms65536-queries272-output-fields128384-work2pow28:digest=sha3-384-opaque48:wire=X5K1+u16be-version1+u16be-header24+native-log2-u8+lde-log2-u8+width-u16be+atom-count-u32be+coset-shift-u64be+canonical-variable-atoms:first-release-no-legacy";
+pub const ZK_X509_FIXED_ALGEBRAIC_DESCRIPTOR_V1: &[u8] = b"zk-x509-fixed-algebraic-v1-incompatible:verifier-derived-only:no-proof-fixed-material:no-artifact:no-merkle:additive-canonical-atoms=affine-range+repeated-affine-stride+sparse:overlap=goldilocks-field-addition:exact-duplicate-atoms-rejected:semantically-equivalent-alternate-decompositions-have-distinct-descriptor-digests:goldilocks-modulus=0xffffffff00000001:native-root-domain:generator-shifted-lde-coset:coset-disjoint-from-lde-subgroup:query-index-derived-point:residue-grouped-barycentric-lagrange:batch-inverted-native-denominators:cyclic-prefix-affine-sums:repeated-sums=generic-gcd-cycles+reduced-stride-modular-inverse+cyclic-weight-and-ordinal-prefixes+per-stride-min-direct-occurrence-work-vs-native-prefix-work:one-column-native-streaming:no-native-times-width-or-lde-table:bounded-native20-lde25-blowup8-width472-atoms65536-queries272-output-fields128384-work2pow28:digest=sha3-384-opaque48:wire=X5K1+u16be-version1+u16be-header24+native-log2-u8+lde-log2-u8+width-u16be+atom-count-u32be+coset-shift-u64be+canonical-variable-atoms:first-release-no-legacy";
 const ZK_X509_FIXED_ALGEBRAIC_MAGIC_V1: [u8; 4] = *b"X5K1";
 const ZK_X509_FIXED_ALGEBRAIC_VERSION_V1: u16 = 1;
 const ZK_X509_FIXED_ALGEBRAIC_HEADER_BYTES_V1: u16 = 24;
@@ -50,23 +50,23 @@ const ZK_X509_FIXED_ALGEBRAIC_REPEATED_BYTES_V1: usize = 43;
 const ZK_X509_FIXED_ALGEBRAIC_SPARSE_BYTES_V1: usize = 19;
 const ZK_X509_FIXED_ALGEBRAIC_BUILDER_GROWTH_V1: usize = 256;
 /// Largest native domain accepted by the first-release kernel.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_NATIVE_LOG2_V1: u8 = 20;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_NATIVE_LOG2_V1: u8 = 20;
 /// Largest extension domain accepted by the first-release kernel.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_LDE_LOG2_V1: u8 = 25;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_LDE_LOG2_V1: u8 = 25;
 /// Largest supported LDE-to-native power-of-two ratio.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_BLOWUP_LOG2_V1: u8 = 8;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_BLOWUP_LOG2_V1: u8 = 8;
 /// Largest fixed-column width accepted by one schedule.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_WIDTH_V1: u16 = 472;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_WIDTH_V1: u16 = 472;
 /// Largest canonical atom collection accepted by one schedule.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_ATOMS_V1: usize = 65_536;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_ATOMS_V1: usize = 65_536;
 #[cfg(test)]
 /// Largest canonical verifier query set accepted in one batch.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_QUERIES_V1: usize = 272;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_QUERIES_V1: usize = 272;
 #[cfg(test)]
 /// Largest row-major result, measured in Goldilocks elements.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_OUTPUT_FIELDS_V1: usize = 272 * 472;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_OUTPUT_FIELDS_V1: usize = 272 * 472;
 /// Deterministic cap on the evaluator's coarse field-operation work score.
-pub(crate) const ZK_X509_FIXED_ALGEBRAIC_MAX_EVALUATION_WORK_V1: u64 = 1_u64 << 28;
+pub const ZK_X509_FIXED_ALGEBRAIC_MAX_EVALUATION_WORK_V1: u64 = 1_u64 << 28;
 /// Fail-closed error from construction, binding, or deterministic evaluation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 #[doc(hidden)]
@@ -129,7 +129,7 @@ fn canonical_field_v1(value: F) -> bool {
 }
 /// Checked native and extension-domain geometry for one fixed schedule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509FixedAlgebraicDomainV1 {
+pub struct ZkX509FixedAlgebraicDomainV1 {
     native_log2: u8,
     lde_log2: u8,
     coset_shift: F,
@@ -229,7 +229,7 @@ impl ZkX509FixedAlgebraicDomainV1 {
 }
 /// One additive compact atom in a verifier-owned native fixed schedule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509FixedAlgebraicAtomV1 {
+pub enum ZkX509FixedAlgebraicAtomV1 {
     /// `value(row) = start_value + step * (row - start)` for `start..end`.
     Affine {
         /// Fixed-column index.
@@ -527,7 +527,7 @@ impl ZkX509FixedAlgebraicAtomV1 {
     }
 }
 /// Incremental checked builder for one canonical fixed schedule.
-pub(crate) struct ZkX509FixedAlgebraicScheduleBuilderV1 {
+pub struct ZkX509FixedAlgebraicScheduleBuilderV1 {
     domain: ZkX509FixedAlgebraicDomainV1,
     width: u16,
     atoms: Vec<ZkX509FixedAlgebraicAtomV1>,
@@ -625,7 +625,7 @@ fn validate_width_v1(width: u16) -> Result<(), ZkX509FixedAlgebraicErrorV1> {
 }
 /// Closed, immutable, canonically bound verifier-owned fixed schedule.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509FixedAlgebraicScheduleV1 {
+pub struct ZkX509FixedAlgebraicScheduleV1 {
     domain: ZkX509FixedAlgebraicDomainV1,
     width: u16,
     atoms: Vec<ZkX509FixedAlgebraicAtomV1>,
@@ -1966,7 +1966,7 @@ impl<A: PolynomialAirFieldV1> CyclicStrideTableV1<A> {
 }
 /// Canonical row-major verifier-derived fixed openings.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509FixedAlgebraicOpeningsV1 {
+pub struct ZkX509FixedAlgebraicOpeningsV1 {
     schedule_digest: PrivacyOuterDigestV1,
     query_indices: Vec<u64>,
     width: u16,

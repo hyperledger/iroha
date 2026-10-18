@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests ensuring executor-enforced permission policies.
 use eyre::Result;
 use integration_tests::{metrics::MetricsReader, sandbox, sync::sync_after_submission};

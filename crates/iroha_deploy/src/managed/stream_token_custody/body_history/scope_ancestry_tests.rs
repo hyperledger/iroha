@@ -228,6 +228,8 @@ fn graph_scope_ancestry_preserves_missing_foreign_and_parser_scope_recipes() {
     assert_eq!((counts.full, counts.tree, counts.inventories), (2, 0, 2));
     // The parser lends its already-owned native tree, without graph-only Original coverage.
     EnrollmentReadPass::run(&snapshot, |pass| {
+        use operation_scope_tests::Point as Leaf;
+
         pass.test_retain_predecessor(native)?;
         let read = |original| {
             counted(original, None, || {
@@ -256,7 +258,6 @@ fn graph_scope_ancestry_preserves_missing_foreign_and_parser_scope_recipes() {
         // read the mandatory pristine image once; all logical child frames remain absent.
         assert_eq!(new_records, [2, 0, 0, 0]);
         assert_eq!(new_leaves, old_leaves);
-        use operation_scope_tests::Point as Leaf;
         assert_eq!(
             new_leaves,
             [
@@ -636,16 +637,14 @@ impl LocalSourceRestore {
 #[cfg(unix)]
 impl Drop for LocalSourceRestore {
     fn drop(&mut self) {
-        match &self.original {
-            Some(bytes) => self
-                .directory
+        if let Some(bytes) = &self.original {
+            self.directory
                 .write_atomic("original.nrt", bytes, PublishMode::Replace)
-                .unwrap(),
-            None => {
-                let path = self.directory.path().join("foreign");
-                if path.exists() {
-                    std::fs::remove_file(path).unwrap();
-                }
+                .unwrap();
+        } else {
+            let path = self.directory.path().join("foreign");
+            if path.exists() {
+                std::fs::remove_file(path).unwrap();
             }
         }
     }

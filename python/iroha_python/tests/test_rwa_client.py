@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from iroha_python import F
-
 from iroha_python.client import ToriiClient
 
 from .helpers import RecordingSession, StubResponse

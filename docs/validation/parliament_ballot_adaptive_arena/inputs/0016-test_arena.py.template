@@ -1,0 +1,271 @@
+"""Actual source components, arithmetic allocation and conditional lifecycle controls."""
+from collections import Counter
+from dataclasses import FrozenInstanceError, replace
+from itertools import islice
+from pathlib import Path
+from unittest.mock import patch
+import pytest
+import arena as a
+
+
+@pytest.fixture(scope='module')
+def source():
+    return a.Source(a.ROOT)
+
+
+def budget(**changes):
+    return replace(a.Budget('candidate', 2, 2, 2, 6882996, 64, 1024,
+                           'conservative-total-calls', 'one immutable F', 'agreed completion'), **changes)
+
+
+def ready(source, **changes):
+    result = a.OnlineArena(a.Plan(source, budget(**changes)))
+    result.acknowledge_prepared_banks(a.PREPARED)
+    return result
+
+
+def run_sparse(state, gates):
+    """Independent Boolean interpreter on sparse wires; rejected bodies have no F."""
+    counts = Counter()
+    for gate in gates:
+        op, *wires = gate
+        assert op in ('x', 'cx', 'ccx') and len(set(wires)) == len(wires)
+        if all(wire in state for wire in wires[:-1]):
+            if wires[-1] in state:
+                state.remove(wires[-1])
+            else:
+                state.add(wires[-1])
+        counts[op] += 1
+    return counts
+
+
+@pytest.mark.parametrize('j',[0,1,2,3,999,1000,1001,1022,1023,1024,2048,(1 << 63),(1 << 64)-1])
+def test_rejected_popcount_attaining_witness_and_hole(j):
+    n = a.rejected_witness(j)
+    assert 0 <= n <= j and not 3 <= n <= 1000
+    if j < 3000:
+        assert n.bit_count() == max(x.bit_count() for x in range(j+1) if not 3 <= x <= 1000)
+    elif j == (1 << 64)-1:
+        assert n == j
+    else:
+        assert n == j-1
+
+
+def test_all_small_rejected_length_bounds_exhaustively():
+    best = 0
+    for j in range(5000):
+        if not 3 <= j <= 1000:
+            best = max(best, j.bit_count())
+        assert a.rejected_witness(j).bit_count() == best
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('t,i,b',[(1,0,23),(0,2,64),(3,4,4096)])
+def test_plan_uses_total_call_geometry_reprices_and_separates_gate_maxima(source,row,t,i,b):
+    plan = a.Plan(source, budget(row=row, valid=t, invalid=i, length_bits=b))
+    report = plan.resources()
+    assert plan.geometry.capacity == (t+i)*(a.M+2)
+    reg = a.family.envelope(source.catalog,row,'REG',t+i,b)
+    vote = a.family.envelope(source.catalog,row,'VOTE',t+i,b)
+    assert reg['coordinatewise_gate_upper_vector']['elementary_gates'] == reg['exact_coordinate_maxima']['elementary_gates']+468
+    expected = {k:max(reg['exact_coordinate_maxima'][k],vote['exact_coordinate_maxima'][k]) for k in dict(plan.valid_maxima)}
+    assert dict(plan.valid_maxima) == expected
+    for key in a.GATE_KEYS:
+        assert report['coordinatewise_body_gate_upper'][key] == (
+            t*dict(plan.valid_maxima)[key]+i*dict(plan.invalid_maxima)[key]+2*dict(plan.query_gates)[key])
+    assert report['separately_bounded_body_elementary'] <= report['coordinatewise_body_gate_upper']['elementary_gates']
+    assert plan.size == (plan.geometry.log_bits+plan.geometry.counter_bits+
+        (t+i)*(plan.public+2*plan.coins+plan.output)+2*plan.query_stride+plan.work)
+    assert report['preparation_gates'] == dict(h=(t+i)*plan.coins,cx=(t+i)*plan.coins)
+
+
+def test_fixed_slots_disjoint_immutable_and_huge_caps_do_not_allocate_lists(source):
+    plan = a.Plan(source, budget(valid=1 << 63, invalid=1 << 63, queries=1 << 80, rejected_length=(1 << 64)-1))
+    first, last = plan.request_slot(0), plan.request_slot((1 << 64)-1)
+    assert first['public'].start == plan.geometry.log_bits+plan.geometry.counter_bits
+    assert last['purifier'].start+last['purifier'].bits == plan.query_start
+    assert plan.query_slot((1 << 80)-1)['output'].start+a.V == plan.work_start
+    assert first['coins'].start+first['coins'].bits == first['output'].start
+    assert first['purifier'].start+first['purifier'].bits == plan.request_slot(1)['public'].start
+    with pytest.raises(FrozenInstanceError): plan.size = 3
+    arena = a.OnlineArena(plan)
+    with pytest.raises(AttributeError): arena.plan = a.Plan(source,budget())
+
+
+def test_zero_request_budget_query_only_uses_true_zero_log_case(source):
+    with patch.object(a.family,'envelope',side_effect=AssertionError('no request family at S0')):
+        arena = a.OnlineArena(a.Plan(source,budget(valid=0,invalid=0,queries=1)))
+    assert tuple(arena.emit_preparation()) == () and arena.phase == 'body'
+    r = arena.bind_lookup(query_contract=a.QUERY)
+    assert arena.plan.geometry.capacity == 0 and arena.plan.coins == 0
+    assert r.description.gates.as_dict() == a.report(dict(x=0,cx=0,ccx=2112,base_xor_oracle_calls=2))
+    stream = arena.emit_next()
+    prefix = tuple(islice(stream,3))
+    assert len(prefix) == 3 and all(g[0] in ('F:variable','ccx') for g in prefix)
+    for gate in prefix:
+        if gate[0] == 'F:variable':
+            assert gate[2] == 64 and gate[4] == 6882996 and gate[6] == 2112
+    rest = tuple(stream)
+    assert len(rest) == 2111
+    assert arena.resources()['stream_consumed_calls'] == 1
+    assert tuple(arena.emit_chosen_inverse()) == (*prefix,*rest)
+    assert arena.phase == 'body-undone'
+
+
+def test_online_choice_after_actual_output_keeps_all_prior_maps_and_true_inverse(source):
+    arena = ready(source,valid=0,invalid=2,queries=0)
+    first = arena.bind_rejected(1024,entry_contract=a.REJECTED)
+    first_map = first.mapping
+    state = set()
+    # Preserve arbitrary caller targets; rejected native-sized body never reads list bits.
+    out = arena.plan.request_slot(0)['output'].start
+    state.add(out+7)
+    before = state.copy()
+    counts = run_sparse(state,arena.emit_next())
+    assert counts == {k:first.description.gates.as_dict()[k] for k in ('x','cx','ccx')}
+    output_changed = any((out+i in state) != (out+i in before) for i in range(253))
+    assert output_changed
+    selected = 2 if output_changed else 1001
+    second = arena.bind_rejected(selected,entry_contract=a.REJECTED)
+    assert second.call.machine.list_count == 2 and first.mapping == first_map
+    assert first.mapping.span(0,first.call.machine.input_bits) == arena.plan.request_slot(0)['public'].start
+    run_sparse(state,arena.emit_next())
+    assert not any(arena.plan.work_start <= wire < arena.plan.size for wire in state)
+    assert arena.counts == (0,2,0) and len(arena.trace) == 2
+    run_sparse(state,arena.emit_chosen_inverse())
+    assert state == before
+    assert arena.resources()['external_controller_inverse_implemented'] is False
+
+
+def test_actual_REG_selected_after_rejection_and_original_coin_split(source):
+    arena = ready(source,valid=1,invalid=1,queries=0)
+    first = arena.bind_rejected(0,entry_contract=a.REJECTED)
+    state = set()
+    run_sparse(state,arena.emit_next())
+    shape = a.PublicShape('REG',body_bytes=37 if state else 0,context_bytes=(0,1,7,63,255,256))
+    bound = arena.bind_reg(shape,entry_contract=a.VALID)
+    public = 8*(shape.body_bytes+sum(shape.context_bytes)+192)
+    assert bound.mapping.span(0,public) == arena.plan.request_slot(1)['public'].start
+    assert bound.mapping.span(public,bound.description.coin_bits) == arena.plan.request_slot(1)['coins'].start
+    with pytest.raises(ValueError,match='crosses'): bound.mapping.span(public-1,2)
+    assert bound.description.coin_bits < arena.plan.coins  # role maximum is VOTE
+    prefix = tuple(islice(arena.emit_next(),4))
+    assert len(prefix) == 4
+    assert first.mapping.span(0,3608) == arena.plan.request_slot(0)['public'].start
+    assert arena.resources()['chosen_body_gates']['base_xor_oracle_calls'] == bound.description.gates.base_calls
+
+
+def test_actual_bounded_invalid_content_factory_metadata_and_stable_coin_prefix(source):
+    arena = ready(source,valid=0,invalid=1,queries=0)
+    shape = a.PublicShape('VOTE',list_count=7)
+    bound = arena.bind_vote(shape,entry_contract=a.INVALID)
+    assert type(bound.call.machine) is a.ContentFamily
+    assert bound.description.reservation == a.M+2
+    assert arena.plan.geometry.capacity == a.M+2
+    assert bound.mapping.span(3608+1024*7,bound.description.coin_bits) == arena.plan.request_slot(0)['coins'].start
+    assert bound.description.coin_bits == arena.plan.coins
+    assert len(tuple(islice(arena.emit_next(),3))) == 3
+    assert not arena.resources()['entry_and_witness_contract_checked']
+
+
+@pytest.mark.parametrize('change',[dict(valid=True),dict(valid=-1),dict(invalid=(1 << 64)+1),
+    dict(valid=1 << 64,invalid=1),dict(queries=-1),dict(queries=True),dict(length_bits=22),
+    dict(length_bits=4097),dict(message_bytes=6882995),dict(message_bytes=1 << 64),
+    dict(rejected_length=-1),dict(rejected_length=1 << 64),dict(log_policy='valid-only'),
+    dict(oracle=''),dict(completion=''),dict(row='third')])
+def test_explicit_budget_and_geometry_refusals(change):
+    with pytest.raises(ValueError): budget(**change)
+
+
+@pytest.mark.parametrize('category',['valid','invalid','query'])
+def test_each_budget_refused_before_mutation_or_factory(source,category):
+    changes = dict(valid=0,invalid=0,queries=0)
+    arena = ready(source,**changes)
+    before = (arena.trace,arena.counts,arena.phase)
+    with patch.object(a,'actual_transition',side_effect=AssertionError('no factory')), \
+         patch.object(a,'actual_rejected_vote',side_effect=AssertionError('no factory')), \
+         patch.object(a,'actual_lookup',side_effect=AssertionError('no factory')):
+        with pytest.raises(ValueError,match='budget exhausted'):
+            if category == 'valid':arena.bind_reg(a.PublicShape('REG'),entry_contract=a.VALID)
+            elif category == 'invalid':arena.bind_rejected(0,entry_contract=a.REJECTED)
+            else:arena.bind_lookup(query_contract=a.QUERY)
+    assert before == (arena.trace,arena.counts,arena.phase)
+
+
+@pytest.mark.parametrize('operation',[lambda x:x.bind_reg(a.PublicShape('REG'),entry_contract='witness-invalid'),
+    lambda x:x.bind_vote(a.PublicShape('VOTE',list_count=2),entry_contract=a.INVALID),
+    lambda x:x.bind_vote(a.PublicShape('VOTE',row='comparator',list_count=3),entry_contract=a.VALID),
+    lambda x:x.bind_rejected(1025,entry_contract=a.REJECTED),
+    lambda x:x.bind_rejected(3,entry_contract=a.REJECTED),
+    lambda x:x.bind_lookup(query_contract='noncanonical'),
+    lambda x:x.bind_reg({'role':'REG'},entry_contract=a.VALID)])
+def test_unsupported_paths_are_unknown_and_refused_before_trace_mutation(source,operation):
+    arena = ready(source)
+    before = (arena.trace,arena.counts,arena.phase)
+    with pytest.raises(ValueError):operation(arena)
+    assert before == (arena.trace,arena.counts,arena.phase)
+
+
+def test_preparation_and_atomic_lifecycle_never_treat_iterator_creation_as_completion(source):
+    arena = a.OnlineArena(a.Plan(source,budget(valid=0,invalid=1,queries=0)))
+    iterator = arena.emit_preparation()
+    assert arena.phase == 'preparing'
+    first = next(iterator)
+    assert first == ('h',arena.plan.request_slot(0)['coins'].start)
+    with pytest.raises(ValueError):arena.emit_preparation()
+    with pytest.raises(ValueError):arena.acknowledge_prepared_banks(a.PREPARED)
+    with pytest.raises(ValueError):arena.bind_rejected(0,entry_contract=a.REJECTED)
+    active = ready(source,valid=0,invalid=2,queries=0)
+    active.bind_rejected(0,entry_contract=a.REJECTED)
+    with pytest.raises(ValueError):active.bind_rejected(1,entry_contract=a.REJECTED)
+    pending = active.emit_next()
+    with pytest.raises(ValueError):active.emit_next()
+    with pytest.raises(ValueError):active.bind_rejected(1,entry_contract=a.REJECTED)
+    with pytest.raises(ValueError):active.emit_chosen_inverse()
+    tuple(pending)
+    active.bind_rejected(1,entry_contract=a.REJECTED)
+    assert active.counts == (0,2,0)
+
+
+def test_sources_verified_before_every_bind_emission_and_after_consumption(source):
+    arena = ready(source,valid=0,invalid=1,queries=0)
+    original = Path.read_bytes
+    selected = a.ROOT/'target/parliament-sequential-composition-stage/sequence.py'
+    def changed(path):
+        return original(path)+(b'\n' if path == selected else b'')
+    with patch.object(Path,'read_bytes',changed):
+        with pytest.raises(ValueError,match='source drift'):arena.bind_rejected(0,entry_contract=a.REJECTED)
+    assert arena.trace == () and arena.counts == (0,0,0)
+    arena.bind_rejected(0,entry_contract=a.REJECTED)
+    with patch.object(Path,'read_bytes',changed):
+        with pytest.raises(ValueError,match='source drift'):arena.emit_next()
+    stream = arena.emit_next()
+    next(stream)
+    with patch.object(Path,'read_bytes',changed):
+        with pytest.raises(ValueError,match='source drift'):tuple(stream)
+    assert arena.resources()['stream_consumed_calls'] == 0
+    with pytest.raises(ValueError):arena.emit_chosen_inverse()
+
+
+def test_wrong_origin_dependency_outside_expected_relative_suffix_is_refused(source):
+    arena = ready(source,valid=0,invalid=1,queries=0)
+    module = a.sys.modules['public_machine']
+    with patch.object(module,'__file__','/other/public_machine.py'):
+        with pytest.raises(ValueError,match='loaded module source root'):
+            arena.bind_rejected(0,entry_contract=a.REJECTED)
+    assert arena.trace == () and arena.counts == (0,0,0)
+
+
+def test_scope_retains_unknown_entry_and_all_qualification_flags(source):
+    arena = ready(source)
+    report = arena.resources()
+    assert report['valid_cap'] == report['invalid_typed_body_cap'] == 2
+    assert report['log_sizing_total_calls'] == 4
+    assert len(report['source_sha256']) == 165
+    assert report['unknown_terms'] and report['all_unused_banks_charged']
+    for key in ('entry_and_witness_contract_checked','controller_execution_priced',
+                'preparation_physically_executed','full_adaptive_game_implemented',
+                'full_joint_quantum_theorem_proved','complete_resource_vector',
+                'physical_workspace_bound','primitive_entry_bridge_proved',
+                'current_candidate_qualified','production_gate_changed'):
+        assert report[key] is False

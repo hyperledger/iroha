@@ -1,11 +1,11 @@
 # Generated query identity capture
 
-`query_generated_identity_frames.json` records the current 127 query types and
-171 typed payloads. Each case retains canonical JSON and complete root, `Vec`,
-`Option` and `BTreeMap<u8, T>` frames (684 frames in total), together with the
+`query_generated_identity_frames.json` records the current 129 query types and
+173 typed payloads. Each case retains canonical JSON and complete root, `Vec`,
+`Option` and `BTreeMap<u8, T>` frames (692 frames in total), together with the
 actual native compiler name and both directional codec identity hashes.
 
-Fixture SHA-256: `65ba7fd5626a9050b45f67b51d3ec47799467c6cd7bd55f09de370b3aca46173`.
+Fixture SHA-256: `dad58b68ffcd197b336236527e383dec9a061c1dade40d8487b3781edfb835ec`.
 
 The scoped contract-manifest query is `FindContractManifestByArtifactId`. Its
 native capture binds `DataSpaceId::new(u64::MAX)` and the canonical contract hash

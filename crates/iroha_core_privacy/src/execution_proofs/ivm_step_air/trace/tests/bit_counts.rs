@@ -44,7 +44,7 @@ fn bit_count_ops_match_interpreter_all_singleton_bits_and_full_width_boundaries(
     let values = [
         0,
         u64::MAX,
-        i64::MIN as u64,
+        i64::cast_unsigned(i64::MIN),
         i64::MAX as u64,
         0xffff_ffff_0000_0001,
         0xaaaa_aaaa_aaaa_aaaa,

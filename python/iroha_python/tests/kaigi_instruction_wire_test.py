@@ -31,9 +31,9 @@ from iroha_python.kaigi import (
     encode_leave_kaigi_instruction_v1,
     encode_record_kaigi_usage_instruction_v1,
     encode_register_kaigi_relay_instruction_v1,
-    encode_unregister_kaigi_relay_instruction_v1,
     encode_report_kaigi_relay_health_instruction_v1,
     encode_set_kaigi_relay_manifest_instruction_v1,
+    encode_unregister_kaigi_relay_instruction_v1,
 )
 
 _FIXTURE_PATH = Path(__file__).with_name("fixtures") / "kaigi_instruction_wire_v1.json"

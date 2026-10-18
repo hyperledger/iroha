@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for GET /v1/zk/vk (list with filters).
 #![cfg(feature = "app_api")]
 use axum::{Router, routing::get};

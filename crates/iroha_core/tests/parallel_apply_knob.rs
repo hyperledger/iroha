@@ -1,5 +1,5 @@
 //! Canonical execution retains one owner for either parallel-apply setting.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //!
 //! Actual published transactions must not report work from the retired detached DAG.
 use iroha_core::{

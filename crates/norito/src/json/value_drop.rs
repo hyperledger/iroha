@@ -1,109 +1,55 @@
-//! Fixed-stack cleanup state for recursively owned JSON values.
-use super::{
-    Error, MAX_JSON_VALUE_NESTING_DEPTH, Value, native::Map, try_decode_vec_with_capacity,
-};
-enum ValueDropFrame {
-    Array(std::vec::IntoIter<Value>),
-    Object(std::collections::btree_map::IntoValues<String, Value>),
-}
-impl ValueDropFrame {
-    fn next(&mut self) -> Option<Value> {
-        match self {
-            Self::Array(values) => values.next(),
-            Self::Object(values) => values.next(),
-        }
-    }
-}
-struct ValueDropStack {
-    frames: [Option<ValueDropFrame>; MAX_JSON_VALUE_NESTING_DEPTH],
-    len: usize,
-}
-impl ValueDropStack {
-    fn new() -> Self {
-        Self {
-            frames: std::array::from_fn(|_| None),
-            len: 0,
-        }
-    }
-    fn push(&mut self, frame: ValueDropFrame) -> Result<(), ValueDropFrame> {
-        let Some(slot) = self.frames.get_mut(self.len) else {
-            return Err(frame);
-        };
-        *slot = Some(frame);
-        self.len += 1;
-        Ok(())
-    }
-    fn next(&mut self) -> Option<Value> {
-        loop {
-            let frame = self.frames.get_mut(self.len.checked_sub(1)?)?;
-            if let Some(value) = frame
-                .as_mut()
-                .expect("bounded JSON drop stack contains every live frame")
-                .next()
-            {
-                return Some(value);
-            }
-            *frame = None;
-            self.len -= 1;
-        }
-    }
-}
-fn drop_overdeep_json_frame(frame: ValueDropFrame) {
-    match frame {
-        ValueDropFrame::Array(values) => {
-            for value in values {
-                drop_json_value_iteratively(value);
-            }
-        }
-        ValueDropFrame::Object(values) => {
-            for value in values {
-                drop_json_value_iteratively(value);
-            }
-        }
-    }
-}
-/// Drop a recursive JSON value without an attacker-sized cleanup `Vec`.
+//! Constant-stack cleanup using ownership threaded through existing JSON child slots.
+use super::{Error, Value, native::Map, try_decode_vec_with_capacity};
+
+/// Drop a recursive JSON value without allocating cleanup storage or recursing.
 ///
-/// Parsed values are limited to [`MAX_JSON_VALUE_NESTING_DEPTH`], so the fixed stack covers every
-/// parser-produced value without heap allocation. The over-depth branch only supports manually
-/// constructed public [`Value`] trees and recursively partitions their remaining siblings.
+/// Each nonempty container's last child slot temporarily owns the previous parent.
+/// After the extracted child is dismantled, popping that same slot restores the
+/// parent link. Only scalar values and empty containers reach ordinary drop.
+/// This also covers manually constructed values beyond the parser's depth limit.
+///
+/// # Panics
+/// Panics only if an internal parent link is not its original nonempty container.
 #[doc(hidden)]
-pub fn drop_json_value_iteratively(value: Value) {
-    let mut stack = ValueDropStack::new();
-    let mut next = Some(value);
+pub fn drop_json_value_iteratively(mut pending: Value) {
+    if cfg!(all(test, sumeragi_norito_mutation = "NC15")) {
+        drop(pending);
+        return;
+    }
+    let mut parents = Value::Null;
     loop {
-        if let Some(value) = next.take() {
-            let (first, remaining) = match value {
-                Value::Array(values) => {
-                    let mut values = values.into_iter();
-                    let first = values.next();
-                    (
-                        first,
-                        (values.len() != 0).then_some(ValueDropFrame::Array(values)),
-                    )
-                }
-                Value::Object(values) => {
-                    let mut values = values.into_values();
-                    let first = values.next();
-                    (
-                        first,
-                        (values.len() != 0).then_some(ValueDropFrame::Object(values)),
-                    )
-                }
-                Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => (None, None),
-            };
-            if let Some(frame) = remaining
-                && let Err(overdeep) = stack.push(frame)
-            {
-                drop_overdeep_json_frame(overdeep);
-            }
-            next = first;
+        let last = match &mut pending {
+            Value::Array(values) => values.last_mut(),
+            Value::Object(values) => values
+                .last_entry()
+                .map(std::collections::btree_map::OccupiedEntry::into_mut),
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => None,
+        };
+        if let Some(last) = last {
+            let child = std::mem::replace(last, parents);
+            parents = pending;
+            pending = child;
             continue;
         }
-        let Some(value) = stack.next() else {
-            break;
-        };
-        next = Some(value);
+        // This value owns no children; no recursive Value drop can occur here.
+        drop(pending);
+        match parents {
+            Value::Array(mut values) => {
+                parents = values.pop().expect("JSON parent array retains its link");
+                pending = Value::Array(values);
+            }
+            Value::Object(mut values) => {
+                let (_, previous) = values
+                    .pop_last()
+                    .expect("JSON parent object retains its link");
+                parents = previous;
+                pending = Value::Object(values);
+            }
+            Value::Null => return,
+            Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+                unreachable!("JSON parent link is an original container")
+            }
+        }
     }
 }
 pub(super) struct IterativeValueDropGuard(Option<Value>);

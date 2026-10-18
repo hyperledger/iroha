@@ -11,30 +11,30 @@ use zeroize::Zeroize;
 struct KeccakState([u64; 25]);
 impl KeccakState {
     const RC: [u64; 24] = [
-        0x0000000000000001,
-        0x0000000000008082,
-        0x800000000000808A,
-        0x8000000080008000,
-        0x000000000000808B,
-        0x0000000080000001,
-        0x8000000080008081,
-        0x8000000000008009,
-        0x000000000000008A,
-        0x0000000000000088,
-        0x0000000080008009,
-        0x000000008000000A,
-        0x000000008000808B,
-        0x800000000000008B,
-        0x8000000000008089,
-        0x8000000000008003,
-        0x8000000000008002,
-        0x8000000000000080,
-        0x000000000000800A,
-        0x800000008000000A,
-        0x8000000080008081,
-        0x8000000000008080,
-        0x0000000080000001,
-        0x8000000080008008,
+        0x0000_0000_0000_0001,
+        0x0000_0000_0000_8082,
+        0x8000_0000_0000_808A,
+        0x8000_0000_8000_8000,
+        0x0000_0000_0000_808B,
+        0x0000_0000_8000_0001,
+        0x8000_0000_8000_8081,
+        0x8000_0000_0000_8009,
+        0x0000_0000_0000_008A,
+        0x0000_0000_0000_0088,
+        0x0000_0000_8000_8009,
+        0x0000_0000_8000_000A,
+        0x0000_0000_8000_808B,
+        0x8000_0000_0000_008B,
+        0x8000_0000_0000_8089,
+        0x8000_0000_0000_8003,
+        0x8000_0000_0000_8002,
+        0x8000_0000_0000_0080,
+        0x0000_0000_0000_800A,
+        0x8000_0000_8000_000A,
+        0x8000_0000_8000_8081,
+        0x8000_0000_0000_8080,
+        0x0000_0000_8000_0001,
+        0x8000_0000_8000_8008,
     ];
     // Create a new KeccakState initialized at zero.
     fn new() -> Self {
@@ -60,7 +60,7 @@ impl KeccakState {
             tt0 = A[1] ^ A[6];
             tt1 = A[11] ^ A[16];
             tt0 ^= A[21] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[4] ^ A[9];
             tt3 = A[14] ^ A[19];
             tt0 ^= A[24];
@@ -69,7 +69,7 @@ impl KeccakState {
             tt0 = A[2] ^ A[7];
             tt1 = A[12] ^ A[17];
             tt0 ^= A[22] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[0] ^ A[5];
             tt3 = A[10] ^ A[15];
             tt0 ^= A[20];
@@ -78,7 +78,7 @@ impl KeccakState {
             tt0 = A[3] ^ A[8];
             tt1 = A[13] ^ A[18];
             tt0 ^= A[23] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[1] ^ A[6];
             tt3 = A[11] ^ A[16];
             tt0 ^= A[21];
@@ -87,7 +87,7 @@ impl KeccakState {
             tt0 = A[4] ^ A[9];
             tt1 = A[14] ^ A[19];
             tt0 ^= A[24] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[2] ^ A[7];
             tt3 = A[12] ^ A[17];
             tt0 ^= A[22];
@@ -96,61 +96,61 @@ impl KeccakState {
             tt0 = A[0] ^ A[5];
             tt1 = A[10] ^ A[15];
             tt0 ^= A[20] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[3] ^ A[8];
             tt3 = A[13] ^ A[18];
             tt0 ^= A[23];
             tt2 ^= tt3;
             t4 = tt0 ^ tt2;
-            A[0] = A[0] ^ t0;
-            A[5] = A[5] ^ t0;
-            A[10] = A[10] ^ t0;
-            A[15] = A[15] ^ t0;
-            A[20] = A[20] ^ t0;
-            A[1] = A[1] ^ t1;
-            A[6] = A[6] ^ t1;
-            A[11] = A[11] ^ t1;
-            A[16] = A[16] ^ t1;
-            A[21] = A[21] ^ t1;
-            A[2] = A[2] ^ t2;
-            A[7] = A[7] ^ t2;
-            A[12] = A[12] ^ t2;
-            A[17] = A[17] ^ t2;
-            A[22] = A[22] ^ t2;
-            A[3] = A[3] ^ t3;
-            A[8] = A[8] ^ t3;
-            A[13] = A[13] ^ t3;
-            A[18] = A[18] ^ t3;
-            A[23] = A[23] ^ t3;
-            A[4] = A[4] ^ t4;
-            A[9] = A[9] ^ t4;
-            A[14] = A[14] ^ t4;
-            A[19] = A[19] ^ t4;
-            A[24] = A[24] ^ t4;
-            A[5] = (A[5] << 36) | (A[5] >> (64 - 36));
-            A[10] = (A[10] << 3) | (A[10] >> (64 - 3));
-            A[15] = (A[15] << 41) | (A[15] >> (64 - 41));
-            A[20] = (A[20] << 18) | (A[20] >> (64 - 18));
-            A[1] = (A[1] << 1) | (A[1] >> (64 - 1));
-            A[6] = (A[6] << 44) | (A[6] >> (64 - 44));
-            A[11] = (A[11] << 10) | (A[11] >> (64 - 10));
-            A[16] = (A[16] << 45) | (A[16] >> (64 - 45));
-            A[21] = (A[21] << 2) | (A[21] >> (64 - 2));
-            A[2] = (A[2] << 62) | (A[2] >> (64 - 62));
-            A[7] = (A[7] << 6) | (A[7] >> (64 - 6));
-            A[12] = (A[12] << 43) | (A[12] >> (64 - 43));
-            A[17] = (A[17] << 15) | (A[17] >> (64 - 15));
-            A[22] = (A[22] << 61) | (A[22] >> (64 - 61));
-            A[3] = (A[3] << 28) | (A[3] >> (64 - 28));
-            A[8] = (A[8] << 55) | (A[8] >> (64 - 55));
-            A[13] = (A[13] << 25) | (A[13] >> (64 - 25));
-            A[18] = (A[18] << 21) | (A[18] >> (64 - 21));
-            A[23] = (A[23] << 56) | (A[23] >> (64 - 56));
-            A[4] = (A[4] << 27) | (A[4] >> (64 - 27));
-            A[9] = (A[9] << 20) | (A[9] >> (64 - 20));
-            A[14] = (A[14] << 39) | (A[14] >> (64 - 39));
-            A[19] = (A[19] << 8) | (A[19] >> (64 - 8));
-            A[24] = (A[24] << 14) | (A[24] >> (64 - 14));
+            A[0] ^= t0;
+            A[5] ^= t0;
+            A[10] ^= t0;
+            A[15] ^= t0;
+            A[20] ^= t0;
+            A[1] ^= t1;
+            A[6] ^= t1;
+            A[11] ^= t1;
+            A[16] ^= t1;
+            A[21] ^= t1;
+            A[2] ^= t2;
+            A[7] ^= t2;
+            A[12] ^= t2;
+            A[17] ^= t2;
+            A[22] ^= t2;
+            A[3] ^= t3;
+            A[8] ^= t3;
+            A[13] ^= t3;
+            A[18] ^= t3;
+            A[23] ^= t3;
+            A[4] ^= t4;
+            A[9] ^= t4;
+            A[14] ^= t4;
+            A[19] ^= t4;
+            A[24] ^= t4;
+            A[5] = A[5].rotate_right(64 - 36);
+            A[10] = A[10].rotate_left(3);
+            A[15] = A[15].rotate_right(64 - 41);
+            A[20] = A[20].rotate_left(18);
+            A[1] = A[1].rotate_left(1);
+            A[6] = A[6].rotate_right(64 - 44);
+            A[11] = A[11].rotate_left(10);
+            A[16] = A[16].rotate_right(64 - 45);
+            A[21] = A[21].rotate_left(2);
+            A[2] = A[2].rotate_right(64 - 62);
+            A[7] = A[7].rotate_left(6);
+            A[12] = A[12].rotate_right(64 - 43);
+            A[17] = A[17].rotate_left(15);
+            A[22] = A[22].rotate_right(64 - 61);
+            A[3] = A[3].rotate_left(28);
+            A[8] = A[8].rotate_right(64 - 55);
+            A[13] = A[13].rotate_left(25);
+            A[18] = A[18].rotate_left(21);
+            A[23] = A[23].rotate_right(64 - 56);
+            A[4] = A[4].rotate_left(27);
+            A[9] = A[9].rotate_left(20);
+            A[14] = A[14].rotate_right(64 - 39);
+            A[19] = A[19].rotate_left(8);
+            A[24] = A[24].rotate_left(14);
             bnn = !A[12];
             kt = A[6] | A[12];
             c0 = A[0] ^ kt;
@@ -231,11 +231,11 @@ impl KeccakState {
             A[14] = c2;
             A[15] = c3;
             A[21] = c4;
-            A[0] = A[0] ^ Self::RC[2 * i + 0];
+            A[0] ^= Self::RC[2 * i];
             tt0 = A[6] ^ A[9];
             tt1 = A[7] ^ A[5];
             tt0 ^= A[8] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[24] ^ A[22];
             tt3 = A[20] ^ A[23];
             tt0 ^= A[21];
@@ -244,7 +244,7 @@ impl KeccakState {
             tt0 = A[12] ^ A[10];
             tt1 = A[13] ^ A[11];
             tt0 ^= A[14] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[0] ^ A[3];
             tt3 = A[1] ^ A[4];
             tt0 ^= A[2];
@@ -253,7 +253,7 @@ impl KeccakState {
             tt0 = A[18] ^ A[16];
             tt1 = A[19] ^ A[17];
             tt0 ^= A[15] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[6] ^ A[9];
             tt3 = A[7] ^ A[5];
             tt0 ^= A[8];
@@ -262,7 +262,7 @@ impl KeccakState {
             tt0 = A[24] ^ A[22];
             tt1 = A[20] ^ A[23];
             tt0 ^= A[21] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[12] ^ A[10];
             tt3 = A[13] ^ A[11];
             tt0 ^= A[14];
@@ -271,61 +271,61 @@ impl KeccakState {
             tt0 = A[0] ^ A[3];
             tt1 = A[1] ^ A[4];
             tt0 ^= A[2] ^ tt1;
-            tt0 = (tt0 << 1) | (tt0 >> 63);
+            tt0 = tt0.rotate_left(1);
             tt2 = A[18] ^ A[16];
             tt3 = A[19] ^ A[17];
             tt0 ^= A[15];
             tt2 ^= tt3;
             t4 = tt0 ^ tt2;
-            A[0] = A[0] ^ t0;
-            A[3] = A[3] ^ t0;
-            A[1] = A[1] ^ t0;
-            A[4] = A[4] ^ t0;
-            A[2] = A[2] ^ t0;
-            A[6] = A[6] ^ t1;
-            A[9] = A[9] ^ t1;
-            A[7] = A[7] ^ t1;
-            A[5] = A[5] ^ t1;
-            A[8] = A[8] ^ t1;
-            A[12] = A[12] ^ t2;
-            A[10] = A[10] ^ t2;
-            A[13] = A[13] ^ t2;
-            A[11] = A[11] ^ t2;
-            A[14] = A[14] ^ t2;
-            A[18] = A[18] ^ t3;
-            A[16] = A[16] ^ t3;
-            A[19] = A[19] ^ t3;
-            A[17] = A[17] ^ t3;
-            A[15] = A[15] ^ t3;
-            A[24] = A[24] ^ t4;
-            A[22] = A[22] ^ t4;
-            A[20] = A[20] ^ t4;
-            A[23] = A[23] ^ t4;
-            A[21] = A[21] ^ t4;
-            A[3] = (A[3] << 36) | (A[3] >> (64 - 36));
-            A[1] = (A[1] << 3) | (A[1] >> (64 - 3));
-            A[4] = (A[4] << 41) | (A[4] >> (64 - 41));
-            A[2] = (A[2] << 18) | (A[2] >> (64 - 18));
-            A[6] = (A[6] << 1) | (A[6] >> (64 - 1));
-            A[9] = (A[9] << 44) | (A[9] >> (64 - 44));
-            A[7] = (A[7] << 10) | (A[7] >> (64 - 10));
-            A[5] = (A[5] << 45) | (A[5] >> (64 - 45));
-            A[8] = (A[8] << 2) | (A[8] >> (64 - 2));
-            A[12] = (A[12] << 62) | (A[12] >> (64 - 62));
-            A[10] = (A[10] << 6) | (A[10] >> (64 - 6));
-            A[13] = (A[13] << 43) | (A[13] >> (64 - 43));
-            A[11] = (A[11] << 15) | (A[11] >> (64 - 15));
-            A[14] = (A[14] << 61) | (A[14] >> (64 - 61));
-            A[18] = (A[18] << 28) | (A[18] >> (64 - 28));
-            A[16] = (A[16] << 55) | (A[16] >> (64 - 55));
-            A[19] = (A[19] << 25) | (A[19] >> (64 - 25));
-            A[17] = (A[17] << 21) | (A[17] >> (64 - 21));
-            A[15] = (A[15] << 56) | (A[15] >> (64 - 56));
-            A[24] = (A[24] << 27) | (A[24] >> (64 - 27));
-            A[22] = (A[22] << 20) | (A[22] >> (64 - 20));
-            A[20] = (A[20] << 39) | (A[20] >> (64 - 39));
-            A[23] = (A[23] << 8) | (A[23] >> (64 - 8));
-            A[21] = (A[21] << 14) | (A[21] >> (64 - 14));
+            A[0] ^= t0;
+            A[3] ^= t0;
+            A[1] ^= t0;
+            A[4] ^= t0;
+            A[2] ^= t0;
+            A[6] ^= t1;
+            A[9] ^= t1;
+            A[7] ^= t1;
+            A[5] ^= t1;
+            A[8] ^= t1;
+            A[12] ^= t2;
+            A[10] ^= t2;
+            A[13] ^= t2;
+            A[11] ^= t2;
+            A[14] ^= t2;
+            A[18] ^= t3;
+            A[16] ^= t3;
+            A[19] ^= t3;
+            A[17] ^= t3;
+            A[15] ^= t3;
+            A[24] ^= t4;
+            A[22] ^= t4;
+            A[20] ^= t4;
+            A[23] ^= t4;
+            A[21] ^= t4;
+            A[3] = A[3].rotate_right(64 - 36);
+            A[1] = A[1].rotate_left(3);
+            A[4] = A[4].rotate_right(64 - 41);
+            A[2] = A[2].rotate_left(18);
+            A[6] = A[6].rotate_left(1);
+            A[9] = A[9].rotate_right(64 - 44);
+            A[7] = A[7].rotate_left(10);
+            A[5] = A[5].rotate_right(64 - 45);
+            A[8] = A[8].rotate_left(2);
+            A[12] = A[12].rotate_right(64 - 62);
+            A[10] = A[10].rotate_left(6);
+            A[13] = A[13].rotate_right(64 - 43);
+            A[11] = A[11].rotate_left(15);
+            A[14] = A[14].rotate_right(64 - 61);
+            A[18] = A[18].rotate_left(28);
+            A[16] = A[16].rotate_right(64 - 55);
+            A[19] = A[19].rotate_left(25);
+            A[17] = A[17].rotate_left(21);
+            A[15] = A[15].rotate_right(64 - 56);
+            A[24] = A[24].rotate_left(27);
+            A[22] = A[22].rotate_left(20);
+            A[20] = A[20].rotate_right(64 - 39);
+            A[23] = A[23].rotate_left(8);
+            A[21] = A[21].rotate_left(14);
             bnn = !A[13];
             kt = A[9] | A[13];
             c0 = A[0] ^ kt;
@@ -406,7 +406,7 @@ impl KeccakState {
             A[20] = c2;
             A[4] = c3;
             A[8] = c4;
-            A[0] = A[0] ^ Self::RC[2 * i + 1];
+            A[0] ^= Self::RC[2 * i + 1];
             t = A[5];
             A[5] = A[18];
             A[18] = A[11];
@@ -444,14 +444,15 @@ impl KeccakState {
         self.0 = A;
     }
 }
-pub struct SHAKE<const SZ: usize> {
+/// Scalar SHAKE sponge parameterized by its security strength in bits.
+pub struct Shake<const SZ: usize> {
     state: KeccakState,
     ptr: usize,
     flipped: bool,
 }
 /// Type specialization for SHAKE256.
-pub type SHAKE256 = SHAKE<256>;
-impl<const SZ: usize> SHAKE<SZ> {
+pub type SHAKE256 = Shake<256>;
+impl<const SZ: usize> Shake<SZ> {
     const RATE: usize = 200 - (SZ >> 2);
     /// Create a new instance.
     pub fn new() -> Self {
@@ -472,7 +473,7 @@ impl<const SZ: usize> SHAKE<SZ> {
         while i < src.len() {
             let clen = core::cmp::min(src.len() - i, Self::RATE - ptr);
             for _ in 0..clen {
-                self.state.0[ptr >> 3] ^= (src[i] as u64) << ((ptr & 7) << 3);
+                self.state.0[ptr >> 3] ^= u64::from(src[i]) << ((ptr & 7) << 3);
                 i += 1;
                 ptr += 1;
             }
@@ -510,7 +511,7 @@ impl<const SZ: usize> SHAKE<SZ> {
             }
             let clen = core::cmp::min(dst.len() - i, Self::RATE - ptr);
             for _ in 0..clen {
-                dst[i] = (self.state.0[ptr >> 3] >> ((ptr & 7) << 3)) as u8;
+                dst[i] = self.state.0[ptr >> 3].to_le_bytes()[ptr & 7];
                 i += 1;
                 ptr += 1;
             }
@@ -555,8 +556,8 @@ impl PRNG for SHAKE256_PRNG {
     }
     fn next_u16(&mut self) -> u16 {
         if self.ptr >= (self.buf.len() - 1) {
-            let x = self.next_u8() as u16;
-            return x | ((self.next_u8() as u16) << 8);
+            let x = u16::from(self.next_u8());
+            return x | (u16::from(self.next_u8()) << 8);
         }
         let x =
             u16::from_le_bytes(*<&[u8; 2]>::try_from(&self.buf[self.ptr..self.ptr + 2]).unwrap());
@@ -567,7 +568,7 @@ impl PRNG for SHAKE256_PRNG {
         if self.ptr >= (self.buf.len() - 7) {
             let mut x = 0;
             for i in 0..8 {
-                x |= (self.next_u8() as u64) << (i << 3);
+                x |= u64::from(self.next_u8()) << (i << 3);
             }
             return x;
         }
@@ -587,5 +588,72 @@ impl PRNG for SHAKE256_PRNG {
 impl Drop for SHAKE256_PRNG {
     fn drop(&mut self) {
         <Self as PRNG>::zeroize(self);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PRNG, SHAKE256, SHAKE256_PRNG};
+    use sha3::digest::{ExtendableOutput, Update, XofReader};
+
+    #[test]
+    fn scalar_shake256_matches_independent_xof_across_rate_and_chunk_boundaries() {
+        for length in [0, 1, 135, 136, 137, 271, 272, 273] {
+            let input: Vec<u8> = (0..length)
+                .map(|index| u8::try_from(index % 251).unwrap())
+                .collect();
+            let mut reference = sha3::Shake256::default();
+            reference.update(&input);
+            let mut expected = [0_u8; 425];
+            reference.finalize_xof().read(&mut expected);
+
+            let mut whole = SHAKE256::new();
+            whole.inject(&input);
+            whole.flip();
+            let mut actual = [0_u8; 425];
+            whole.extract(&mut actual);
+            assert_eq!(actual, expected, "whole input length {length}");
+
+            let mut split = SHAKE256::new();
+            for chunk in input.chunks(17) {
+                split.inject(chunk);
+            }
+            split.flip();
+            for chunk in actual.chunks_mut(13) {
+                split.extract(chunk);
+            }
+            assert_eq!(actual, expected, "split input length {length}");
+        }
+    }
+
+    #[test]
+    fn buffered_prng_matches_independent_xof_at_every_word_and_rate_boundary() {
+        let seed = b"Falcon-512 buffered SHAKE256 boundary control";
+        let mut reference = sha3::Shake256::default();
+        reference.update(seed);
+        let mut expected = [0_u8; 2 * SHAKE256::RATE + 11];
+        reference.finalize_xof().read(&mut expected);
+
+        for offset in 0..=2 * SHAKE256::RATE {
+            let mut generator = SHAKE256_PRNG::new(seed);
+            for &byte in &expected[..offset] {
+                assert_eq!(generator.next_u8(), byte, "prefix before offset {offset}");
+            }
+            assert_eq!(
+                generator.next_u16(),
+                u16::from_le_bytes(expected[offset..offset + 2].try_into().unwrap()),
+                "16-bit word at offset {offset}",
+            );
+            assert_eq!(
+                generator.next_u64(),
+                u64::from_le_bytes(expected[offset + 2..offset + 10].try_into().unwrap()),
+                "64-bit word after offset {offset}",
+            );
+            assert_eq!(
+                generator.next_u8(),
+                expected[offset + 10],
+                "byte after mixed word reads at offset {offset}",
+            );
+        }
     }
 }

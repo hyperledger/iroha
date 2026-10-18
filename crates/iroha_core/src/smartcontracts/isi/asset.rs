@@ -207,7 +207,8 @@ pub mod isi {
                 | NumericAssetTransferControlPolicy::GovernanceSlash
                 | NumericAssetTransferControlPolicy::GovernanceRestitution
                 | NumericAssetTransferControlPolicy::GovernanceUnlock
-                | NumericAssetTransferControlPolicy::CitizenshipRelease => (false, true),
+                | NumericAssetTransferControlPolicy::CitizenshipRelease
+                | NumericAssetTransferControlPolicy::BondVaultRelease => (false, true),
                 NumericAssetTransferControlPolicy::StakingSlash
                 | NumericAssetTransferControlPolicy::ModerationChallengeSettlement => {
                     (false, false)
@@ -705,6 +706,15 @@ pub mod isi {
             return Err(InstructionExecutionError::InvariantViolation(
                 "direct debit from native escrow custody account is not allowed; use escrow instructions".into(),
             ));
+        }
+        if crate::smartcontracts::isi::bond::is_bond_vault_account(
+            state_transaction.world(),
+            source_id.account(),
+        ) {
+            return Err(iroha_data_model::bond::BondError::VaultCustody(
+                "direct debit from a bond vault is not allowed; use bond instructions".to_owned(),
+            )
+            .into());
         }
         Ok(())
     }
@@ -1741,6 +1751,8 @@ pub mod isi {
         CitizenshipRelease,
         SccpEscrowLock,
         SccpEscrowRelease,
+        BondVaultFunding,
+        BondVaultCustody,
     }
     impl NumericAssetTransferSourcePolicy {
         const fn is_moderation_challenge_settlement(self) -> bool {
@@ -1781,6 +1793,8 @@ pub mod isi {
         GovernanceRestitution,
         GovernanceUnlock,
         CitizenshipRelease,
+        /// Key-less bond vault paying an entitled holder: no outbound controls on the vault.
+        BondVaultRelease,
     }
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum NumericAssetDestinationAdmissionPolicy {
@@ -2020,6 +2034,22 @@ pub mod isi {
         }
         Ok(())
     }
+    /// Reject a credit of a bond vault outside `FundBondCashflow` (`specs/finance/bond_ops.md`).
+    fn ensure_not_bond_vault_destination(
+        state_transaction: &StateTransaction<'_, '_>,
+        destination_id: &AssetId,
+    ) -> Result<(), Error> {
+        if crate::smartcontracts::isi::bond::is_bond_vault_account(
+            state_transaction.world(),
+            destination_id.account(),
+        ) {
+            return Err(iroha_data_model::bond::BondError::VaultCustody(
+                "a bond vault can only be credited by FundBondCashflow".to_owned(),
+            )
+            .into());
+        }
+        Ok(())
+    }
     /// Reject a credit of an SCCP route escrow outside `RecordSccpMessage` (§4.15).
     fn ensure_not_sccp_escrow_destination(
         state_transaction: &StateTransaction<'_, '_>,
@@ -2095,6 +2125,8 @@ pub mod isi {
         SnsAutoRenewal(Vec<u8>),
         /// Lock one exact SCCP outbound amount into its route escrow.
         SccpEscrowLock(Vec<u8>),
+        /// Fund one exact recorded bond cash flow into its vault.
+        BondFunding(Vec<u8>),
     }
     /// Closed set of retained-state protocol movement purposes.
     #[derive(Debug)]
@@ -2147,6 +2179,8 @@ pub mod isi {
         PrivacyPoolBridge(PrivacyPublicReserveOwnerV1, Vec<u8>),
         /// Release one exact SCCP inbound, refund or stranded amount from its route escrow.
         SccpEscrowRelease(Vec<u8>),
+        /// Pay a holder or return a residual from an exact bond vault record.
+        BondVault(Vec<u8>),
     }
     /// One-shot authorization and deterministic execution context for a numeric movement.
     ///
@@ -2179,6 +2213,25 @@ pub mod isi {
         include!("asset/quantity_authorization.rs");
     }
     impl NumericAssetMovementAuthorization {
+        /// Reject a purpose that would carry registered bond units into protocol custody
+        /// the bond kernel does not attribute (`specs/finance/bond_ops.md` §4).
+        fn ensure_admits_bond_units(
+            &self,
+            state_transaction: &StateTransaction<'_, '_>,
+            definition: &AssetDefinitionId,
+        ) -> Result<(), Error> {
+            let purpose = match &self.transcript {
+                NumericMovementTranscriptRequirement::TransactionRequired(_) => None,
+                NumericMovementTranscriptRequirement::TransactionOrTypedPurpose { tag, .. } => {
+                    Some(*tag)
+                }
+            };
+            crate::smartcontracts::isi::bond::ensure_bond_custody_supported(
+                state_transaction.world(),
+                definition,
+                purpose,
+            )
+        }
         fn transaction_user(authority: &AccountId, context: &'static str) -> Self {
             Self {
                 debit: NumericMovementDebitAuthorization::ExactUser(authority.clone()),
@@ -2212,6 +2265,10 @@ pub mod isi {
             let is_sccp_lock = matches!(
                 &purpose,
                 EmbeddedNumericAssetMovementPurpose::SccpEscrowLock(_)
+            );
+            let is_bond_funding = matches!(
+                &purpose,
+                EmbeddedNumericAssetMovementPurpose::BondFunding(_)
             );
             let (debit, tag, binding) = match purpose {
                 EmbeddedNumericAssetMovementPurpose::AccountAdmissionFee(binding) => (
@@ -2308,6 +2365,11 @@ pub mod isi {
                     "sccp-escrow-lock",
                     binding,
                 ),
+                EmbeddedNumericAssetMovementPurpose::BondFunding(binding) => (
+                    NumericMovementDebitAuthorization::ExactUser(submitting_authority.clone()),
+                    "bond-vault-funding",
+                    binding,
+                ),
             };
             Self {
                 debit,
@@ -2322,6 +2384,8 @@ pub mod isi {
                     NumericAssetTransferSourcePolicy::GameSessionFunding
                 } else if is_sccp_lock {
                     NumericAssetTransferSourcePolicy::SccpEscrowLock
+                } else if is_bond_funding {
+                    NumericAssetTransferSourcePolicy::BondVaultFunding
                 } else {
                     NumericAssetTransferSourcePolicy::User
                 },
@@ -2479,6 +2543,12 @@ pub mod isi {
                     NumericAssetTransferSourcePolicy::SccpEscrowRelease,
                     NumericAssetTransferControlPolicy::Enforce,
                 ),
+                RetainedNumericAssetMovementPurpose::BondVault(binding) => (
+                    "bond-vault-payment",
+                    binding,
+                    NumericAssetTransferSourcePolicy::BondVaultCustody,
+                    NumericAssetTransferControlPolicy::BondVaultRelease,
+                ),
             };
             Self {
                 debit: NumericMovementDebitAuthorization::Protocol,
@@ -2589,6 +2659,12 @@ pub mod isi {
                 NumericAssetTransferSourcePolicy::NativeEscrowCustody => {
                     ("NativeEscrowCustody", SourceDetail::Empty)
                 }
+                NumericAssetTransferSourcePolicy::BondVaultFunding => {
+                    ("BondVaultFunding", SourceDetail::Empty)
+                }
+                NumericAssetTransferSourcePolicy::BondVaultCustody => {
+                    ("BondVaultCustody", SourceDetail::Empty)
+                }
                 NumericAssetTransferSourcePolicy::SorafsReserveCustody => {
                     ("SorafsReserveCustody", SourceDetail::Empty)
                 }
@@ -2668,6 +2744,7 @@ pub mod isi {
                 NumericAssetTransferControlPolicy::GovernanceRestitution => "GovernanceRestitution",
                 NumericAssetTransferControlPolicy::GovernanceUnlock => "GovernanceUnlock",
                 NumericAssetTransferControlPolicy::CitizenshipRelease => "CitizenshipRelease",
+                NumericAssetTransferControlPolicy::BondVaultRelease => "BondVaultRelease",
             };
             let destination = match self.destination_admission {
                 NumericAssetDestinationAdmissionPolicy::ImplicitReceive => "implicit-receive",
@@ -2738,6 +2815,12 @@ pub mod isi {
                 NumericAssetTransferSourcePolicy::NativeEscrowCustody => {
                     ("NativeEscrowCustody", Vec::new())
                 }
+                NumericAssetTransferSourcePolicy::BondVaultFunding => {
+                    ("BondVaultFunding", Vec::new())
+                }
+                NumericAssetTransferSourcePolicy::BondVaultCustody => {
+                    ("BondVaultCustody", Vec::new())
+                }
                 NumericAssetTransferSourcePolicy::SorafsReserveCustody => {
                     ("SorafsReserveCustody", Vec::new())
                 }
@@ -2803,6 +2886,7 @@ pub mod isi {
                 NumericAssetTransferControlPolicy::GovernanceRestitution => "GovernanceRestitution",
                 NumericAssetTransferControlPolicy::GovernanceUnlock => "GovernanceUnlock",
                 NumericAssetTransferControlPolicy::CitizenshipRelease => "CitizenshipRelease",
+                NumericAssetTransferControlPolicy::BondVaultRelease => "BondVaultRelease",
             };
             let destination = match self.destination_admission {
                 NumericAssetDestinationAdmissionPolicy::ImplicitReceive => "implicit-receive",
@@ -2954,6 +3038,7 @@ pub mod isi {
             authorization: NumericAssetMovementAuthorization,
             scope_policy: NumericAssetTransferScopePolicy,
         ) -> Result<Self, Error> {
+            authorization.ensure_admits_bond_units(state_transaction, source_id.definition())?;
             let resolved_source = state_transaction
                 .world
                 .resolve_asset_id_for_current_scope(&source_id)?;
@@ -3333,6 +3418,8 @@ pub mod isi {
     enum NumericAssetBurnSourcePolicy {
         AccountAdmissionFee,
         FeeSponsorCustody,
+        BondRedemption,
+        BondTreasuryRetirement,
     }
     // Created only while consuming the executor's original sponsor-charge
     // capability. This private value retains the original invocation and signed
@@ -3399,27 +3486,81 @@ pub mod isi {
                 ensure_not_kagemusha_reserve_source(state_transaction.world(), &source_id)?;
                 ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
             }
+            NumericAssetBurnSourcePolicy::BondTreasuryRetirement => {
+                // The issuer burns units of its own global balance.
+                let authority = authority.ok_or_else(|| {
+                    InstructionExecutionError::InvariantViolation(
+                        "bond treasury retirement requires an exact authority".into(),
+                    )
+                })?;
+                ensure_user_numeric_asset_source_authority(
+                    state_transaction,
+                    authority,
+                    &source_id,
+                )?;
+                ensure_privacy_public_reserve_source_policy(
+                    state_transaction,
+                    &source_id,
+                    NumericAssetTransferSourcePolicy::User,
+                )?;
+                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_fx_corridor_escrow_source(state_transaction, &source_id)?;
+                ensure_not_sorafs_reserve_custody_source(state_transaction, &source_id)?;
+                ensure_not_kagemusha_reserve_source(state_transaction.world(), &source_id)?;
+                ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
+            }
+            NumericAssetBurnSourcePolicy::BondRedemption => {
+                // The bond kernel selected the holder's exact entitled units; the
+                // claim may be pushed by the paying agent, so no signer ownership
+                // of the source is required here.
+                ensure_privacy_public_reserve_source_policy(
+                    state_transaction,
+                    &source_id,
+                    NumericAssetTransferSourcePolicy::User,
+                )?;
+                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+                ensure_not_sorafs_reserve_custody_source(state_transaction, &source_id)?;
+                ensure_not_kagemusha_reserve_source(state_transaction.world(), &source_id)?;
+                ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
+            }
+        }
+        // Only the bond kernel's verified burns change a registered bond's supply.
+        if !matches!(
+            source_policy,
+            NumericAssetBurnSourcePolicy::BondRedemption
+                | NumericAssetBurnSourcePolicy::BondTreasuryRetirement
+        ) {
+            crate::smartcontracts::isi::bond::ensure_bond_supply_unlocked(
+                state_transaction.world(),
+                source_id.definition(),
+            )?;
         }
         let spec = state_transaction
             .numeric_spec_for(source_id.definition())
             .map_err(Error::from)?;
         assert_numeric_spec_with(amount.as_numeric(), spec)?;
-        ensure_transparent_allowed(
-            state_transaction,
-            source_id.definition(),
-            "transparent burn not permitted by policy",
-        )?;
-        ensure_usage_policy_for_accounts(
-            state_transaction,
-            source_id.definition(),
-            [(
-                source_id.account(),
-                asset_id_dataspace_hint(state_transaction, &source_id),
-            )],
-            Some(&amount),
-        )?;
+        // A redemption burn retires units the holder is owed principal for. The
+        // definition owner's later confidential or usage policy changes must not
+        // block it and trap the funded redemption in the vault.
+        if !matches!(source_policy, NumericAssetBurnSourcePolicy::BondRedemption) {
+            ensure_transparent_allowed(
+                state_transaction,
+                source_id.definition(),
+                "transparent burn not permitted by policy",
+            )?;
+            ensure_usage_policy_for_accounts(
+                state_transaction,
+                source_id.definition(),
+                [(
+                    source_id.account(),
+                    asset_id_dataspace_hint(state_transaction, &source_id),
+                )],
+                Some(&amount),
+            )?;
+        }
         let (control_before, control_update) = match source_policy {
-            NumericAssetBurnSourcePolicy::AccountAdmissionFee => {
+            NumericAssetBurnSourcePolicy::AccountAdmissionFee
+            | NumericAssetBurnSourcePolicy::BondTreasuryRetirement => {
                 if !amount.is_zero() {
                     state_transaction
                         .world
@@ -3442,7 +3583,8 @@ pub mod isi {
                     )?,
                 )
             }
-            NumericAssetBurnSourcePolicy::FeeSponsorCustody => (None, None),
+            NumericAssetBurnSourcePolicy::FeeSponsorCustody
+            | NumericAssetBurnSourcePolicy::BondRedemption => (None, None),
         };
         let source_before = state_transaction
             .world
@@ -3518,6 +3660,34 @@ pub mod isi {
                     false,
                     (
                         "account-admission-fee-burn",
+                        Some(quantity_authorization::SupplyBinding::Bytes(&[])),
+                    ),
+                    apply,
+                )
+            }
+            (NumericAssetBurnSourcePolicy::BondRedemption, Some(authority), None) => {
+                apply_with_supply_quantity_candidate(
+                    state_transaction,
+                    authority,
+                    &captured_source,
+                    &captured_amount,
+                    false,
+                    (
+                        "bond-redemption-burn",
+                        Some(quantity_authorization::SupplyBinding::Bytes(&[])),
+                    ),
+                    apply,
+                )
+            }
+            (NumericAssetBurnSourcePolicy::BondTreasuryRetirement, Some(authority), None) => {
+                apply_with_supply_quantity_candidate(
+                    state_transaction,
+                    authority,
+                    &captured_source,
+                    &captured_amount,
+                    false,
+                    (
+                        "bond-treasury-retirement",
                         Some(quantity_authorization::SupplyBinding::Bytes(&[])),
                     ),
                     apply,
@@ -5126,6 +5296,176 @@ pub mod isi {
         }
         Ok(())
     }
+    /// Consume one exact bond-vault movement selected by the bond kernel.
+    ///
+    /// The capability is re-checked against the stored bond record and
+    /// entitlement before any balance is touched: funding moves exactly the
+    /// recorded amount due from the signer into the deterministic vault, and a
+    /// payment moves exactly one unclaimed entitlement's amount from the vault to
+    /// its holder.
+    pub(in crate::smartcontracts::isi) fn execute_verified_bond_movement(
+        state_transaction: &mut StateTransaction<'_, '_>,
+        authorization: crate::smartcontracts::isi::bond::VerifiedBondMovement,
+    ) -> Result<(), Error> {
+        use crate::smartcontracts::isi::bond::VerifiedBondMovementPurpose;
+        use iroha_data_model::bond::{BondCashflowStatus, BondEntitlementId};
+        let (purpose, authority, bond, index, source_id, destination_id, amount) =
+            authorization.into_parts();
+        let mismatch = |what: &str| {
+            InstructionExecutionError::InvariantViolation(
+                format!("bond {what} capability does not match its retained record").into(),
+            )
+        };
+        let record = state_transaction
+            .world
+            .bonds
+            .get(&bond)
+            .ok_or_else(|| mismatch("movement"))?;
+        let cashflow = record.cashflow(index).ok_or_else(|| mismatch("movement"))?;
+        let payment = &record.terms.payment_asset;
+        let vault = record.vault.clone();
+        if source_id.definition() != payment
+            || destination_id.definition() != payment
+            || source_id.scope() != &AssetBalanceScope::Global
+            || destination_id.scope() != &AssetBalanceScope::Global
+            || amount.is_zero()
+        {
+            return Err(mismatch("movement"));
+        }
+        let (tag, movement_authorization) = match purpose {
+            VerifiedBondMovementPurpose::Funding => {
+                let signer_may_fund =
+                    authority == record.terms.paying_agent || authority == record.terms.issuer;
+                if !signer_may_fund
+                    || source_id.account() != &authority
+                    || destination_id.account() != &vault
+                    || cashflow.status != BondCashflowStatus::Recorded
+                    || amount != cashflow.amount_due
+                {
+                    return Err(mismatch("funding"));
+                }
+                ("funding", None)
+            }
+            VerifiedBondMovementPurpose::Payment => {
+                let holder = destination_id.account();
+                let entitlement = state_transaction
+                    .world
+                    .bond_entitlements
+                    .get(&BondEntitlementId::new(bond.clone(), index, holder.clone()));
+                let remaining = cashflow
+                    .funded
+                    .checked_sub(&cashflow.paid)
+                    .map_err(|_| mismatch("payment"))?;
+                if source_id.account() != &vault
+                    || !cashflow.is_claimable()
+                    || entitlement.is_none_or(|entitlement| {
+                        entitlement.claimed_at_ms.is_some() || entitlement.amount != amount
+                    })
+                    || (authority != *holder && authority != record.terms.paying_agent)
+                    || amount > remaining
+                {
+                    return Err(mismatch("payment"));
+                }
+                ("payment", Some(()))
+            }
+        };
+        let binding = canonical_numeric_movement_binding(&(
+            tag,
+            bond.clone(),
+            index,
+            source_id.clone(),
+            destination_id.clone(),
+            amount.clone(),
+            cashflow.funded.clone(),
+            cashflow.paid.clone(),
+        ))?;
+        let movement_authorization = match movement_authorization {
+            None => NumericAssetMovementAuthorization::embedded_user(
+                &authority,
+                EmbeddedNumericAssetMovementPurpose::BondFunding(binding),
+            ),
+            Some(()) => NumericAssetMovementAuthorization::retained(
+                &authority,
+                RetainedNumericAssetMovementPurpose::BondVault(binding),
+            ),
+        };
+        execute_numeric_asset_movement(
+            state_transaction,
+            source_id,
+            destination_id,
+            amount,
+            movement_authorization,
+        )
+    }
+    /// Consume one exact redemption-claim burn selected by the bond kernel.
+    ///
+    /// Burns exactly the units of one unclaimed redemption entitlement from its
+    /// holder; this is the only supply change a registered bond admits.
+    pub(in crate::smartcontracts::isi) fn execute_verified_bond_redemption_burn(
+        state_transaction: &mut StateTransaction<'_, '_>,
+        burn: crate::smartcontracts::isi::bond::VerifiedBondRedemptionBurn,
+    ) -> Result<(), Error> {
+        use iroha_data_model::bond::{BondCashflowKind, BondEntitlementId};
+        let (authority, bond, index, holder, units) = burn.into_parts();
+        let record = state_transaction.world.bonds.get(&bond).ok_or_else(|| {
+            InstructionExecutionError::InvariantViolation(
+                "bond redemption burn has no retained bond record".into(),
+            )
+        })?;
+        let entitled = state_transaction
+            .world
+            .bond_entitlements
+            .get(&BondEntitlementId::new(bond.clone(), index, holder.clone()))
+            .is_some_and(|entitlement| {
+                entitlement.units == units && entitlement.claimed_at_ms.is_none()
+            });
+        let matches_record = record.cashflow(index).is_some_and(|cashflow| {
+            cashflow.terms.kind == BondCashflowKind::Redemption && cashflow.is_claimable()
+        }) && entitled
+            && (authority == holder || authority == record.terms.paying_agent)
+            && !units.is_zero();
+        if !matches_record {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "bond redemption burn capability does not match its retained record".into(),
+            ));
+        }
+        execute_checked_numeric_asset_burn(
+            state_transaction,
+            Some(&authority),
+            AssetId::new(bond, holder),
+            units,
+            NumericAssetBurnSourcePolicy::BondRedemption,
+            None,
+        )
+    }
+    /// Burn exact units of the issuer's own global balance for `RetireBondTreasuryUnits`.
+    pub(in crate::smartcontracts::isi) fn execute_verified_bond_treasury_retirement(
+        state_transaction: &mut StateTransaction<'_, '_>,
+        retirement: crate::smartcontracts::isi::bond::VerifiedBondTreasuryRetirement,
+    ) -> Result<(), Error> {
+        let (authority, bond, units) = retirement.into_parts();
+        let record = state_transaction.world.bonds.get(&bond).ok_or_else(|| {
+            InstructionExecutionError::InvariantViolation(
+                "bond treasury retirement has no retained bond record".into(),
+            )
+        })?;
+        let matches_record = authority == record.terms.issuer
+            && crate::smartcontracts::isi::bond::recording_in_progress(record).is_none()
+            && !units.is_zero();
+        if !matches_record {
+            return Err(InstructionExecutionError::InvariantViolation(
+                "bond treasury retirement capability does not match its retained record".into(),
+            ));
+        }
+        execute_checked_numeric_asset_burn(
+            state_transaction,
+            Some(&authority),
+            AssetId::new(bond, authority.clone()),
+            units,
+            NumericAssetBurnSourcePolicy::BondTreasuryRetirement,
+            None,
+        )
+    }
     /// Consume an exact game capability; only initial awards may defer before any transfer writes.
     pub(in crate::smartcontracts::isi) fn execute_verified_game_movement(
         state_transaction: &mut StateTransaction<'_, '_>,
@@ -5679,6 +6019,14 @@ pub mod isi {
                 )
                 .into());
             }
+            // Every numeric movement path prepares here, so the book closing and
+            // the redemption freeze of a registered bond cover all of them.
+            crate::smartcontracts::isi::bond::ensure_bond_units_movable(
+                state_transaction,
+                &event_source_id,
+                &event_destination_id,
+                source_policy == NumericAssetTransferSourcePolicy::NativeEscrowCustody,
+            )?;
             if scope_policy == NumericAssetTransferScopePolicy::Ambient {
                 ensure_global_asset_write_on_authoritative_route(
                     state_transaction,
@@ -5739,7 +6087,8 @@ pub mod isi {
                 | NumericAssetTransferControlPolicy::GovernanceSlash
                 | NumericAssetTransferControlPolicy::GovernanceRestitution
                 | NumericAssetTransferControlPolicy::GovernanceUnlock
-                | NumericAssetTransferControlPolicy::CitizenshipRelease => {
+                | NumericAssetTransferControlPolicy::CitizenshipRelease
+                | NumericAssetTransferControlPolicy::BondVaultRelease => {
                     (PreparedTransferControl::NotRequired, None)
                 }
             };
@@ -6058,6 +6407,10 @@ pub mod isi {
             mut plans: Vec<PreparedNumericTransferPlan>,
             authorization: NumericAssetMovementAuthorization,
         ) -> Result<Self, Error> {
+            for plan in &plans {
+                authorization
+                    .ensure_admits_bond_units(state_transaction, plan.source_id.definition())?;
+            }
             let mut initial_balances = BTreeMap::<AssetId, Quantity>::new();
             for plan in &plans {
                 for id in [&plan.source_id, &plan.destination_id] {
@@ -6346,17 +6699,30 @@ pub mod isi {
     }
     /// Prepare one complete exact-consent batch without using incoming payments
     /// to fund its outgoing obligations. No receiver is implicitly registered.
+    ///
+    /// Conditional escrow funding legs (exact source bucket to the escrow's
+    /// already created deterministic custody bucket) join the same prepared
+    /// batch, prefunding budget and transcript as the signed movements.
     fn prepare_verified_settlement_numeric_batch(
         state_transaction: &mut StateTransaction<'_, '_>,
         authorization: crate::smartcontracts::isi::settlement::VerifiedSettlementNumericBatch,
     ) -> Result<PreparedNumericAssetMovementBatch, Error> {
-        let (authority, movements) = authorization.into_parts();
+        let (authority, movements, escrow_fundings) = authorization.into_parts();
         movements
             .validate()
             .map_err(|message| InstructionExecutionError::InvariantViolation(message.into()))?;
         let mut outbound = BTreeMap::<AssetId, Quantity>::new();
-        for movement in movements.as_slice() {
-            for bucket in [&movement.source, &movement.destination] {
+        let legs = movements
+            .as_slice()
+            .iter()
+            .map(|movement| (&movement.source, &movement.destination, &movement.quantity))
+            .chain(
+                escrow_fundings
+                    .iter()
+                    .map(|(source, custody, amount)| (source, custody, amount)),
+            );
+        for (source, destination, quantity) in legs {
+            for bucket in [source, destination] {
                 validate_committed_public_balance_scope(
                     state_transaction,
                     bucket.definition(),
@@ -6365,10 +6731,10 @@ pub mod isi {
                 )?;
             }
             let total = outbound
-                .entry(movement.source.clone())
+                .entry(source.clone())
                 .or_insert_with(Quantity::zero);
             *total = total
-                .checked_add(&movement.quantity)
+                .checked_add(quantity)
                 .map_err(|_| MathError::Overflow)?;
         }
         // This independent pre-debit budget is necessary: the general batch
@@ -6398,7 +6764,7 @@ pub mod isi {
                     .attempt_error_to_instruction_error(error)
             })?;
         }
-        let mut plans = Vec::with_capacity(movements.as_slice().len());
+        let mut plans = Vec::with_capacity(movements.as_slice().len() + escrow_fundings.len());
         for movement in movements.as_slice() {
             let plan = PreparedNumericTransferPlan::prepare_explicit_bilateral(
                 state_transaction,
@@ -6410,6 +6776,22 @@ pub mod isi {
             if plan.source_id != movement.source || plan.destination_id != movement.destination {
                 return Err(InstructionExecutionError::InvariantViolation(
                     "atomic settlement must preserve both exact signed balance buckets".into(),
+                ));
+            }
+            plans.push(plan);
+        }
+        for (source, custody, amount) in escrow_fundings {
+            let plan = PreparedNumericTransferPlan::prepare_explicit_bilateral(
+                state_transaction,
+                &authority,
+                source.clone(),
+                custody.clone(),
+                amount,
+            )?;
+            if plan.source_id != source || plan.destination_id != custody {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "atomic settlement escrow funding must preserve its exact source and custody buckets"
+                        .into(),
                 ));
             }
             plans.push(plan);
@@ -7137,26 +7519,53 @@ pub mod isi {
         if source_policy.uses_protocol_custody_precheck() {
             return Ok(());
         }
-        ensure_transparent_allowed(
-            state_transaction,
-            source_id.definition(),
-            "transparent transfer not permitted by policy",
-        )?;
-        ensure_usage_policy_for_accounts(
-            state_transaction,
-            source_id.definition(),
-            [
-                (
-                    source_id.account(),
-                    asset_id_dataspace_hint(state_transaction, source_id),
-                ),
-                (
-                    destination_id.account(),
-                    asset_id_dataspace_hint(state_transaction, destination_id),
-                ),
-            ],
-            Some(amount),
-        )?;
+        let source_subject = (
+            source_id.account(),
+            asset_id_dataspace_hint(state_transaction, source_id),
+        );
+        let destination_subject = (
+            destination_id.account(),
+            asset_id_dataspace_hint(state_transaction, destination_id),
+        );
+        // A key-less bond vault is protocol custody: the payment asset's transparency
+        // and usage policies bind the funding party and the paid holder, never the
+        // vault itself, so they cannot trap funded payments in it.
+        match source_policy {
+            NumericAssetTransferSourcePolicy::BondVaultCustody => {
+                ensure_usage_policy_for_accounts(
+                    state_transaction,
+                    source_id.definition(),
+                    [destination_subject],
+                    Some(amount),
+                )?;
+            }
+            NumericAssetTransferSourcePolicy::BondVaultFunding => {
+                ensure_transparent_allowed(
+                    state_transaction,
+                    source_id.definition(),
+                    "transparent transfer not permitted by policy",
+                )?;
+                ensure_usage_policy_for_accounts(
+                    state_transaction,
+                    source_id.definition(),
+                    [source_subject],
+                    Some(amount),
+                )?;
+            }
+            _ => {
+                ensure_transparent_allowed(
+                    state_transaction,
+                    source_id.definition(),
+                    "transparent transfer not permitted by policy",
+                )?;
+                ensure_usage_policy_for_accounts(
+                    state_transaction,
+                    source_id.definition(),
+                    [source_subject, destination_subject],
+                    Some(amount),
+                )?;
+            }
+        }
         if source_policy != NumericAssetTransferSourcePolicy::SorafsReserveCustody {
             ensure_not_sorafs_reserve_custody_source(state_transaction, source_id)?;
         }
@@ -7171,6 +7580,9 @@ pub mod isi {
         }
         if source_policy != NumericAssetTransferSourcePolicy::FxEscrowDeposit {
             ensure_not_fx_corridor_escrow_destination(state_transaction, destination_id)?;
+        }
+        if source_policy != NumericAssetTransferSourcePolicy::BondVaultFunding {
+            ensure_not_bond_vault_destination(state_transaction, destination_id)?;
         }
         match source_policy {
             NumericAssetTransferSourcePolicy::User
@@ -7187,6 +7599,35 @@ pub mod isi {
                             .into(),
                     )
                     .into());
+                }
+            }
+            NumericAssetTransferSourcePolicy::BondVaultFunding => {
+                if !crate::smartcontracts::isi::bond::is_bond_vault_asset(
+                    state_transaction.world(),
+                    destination_id,
+                ) {
+                    return Err(InstructionExecutionError::InvariantViolation(
+                        "bond funding destination is not a registered bond vault".into(),
+                    ));
+                }
+                ensure_not_native_escrow_source(state_transaction, &source_id)?;
+            }
+            NumericAssetTransferSourcePolicy::BondVaultCustody => {
+                if !crate::smartcontracts::isi::bond::is_bond_vault_asset(
+                    state_transaction.world(),
+                    source_id,
+                ) {
+                    return Err(InstructionExecutionError::InvariantViolation(
+                        "bond vault payment source is not a registered bond vault".into(),
+                    ));
+                }
+                if crate::smartcontracts::isi::escrow::is_native_escrow_custody_asset(
+                    state_transaction,
+                    source_id,
+                )? {
+                    return Err(InstructionExecutionError::InvariantViolation(
+                        "bond vault payment source overlaps native escrow custody".into(),
+                    ));
                 }
             }
             NumericAssetTransferSourcePolicy::NativeEscrowCustody => {
@@ -7758,6 +8199,10 @@ pub mod isi {
                 asset_id.definition(),
                 "mint",
             )?;
+            crate::smartcontracts::isi::bond::ensure_bond_supply_unlocked(
+                state_transaction.world(),
+                asset_id.definition(),
+            )?;
             let resolved_asset_id = state_transaction
                 .world
                 .resolve_asset_id_for_current_scope(&asset_id)?;
@@ -7774,6 +8219,7 @@ pub mod isi {
             }
             ensure_not_fx_corridor_escrow_destination(state_transaction, &resolved_asset_id)?;
             ensure_not_sccp_escrow_destination(state_transaction, &resolved_asset_id)?;
+            ensure_not_bond_vault_destination(state_transaction, &resolved_asset_id)?;
             let _created = ensure_receiving_account(
                 authority,
                 asset_id.account(),
@@ -7854,6 +8300,10 @@ pub mod isi {
                 state_transaction,
                 asset_id.definition(),
                 "burn",
+            )?;
+            crate::smartcontracts::isi::bond::ensure_bond_supply_unlocked(
+                state_transaction.world(),
+                asset_id.definition(),
             )?;
             let resolved_asset_id = state_transaction
                 .world
@@ -7972,6 +8422,10 @@ pub mod isi {
             asset_id.definition(),
             "retail monetary mint",
         )?;
+        crate::smartcontracts::isi::bond::ensure_bond_supply_unlocked(
+            state_transaction.world(),
+            asset_id.definition(),
+        )?;
         let resolved = state_transaction
             .world
             .resolve_asset_id_for_current_scope(&asset_id)?;
@@ -7983,6 +8437,7 @@ pub mod isi {
         state_transaction.world.account(asset_id.account())?;
         ensure_not_fx_corridor_escrow_destination(state_transaction, &asset_id)?;
         ensure_not_sccp_escrow_destination(state_transaction, &asset_id)?;
+        ensure_not_bond_vault_destination(state_transaction, &asset_id)?;
         let spec = state_transaction
             .numeric_spec_for(asset_id.definition())
             .map_err(Error::from)?;
@@ -8062,6 +8517,10 @@ pub mod isi {
             state_transaction,
             asset_id.definition(),
             "retail monetary burn",
+        )?;
+        crate::smartcontracts::isi::bond::ensure_bond_supply_unlocked(
+            state_transaction.world(),
+            asset_id.definition(),
         )?;
         let resolved = state_transaction
             .world

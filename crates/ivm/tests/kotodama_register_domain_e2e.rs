@@ -1,11 +1,11 @@
 //! End-to-end canonical domain registration from a Kotodama contract.
+use crate::common;
 use iroha_crypto::PublicKey;
 use ivm::{
     IVM,
     mock_wsv::{AccountId, MockWorldStateView, PermissionToken, WsvHost},
 };
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 fn account(domain: &str, public_key: &str) -> AccountId {
     let _domain = iroha_model_base::domain::DomainId::try_new(domain, "universal").unwrap();
     let public_key: PublicKey = public_key.parse().unwrap();

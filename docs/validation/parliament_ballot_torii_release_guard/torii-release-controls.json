@@ -1,0 +1,74 @@
+{
+  "audited_repository_read_paths": [
+    "crates/iroha_torii/src/lib.rs",
+    "crates/iroha_torii/src/panic_recovery.rs",
+    "crates/iroha_torii/src/parliament_tle_release.rs",
+    "pytest.ini",
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts/tests/conftest.py"
+  ],
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_torii_release_guard/torii-release-controls.py.template",
+    "torii_release"
+  ],
+  "environment": {
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "exit": 0,
+  "log": "docs/validation/parliament_ballot_torii_release_guard/torii-release-controls.txt",
+  "log_sha256": "d1741cefc1bbda0524ee7a4bf2d0f2a88e515ea8bae2f93de7a654f0af8d1e21",
+  "observed_at_utc": "2026-10-13T14:09:36.082567+00:00",
+  "observed_read_count": 9,
+  "passed": 136,
+  "profile_qualified": false,
+  "pytest_arguments": [
+    "--import-mode=importlib",
+    "--import-mode=importlib",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "torii_release"
+  ],
+  "pytest_version": "9.1.1",
+  "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+  "repository_imports": {
+    "__main__": "docs/validation/parliament_ballot_torii_release_guard/torii-release-controls.py.template",
+    "scripts.formal.check_sora_parliament_source_contract": "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts.tests.check_sora_parliament_source_contract_test": "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts.tests.conftest": "scripts/tests/conftest.py"
+  },
+  "runtime": {
+    "installed_runtime_trusted": true,
+    "python_executable": "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "python_executable_sha256": "1b5cb11d163e5ba34e2a05fc533c0ed89574d4425f9749a9d89405f651980e0d",
+    "python_version": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "schema": "parliament-torii-release-controls-v1",
+  "scope": "One hundred thirty-six focused Python structural controls for nine current Torii service/handler/admission/recovery items, exact private app_api module routing, reviewed lint attributes, full service/recovery defining modules and absence of direct custom permit Drop. Canonical-auth mount/middleware, surrounding name resolution and dependency/native semantics remain upstream premises. No runtime cancellation, Rust or production qualification follows.",
+  "source_after": {
+    "crates/iroha_torii/src/lib.rs": "2ba2a4d8dc9d29e90893eb97d4fc8bc3326ead802e8aebe52e6c013cc2c12850",
+    "crates/iroha_torii/src/panic_recovery.rs": "d4be68e807a3e669aaa6cb619aba4fcb9f9c5c47eb6673c4941ecf5b8246311f",
+    "crates/iroha_torii/src/parliament_tle_release.rs": "ef7519eac481adf80af658f1ab97eab52ffe6973619284f5195ba3767f26d8a8",
+    "docs/validation/parliament_ballot_torii_release_guard/torii-release-controls.py.template": "17fac0accacec22e264d6893e8dbe54e2d058f4fe1d835578627d9cb6bb8fdb0",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "761db4ec97df48830b5baa460720b3abd54b4e0e31dc55b32cadb307c8b73a76",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "f89f70eedfdbb8f426b8a270a2a5da2a3a157f558ffe4ab519b767fa4370fbbd",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_before": {
+    "crates/iroha_torii/src/lib.rs": "2ba2a4d8dc9d29e90893eb97d4fc8bc3326ead802e8aebe52e6c013cc2c12850",
+    "crates/iroha_torii/src/panic_recovery.rs": "d4be68e807a3e669aaa6cb619aba4fcb9f9c5c47eb6673c4941ecf5b8246311f",
+    "crates/iroha_torii/src/parliament_tle_release.rs": "ef7519eac481adf80af658f1ab97eab52ffe6973619284f5195ba3767f26d8a8",
+    "docs/validation/parliament_ballot_torii_release_guard/torii-release-controls.py.template": "17fac0accacec22e264d6893e8dbe54e2d058f4fe1d835578627d9cb6bb8fdb0",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "761db4ec97df48830b5baa460720b3abd54b4e0e31dc55b32cadb307c8b73a76",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "f89f70eedfdbb8f426b8a270a2a5da2a3a157f558ffe4ab519b767fa4370fbbd",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_unchanged": true
+}

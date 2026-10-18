@@ -192,18 +192,18 @@ fn emit(
     context.print_data(&request)
 }
 
-pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
+pub(super) fn run<C: RunContext>(context: &mut C, args: &FinalizeArgs) -> Result<()> {
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let message_id = parse_word(&args.message_id)?;
-    let record = client
-        .sccp()
-        .message(&message_id)?
+    let status = client.sccp().message(&message_id)?;
+    original.verify_message(&message_id, &status)?;
+    let record = status
         .outbound()
         .map(|view| view.record.clone())
         .ok_or_else(|| eyre!("{} is not an outbound message", args.message_id))?;
     if args.emit {
-        return emit(context, &args, &client, &original, &record, message_id);
+        return emit(context, args, &client, &original, &record, message_id);
     }
     let key_file = args
         .key_file
@@ -221,8 +221,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
             &context.sccp_config()?,
             &client,
             &original,
-            record.network,
-            Some(record.revision),
+            (record.network, Some(record.revision)),
             &args.rpc_url,
             args.ton_wallet.as_deref(),
             key_file,
@@ -260,9 +259,11 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
             .collect();
         flows::ton(
             context,
-            &original,
-            &flow,
-            Action::Finalize,
+            flows::FlowStep {
+                original: &original,
+                flow: &flow,
+                action: Action::Finalize,
+            },
             destination.lite(),
             items,
             |_| {
@@ -285,7 +286,8 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
             |step| {
                 destination.terminal_evidence(
                     &client,
-                    profiles,
+                    &original,
+                    &profiles,
                     step,
                     iroha_sccp::ton_watch::TerminalEvent::Finalized {
                         message_id,
@@ -339,9 +341,11 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
     )?;
     flows::evm(
         context,
-        &original,
-        &flow,
-        iroha_sccp_wallet::flow::SccpFlowActionV1::Finalize,
+        flows::FlowStep {
+            original: &original,
+            flow: &flow,
+            action: iroha_sccp_wallet::flow::SccpFlowActionV1::Finalize,
+        },
         record.network,
         &destination,
         key_file,
@@ -406,6 +410,32 @@ fn target_item(target: u64) -> iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
     }
 }
 
+/// Read maintenance requirements from the exact signed step selected and locked by the driver.
+fn prerequisite_target(
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
+) -> Result<(Option<u64>, Option<u64>)> {
+    use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
+    let mut targets = step
+        .record()
+        .evidence
+        .iter()
+        .filter(|item| item.label == "sccp.prerequisite.target");
+    let bytes = &targets
+        .next()
+        .ok_or_else(|| eyre!("original prerequisite target is absent"))?
+        .bytes;
+    ensure!(
+        targets.next().is_none(),
+        "original prerequisite target is ambiguous"
+    );
+    let target = u64::from_be_bytes(bytes.as_slice().try_into()?);
+    match step.record().action {
+        Action::Control => Ok((Some(target), None)),
+        Action::Checkpoint => Ok((None, Some(target))),
+        _ => Err(eyre!("original step is not destination maintenance")),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn evm_ready(
     context: &mut impl RunContext,
@@ -420,7 +450,7 @@ pub(super) fn evm_ready(
     use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
     let pending = flow.pending()?.map(|step| step.record().action);
     if let Some(action @ (Action::Checkpoint | Action::Control)) = pending {
-        flows::recover_evm(context, &original, flow, action, destination)?;
+        flows::recover_evm(context, original, flow, action, destination)?;
         return Ok(false);
     }
     for _ in 0..3 {
@@ -442,20 +472,25 @@ pub(super) fn evm_ready(
                     original.network,
                     original.instance,
                 )? {
-                    if !flows::confirmed(&flows::evm(
-                        context,
-                        &original,
-                        flow,
-                        Action::Checkpoint,
-                        route.0,
-                        destination,
-                        key,
-                        call,
-                        vec![
-                            flows::evidence("taira.verified_rotations", &rotations)?,
-                            target_item(target),
-                        ],
-                    )?) {
+                    if !flows::confirmed(
+                        flows::evm(
+                            context,
+                            flows::FlowStep {
+                                original,
+                                flow,
+                                action: Action::Checkpoint,
+                            },
+                            route.0,
+                            destination,
+                            key,
+                            call,
+                            vec![
+                                flows::evidence("taira.verified_rotations", &rotations)?,
+                                target_item(target),
+                            ],
+                        )?
+                        .as_ref(),
+                    ) {
                         return Ok(false);
                     }
                 }
@@ -469,20 +504,25 @@ pub(super) fn evm_ready(
                 )?;
                 let call =
                     destination.control_call(&bundle, original.network, original.instance)?;
-                if !flows::confirmed(&flows::evm(
-                    context,
-                    &original,
-                    flow,
-                    Action::Control,
-                    route.0,
-                    destination,
-                    key,
-                    call,
-                    vec![
-                        flows::evidence("taira.verified_control", &bundle)?,
-                        target_item(nonce),
-                    ],
-                )?) {
+                if !flows::confirmed(
+                    flows::evm(
+                        context,
+                        flows::FlowStep {
+                            original,
+                            flow,
+                            action: Action::Control,
+                        },
+                        route.0,
+                        destination,
+                        key,
+                        call,
+                        vec![
+                            flows::evidence("taira.verified_control", &bundle)?,
+                            target_item(nonce),
+                        ],
+                    )?
+                    .as_ref(),
+                ) {
                     return Ok(false);
                 }
             }
@@ -504,43 +544,24 @@ pub(super) fn ton_ready(
     wallet: &ton::TonWallet,
 ) -> Result<bool> {
     use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
-    let pending = flow
-        .pending()?
-        .map(|step| -> Result<_> {
-            let action = step.record().action;
-            if !matches!(action, Action::Checkpoint | Action::Control) {
-                return Ok(None);
-            }
-            let bytes = &step
-                .record()
-                .evidence
-                .iter()
-                .find(|item| item.label == "sccp.prerequisite.target")
-                .ok_or_else(|| eyre!("original prerequisite target is absent"))?
-                .bytes;
-            Ok(Some((
-                action,
-                u64::from_be_bytes(bytes.as_slice().try_into()?),
-            )))
-        })
-        .transpose()?
-        .flatten();
-    if let Some((action, target)) = pending {
+    let pending = flow.pending()?.and_then(|step| {
+        let action = step.record().action;
+        matches!(action, Action::Checkpoint | Action::Control).then_some(action)
+    });
+    if let Some(action) = pending {
         flows::ton(
             context,
-            &original,
-            flow,
-            action,
+            flows::FlowStep {
+                original,
+                flow,
+                action,
+            },
             destination.lite(),
             Vec::new(),
             |_| Err(eyre!("recovery must not prepare another wallet message")),
-            |_| {
-                destination.progress_evidence(
-                    original.network,
-                    original.instance,
-                    (action == Action::Control).then_some(target),
-                    (action == Action::Checkpoint).then_some(target),
-                )
+            |step| {
+                let (control, checkpoint) = prerequisite_target(step)?;
+                destination.progress_evidence(client, original, control, checkpoint)
             },
         )?;
         return Ok(false);
@@ -560,9 +581,11 @@ pub(super) fn ton_ready(
                     .rotations(from, iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL)?;
                 flows::ton(
                     context,
-                    &original,
-                    flow,
-                    Action::Checkpoint,
+                    flows::FlowStep {
+                        original,
+                        flow,
+                        action: Action::Checkpoint,
+                    },
                     destination.lite(),
                     vec![
                         flows::evidence("taira.verified_rotations", &rotations)?,
@@ -577,13 +600,9 @@ pub(super) fn ton_ready(
                             wallet,
                         )
                     },
-                    |_| {
-                        destination.progress_evidence(
-                            original.network,
-                            original.instance,
-                            None,
-                            Some(target),
-                        )
+                    |step| {
+                        let (control, checkpoint) = prerequisite_target(step)?;
+                        destination.progress_evidence(client, original, control, checkpoint)
                     },
                 )?
             }
@@ -596,9 +615,11 @@ pub(super) fn ton_ready(
                 )?;
                 flows::ton(
                     context,
-                    &original,
-                    flow,
-                    Action::Control,
+                    flows::FlowStep {
+                        original,
+                        flow,
+                        action: Action::Control,
+                    },
                     destination.lite(),
                     vec![
                         flows::evidence("taira.verified_control", &bundle)?,
@@ -612,23 +633,81 @@ pub(super) fn ton_ready(
                             wallet,
                         )
                     },
-                    |_| {
-                        destination.progress_evidence(
-                            original.network,
-                            original.instance,
-                            Some(nonce),
-                            None,
-                        )
+                    |step| {
+                        let (control, checkpoint) = prerequisite_target(step)?;
+                        destination.progress_evidence(client, original, control, checkpoint)
                     },
                 )?
             }
         };
-        if !flows::confirmed(&outcome) {
+        if !flows::confirmed(outcome.as_ref()) {
             return Ok(false);
         }
     }
     context.println("Destination prerequisites advanced; rerun this flow to continue from its retained progress.")?;
     Ok(false)
+}
+
+/// The independent keeper follows the same journaled checkpoint/control sequence as minting.
+pub(super) fn maintain(context: &mut impl RunContext, args: &CommitteeSyncArgs) -> Result<()> {
+    let config = context.sccp_config()?;
+    let client = blocking(context)?;
+    let original = origin::authenticate_origin(context, &client, &args.origin)?;
+    let network = parse_network(&args.network)?;
+    let (_, selected) = route_deployment(&client, &original, network, args.revision)?;
+    let revision = selected.route_revision;
+    let flow = flows::open(
+        context,
+        iroha_sccp_wallet::journal::SccpFlowKindV1::CommitteeSync,
+        &args.flow,
+        flows::intent(
+            format!("destination-upkeep:{}:{revision}", network.profile_key()).as_bytes(),
+        ),
+    )?;
+    let ready = if network == SccpNetworkV1::TonMainnet {
+        let (destination, wallet) = ton_destination(
+            &config,
+            &client,
+            &original,
+            (network, Some(revision)),
+            &args.rpc_url,
+            args.ton_wallet.as_deref(),
+            &args.key_file,
+        )?;
+        ton_ready(
+            context,
+            &flow,
+            &client,
+            &original,
+            (network, revision),
+            false,
+            &destination,
+            &wallet,
+        )?
+    } else {
+        let destination = evm_destination(
+            &config,
+            &client,
+            &original,
+            network,
+            Some(revision),
+            &args.rpc_url,
+        )?;
+        evm_ready(
+            context,
+            &flow,
+            &client,
+            &original,
+            (network, revision),
+            false,
+            &destination,
+            &args.key_file,
+        )?
+    };
+    if ready {
+        context.println("Destination committee and newest control are current.")?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -648,6 +727,102 @@ mod tests {
         assert_eq!(next(30, 30, 3, 3, false).unwrap(), Next::Finalize);
         assert!(next(31, 30, 3, 3, false).is_err());
         assert_eq!(target_item(42).bytes, 42_u64.to_be_bytes());
+    }
+
+    #[test]
+    fn maintenance_reselection_reads_the_locked_step_target() {
+        use iroha_sccp_wallet::{
+            flow::{SccpFlowActionV1 as Action, SccpFlowV1, drive_step_with_rebroadcast},
+            journal::{
+                SccpFlowIdV1, SccpFlowKindV1, SccpJournalOutcomeV1, SccpJournalRoot,
+                SccpStepOutcomeKindV1,
+            },
+        };
+        let base =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sccp-continuation");
+        std::fs::create_dir_all(&base).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("maintenance-reselection-")
+            .tempdir_in(base)
+            .unwrap();
+        let network_id = iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([7; 32])),
+        );
+        let root = SccpJournalRoot::open(&dir.path().join("journal")).unwrap();
+        for (action, id) in [(Action::Control, 1), (Action::Checkpoint, 2)] {
+            let flow = SccpFlowV1::open(
+                root.network(&network_id)
+                    .unwrap()
+                    .flow(&SccpFlowIdV1 {
+                        kind: SccpFlowKindV1::CommitteeSync,
+                        id: [id; 32],
+                    })
+                    .unwrap(),
+                *network_id.as_bytes(),
+            )
+            .unwrap();
+            let step_a = flow
+                .prepare(
+                    action,
+                    SccpNetworkV1::TonMainnet,
+                    vec![1],
+                    vec![target_item(2)],
+                )
+                .unwrap();
+            step_a.begin_submission().unwrap();
+            let stale_target = prerequisite_target(&step_a).unwrap();
+            drop(step_a);
+
+            // A different invocation completes A and prepares B before this caller selects again.
+            let step_a = flow.latest(action).unwrap().unwrap();
+            step_a
+                .complete(&SccpJournalOutcomeV1 {
+                    outcome: SccpStepOutcomeKindV1::Confirmed,
+                    transaction: vec![1; 32],
+                    evidence: vec![target_item(2)],
+                })
+                .unwrap();
+            drop(step_a);
+            let step_b = flow
+                .prepare(
+                    action,
+                    SccpNetworkV1::TonMainnet,
+                    vec![2],
+                    vec![target_item(4)],
+                )
+                .unwrap();
+            step_b.begin_submission().unwrap();
+            let original_b = step_b.record().clone();
+            drop(step_b);
+
+            // Observed progress 3 satisfies the captured target 2, but not selected B's target 4.
+            let reached = |(control, checkpoint): (Option<u64>, Option<u64>)| {
+                control.or(checkpoint).unwrap() <= 3
+            };
+            assert!(reached(stale_target));
+            let selected = flow.latest(action).unwrap().unwrap();
+            let outcome = drive_step_with_rebroadcast::<eyre::Report>(
+                &selected,
+                false,
+                |_| {
+                    Ok(
+                        reached(prerequisite_target(&selected)?).then(|| SccpJournalOutcomeV1 {
+                            outcome: SccpStepOutcomeKindV1::Confirmed,
+                            transaction: vec![2; 32],
+                            evidence: vec![target_item(3)],
+                        }),
+                    )
+                },
+                |_| panic!("step reselection must preserve the original submission"),
+            )
+            .unwrap();
+            assert!(outcome.is_none());
+            drop(selected);
+            let pending = flow.pending().unwrap().unwrap();
+            assert_eq!(pending.record(), &original_b);
+            assert!(pending.submission_recorded().unwrap());
+            assert!(pending.outcome().unwrap().is_none());
+        }
     }
 
     #[test]
@@ -730,67 +905,4 @@ mod tests {
             Cli::try_parse_from(args).unwrap();
         }
     }
-}
-
-/// The independent keeper follows the same journaled checkpoint/control sequence as minting.
-pub(super) fn maintain(context: &mut impl RunContext, args: CommitteeSyncArgs) -> Result<()> {
-    let config = context.sccp_config()?;
-    let client = blocking(context)?;
-    let original = origin::authenticate_origin(context, &client, &args.origin)?;
-    let network = parse_network(&args.network)?;
-    let (_, selected) = route_deployment(&client, &original, network, args.revision)?;
-    let revision = selected.route_revision;
-    let flow = flows::open(
-        context,
-        iroha_sccp_wallet::journal::SccpFlowKindV1::CommitteeSync,
-        &args.flow,
-        flows::intent(
-            format!("destination-upkeep:{}:{revision}", network.profile_key()).as_bytes(),
-        ),
-    )?;
-    let ready = if network == SccpNetworkV1::TonMainnet {
-        let (destination, wallet) = ton_destination(
-            &config,
-            &client,
-            &original,
-            network,
-            Some(revision),
-            &args.rpc_url,
-            args.ton_wallet.as_deref(),
-            &args.key_file,
-        )?;
-        ton_ready(
-            context,
-            &flow,
-            &client,
-            &original,
-            (network, revision),
-            false,
-            &destination,
-            &wallet,
-        )?
-    } else {
-        let destination = evm_destination(
-            &config,
-            &client,
-            &original,
-            network,
-            Some(revision),
-            &args.rpc_url,
-        )?;
-        evm_ready(
-            context,
-            &flow,
-            &client,
-            &original,
-            (network, revision),
-            false,
-            &destination,
-            &args.key_file,
-        )?
-    };
-    if ready {
-        context.println("Destination committee and newest control are current.")?;
-    }
-    Ok(())
 }

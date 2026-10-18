@@ -1,5 +1,4 @@
 //! Governance election bounds, rollback, and the closed production proof registry.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 
 use iroha_core::{
     kura::Kura,

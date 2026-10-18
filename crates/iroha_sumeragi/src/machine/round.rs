@@ -190,6 +190,8 @@ impl Core {
         self.fresh_build = None;
         self.repropose = false;
         self.resend_recorded = None;
+        self.proposal_admission = None;
+        self.proposal_recovery = None;
         self.proposal_sent_at = None;
         self.repushed.clear();
         self.request_pushed.clear();

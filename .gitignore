@@ -402,3 +402,15 @@ tools/soranet-relay/.tmp*
 # sorafs_cli writes deploy run outputs to .sorafs/deploy relative to its working
 # directory; they are operational outputs, never source or seal inputs.
 .sorafs/
+
+# Retained B6 evidence snapshots and test logs are source artifacts.
+!/docs/validation/parliament_ballot_content_lifetime/source/target/
+!/docs/validation/parliament_ballot_family_domains/source/target/
+!/docs/validation/parliament_ballot_sequence_composition/capture/source/target/
+!/docs/validation/parliament_ballot_component_families/record/capture/source/target/
+!/docs/validation/parliament_ballot_sequence_composition/review/pytest.log
+!/docs/validation/parliament_ballot_component_families/record/pytest.log
+!/docs/validation/parliament_ballot_request_machine/capture/source/target/
+!/docs/validation/parliament_ballot_request_machine/components/response-l0/source/target/
+!/docs/validation/parliament_ballot_request_machine/reviews/generator/check.log
+!/docs/validation/parliament_ballot_lifetime_ledger/capture/source-snapshots/target/

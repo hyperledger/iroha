@@ -8,9 +8,10 @@
 //! - **R2** the current marker is the highest generation, read strictly; it is compared with
 //!   the iOS anchor before anything is written, and **R4** the payment key must be present and
 //!   equal to the marker's;
-//! - **R1** staging files are removed; **R3** the current marker is adopted durably
-//!   (fresh-inode rewrite when it may hold an unacknowledged write of this boot; on a full
-//!   disk such rewrites and copy repairs may draw the ballast);
+//! - **R1** staging files are removed (the state-owner archive's at the first full reconcile
+//!   of the slot by this provider and after a failed archive access); **R3** the current
+//!   marker is adopted durably (fresh-inode rewrite when it may hold an unacknowledged write of
+//!   this boot; on a full disk such rewrites and copy repairs may draw the ballast);
 //! - **R5** the capsule bound by a head is loaded from either copy and repaired, with the
 //!   completion record under a Selected head (adopted, or its invalid never-released copies
 //!   removed) or the retained record under a Released head (`CompletionLost` when every copy is
@@ -19,7 +20,8 @@
 //!   rolled-back marker set: reconciliation stops and discards nothing; **R7** staging that no
 //!   marker binds is discarded; **R8** lower generations are retired by name;
 //! - **R9** a Selected head is finished offline (receipt, record, Released marker) and a
-//!   lagging anchor is raised;
+//!   lagging anchor is raised. Every fully reconciled anchor also requires an acknowledged
+//!   exact mutation: a visible value can belong to an earlier uncertain write;
 //! - **R10** without any marker, an intent whose key is definitively absent may continue
 //!   enrollment, an intent with a key is abandoned (never used), and a key or any journal
 //!   record without a marker is lost custody. No slot, key or file is deleted on these paths.
@@ -47,10 +49,7 @@ use super::{
     KagemushaWalletEnrollmentPhaseV1, KagemushaWalletLostCustodyV1, KagemushaWalletProviderErrorV1,
     advance::FinishedV1,
     advance::{KagemushaWalletAdvanceCapsuleV1, KagemushaWalletTransitionOwnerV1},
-    anchor::{
-        KagemushaWalletAnchorCheckV1, kagemusha_wallet_check_anchor_v1,
-        kagemusha_wallet_raise_anchor_v1,
-    },
+    anchor::{kagemusha_wallet_check_anchor_v1, kagemusha_wallet_raise_anchor_v1},
     capsule::{
         KagemushaWalletLoadedPairV1, kagemusha_wallet_list_capsules_v1,
         kagemusha_wallet_load_capsule_v1, kagemusha_wallet_repair_pair_v1,
@@ -67,7 +66,7 @@ use super::{
         KAGEMUSHA_WALLET_ENROLLMENT_NAME_V1, KAGEMUSHA_WALLET_INTENT_NAME_V1,
         KAGEMUSHA_WALLET_KEY_GENERATION_ATTEMPT_NAME_V1, KAGEMUSHA_WALLET_MARKERS_DIR_NAME_V1,
         KAGEMUSHA_WALLET_OPS_DIR_NAME_V1, KagemushaWalletCopyV1, KagemushaWalletCustodyDirV1,
-        KagemushaWalletSlotIdV1, kagemusha_wallet_capsule_name_v1,
+        KagemushaWalletSlotIdV1, kagemusha_wallet_archive_dir_v1, kagemusha_wallet_capsule_name_v1,
         kagemusha_wallet_capsules_dir_v1, kagemusha_wallet_completion_dir_v1,
         kagemusha_wallet_is_staging_name_v1, kagemusha_wallet_list_dir_v1,
         kagemusha_wallet_markers_dir_v1, kagemusha_wallet_ops_dir_v1,
@@ -149,6 +148,8 @@ where
         slot: &KagemushaWalletSlotIdV1,
         owner: Option<&dyn KagemushaWalletTransitionOwnerV1<C, R>>,
     ) -> Result<KagemushaWalletSlotStatusV1, KagemushaWalletProviderErrorV1> {
+        // Every reconciliation ends the current archive phase before it reads anything.
+        self.end_archive_phase();
         self.recover_generated_key(slot)?;
         self.reconcile_slot_after_generation(slot, owner)
     }
@@ -229,6 +230,7 @@ where
         slot: &KagemushaWalletSlotIdV1,
         owner: Option<&dyn KagemushaWalletTransitionOwnerV1<C, R>>,
     ) -> Result<KagemushaWalletSlotStatusV1, KagemushaWalletProviderErrorV1> {
+        super::counters::count(super::counters::EventV1::Reconcile);
         // R0.
         self.require_storage()?;
         if let Some(status) = self.cached_status(slot)? {
@@ -355,7 +357,10 @@ where
         slot: &KagemushaWalletSlotIdV1,
         owner: Option<&dyn KagemushaWalletTransitionOwnerV1<C, R>>,
     ) -> Result<KagemushaWalletSlotStatusV1, KagemushaWalletProviderErrorV1> {
+        super::counters::count(super::counters::EventV1::FullReconcile);
         self.poison(slot);
+        // A full reconcile re-derives the slot from disk, its remembered archive writes included.
+        self.forget_archive_writes(slot);
         let boot = self.boot();
         // R2: read-only selection and checks before anything is written.
         let Some(current) =
@@ -366,13 +371,14 @@ where
         self.require_not_abandoned(slot)?;
         // The authenticated enrollment phase names this marker before any effect.
         self.require_marker_phase(current.record())?;
-        let anchor = kagemusha_wallet_check_anchor_v1(&self.platform, current.record())?;
+        kagemusha_wallet_check_anchor_v1(&self.platform, current.record())?;
         let phase = current.record().phase();
         if phase != KagemushaWalletMarkerPhaseV1::Terminal {
             self.require_payment_key(current.record())?; // R4
         }
         // R1, R3.
         self.remove_all_staging(slot)?;
+        self.remove_archive_staging(slot)?;
         // Fresh-inode rewrites need space: on a full disk they may draw the ballast.
         let durable = self.with_ballast(true, || {
             kagemusha_wallet_adopt_marker_v1(&self.store, &current, &boot)
@@ -384,9 +390,7 @@ where
                 kagemusha_wallet_retire_markers_v1(&self.store, &durable, current.lower())?;
                 // The pre-key phase commits this exact durable marker before it is used.
                 self.commit_enrollment_marker_phase(&record)?;
-                if anchor == KagemushaWalletAnchorCheckV1::Lagging {
-                    kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
-                }
+                kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
                 let status = KagemushaWalletSlotStatusV1::Enrollment(record);
                 self.remember(slot, durable, status.clone());
                 Ok(status)
@@ -415,18 +419,14 @@ where
                 self.settle_capsule(&durable, &boot, false)?;
                 self.settle_released_completion(&durable, &boot)?;
                 kagemusha_wallet_retire_markers_v1(&self.store, &durable, current.lower())?;
-                if anchor == KagemushaWalletAnchorCheckV1::Lagging {
-                    kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
-                }
+                kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
                 let status = KagemushaWalletSlotStatusV1::Released(record);
                 self.remember(slot, durable, status.clone());
                 Ok(status)
             }
             KagemushaWalletMarkerPhaseV1::Terminal => {
                 kagemusha_wallet_retire_markers_v1(&self.store, &durable, current.lower())?;
-                if anchor == KagemushaWalletAnchorCheckV1::Lagging {
-                    kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
-                }
+                kagemusha_wallet_raise_anchor_v1(&self.platform, &record)?;
                 if matches!(
                     record.marker().state,
                     iroha_data_model::kagemusha::KagemushaWalletMarkerStateV1::Terminal {
@@ -599,6 +599,28 @@ where
         for dir in &dirs {
             self.store.remove_staging(dir)?;
         }
+        Ok(())
+    }
+
+    /// R1 for the state-owner archive directory: remove the staging residue of an interrupted
+    /// record or batch publication. Staging files exist only inside a publication, which never
+    /// spans a reconcile, so no live staged file is removed; a staged archive batch is in
+    /// memory and is not affected. The directory grows with the archive, so this provider lists
+    /// it at the first full reconcile of the slot (residue of an earlier process) and again
+    /// only after one of its archive accesses failed on the slot (residue it may have left).
+    fn remove_archive_staging(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        if self.archive_swept.contains(slot) {
+            return Ok(());
+        }
+        let directory = kagemusha_wallet_archive_dir_v1(slot);
+        if let Some(entries) = self.store.list(&directory).into_result()? {
+            self.store.remove_listed_staging(&directory, &entries)?;
+            super::archive::settle_archive_graves(&self.store, slot, &directory, &entries)?;
+        }
+        self.archive_swept.insert(*slot);
         Ok(())
     }
 

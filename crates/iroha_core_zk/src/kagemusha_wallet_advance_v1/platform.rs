@@ -161,10 +161,12 @@ pub enum KagemushaWalletNotPublishedV1 {
     Failed(KagemushaWalletUnavailableV1),
 }
 
-/// Outcome of one durable publication.
+/// Outcome of a filesystem publication or platform anchor mutation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KagemushaWalletPublishOutcomeV1 {
-    /// The name holds the new bytes; data, rename and parent directory are synced.
+    /// Acknowledged: for filesystem publication the name holds the new bytes and the data,
+    /// rename and parent directory are synced. For a Keychain anchor this means the Security
+    /// mutation returned success; it does not supply an application-accessible power-loss fence.
     Published,
     /// The name does not hold the new bytes.
     NotPublished(KagemushaWalletNotPublishedV1),
@@ -247,6 +249,18 @@ pub trait KagemushaWalletFsV1 {
     ///
     /// Returns the OS error.
     fn rename_replace(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        from: &str,
+        to: &str,
+    ) -> io::Result<()>;
+    /// Move an existing private regular file to an absent same-directory name, retaining
+    /// its exact native identity. This is separate from publication of a staged writer.
+    ///
+    /// # Errors
+    /// Missing source, existing destination, changed custody, unsupported no-replace or I/O.
+    /// An error after the native rename is indeterminate.
+    fn rename_entry_noreplace(
         &self,
         dir: &KagemushaWalletCustodyDirV1,
         from: &str,
@@ -624,7 +638,9 @@ pub trait KagemushaWalletPlatformV1: Send + Sync {
         KagemushaWalletProbeV1::Unavailable(KagemushaWalletUnavailableV1::Platform(0))
     }
 
-    /// Update the anchor item of `slot`; after an uncertain update the caller re-reads it.
+    /// Update the anchor item of `slot`. An uncertain outcome remains uncertain even when a
+    /// read sees the requested value; the caller retries an exact mutation and requires its
+    /// acknowledgement before signing or releasing a newly selected operation.
     fn anchor_update(
         &self,
         _slot: &KagemushaWalletSlotIdV1,
@@ -660,6 +676,15 @@ pub trait KagemushaWalletPlatformV1: Send + Sync {
     /// Returns the reason the clock cannot be read.
     fn monotonic_ms(&self) -> Result<u64, KagemushaWalletUnavailableV1> {
         kagemusha_wallet_native_monotonic_ms_v1()
+    }
+
+    /// Unit-test-only E1 clock injection. `None` reads the genuine native process clock.
+    /// Production has no override, decoder or caller-selected elapsed clock.
+    #[cfg(test)]
+    fn live_enrollment_clock_for_test(
+        &self,
+    ) -> Option<Result<([u8; 32], u128), KagemushaWalletUnavailableV1>> {
+        None
     }
 
     /// Memory currently available to the app for the design §5.3 runtime capacity check, or

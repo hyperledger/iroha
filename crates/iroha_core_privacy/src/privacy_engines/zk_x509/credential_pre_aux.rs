@@ -55,7 +55,7 @@ const CREDENTIAL_PRE_AUX_LOCAL_BINDING_DOMAIN_V1: &[u8] =
 const MAIN_ROOT_KIND_V1: u8 = 1;
 const CA_ROOT_KIND_V1: u8 = 2;
 /// Consensus-critical framing and sampling order for the joint challenge set.
-pub(crate) const ZK_X509_CREDENTIAL_PRE_AUX_DESCRIPTOR_V1: &[u8] =
+pub const ZK_X509_CREDENTIAL_PRE_AUX_DESCRIPTOR_V1: &[u8] =
     b"zk-x509-credential-pre-aux-v1:X5B1:version1:profile=main-profile-digest+ca-profile-digest:public=consensus-context-digest+ca-public-digest:base-roots=exact-main1-joined-ordered-native-log5,8,15,16,18,19-then-ca1-log12:post-base-challenges=exact272-goldilocks-fields:01-sha-call=4lanes*(beta,call,role,slot,kind,word,value)=28:02-rfc=4lanes*tuple12=48:03-projection=4lanes*(copy-beta,copy-gamma,compaction-active,compaction-invocation,compaction-position,compaction-value,compaction-gamma)=28:04-io=4lanes*(beta,channel,offset,value,is-write)=20:05-der=4lanes*(tuple12-then-byte-lookup)=52:06-sha-word-memory=4lanes*(beta,address,value,is-write)=16:07-sha-word-base-fold=4:08-p256-value=4lanes*7=28:09-p256-cross=4lanes*4=16:10-p256-scalar=4lanes*5=20:11-p256-arithmetic-copy=4lanes*3=12:lane-major-within-each-family:one-private-opaque-main-post-base-capability:no-raw-constructor:bind-post-challenge-state-and-all272-canonical-challenges-into-each-local-transcript-before-aux-roots:no-caller-selected-binding";
 const SHA_CALL_CHALLENGE_FIELDS_V1: usize = 28;
 const RFC5280_CHALLENGE_FIELDS_V1: usize = 48;
@@ -69,7 +69,7 @@ const P256_CROSS_CHALLENGE_FIELDS_V1: usize = 16;
 const P256_SCALAR_CHALLENGE_FIELDS_V1: usize = 20;
 const P256_ARITHMETIC_COPY_CHALLENGE_FIELDS_V1: usize = 12;
 /// Exact number of base-field challenges in the canonical MAIN post-base phase.
-pub(crate) const ZK_X509_CREDENTIAL_MAIN_POST_BASE_CHALLENGE_FIELDS_V1: usize =
+pub const ZK_X509_CREDENTIAL_MAIN_POST_BASE_CHALLENGE_FIELDS_V1: usize =
     SHA_CALL_CHALLENGE_FIELDS_V1
         + RFC5280_CHALLENGE_FIELDS_V1
         + PROJECTION_CHALLENGE_FIELDS_V1
@@ -82,7 +82,7 @@ pub(crate) const ZK_X509_CREDENTIAL_MAIN_POST_BASE_CHALLENGE_FIELDS_V1: usize =
         + P256_SCALAR_CHALLENGE_FIELDS_V1
         + P256_ARITHMETIC_COPY_CHALLENGE_FIELDS_V1;
 /// Exact number of physical joined MAIN base roots in the first release.
-pub(crate) const ZK_X509_CREDENTIAL_MAIN_BASE_ROOT_COUNT_V1: usize = 1;
+pub const ZK_X509_CREDENTIAL_MAIN_BASE_ROOT_COUNT_V1: usize = 1;
 const _: () = {
     assert!(ZK_X509_CREDENTIAL_MAIN_BASE_ROOT_COUNT_V1 == 1);
     assert!(ZK_X509_CREDENTIAL_MAIN_POST_BASE_CHALLENGE_FIELDS_V1 == 272);
@@ -92,7 +92,7 @@ const _: () = {
 /// The outer verifier constructs this only after decoding the canonical MAIN layout. The fixed-size
 /// root array makes omission, excess, and a caller-selected root count unrepresentable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509CredentialMainPreAuxV1 {
+pub struct ZkX509CredentialMainPreAuxV1 {
     proof_instance: ZkX509ProofInstanceV1,
     /// Digest of the complete verifier-owned statement and genesis context.
     consensus_context_digest: [u8; 32],
@@ -173,7 +173,7 @@ impl ZkX509CredentialMainPreAuxV1 {
 /// fields and construction stay private to this module, so an adapter cannot fabricate the
 /// pre-auxiliary phase or sample any auxiliary challenge before X5B1 has bound both roots.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509CredentialMainPostBaseChallengesV1 {
+pub struct ZkX509CredentialMainPostBaseChallengesV1 {
     projection: ZkX509ProjectionChallengesV1,
     sha: ZkX509ShaCallBusChallengesV1,
     rfc5280: ZkX509Rfc5280StarkChallengesV1,
@@ -196,9 +196,9 @@ impl ZkX509CredentialMainPostBaseChallengesV1 {
     pub(crate) const fn sha(self) -> ZkX509ShaCallBusChallengesV1 {
         self.sha
     }
-    /// Shared RFC output grand-product challenges.
-    pub(crate) const fn rfc5280(self) -> ZkX509Rfc5280StarkChallengesV1 {
-        self.rfc5280
+    /// Borrow the shared RFC output grand-product challenges from this phase.
+    pub(crate) const fn rfc5280(&self) -> &ZkX509Rfc5280StarkChallengesV1 {
+        &self.rfc5280
     }
     /// Cross-segment byte-memory challenges.
     pub(crate) const fn io(self) -> ZkX509IoChallengesV1 {
@@ -242,7 +242,7 @@ impl ZkX509CredentialMainPostBaseChallengesV1 {
 /// state/challenge combination. Verifiers always recompute this value from
 /// decoded roots and verifier-owned profile/public digests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509CredentialPreAuxBindingV1 {
+pub struct ZkX509CredentialPreAuxBindingV1 {
     /// Exact MAIN commitment phase from which the joint schedule was derived.
     ///
     /// Retaining this typed provenance lets the consuming MAIN phase reject a valid X5B1 capability
@@ -272,8 +272,8 @@ impl ZkX509CredentialPreAuxBindingV1 {
     pub(crate) const fn sha_word(self) -> ZkX509ShaWordStarkChallengesV1 {
         self.main_post_base.sha_word()
     }
-    /// Shared RFC output grand-product challenges.
-    pub(crate) const fn rfc5280(self) -> ZkX509Rfc5280StarkChallengesV1 {
+    /// Borrow the shared RFC output grand-product challenges from the retained MAIN phase.
+    pub(crate) const fn rfc5280(&self) -> &ZkX509Rfc5280StarkChallengesV1 {
         self.main_post_base.rfc5280()
     }
     /// Post-challenge state bound into both local subproof transcripts.
@@ -542,7 +542,7 @@ fn encode_pre_aux_challenges_v1(
 /// produced by) the X5C1 subproof. The caller never supplies a challenge or
 /// post-challenge state. MAIN and compact-CA verifiers must each compare their
 /// own decoded base roots with the roots used here before accepting the proof.
-pub(crate) fn derive_zk_x509_credential_pre_aux_binding_v1(
+pub fn derive_zk_x509_credential_pre_aux_binding_v1(
     main: ZkX509CredentialMainPreAuxV1,
     ca_profile_digest: PrivacyOuterDigestV1,
     ca_public_digest: PrivacyOuterDigestV1,
@@ -601,7 +601,7 @@ pub(crate) fn derive_zk_x509_credential_pre_aux_binding_v1(
 /// This call belongs immediately after that subproof's own base-root frame and immediately before
 /// its auxiliary-root frame. Encoding the challenges as well as the post-challenge state makes
 /// accidental state/challenge mixing fail closed even inside crate-private integration code.
-pub(crate) fn absorb_zk_x509_credential_pre_aux_binding_v1(
+pub fn absorb_zk_x509_credential_pre_aux_binding_v1(
     transcript: &mut TransparentTranscriptV1,
     binding: ZkX509CredentialPreAuxBindingV1,
 ) -> Result<(), ZkX509CredentialPreAuxErrorV1> {
@@ -857,6 +857,35 @@ mod tests {
         let before = joint.state();
         assert!(absorb_zk_x509_credential_pre_aux_binding_v1(&mut joint, changed_binding).is_err());
         assert_eq!(joint.state(), before);
+    }
+
+    #[test]
+    fn rfc_accessors_borrow_the_original_phase_challenge_owner() {
+        let binding = derive_v1(main_pre_aux_v1());
+        let phase = &binding.main_post_base;
+        let from_phase: &ZkX509Rfc5280StarkChallengesV1 = phase.rfc5280();
+        let from_binding: &ZkX509Rfc5280StarkChallengesV1 = binding.rfc5280();
+        assert!(core::ptr::eq(from_phase, &raw const phase.rfc5280));
+        assert!(core::ptr::eq(from_binding, from_phase));
+        from_binding
+            .validate()
+            .expect("validated retained challenges");
+    }
+
+    #[test]
+    fn explicitly_copied_rfc_challenges_outlive_the_phase_owner() {
+        let retained = {
+            let mut binding = derive_v1(main_pre_aux_v1());
+            let retained = *binding.rfc5280();
+            assert_eq!(&retained, binding.rfc5280());
+            binding.main_post_base.rfc5280.tuple[0][0] = F::ZERO;
+            assert_ne!(&retained, binding.rfc5280());
+            assert!(binding.rfc5280().validate().is_err());
+            retained
+        };
+        retained
+            .validate()
+            .expect("independently retained challenges");
     }
 
     #[test]

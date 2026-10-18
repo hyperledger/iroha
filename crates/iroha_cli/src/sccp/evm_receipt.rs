@@ -201,6 +201,21 @@ impl EvmTransport<'_> {
             &receipt_proof,
         )?;
         verified.remaining_proof_bytes = max_proof_bytes - used - receipt_proof.byte_len();
+        let account_proof = EthereumNativeMptProofV1 {
+            nodes: self
+                .client
+                .proof(&self.contract, &[], BlockId::Hash(verified.block_hash))?
+                .account_proof,
+        };
+        verified.remaining_proof_bytes = verified
+            .remaining_proof_bytes
+            .checked_sub(account_proof.byte_len())
+            .ok_or_else(|| eyre!("call target proof exceeds the authenticated proof budget"))?;
+        account_storage_root(
+            self.receipt_target(),
+            verified.header.state_root,
+            &account_proof,
+        )?;
 
         let mut evidence = vec![
             original.receipt_authority_evidence()?,
@@ -219,6 +234,7 @@ impl EvmTransport<'_> {
             crate::sccp::flows::evidence("taira.evm_receipt_checkpoint", &checkpoint)?,
             proof_evidence("evm.original_transaction.proof", &transaction_proof)?,
             proof_evidence("evm.original_receipt.proof", &receipt_proof)?,
+            proof_evidence("evm.original_call_target.proof", &account_proof)?,
         ];
         for (index, bytes) in headers.into_iter().enumerate() {
             evidence.push(SccpEvidenceItemV1 {
@@ -431,6 +447,22 @@ fn verify_receipt_inclusion(
         decoded.tx_type == 2 && receipt.status == Some(u8::from(decoded.success)),
         "receipt is not the canonical status of the original EIP-1559 transaction"
     );
+    // Locator metadata is absent from receipt RLP; reject contradictions with its
+    // authenticated container before retaining any terminal journal evidence.
+    ensure!(
+        receipt.logs.iter().all(|log| !log.removed
+            && log.block_hash.is_none_or(|hash| hash == header.hash)
+            && log
+                .block_number
+                .is_none_or(|height| height == header.number)
+            && log
+                .transaction_hash
+                .is_none_or(|hash| hash == receipt.transaction_hash)
+            && log
+                .transaction_index
+                .is_none_or(|index| index == receipt.transaction_index)),
+        "receipt log metadata disagrees with its authenticated container"
+    );
     let remaining_proof_bytes = MAX_MPT_PROOF_BYTES
         .checked_sub(transaction_proof.byte_len())
         .and_then(|remaining| remaining.checked_sub(receipt_proof.byte_len()))
@@ -448,6 +480,25 @@ fn verify_receipt_inclusion(
 fn consumed_slot(nonce: u64) -> [u8; 32] {
     // SCCP v1 §5.2.3 fixes consumedBitmap at Solidity mapping slot 4.
     keccak256(&[&word_u64(nonce >> 8), &word_u64(4)])
+}
+
+/// Authenticate the locked runtime for every journaled effect, including maintenance.
+fn account_storage_root(
+    target: ReceiptTarget,
+    state_root: [u8; 32],
+    proof: &EthereumNativeMptProofV1,
+) -> Result<[u8; 32]> {
+    let account = decode_account(verify_mpt_inclusion_ref(
+        state_root,
+        &keccak256(&[&target.contract]),
+        proof,
+        EthereumMptRoleV1::Account,
+    )?)?;
+    ensure!(
+        account.code_hash == target.code_hash,
+        "authenticated destination code differs from the registered runtime"
+    );
+    Ok(account.storage_root)
 }
 
 fn verify_consumed_storage(
@@ -480,21 +531,12 @@ fn verify_consumed_storage(
     let account_proof = EthereumNativeMptProofV1 {
         nodes: proof.account_proof.clone(),
     };
-    let account = decode_account(verify_mpt_inclusion_ref(
-        receipt.header.state_root,
-        &keccak256(&[&target.contract]),
-        &account_proof,
-        EthereumMptRoleV1::Account,
-    )?)?;
-    ensure!(
-        account.code_hash == target.code_hash,
-        "consumed proof belongs to different destination code"
-    );
+    let storage_root = account_storage_root(target, receipt.header.state_root, &account_proof)?;
     let storage_proof = EthereumNativeMptProofV1 {
         nodes: proof.storage_proof[0].proof.clone(),
     };
     let word = decode_storage_word(verify_mpt_inclusion_ref(
-        account.storage_root,
+        storage_root,
         &keccak256(&[&slot]),
         &storage_proof,
         EthereumMptRoleV1::Storage,

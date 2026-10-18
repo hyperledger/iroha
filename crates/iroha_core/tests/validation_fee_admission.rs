@@ -1,5 +1,5 @@
 //! Integration coverage for validator admission of Parliament-enacted validation-fee policy.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::parameters::actual::ParliamentTimedOvn;
 use iroha_core::{
     governance::parliament::{
@@ -47,11 +47,11 @@ use iroha_data_model::{
 use iroha_model_base::{domain::DomainId, metadata::Metadata, topology::DataSpaceId};
 use iroha_primitives::{json::Json, numeric::NumericSpec};
 use mv::storage::StorageReadOnly;
-use sha2::{Digest as _, Sha256};
 use std::{num::NonZeroU64, sync::Arc};
 const TEST_VALIDATION_FEE_ASSET_SCALE: u8 = VALIDATION_FEE_DS_SCALE;
 const TEST_POLICY_ENACTMENT_HEIGHT: u64 = 7_202;
 const TEST_POLICY_EFFECTIVE_HEIGHT: u64 = TEST_POLICY_ENACTMENT_HEIGHT + 1;
+const TEST_POLICY_LAST_SCHEDULED_HEIGHT: u64 = TEST_POLICY_EFFECTIVE_HEIGHT + 1;
 const TEST_PARLIAMENT_POLICY_VERSION: u64 = 1;
 fn quantity(value: &str) -> Quantity {
     value
@@ -294,7 +294,7 @@ fn payout_binding(
     ValidationFeeTreasuryPayoutBindingV1 {
         treasury_account_id: contract_address.subject_id(),
         contract_address,
-        code_hash: <[u8; 32]>::from(Sha256::digest(contract_artifact)),
+        code_hash: ivm::contract_code_hash(&contract_artifact).into(),
         entrypoint: "autonomous_validation_fee_tick"
             .parse()
             .expect("payout entrypoint"),
@@ -302,15 +302,15 @@ fn payout_binding(
         xor_asset_id: xor_asset_definition_id(),
         pool_vault_account_id: pool_contract_address(network).subject_id(),
         pool_contract_address: pool_contract_address(network),
-        pool_code_hash: <[u8; 32]>::from(Sha256::digest(pool_contract_artifact().0)),
+        pool_code_hash: ivm::contract_code_hash(&pool_contract_artifact().0).into(),
         reward_pool_account_id: account(7).0,
         reference_feed_id: "xor_per_sbd".parse().unwrap(),
         reference_feed_config_version: 1,
         reference_provider_accounts: (10..15).map(|seed| account(seed).0).collect(),
         max_sbd_per_attempt_minor: 1000,
-        max_sbd_per_day_minor: 100000,
+        max_sbd_per_day_minor: 100_000,
         min_interval_ms: 60000,
-        max_source_age_ms: 300000,
+        max_source_age_ms: 300_000,
         max_slippage_bps: 100,
         validator_lane_id: iroha_model_base::topology::LaneId::new(0),
         min_reward_claim_xor_minor: 1,
@@ -324,6 +324,11 @@ fn test_state() -> (
     AccountId,
     AssetDefinitionId,
 ) {
+    use iroha_core::sumeragi::{
+        startup,
+        test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+
     let (user, user_key_pair) = account(1);
     let (recipient, _) = account(8);
     let domain_id = DomainId::try_new("fees", "paynet").expect("domain id");
@@ -358,10 +363,6 @@ fn test_state() -> (
             .filter(|seed| *seed != 8)
             .map(|seed| Account::new(account(seed).0).build(&user)),
     );
-    use iroha_core::sumeragi::{
-        startup,
-        test_chain::{CertifiedTestChain, TestChainConfig},
-    };
     let mut config = TestChainConfig::new(
         World::with_assets(
             [domain],
@@ -375,6 +376,9 @@ fn test_state() -> (
     // The native payout fixture requires the network currency in the actual signed genesis.
     // The fee token keeps its independent scale; this component prestate qualifies no election.
     let npos = iroha_data_model::parameter::system::SumeragiNposParameters {
+        // The World-only post-enactment fixture must remain inside this signed epoch.
+        // Parliament's original enactment delay stays intact; no election is synthesized.
+        epoch_length_blocks: NonZeroU64::new(TEST_POLICY_LAST_SCHEDULED_HEIGHT).unwrap(),
         xor_asset_definition_id: xor_asset_definition_id(),
         ..Default::default()
     };
@@ -500,8 +504,8 @@ fn validation_fee_policy(
     assert_eq!(treasury, payout_binding.treasury_account_id);
     ValidationFeePolicyV1 {
         retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-        effective_from_ms: 1793451600000,
-        notice_published_at_ms: 1790859600000,
+        effective_from_ms: 1_793_451_600_000,
+        notice_published_at_ms: 1_790_859_600_000,
         schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
         network_id: *state.network_id_ref(),
         policy_version: 1,
@@ -745,7 +749,7 @@ fn complete_parliament_body_for_authorization(
     }
     attempt
         .body(&body_instance_id)
-        .and_then(|body| body.result_height())
+        .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::result_height)
         .expect("completed authorization body result height")
 }
 fn test_parliament_authorization(
@@ -908,6 +912,7 @@ fn canonical_policy_registry_state(
         ValidationFeePolicyRegistryEntryV1::from_enactment(policy.clone(), policy_authorization)
             .expect("registry entry");
     let registry = ValidationFeePolicyRegistryV1 {
+        history: None,
         registered_policies: vec![entry],
         payout_policies: iroha_data_model::validation_fee::ValidationFeePayoutPolicyRegistryV1 {
             entries: vec![
@@ -964,10 +969,10 @@ fn install_canonical_post_enactment_validation_fee_state(
     state: &State,
     authority: &AccountId,
     authority_key_pair: &KeyPair,
-    policy: ValidationFeePolicyV1,
+    policy: &ValidationFeePolicyV1,
 ) {
     let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
-    let (registry, enacted_attempts) = canonical_policy_registry_state(state, &policy);
+    let (registry, enacted_attempts) = canonical_policy_registry_state(state, policy);
     assert_eq!(
         registry.registered_policies[0]
             .parliament_authorization
@@ -975,12 +980,16 @@ fn install_canonical_post_enactment_validation_fee_state(
         TEST_POLICY_ENACTMENT_HEIGHT
     );
     let mut block = state.block(block_header(
-        &state,
+        state,
         TEST_POLICY_ENACTMENT_HEIGHT,
         1_700_000_006_000,
     ));
     let mut state_transaction = block
         .transaction_for_fastpq_testing(Hash::new(b"validation_fee_admission_original_callback"));
+    // World-only fixture publication does not advance the consensus schedule. Retain
+    // the same signed epoch and original lag-two parameters for the tested heights.
+    iroha_core::retail_fee::test_support::seed_same_epoch_schedule(&mut state_transaction)
+        .expect("same authenticated epoch covers the post-enactment component window");
 
     let register_permission: iroha_data_model::permission::Permission =
         iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode.into();
@@ -1068,16 +1077,30 @@ fn install_canonical_post_enactment_validation_fee_state(
     .expect("activate pool contract");
 
     let payout_binding = payout_binding(state.network_id_ref(), &policy.ds_asset_id);
+    // The enacted policy must identify the immutable manifests registered above;
+    // dedicated-role guards resolve those exact historical artifact identities.
+    assert_eq!(
+        Hash::prehashed(payout_binding.code_hash),
+        registered_code_hash,
+        "payout binding must name the registered wrapper artifact"
+    );
+    assert_eq!(
+        Hash::prehashed(payout_binding.pool_code_hash),
+        pool_code_hash,
+        "payout binding must name the registered pool artifact"
+    );
     let wrapper_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: payout_contract_address(state.network_id_ref()),
-            entrypoint: "autonomous_validation_fee_tick".to_owned(),
+            permission: "Payout".parse().expect("dedicated payout permission"),
         }
         .into();
     let pool_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: pool_contract_address(state.network_id_ref()),
-            entrypoint: "swap_exact_in_quote_public".to_owned(),
+            permission: "SwapQuotePublic"
+                .parse()
+                .expect("dedicated pool permission"),
         }
         .into();
     let wrapper_ds_transfer_permission: iroha_data_model::permission::Permission =
@@ -1124,7 +1147,9 @@ fn install_canonical_post_enactment_validation_fee_state(
         .world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter().expect(
+            "validation-fee fixture registry fits the canonical JSON parameter",
+        )))
         .expect("valid fixture parameters");
     state_transaction.apply();
     block
@@ -1235,10 +1260,96 @@ fn asset_balance(world: &impl WorldReadOnly, asset_id: &AssetId) -> Quantity {
         .map_or_else(Quantity::zero, |value| value.clone().into_inner())
 }
 #[test]
+fn admission_fixture_retains_original_same_epoch_schedule_without_finalizing_history() {
+    let (state, user, key, recipient, treasury, asset) = test_state();
+    let (original, finalized_hash) = {
+        let view = state.view();
+        (
+            view.world().consensus_schedule().clone(),
+            view.latest_block_hash(),
+        )
+    };
+    let original_config = original.ready(1).expect("original signed genesis slot");
+    assert_eq!(
+        original_config.epoch.authorization.last_height,
+        TEST_POLICY_LAST_SCHEDULED_HEIGHT
+    );
+    let policy = validation_fee_policy(&state, asset.clone(), treasury);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy.clone());
+    {
+        let view = state.view();
+        let schedule = view.world().consensus_schedule();
+        assert_eq!(
+            view.height(),
+            1,
+            "component prestate is not finalized history"
+        );
+        assert_eq!(view.latest_block_hash(), finalized_hash);
+        assert_eq!(schedule.tip(), Some(TEST_POLICY_ENACTMENT_HEIGHT));
+        assert_eq!(schedule.entries().len(), 3);
+        for height in TEST_POLICY_ENACTMENT_HEIGHT..=TEST_POLICY_LAST_SCHEDULED_HEIGHT {
+            let slot = schedule
+                .ready(height)
+                .expect("exact authenticated component slot");
+            assert_eq!(slot.epoch, original_config.epoch);
+            assert_eq!(slot.params, original_config.params);
+            slot.height_config()
+                .expect("original epoch authenticates this exact height");
+        }
+        assert!(
+            schedule
+                .get(TEST_POLICY_LAST_SCHEDULED_HEIGHT + 1)
+                .is_none()
+        );
+    }
+    {
+        let mut block = state.block(block_header(
+            &state,
+            TEST_POLICY_EFFECTIVE_HEIGHT,
+            1_793_451_601_000,
+        ));
+        let mut transaction = block.transaction();
+        let previous = transaction.world.consensus_schedule().clone();
+        let error =
+            iroha_core::retail_fee::test_support::seed_same_epoch_schedule(&mut transaction)
+                .expect_err("a third slot outside the original epoch cannot be invented");
+        assert!(
+            matches!(error, iroha_core::sumeragi::schedule::ScheduleError::Epoch(ref reason)
+                if reason == "ready slot changes its authorized epoch"),
+            "{error:?}"
+        );
+        assert_eq!(transaction.world.consensus_schedule(), &previous);
+    }
+    let transaction = signed_transfer(&state, &user, &key, &recipient, &asset, &policy, true);
+    let error = validate_in_block(&state, TEST_POLICY_LAST_SCHEDULED_HEIGHT, transaction);
+    assert!(
+        error.contains(&format!(
+            "authenticated block parameters are missing at height {}",
+            TEST_POLICY_LAST_SCHEDULED_HEIGHT + 1
+        )),
+        "unsupported final-policy successor still refuses: {error}"
+    );
+    let view = state.view();
+    assert_eq!(view.height(), 1);
+    assert_eq!(view.latest_block_hash(), finalized_hash);
+    assert_eq!(
+        asset_balance(view.world(), &AssetId::new(asset, user.clone())),
+        Quantity::from(100_u64)
+    );
+    assert!(
+        iroha_core::retail_fee::receipts(view.world(), &user, None, 10)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn validation_fee_registry_cannot_be_installed_through_generic_parameter_path() {
     let (state, user, _, _, treasury, fee_asset) = test_state();
     let policy = validation_fee_policy(&state, fee_asset, treasury);
-    let custom = policy_registry(&state, &policy).into_custom_parameter();
+    let custom = policy_registry(&state, &policy)
+        .into_custom_parameter()
+        .expect("validation-fee fixture registry fits the canonical JSON parameter");
     let mut block = state.block(block_header(
         &state,
         TEST_POLICY_ENACTMENT_HEIGHT,
@@ -1258,12 +1369,7 @@ fn validation_fee_registry_cannot_be_installed_through_generic_parameter_path() 
 fn active_registry_rejects_missing_enacted_parliament_attempt() {
     let (state, user, user_key_pair, recipient, treasury, fee_asset) = test_state();
     let policy = validation_fee_policy(&state, fee_asset.clone(), treasury);
-    install_canonical_post_enactment_validation_fee_state(
-        &state,
-        &user,
-        &user_key_pair,
-        policy.clone(),
-    );
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &user_key_pair, &policy);
     let proposal_id = policy_proposal(&policy).fingerprint();
     {
         let mut block = state.block(block_header(
@@ -1306,17 +1412,19 @@ fn active_registry_rejects_missing_enacted_parliament_attempt() {
 fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
     let (state, user, user_key_pair, recipient, treasury, fee_asset) = test_state();
     let policy = validation_fee_policy(&state, fee_asset, treasury.clone());
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &user_key_pair, policy);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &user_key_pair, &policy);
     let wrapper_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: payout_contract_address(state.network_id_ref()),
-            entrypoint: "autonomous_validation_fee_tick".to_owned(),
+            permission: "Payout".parse().expect("dedicated payout permission"),
         }
         .into();
     let pool_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: pool_contract_address(state.network_id_ref()),
-            entrypoint: "swap_exact_in_quote_public".to_owned(),
+            permission: "SwapQuotePublic"
+                .parse()
+                .expect("dedicated pool permission"),
         }
         .into();
     let wrapper_ds_transfer_permission: iroha_data_model::permission::Permission =
@@ -1338,6 +1446,15 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
             pool_contract_address(state.network_id_ref()).subject_id(),
         ),
     ] {
+        assert!(
+            stx.world
+                .account_contains_inherent_permission(&required_owner, &permission),
+            "the enacted fixture must install each exact manifest role or asset effect"
+        );
+        assert!(
+            !stx.world
+                .account_contains_inherent_permission(&recipient, &permission)
+        );
         let grant_error = Grant::account_permission(permission.clone(), recipient.clone())
             .execute(&user, &mut stx)
             .expect_err(
@@ -1349,7 +1466,12 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
                 .contains("forbids delegating its exact runtime permissions"),
             "unexpected payout runtime delegation error: {grant_error}"
         );
-        let revoke_error = Revoke::account_permission(permission, required_owner)
+        assert!(
+            !stx.world
+                .account_contains_inherent_permission(&recipient, &permission),
+            "a refused delegation must not add the protected permission"
+        );
+        let revoke_error = Revoke::account_permission(permission.clone(), required_owner.clone())
             .execute(&user, &mut stx)
             .expect_err("required payout runtime permission must remain pinned");
         assert!(
@@ -1358,6 +1480,11 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
                 .contains("pins its exact runtime permissions"),
             "unexpected payout runtime revocation error: {revoke_error}"
         );
+        assert!(
+            stx.world
+                .account_contains_inherent_permission(&required_owner, &permission),
+            "a refused revocation must retain the required payout authority"
+        );
     }
 }
 
@@ -1365,7 +1492,7 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
 fn direct_submission_requires_signed_assessment_and_native_charging_is_atomic() {
     let (state, user, key, recipient, treasury, asset) = test_state();
     let policy = validation_fee_policy(&state, asset.clone(), treasury.clone());
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy.clone());
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     let missing = signed_transfer(&state, &user, &key, &recipient, &asset, &policy, false);
     assert!(
         validate_in_block(&state, TEST_POLICY_EFFECTIVE_HEIGHT, missing)
@@ -1438,7 +1565,7 @@ fn direct_submission_requires_signed_assessment_and_native_charging_is_atomic() 
 fn signed_assessment_cannot_be_repurposed_for_another_amount_or_charge() {
     let (state, user, key, recipient, treasury, asset) = test_state();
     let policy = validation_fee_policy(&state, asset.clone(), treasury);
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     let metadata = assessment_metadata(&state, &user, &recipient, &asset, 100);
     let wrong_amount = signed_payment(
         &state,
@@ -1479,9 +1606,9 @@ fn signed_assessment_cannot_be_repurposed_for_another_amount_or_charge() {
 
 #[test]
 fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion() {
-    let (mut state, user, key, recipient, treasury, asset) = test_state();
+    let (state, user, key, recipient, treasury, asset) = test_state();
     let policy = validation_fee_policy(&state, asset.clone(), treasury.clone());
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy);
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     {
         let mut record = iroha_data_model::validation_fee::RetailFeeAccountStateV1::enroll(
             user.clone(),
@@ -1490,15 +1617,19 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
         )
         .unwrap();
         record.payments_used = 49;
-        let storage_key = format!(
-            "retail_fee_v1/{}",
-            hex::encode(iroha_crypto::Hash::new(user.to_string().as_bytes()).as_ref())
-        )
-        .parse()
-        .unwrap();
-        let mut store = state.world.smart_contract_state_mut_for_testing().block();
-        store.insert(storage_key, norito::to_bytes(&record).unwrap());
-        store.commit();
+        let mut setup = state.block(block_header(
+            &state,
+            TEST_POLICY_EFFECTIVE_HEIGHT,
+            1_793_451_600_000,
+        ));
+        let mut transaction = setup.transaction();
+        // Seed the allowance together with its required unsettled-month index;
+        // raw wallet bytes are not a complete canonical retail state.
+        iroha_core::retail_fee::test_support::seed_account(&mut transaction.world, &record)
+            .unwrap();
+        iroha_core::retail_fee::test_support::validate_frontier(&transaction.world).unwrap();
+        transaction.apply();
+        setup.commit_world_overlay_for_testing().unwrap();
     }
     let metadata = assessment_metadata(&state, &user, &recipient, &asset, 100);
     let transactions = (1..=2)
@@ -1531,14 +1662,14 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
         None,
     );
     assert!(first.is_ok(), "{first:?}");
-    let stale = iroha_core::tx::execute_component_transaction_for_testing(
+    let concurrent_payment = iroha_core::tx::execute_component_transaction_for_testing(
         &mut block,
         accept_transaction(&state, transactions[1].clone()),
         &mut cache,
         None,
     );
     assert!(
-        stale.is_err(),
+        concurrent_payment.is_err(),
         "concurrent free assessment cannot acquire an overage charge"
     );
     let replay = iroha_core::tx::execute_component_transaction_for_testing(
@@ -1553,6 +1684,8 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
     );
     block.commit_world_overlay_for_testing().unwrap();
     let view = state.view();
+    iroha_core::retail_fee::test_support::validate_frontier(view.world())
+        .expect("payment and rejected replay preserve the exact unsettled-month frontier");
     assert_eq!(
         iroha_core::retail_fee::account_state(view.world(), &user)
             .unwrap()

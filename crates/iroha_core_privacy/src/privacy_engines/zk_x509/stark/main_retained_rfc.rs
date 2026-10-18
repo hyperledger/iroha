@@ -349,7 +349,7 @@ mod tests {
                     cache.plan.end,
                     cache.plan.coefficients
                 ),
-                (5, start, end, 526104)
+                (5, start, end, 526_104)
             );
             let group = layout.trace_groups[5];
             let width = if matches!(kind, MainTraceColumnKindV1::Base) {

@@ -7,6 +7,8 @@
 
 pub(crate) mod fastpq_source;
 pub(crate) mod prepared_intents;
+#[cfg(test)]
+pub(crate) mod process_crash;
 mod read;
 #[cfg(test)]
 pub(crate) use prepared_intents::test_helpers as prepared_intent_test_helpers;
@@ -436,6 +438,11 @@ impl NativeContextArchive {
                 "original intent capture is incomplete",
             ));
         }
+        #[cfg(test)]
+        process_crash::observe(
+            &RecordName::new(original.height, original.carrier_hash, false),
+            process_crash::Boundary::BeforeWrite,
+        );
         publish_record(
             &self.directory,
             original.height,
@@ -749,6 +756,8 @@ fn publish_named_record(
     file.rewind()?;
     file.write_all(bytes)?;
     file.sync_all()?;
+    #[cfg(test)]
+    process_crash::observe(target, process_crash::Boundary::StageSynced);
     // The path must still name the original open descriptor before publication.
     verify_named_file(directory, staged.as_str(), &file)?;
     match rustix::fs::linkat(
@@ -766,7 +775,12 @@ fn publish_named_record(
     }
     verify_bytes(open_named_record(directory, target)?, bytes)?;
     directory.sync_all()?;
-    remove_matching_stage(directory, staged.as_str(), bytes)
+    #[cfg(test)]
+    process_crash::observe(target, process_crash::Boundary::CanonicalSynced);
+    remove_matching_stage(directory, staged.as_str(), bytes)?;
+    #[cfg(test)]
+    process_crash::observe(target, process_crash::Boundary::Complete);
+    Ok(())
 }
 #[cfg(unix)]
 fn verify_named_file(directory: &File, name: &str, file: &File) -> io::Result<()> {

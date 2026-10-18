@@ -2,7 +2,7 @@
 //!
 //! These genuine proof constructions reuse the existing source, key-continuity and mutation
 //! assertions. Their partial catalogs and captured synthetic execution are component evidence;
-//! they do not replace full52 admission, a real monetary network campaign or phone measurements.
+//! they do not replace full22 admission, a real monetary network campaign or phone measurements.
 //! TODO: Compile and execute these thirteen registered cases against the current candidate.
 
 #[path = "../common/bootstrap.rs"]
@@ -26,7 +26,48 @@ mod ordinary_load_receipt;
 // construct a different Rust type even when its source file is identical.
 use super::receive_chain::compact_catalog::{self, send_chain::load_outer::load_chain};
 use first_load_fixture::first_load_fixture;
-use std::sync::atomic::Ordering;
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+/// A funded Load head from a synthetic ordinary receipt bound to the genuine rooted
+/// Bootstrap predecessor. Λ_load binds the receipt terms and never verifies BLS finality
+/// (native code checks it before Advance), so the downstream Send chain is the same as with
+/// a captured receipt. Each reconstruction writes fresh originals under `KAGEMUSHA_LOAD_OUTPUT`.
+fn synthetic_load_fixture(expected_rebuilds: usize) -> (load_chain::LoadFixture, Arc<AtomicUsize>) {
+    let output = PathBuf::from(
+        std::env::var_os("KAGEMUSHA_LOAD_OUTPUT")
+            .expect("fresh exclusive Load Omega original output directory"),
+    );
+    fs::create_dir(&output).expect("fresh output; no overwrite or implicit resume");
+    let rebuilds = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&rebuilds);
+    let fixture: load_chain::LoadFixture = Arc::new(move |rooted| {
+        let index = observed.fetch_add(1, Ordering::Relaxed);
+        assert!(
+            index < expected_rebuilds,
+            "unexpected predecessor reconstruction"
+        );
+        let directory = output.join(format!("predecessor-{index}"));
+        fs::create_dir(&directory).expect("fresh originals for each selected predecessor");
+        let (_, _, receipt) = load_objects::funded(&rooted.source.state);
+        load_fixture::build(rooted, &receipt.bytes, &directory)
+    });
+    (fixture, rebuilds)
+}
+
+#[test]
+#[ignore = "genuine common-key Send owners from a synthetic Load receipt; reports each Send A stage's rows; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+fn synthetic_funded_common_key_send_executes_all_owners() {
+    let (fixture, rebuilds) = synthetic_load_fixture(2);
+    compact_catalog::send_chain::common_key_send_executes_all_authorization_and_map_tasks(&fixture);
+    assert_eq!(rebuilds.load(Ordering::Relaxed), 2);
+}
 
 #[test]
 #[ignore = "native BLS receipt, genuine funded Receive acceptance and four-slot Omega; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
@@ -45,7 +86,7 @@ fn funded_receive_corrected_burn_closes_all_four_outer_obligations() {
 }
 
 #[test]
-#[ignore = "native BLS receipt and genuine funded ReceiveRenewed ten-A/nine-W chain; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+#[ignore = "native BLS receipt and genuine funded ReceiveRenewed nine-A/eight-W chain; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
 fn funded_renewed_receive_accepts_exact_payer_and_receiver_heads() {
     let (fixture, rebuilds) = first_load_fixture(2);
     super::receive_chain::canonical_envelope_receive_renewed_accepts_exact_payer_and_receiver_heads(
@@ -65,7 +106,7 @@ fn funded_receive_corrected_burn_preserves_consumed_root() {
 }
 
 #[test]
-#[ignore = "native BLS receipt and genuine funded accepted Receive ten-A/nine-W chain; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+#[ignore = "native BLS receipt and genuine funded accepted Receive nine-A/eight-W chain; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
 fn funded_receive_accepts_exact_payer_and_receiver_heads() {
     let (fixture, rebuilds) = first_load_fixture(2);
     super::receive_chain::canonical_envelope_receive_accepts_exact_payer_and_receiver_heads(
@@ -107,7 +148,7 @@ fn funded_catalog_rebinds_bootstrap_load_and_send() {
 }
 
 #[test]
-#[ignore = "native BLS receipt and genuine installed five-A/four-W Send differential; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+#[ignore = "native BLS receipt and genuine installed three-A/two-W Send differential; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
 fn funded_native_send_preserves_all_stages_and_originals() {
     let (fixture, rebuilds) = first_load_fixture(2);
     compact_catalog::compact_predecessor_native_send_preserves_every_installed_stage_and_original(

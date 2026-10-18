@@ -195,6 +195,66 @@ fn rebuilt_keys_produce_identical_fully_verified_proof_bytes_on_both_curves() {
     proof_parity::<Eq>();
 }
 
+fn block_import_proof_parity<C: PastaCurve>() {
+    // 2,048-row columns cross the private public-commitment block boundary.
+    // Key generation uses the ordinary monolithic commitment reference.
+    let params = PinnedParams::<C>::derive(11).unwrap();
+    let source = Source {
+        value: Value::known(C::ScalarExt::ZERO),
+        ..Source::default()
+    };
+    let original = keygen_pk_v2(&params, &source, &config(false)).unwrap();
+    let bytes = original.artifact_bytes_v2().unwrap();
+    let partial = CommitmentProbe::start_partial();
+    let imported = ProvingKey::from_artifact_v2(
+        &bytes,
+        original.binding(),
+        &params,
+        &source,
+        ReadConfig {
+            maximum_bytes: bytes.len(),
+            maximum_rows: 1 << 11,
+            coset_cache: CosetCachePolicy::OnDemand,
+            msm_budget: MemoryBudget::DEFAULT,
+        },
+    )
+    .unwrap();
+    assert!(
+        partial.calls() > 1,
+        "strict import actually computed partial MSMs"
+    );
+    drop(partial);
+    assert_same_key(&original, &imported);
+    let prove = |key: &ProvingKey<C>| {
+        let witness = Witness::from_circuit(key, &source, &[]).unwrap();
+        let proof = create_proof_owned(
+            &params,
+            key,
+            witness,
+            ProverRandomness::fixed_seed_for_tests([37; 32]),
+            ProverConfig::default(),
+        )
+        .unwrap();
+        verify_full(
+            &params,
+            original.binding(),
+            original.vk(),
+            &[],
+            &proof,
+            MemoryBudget::DEFAULT,
+        )
+        .unwrap();
+        proof
+    };
+    assert_eq!(prove(&original), prove(&imported));
+}
+
+#[test]
+fn partial_msm_import_preserves_cross_block_keys_and_verified_proof_bytes_on_both_curves() {
+    block_import_proof_parity::<Ep>();
+    block_import_proof_parity::<Eq>();
+}
+
 fn imported<C: PastaCurve>() {
     let params = PinnedParams::<C>::derive(6).unwrap();
     let source = Source::default();
@@ -507,4 +567,30 @@ fn seal_borrow<C: PastaCurve>() {
 fn compact_seal_borrows_exact_metadata_and_rejects_foreign_or_v1_on_both_curves() {
     seal_borrow::<Ep>();
     seal_borrow::<Eq>();
+}
+
+#[test]
+fn opaque_seal_equality_checks_every_identity() {
+    fn check<C: PastaCurve>() {
+        let params = PinnedParams::<C>::derive(6).unwrap();
+        let source = Source::default();
+        let key = keygen_pk_v2(&params, &source, &config(false)).unwrap();
+        let seal = SourceAdmissionSealV2::from_proving_key(&key, None).unwrap();
+        assert!(seal.same_source(&seal.clone()));
+        let independent_key = keygen_pk_v2(&params, &source, &config(false)).unwrap();
+        let independent = SourceAdmissionSealV2::from_proving_key(&independent_key, None).unwrap();
+        assert!(seal.same_source(&independent));
+        for field in 0..3 {
+            let mut changed = seal.clone();
+            match field {
+                0 => changed.descriptor_digest[0] ^= 1,
+                1 => changed.key_sha256[0] ^= 1,
+                _ => changed.source_digest[0] ^= 1,
+            }
+            assert!(!seal.same_source(&changed));
+            assert!(!changed.same_source(&seal));
+        }
+    }
+    check::<Ep>();
+    check::<Eq>();
 }

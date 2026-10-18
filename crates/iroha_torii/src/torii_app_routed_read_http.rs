@@ -167,6 +167,7 @@ const APP_ROUTED_READ_HTTP_ENDPOINTS_V1: [AppRoutedReadHttpEndpoint; 49] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(feature = "app_api")]
 enum AppLocalCollectionRead {
+    AccountInspection,
     ContractActivity,
     ContractEvents,
     RepoAgreements,
@@ -185,6 +186,7 @@ enum AppLocalCollectionRead {
     ExplorerLatestInstructions,
     ExplorerBlockDetail,
     ExplorerTransactionDetail,
+    ExplorerTransactionProof,
     ExplorerInstructionDetail,
     ExplorerInstructionContractView,
     ExplorerHealth,
@@ -207,8 +209,36 @@ struct AppReadHttpRoute {
     route: iroha_torii_shared::route_catalog::RouteDescriptor,
     decoder: AppRoutedReadHttpDecoder,
 }
+impl AppReadHttpRoute {
+    fn body_limit(self, admitted_limit: usize) -> usize {
+        #[cfg(feature = "app_api")]
+        if matches!(
+            self.endpoint,
+            AppReadHttpIdentity::LocalCollection(AppLocalCollectionRead::AccountInspection)
+        ) {
+            return admitted_limit.min(account_inspection::MAX_REQUEST_BYTES);
+        }
+        admitted_limit
+    }
+
+    fn body_read_timeout(self, configured_timeout: Duration) -> Duration {
+        #[cfg(feature = "app_api")]
+        if matches!(
+            self.endpoint,
+            AppReadHttpIdentity::LocalCollection(AppLocalCollectionRead::AccountInspection)
+        ) {
+            return configured_timeout.min(account_inspection::BODY_READ_TIMEOUT);
+        }
+        configured_timeout
+    }
+}
 #[cfg(feature = "app_api")]
-const APP_LOCAL_COLLECTION_HTTP_ROUTES_V1: [AppReadHttpRoute; 41] = [
+const APP_LOCAL_COLLECTION_HTTP_ROUTES_V1: [AppReadHttpRoute; 43] = [
+    AppReadHttpRoute {
+        endpoint: AppReadHttpIdentity::LocalCollection(AppLocalCollectionRead::AccountInspection),
+        route: route_catalog::application_api::ACCOUNTS_INSPECT_POST,
+        decoder: AppRoutedReadHttpDecoder::Json("AccountInspectionRequest"),
+    },
     AppReadHttpRoute {
         endpoint: AppReadHttpIdentity::LocalCollection(AppLocalCollectionRead::ContractActivity),
         route: route_catalog::application_api::CONTRACTS_ACTIVITY_GET,
@@ -403,6 +433,13 @@ const APP_LOCAL_COLLECTION_HTTP_ROUTES_V1: [AppReadHttpRoute; 41] = [
     },
     AppReadHttpRoute {
         endpoint: AppReadHttpIdentity::LocalCollection(
+            AppLocalCollectionRead::ExplorerTransactionProof,
+        ),
+        route: route_catalog::application_api::EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET,
+        decoder: AppRoutedReadHttpDecoder::None,
+    },
+    AppReadHttpRoute {
+        endpoint: AppReadHttpIdentity::LocalCollection(
             AppLocalCollectionRead::ExplorerInstructionDetail,
         ),
         route: route_catalog::application_api::EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET,
@@ -526,9 +563,11 @@ async fn enforce_app_routed_read_http_admission(
     }
     let accepts_body = endpoint.decoder.body_type_name().is_some();
     let body_limit = if accepts_body {
-        decode_plan
-            .raw_input_limit_bytes
-            .saturating_sub(target_bytes)
+        endpoint.body_limit(
+            decode_plan
+                .raw_input_limit_bytes
+                .saturating_sub(target_bytes),
+        )
     } else {
         0
     };
@@ -573,9 +612,11 @@ async fn enforce_app_routed_read_http_admission(
         );
     }
     let body_limit = if accepts_body {
-        decode_plan
-            .raw_input_limit_bytes
-            .saturating_sub(target_bytes)
+        endpoint.body_limit(
+            decode_plan
+                .raw_input_limit_bytes
+                .saturating_sub(target_bytes),
+        )
     } else {
         0
     };
@@ -589,7 +630,7 @@ async fn enforce_app_routed_read_http_admission(
     };
     let (parts, body) = request.into_parts();
     let body = match tokio::time::timeout(
-        app.app_api_routed_read_body_read_timeout,
+        endpoint.body_read_timeout(app.app_api_routed_read_body_read_timeout),
         collect_app_routed_read_body(body, body_limit, declared_body_bytes),
     )
     .await

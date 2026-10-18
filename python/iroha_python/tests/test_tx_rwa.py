@@ -6,8 +6,7 @@ from typing import Any
 
 import pytest
 
-from iroha_python import NetworkId
-from iroha_python import tx
+from iroha_python import NetworkId, tx
 
 AUTHORITY = "soraゴヂアニヤナサヰイユヶサヲワニュスゥァヨワコモペバプボチョナソヒョニュニョムベイゴエホタフナナハカウセミカ"
 DESTINATION = "soraゴヂアニィルサフユイサヹピビレッデヹボテハキョメベチュヒャネィギチュヲベァヱェベモネェネツデトツオチハセ"

@@ -12,9 +12,10 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
 
     func testDifferentQuotedBodyOrSignatureIsRejected() throws {
         let request = envelope(.request, requestFields())
-        for index in [0, 1] {
-            var signedRequest = [record(bodyFields()), signature]
-            signedRequest[index][signedRequest[index].count - 1] ^= 1
+        for index in [0, 9] {
+            var signedRequest = uniqueRequestFields()
+            if signedRequest[index].isEmpty { signedRequest[index] = Data([1]) }
+            else { signedRequest[index][signedRequest[index].count - 1] ^= 1 }
             var payment = paymentFields()
             payment[1] = record(signedRequest)
             XCTAssertThrowsError(try KagemushaWalletWireV1.requireExchangeBinding(
@@ -55,12 +56,11 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
         for malformed in [Array(bodyFields().dropLast()), bodyFields() + [Data()]] {
             var request = requestFields()
             request[0] = record(malformed)
-            var payment = paymentFields()
-            payment[1] = record([request[0], signature])
+            let payment = paymentFields()
             XCTAssertThrowsError(try KagemushaWalletWireV1.requireExchangeBinding(
                 request: envelope(.request, request), payment: envelope(.payment, payment)))
         }
-        let signedRequest = [record(bodyFields()), signature]
+        let signedRequest = uniqueRequestFields()
         for malformed in [Array(signedRequest.dropLast()), signedRequest + [Data()]] {
             var payment = paymentFields()
             payment[1] = record(malformed)
@@ -97,9 +97,162 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
         XCTAssertThrowsError(try KagemushaWalletWireV1.requireExchangeBinding(
             request: request + Data([0]), payment: payment))
         var oversized = paymentFields()
-        oversized[4] = Data(repeating: 0xa5, count: 10_000)
+        oversized[2] = Data(repeating: 0xa5, count: 10_000)
         XCTAssertThrowsError(try KagemushaWalletWireV1.requireExchangeBinding(
             request: request, payment: envelope(.payment, oversized)))
+    }
+
+    func testPaymentProofRolesAreBoundedBeforeExchangeBinding() throws {
+        let wire = KagemushaWalletWireV1.self
+        let request = envelope(.request, requestFields())
+        for (sigma, omega) in [(0, 0), (3_520, 0), (0, 5_086), (3_520, 5_086)] {
+            let payment = envelope(.payment, paymentWithProofVectors(
+                sigma: proofVector(count: sigma), omega: proofVector(count: omega)))
+            XCTAssertLessThanOrEqual(payment.count, wire.messageMaximumBytes)
+            XCTAssertEqual(try wire.inspectEnvelope(payment).kind, .payment)
+            try wire.requireExchangeBinding(request: request, payment: payment)
+        }
+        for (sigma, omega, field) in [
+            (3_521, 0, "payment.sigma_proof"), (0, 5_045, "payment.omega_proof"),
+            (3_521, 5_043, "payment.sigma_proof"), (3_519, 5_045, "payment.omega_proof")
+        ] {
+            let payment = envelope(.payment, paymentWithProofVectors(
+                sigma: proofVector(count: sigma), omega: proofVector(count: omega)))
+            XCTAssertLessThanOrEqual(payment.count, wire.messageMaximumBytes)
+            XCTAssertLessThanOrEqual(sigma + omega, wire.paymentProofBudgetBytes)
+            for operation in [
+                { _ = try wire.inspectEnvelope(payment) },
+                { try wire.requireExchangeBinding(request: request, payment: payment) }
+            ] {
+                XCTAssertThrowsError(try operation()) {
+                    XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField(field))
+                }
+            }
+        }
+    }
+
+    func testPaymentProofVectorLengthsMustMatchExactOriginalBytes() throws {
+        let malformed = [Data(), Data(repeating: 0, count: 7),
+            proofVector(count: 1, declared: 0), proofVector(count: 1, declared: 2),
+            proofVector(count: 1, declared: UInt64.max)]
+        for bad in malformed {
+            for sigma in [true, false] {
+                let payment = envelope(.payment, paymentWithProofVectors(
+                    sigma: sigma ? bad : proofVector(count: 0),
+                    omega: sigma ? proofVector(count: 0) : bad))
+                XCTAssertThrowsError(try KagemushaWalletWireV1.inspectEnvelope(payment)) {
+                    XCTAssertEqual($0 as? KagemushaWalletWireErrorV1,
+                        .invalidField(sigma ? "payment.sigma_proof" : "payment.omega_proof"))
+                }
+            }
+        }
+    }
+
+    func testPaymentDisplayAmountPreservesExactUnsignedRequestData() throws {
+        // These synthetic DATA records authenticate nothing. The caller still needs the
+        // exact Payment supplied by genuine Native completion before displaying a receipt.
+        for amount: KagemushaWalletUInt128V1 in [
+            .init(low: 1, high: 0), .init(low: 0, high: 1),
+            .init(low: 0x0123_4567_89ab_cdef, high: 0xfedc_ba98_7654_3210),
+            .init(low: 0, high: UInt64(1) << 63), .init(low: .max, high: .max)
+        ] {
+            let bytes = withUnsafeBytes(of: amount.low.littleEndian) { Data($0) }
+                + withUnsafeBytes(of: amount.high.littleEndian) { Data($0) }
+            XCTAssertEqual(try KagemushaWalletWireV1.paymentAmountData(paymentWithAmount(bytes)), amount)
+        }
+    }
+
+    func testPaymentDisplayAmountRejectsZeroNoncanonicalScalarsAndWrongKinds() throws {
+        for bytes in [Data(repeating: 0, count: 16), Data(repeating: 1, count: 15),
+                      Data(repeating: 1, count: 17)] {
+            XCTAssertThrowsError(try KagemushaWalletWireV1.paymentAmountData(paymentWithAmount(bytes))) {
+                XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("payment.amount"))
+            }
+        }
+        for kind: IrohaPeerWireKindV1 in [.request, .credited] {
+            let fields = kind == .request ? requestFields() : creditedFields()
+            XCTAssertThrowsError(try KagemushaWalletWireV1.paymentAmountData(envelope(kind, fields)))
+        }
+    }
+
+    func testPaymentDisplayAmountKeepsEnvelopeAndRecordBounds() throws {
+        let payment = paymentWithAmount(Data([1]) + Data(repeating: 0, count: 15))
+        for invalid in [Data(payment.dropLast()), payment + Data([0]),
+                        Data(repeating: 0, count: KagemushaWalletWireV1.messageMaximumBytes + 1)] {
+            XCTAssertThrowsError(try KagemushaWalletWireV1.paymentAmountData(invalid))
+        }
+        let fields = paymentFields()
+        for invalid in [Array(fields.dropLast()), fields + [Data()]] {
+            XCTAssertThrowsError(try KagemushaWalletWireV1.paymentAmountData(envelope(.payment, invalid)))
+        }
+    }
+
+    func testRequestDisplayAmountPreservesExactUnsignedQuotedData() throws {
+        // A receiver shows its own Request's quote before the payer approves. These synthetic
+        // DATA records authenticate nothing; only Native output may supply the Request.
+        for amount: KagemushaWalletUInt128V1 in [
+            .init(low: 1, high: 0), .init(low: 0, high: 1),
+            .init(low: 0x0123_4567_89ab_cdef, high: 0xfedc_ba98_7654_3210),
+            .init(low: 0, high: UInt64(1) << 63), .init(low: .max, high: .max)
+        ] {
+            let bytes = withUnsafeBytes(of: amount.low.littleEndian) { Data($0) }
+                + withUnsafeBytes(of: amount.high.littleEndian) { Data($0) }
+            XCTAssertEqual(try KagemushaWalletWireV1.requestAmountData(requestWithAmount(bytes)), amount)
+            // The Payment that carries this Request reads the same amount.
+            XCTAssertEqual(try KagemushaWalletWireV1.paymentAmountData(paymentWithAmount(bytes)), amount)
+        }
+    }
+
+    func testRequestDisplayAmountRejectsZeroNoncanonicalScalarsAndWrongKinds() throws {
+        for bytes in [Data(repeating: 0, count: 16), Data(repeating: 1, count: 15),
+                      Data(repeating: 1, count: 17)] {
+            XCTAssertThrowsError(try KagemushaWalletWireV1.requestAmountData(requestWithAmount(bytes))) {
+                XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("request.amount"))
+            }
+        }
+        for kind: IrohaPeerWireKindV1 in [.payment, .credited] {
+            let fields = kind == .payment ? paymentFields() : creditedFields()
+            XCTAssertThrowsError(try KagemushaWalletWireV1.requestAmountData(envelope(kind, fields)))
+        }
+        let request = requestWithAmount(Data([1]) + Data(repeating: 0, count: 15))
+        for invalid in [Data(request.dropLast()), request + Data([0])] {
+            XCTAssertThrowsError(try KagemushaWalletWireV1.requestAmountData(invalid))
+        }
+    }
+
+    private func requestWithAmount(_ amount: Data) -> Data {
+        var body = bodyFields()
+        body[9] = amount
+        return envelope(.request, [record(body), Data([1]), Data(), Data(), signature])
+    }
+
+    private func paymentWithAmount(_ amount: Data) -> Data {
+        var body = bodyFields()
+        body[9] = amount
+        return envelope(.payment,
+            irohaPeerWalletPaymentFieldsV1(body: body, signature: signature, proof: Data([4])))
+    }
+
+    private func proofVector(count: Int, declared: UInt64? = nil) -> Data {
+        withUnsafeBytes(of: (declared ?? UInt64(count)).littleEndian) { Data($0) }
+            + Data(repeating: 0x5a, count: count)
+    }
+
+    // Explicit malformed-vector seam in test DATA only; enclosing records/header remain canonical.
+    private func paymentWithProofVectors(sigma: Data, omega: Data) -> [Data] {
+        let body = bodyFields()
+        var publicFields = Array(repeating: Data(), count: 13)
+        publicFields[4] = body[3]
+        let lineage = record([record(publicFields), omega])
+        let effect = [Data(), body[5], body[7], body[9], body[11], Data(), Data(), Data()]
+        var statement = Array(repeating: Data(), count: 14)
+        statement[0] = body[0]
+        statement[1] = body[1]
+        statement[4] = body[2]
+        statement[13] = Data([3, 0, 0, 0]) + record(effect)
+        let send = record([body[0], record(statement), Data([1, 0, 0, 0]) + record([lineage]),
+            record([sigma]), Data()])
+        return [body[0], record(uniqueRequestFields()), send]
     }
 
     private let version = Data([1, 0])
@@ -107,7 +260,7 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
 
     private func bodyFields() -> [Data] {
         [version, irohaPeerWalletStructuralSchemeV1, Data([0x29])]
-            + Array(repeating: Data(), count: 16)
+            + Array(repeating: Data(), count: 14)
     }
 
     private func requestFields() -> [Data] {
@@ -115,7 +268,12 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
     }
 
     private func paymentFields() -> [Data] {
-        [version, record([record(bodyFields()), signature]), Data([2]), Data([3]), Data([4])]
+        irohaPeerWalletPaymentFieldsV1(body: bodyFields(), signature: signature, proof: Data([4]))
+    }
+
+    private func uniqueRequestFields() -> [Data] {
+        let body = bodyFields()
+        return [4, 6, 8, 10, 12, 13, 14, 15, 16].map { body[$0] } + [signature]
     }
 
     private func creditedFields() -> [Data] {

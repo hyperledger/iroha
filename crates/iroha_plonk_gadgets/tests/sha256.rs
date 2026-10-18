@@ -2,7 +2,7 @@
 //! degree, SHA-256 of a Poseidon digest against native references, the
 //! G3.3 measurement at the Q-leaf shape, and real Pallas proofs.
 
-use std::{convert::Infallible, time::Instant};
+use std::time::Instant;
 
 use ff::{Field as _, PrimeField as _};
 use iroha_pasta::{Ep, Fp, Fq, PastaField, msm::MemoryBudget, poseidon::hash_with_domain};
@@ -24,7 +24,6 @@ use iroha_plonk_gadgets::{
         native::{digest_message, pad, sha256},
     },
 };
-use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 use sha2::{Digest as _, Sha256};
 
 /// The Q-leaf advice width (`specs/kagemusha_lambda_omega_v1.md` section 2;
@@ -524,10 +523,8 @@ fn round_trip(
     let started = Instant::now();
     let pk = keygen_pk(&params, &circuit.without_witnesses(), &config).expect("proving key");
     let keygen_ms = started.elapsed().as_millis();
-    let prove = |seed: u8, public: &[Fq]| {
-        let randomness = ProverRandomness::recovery(move |_context: &[u8; 32]| {
-            Ok::<_, Infallible>(ChaCha20Rng::from_seed([seed; 32]))
-        });
+    let prove = |public: &[Fq]| {
+        let randomness = ProverRandomness::hedged();
         prove_circuit(
             &params,
             &pk,
@@ -538,7 +535,7 @@ fn round_trip(
         )
     };
     let started = Instant::now();
-    let proof = prove(7, &public).expect("proof");
+    let proof = prove(&public).expect("proof");
     let prove_ms = started.elapsed().as_millis();
     let verify = |public: &[Fq], proof: &[u8]| {
         verify_full(
@@ -566,7 +563,7 @@ fn round_trip(
     corrupted[middle] ^= 1;
     assert!(verify(&public, &corrupted).is_err(), "corrupted proof");
     // A witness for a wrong digest yields no accepted proof.
-    if let Ok(bad) = prove(7, &wrong) {
+    if let Ok(bad) = prove(&wrong) {
         assert!(verify(&wrong, &bad).is_err(), "wrong-digest proof");
     }
     proof.len()

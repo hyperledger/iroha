@@ -75,6 +75,15 @@ pub trait JsonWriteSink {
     fn begin_container(&mut self) -> Result<(), BoundedJsonError> {
         Ok(())
     }
+    /// Enter an array or object which the writer has established is empty.
+    ///
+    /// The matching [`Self::end_container`] is still required. Between these calls the
+    /// writer must emit only that empty container's delimiters. Checked built-in sinks
+    /// admit the terminal structural level without reserving a nonexistent child level.
+    /// Other sinks retain their ordinary paired container ownership by default.
+    fn begin_empty_container(&mut self) -> Result<(), BoundedJsonError> {
+        self.begin_container()
+    }
     /// Leave one successfully entered JSON array or object, including on a returned write refusal.
     fn end_container(&mut self) {}
     /// Return the legacy output only for an ordinary unbounded write.
@@ -151,6 +160,17 @@ impl JsonWriteSink for CountingJsonSink {
         self.depth = next;
         Ok(())
     }
+    fn begin_empty_container(&mut self) -> Result<(), BoundedJsonError> {
+        let next = self
+            .depth
+            .checked_add(1)
+            .ok_or(BoundedJsonError::Unsupported)?;
+        if next > MAX_JSON_VALUE_NESTING_DEPTH {
+            return Err(BoundedJsonError::Unsupported);
+        }
+        self.depth = next;
+        Ok(())
+    }
     fn end_container(&mut self) {
         debug_assert!(self.depth > 0);
         self.depth = self.depth.saturating_sub(1);
@@ -208,6 +228,17 @@ impl JsonWriteSink for ExactJsonSink<'_> {
         self.depth = next;
         Ok(())
     }
+    fn begin_empty_container(&mut self) -> Result<(), BoundedJsonError> {
+        let next = self
+            .depth
+            .checked_add(1)
+            .ok_or(BoundedJsonError::LengthMismatch)?;
+        if next > MAX_JSON_VALUE_NESTING_DEPTH {
+            return Err(BoundedJsonError::LengthMismatch);
+        }
+        self.depth = next;
+        Ok(())
+    }
     fn end_container(&mut self) {
         debug_assert!(self.depth > 0);
         self.depth = self.depth.saturating_sub(1);
@@ -256,6 +287,17 @@ impl JsonWriteSink for ExactBoxedJsonSink<'_> {
             .checked_add(1)
             .ok_or(BoundedJsonError::LengthMismatch)?;
         if next >= MAX_JSON_VALUE_NESTING_DEPTH {
+            return Err(BoundedJsonError::LengthMismatch);
+        }
+        self.depth = next;
+        Ok(())
+    }
+    fn begin_empty_container(&mut self) -> Result<(), BoundedJsonError> {
+        let next = self
+            .depth
+            .checked_add(1)
+            .ok_or(BoundedJsonError::LengthMismatch)?;
+        if next > MAX_JSON_VALUE_NESTING_DEPTH {
             return Err(BoundedJsonError::LengthMismatch);
         }
         self.depth = next;
@@ -1076,7 +1118,11 @@ pub(super) fn write_value_to<S: JsonWriteSink + ?Sized>(
                         Value::Number(native::Number::F64(value)) => write_f64_to(*value, output)?,
                         Value::String(value) => write_json_string_to(value, output)?,
                         Value::Array(values) => {
-                            output.begin_container()?;
+                            if values.is_empty() {
+                                output.begin_empty_container()?;
+                            } else {
+                                output.begin_container()?;
+                            }
                             entered_containers += 1;
                             output.push('[')?;
                             let child_depth =
@@ -1089,7 +1135,11 @@ pub(super) fn write_value_to<S: JsonWriteSink + ?Sized>(
                             frame_count += 1;
                         }
                         Value::Object(values) => {
-                            output.begin_container()?;
+                            if values.is_empty() {
+                                output.begin_empty_container()?;
+                            } else {
+                                output.begin_container()?;
+                            }
                             entered_containers += 1;
                             output.push('{')?;
                             let child_depth =
@@ -1794,5 +1844,152 @@ mod tests {
             BoundedJsonError::LengthMismatch.to_string(),
             "bounded JSON serializer length changed between passes"
         );
+    }
+}
+
+#[cfg(test)]
+mod empty_terminal_tests {
+    //! Empty terminal containers share the parser's original structural boundary.
+
+    use super::*;
+
+    fn nested_empty(containers: usize, object: bool, alternate: bool) -> (Value, String) {
+        let (mut value, mut text) = if object {
+            (Value::Object(BTreeMap::new()), String::from("{}"))
+        } else {
+            (Value::Array(Vec::new()), String::from("[]"))
+        };
+        for index in 1..containers {
+            if object ^ (alternate && index % 2 == 1) {
+                value = Value::Object(BTreeMap::from([(String::from("k"), value)]));
+                text = format!("{{\"k\":{text}}}");
+            } else {
+                value = Value::Array(vec![value]);
+                text = format!("[{text}]");
+            }
+        }
+        (value, text)
+    }
+
+    #[test]
+    fn empty_terminals_preserve_depth_33_in_every_checked_sink() {
+        for (object, alternate) in [(false, false), (true, false), (false, true), (true, true)] {
+            let (value, expected) = nested_empty(MAX_JSON_VALUE_NESTING_DEPTH, object, alternate);
+            assert_eq!(super::super::parse_value(&expected).unwrap(), value);
+            assert_eq!(to_json_bounded(&value, expected.len()).unwrap(), expected);
+            assert_eq!(
+                to_json_bounded_boxed(&value, expected.len())
+                    .unwrap()
+                    .as_ref(),
+                expected.as_bytes()
+            );
+            let mut output = String::new();
+            let mut sink = ExactJsonSink::new(&mut output, expected.len());
+            value.json_serialize_to(&mut sink).unwrap();
+            assert_eq!(sink.depth, 0);
+            assert_eq!(sink.length, expected.len());
+            assert_eq!(output, expected);
+            DESTINATION_ALLOCATION_ATTEMPTS.with(|attempts| attempts.set(0));
+            assert_eq!(
+                to_json_bounded(&value, expected.len() - 1),
+                Err(BoundedJsonError::BodyTooLarge)
+            );
+            DESTINATION_ALLOCATION_ATTEMPTS.with(|attempts| assert_eq!(attempts.get(), 0));
+        }
+    }
+
+    #[test]
+    fn forbidden_empty_terminal_and_populated_container_keep_original_refusals() {
+        for object in [false, true] {
+            let (value, _) = nested_empty(MAX_JSON_VALUE_NESTING_DEPTH + 1, object, false);
+            DESTINATION_ALLOCATION_ATTEMPTS.with(|attempts| attempts.set(0));
+            assert_eq!(
+                to_json_bounded(&value, usize::MAX),
+                Err(BoundedJsonError::Unsupported)
+            );
+            DESTINATION_ALLOCATION_ATTEMPTS.with(|attempts| assert_eq!(attempts.get(), 0));
+        }
+        let mut counter = CountingJsonSink::new(usize::MAX);
+        for _ in 1..MAX_JSON_VALUE_NESTING_DEPTH {
+            counter.begin_container().unwrap();
+        }
+        assert_eq!(
+            counter.begin_container(),
+            Err(BoundedJsonError::Unsupported)
+        );
+        assert_eq!(counter.depth, MAX_JSON_VALUE_NESTING_DEPTH - 1);
+        let mut output = String::new();
+        let mut exact = ExactJsonSink::new(&mut output, 0);
+        for _ in 1..MAX_JSON_VALUE_NESTING_DEPTH {
+            exact.begin_container().unwrap();
+        }
+        assert_eq!(
+            exact.begin_container(),
+            Err(BoundedJsonError::LengthMismatch)
+        );
+        assert_eq!(exact.depth, MAX_JSON_VALUE_NESTING_DEPTH - 1);
+        let mut bytes = [];
+        let mut boxed = ExactBoxedJsonSink::new(&mut bytes);
+        for _ in 1..MAX_JSON_VALUE_NESTING_DEPTH {
+            boxed.begin_container().unwrap();
+        }
+        assert_eq!(
+            boxed.begin_container(),
+            Err(BoundedJsonError::LengthMismatch)
+        );
+        assert_eq!(boxed.depth, MAX_JSON_VALUE_NESTING_DEPTH - 1);
+    }
+
+    #[test]
+    fn terminal_writer_releases_only_its_own_entered_containers_on_refusal() {
+        struct RecordingSink {
+            depth: usize,
+            entries: usize,
+            exits: usize,
+            remaining: usize,
+        }
+        impl JsonWriteSink for RecordingSink {
+            fn push(&mut self, value: char) -> Result<(), BoundedJsonError> {
+                let mut bytes = [0_u8; 4];
+                self.push_str(value.encode_utf8(&mut bytes))
+            }
+            fn push_str(&mut self, value: &str) -> Result<(), BoundedJsonError> {
+                self.remaining = self
+                    .remaining
+                    .checked_sub(value.len())
+                    .ok_or(BoundedJsonError::BodyTooLarge)?;
+                Ok(())
+            }
+            fn begin_container(&mut self) -> Result<(), BoundedJsonError> {
+                self.depth += 1;
+                self.entries += 1;
+                Ok(())
+            }
+            fn end_container(&mut self) {
+                self.depth -= 1;
+                self.exits += 1;
+            }
+        }
+        let (value, text) = nested_empty(MAX_JSON_VALUE_NESTING_DEPTH, false, true);
+        for remaining in [text.len(), text.len() - 1] {
+            let mut sink = RecordingSink {
+                depth: 3,
+                entries: 0,
+                exits: 0,
+                remaining,
+            };
+            let result = value.json_serialize_to(&mut sink);
+            if remaining == text.len() {
+                result.unwrap();
+            } else {
+                assert_eq!(result, Err(BoundedJsonError::BodyTooLarge));
+            }
+            assert_eq!(sink.entries, MAX_JSON_VALUE_NESTING_DEPTH);
+            assert_eq!(sink.exits, sink.entries);
+            assert_eq!(
+                sink.depth, 3,
+                "the writer cannot release inherited sink levels"
+            );
+        }
     }
 }

@@ -19,16 +19,17 @@
 // of its slice, but inferred from another function parameter (usually,
 // the number of words matches the size of the slice of another big
 // integer which uses stride 1).
+use super::super::table_assets::read_u32_le;
 use super::mp31::{PRIMES, mp_add, mp_half, mp_mmul, mp_set_u, mp_sub, tbmask};
 // Multiply m by the small value x (non-negative). x MUST be less than 2^31.
 // The integer m uses base 2^31 with stride 1, and is modified to receive
 // the result. The carry word is returned.
-pub(crate) fn zint_mul_small(m: &mut [u32], x: u32) -> u32 {
+pub fn zint_mul_small(m: &mut [u32], x: u32) -> u32 {
     let mut cc = 0u32;
     for mw in m.iter_mut() {
-        let z = (*mw as u64) * (x as u64) + (cc as u64);
-        *mw = (z as u32) & 0x7FFFFFFF;
-        cc = (z >> 31) as u32;
+        let z = u64::from(*mw) * u64::from(x) + u64::from(cc);
+        *mw = read_u32_le(&z.to_le_bytes(), 0) & 0x7FFF_FFFF;
+        cc = read_u32_le(&(z >> 31).to_le_bytes(), 0);
     }
     cc
 }
@@ -39,23 +40,23 @@ pub(crate) fn zint_mul_small(m: &mut [u32], x: u32) -> u32 {
 //   1.34*2^30 < p < 2^31
 //   p0i = -1/p mod 2^32
 //   R2 = 2^64 mod p
-pub(crate) fn zint_mod_small_unsigned(
-    d: &[u32],
+pub fn zint_mod_small_unsigned(
+    digits: &[u32],
     dlen: usize,
     dstride: usize,
-    p: u32,
+    modulus: u32,
     p0i: u32,
     R2: u32,
 ) -> u32 {
-    let mut x = 0u32;
-    let z = mp_half(R2, p); // 2^63 = Montgomery representation of 2^31
-    let mut j = dlen * dstride;
-    while j > 0 {
-        j -= dstride;
-        x = mp_mmul(x, z, p, p0i);
-        x = mp_add(x, mp_set_u(d[j], p), p);
+    let mut remainder = 0u32;
+    let radix_montgomery = mp_half(R2, modulus); // 2^63 = Montgomery representation of 2^31
+    let mut offset = dlen * dstride;
+    while offset > 0 {
+        offset -= dstride;
+        remainder = mp_mmul(remainder, radix_montgomery, modulus, p0i);
+        remainder = mp_add(remainder, mp_set_u(digits[offset], modulus), modulus);
     }
-    x
+    remainder
 }
 // Reduce a big integer d modulo a small integer p.
 //   d uses base 2^31 with stride 'dstride', dlen elements
@@ -65,7 +66,7 @@ pub(crate) fn zint_mod_small_unsigned(
 //   p0i = -1/p mod 2^32
 //   R2 = 2^64 mod p
 //   Rx = 2^(31*len(d)) mod p
-pub(crate) fn zint_mod_small_signed(
+pub fn zint_mod_small_signed(
     d: &[u32],
     dlen: usize,
     dstride: usize,
@@ -86,55 +87,61 @@ pub(crate) fn zint_mod_small_signed(
 //   0 <= s < 2^31
 // On input, d[] contains the same number of elements as a[], but it has
 // room for one extra word, which is set by this function.
-pub(crate) fn zint_add_mul_small(d: &mut [u32], dstride: usize, a: &[u32], s: u32) {
+pub fn zint_add_mul_small(
+    destination: &mut [u32],
+    dstride: usize,
+    multiplicand: &[u32],
+    scalar: u32,
+) {
     let mut cc = 0u32;
-    let mut j = 0;
-    for i in 0..a.len() {
-        let z = (s as u64) * (a[i] as u64) + (d[j] as u64) + (cc as u64);
-        d[j] = (z as u32) & 0x7FFFFFFF;
-        j += dstride;
-        cc = (z >> 31) as u32;
+    let mut offset = 0;
+    for &limb in multiplicand {
+        let product =
+            u64::from(scalar) * u64::from(limb) + u64::from(destination[offset]) + u64::from(cc);
+        destination[offset] = read_u32_le(&product.to_le_bytes(), 0) & 0x7FFF_FFFF;
+        offset += dstride;
+        cc = read_u32_le(&(product >> 31).to_le_bytes(), 0);
     }
-    d[j] = cc;
+    destination[offset] = cc;
 }
 // Normalize a modular big integer around 0: if x > floor(m/2), then x is
 // replaced with x - m; otherwise, x is untouched. Source x should be
 // non-negative and lower than m.
 // x has stride 'xstride'. m has stride 1. Both values contain the same
 // number of elements.
-pub(crate) fn zint_norm_zero(x: &mut [u32], xstride: usize, m: &[u32]) {
-    let mut r = 0u32;
+pub fn zint_norm_zero(value: &mut [u32], xstride: usize, modulus: &[u32]) {
+    let mut comparison = 0u32;
     let mut bb = 0u32;
-    let mut j = m.len() * xstride;
-    let mut i = m.len();
-    while i > 0 {
+    let mut offset = modulus.len() * xstride;
+    let mut index = modulus.len();
+    while index > 0 {
         // Get next word of m/2.
-        i -= 1;
-        let mw = m[i];
+        index -= 1;
+        let mw = modulus[index];
         let hmw = (mw >> 1) | (bb << 30);
         bb = mw & 1;
         // Get next word of x.
-        j -= xstride;
-        let xw = x[j];
+        offset -= xstride;
+        let xw = value[offset];
         // We set cc to -1, 0 or 1, depending on whether hmw is lower than,
         // equal to, or greater than xw.
         let cc = hmw.wrapping_sub(xw);
         let cc = (cc.wrapping_neg() >> 31) | tbmask(cc);
-        // If r != 0 then it is either 1 or -1, and we keep its value
+        // If comparison != 0 then it is either 1 or -1, and we keep its value
         // (comparison result has already been ascertained). Otherwise,
         // we replace it with cc.
-        r |= cc & ((r & 1).wrapping_sub(1));
+        comparison |= cc & ((comparison & 1).wrapping_sub(1));
     }
-    // At this point, r = -1, 0 or 1, depending on whether (m-1)/2 is
+    // At this point, comparison = -1, 0 or 1, depending on whether (m-1)/2 is
     // lower than, equal to, or greater than x. We subtract m from x
-    // if and only if r < 0.
+    // if and only if comparison < 0.
     let mut cc = 0;
-    let mk = tbmask(r);
-    j = 0;
-    for i in 0..m.len() {
-        let xw = x[j].wrapping_sub(m[i] & mk).wrapping_sub(cc);
-        x[j] = xw & 0x7FFFFFFF;
-        j += xstride;
+    let mk = tbmask(comparison);
+    offset = 0;
+    for &limb in modulus {
+        let xw = value[offset].wrapping_sub(limb & mk).wrapping_sub(cc);
+        value[offset] = xw & 0x7FFF_FFFF;
+        offset += xstride;
         cc = xw >> 31;
     }
 }
@@ -151,7 +158,7 @@ pub(crate) fn zint_norm_zero(x: &mut [u32], xstride: usize, m: &[u32]) {
 //
 // tmp[] is used to store temporary values and must have size at least
 // xlen elements.
-pub(crate) fn zint_rebuild_CRT(
+pub fn zint_rebuild_CRT(
     xx: &mut [u32],
     xlen: usize,
     n: usize,
@@ -208,12 +215,20 @@ pub(crate) fn zint_rebuild_CRT(
 // stride 1, unsigned.
 fn zint_negate(a: &mut [u32], ctl: u32) {
     let m = ctl >> 1;
-    let mut cc = ctl;
+    let mut cc = ctl & 1;
     for aw in a.iter_mut() {
-        let z = (*aw ^ m).wrapping_sub(cc);
+        let z = (*aw ^ m).wrapping_add(cc);
         cc = z >> 31;
-        *aw = z & 0x7FFFFFFF;
+        *aw = z & 0x7FFF_FFFF;
     }
+}
+// Coefficients of the two outputs of one linear update.
+#[derive(Clone, Copy)]
+struct LinearFactors {
+    xa: i64,
+    xb: i64,
+    ya: i64,
+    yb: i64,
 }
 // Replace a and b with (a*xa + b*xb)/2^31 and (a*ya + b*yb)/2^31,
 // respectively. The low bits are dropped.
@@ -223,42 +238,36 @@ fn zint_negate(a: &mut [u32], ctl: u32) {
 //   negb    0xFFFFFFFF if (a*ya + b*yb)/2^31 < 0, 0 otherwise
 // Coefficients xa, xb, ya and yb may range up to 2^31 in absolute value
 // (i.e. they are in [-2^31,+2^31], with both limits included).
-fn zint_co_lin_div31_abs(
-    a: &mut [u32],
-    b: &mut [u32],
-    xa: i64,
-    xb: i64,
-    ya: i64,
-    yb: i64,
-) -> (u32, u32) {
+fn zint_co_lin_div31_abs(a: &mut [u32], b: &mut [u32], factors: LinearFactors) -> (u32, u32) {
+    let LinearFactors { xa, xb, ya, yb } = factors;
     let mut cca = 0i64;
     let mut ccb = 0i64;
     let nlen = a.len();
     for i in 0..nlen {
         let aw = a[i];
         let bw = b[i];
-        let za = (aw as u64)
-            .wrapping_mul(xa as u64)
-            .wrapping_add((bw as u64).wrapping_mul(xb as u64))
-            .wrapping_add(cca as u64);
-        let zb = (aw as u64)
-            .wrapping_mul(ya as u64)
-            .wrapping_add((bw as u64).wrapping_mul(yb as u64))
-            .wrapping_add(ccb as u64);
+        let za = u64::from(aw)
+            .wrapping_mul(xa.cast_unsigned())
+            .wrapping_add(u64::from(bw).wrapping_mul(xb.cast_unsigned()))
+            .wrapping_add(cca.cast_unsigned());
+        let zb = u64::from(aw)
+            .wrapping_mul(ya.cast_unsigned())
+            .wrapping_add(u64::from(bw).wrapping_mul(yb.cast_unsigned()))
+            .wrapping_add(ccb.cast_unsigned());
         if i > 0 {
-            a[i - 1] = (za as u32) & 0x7FFFFFFF;
-            b[i - 1] = (zb as u32) & 0x7FFFFFFF;
+            a[i - 1] = read_u32_le(&za.to_le_bytes(), 0) & 0x7FFF_FFFF;
+            b[i - 1] = read_u32_le(&zb.to_le_bytes(), 0) & 0x7FFF_FFFF;
         }
-        cca = (za as i64) >> 31;
-        ccb = (zb as i64) >> 31;
+        cca = za.cast_signed() >> 31;
+        ccb = zb.cast_signed() >> 31;
     }
-    a[nlen - 1] = (cca as u32) & 0x7FFFFFFF;
-    b[nlen - 1] = (ccb as u32) & 0x7FFFFFFF;
-    let nega = (cca >> 63) as u32;
-    let negb = (ccb >> 63) as u32;
-    zint_negate(a, nega);
-    zint_negate(b, negb);
-    (nega, negb)
+    a[nlen - 1] = read_u32_le(&cca.to_le_bytes(), 0) & 0x7FFF_FFFF;
+    b[nlen - 1] = read_u32_le(&ccb.to_le_bytes(), 0) & 0x7FFF_FFFF;
+    let negative_left = read_u32_le(&(cca >> 63).to_le_bytes(), 0);
+    let negative_right = read_u32_le(&(ccb >> 63).to_le_bytes(), 0);
+    zint_negate(a, negative_left);
+    zint_negate(b, negative_right);
+    (negative_left, negative_right)
 }
 // Finish modular reduction. Rules:
 //   if neg == 0xFFFFFFFF, then -m <= a < 0
@@ -288,7 +297,7 @@ fn zint_finish_mod(a: &mut [u32], m: &[u32], neg: u32) {
     cc = neg & 1;
     for (aw, mw) in a.iter_mut().zip(m) {
         let z = aw.wrapping_sub((*mw ^ xm) & ym).wrapping_sub(cc);
-        *aw = z & 0x7FFFFFFF;
+        *aw = z & 0x7FFF_FFFF;
         cc = z >> 31;
     }
 }
@@ -302,53 +311,45 @@ fn zint_finish_mod(a: &mut [u32], m: &[u32], neg: u32) {
 //    -2^31 <= yb <= +2^31
 //    -2^31 <= xa + xb <= +2^31
 //    -2^31 <= ya + yb <= +2^31
-fn zint_co_lin_mod(
-    a: &mut [u32],
-    b: &mut [u32],
-    m: &[u32],
-    m0i: u32,
-    xa: i64,
-    xb: i64,
-    ya: i64,
-    yb: i64,
-) {
+fn zint_co_lin_mod(a: &mut [u32], b: &mut [u32], m: &[u32], m0i: u32, factors: LinearFactors) {
+    let LinearFactors { xa, xb, ya, yb } = factors;
     // These operations are actually four combined Montgomery multiplications.
     let mut cca = 0i64;
     let mut ccb = 0i64;
     let fa = a[0]
-        .wrapping_mul(xa as u32)
-        .wrapping_add(b[0].wrapping_mul(xb as u32))
+        .wrapping_mul(read_u32_le(&xa.to_le_bytes(), 0))
+        .wrapping_add(b[0].wrapping_mul(read_u32_le(&xb.to_le_bytes(), 0)))
         .wrapping_mul(m0i)
-        & 0x7FFFFFFF;
+        & 0x7FFF_FFFF;
     let fb = a[0]
-        .wrapping_mul(ya as u32)
-        .wrapping_add(b[0].wrapping_mul(yb as u32))
+        .wrapping_mul(read_u32_le(&ya.to_le_bytes(), 0))
+        .wrapping_add(b[0].wrapping_mul(read_u32_le(&yb.to_le_bytes(), 0)))
         .wrapping_mul(m0i)
-        & 0x7FFFFFFF;
+        & 0x7FFF_FFFF;
     let nlen = a.len();
     for i in 0..nlen {
-        let aw = a[i] as u64;
-        let bw = b[i] as u64;
-        let mw = m[i] as u64;
+        let aw = u64::from(a[i]);
+        let bw = u64::from(b[i]);
+        let mw = u64::from(m[i]);
         let za = aw
-            .wrapping_mul(xa as u64)
-            .wrapping_add(bw.wrapping_mul(xb as u64))
-            .wrapping_add(mw.wrapping_mul(fa as u64))
-            .wrapping_add(cca as u64);
+            .wrapping_mul(xa.cast_unsigned())
+            .wrapping_add(bw.wrapping_mul(xb.cast_unsigned()))
+            .wrapping_add(mw.wrapping_mul(u64::from(fa)))
+            .wrapping_add(cca.cast_unsigned());
         let zb = aw
-            .wrapping_mul(ya as u64)
-            .wrapping_add(bw.wrapping_mul(yb as u64))
-            .wrapping_add(mw.wrapping_mul(fb as u64))
-            .wrapping_add(ccb as u64);
+            .wrapping_mul(ya.cast_unsigned())
+            .wrapping_add(bw.wrapping_mul(yb.cast_unsigned()))
+            .wrapping_add(mw.wrapping_mul(u64::from(fb)))
+            .wrapping_add(ccb.cast_unsigned());
         if i > 0 {
-            a[i - 1] = (za as u32) & 0x7FFFFFFF;
-            b[i - 1] = (zb as u32) & 0x7FFFFFFF;
+            a[i - 1] = read_u32_le(&za.to_le_bytes(), 0) & 0x7FFF_FFFF;
+            b[i - 1] = read_u32_le(&zb.to_le_bytes(), 0) & 0x7FFF_FFFF;
         }
-        cca = (za as i64) >> 31;
-        ccb = (zb as i64) >> 31;
+        cca = za.cast_signed() >> 31;
+        ccb = zb.cast_signed() >> 31;
     }
-    a[nlen - 1] = cca as u32;
-    b[nlen - 1] = ccb as u32;
+    a[nlen - 1] = read_u32_le(&cca.to_le_bytes(), 0);
+    b[nlen - 1] = read_u32_le(&ccb.to_le_bytes(), 0);
     // The loop computed in a[]:
     //   a*xa + b*xb + m*fa
     // with:
@@ -366,8 +367,8 @@ fn zint_co_lin_mod(
     //   -(m - 1) <= z/2^31 <= 2*m - 1
     // Thus, we only need to add m or subtract m once in order to get
     // a fully reduced result (in [0,m-1]).
-    zint_finish_mod(a, m, (cca >> 63) as u32);
-    zint_finish_mod(b, m, (ccb >> 63) as u32);
+    zint_finish_mod(a, m, read_u32_le(&(cca >> 63).to_le_bytes(), 0));
+    zint_finish_mod(b, m, read_u32_le(&(ccb >> 63).to_le_bytes(), 0));
 }
 // Given x (odd), compute -1/x mod 2^31.
 fn ninv31(x: u32) -> u32 {
@@ -376,7 +377,7 @@ fn ninv31(x: u32) -> u32 {
     let y = y.wrapping_mul(2u32.wrapping_sub(x.wrapping_mul(y)));
     let y = y.wrapping_mul(2u32.wrapping_sub(x.wrapping_mul(y)));
     let y = y.wrapping_mul(2u32.wrapping_sub(x.wrapping_mul(y)));
-    y.wrapping_neg() & 0x7FFFFFFF
+    y.wrapping_neg() & 0x7FFF_FFFF
 }
 // Extended GCD between two positive integers x and y. The two
 // integers must be odd. Returned value is 0xFFFFFFFF if the GCD is 1, 0
@@ -390,13 +391,7 @@ fn ninv31(x: u32) -> u32 {
 // x and y must use the same number of words.
 // The temporary array tmp[] must be large enough to accommodate 4
 // extra values with the same size as x and y.
-pub(crate) fn zint_bezout(
-    u: &mut [u32],
-    v: &mut [u32],
-    x: &[u32],
-    y: &[u32],
-    tmp: &mut [u32],
-) -> u32 {
+pub fn zint_bezout(u: &mut [u32], v: &mut [u32], x: &[u32], y: &[u32], tmp: &mut [u32]) -> u32 {
     let nlen = x.len();
     if nlen == 0 {
         return 0;
@@ -429,13 +424,13 @@ pub(crate) fn zint_bezout(
     let v1 = v;
     let (u0, tmp) = tmp.split_at_mut(nlen);
     let (v0, tmp) = tmp.split_at_mut(nlen);
-    let (a, tmp) = tmp.split_at_mut(nlen);
-    let (b, _) = tmp.split_at_mut(nlen);
+    let (remaining_left, tmp) = tmp.split_at_mut(nlen);
+    let (remaining_right, _) = tmp.split_at_mut(nlen);
     // Initial values:
     //   a = x   u0 = 1   v0 = 0
     //   b = y   u1 = y   v1 = x - 1
-    a.copy_from_slice(x);
-    b.copy_from_slice(y);
+    remaining_left.copy_from_slice(x);
+    remaining_right.copy_from_slice(y);
     u0.fill(0);
     u0[0] = 1;
     u1.copy_from_slice(y);
@@ -456,25 +451,25 @@ pub(crate) fn zint_bezout(
         //   xa = (2^31)*floor(a / 2^(j-32)) + (a mod 2^31)
         //   xb = (2^31)*floor(a / 2^(j-32)) + (b mod 2^31)
         // (if j < 63 then xa = a and xb = b).
-        let mut c0 = 0xFFFFFFFFu32;
-        let mut c1 = 0xFFFFFFFFu32;
-        let mut cp = 0xFFFFFFFFu32;
+        let mut c0 = 0xFFFF_FFFF_u32;
+        let mut c1 = 0xFFFF_FFFF_u32;
+        let mut cp = 0xFFFF_FFFF_u32;
         let mut a0 = 0u32;
         let mut a1 = 0u32;
         let mut b0 = 0u32;
         let mut b1 = 0u32;
         // Ideally we should use a.iter().zip(b).rev(), but it makes the
         // borrower unhappy later on.
-        for i in (0..a.len()).rev() {
-            let aw = a[i];
-            let bw = b[i];
+        for i in (0..remaining_left.len()).rev() {
+            let aw = remaining_left[i];
+            let bw = remaining_right[i];
             a1 ^= c1 & (a1 ^ aw);
             a0 ^= c0 & (a0 ^ aw);
             b1 ^= c1 & (b1 ^ bw);
             b0 ^= c0 & (b0 ^ bw);
             cp = c0;
             c0 = c1;
-            c1 &= (((aw | bw) + 0x7FFFFFFF) >> 31).wrapping_sub(1);
+            c1 &= (((aw | bw) + 0x7FFF_FFFF) >> 31).wrapping_sub(1);
         }
         // Possible situations:
         //   cp = 0, c0 = 0, c1 = 0
@@ -490,9 +485,9 @@ pub(crate) fn zint_bezout(
         // When j >= 63, we align the top words to ensure that we get the
         // full 32 bits. We also take care to always call lzcnt() with a
         // non-zero operand.
-        let s = lzcnt(a1 | b1 | ((cp & c0) >> 1));
-        let ha = (a1 << s) | (a0 >> (31 - s));
-        let hb = (b1 << s) | (b0 >> (31 - s));
+        let leading_shift = lzcnt(a1 | b1 | ((cp & c0) >> 1));
+        let ha = (a1 << leading_shift) | (a0 >> (31 - leading_shift));
+        let hb = (b1 << leading_shift) | (b0 >> (31 - leading_shift));
         // If j <= 62, then we instead use the non-aligned bits.
         let ha = ha ^ (cp & (ha ^ a1));
         let hb = hb ^ (cp & (hb ^ b1));
@@ -501,8 +496,8 @@ pub(crate) fn zint_bezout(
         let ha = ha & !c0;
         let hb = hb & !c0;
         // Assemble the approximate values xa and xb (63 bits each).
-        let mut xa = ((ha as u64) << 31) | (a[0] as u64);
-        let mut xb = ((hb as u64) << 31) | (b[0] as u64);
+        let mut xa = (u64::from(ha) << 31) | u64::from(remaining_left[0]);
+        let mut xb = (u64::from(hb) << 31) | u64::from(remaining_right[0]);
         // Compute reduction factors:
         //   a' = a*f0 + b*g0
         //   b' = a*f1 + b*g1
@@ -518,7 +513,7 @@ pub(crate) fn zint_bezout(
         let mut fg1 = 1u64 << 32;
         for _ in 0..31 {
             let a_odd = (xa & 1).wrapping_neg();
-            let swap = a_odd & (((xa.wrapping_sub(xb) as i64) >> 63) as u64);
+            let swap = a_odd & ((xa.wrapping_sub(xb).cast_signed() >> 63).cast_unsigned());
             let t1 = swap & (xa ^ xb);
             xa ^= t1;
             xb ^= t1;
@@ -531,29 +526,72 @@ pub(crate) fn zint_bezout(
             fg1 <<= 1;
         }
         // Split update factors.
-        fg0 = fg0.wrapping_add(0x7FFFFFFF7FFFFFFF);
-        fg1 = fg1.wrapping_add(0x7FFFFFFF7FFFFFFF);
-        let f0 = ((fg0 & 0xFFFFFFFF) as i64) - 0x7FFFFFFF;
-        let g0 = ((fg0 >> 32) as i64) - 0x7FFFFFFF;
-        let f1 = ((fg1 & 0xFFFFFFFF) as i64) - 0x7FFFFFFF;
-        let g1 = ((fg1 >> 32) as i64) - 0x7FFFFFFF;
+        fg0 = fg0.wrapping_add(0x7FFF_FFFF_7FFF_FFFF);
+        fg1 = fg1.wrapping_add(0x7FFF_FFFF_7FFF_FFFF);
+        let f0 = i64::from(read_u32_le(&fg0.to_le_bytes(), 0)) - 0x7FFF_FFFF;
+        let g0 = i64::from(read_u32_le(&fg0.to_le_bytes(), 4)) - 0x7FFF_FFFF;
+        let f1 = i64::from(read_u32_le(&fg1.to_le_bytes(), 0)) - 0x7FFF_FFFF;
+        let g1 = i64::from(read_u32_le(&fg1.to_le_bytes(), 4)) - 0x7FFF_FFFF;
         // Apply the update factors.
-        let (nega, negb) = zint_co_lin_div31_abs(a, b, f0, g0, f1, g1);
-        let f0 = f0 - ((f0 + f0) & ((nega as i64) | ((nega as i64) << 32)));
-        let g0 = g0 - ((g0 + g0) & ((nega as i64) | ((nega as i64) << 32)));
-        let f1 = f1 - ((f1 + f1) & ((negb as i64) | ((negb as i64) << 32)));
-        let g1 = g1 - ((g1 + g1) & ((negb as i64) | ((negb as i64) << 32)));
-        zint_co_lin_mod(u0, u1, y, y0i, f0, g0, f1, g1);
-        zint_co_lin_mod(v0, v1, x, x0i, f0, g0, f1, g1);
+        let (negative_left, negative_right) = zint_co_lin_div31_abs(
+            remaining_left,
+            remaining_right,
+            LinearFactors {
+                xa: f0,
+                xb: g0,
+                ya: f1,
+                yb: g1,
+            },
+        );
+        let f0 = f0 - ((f0 + f0) & (i64::from(negative_left) | (i64::from(negative_left) << 32)));
+        let g0 = g0 - ((g0 + g0) & (i64::from(negative_left) | (i64::from(negative_left) << 32)));
+        let f1 = f1 - ((f1 + f1) & (i64::from(negative_right) | (i64::from(negative_right) << 32)));
+        let g1 = g1 - ((g1 + g1) & (i64::from(negative_right) | (i64::from(negative_right) << 32)));
+        zint_co_lin_mod(
+            u0,
+            u1,
+            y,
+            y0i,
+            LinearFactors {
+                xa: f0,
+                xb: g0,
+                ya: f1,
+                yb: g1,
+            },
+        );
+        zint_co_lin_mod(
+            v0,
+            v1,
+            x,
+            x0i,
+            LinearFactors {
+                xa: f0,
+                xb: g0,
+                ya: f1,
+                yb: g1,
+            },
+        );
     }
     // b contains GCD(x,y), provided that x and y were indeed odd.
     // Result is correct if the GCD is 1.
-    let mut r = b[0] ^ 1;
-    for i in 1..b.len() {
-        r |= b[i];
+    let mut status = remaining_right[0] ^ 1;
+    let mut right_nonunit = y[0] ^ 1;
+    for (&limb, &right_limb) in remaining_right[1..].iter().zip(&y[1..]) {
+        status |= limb;
+        right_nonunit |= right_limb;
     }
-    r |= (x[0] & y[0] & 1) ^ 1;
-    ((r | r.wrapping_neg()) >> 31).wrapping_sub(1)
+    // Reduction modulo one erases u, but the integer Bezout relation still
+    // needs u = 1 and v = x - 1. Select those coefficients without branching
+    // on the secret inputs; all nonunit results retain their original values.
+    let right_unit = ((right_nonunit | right_nonunit.wrapping_neg()) >> 31).wrapping_sub(1);
+    u1[0] ^= right_unit & (u1[0] ^ 1);
+    v1[0] ^= right_unit & (v1[0] ^ (x[0] - 1));
+    for ((u_limb, v_limb), &left_limb) in u1[1..].iter_mut().zip(&mut v1[1..]).zip(&x[1..]) {
+        *u_limb &= !right_unit;
+        *v_limb ^= right_unit & (*v_limb ^ left_limb);
+    }
+    status |= (x[0] & y[0] & 1) ^ 1;
+    ((status | status.wrapping_neg()) >> 31).wrapping_sub(1)
 }
 // lzcnt(x) returns the number of leading zero bits of x. This function
 // assumes that x != 0. There are dedicated opcodes for this operation
@@ -582,6 +620,18 @@ const fn lzcnt(x: u32) -> u32 {
     target_arch = "arm64ec"
 )))]
 const fn lzcnt(x: u32) -> u32 {
+    lzcnt_portable(x)
+}
+#[cfg(any(
+    test,
+    not(any(
+        target_arch = "x86",
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "arm64ec"
+    ))
+))]
+const fn lzcnt_portable(x: u32) -> u32 {
     let m = tbmask((x >> 16).wrapping_sub(1));
     let s = m & 16;
     let x = (x >> 16) ^ (m & (x ^ (x >> 16)));
@@ -599,8 +649,7 @@ const fn lzcnt(x: u32) -> u32 {
     //   x = 1   -> 1
     //   x = 2   -> 0
     //   x = 3   -> 0
-    let s = s.wrapping_add(2u32.wrapping_sub(x) & (x.wrapping_sub(3) >> 2));
-    s as u32
+    s.wrapping_add(2u32.wrapping_sub(x) & (x.wrapping_sub(3) >> 2))
 }
 // bitlength(x) returns the length of x, in bits. The bit length of
 // zero is zero.
@@ -621,14 +670,14 @@ const fn lzcnt(x: u32) -> u32 {
     target_arch = "aarch64",
     target_arch = "arm64ec",
 ))]
-pub(crate) const fn bitlength(x: u32) -> u32 {
+pub const fn bitlength(x: u32) -> u32 {
     32 - x.leading_zeros()
 }
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     not(target_feature = "lzcnt")
 ))]
-pub(crate) const fn bitlength(x: u32) -> u32 {
+pub const fn bitlength(x: u32) -> u32 {
     (31 + ((x | x.wrapping_neg()) >> 31)) - (x | 1).leading_zeros()
 }
 #[cfg(not(any(
@@ -637,81 +686,525 @@ pub(crate) const fn bitlength(x: u32) -> u32 {
     target_arch = "aarch64",
     target_arch = "arm64ec"
 )))]
-pub(crate) const fn bitlength(x: u32) -> u32 {
+pub const fn bitlength(x: u32) -> u32 {
     32 - lzcnt(x)
+}
+/// A binary shift split at the 31-bit limb boundary.
+#[derive(Clone, Copy)]
+pub struct ZintShift {
+    /// Number of whole 31-bit limbs.
+    pub words: u32,
+    /// Remaining shift, from 0 through 30 bits.
+    pub bits: u32,
 }
 // Add k*(2^sc)*y to x. Slices x and y do not necessarily have the same
 // length, but x MUST NOT be shorter than y. Result is truncated (if
-// needed) to the size of x. Scale factor sc is provided as sch and scl,
-// such that sc = 31*sch + scl, and scl is in the 0 to 30 range.
+// needed) to the size of x. Scale factor sc is provided by shift, with
+// sc = 31*shift.words + shift.bits and shift.bits in the 0 to 30 range.
 //
 // x and y are considered signed (using two's complement). They do not
 // necessarily have the same length, but they share the same stride
 // ('xystride'). Factor k is itself signed.
-pub(crate) fn zint_add_scaled_mul_small(
-    x: &mut [u32],
+pub fn zint_add_scaled_mul_small(
+    destination: &mut [u32],
     xlen: usize,
-    y: &[u32],
+    source: &[u32],
     ylen: usize,
     xystride: usize,
-    k: i32,
-    sch: u32,
-    scl: u32,
+    factor: i32,
+    shift: ZintShift,
 ) {
+    let ZintShift {
+        words: sch,
+        bits: scl,
+    } = shift;
     let sch = sch as usize;
     if ylen == 0 || sch >= xlen {
         return;
     }
-    let ysign = (y[(ylen - 1) * xystride] >> 30).wrapping_neg() >> 1;
+    let ysign = (source[(ylen - 1) * xystride] >> 30).wrapping_neg() >> 1;
     let mut tw = 0u32;
     let mut cc = 0i32;
     let ija = sch * xystride;
-    let mut i = ija;
+    let mut offset = ija;
     for u in sch..xlen {
-        let j = i - ija;
-        let wy = if u < (sch + ylen) { y[j] } else { ysign };
-        let wys = ((wy << scl) & 0x7FFFFFFF) | tw;
+        let source_offset = offset - ija;
+        let wy = if u < (sch + ylen) {
+            source[source_offset]
+        } else {
+            ysign
+        };
+        let wys = ((wy << scl) & 0x7FFF_FFFF) | tw;
         tw = wy >> (31 - scl);
-        let z = (wys as i64) * (k as i64) + (x[i] as i64) + (cc as i64);
-        x[i] = (z as u32) & 0x7FFFFFFF;
-        cc = (z >> 31) as i32;
-        i += xystride;
+        let sum =
+            i64::from(wys) * i64::from(factor) + i64::from(destination[offset]) + i64::from(cc);
+        destination[offset] = read_u32_le(&sum.to_le_bytes(), 0) & 0x7FFF_FFFF;
+        cc = read_u32_le(&(sum >> 31).to_le_bytes(), 0).cast_signed();
+        offset += xystride;
     }
 }
 // Subtract (2^sc)*y from x. Slices x and y do not necessarily have the same
 // length, but x MUST NOT be shorter than y. x and y share the same stride
 // ('xystride'). Result is truncated (if needed) to the size of x. Scale
-// factor sc is provided as sch and scl, such that sc = 31*sch + scl, and
-// scl is in the 0 to 30 range.
+// factor sc is provided by shift, with sc = 31*shift.words + shift.bits
+// and shift.bits in the 0 to 30 range.
 //
 // x and y are considered signed (using two's complement).
-pub(crate) fn zint_sub_scaled(
-    x: &mut [u32],
+pub fn zint_sub_scaled(
+    destination: &mut [u32],
     xlen: usize,
-    y: &[u32],
+    source: &[u32],
     ylen: usize,
     xystride: usize,
-    sch: u32,
-    scl: u32,
+    shift: ZintShift,
 ) {
+    let ZintShift {
+        words: sch,
+        bits: scl,
+    } = shift;
     let sch = sch as usize;
     if ylen == 0 || sch >= xlen {
         return;
     }
-    let ysign = (y[(ylen - 1) * xystride] >> 30).wrapping_neg() >> 1;
+    let ysign = (source[(ylen - 1) * xystride] >> 30).wrapping_neg() >> 1;
     let mut tw = 0u32;
     let mut cc = 0u32;
     let ija = sch * xystride;
-    let mut i = ija;
+    let mut offset = ija;
     for u in sch..xlen {
-        let j = i - ija;
-        let wy = if u < (sch + ylen) { y[j] } else { ysign };
-        let wys = ((wy << scl) & 0x7FFFFFFF) | tw;
+        let source_offset = offset - ija;
+        let wy = if u < (sch + ylen) {
+            source[source_offset]
+        } else {
+            ysign
+        };
+        let wys = ((wy << scl) & 0x7FFF_FFFF) | tw;
         tw = wy >> (31 - scl);
-        let z = x[i].wrapping_sub(wys).wrapping_sub(cc);
-        x[i] = z & 0x7FFFFFFF;
-        cc = z >> 31;
-        i += xystride;
+        let difference = destination[offset].wrapping_sub(wys).wrapping_sub(cc);
+        destination[offset] = difference & 0x7FFF_FFFF;
+        cc = difference >> 31;
+        offset += xystride;
     }
 }
 // ========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RADIX: i128 = 1 << 31;
+    const SENTINEL: u32 = 0xA55A_1234;
+
+    fn encode(value: i128, count: usize, stride: usize) -> Vec<u32> {
+        let mut encoded = vec![SENTINEL; count * stride];
+        let mut quotient = value;
+        for index in 0..count {
+            encoded[index * stride] =
+                u32::try_from(quotient.rem_euclid(RADIX)).expect("31-bit limb");
+            quotient = quotient.div_euclid(RADIX);
+        }
+        encoded
+    }
+
+    fn unsigned(encoded: &[u32], count: usize, stride: usize) -> i128 {
+        (0..count).rev().fold(0, |value, index| {
+            let limb = encoded[index * stride];
+            assert!(limb < 1 << 31);
+            value * RADIX + i128::from(limb)
+        })
+    }
+
+    fn signed(encoded: &[u32], count: usize, stride: usize) -> i128 {
+        let value = unsigned(encoded, count, stride);
+        if encoded[(count - 1) * stride] & (1 << 30) == 0 {
+            value
+        } else {
+            value - RADIX.pow(u32::try_from(count).expect("small test width"))
+        }
+    }
+
+    fn gcd(mut left: i128, mut right: i128) -> i128 {
+        while right != 0 {
+            (left, right) = (right, left % right);
+        }
+        left
+    }
+
+    fn inverse(value: i128, modulus: i128) -> i128 {
+        let (mut previous, mut current) = (modulus, value);
+        let (mut previous_coefficient, mut current_coefficient) = (0, 1);
+        while current != 0 {
+            let quotient = previous / current;
+            (previous, current) = (current, previous - quotient * current);
+            (previous_coefficient, current_coefficient) = (
+                current_coefficient,
+                previous_coefficient - quotient * current_coefficient,
+            );
+        }
+        assert_eq!(previous, 1);
+        previous_coefficient.rem_euclid(modulus)
+    }
+
+    fn factors() -> [LinearFactors; 5] {
+        let radix = i64::try_from(RADIX).expect("31-bit radix");
+        [
+            LinearFactors {
+                xa: radix,
+                xb: 0,
+                ya: 0,
+                yb: radix,
+            },
+            LinearFactors {
+                xa: -radix,
+                xb: 0,
+                ya: 0,
+                yb: -radix,
+            },
+            LinearFactors {
+                xa: 1,
+                xb: -1,
+                ya: -1,
+                yb: 1,
+            },
+            LinearFactors {
+                xa: radix / 2,
+                xb: -radix / 2,
+                ya: -radix / 2,
+                yb: radix / 2,
+            },
+            LinearFactors {
+                xa: 0,
+                xb: radix,
+                ya: radix,
+                yb: 0,
+            },
+        ]
+    }
+
+    #[test]
+    fn small_products_and_strided_accumulation_match_wide_integer_carries() {
+        let modulus = RADIX.pow(3);
+        for value in [0, 1, RADIX - 1, RADIX, RADIX.pow(2) - 1, modulus - 1] {
+            for scalar in [0, 1, 2, 0x3FFF_FFFF, 0x7FFF_FFFF] {
+                let mut limbs = encode(value, 3, 1);
+                let carry = zint_mul_small(&mut limbs, scalar);
+                let expected = value * i128::from(scalar);
+                assert_eq!(unsigned(&limbs, 3, 1), expected % modulus);
+                assert_eq!(i128::from(carry), expected / modulus);
+                let mut destination = encode(modulus - 1, 4, 2);
+                zint_add_mul_small(&mut destination, 2, &encode(value, 3, 1), scalar);
+                assert_eq!(unsigned(&destination, 4, 2), modulus - 1 + expected);
+                assert!(
+                    destination
+                        .iter()
+                        .skip(1)
+                        .step_by(2)
+                        .all(|&limb| limb == SENTINEL)
+                );
+            }
+        }
+        assert_eq!(zint_mul_small(&mut [], 0x7FFF_FFFF), 0);
+        let mut extra_word = [SENTINEL];
+        zint_add_mul_small(&mut extra_word, 1, &[], 0x7FFF_FFFF);
+        assert_eq!(extra_word, [0]);
+    }
+
+    #[test]
+    fn signed_moduli_normalization_and_interleaved_crt_match_integer_remainders() {
+        let product: i128 = PRIMES[..3]
+            .iter()
+            .map(|prime| i128::from(prime.p))
+            .product();
+        let values = [0, 1, product / 2, product / 2 + 1, product - 2, product - 1];
+        let mut residues = vec![0; 18];
+        for (index, &value) in values.iter().enumerate() {
+            for (limb, prime) in PRIMES[..3].iter().enumerate() {
+                residues[(index / 3) * 9 + limb * 3 + index % 3] =
+                    u32::try_from(value % i128::from(prime.p)).expect("prime residue");
+            }
+            let mut normalized = encode(value, 3, 2);
+            zint_norm_zero(&mut normalized, 2, &encode(product, 3, 1));
+            let expected = if value > product / 2 {
+                value - product
+            } else {
+                value
+            };
+            assert_eq!(signed(&normalized, 3, 2), expected);
+            assert!(
+                normalized
+                    .iter()
+                    .skip(1)
+                    .step_by(2)
+                    .all(|&limb| limb == SENTINEL)
+            );
+            for prime in &PRIMES[..3] {
+                let rx = u32::try_from(RADIX.pow(3) % i128::from(prime.p)).expect("radix residue");
+                assert_eq!(
+                    i128::from(zint_mod_small_signed(
+                        &normalized,
+                        3,
+                        2,
+                        prime.p,
+                        prime.p0i,
+                        prime.R2,
+                        rx
+                    )),
+                    expected.rem_euclid(i128::from(prime.p)),
+                );
+                assert_eq!(
+                    i128::from(zint_mod_small_unsigned(
+                        &encode(value, 3, 2),
+                        3,
+                        2,
+                        prime.p,
+                        prime.p0i,
+                        prime.R2
+                    )),
+                    value % i128::from(prime.p),
+                );
+            }
+        }
+        for normalize in [false, true] {
+            let mut rebuilt = residues.clone();
+            let mut temporary = [0; 3];
+            zint_rebuild_CRT(&mut rebuilt, 3, 3, 2, normalize, &mut temporary);
+            assert_eq!(unsigned(&temporary, 3, 1), product);
+            for (index, &value) in values.iter().enumerate() {
+                let slice = &rebuilt[(index / 3) * 9 + index % 3..];
+                if normalize {
+                    let expected = if value > product / 2 {
+                        value - product
+                    } else {
+                        value
+                    };
+                    assert_eq!(signed(slice, 3, 3), expected);
+                } else {
+                    assert_eq!(unsigned(slice, 3, 3), value);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn conditional_negation_propagates_carry_across_zero_limbs() {
+        for width in 1..=4 {
+            let modulus = RADIX.pow(u32::try_from(width).expect("small test width"));
+            for value in [0, 1, RADIX - 1, RADIX, RADIX.pow(2), modulus - 1] {
+                let value = value % modulus;
+                for control in [0, u32::MAX] {
+                    let mut limbs = encode(value, width, 1);
+                    zint_negate(&mut limbs, control);
+                    let expected = if control == 0 {
+                        value
+                    } else {
+                        (-value).rem_euclid(modulus)
+                    };
+                    assert_eq!(
+                        unsigned(&limbs, width, 1),
+                        expected,
+                        "width={width}, value={value}, control={control}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn linear_updates_preserve_signed_quotients_and_modular_inverses() {
+        for left in [0, 1, RADIX - 1, RADIX, RADIX.pow(2) - 1] {
+            for right in [0, 1, RADIX - 1, RADIX + 1, RADIX.pow(2) - 1] {
+                for transform in factors() {
+                    let mut first = encode(left, 2, 1);
+                    let mut second = encode(right, 2, 1);
+                    let expected_first = (left * i128::from(transform.xa)
+                        + right * i128::from(transform.xb))
+                    .div_euclid(RADIX);
+                    let expected_second = (left * i128::from(transform.ya)
+                        + right * i128::from(transform.yb))
+                    .div_euclid(RADIX);
+                    let signs = zint_co_lin_div31_abs(&mut first, &mut second, transform);
+                    assert_eq!(
+                        unsigned(&first, 2, 1),
+                        expected_first.abs(),
+                        "left={left}, right={right}, xa={}, xb={}",
+                        transform.xa,
+                        transform.xb
+                    );
+                    assert_eq!(
+                        unsigned(&second, 2, 1),
+                        expected_second.abs(),
+                        "left={left}, right={right}, ya={}, yb={}",
+                        transform.ya,
+                        transform.yb
+                    );
+                    assert_eq!(
+                        signs,
+                        (
+                            u32::from(expected_first < 0).wrapping_neg(),
+                            u32::from(expected_second < 0).wrapping_neg()
+                        )
+                    );
+                }
+            }
+        }
+        for modulus in [3, RADIX - 1, RADIX + 1, RADIX.pow(2) - 1] {
+            let inverse_radix = inverse(RADIX, modulus);
+            let modulus_limbs = encode(modulus, 2, 1);
+            let m0i = ninv31(modulus_limbs[0]);
+            assert_eq!(
+                (u64::from(modulus_limbs[0]) * u64::from(m0i) + 1) % (1 << 31),
+                0
+            );
+            for left in [0, 1, modulus - 1] {
+                for right in [0, 1, modulus - 1] {
+                    for transform in factors() {
+                        let mut first = encode(left, 2, 1);
+                        let mut second = encode(right, 2, 1);
+                        let expected_first = (left * i128::from(transform.xa)
+                            + right * i128::from(transform.xb))
+                        .rem_euclid(modulus)
+                            * inverse_radix
+                            % modulus;
+                        let expected_second = (left * i128::from(transform.ya)
+                            + right * i128::from(transform.yb))
+                        .rem_euclid(modulus)
+                            * inverse_radix
+                            % modulus;
+                        zint_co_lin_mod(&mut first, &mut second, &modulus_limbs, m0i, transform);
+                        assert_eq!(unsigned(&first, 2, 1), expected_first);
+                        assert_eq!(unsigned(&second, 2, 1), expected_second);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bezout_masks_and_coefficients_match_independent_euclidean_gcd() {
+        let values = [
+            1,
+            3,
+            5,
+            15,
+            RADIX - 1,
+            RADIX + 1,
+            RADIX.pow(2) - 3,
+            RADIX.pow(2) - 1,
+        ];
+        for left in values {
+            for right in values {
+                let mut first = [0; 2];
+                let mut second = [0; 2];
+                let mut temporary = [0; 8];
+                let mask = zint_bezout(
+                    &mut first,
+                    &mut second,
+                    &encode(left, 2, 1),
+                    &encode(right, 2, 1),
+                    &mut temporary,
+                );
+                let coprime = gcd(left, right) == 1;
+                assert_eq!(mask, u32::from(coprime).wrapping_neg());
+                if coprime {
+                    let first_value = unsigned(&first, 2, 1);
+                    let second_value = unsigned(&second, 2, 1);
+                    assert!(first_value <= right);
+                    assert!(second_value <= left);
+                    assert_eq!(
+                        left * first_value - right * second_value,
+                        1,
+                        "left={left}, right={right}, u={first_value}, v={second_value}"
+                    );
+                }
+            }
+        }
+        assert_eq!(zint_bezout(&mut [], &mut [], &[], &[], &mut []), 0);
+    }
+
+    #[test]
+    fn split_shifts_preserve_signed_extension_truncation_and_stride() {
+        let modulus = RADIX.pow(3);
+        for source_value in [-RADIX / 2, -1, 0, 1, RADIX / 2 - 1] {
+            let source = encode(source_value, 1, 2);
+            for destination_value in [-modulus / 2, -1, 0, 1, modulus / 2 - 1] {
+                for (words, bits) in [(0, 0), (0, 30), (1, 0), (1, 30), (2, 0), (3, 0)] {
+                    let shift = ZintShift { words, bits };
+                    let scaled = if words < 3 {
+                        source_value * (1i128 << (31 * words + bits))
+                    } else {
+                        0
+                    };
+                    for factor in [i32::MIN, -1, 0, 1, i32::MAX] {
+                        let mut destination = encode(destination_value, 3, 2);
+                        zint_add_scaled_mul_small(
+                            &mut destination,
+                            3,
+                            &source,
+                            1,
+                            2,
+                            factor,
+                            shift,
+                        );
+                        assert_eq!(
+                            unsigned(&destination, 3, 2),
+                            (destination_value + scaled * i128::from(factor)).rem_euclid(modulus)
+                        );
+                        assert!(
+                            destination
+                                .iter()
+                                .skip(1)
+                                .step_by(2)
+                                .all(|&limb| limb == SENTINEL)
+                        );
+                    }
+                    let mut destination = encode(destination_value, 3, 2);
+                    zint_sub_scaled(&mut destination, 3, &source, 1, 2, shift);
+                    assert_eq!(
+                        unsigned(&destination, 3, 2),
+                        (destination_value - scaled).rem_euclid(modulus)
+                    );
+                    assert!(
+                        destination
+                            .iter()
+                            .skip(1)
+                            .step_by(2)
+                            .all(|&limb| limb == SENTINEL)
+                    );
+                }
+            }
+        }
+        let initial = encode(-1, 3, 2);
+        let mut destination = initial.clone();
+        zint_add_scaled_mul_small(
+            &mut destination,
+            3,
+            &[],
+            0,
+            2,
+            i32::MIN,
+            ZintShift { words: 0, bits: 30 },
+        );
+        zint_sub_scaled(
+            &mut destination,
+            3,
+            &[],
+            0,
+            2,
+            ZintShift { words: 0, bits: 30 },
+        );
+        assert_eq!(destination, initial);
+    }
+
+    #[test]
+    fn portable_leading_zero_body_and_selected_bitlength_match_bit_boundaries() {
+        assert_eq!(bitlength(0), 0);
+        assert_eq!(32 - lzcnt_portable(0), 0);
+        for bit in 0..32 {
+            for value in [1u32 << bit, (1u32 << bit) | 1, u32::MAX >> bit] {
+                assert_eq!(lzcnt_portable(value), value.leading_zeros());
+                assert_eq!(lzcnt(value), value.leading_zeros());
+                assert_eq!(bitlength(value), 32 - value.leading_zeros());
+            }
+        }
+    }
+}

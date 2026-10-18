@@ -1,6 +1,6 @@
 //! Exact Euclidean microsteps for signed-input GCD with one architectural debit.
 //!
-//! Entry proves both unsigned magnitudes, including i64::MIN. Ninety-one
+//! Entry proves both unsigned magnitudes, including `i64::MIN`. Ninety-one
 //! division slots suffice for every pair of magnitudes at most 2^63: a 92-step
 //! Euclidean execution requires F93 = 12200160415121876738 > 2^63. The verifier
 //! also requires denominator zero at the fixed commit slot, so the bound is
@@ -22,7 +22,7 @@ const GAS_DIGIT_THREE: usize = 40;
 pub(super) const CONSTRAINTS: usize = 10 + 10 + 208 + 8 + 3 + 10 + 24 + 6 + 43;
 
 pub(super) fn magnitude(value: u64) -> u64 {
-    (value as i64).unsigned_abs()
+    u64::cast_signed(value).unsigned_abs()
 }
 
 /// Candidate arithmetic only; the AIR below establishes all equalities.
@@ -55,7 +55,7 @@ pub(super) fn witness(left: u64, right: u64, entry: bool) -> division::Witness {
         (multiply::SIGNED_UNSIGNED, left),
         (multiply::SIGNED_SIGNED, right),
     ] {
-        let negative = entry && (source as i64) < 0;
+        let negative = entry && u64::cast_signed(source) < 0;
         product[offset..offset + 40].copy_from_slice(&multiply::correction_witness(
             if negative { 0 } else { source },
             if negative { source } else { 0 },

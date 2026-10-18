@@ -1,0 +1,400 @@
+"""P0/P1 fixed-shape public preparation: concrete frames/hashes and shared F reads.
+
+This module is being constructed. Classical shape dispatch and invalid request
+controller composition are not yet claimed complete. It cannot qualify B6.
+"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+import re
+
+from bit_ir import Builder, Cost, bits, integer, require
+from hash_machine import BASE_RESPONSE_BITS, prefix_query
+from public_hash import Shake256_64, Sha3_512_64, load_public_keccak
+
+P16 = b'PARL-SHAKE-V1\0\0\0'
+PREFIX = b'PARL/FAEST/v1'
+SUITE = b'KECCAK-F1600/2R-FWD/SEL-32X32-PREFIX/PAD-256/TAPE-112/CTR-U20-LE32/NS-PREFIX77/NF-1024/VAUTH-512/SALT-256/H5-SALT/LEAF-AFFINE-896'
+ROWS = {'candidate': (33,8,229,704,84304), 'comparator': (22,6,225,696,83704)}
+TABLES = {
+ 'candidate': ('crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs','a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e'),
+ 'comparator': ('crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs','535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f'),
+}
+
+
+def table_bytes(root, row):
+    """Exact source encode_words order and LE u64 codec of the frozen table set."""
+    require(type(row) is str and row in TABLES, 'public row')
+    source_path, expected = TABLES[row]
+    raw = (Path(root)/source_path).read_bytes()
+    require(hashlib.sha256(raw).hexdigest() == expected, 'public CRT table source changed')
+    source = raw.decode()
+    def scalar(name):
+        found=re.findall(r'pub const '+name+r': u32 = ([0-9]+);',source)
+        require(len(found)==1, 'CRT scalar declaration')
+        return int(found[0])
+    def array(name):
+        found=re.findall(r'pub static '+name+r': \[u(16|64); ([0-9]+)\] = \[(.*?)\];',source,re.S)
+        require(len(found)==1, 'CRT array declaration')
+        width,count,body=found[0]
+        tokens=[value.strip() for value in body.split(',') if value.strip()]
+        require(all(re.fullmatch(r'0x[0-9a-fA-F_]+',v) for v in tokens), 'CRT literal format')
+        values=[int(v.replace('_',''),16) for v in tokens]
+        require(len(values)==int(count) and all(0<=v<1<<int(width) for v in values), 'CRT array shape')
+        return values
+    tau,grind,opening,mult,length=ROWS[row]
+    require(tuple(scalar(n) for n in ('LAMBDA','TAU','W_GRIND','N_MULT'))==(256,tau,grind,mult),
+            'CRT profile scalars')
+    words=[int.from_bytes(b'FAESTCRT','little'),256,tau,grind,mult]
+    for name in ('TREE_MODULI','M_TREE','F','G','W_TREE','W_GATE','W_CRT'):
+        words.extend(array(name))
+    result=b''.join(word.to_bytes(8,'little') for word in words)
+    require(len(result)==length,'CRT source byte length')
+    require(hashlib.sha256((Path(root)/source_path).read_bytes()).hexdigest()==expected,
+            'public CRT table changed during codec')
+    return result
+
+
+def frame_bytes(tag, fields):
+    """Independent finite byte reference for the source's exact fixed frame encoding."""
+    require(type(tag) is bytes and tag.isascii(),'frame tag ASCII')
+    require(len(tag)<=65535 and len(fields)<=65535,'frame header lengths')
+    require(all(type(f) is bytes and len(f)<=2**32-1 for f in fields),'frame fields')
+    return len(tag).to_bytes(2,'little')+tag+len(fields).to_bytes(2,'little')+b''.join(
+        len(f).to_bytes(4,'little')+f for f in fields)
+
+
+def profile_reference(root,row):
+    """Classical expected bytes only; native hashlib is not circuit evaluation/pricing."""
+    require(type(row) is str and row in ROWS,'public row')
+    tau,grind,opening,mult,_=ROWS[row]
+    crt=hashlib.shake_256(table_bytes(root,row)).digest(64)
+    parameters=b''.join(v.to_bytes(2,'little') for v in (256,tau,grind,opening,7,mult))
+    dimensions=b''.join(v.to_bytes(4,'little') for v in (35840,72576,53504,108931))
+    descriptor=frame_bytes(b'PARL/DESC/v1',(P16,b'FAEST-3.0',parameters,crt,dimensions,SUITE))
+    require(len(descriptor)==286,'descriptor fixed shape')
+    digest=hashlib.sha3_512(descriptor).digest()
+    namespaces={role:hashlib.sha3_512(frame_bytes(b'PARL/NS/v1',(digest,role))).digest()
+                for role in (b'REG',b'VOTE')}
+    return dict(crt=crt,descriptor=descriptor,digest=digest,namespaces=namespaces)
+
+
+@dataclass(frozen=True)
+class BackendPrefix:
+    """A prefix of the single immutable F:bytes->264 bytes, with clean response."""
+    message_bytes: int
+    outputs: int
+    oracle: object = None
+
+    def __post_init__(self):
+        integer(self.message_bytes,1,1<<20,'backend query bytes')
+        integer(self.outputs,1,BASE_RESPONSE_BITS,'backend prefix bits')
+
+    @property
+    def inputs(self): return self.message_bytes*8
+    @property
+    def work(self): return BASE_RESPONSE_BITS
+    @property
+    def cost(self): return Cost(cx=self.outputs,base_calls=2)
+    @property
+    def name(self): return f'public-backend-prefix:{self.message_bytes}:{self.outputs}'
+
+    def emit(self,inputs,outputs,work):
+        require((len(inputs),len(outputs),len(work))==(self.inputs,self.outputs,self.work),'prefix interface')
+        yield from prefix_query(inputs,outputs,work)
+
+    def evaluate(self,values):
+        require(type(values) is tuple and len(values)==self.inputs
+                and all(type(v) is int and v in (0,1) for v in values),'prefix input bits')
+        require(callable(self.oracle),'explicit immutable F evaluator required')
+        raw=bytes(sum(values[8*i+j]<<j for j in range(8)) for i in range(self.message_bytes))
+        response=self.oracle(raw)
+        require(type(response) is bytes and len(response)==264,'F exact response')
+        return tuple((response[i//8]>>(i%8))&1 for i in range(self.outputs))
+
+
+class PublicBuilder:
+    """Source framing creates actual fixed constant wires; no free prehashed data."""
+    def __init__(self, inputs, module, oracle=None):
+        self.b=Builder(inputs)
+        self.module=module
+        self.oracle=oracle
+        self.registry={}
+
+    def constant(self, raw):
+        require(type(raw) is bytes,'public constant bytes')
+        return tuple(self.b.bit('one' if v else 'zero') for byte in raw for v in bits(byte,8))
+
+    def frame(self,tag,fields):
+        require(type(tag) is bytes and tag.isascii() and len(tag)<=65535 and len(fields)<=65535,'public frame header')
+        require(all(type(f) is tuple and len(f)%8==0 and len(f)//8<=2**32-1 for f in fields),'public frame fields')
+        result=self.constant(len(tag).to_bytes(2,'little')+tag+len(fields).to_bytes(2,'little'))
+        for field in fields:
+            result+=self.constant((len(field)//8).to_bytes(4,'little'))+field
+        return result
+
+    def call(self,kernel,wires):
+        require(type(wires) is tuple and len(wires)==kernel.inputs,'public kernel inputs')
+        if kernel.name not in self.registry:
+            self.registry[kernel.name]=kernel
+            self.b.kernels=tuple(self.registry.values())
+        else:
+            previous=self.registry[kernel.name]
+            require((previous.inputs,previous.outputs,previous.work,previous.cost)==
+                    (kernel.inputs,kernel.outputs,kernel.work,kernel.cost),'public kernel name collision')
+        return self.b.node('kernel',*wires,kernel=kernel.name,width=kernel.outputs)
+
+    def sha3(self,wires):
+        require(len(wires)%8==0,'SHA3 public whole bytes')
+        # Empty digest's unused input is a real allocated zero wire.
+        return self.call(Sha3_512_64(len(wires)//8,self.module.Keccak1600Kernel()),wires or (self.b.bit('zero'),))
+
+    def backend(self,wires,output_bytes,domain):
+        require(domain in (4,8),'public backend domain')
+        query=wires+self.constant(bytes((domain,)))
+        return self.call(BackendPrefix(len(query)//8,8*output_bytes,self.oracle),query)
+
+    def profile(self,root,row):
+        tau,grind,opening,mult,_=ROWS[row]
+        raw=table_bytes(root,row)
+        crt=self.call(Shake256_64(len(raw),self.module.Keccak1600Kernel()),self.constant(raw))
+        parameters=b''.join(v.to_bytes(2,'little') for v in (256,tau,grind,opening,7,mult))
+        dimensions=b''.join(v.to_bytes(4,'little') for v in (35840,72576,53504,108931))
+        descriptor=self.frame(b'PARL/DESC/v1',(self.constant(P16),self.constant(b'FAEST-3.0'),
+            self.constant(parameters),crt,self.constant(dimensions),self.constant(SUITE)))
+        require(len(descriptor)==286*8,'public descriptor width')
+        digest=self.sha3(descriptor)
+        prefixes={}
+        for role in (b'REG',b'VOTE'):
+            ns=self.sha3(self.frame(b'PARL/NS/v1',(digest,self.constant(role))))
+            prefixes[role]=self.constant(PREFIX)+ns
+        return digest,prefixes
+
+    def public_block(self,tag,digest):
+        require(type(tag) is bytes and len(tag)==4 and len(digest)==512,'relation public block')
+        return self.constant(tag+P16+bytes(48))+digest+self.constant(b'\x1f\0\0\x80'+bytes(64))
+
+
+@dataclass(frozen=True)
+class PublicShape:
+    """Classical typed family selection, not a free coherent length controller."""
+    role: str
+    row: str = 'candidate'
+    body_bytes: int = 0
+    context_bytes: tuple = (0,0,0,0,0,0)
+    list_count: int = 0
+
+    def __post_init__(self):
+        require(type(self.role) is str and self.role in ('REG','VOTE'),'public role')
+        require(type(self.row) is str and self.row in ROWS,'public row')
+        integer(self.body_bytes,0,4096,'body length')
+        require(type(self.context_bytes) is tuple and len(self.context_bytes)==6,'context lengths')
+        for n in self.context_bytes:integer(n,0,256,'opaque field length')
+        integer(self.list_count,0,1024,'typed list count')
+        require((self.role=='REG' and self.list_count==0) or
+                (self.role=='VOTE' and self.body_bytes==0 and self.context_bytes==(0,)*6),
+                'role shape fields')
+
+    def input_regions(self):
+        """Public request bytes followed by supplied iv_pre and salt (no witness)."""
+        if self.role=='REG':
+            sizes=(('body',self.body_bytes), *((name,n) for name,n in zip(
+                ('network','authority','assignment','governance','election','body_role'),self.context_bytes)),
+                ('commitment',128),('auth',64))
+        else:
+            sizes=(('body_digest',64),('scope',64),('list_digest',64),('size',2),
+                   ('list',128*self.list_count),('nullifier',128),('auth',64),('vote',1),('policy_hash',64))
+        regions=[];cursor=0
+        for name,n in (*sizes,('iv_pre',16),('salt',32)):
+            regions.append((name,tuple(range(cursor,cursor+8*n))));cursor+=8*n
+        return tuple(regions)
+
+    @property
+    def inputs(self):return sum(len(w) for _,w in self.input_regions())
+
+
+def _equal(builder,left,right):
+    require(len(left)==len(right),'equality width')
+    result=builder.bit('one')
+    for a,b in zip(left,right):
+        result=builder.bit('and',result,builder.bit('not',builder.bit('xor',a,b)))
+    return result
+
+
+@dataclass(frozen=True)
+class LexLess:
+    """Unsigned bytewise strict order, not little-endian integer comparison."""
+    byte_count: int = 128
+
+    def __post_init__(self):integer(self.byte_count,1,128,'comparison bytes')
+    @property
+    def name(self):return f'public-lex-less:{self.byte_count}'
+    @property
+    def inputs(self):return self.byte_count*16
+    outputs=1
+    @property
+    def block(self):return _lex_block(self.byte_count)
+    @property
+    def work(self):return self.block.derived+self.block.work
+    @property
+    def cost(self):return _lex_cost(self.byte_count)
+    def evaluate(self,values):return self.block.evaluate(values)
+    def emit(self,inputs,outputs,work):
+        require(type(inputs) is tuple and type(outputs) is tuple and type(work) is tuple,
+                'comparison wire containers')
+        require((len(inputs),len(outputs),len(work))==(self.inputs,self.outputs,self.work),'comparison wire widths')
+        mapping=inputs+work+outputs
+        require(all(type(w) is int and w>=0 for w in mapping) and len(set(mapping))==len(mapping),
+                'comparison wire alias')
+        for gate in self.block.emit_clean():yield (gate[0],*(mapping[i] for i in gate[1:]))
+
+
+from functools import lru_cache
+
+
+@lru_cache(maxsize=8,typed=True)
+def _lex_block(byte_count):
+    integer(byte_count,1,128,'comparison bytes')
+    width=byte_count*8;b=Builder(2*width)
+    equal=b.bit('one');less=b.bit('zero')
+    # Byte 0 dominates byte 1; within each byte bit 7 dominates bit 0.
+    for byte in range(byte_count):
+        for bit in reversed(range(8)):
+            a=8*byte+bit;c=width+a
+            term=b.bit('and',equal,b.bit('and',b.bit('not',a),c))
+            less=b.bit('xor',less,term)  # first-difference events are disjoint
+            equal=b.bit('and',equal,b.bit('not',b.bit('xor',a,c)))
+    return b.finish((less,))
+
+
+@lru_cache(maxsize=8,typed=True)
+def _lex_cost(byte_count):
+    return _lex_block(byte_count).cost.times(2)+Cost(cx=1)
+
+
+@dataclass(frozen=True)
+class PublicProgram:
+    """One explicit circuit with immutable public input/output field positions."""
+    shape: PublicShape
+    block: object
+    output_regions: tuple
+    stage: str
+    totalized_fixed_shape: bool = False
+
+    def resources(self):
+        return dict(stage=self.stage,role=self.shape.role,row=self.shape.row,
+                    **self.block.clean_resources(),
+                    supplied_classical_shape=True,
+                    requires_valid_request=self.stage=='P1' and not self.totalized_fixed_shape,
+                    totalized_fixed_shape=self.totalized_fixed_shape,
+                    rejection_behavior_claimed_standalone=False,
+                    validity_outer_controller_required=self.stage=='P1',
+                    bounded_invalid_shape_controller_complete=False,
+                    complete_public_framing=False,complete_machine=False,
+                    complete_resource_vector=False,production_qualified=False,
+                    cryptographic_review_complete=False,physical_cost_calibrated=False)
+
+
+def _finish_public(p,shape,fields,stage,totalized_fixed_shape=False):
+    outputs=[];regions=[]
+    for name,wires in fields:
+        regions.append((name,(len(outputs),len(outputs)+len(wires))));outputs.extend(wires)
+    return PublicProgram(shape,p.b.finish(tuple(outputs)),tuple(regions),stage,totalized_fixed_shape)
+
+
+def vote_validation(shape,module,root):
+    """P0 total fixed-shape vote validation with the source's first typed error.
+
+    Concrete hashes may run even on a rejected fixed-shape value; this circuit
+    prices that finite overcomputation. It never calls F. Inputs are already
+    typed fixed-width records. Host role/length selection is outside this map.
+    Error code: 0 success, 1 VoteValue, 2 List::Size, 3 List::Order,
+    4 ListLength, 5 ListDigest. Only that variant's payload fields are nonzero.
+    """
+    guard_public_sources(root)
+    require(type(shape) is PublicShape and shape.role=='VOTE','vote validation shape')
+    p=PublicBuilder(shape.inputs,module);b=p.b;w=dict(shape.input_regions())
+    vote_ok=b.bit('zero')
+    for value in range(3):
+        vote_ok=b.bit('xor',vote_ok,_equal(b,w['vote'],p.constant(bytes((value,)))))
+    size_ok=b.bit('one' if 3<=shape.list_count<=1000 else 'zero')
+    found=b.bit('zero');first=p.constant(bytes(2))
+    less=LexLess()
+    for i in range(1,shape.list_count):
+        pair=w['list'][1024*(i-1):1024*(i+1)]
+        bad=b.bit('not',p.call(less,pair)[0])
+        take=b.bit('and',bad,b.bit('not',found))
+        first=b.select(take,p.constant(i.to_bytes(2,'little')),first)
+        found=b.bit('xor',found,take)
+    actual=p.constant(shape.list_count.to_bytes(2,'little'))
+    length_ok=_equal(b,w['size'],actual)
+    computed=p.sha3(p.frame(b'PARL/LIST/v1',(p.constant(P16),w['body_digest'],actual,w['list'])))
+    digest_ok=_equal(b,w['list_digest'],computed)
+    active=b.bit('one');taken=[]
+    for ok in (vote_ok,size_ok,b.bit('not',found),length_ok,digest_ok):
+        taken.append(b.bit('and',active,b.bit('not',ok)))
+        active=b.bit('and',active,ok)
+    code=[]
+    for bit in range(3):
+        wire=b.bit('zero')
+        for error,flag in enumerate(taken,1):
+            if (error>>bit)&1:wire=b.bit('xor',wire,flag)
+        code.append(wire)
+    def masked(flag,values):return tuple(b.bit('and',flag,value) for value in values)
+    actual_flag=b.bit('xor',taken[1],taken[3])
+    return _finish_public(p,shape,(('valid',(active,)),('error_code',tuple(code)),
+        ('order_index',masked(taken[2],first)),('actual_count',masked(actual_flag,actual)),
+        ('declared_count',masked(taken[3],w['size'])),('vote_value',masked(taken[0],w['vote']))),'P0')
+
+
+def prepare_public(shape,module,root,oracle=None,*,totalized_fixed_shape=False):
+    """P1 clean public preparation for an accepted typed request of this shape.
+
+    The caller selects this family and by default must establish P0. With
+    totalized_fixed_shape=True the same circuit is explicitly defined on any
+    content at a shape whose count is3..1000. This is not standalone rejection:
+    a later validity controller must mask persistent writes/results and undo
+    all temporary work, without interleaved changes to F.
+    Both Profile::new namespaces are concretely computed and charged. H_mu/H4
+    each use one prefix kernel, invoked again by enclosing clean uncompute.
+    """
+    require(type(totalized_fixed_shape) is bool,'public totalization flag')
+    guard_public_sources(root)
+    require(type(shape) is PublicShape,'public preparation shape')
+    if shape.role=='VOTE':require(3<=shape.list_count<=1000,'valid vote shape')
+    p=PublicBuilder(shape.inputs,module,oracle);w=dict(shape.input_regions())
+    digest,prefixes=p.profile(root,shape.row)
+    if shape.role=='REG':
+        body=p.sha3(p.frame(b'PARL/BODY/v1',(p.constant(P16),w['body'])))
+        context=tuple(w[name] for name in ('network','authority','assignment','governance','election','body_role'))
+        authorization=p.sha3(p.frame(b'PARL/REG-AUTH/v1',(p.constant(P16),p.constant(b'REG'),
+            digest,w['body'],*context,body,w['commitment'])))
+        framed=p.frame(b'PARL/MU/REG/v1',(w['body'],*context,body,w['commitment'],w['auth']))
+        relation=p.public_block(b'PCR1',body)+p.public_block(b'PAU1',authorization)+w['commitment']+w['auth']
+    else:
+        authorization=p.sha3(p.frame(b'PARL/VOTE-AUTH/v1',(p.constant(P16),p.constant(b'VOTE'),
+            digest,w['body_digest'],w['scope'],w['list_digest'],w['size'],w['list'],
+            w['nullifier'],w['vote'],w['policy_hash'])))
+        framed=p.frame(b'PARL/MU/VOTE/v1',(w['body_digest'],w['scope'],w['list_digest'],w['size'],
+            w['list'],w['nullifier'],w['auth'],w['vote'],w['policy_hash']))
+        relation=(p.public_block(b'PCR1',w['body_digest'])+p.public_block(b'PNF1',w['scope'])+
+                  p.public_block(b'PAV1',authorization)+w['list']+w['nullifier']+w['auth'])
+    namespace=prefixes[shape.role.encode()]
+    mu=p.backend(namespace+framed,64,8)
+    iv=p.backend(namespace+w['iv_pre']+mu,16,4)
+    return _finish_public(p,shape,(('relation_public',relation),('mu',mu),('iv',iv),
+                ('namespace',namespace),('iv_pre',w['iv_pre']),('salt',w['salt'])),'P1',totalized_fixed_shape)
+
+
+SOURCE_PINS = {'crates/iroha_parliament_ballot_proof/src/framing.rs': '784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0', 'crates/iroha_parliament_ballot_proof/src/profile.rs': '9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d', 'crates/iroha_parliament_ballot_proof/src/registration.rs': '0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e', 'crates/iroha_parliament_ballot_proof/src/vote.rs': '0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3', 'crates/iroha_parliament_ballot_proof/src/sealed_list.rs': '769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0', 'crates/iroha_parliament_ballot_proof/src/credential.rs': '9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34', 'crates/iroha_parliament_ballot_proof/src/keccak_relation.rs': 'f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5', 'crates/iroha_parliament_ballot_proof/src/layout.rs': '33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0', 'crates/iroha_parliament_ballot_proof/src/proving.rs': '717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051', 'crates/iroha_zkp_vole/src/hash.rs': 'c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70', 'crates/iroha_zkp_vole/src/transcript.rs': 'ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2', 'crates/iroha_zkp_vole/src/params.rs': '41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba', 'crates/iroha_zkp_vole/src/crt/codec.rs': '9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a'}
+
+
+def guard_public_sources(root):
+    """Authenticate selected semantic sources, not their compiler/dependency closure."""
+    root=Path(root)
+    pins=dict(SOURCE_PINS)
+    pins.update({path:expected for path,expected in TABLES.values()})
+    for path,expected in pins.items():
+        require(hashlib.sha256((root/path).read_bytes()).hexdigest()==expected,
+                "public source changed: "+path)
+    return pins

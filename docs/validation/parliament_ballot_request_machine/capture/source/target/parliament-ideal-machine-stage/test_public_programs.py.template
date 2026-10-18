@@ -1,0 +1,172 @@
+"""Independent source frames, typed errors and actual fixed-family public circuits."""
+from collections import Counter
+from pathlib import Path
+import hashlib
+import unittest
+from unittest import mock
+
+from bit_ir import bits,unpack,apply_gates
+from public_hash import load_public_keccak
+from public_machine import PublicShape,LexLess,prepare_public,vote_validation,guard_public_sources,profile_reference
+
+ROOT=Path(__file__).resolve().parents[2]
+
+
+def wire_bits(raw):return tuple(v for byte in raw for v in bits(byte,8))
+def frame(tag,fields):
+    return len(tag).to_bytes(2,'little')+tag+len(fields).to_bytes(2,'little')+b''.join(
+        len(f).to_bytes(4,'little')+f for f in fields)
+def sha(raw):return hashlib.sha3_512(raw).digest()
+def oracle(raw):return hashlib.shake_256(b'TEST-ONLY-SINGLE-F'+raw).digest(264)
+def public_block(tag,digest):return tag+b'PARL-SHAKE-V1\0\0\0'+bytes(48)+digest+b'\x1f\0\0\x80'+bytes(64)
+
+
+def request(shape):
+    fields={name:bytes((i*37+j*11)%256 for i in range(len(w)//8))
+            for j,(name,w) in enumerate(shape.input_regions())}
+    if shape.role=='VOTE':
+        fields['vote']=b'\x02';fields['size']=shape.list_count.to_bytes(2,'little')
+        fields['list']=b''.join(i.to_bytes(128,'big') for i in range(shape.list_count))
+        fields['list_digest']=sha(frame(b'PARL/LIST/v1',(b'PARL-SHAKE-V1\0\0\0',fields['body_digest'],
+            shape.list_count.to_bytes(2,'little'),fields['list'])))
+    return fields
+
+
+def encoded(shape,fields):return wire_bits(b''.join(fields[n] for n,_ in shape.input_regions()))
+def decoded(program,values):
+    output=program.block.evaluate(values)
+    return {name:unpack(output[a:b]) for name,(a,b) in program.output_regions}
+
+
+def expected_preparation(shape,w):
+    # Native digests here are independent expected bytes only.
+    d=profile_reference(ROOT,shape.row)['digest'];p16=b'PARL-SHAKE-V1\0\0\0'
+    ns=b'PARL/FAEST/v1'+sha(frame(b'PARL/NS/v1',(d,shape.role.encode())))
+    if shape.role=='REG':
+        body=sha(frame(b'PARL/BODY/v1',(p16,w['body'])))
+        ctx=tuple(w[name] for name in ('network','authority','assignment','governance','election','body_role'))
+        auth=sha(frame(b'PARL/REG-AUTH/v1',(p16,b'REG',d,w['body'],*ctx,body,w['commitment'])))
+        framed=frame(b'PARL/MU/REG/v1',(w['body'],*ctx,body,w['commitment'],w['auth']))
+        relation=public_block(b'PCR1',body)+public_block(b'PAU1',auth)+w['commitment']+w['auth']
+    else:
+        auth=sha(frame(b'PARL/VOTE-AUTH/v1',(p16,b'VOTE',d,w['body_digest'],w['scope'],w['list_digest'],
+            w['size'],w['list'],w['nullifier'],w['vote'],w['policy_hash'])))
+        framed=frame(b'PARL/MU/VOTE/v1',tuple(w[n] for n in ('body_digest','scope','list_digest','size',
+            'list','nullifier','auth','vote','policy_hash')))
+        relation=public_block(b'PCR1',w['body_digest'])+public_block(b'PNF1',w['scope'])+public_block(b'PAV1',auth)+w['list']+w['nullifier']+w['auth']
+    mu=oracle(ns+framed+b'\x08')[:64];iv=oracle(ns+w['iv_pre']+mu+b'\x04')[:16]
+    return dict(relation_public=relation,mu=mu,iv=iv,namespace=ns,iv_pre=w['iv_pre'],salt=w['salt'])
+
+
+class PublicProgramTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):cls.module=load_public_keccak(ROOT)
+
+    def test_byte_order_kernel_actual_stream_and_inverse(self):
+        kernel=LexLess(2)
+        pairs=[(b'\x00\xff',b'\x01\x00'),(b'\x01\x00',b'\x00\xff'),
+               (b'\xff\xff',b'\xff\xff'),(b'\x80\x00',b'\x7f\xff')]
+        for a,b in pairs:
+            values=wire_bits(a+b);expected=int(a<b)
+            self.assertEqual(kernel.evaluate(values),(expected,))
+            state=list(values)+[0]*kernel.work+[1]
+            inputs=tuple(range(32));work=tuple(range(32,32+kernel.work));out=(len(state)-1,)
+            census=Counter()
+            for gate in kernel.emit(inputs,out,work):
+                apply_gates(state,(gate,));census[gate[0]]+=1
+            self.assertEqual(state,list(values)+[0]*kernel.work+[1^expected])
+            self.assertEqual(dict(census),dict(x=kernel.cost.x,cx=kernel.cost.cx,ccx=kernel.cost.ccx))
+            apply_gates(state,kernel.emit(inputs,out,work));self.assertEqual(state[-1],1)
+        # Cached shape validation must remain type-sensitive.
+        with self.assertRaises(ValueError):LexLess(False)
+
+    def test_vote_error_priority_and_exact_payloads(self):
+        shape=PublicShape('VOTE',list_count=3);program=vote_validation(shape,self.module,ROOT)
+        good=request(shape)
+        self.assertEqual(decoded(program,encoded(shape,good)),dict(valid=1,error_code=0,order_index=0,actual_count=0,declared_count=0,vote_value=0))
+        cases=[]
+        bad=dict(good,vote=b'\xff',size=b'\x09\x00',list=bytes(384),list_digest=bytes(64));cases.append((bad,1,0,0,0,255))
+        bad=dict(good,list=bytes(384),size=b'\x09\x00',list_digest=bytes(64));cases.append((bad,3,1,0,0,0))
+        bad=dict(good,list=good['list'][:256]+good['list'][128:256]);cases.append((bad,3,2,0,0,0))
+        bad=dict(good,size=b'\xff\x01',list_digest=bytes(64));cases.append((bad,4,0,3,511,0))
+        bad=dict(good,list_digest=bytes(64));cases.append((bad,5,0,0,0,0))
+        for w,code,index,actual,declared,vote in cases:
+            self.assertEqual(decoded(program,encoded(shape,w)),dict(valid=0,error_code=code,order_index=index,
+                actual_count=actual,declared_count=declared,vote_value=vote))
+        self.assertEqual(program.block.clean_resources()['gates']['base_xor_oracle_calls'],0)
+
+    def test_p0_actual_packed_stream_clean_joint_map_and_counts(self):
+        shape=PublicShape('VOTE',list_count=3);program=vote_validation(shape,self.module,ROOT)
+        good=request(shape)
+        requests=(good,dict(good,vote=b'\xff',list=bytes(384)),dict(good,list_digest=bytes(64)))
+        expected=(dict(valid=1,error_code=0,order_index=0,actual_count=0,declared_count=0,vote_value=0),
+                  dict(valid=0,error_code=1,order_index=0,actual_count=0,declared_count=0,vote_value=255),
+                  dict(valid=0,error_code=5,order_index=0,actual_count=0,declared_count=0,vote_value=0))
+        samples=[encoded(shape,w) for w in requests];block=program.block
+        source=[sum(sample[i]<<j for j,sample in enumerate(samples)) for i in range(shape.inputs)]
+        clean=block.derived+block.work
+        target=[(i*3+1)&7 for i in range(len(block.outputs))]
+        state=source+[0]*clean+target[:];census=Counter()
+        for kind,*wires in block.emit_clean():
+            value=7
+            for wire in wires[:-1]:value &= state[wire]
+            state[wires[-1]] ^= value;census[kind]+=1
+        want=[]
+        for name,(a,b) in program.output_regions:
+            for i in range(b-a):want.append(sum(((row[name]>>i)&1)<<j for j,row in enumerate(expected)))
+        self.assertEqual(state[:shape.inputs],source)
+        self.assertEqual(state[shape.inputs:shape.inputs+clean],[0]*clean)
+        self.assertEqual(state[-len(target):],[a^b for a,b in zip(target,want)])
+        counted=block.cost.times(2)
+        self.assertEqual(dict(census),dict(x=counted.x,cx=counted.cx+len(target),ccx=counted.ccx))
+
+    def test_invalid_fixed_list_count_precedes_order_length_digest(self):
+        for count in (0,2):
+            shape=PublicShape('VOTE',list_count=count);program=vote_validation(shape,self.module,ROOT)
+            w=request(shape);w['size']=b'\xff\xff';w['list_digest']=bytes(64)
+            result=decoded(program,encoded(shape,w))
+            self.assertEqual(result,dict(valid=0,error_code=2,order_index=0,actual_count=count,declared_count=0,vote_value=0))
+            w['vote']=b'\x03';result=decoded(program,encoded(shape,w))
+            self.assertEqual(result['error_code'],1);self.assertEqual(result['actual_count'],0)
+
+    def test_actual_p1_both_roles_rows_and_totalized_invalid_vote(self):
+        # These run the actual permutation evaluator throughout each large CRT
+        # hash; no test hash stand-in is installed in the circuit registry.
+        for shape in (PublicShape('REG','candidate',3,(0,1,2,3,4,5)),
+                      PublicShape('VOTE','comparator',list_count=3)):
+            with self.subTest(role=shape.role,row=shape.row):
+                program=prepare_public(shape,self.module,ROOT,oracle,totalized_fixed_shape=shape.role=='VOTE')
+                w=request(shape)
+                if shape.role=='VOTE':
+                    w.update(vote=b'\xff',size=b'\xff\xff',list=bytes(384),list_digest=bytes(64))
+                expected=expected_preparation(shape,w)
+                actual=decoded(program,encoded(shape,w))
+                self.assertEqual(actual,{k:int.from_bytes(v,'little') for k,v in expected.items()})
+                resource=program.resources()
+                self.assertEqual(resource['gates']['base_xor_oracle_calls'],8)
+                self.assertFalse(resource['complete_public_framing'])
+                self.assertFalse(resource['complete_resource_vector'])
+                self.assertFalse(resource['bounded_invalid_shape_controller_complete'])
+                self.assertEqual(resource['requires_valid_request'],shape.role=='REG')
+                self.assertEqual(resource['totalized_fixed_shape'],shape.role=='VOTE')
+                self.assertTrue(resource['validity_outer_controller_required'])
+                self.assertFalse(resource['rejection_behavior_claimed_standalone'])
+                self.assertEqual(resource['input_bits'],shape.inputs)
+                self.assertEqual(len(dict(program.output_regions)['relation_public']),2)
+
+    def test_shapes_and_selected_source_drift_refuse(self):
+        for kwargs in (dict(role='BAD'),dict(role='REG',row='bad'),dict(role='REG',body_bytes=4097),
+                       dict(role='REG',context_bytes=(0,0,0,0,0,257)),dict(role='VOTE',list_count=True),
+                       dict(role='VOTE',body_bytes=1),dict(role='REG',list_count=3)):
+            with self.assertRaises(ValueError):PublicShape(**kwargs)
+        for count in (0,2,1001,1024):
+            with self.assertRaises(ValueError):prepare_public(PublicShape('VOTE',list_count=count),self.module,ROOT,totalized_fixed_shape=True)
+        with self.assertRaises(ValueError):prepare_public(PublicShape('REG'),self.module,ROOT,totalized_fixed_shape=1)
+        original=Path.read_bytes
+        def changed(path):
+            data=original(path)
+            return data+b'\n' if str(path).endswith('/profile.rs') else data
+        with mock.patch.object(Path,'read_bytes',changed),self.assertRaises(ValueError):guard_public_sources(ROOT)
+
+
+if __name__=='__main__':unittest.main()

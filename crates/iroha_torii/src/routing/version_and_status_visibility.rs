@@ -123,6 +123,28 @@ fn status_snapshot_failure(error: iroha_core::telemetry::StatusSnapshotError) ->
     }
 }
 
+/// Preserve internal busy provenance while retaining the existing public error.
+#[cfg(feature = "telemetry")]
+pub(crate) fn status_snapshot_failure_response(
+    error: iroha_core::telemetry::StatusSnapshotError,
+) -> Response {
+    use crate::utils::HttpStatusBusyCause;
+    use iroha_core::telemetry::StatusSnapshotError;
+
+    let cause = match &error {
+        StatusSnapshotError::StateBusy => Some(HttpStatusBusyCause::StateSnapshotContention),
+        StatusSnapshotError::HistoryReadDeferred(_) => {
+            Some(HttpStatusBusyCause::HistoryReadDeferred)
+        }
+        _ => None,
+    };
+    let mut response = status_snapshot_failure(error).into_response();
+    if let Some(cause) = cause {
+        response.extensions_mut().insert(cause);
+    }
+    response
+}
+
 #[cfg(feature = "telemetry")]
 fn ensure_status_metrics_match_authoritative_height(
     status: &Status,
@@ -278,6 +300,76 @@ mod status_failure_reason_tests {
             assert_wire_reason(status_snapshot_failure(error), reason).await;
         }
         drop(retained);
+    }
+
+    #[tokio::test]
+    async fn busy_provenance_preserves_existing_json_and_norito_wire() {
+        use crate::utils::HttpStatusBusyCause;
+
+        let budget = iroha_allocation::AllocationBudget::new(1);
+        let _occupied = budget.try_reserve_bytes(1).expect("occupy original pool");
+        let refusal = budget
+            .try_reserve_bytes(1)
+            .expect_err("actual capacity refusal");
+        let deferred = iroha_core::execution_attempt::ExecutionDeferred::from(refusal).reason();
+        for (history, expected_cause) in [
+            (false, HttpStatusBusyCause::StateSnapshotContention),
+            (true, HttpStatusBusyCause::HistoryReadDeferred),
+        ] {
+            for format in [
+                crate::utils::ResponseFormat::Json,
+                crate::utils::ResponseFormat::Norito,
+            ] {
+                let error = || {
+                    if history {
+                        StatusSnapshotError::HistoryReadDeferred(deferred)
+                    } else {
+                        StatusSnapshotError::StateBusy
+                    }
+                };
+                let before = crate::utils::with_current_response_format(format, async {
+                    status_snapshot_failure(error()).into_response()
+                })
+                .await;
+                let after = crate::utils::with_current_response_format(format, async {
+                    super::status_snapshot_failure_response(error())
+                })
+                .await;
+                assert_eq!(after.status(), before.status());
+                assert_eq!(after.status(), StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(
+                    after.headers(),
+                    before.headers(),
+                    "no new public header or changed reject code"
+                );
+                assert_eq!(after.headers()["x-iroha-reject-code"], "status_state_busy");
+                assert_eq!(
+                    after.extensions().get::<HttpStatusBusyCause>(),
+                    Some(&expected_cause),
+                    "internal cause must distinguish the two producer variants"
+                );
+                let before = before.into_body().collect().await.unwrap().to_bytes();
+                let after = after.into_body().collect().await.unwrap().to_bytes();
+                assert_eq!(
+                    after, before,
+                    "diagnostics must not change public wire bytes"
+                );
+                let envelope: ErrorEnvelope = match format {
+                    crate::utils::ResponseFormat::Json => norito::json::from_slice(&after).unwrap(),
+                    crate::utils::ResponseFormat::Norito => {
+                        norito::decode_from_bytes(&after).unwrap()
+                    }
+                };
+                assert_eq!(envelope.code(), "status_state_busy");
+            }
+        }
+        let terminal =
+            super::status_snapshot_failure_response(StatusSnapshotError::StateUnavailable);
+        assert!(terminal.extensions().get::<HttpStatusBusyCause>().is_none());
+        assert_eq!(
+            terminal.headers()["x-iroha-reject-code"],
+            "status_state_unavailable"
+        );
     }
 
     #[tokio::test]

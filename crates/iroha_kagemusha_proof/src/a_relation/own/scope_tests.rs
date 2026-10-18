@@ -3,10 +3,7 @@
 //! This checks the scope component only; no signature-Q or operation proof is admitted.
 
 use super::*;
-use crate::{
-    operation_relation::state::rest_index,
-    witness::{CORE_FIELDS, REST_FIELDS, core_index},
-};
+use crate::witness::{CORE_FIELDS, REST_FIELDS, core_index};
 use iroha_plonk::{
     check::{CheckMode, check_circuit},
     cs::{Column, ConstraintSystem, Instance},
@@ -77,8 +74,7 @@ impl Circuit<Fp> for ScopeCircuit {
                     core[i] = Fp::ONE;
                 }
                 core[core_index::SCHEME..=core_index::SCHEME + 1].copy_from_slice(&self.scheme);
-                let mut rest = [Fp::ZERO; REST_FIELDS];
-                rest[rest_index::BLACKLIST_HISTORY] = Fp::ONE;
+                let rest = [Fp::ZERO; REST_FIELDS];
                 let core = chip
                     .uint()
                     .glue()

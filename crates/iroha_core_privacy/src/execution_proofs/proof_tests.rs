@@ -2,6 +2,58 @@
 
 use super::*;
 
+#[test]
+fn borrowed_execution_domains_preserve_refusal_order_and_exact_transcript_framing() {
+    use crate::execution_proofs::stark::aggregate_stark as aggregate;
+
+    let domains = DOMAINS;
+    let original = domains;
+    let profile = GoldilocksDigest384V1::default();
+    let make_transcript = || {
+        TransparentTranscriptV1::new(
+            domains.digest_context,
+            b"borrowed-execution-domain-test-v1",
+            &profile,
+            &profile,
+        )
+        .unwrap()
+    };
+    let mut actual = make_transcript();
+    let initial_state = actual.state();
+    let mut invalid = domains;
+    invalid.digest_context =
+        TransparentStarkDigestContextV1::execution_v1(b"borrowed-domain-other-profile-v1");
+    invalid.query_seed = invalid.base_leaf;
+    assert_eq!(
+        aggregate::absorb_base_roots_v1(&mut actual, &invalid, &[]),
+        Err(aggregate::AggregateStarkErrorV1::InvalidLayout)
+    );
+    assert_eq!(actual.state(), initial_state);
+    invalid.query_seed = domains.query_seed;
+    assert_eq!(
+        aggregate::absorb_base_roots_v1(&mut actual, &invalid, &[]),
+        Err(aggregate::AggregateStarkErrorV1::TranscriptMismatch)
+    );
+    assert_eq!(actual.state(), initial_state);
+    let root = GoldilocksDigest384V1::from_le_bytes([11; 48]).unwrap();
+    let group = aggregate::AggregateTraceGroupProofV1 {
+        base_root: root,
+        aux_root: GoldilocksDigest384V1::default(),
+        base_frontier: Vec::new(),
+        aux_frontier: Vec::new(),
+    };
+    aggregate::absorb_base_roots_v1(&mut actual, &domains, &[group]).unwrap();
+    let mut expected = make_transcript();
+    expected
+        .absorb(
+            domains.base_root_label,
+            &[&0_u16.to_be_bytes(), &root.to_le_bytes()],
+        )
+        .unwrap();
+    assert_eq!(actual.state(), expected.state());
+    assert_eq!(domains, original);
+}
+
 fn admission(players: u8) -> GameAdmissionBodyV1 {
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_data_model::{account::AccountId, game::GameAdmissionParticipantV1};
@@ -114,7 +166,7 @@ fn late_finisher_full_native_proof_verifies_and_wrong_profile_is_rejected() {
     assert!(crate::execution_proofs::verify_execution_proof_v1(&wrong_profile).is_err());
 }
 
-/// Test-only entry point. Production proving continues to use OsRng; the full
+/// Test-only entry point. Production proving continues to use `OsRng`; the full
 /// native driver already accepts injected masking entropy internally.
 fn prove_with_test_entropy(request: &RaceProverRequestV1) -> ExecutionProofEnvelopeV1 {
     use super::super::stark::proof_managed_note_stark::prove_proof_managed_note_stark_v1_with_rng;

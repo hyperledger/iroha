@@ -10,4 +10,7 @@
 #[path = "a_load_recursive.rs"]
 pub mod load_chain;
 
+#[path = "../mod.rs"]
+mod common;
+
 include!("load_omega_body.rs");

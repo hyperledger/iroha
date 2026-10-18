@@ -1,6 +1,6 @@
-//! Byte-faithful, bounded holder-randomness sampler from pinned LaZeR.
+//! Byte-faithful, bounded holder-randomness sampler from pinned `LaZeR`.
 //!
-//! LaZeR's `polyvec_grandom(..., log2o = 1)` uses one AES-256-CTR stream per
+//! `LaZeR`'s `polyvec_grandom(..., log2o = 1)` uses one AES-256-CTR stream per
 //! degree-64 polynomial and a Gaussian-1.55 sign cache shared across those
 //! streams.  This module preserves that byte layout while replacing every
 //! unbounded retry with a public ceiling.  AES is CPU-only safe Rust with a
@@ -10,12 +10,12 @@ use super::{holder_aes256::ConstantTimeAes256KeyV1, ring::ApplicationPolynomialV
 use rand_core_06::{CryptoRng, RngCore};
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
-pub(crate) const CREDENTIAL_RANDOMNESS_POLYNOMIALS_V1: usize = 16;
-pub(crate) const CREDENTIAL_RANDOMNESS_NORM_SQUARED_BOUND_V1: u64 =
+pub const CREDENTIAL_RANDOMNESS_POLYNOMIALS_V1: usize = 16;
+pub const CREDENTIAL_RANDOMNESS_NORM_SQUARED_BOUND_V1: u64 =
     super::params::RANDOMNESS_NORM_SQUARED_BOUND_V1;
-pub(crate) const MAX_CREDENTIAL_RANDOMNESS_VECTOR_ATTEMPTS_V1: u32 = 64;
-pub(crate) const MAX_CREDENTIAL_RANDOMNESS_COEFFICIENT_PROPOSALS_V1: u32 = 256;
-pub(crate) const BOOTLE_CREDENTIAL_RANDOMNESS_PROFILE_DESCRIPTOR_V1: &[u8] = b"lazer-10eafeca4cd53ff4fc54193dce904dbd0026fefd-polyvec-grandom-v1|ring:R64-q12289|shape:16x64|sigma:1.55*2|seed:32|rng:AES-256-CTR-domain-le64-zero64-counter-be128|domains:(outer<<32)|(poly+1)|rounding:8-bytes-lsb-first-per-poly|cdf155:21-pairs-u64le|berexp:fdlibm-exp-small-u64le|sign-cache:issuance-local-persistent-across-polynomials-and-vector-retries|norm2<=11881|vector-attempts:64|coefficient-proposals:256|aes:cpu-only-fixed-control-flow-algebraic-sbox";
+pub const MAX_CREDENTIAL_RANDOMNESS_VECTOR_ATTEMPTS_V1: u32 = 64;
+pub const MAX_CREDENTIAL_RANDOMNESS_COEFFICIENT_PROPOSALS_V1: u32 = 256;
+pub const BOOTLE_CREDENTIAL_RANDOMNESS_PROFILE_DESCRIPTOR_V1: &[u8] = b"lazer-10eafeca4cd53ff4fc54193dce904dbd0026fefd-polyvec-grandom-v1|ring:R64-q12289|shape:16x64|sigma:1.55*2|seed:32|rng:AES-256-CTR-domain-le64-zero64-counter-be128|domains:(outer<<32)|(poly+1)|rounding:8-bytes-lsb-first-per-poly|cdf155:21-pairs-u64le|berexp:fdlibm-exp-small-u64le|sign-cache:issuance-local-persistent-across-polynomials-and-vector-retries|norm2<=11881|vector-attempts:64|coefficient-proposals:256|aes:cpu-only-fixed-control-flow-algebraic-sbox";
 const DEGREE_V1: usize = 64;
 const CDF_155_V1: [(u64, u64); 21] = [
     (0x9731_fa96_ce33_beaa, 0x95f2_8503_ccbd_a2bd),
@@ -40,7 +40,7 @@ const CDF_155_V1: [(u64, u64); 21] = [
     (0, 0x0000_0000_0000_0062),
     (0, 0),
 ];
-pub(crate) struct CredentialRandomnessV1 {
+pub struct CredentialRandomnessV1 {
     polynomials: [ApplicationPolynomialV1; CREDENTIAL_RANDOMNESS_POLYNOMIALS_V1],
     norm_squared: u64,
 }
@@ -80,15 +80,15 @@ impl Drop for CredentialRandomnessV1 {
         self.zeroize();
     }
 }
-pub(crate) fn sample_credential_randomness_v1<R: CryptoRng + RngCore>(
+pub fn sample_credential_randomness_v1<R: CryptoRng + RngCore>(
     rng: &mut R,
 ) -> Result<CredentialRandomnessV1, CredentialRandomnessErrorV1> {
     let mut seed = Zeroizing::new([0_u8; 32]);
     rng.try_fill_bytes(seed.as_mut())
         .map_err(|_| CredentialRandomnessErrorV1::RandomnessUnavailable)?;
-    sample_credential_randomness_from_seed_v1(&*seed).map(|(sample, _)| sample)
+    sample_credential_randomness_from_seed_v1(&seed).map(|(sample, _)| sample)
 }
-pub(crate) fn sample_credential_randomness_from_seed_v1(
+pub fn sample_credential_randomness_from_seed_v1(
     seed: &[u8; 32],
 ) -> Result<
     (
@@ -239,21 +239,27 @@ fn gaussian_155_v1(
     center: f64,
     proposal_limit: u32,
 ) -> Result<(i32, u32), CredentialRandomnessErrorV1> {
-    const DOUBLE_SIGMA_SQUARED_RECIPROCAL: f64 = 1.0 / (2.0 * 1.55 * 1.55);
     for proposal in 1..=proposal_limit {
         let branch = i32::try_from(signs.next(stream)).expect("one bit fits i32");
         let magnitude = i32::try_from(cdf_155_sample_v1(stream))
             .map_err(|_| CredentialRandomnessErrorV1::InternalInvariant)?;
         let sample = ((-branch) & (2 * magnitude)) - magnitude + branch;
-        let sample_f64 = f64::from(sample);
-        let base_f64 = f64::from(sample - branch);
-        let exponent = ((sample_f64 - center) * (sample_f64 - center) - base_f64 * base_f64)
-            * DOUBLE_SIGMA_SQUARED_RECIPROCAL;
+        let exponent = gaussian_155_rejection_exponent_v1(sample, branch, center);
         if ber_exp_v1(stream, exponent) {
             return Ok((sample, proposal));
         }
     }
     Err(CredentialRandomnessErrorV1::CoefficientSamplingExhausted)
+}
+/// Difference of target and proposal squared distances for the sampled branch.
+fn gaussian_155_rejection_exponent_v1(sample: i32, branch: i32, center: f64) -> f64 {
+    const DOUBLE_SIGMA_SQUARED_RECIPROCAL: f64 = 1.0 / (2.0 * 1.55 * 1.55);
+    let sample_f64 = f64::from(sample);
+    let base_f64 = f64::from(sample - branch);
+    let centered_distance = sample_f64 - center;
+    let target_squared_distance = centered_distance * centered_distance;
+    let proposal_squared_distance = base_f64 * base_f64;
+    (target_squared_distance - proposal_squared_distance) * DOUBLE_SIGMA_SQUARED_RECIPROCAL
 }
 fn cdf_155_sample_v1(stream: &mut Aes256CtrV1<'_>) -> usize {
     let mut bytes = Zeroizing::new([0_u8; 16]);
@@ -338,7 +344,7 @@ fn increment_be(counter: &mut [u8; 16]) {
 }
 /// Bounded failure from the exact credential-randomness sampler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum CredentialRandomnessErrorV1 {
+pub enum CredentialRandomnessErrorV1 {
     #[error("credential-randomness source is unavailable")]
     RandomnessUnavailable,
     #[error("credential-randomness Gaussian coefficient exhausted its proposal budget")]
@@ -369,6 +375,39 @@ mod tests {
         }
     }
     impl CryptoRng for FailingRng {}
+    #[test]
+    fn gaussian_rejection_exponent_matches_exact_branch_and_center_numerators() {
+        // The CDF terminator bounds magnitudes by 20; rounding supplies only 0 or 1/2.
+        for twice_center in [0_i32, 1] {
+            for branch in [0_i32, 1] {
+                for magnitude in 0_i32..=20 {
+                    let sample = if branch == 0 {
+                        -magnitude
+                    } else {
+                        magnitude + 1
+                    };
+                    let offset = if branch == 0 {
+                        twice_center
+                    } else {
+                        2 - twice_center
+                    };
+                    let exact_numerator = 4 * magnitude * offset + offset * offset;
+                    let expected = (f64::from(exact_numerator) / 4.0) * (1.0 / (2.0 * 1.55 * 1.55));
+                    let actual = gaussian_155_rejection_exponent_v1(
+                        sample,
+                        branch,
+                        f64::from(twice_center) / 2.0,
+                    );
+                    assert_eq!(
+                        actual.to_bits(),
+                        expected.to_bits(),
+                        "magnitude={magnitude}, branch={branch}, twice_center={twice_center}"
+                    );
+                    assert!(actual >= 0.0);
+                }
+            }
+        }
+    }
     #[test]
     fn pinned_lazer_seed_matches_first_polynomial_and_full_vector_digest() {
         let seed = core::array::from_fn(|index| u8::try_from(index).expect("index fits u8"));

@@ -25,7 +25,7 @@ use crate::{
     },
     state::{
         NativeExecutionEvidenceLimits, NativeExecutionEvidenceVerifier, State, StateReadOnly,
-        StateView, WorldReadOnly,
+        StateView, StateViewReleases, WorldReadOnly,
     },
 };
 use iroha_allocation::{AllocationBudget, ChargedBuffer};
@@ -181,17 +181,34 @@ pub(in crate::sumeragi) struct HistoryScan {
 }
 
 impl HistoryScan {
+    #[cfg(test)]
     pub(super) fn open(
         state: &State,
         lane: LaneId,
         incarnation: [u8; 32],
     ) -> Result<Option<Self>, Attempt<io::Error>> {
+        Self::open_retaining(&mut StateViewReleases::new(state), lane, incarnation)
+    }
+
+    // Only the original State bound to these reader sources may select the history cut.
+    // The caller retains all complete or partial reader notices through its scan guard.
+    pub(super) fn open_retaining(
+        releases: &mut StateViewReleases<'_>,
+        lane: LaneId,
+        incarnation: [u8; 32],
+    ) -> Result<Option<Self>, Attempt<io::Error>> {
+        // Mutation: retire the same physical notices inside the enclosing scan lock.
+        #[cfg(all(test, sumeragi_core_mutation = "HC353"))]
+        let mut misplaced_releases = StateViewReleases::new(releases.state());
+        #[cfg(all(test, sumeragi_core_mutation = "HC353"))]
+        let releases = &mut misplaced_releases;
+        let state = releases.state();
         let generation = state.state_view_generation();
         if !generation.is_multiple_of(2) {
             return Err(pending("native State publication is in progress").into());
         }
         let capture = {
-            let view = state.view();
+            let view = releases.try_view_once().map_err(super::state_view_error)?;
             HistoryCapture::from_view(state, &view, generation)?
         };
         capture

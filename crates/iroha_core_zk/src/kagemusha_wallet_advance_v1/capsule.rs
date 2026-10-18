@@ -242,6 +242,41 @@ where
     F: KagemushaWalletFsV1,
     T: KagemushaWalletFrozenFrameV1,
 {
+    Ok(
+        match read_pair_states(store, dir, names, selected_generation, binding, accept)? {
+            KagemushaWalletPairReadV1::Loaded(pair) => Some(pair),
+            KagemushaWalletPairReadV1::Missing(_) => None,
+        },
+    )
+}
+
+/// A redundant pair read from disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum KagemushaWalletPairReadV1<T> {
+    /// At least one copy is valid.
+    Loaded(KagemushaWalletLoadedPairV1<T>),
+    /// No copy is valid: each copy is `Absent` (a definitive native-open absence) or
+    /// `Invalid`, never `Unavailable`.
+    Missing([KagemushaWalletCopyStateV1; 2]),
+}
+
+/// [`read_pair`] that keeps the per-copy states of a pair without a valid copy.
+///
+/// # Errors
+///
+/// As [`read_pair`].
+pub(super) fn read_pair_states<F, T>(
+    store: &KagemushaWalletDurableStoreV1<F>,
+    dir: &KagemushaWalletCustodyDirV1,
+    names: [KagemushaWalletEntryNameV1; 2],
+    selected_generation: u128,
+    binding: &T::Binding,
+    accept: impl Fn(&T, &[u8; 32]) -> bool,
+) -> Result<KagemushaWalletPairReadV1<T>, KagemushaWalletProviderErrorV1>
+where
+    F: KagemushaWalletFsV1,
+    T: KagemushaWalletFrozenFrameV1,
+{
     let mut states = [KagemushaWalletCopyStateV1::Absent; 2];
     let mut valid: [Option<ValidCopyV1>; 2] = [None, None];
     let mut chosen: Option<(T, Vec<u8>, [u8; 32])> = None;
@@ -296,18 +331,20 @@ where
         }) {
             return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
         }
-        return Ok(None);
+        return Ok(KagemushaWalletPairReadV1::Missing(states));
     };
-    Ok(Some(KagemushaWalletLoadedPairV1 {
-        value,
-        frame,
-        frame_digest,
-        selected_generation,
-        dir: dir.clone(),
-        names,
-        states,
-        valid,
-    }))
+    Ok(KagemushaWalletPairReadV1::Loaded(
+        KagemushaWalletLoadedPairV1 {
+            value,
+            frame,
+            frame_digest,
+            selected_generation,
+            dir: dir.clone(),
+            names,
+            states,
+            valid,
+        },
+    ))
 }
 
 /// Restore every copy of `pair` that is absent or invalid from the valid frame, stamped with

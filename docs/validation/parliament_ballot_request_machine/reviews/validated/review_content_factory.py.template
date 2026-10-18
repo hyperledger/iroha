@@ -1,0 +1,41 @@
+"""Build one actual source-bound content controller's metadata, never its gates."""
+from pathlib import Path
+import hashlib,json,sys,time
+
+ROOT=Path(__file__).resolve().parents[2];STAGE=ROOT/'target/parliament-ideal-machine-stage'
+sys.dont_write_bytecode=True;sys.path.insert(0,str(STAGE))
+from content_request import actual_content_request
+from public_machine import PublicShape
+
+names=('content_request.py','request_generator.py','request_transition.py','stage_plan.py',
+       'validated_request.py','public_machine.py','public_hash.py','bit_ir.py','write_machine.py',
+       'chronological_log.py','return_machine.py')
+def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+before={name:sha(STAGE/name) for name in names};start=time.monotonic()
+request=actual_content_request(ROOT,PublicShape('VOTE','candidate',list_count=3),1,trials=1)
+layout=request.layout();resource=request.resources();plan=request.generator.plan
+assert tuple(s.name for s in plan.stages)==('P0','P1','S0','opening','R0','R1')
+assert plan.stages[0].circuit.inputs==PublicShape('VOTE',list_count=3).inputs
+assert plan.stages[0].circuit.outputs==60
+assert plan.stages[0].pieces==plan.stages[1].pieces
+fields=request.generator.field_positions()
+assert fields['public_validation'][1]==60 and fields['public_valid']==(fields['public_validation'][0],1)
+assert resource['gates']['base_xor_oracle_calls']==resource['components']['generator']['forward_and_inverse_gates']['base_xor_oracle_calls']
+assert resource['total_logical_bits']==sum(resource[k] for k in ('original_input_bits','persistent_log_bits',
+    'persistent_counter_bits','caller_output_bits','retained_derived_bits','shared_work_bits'))
+assert request.writes.writes.capacity==3 and request.writes.writes.trials==1
+assert resource['bounded_content_invalid_controller_implemented'] is True
+assert resource['full_source_trial_cap'] is False
+assert not resource['complete_simulator_coverage'] and not resource['complete_resource_vector'] and not resource['profile_qualified']
+after={name:sha(STAGE/name) for name in names};assert before==after
+out=dict(status='PASS',before=before,after=after,selected_observed_inputs=len(names),elapsed_seconds=time.monotonic()-start,
+    full_trial_execution=False,gate_stream_expanded=False,rust_or_native_execution=False,
+    helper_factory_source_guards_executed=True,complete_dependency_capture_claimed=False,
+    shape=dict(role='VOTE',row='candidate',list_count=3,trials=1,requests=1),
+    stage_names=[s.name for s in plan.stages],P0_input_bits=plan.stages[0].circuit.inputs,
+    P0_output_bits=plan.stages[0].circuit.outputs,resource=resource)
+path=Path(__file__).with_name('actual-content-factory.json')
+if path.exists():raise RuntimeError('refuse overwrite')
+path.write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+print(json.dumps(dict(status='PASS',elapsed_seconds=out['elapsed_seconds'],output_sha256=sha(path),
+    gate_counts=resource['gates'],total_logical_bits=resource['total_logical_bits'])))

@@ -37,30 +37,30 @@ use iroha_data_model::privacy::{
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 use thiserror::Error;
 /// The profile admits at most three certificates and one complete CRL.
-pub(crate) const ZK_X509_DER_AIR_MAX_DOCUMENTS_V1: usize = 4;
+pub const ZK_X509_DER_AIR_MAX_DOCUMENTS_V1: usize = 4;
 /// Five leaf, four per-CA, and two CRL extension payloads.
-pub(crate) const ZK_X509_DER_AIR_MAX_EMBEDDED_DOCUMENTS_V1: usize = 15;
+pub const ZK_X509_DER_AIR_MAX_EMBEDDED_DOCUMENTS_V1: usize = 15;
 /// Extension payloads are disjoint slices of the four top-level documents.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const ZK_X509_DER_AIR_MAX_TOTAL_EMBEDDED_BYTES_V1: usize =
+pub const ZK_X509_DER_AIR_MAX_TOTAL_EMBEDDED_BYTES_V1: usize =
     ZK_X509_DER_AIR_MAX_DOCUMENTS_V1 * ZK_X509_DER_MAX_DOCUMENT_BYTES_V1;
 /// First-release RFC 5280 admission cap for each certificate and complete CRL.
 ///
 /// The generic strict-DER parser deliberately retains its defensive 16 KiB
 /// ceiling.  The closed X.509 relation uses this tighter cap to keep its
 /// independent semantic and output adapter on a native `2^18` domain.
-pub(crate) const ZK_X509_RFC5280_MAX_TOP_LEVEL_DOCUMENT_BYTES_V1: usize = 4_096;
+pub const ZK_X509_RFC5280_MAX_TOP_LEVEL_DOCUMENT_BYTES_V1: usize = 4_096;
 /// A u32 tag uses at most one initial and five base-128 identifier octets.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const ZK_X509_DER_AIR_IDENTIFIER_BYTES_V1: usize = 6;
+pub const ZK_X509_DER_AIR_IDENTIFIER_BYTES_V1: usize = 6;
 /// A value of at most 16 KiB uses at most three DER length octets.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const ZK_X509_DER_AIR_LENGTH_BYTES_V1: usize = 3;
+pub const ZK_X509_DER_AIR_LENGTH_BYTES_V1: usize = 3;
 /// Address width for the inclusive `0..=16_384` boundary.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const ZK_X509_DER_AIR_ADDRESS_BITS_V1: usize = 15;
+pub const ZK_X509_DER_AIR_ADDRESS_BITS_V1: usize = 15;
 /// Fixed universal-tag selector count.
-pub(crate) const ZK_X509_DER_AIR_UNIVERSAL_SELECTORS_V1: usize = 19;
+pub const ZK_X509_DER_AIR_UNIVERSAL_SELECTORS_V1: usize = 19;
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 const UNIVERSAL_TAGS_V1: [u32; ZK_X509_DER_AIR_UNIVERSAL_SELECTORS_V1] = [
     1, 2, 3, 4, 5, 6, 10, 12, 16, 17, 18, 19, 20, 22, 23, 24, 26, 28, 30,
@@ -68,7 +68,7 @@ const UNIVERSAL_TAGS_V1: [u32; ZK_X509_DER_AIR_UNIVERSAL_SELECTORS_V1] = [
 /// Fixed-width little-endian bit decomposition.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerRangeWitnessV1<const BITS: usize> {
+pub struct ZkX509DerRangeWitnessV1<const BITS: usize> {
     /// Packed value.
     pub(crate) value: F,
     /// Little-endian Boolean bits.
@@ -111,7 +111,7 @@ type AddressWitnessV1 = ZkX509DerRangeWitnessV1<ZK_X509_DER_AIR_ADDRESS_BITS_V1>
 /// One exact private document byte.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerByteRowV1 {
+pub struct ZkX509DerByteRowV1 {
     /// Zero-based document byte address.
     pub(crate) offset: AddressWitnessV1,
     /// Canonical byte decomposition.
@@ -120,7 +120,7 @@ pub(crate) struct ZkX509DerByteRowV1 {
 /// One byte emitted by a node header or primitive-content row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerByteEventV1 {
+pub struct ZkX509DerByteEventV1 {
     /// Zero-based document byte address.
     pub(crate) offset: u16,
     /// Algebraic byte value.
@@ -129,7 +129,7 @@ pub(crate) struct ZkX509DerByteEventV1 {
 /// One preorder DER value.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerNodeRowV1 {
+pub struct ZkX509DerNodeRowV1 {
     /// Preorder value ordinal.
     pub(crate) ordinal: ZkX509DerRangeWitnessV1<11>,
     /// Encoded-value start.
@@ -192,7 +192,7 @@ pub(crate) struct ZkX509DerNodeRowV1 {
 /// One primitive content octet and its local canonicality state.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerPrimitiveRowV1 {
+pub struct ZkX509DerPrimitiveRowV1 {
     /// Owning preorder node.
     pub(crate) node: ZkX509DerRangeWitnessV1<11>,
     /// Copied absolute start of the owning primitive contents.
@@ -227,7 +227,7 @@ pub(crate) struct ZkX509DerPrimitiveRowV1 {
 /// One bytewise lexicographic comparison row for adjacent `SET OF` children.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerSetOrderRowV1 {
+pub struct ZkX509DerSetOrderRowV1 {
     /// Owning SET and adjacent child ordinals.
     pub(crate) set_node: ZkX509DerRangeWitnessV1<11>,
     pub(crate) left_node: ZkX509DerRangeWitnessV1<11>,
@@ -253,7 +253,7 @@ pub(crate) struct ZkX509DerSetOrderRowV1 {
 /// Complete trace for one exact DER document.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerDocumentTraceV1 {
+pub struct ZkX509DerDocumentTraceV1 {
     /// Private document bytes, represented as a sequential constrained table.
     pub(crate) bytes: Vec<ZkX509DerByteRowV1>,
     /// Preorder value rows.
@@ -402,7 +402,7 @@ impl ZkX509DerDocumentTraceV1 {
 /// Allocation-free exact resource plan.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerAirResourcePlanV1 {
+pub struct ZkX509DerAirResourcePlanV1 {
     /// Number of documents.
     pub(crate) documents: usize,
     /// Exact private bytes.
@@ -421,7 +421,7 @@ pub(crate) struct ZkX509DerAirResourcePlanV1 {
 /// Fixed first-release resource envelope plus exact active RFC 5280 counts.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280ResourcePlanV1 {
+pub struct ZkX509Rfc5280ResourcePlanV1 {
     pub(crate) top_level_documents: usize,
     pub(crate) embedded_documents: usize,
     pub(crate) embedded_copy_rows: usize,
@@ -997,7 +997,7 @@ impl CompilerV1<'_> {
 }
 /// Compile and validate one exact DER document.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_strict_der_document_trace_v1(
+pub fn build_strict_der_document_trace_v1(
     input: &[u8],
 ) -> Result<ZkX509DerDocumentTraceV1, ZkX509DerAirErrorV1> {
     if input.is_empty() || input.len() > ZK_X509_DER_MAX_DOCUMENT_BYTES_V1 {
@@ -1052,7 +1052,7 @@ fn evaluate_byte_constraints_v1(row: ZkX509DerByteRowV1) -> Vec<F> {
 }
 /// Evaluate all local algebraic identities for one node row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_der_node_constraints_v1(row: &ZkX509DerNodeRowV1) -> Vec<F> {
+pub fn evaluate_der_node_constraints_v1(row: &ZkX509DerNodeRowV1) -> Vec<F> {
     let mut constraints = Vec::new();
     constraints.extend(row.ordinal.constraints());
     constraints.extend(row.start.constraints());
@@ -1286,7 +1286,7 @@ pub(crate) fn evaluate_der_node_constraints_v1(row: &ZkX509DerNodeRowV1) -> Vec<
 }
 /// Evaluate the gap-free preorder transition between adjacent node rows.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_der_node_transition_constraints_v1(
+pub fn evaluate_der_node_transition_constraints_v1(
     row: &ZkX509DerNodeRowV1,
     next: Option<&ZkX509DerNodeRowV1>,
     document_len: usize,
@@ -1350,7 +1350,7 @@ pub(crate) fn evaluate_der_node_transition_constraints_v1(
     constraints
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_der_primitive_constraints_v1(row: &ZkX509DerPrimitiveRowV1) -> Vec<F> {
+pub fn evaluate_der_primitive_constraints_v1(row: &ZkX509DerPrimitiveRowV1) -> Vec<F> {
     let mut constraints = Vec::new();
     constraints.extend(row.node.constraints());
     constraints.extend(row.content_start.constraints());
@@ -1466,7 +1466,7 @@ pub(crate) fn evaluate_der_primitive_constraints_v1(row: &ZkX509DerPrimitiveRowV
     constraints
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_der_set_order_constraints_v1(row: &ZkX509DerSetOrderRowV1) -> Vec<F> {
+pub fn evaluate_der_set_order_constraints_v1(row: &ZkX509DerSetOrderRowV1) -> Vec<F> {
     let mut constraints = Vec::new();
     constraints.extend(row.set_node.constraints());
     constraints.extend(row.left_node.constraints());
@@ -1887,7 +1887,7 @@ impl ZkX509DerDocumentTraceV1 {
 }
 /// Derive an exact multi-document resource plan without padding allocations.
 #[cfg(test)]
-pub(crate) fn plan_zk_x509_der_air_v1(
+pub fn plan_zk_x509_der_air_v1(
     traces: &[ZkX509DerDocumentTraceV1],
 ) -> Result<ZkX509DerAirResourcePlanV1, ZkX509DerAirErrorV1> {
     if traces.is_empty() || traces.len() > ZK_X509_DER_AIR_MAX_DOCUMENTS_V1 {
@@ -1966,7 +1966,7 @@ const KEY_USAGE_KEY_CERT_SIGN_V1: u16 = 1 << 5;
 const KEY_USAGE_CRL_SIGN_V1: u16 = 1 << 6;
 /// Closed extended-key-usage code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ZkX509DerEkuV1 {
+pub enum ZkX509DerEkuV1 {
     /// id-kp-clientAuth.
     ClientAuthentication,
     /// Iroha document-signing EKU.
@@ -1992,7 +1992,7 @@ impl zeroize::DefaultIsZeroes for ZkX509DerEkuV1 {}
 /// is a short, non-empty interval inside which the credential may be presented; every private
 /// certificate/CRL interval must cover it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280StatementV1 {
+pub struct ZkX509Rfc5280StatementV1 {
     /// Inclusive lower and upper presentation-time bounds.
     pub(crate) presentation_not_before_unix_seconds: u64,
     pub(crate) presentation_not_after_unix_seconds: u64,
@@ -2020,7 +2020,7 @@ pub(crate) struct ZkX509Rfc5280StatementV1 {
         reason = "only the test and release-evidence RFC adapters construct every grammar role"
     )
 )]
-pub(crate) enum ZkX509Rfc5280GrammarRoleV1 {
+pub enum ZkX509Rfc5280GrammarRoleV1 {
     Certificate = 1,
     CertificateTbs = 2,
     CertificateOuterAlgorithm = 3,
@@ -2094,7 +2094,7 @@ impl zeroize::DefaultIsZeroes for ZkX509Rfc5280GrammarRoleV1 {}
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
-pub(crate) enum ZkX509Rfc5280DocumentKindV1 {
+pub enum ZkX509Rfc5280DocumentKindV1 {
     Certificate = 1,
     Crl = 2,
     AuthorityKeyIdentifier = 3,
@@ -2122,7 +2122,7 @@ impl zeroize::DefaultIsZeroes for ZkX509Rfc5280DocumentKindV1 {}
 /// `parent_node = u16::MAX`; every other row names its unique direct parent.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280NodeProvenanceV1 {
+pub struct ZkX509Rfc5280NodeProvenanceV1 {
     pub(crate) document: u8,
     pub(crate) node: u16,
     pub(crate) parent_node: u16,
@@ -2141,7 +2141,7 @@ pub(crate) struct ZkX509Rfc5280NodeProvenanceV1 {
 /// Exact origin and grammar rows for one document.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280DocumentProvenanceV1 {
+pub struct ZkX509Rfc5280DocumentProvenanceV1 {
     pub(crate) document: u8,
     pub(crate) kind: ZkX509Rfc5280DocumentKindV1,
     /// Unified parent document/node for an embedded document; `u8::MAX` and
@@ -2168,16 +2168,16 @@ impl ZkX509Rfc5280DocumentProvenanceV1 {
 /// One parsed closed-profile distinguished name.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerNameV1 {
+pub struct ZkX509DerNameV1 {
     /// Exact encoded Name.
     pub(crate) encoded: Vec<u8>,
-    /// Exact DirectoryString content octets at `C,O,OU,CN`.
+    /// Exact `DirectoryString` content octets at `C,O,OU,CN`.
     pub(crate) attributes: [Option<Vec<u8>>; 4],
 }
 /// One strict DER P-256 signature projection.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerSignatureV1 {
+pub struct ZkX509DerSignatureV1 {
     /// Exact DER sequence.
     pub(crate) encoded: Vec<u8>,
     /// Unsigned canonical magnitudes.
@@ -2187,7 +2187,7 @@ pub(crate) struct ZkX509DerSignatureV1 {
 /// Closed certificate extension projection.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerCertificateExtensionsV1 {
+pub struct ZkX509DerCertificateExtensionsV1 {
     pub(crate) authority_key_identifier: Vec<u8>,
     pub(crate) subject_key_identifier: Vec<u8>,
     pub(crate) basic_constraints_ca: bool,
@@ -2198,7 +2198,7 @@ pub(crate) struct ZkX509DerCertificateExtensionsV1 {
 /// One constrained certificate output.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerCertificateV1 {
+pub struct ZkX509DerCertificateV1 {
     pub(crate) tbs_der: Vec<u8>,
     pub(crate) serial: Vec<u8>,
     pub(crate) issuer: ZkX509DerNameV1,
@@ -2213,7 +2213,7 @@ pub(crate) struct ZkX509DerCertificateV1 {
 /// One constrained complete-CRL output.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerCrlV1 {
+pub struct ZkX509DerCrlV1 {
     pub(crate) tbs_der: Vec<u8>,
     pub(crate) issuer: ZkX509DerNameV1,
     pub(crate) this_update: u64,
@@ -2226,7 +2226,7 @@ pub(crate) struct ZkX509DerCrlV1 {
 /// One algebraic path-state row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280PathRowV1 {
+pub struct ZkX509Rfc5280PathRowV1 {
     /// Certificate index, leaf first.
     pub(crate) certificate: ZkX509DerRangeWitnessV1<2>,
     /// Leaf/CA/root selectors.
@@ -2247,7 +2247,7 @@ pub(crate) struct ZkX509Rfc5280PathRowV1 {
 /// parsed embedded-DER document.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerEmbeddedByteRowV1 {
+pub struct ZkX509DerEmbeddedByteRowV1 {
     pub(crate) parent_document: ZkX509DerRangeWitnessV1<2>,
     pub(crate) parent_content_start: AddressWitnessV1,
     pub(crate) parent_offset: AddressWitnessV1,
@@ -2258,7 +2258,7 @@ pub(crate) struct ZkX509DerEmbeddedByteRowV1 {
 /// Strict DER documents plus closed RFC 5280 semantic/path outputs.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509Rfc5280TraceV1 {
+pub struct ZkX509Rfc5280TraceV1 {
     /// Certificate documents followed by the complete CRL.
     pub(crate) documents: Vec<ZkX509DerDocumentTraceV1>,
     /// Independently constrained DER documents carried by extension
@@ -3000,10 +3000,10 @@ fn parse_certificate_extensions_v1(
                 ))
             }
             2 if critical && key_usage.is_none() => {
-                key_usage = Some(parse_key_usage_inner_v1(&value)?)
+                key_usage = Some(parse_key_usage_inner_v1(value)?)
             }
             3 if critical && basic.is_none() => {
-                basic = Some(parse_basic_constraints_inner_v1(&value)?)
+                basic = Some(parse_basic_constraints_inner_v1(value)?)
             }
             4 if critical && eku.is_none() => {
                 eku = Some(PrivateTableV1::new(
@@ -3120,7 +3120,7 @@ fn parse_crl_extensions_v1(
                 zeroize_words_v1,
             ));
         } else if rank == 1 && crl_number.is_none() {
-            let (inner, inner_bytes) = embedded_trace_v1(&value)?;
+            let (inner, inner_bytes) = embedded_trace_v1(value)?;
             crl_number = Some(unsigned_integer_u64_v1(&inner, &inner_bytes, 0, 8)?);
         } else {
             return Err(ZkX509DerAirErrorV1::Input);
@@ -4006,7 +4006,7 @@ fn build_rfc5280_semantic_provenance_v1(
 }
 /// Evaluate one exact outer-to-embedded extension byte-copy row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_embedded_byte_constraints_v1(row: &ZkX509DerEmbeddedByteRowV1) -> Vec<F> {
+pub fn evaluate_embedded_byte_constraints_v1(row: &ZkX509DerEmbeddedByteRowV1) -> Vec<F> {
     let mut constraints = row.parent_document.constraints();
     constraints.extend(row.parent_content_start.constraints());
     constraints.extend(row.parent_offset.constraints());
@@ -4079,7 +4079,7 @@ fn build_path_rows_v1(
 }
 /// Evaluate one local RFC 5280 path-state row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_rfc5280_path_row_constraints_v1(
+pub fn evaluate_rfc5280_path_row_constraints_v1(
     row: &ZkX509Rfc5280PathRowV1,
     index: usize,
     chain_depth: usize,
@@ -4209,7 +4209,7 @@ fn validate_rfc5280_semantics_v1(
 }
 /// Build the independent strict-DER and closed RFC 5280 path-state trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_rfc5280_trace_v1(
+pub fn build_zk_x509_rfc5280_trace_v1(
     certificate_chain_der: &[Vec<u8>],
     crl_der: &[u8],
     statement: ZkX509Rfc5280StatementV1,
@@ -4377,7 +4377,7 @@ fn push_padded_then_length_channels_v1(
 /// three-certificate private path.  Consumers must use the fixed slot census
 /// and the canonical dummy encodings emitted below when this selector is zero.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn certificate_slot_2_active_v1(
+pub fn certificate_slot_2_active_v1(
     trace: &ZkX509Rfc5280TraceV1,
 ) -> Result<u8, ZkX509DerAirErrorV1> {
     match trace.certificates.len() {
@@ -4395,7 +4395,7 @@ pub(crate) fn certificate_slot_2_active_v1(
 /// SPKI governed-CA membership input. Complete CRL non-revocation is proved from every parsed entry
 /// by the RFC 5280 segment, without a derived CRL root or witness-selectable serial table.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn rfc5280_io_witnesses_v1(
+pub fn rfc5280_io_witnesses_v1(
     trace: &ZkX509Rfc5280TraceV1,
     first_channel: u32,
 ) -> Result<Vec<ZkX509IoChannelWitnessV1>, ZkX509DerAirErrorV1> {
@@ -4616,7 +4616,7 @@ pub(crate) fn rfc5280_io_witnesses_v1(
 }
 /// Compute exact active counts and the fixed first-release padding envelope.
 #[cfg(test)]
-pub(crate) fn plan_zk_x509_rfc5280_air_v1(
+pub fn plan_zk_x509_rfc5280_air_v1(
     trace: &ZkX509Rfc5280TraceV1,
 ) -> Result<ZkX509Rfc5280ResourcePlanV1, ZkX509DerAirErrorV1> {
     trace.validate()?;
@@ -4658,7 +4658,7 @@ pub(crate) fn plan_zk_x509_rfc5280_air_v1(
 }
 /// Validate every strict-DER producer endpoint in an already validated global byte-copy trace.
 #[cfg(test)]
-pub(crate) fn validate_rfc5280_io_v1(
+pub fn validate_rfc5280_io_v1(
     trace: &ZkX509Rfc5280TraceV1,
     io: &ZkX509IoTraceV1,
     first_channel: u32,

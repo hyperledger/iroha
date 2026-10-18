@@ -1,0 +1,13 @@
+{
+  "command": [
+    ".venv/bin/python",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_profile_bound.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--output",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_profile_bound/analysis"
+  ],
+  "exit": 0,
+  "stdout": "{\"verdict\": \"PASS_UNDER_STATED_PREMISES\", \"failure\": null, \"input_changes\": {}}\n",
+  "stderr": ""
+}

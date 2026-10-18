@@ -1,8 +1,8 @@
+use crate::common;
+use common::assemble_syscalls;
 use iroha_crypto::{HashOf, MerkleProof, MerkleTree, MerkleTreeCommitment};
 use ivm::{IVM, syscalls};
 use std::num::NonZeroU64;
-mod common;
-use common::assemble_syscalls;
 #[test]
 fn registers_compact_helper_matches_syscall() {
     let target = 9usize;
@@ -37,7 +37,7 @@ fn registers_compact_helper_matches_syscall() {
     let val = vm.register(target);
     let leaf = register_leaf_digest(val, false);
     let root_hash = root_h;
-    let commitment = register_commitment(root_hash.clone());
+    let commitment = register_commitment(root_hash);
     assert!(proof_h.verify_sha256(&leaf, &commitment));
     assert!(proof_s.verify_sha256(&leaf, &commitment));
     let full_h: MerkleProof<[u8; 32]> = proof_h
@@ -59,7 +59,7 @@ fn registers_compact_depth_cap_returns_partial_root() {
     vm.set_register(target, 0xBADC0FFEE0DDFACE);
     let (full_proof, full_root) = vm.registers.merkle_compact(target, None).unwrap();
     let leaf = register_leaf_digest(vm.register(target), false);
-    let full_commitment = register_commitment(full_root.clone());
+    let full_commitment = register_commitment(full_root);
     assert!(full_proof.verify_sha256(&leaf, &full_commitment));
     let (capped_proof, capped_root) = vm.registers.merkle_compact(target, Some(4)).unwrap();
     assert_eq!(capped_proof.depth(), 4);

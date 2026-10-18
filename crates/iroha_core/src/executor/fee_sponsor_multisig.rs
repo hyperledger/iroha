@@ -11,6 +11,7 @@ use iroha_data_model::nexus::FeeSponsorContractSelector;
 use iroha_data_model::smart_contract::multisig_call::{
     MultisigContractCallRecognitionError, recognize_multisig_contract_call,
 };
+use iroha_executor_data_model::isi::multisig::MultisigProposalId;
 use std::borrow::Cow;
 
 /// Admission observes pending state; settlement may use only this entrypoint's proven execution.
@@ -112,8 +113,12 @@ fn earlier_proposal(
     payload: &TransactionPayload,
     index: usize,
     target: &AccountId,
+    proposal_id: &MultisigProposalId,
     hash: &HashOf<Vec<InstructionBox>>,
 ) -> Result<Option<Vec<InstructionBox>>, Attempt<NexusFeeAdmissionError>> {
+    let Some(network_id) = payload.network_id() else {
+        return Ok(None);
+    };
     let mut selected = None;
     for earlier in 0..index {
         let Some(instruction) = instruction_at(&payload.instructions, earlier) else {
@@ -122,7 +127,11 @@ fn earlier_proposal(
         let Some(MultisigInstructionBox::Propose(propose)) = decode_multisig(instruction)? else {
             continue;
         };
-        if propose.account == *target && instruction_hash(&propose.instructions)? == *hash {
+        if propose.account == *target
+            && MultisigProposalId::derive(network_id, target, &propose.proposal_nonce)
+                == *proposal_id
+            && instruction_hash(&propose.instructions)? == *hash
+        {
             if selected.is_some() {
                 return Err(invalid("duplicate preceding sponsored multisig proposal").into());
             }
@@ -166,14 +175,19 @@ pub(super) fn selector_matches(
             true,
         ),
         MultisigInstructionBox::Approve(approve) => {
-            if let Some(instructions) =
-                earlier_proposal(payload, index, &approve.account, &approve.instructions_hash)?
-            {
+            if let Some(instructions) = earlier_proposal(
+                payload,
+                index,
+                &approve.account,
+                &approve.proposal_id,
+                &approve.instructions_hash,
+            )? {
                 (&approve.account, Cow::Owned(instructions), true)
             } else {
                 let pending = read_pending_fee_proposal(
                     world,
                     &approve.account,
+                    &approve.proposal_id,
                     &approve.instructions_hash,
                     context.observation_time_ms,
                 )
@@ -190,6 +204,7 @@ pub(super) fn selector_matches(
                         let Some(instructions) = read_settled_fee_proposal(
                             world,
                             &approve.account,
+                            &approve.proposal_id,
                             &approve.instructions_hash,
                             hash,
                             block_height,
@@ -208,14 +223,19 @@ pub(super) fn selector_matches(
         _ => return Ok(false),
     };
     if same_envelope && context.settlement.is_none() {
-        let hash = match &multisig {
-            MultisigInstructionBox::Propose(propose) => instruction_hash(&propose.instructions)?,
-            MultisigInstructionBox::Approve(approve) => approve.instructions_hash,
+        let Some(network_id) = payload.network_id() else {
+            return Ok(false);
+        };
+        let proposal_id = match &multisig {
+            MultisigInstructionBox::Propose(propose) => {
+                MultisigProposalId::derive(network_id, &propose.account, &propose.proposal_nonce)
+            }
+            MultisigInstructionBox::Approve(approve) => approve.proposal_id,
             _ => return Ok(false),
         };
         // A new sponsorship admission requires a fresh proposal key. Existing
         // expired, terminal or malformed rows cannot sponsor the same intent again.
-        if !fee_proposal_key_is_unused(world, target, &hash) {
+        if !fee_proposal_key_is_unused(world, target, &proposal_id) {
             return Ok(false);
         }
     }

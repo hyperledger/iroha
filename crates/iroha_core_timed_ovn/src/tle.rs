@@ -187,6 +187,10 @@ impl TleKeySessionLifecycleV1 {
     ///
     /// Already committed ballots retain the separate public session and
     /// roster records; this method only closes future selection.
+    ///
+    /// # Errors
+    /// Returns an error if lifecycle bounds or usage are invalid, the rotation
+    /// precedes activation, or selection has already been closed.
     pub fn cut_over_after(
         &mut self,
         height: u64,
@@ -211,6 +215,10 @@ impl TleKeySessionLifecycleV1 {
     }
 
     /// Consume exactly one fresh-ballot use at an eligible finalized height.
+    ///
+    /// # Errors
+    /// Returns an error when the lifecycle or requested height is ineligible,
+    /// or the fresh-ballot budget cannot cover one more use.
     pub fn consume_fresh_ballot(
         &mut self,
         height: u64,

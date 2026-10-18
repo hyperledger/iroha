@@ -164,6 +164,12 @@ class ContractEventRow internal constructor(json: JsonObject) : CollectionRow(js
 
 /** One account movement and its committed ledger position. */
 class AccountHistoryRow internal constructor(json: JsonObject) : CollectionRow(json) {
+    companion object {
+        /** Decode one current account-history movement using the shared collection row contract. */
+        @JvmStatic
+        fun fromJson(json: JsonObject): AccountHistoryRow = AccountHistoryRow(json)
+    }
+
     private val row = RowReader(json)
     @JvmField val id: String = row.string("id")
     @JvmField val blockHeight: Long = row.unsignedLong("block_height")
@@ -359,6 +365,8 @@ class RepoAgreementRow internal constructor(json: JsonObject) : CollectionRow(js
 
         @JvmField val haircutBps: Long? = row.longOrNull("haircut_bps")
         @JvmField val marginFrequencySecs: Long? = row.longOrNull("margin_frequency_secs")
+        /** Whether the initiator may repay before maturity with interest accrued to the block time. */
+        @JvmField val allowEarlyRepayment: Boolean? = row.booleanOrNull("allow_early_repayment")
     }
 }
 

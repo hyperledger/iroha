@@ -1,7 +1,6 @@
 //! Renders consecutive frames of a stream as PNG files.
 //!
 //! `cargo run --release -p iroha_petal --example render_stream -- <payload bytes> <frames> <size> <out dir> [first frame] [payload file]`
-#![allow(clippy::cast_possible_truncation)]
 use iroha_petal::png;
 use iroha_petal::prng::Xorshift32;
 use iroha_petal::render::{RenderOptions, render};

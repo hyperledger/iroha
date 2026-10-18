@@ -31,6 +31,13 @@ def anchor(root: bytes, family: str = "google_rsa", profile=GOOGLE_ADAPTER_PROFI
     return AndroidTrustAnchor(family, spki_sha256(root), source, profile)
 
 
+def synthetic_vendor_hierarchy(pki: SyntheticPki) -> None:
+    """A test-only AOSP chain shape, not a captured Huawei device hierarchy."""
+    pki.root("root", "/CN=Synthetic Vendor Root/O=Component Tests")
+    pki.issue("intermediate", "root", "/CN=Synthetic Vendor Device CA")
+    pki.issue("attestation", "intermediate", "/CN=Synthetic Vendor Device")
+
+
 class Hierarchy:
     def __init__(self, directory: Path, openssl: Path, build, family: str, **arguments):
         directory.mkdir()
@@ -67,6 +74,9 @@ class AndroidAdmissionTests(unittest.TestCase):
         cls.remote = Hierarchy(base / "remote", cls.openssl, remote_hierarchy, "google_rsa")
         cls.ca1 = Hierarchy(base / "ca1", cls.openssl, remote_hierarchy, "google_ca1",
                             root_kind="ec384", root_subject="/CN=Key Attestation CA1/O=Google LLC")
+        cls.vendor = Hierarchy(base / "vendor", cls.openssl, synthetic_vendor_hierarchy, "vendor")
+        cls.unknown_vendor = Hierarchy(base / "unknown-vendor", cls.openssl,
+                                       synthetic_vendor_hierarchy, "vendor")
 
     @classmethod
     def tearDownClass(cls):
@@ -158,29 +168,67 @@ class AndroidAdmissionTests(unittest.TestCase):
 
     def test_huawei_profile_code_runs_only_under_a_test_qualified_flag(self):
         vendor = dataclasses.replace(HUAWEI_ADAPTER_PROFILE, qualified=True)
-        pki = self.factory.pki
-        pki.root("vendor-root", "/CN=Synthetic Vendor Root/O=Vendor", "ec256")
-        pki.issue("vendor-device", "vendor-root", "/CN=Synthetic Vendor Device CA")
-        leaf = pki.leaf("leaf", "vendor-device", key_description(CHALLENGE, level=1),
-                        new_key=False)
-        chain = [leaf, pki.der("vendor-device"), pki.der("vendor-root")]
-        anchors = (anchor(chain[-1], "vendor", vendor),)
-        self.assertEqual(self.verify(self.factory, chain, anchors=anchors).anchor.profile.adapter_id,
+        pki = self.vendor.pki
+        chain = self.vendor.chain(level=1)
+        anchors = self.vendor.anchors(vendor)
+        self.assertEqual(self.verify(self.vendor, chain, anchors=anchors).anchor.profile.adapter_id,
                          "huawei")
-        self.refused(Code.UNTRUSTED_ATTESTATION_ROOT, self.factory, chain, anchors=anchors,
+        self.refused(Code.UNTRUSTED_ATTESTATION_ROOT, self.vendor, chain, anchors=anchors,
                      time_ms=now_ms() + 3 * DAY_MS)
-        pki.issue("vendor-provisioned", "vendor-root", "/CN=Synthetic Vendor Device CA",
+        pki.issue("vendor-provisioned", "root", "/CN=Synthetic Vendor Device CA",
                   extensions=(PROVISIONING_INFORMATION,))
         provisioned = pki.leaf("leaf", "vendor-provisioned", key_description(CHALLENGE),
                                new_key=False)
-        self.refused(Code.EVIDENCE_INVALID, self.factory,
-                     [provisioned, pki.der("vendor-provisioned"), pki.der("vendor-root")],
+        self.refused(Code.EVIDENCE_INVALID, self.vendor,
+                     [provisioned, pki.der("vendor-provisioned"), self.vendor.root],
                      anchors=anchors)
         # The shipped profile is unqualified: selecting it is a configuration failure.
         with self.assertRaises(AttestationRejected) as raised:
-            self.verify(self.factory, chain,
-                        anchors=(anchor(chain[-1], "vendor", HUAWEI_ADAPTER_PROFILE),))
+            self.verify(self.vendor, chain, anchors=self.vendor.anchors(HUAWEI_ADAPTER_PROFILE))
         self.assertNotIsInstance(raised.exception, EvidenceRefused)
+
+    def test_synthetic_vendor_chain_requires_the_exact_pin_and_operator_denylist(self):
+        profile = dataclasses.replace(HUAWEI_ADAPTER_PROFILE, qualified=True)
+        vendor_anchor, = self.vendor.anchors(profile)
+        roots = tuple(sorted((*self.remote.anchors(), vendor_anchor),
+                             key=lambda item: item.spki_sha256))
+        chain = self.vendor.chain(level=1)
+
+        def checked(members, selected):
+            self.assertEqual(selected, vendor_anchor)
+            self.assertEqual(selected.revocation_source, "operator_denylist")
+            self.assertEqual([member.spki_sha256 for member in members],
+                             [spki_sha256(certificate) for certificate in chain])
+
+        admitted = self.verify(self.vendor, chain, anchors=roots, revocation=checked)
+        self.assertEqual(admitted.security_level, 1)
+        self.assertFalse(admitted.factory_provisioned)
+        # This second chain is fully signed and uses identical subject names and AOSP
+        # extensions; neither the Huawei profile name nor matching subjects pins its key.
+        self.refused(Code.UNTRUSTED_ATTESTATION_ROOT, self.unknown_vendor,
+                     self.unknown_vendor.chain(level=1), anchors=roots)
+
+        def denied(members, selected):
+            checked(members, selected)
+            raise EvidenceRefused(Code.ATTESTATION_REVOKED, "synthetic operator denylist entry")
+
+        self.refused(Code.ATTESTATION_REVOKED, self.vendor, chain,
+                     anchors=roots, revocation=denied)
+
+    def test_synthetic_vendor_profile_keeps_challenge_hardware_app_and_boot_checks(self):
+        profile = dataclasses.replace(HUAWEI_ADAPTER_PROFILE, qualified=True)
+        roots = self.vendor.anchors(profile)
+        for changes, code in (
+            ({"level": 0}, Code.KEY_NOT_IN_SECURE_HARDWARE),
+            ({"app_list": None}, Code.ATTESTATION_WITHOUT_APP_IDENTITY),
+            ({"signers": (b"\x72" * 32,)}, Code.APP_IDENTITY_MISMATCH),
+            ({"packages": ((PACKAGE, 6),)}, Code.APP_VERSION_BELOW_MINIMUM),
+            ({"locked": False}, Code.BOOTLOADER_UNLOCKED),
+        ):
+            with self.subTest(changes=changes):
+                self.refused(code, self.vendor, self.vendor.chain(**changes), anchors=roots)
+        self.refused(Code.EVIDENCE_INVALID, self.vendor, self.vendor.chain(), anchors=roots,
+                     challenge=hashlib.sha256(CHALLENGE).digest())
 
     def test_injected_attestation_extensions_are_refused(self):
         pki = self.remote.pki

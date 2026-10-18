@@ -2303,11 +2303,11 @@ fn process_attachment_snapshot_at(
                         process_proof_attachment_in_view(&ctx, verifier_view.as_ref(), &attachment)
                     };
                     #[cfg(test)]
-                    let processed =
-                        TEST_VERIFICATION_DECODE_LIMITS.with(|limits| match limits.get() {
-                            Some(limits) => norito::with_decode_limits_scope(limits, verify),
-                            None => verify(),
-                        })?;
+                    let processed = TEST_VERIFICATION_DECODE_LIMITS.with(|limits| {
+                        limits.get().map_or_else(verify, |limits| {
+                            norito::with_decode_limits_scope(limits, verify)
+                        })
+                    })?;
                     #[cfg(not(test))]
                     let processed = verify()?;
                     if !processed.report.ok {

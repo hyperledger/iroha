@@ -20,6 +20,7 @@ pub(in crate::execution_proofs::ivm_step_air::machine_bus::native_invocation) fn
     nonzero_entry: bool,
 ) -> PreparedContract {
     let original = private_dispatch::tests::contract(&[], 64, ivm::ivm_mode::ZK);
+    let first_function = crate::ivm_test_support::unit_return();
     let mut interface = original.contract_interface().clone();
     interface.callables[0].frame_bytes = frame_bytes;
     if kind == root::PublicLeafKind::Bool {
@@ -32,12 +33,13 @@ pub(in crate::execution_proofs::ivm_step_air::machine_bus::native_invocation) fn
         });
     }
     if nonzero_entry {
+        let entry_pc = u64::try_from(first_function.len()).unwrap();
         let mut first = interface.entrypoints[0].clone();
         first.name = "first".into();
-        interface.entrypoints[0].entry_pc = 4;
+        interface.entrypoints[0].entry_pc = entry_pc;
         interface.entrypoints.insert(0, first);
         let mut second = interface.callables[0].clone();
-        second.entry_pc = 4;
+        second.entry_pc = entry_pc;
         interface.callables.push(second);
     }
     let mut bytes = original.metadata().encode();
@@ -58,7 +60,9 @@ pub(in crate::execution_proofs::ivm_step_air::machine_bus::native_invocation) fn
     bytes.extend(word.to_le_bytes());
     bytes.resize(bytes.len() + post_pad, 0);
     if nonzero_entry {
-        bytes.extend(enc::encode_ri(wide::arithmetic::ADDI, 0, 0, 0).to_le_bytes());
+        // Return an initialized zero word (valid Unit or Bool) before the next
+        // root, so the two public functions never share ordinary control flow.
+        bytes.extend(first_function);
     }
     for instruction in [
         enc::encode_literal(wide::memory::LDI64, 4, 0),
@@ -91,9 +95,17 @@ fn authentic_unit_and_bool_leaves_join_every_original_bank_and_history_phase() {
         (root::PublicLeafKind::Bool, 1, 128, true),
     ] {
         let contract = artifact(kind, word, frame, true, nonzero_entry);
+        if nonzero_entry {
+            assert_ne!(contract.contract_interface().entrypoints[1].entry_pc, 0);
+            let mut first = IVM::new(10_000);
+            first.load_prepared(&contract).unwrap();
+            first.select_entrypoint("first").unwrap();
+            first.run().unwrap();
+            assert_eq!(first.public_call_result_word(0).unwrap(), 0);
+        }
         let mut expected = ordinary(&contract, 10_000);
         expected.run().unwrap();
-        assert_eq!(expected.public_call_result_word(0), Ok(word));
+        assert_eq!(expected.public_call_result_word(0).unwrap(), word);
         let (source, budget) = source(contract, "main", 10_000);
         assert_eq!(source.root.leaf_kind(), kind);
         assert_eq!(source.native.entrypoint_index(), usize::from(nonzero_entry));
@@ -101,7 +113,7 @@ fn authentic_unit_and_bool_leaves_join_every_original_bank_and_history_phase() {
         assert_eq!(source.native.cycles(), expected.get_cycle_count());
         let mut history = History::new(&source);
         let mut roots = 0;
-        let mut instructions = 0;
+        let mut instruction_windows = [false; INSTRUCTION_WINDOWS];
         let mut scans = 0;
         let mut history_rows = 0;
         let mut terminal_suffix = 0;
@@ -112,7 +124,8 @@ fn authentic_unit_and_bool_leaves_join_every_original_bank_and_history_phase() {
             );
             match row {
                 Row::Root(_) => roots += 1,
-                Row::Instruction(_) => instructions += 1,
+                // One original window can emit several bounded residue batches.
+                Row::Instruction(index) => instruction_windows[index] = true,
                 Row::Return(returning::Row::Scan(_)) => scans += 1,
                 Row::History(_) => history_rows += 1,
                 Row::Terminal(terminal::Row::Unused(_)) => terminal_suffix += 1,
@@ -122,7 +135,7 @@ fn authentic_unit_and_bool_leaves_join_every_original_bank_and_history_phase() {
         })
         .unwrap();
         assert_eq!(roots, ROOT_SLOTS);
-        assert_eq!(instructions, INSTRUCTION_WINDOWS);
+        assert!(instruction_windows.into_iter().all(|seen| seen));
         assert_eq!(scans, 4_097);
         assert_eq!(history_rows, PACKET_SLOTS * PHASES);
         assert_eq!(terminal_suffix, 5_973);
@@ -163,19 +176,19 @@ fn one_word_aggregate_and_pointer_schemas_remain_unsupported_before_partition() 
     for (nodes, public_nodes, spelling) in [
         (
             // Tuple(1) is inadmissible in the canonical public schema. This
-            // valid empty named product still owns one word, and proves that
-            // the profile admits an exact leaf kind rather than its width.
+            // valid contract-qualified empty product still owns one word, and
+            // proves that the profile admits an exact leaf kind rather than its width.
             vec![CallTypeNodeV1::Struct {
-                name: "Empty".into(),
+                name: "Fixture::Empty".into(),
                 fields: Vec::new(),
             }],
             vec![EntrypointValueTypeNodeV1::Struct(
                 EntrypointStructTypeNodeV1 {
-                    name: "Empty".into(),
+                    name: "Fixture::Empty".into(),
                     fields: Vec::new(),
                 },
             )],
-            "struct Empty",
+            "struct Fixture::Empty",
         ),
         (
             vec![CallTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
@@ -318,13 +331,22 @@ fn every_public_leaf_gas_prefix_preserves_the_exact_ordinary_outcome() {
             );
             match (verdict, captured) {
                 (Ok(()), Ok(native)) => {
-                    assert_eq!(expected.public_call_result_word(0), Ok(word));
+                    assert_eq!(expected.public_call_result_word(0).unwrap(), word);
                     assert_eq!(native.remaining_gas(), expected.remaining_gas());
                     assert_eq!(native.cycles(), expected.get_cycle_count());
                     drop(native);
                 }
                 (Err(expected), Err(ivm::execution_packets::CaptureError::Execution(actual))) => {
-                    assert_eq!(actual, expected, "{kind:?}, word {word}, gas {gas}");
+                    // These initialized public leaves make no syscalls: gas exhaustion
+                    // and the noncanonical Bool word are the only expected faults.
+                    assert!(
+                        matches!(
+                            (&actual, &expected),
+                            (VMError::OutOfGas, VMError::OutOfGas)
+                                | (VMError::DecodeError, VMError::DecodeError)
+                        ),
+                        "{kind:?}, word {word}, gas {gas}: actual {actual:?}, expected {expected:?}"
+                    );
                 }
                 (_, Err(other)) => panic!("unexpected local refusal at gas {gas}: {other:?}"),
                 (Err(error), Ok(_)) => {

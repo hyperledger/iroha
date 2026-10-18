@@ -1,0 +1,128 @@
+{
+  "catalog_source_files": 154,
+  "complete_resource_vector": false,
+  "current_candidate_qualified": false,
+  "execution_input_files": 7,
+  "files": {
+    "README.md": {
+      "original_path": "target/parliament-ledger-content-extension-publication-stage/README-candidate.md",
+      "sha256": "49e48144132d0d92e3ed086b7a26ff52b9489e9706907d35ddc6af7d7dfc6648"
+    },
+    "capture/SHA256SUMS": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/SHA256SUMS",
+      "sha256": "91182d3f21abe305ee686ced91a9f1de88becda58d7e0e2b0405de5df87db01f"
+    },
+    "capture/example.stderr": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/example.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/example.stdout": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/example.stdout",
+      "sha256": "c57ce4752eab62215e5f35251a90c83f3148c7f8e2b2c00634c20f4740234e1b"
+    },
+    "capture/independent-identities.json": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/independent-identities.json",
+      "sha256": "cdfcdcab37a42a0a6f9513d6605736dc104d2d03554ed27c0425036a7995e0f3"
+    },
+    "capture/independent.stderr": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/independent.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/independent.stdout": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/independent.stdout",
+      "sha256": "e872ed3e359db1875bec478e22194e5a170e24dd28372b6391b24eb1cf657490"
+    },
+    "capture/independent.xml": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/independent.xml",
+      "sha256": "6968aa856cebbf1f5c07cebf5133f67741ca93c2a37f1f1bd894de9e229306a7"
+    },
+    "capture/live-source-refusal.stderr": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/live-source-refusal.stderr",
+      "sha256": "0195b0aaced492c2899700c0522b095c1f8c017e7d319b941189887c9d126f2e"
+    },
+    "capture/live-source-refusal.stdout": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/live-source-refusal.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/owned-identities.json": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/owned-identities.json",
+      "sha256": "e123dfc3ef9f66ab18a5272937dba42cf93811bc451ca9c71bcea05455674fab"
+    },
+    "capture/owned.stderr": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/owned.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/owned.stdout": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/owned.stdout",
+      "sha256": "e740803f8860b358c27a2fc725811322e97907b452ee0400b580b1046ca10efe"
+    },
+    "capture/owned.xml": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/owned.xml",
+      "sha256": "5766129e267839aedbf03d3ecb913bd70c53fbac38f5f3e4cb9fbc3397111fd0"
+    },
+    "capture/receipt.json": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/receipt.json",
+      "sha256": "98b62bb5a26908854053acc21938070e4f233db5cfeecb5669ed06e386f01746"
+    },
+    "capture/require-qualified.stderr": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/require-qualified.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "capture/require-qualified.stdout": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/require-qualified.stdout",
+      "sha256": "c57ce4752eab62215e5f35251a90c83f3148c7f8e2b2c00634c20f4740234e1b"
+    },
+    "dependencies.json": {
+      "original_path": null,
+      "sha256": "8143b9f99a7b61bd4dc0eabc03d53f31f2310007ba99f5cf6d4cdc04aea09e87"
+    },
+    "prepare.py.template": {
+      "original_path": "target/parliament-ledger-content-extension-publication-stage/prepare.py",
+      "sha256": "7b511600ea88298a42d90f7b62d6fe0f6224ee0ead7af036269f597f3bd0bb03"
+    },
+    "replay-inputs.json": {
+      "original_path": null,
+      "sha256": "080705d7648f90f6c14575d7a918d334c9bdf4fbac2eb1f5d664b5fe8de862bf"
+    },
+    "restore.py.template": {
+      "original_path": "target/parliament-ledger-content-extension-publication-stage/restore.py",
+      "sha256": "5a6097615500613c0f86bfc195e970ed4752416477c780bb2733b15af10b48d8"
+    },
+    "review/README.md": {
+      "original_path": "target/parliament-ledger-content-extension-review/README.md",
+      "sha256": "b120c46112116d63c4be69533cde7630070be8481a9d98539e263ca0bb61eee9"
+    },
+    "source/target/parliament-ledger-content-extension-review/capture_review.py.template": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/replay/target/parliament-ledger-content-extension-review/capture_review.py",
+      "sha256": "fb4a9cd50d9bdab23a233ebe081afb764df79b6fb683ebf769b1ff98801f4113"
+    },
+    "source/target/parliament-ledger-content-extension-review/test_independent_content_ledger.py.template": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/replay/target/parliament-ledger-content-extension-review/test_independent_content_ledger.py",
+      "sha256": "53b04ad262df360676c96fb283a22be171f351c3ac8a6c40b61a3bb7c3e437fc"
+    },
+    "source/target/parliament-ledger-content-extension-stage/README.md.template": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/replay/target/parliament-ledger-content-extension-stage/README.md",
+      "sha256": "e405cdae45509e94ab70c870dc3d7a2bee2549aafe7117283c9adae577ea98ef"
+    },
+    "source/target/parliament-ledger-content-extension-stage/capture.py.template": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/replay/target/parliament-ledger-content-extension-stage/capture.py",
+      "sha256": "c4b7369b7d6f1749bbcc9fecb9d0fb6ed318b81a018fbc8b21c69a9e682ab499"
+    },
+    "source/target/parliament-ledger-content-extension-stage/content_ledger.py.template": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/replay/target/parliament-ledger-content-extension-stage/content_ledger.py",
+      "sha256": "36a86383ad0cd91264fdc0ff7b5fe0587f20c964370b84ea2c2a259431c55560"
+    },
+    "source/target/parliament-ledger-content-extension-stage/example.json.template": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/replay/target/parliament-ledger-content-extension-stage/example.json",
+      "sha256": "b524cfe642e5e22a5708f1a4ba880daa5bf0898f86381d26940723bdd7f56d8b"
+    },
+    "source/target/parliament-ledger-content-extension-stage/test_content_ledger.py.template": {
+      "original_path": "target/parliament-ledger-content-extension-review/capture/replay/target/parliament-ledger-content-extension-stage/test_content_ledger.py",
+      "sha256": "7426ffd8e59e49f0658980d8e7d5d63dbc4721c700a3991d2768be9b474283bb"
+    }
+  },
+  "original_capture_manifest_preserved": true,
+  "original_capture_member_count": 176,
+  "production_gate_changed": false,
+  "replay_source_files": 161
+}

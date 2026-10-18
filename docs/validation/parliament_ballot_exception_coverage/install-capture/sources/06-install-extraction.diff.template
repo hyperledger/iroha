@@ -1,0 +1,75 @@
+--- frozen-independent-119.py
++++ installable-synthetic-113.py
+@@ -227,34 +227,6 @@
+         M.parse_unwind(bytes(data), image)
+ 
+ 
+-@pytest.mark.parametrize("mode,expected", [
+-    ("portable", ("3f658228a903c50c9a549baedd0b822e14fca03f654659720cb434b83d9bb9dc", 1202, 727)),
+-    ("accel", ("40219e559636f092c3b4197f6e65eb1ab083f25444fcafd2b635221b4f7e18e7", 1208, 730)),
+-])
+-def test_actual_image_table_totals_match_independent_raw_byte_census(mode, expected):
+-    data = (STAGE / "inputs" / (mode + "_binary")).read_bytes()
+-    assert hashlib.sha256(data).hexdigest() == expected[0]
+-    image = M.parse_macho(data)
+-    compact = M.parse_unwind(data, image)
+-    descriptors = compact["descriptors"]
+-    assert len(descriptors) == len(set(descriptors.values())) == 228
+-    sec = image["sections"][("__TEXT", "__gcc_except_tab")]
+-    boundaries = sorted(descriptors.values()) + [sec["address"] + sec["size"]]
+-    ends = dict(zip(boundaries, boundaries[1:]))
+-    starts = image["function_starts"]
+-    text = image["sections"][("__TEXT", "__text")]
+-    fn_ends = dict(zip(starts, starts[1:] + [text["address"] + text["size"]]))
+-    tables = []
+-    for owner, address in descriptors.items():
+-        offset = sec["offset"] + address - sec["address"]
+-        tables.append(M.parse_lsda(data[offset:offset + ends[address] - address], owner, fn_ends[owner]))
+-    assert sum(len(t["rows"]) for t in tables) == expected[1]
+-    assert sum(r["landing_pad"] is not None for t in tables for r in t["rows"]) == expected[2]
+-    assert sum(t["type_encoding"] == 0x9B for t in tables) == 85
+-    assert sum(t["type_encoding"] == 0xFF for t in tables) == 143
+-    assert all(t["type_targets_resolved"] is False for t in tables)
+-
+-
+ def test_all_owner_landing_pads_seed_without_a_reached_protected_bl():
+     instructions = {
+         0x100: ("ret", ""), 0x110: ("bl", "0x200"),
+@@ -281,16 +253,6 @@
+     table = M.parse_lsda(lsda([(0, 4, 0x10, 0)]), 0x100, 0x120)
+     with pytest.raises(ValueError):
+         M.coverage_graph({0x100: ("ret", "")}, {0x100: {"end": 0x120, "name": "owner"}}, {}, {0x100: table}, [0x100])
+-
+-
+-@pytest.mark.parametrize("name,expected", [
+-    ("rust_gcc", "8ec6f7c6ba251bb777b5fc9a4c6bf26762ca1302f495381f0f4558f99a3fbb9a"),
+-    ("rust_eh", "156898fff2558c1808fcd2859ecc36e7129dc194572155f9bf1d97cc08fdf84e"),
+-])
+-def test_personality_reference_is_exact_independently_reviewed_rust_1931(name, expected):
+-    source = (STAGE / "inputs" / name).read_bytes()
+-    assert hashlib.sha256(source).hexdigest() == expected
+-    assert b'data-rustdoc-version="1.93.1 (01f6ddf75 2026-02-11)"' in source
+ 
+ 
+ EH_ADDRESS = BASE + 0x8000
+@@ -434,20 +396,6 @@
+         M.resolve_unwind(compact, parsed, image, functions)
+ 
+ 
+-@pytest.mark.parametrize("mode,expected_count,slot", [("portable", 606, 0x1000D74B0), ("accel", 598, 0x1000D3468)])
+-def test_actual_fde_header_counts_match_independent_byte_census(mode, expected_count, slot):
+-    data = (STAGE / "inputs" / (mode + "_binary")).read_bytes()
+-    image = M.parse_macho(data)
+-    section = image["sections"][("__TEXT", "__eh_frame")]
+-    parsed = M.parse_eh_frame(data[section["offset"]:section["offset"] + section["size"]], section["address"])
+-    assert len(parsed["cies"]) == 71 and len(parsed["fdes"]) == expected_count
+-    assert sum(c["augmentation"] == "zR" for c in parsed["cies"].values()) == 39
+-    assert sum(c["augmentation"] == "zPLR" for c in parsed["cies"].values()) == 32
+-    assert sum(f["lsda"] is not None for f in parsed["fdes"].values()) == 228
+-    assert sum(f["personality_slot"] == slot for f in parsed["fdes"].values()) == 228
+-    assert parsed["cfi_instructions_interpreted"] is False
+-
+-
+ def test_eh_frame_section_virtual_extent_cannot_cross_address_space():
+     raw, _ = eh_fixture()
+     with pytest.raises(ValueError):

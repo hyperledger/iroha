@@ -1,0 +1,62 @@
+"""Observe exact accepted-shape schedule counts; no full gate execution claim."""
+from pathlib import Path
+import hashlib
+import json
+import time
+
+from field_kernel import load_field, FieldKernel
+from r0_machine import VoleResponse
+from r1_machine import QuickSilverResponse
+
+ROOT = Path(__file__).resolve().parents[2]
+STAGE = Path(__file__).resolve().parent
+SOURCES = [
+    'bit_ir.py','field_kernel.py','r0_machine.py','r1_machine.py',
+    'test_responses.py','responses.md','response_count_capture.py',
+]
+RUST = [
+    'crates/iroha_zkp_vole/src/field.rs',
+    'crates/iroha_zkp_vole/src/universal_hash.rs',
+    'crates/iroha_zkp_vole/src/quicksilver.rs',
+    'crates/iroha_zkp_vole/src/quicksilver/verifier.rs',
+    'crates/iroha_zkp_vole/src/proof.rs',
+    'crates/iroha_zkp_vole/src/vole.rs',
+    'crates/iroha_parliament_ballot_proof/src/registration.rs',
+    'crates/iroha_parliament_ballot_proof/src/vote.rs',
+    'crates/iroha_parliament_ballot_proof/src/selector.rs',
+    'crates/iroha_parliament_ballot_proof/src/keccak_relation.rs',
+    'crates/iroha_parliament_ballot_proof/src/layout.rs',
+    'crates/iroha_parliament_ballot_proof/src/profile.rs',
+    'scripts/parliament_ballot_gf_circuit.py',
+]
+
+
+def observe():
+    paths = [STAGE/name for name in SOURCES] + [ROOT/path for path in RUST]
+    return {str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+
+
+if __name__ == '__main__':
+    before = observe()
+    field = load_field(ROOT)
+    full, short = FieldKernel(field,'gf256_mul'),FieldKernel(field,'gf256_mul_u64')
+    circuits = [('r0_registration',VoleResponse(35840,full,short)),
+                ('r0_vote',VoleResponse(53504,full,short)),
+                ('r1_registration',QuickSilverResponse('registration',0,full,short)),
+                ('r1_vote_3',QuickSilverResponse('vote',3,full,short)),
+                ('r1_vote_1000',QuickSilverResponse('vote',1000,full,short))]
+    rows, timing = {},{}
+    for name,circuit in circuits:
+        start = time.monotonic()
+        rows[name] = circuit.resources()
+        timing[name] = time.monotonic()-start
+    after = observe()
+    if before != after: raise ValueError('source changed during schedule count')
+    result = dict(schema='response-accepted-shape-count-observation-v1',rows=rows,
+        elapsed_seconds=timing,source_before=before,source_after=after,
+        source_membership_complete=False,full_actual_gate_stream_executed=False,
+        field_operation_schedule_counts_only=True,accepted_vote_size_range=[3,1000],
+        profile_qualified=False,production_gate_changed=False)
+    with (STAGE/'response-accepted-shapes.json').open('x') as out:
+        json.dump(result,out,indent=2,sort_keys=True);out.write('\n')
+    print(json.dumps({name:row['gates']['elementary_gates'] for name,row in rows.items()},sort_keys=True))

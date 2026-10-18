@@ -351,7 +351,8 @@ fn source_aliases_r0_signed_immediates_and_fixed_boundary_cannot_be_substituted(
         let word = enc::encode_store(wide::memory::STORE64, 3, 1, immediate);
         let p = phase(word, Memory::HEAP_START, MemoryOutcome::Ready);
         assert_eq!(
-            p.base_value.wrapping_add(i64::from(immediate) as u64),
+            p.base_value
+                .wrapping_add(i64::cast_unsigned(i64::from(immediate))),
             p.address
         );
         let f = Fixture::new(p, 0, registers(p), [false; 256]);
@@ -828,7 +829,7 @@ fn store_bank_degree_and_geometry_are_explicit_without_complete_memory_admission
     ] {
         assert_eq!(
             measured_maximum_affine_degree_v1(
-                [p.stack as u8; 32],
+                [u8::from(p.stack); 32],
                 [WIDTH + ports, 0, 0, 0, 0],
                 4,
                 3,

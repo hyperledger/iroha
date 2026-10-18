@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::sumeragi::finality::{
-    NativeFinalityProofInterval, NativeFinalityProofIntervalError,
+    NativeFinalityProofBudget, NativeFinalityProofInterval, NativeFinalityProofIntervalError,
     NativeFinalityProofIntervalLimits, NativeFinalityProofSource, build_proof_interval,
 };
 use std::sync::atomic::AtomicBool;
@@ -25,18 +25,20 @@ impl State {
     /// Both generation captures are one-shot; active/changed publication returns the
     /// original Busy release observation. A stable appended tip is allowed if the
     /// captured final hash remains current. No World view or writer fence is retained
-    /// during verification or any caller wait. Native full-prefix checks and a complete
-    /// raw-source join precede return; captured hashes alone never certify authority.
+    /// during verification or any caller wait. Native prefix checks and a raw-source join
+    /// of every frame the walk read precede return; captured hashes alone never certify
+    /// authority. The walk resumes from this State's nearest completed prefix below the
+    /// first height after rechecking that pinned frame, and retains its own on success.
     ///
     /// The caller retains its actual admitted worker/response/codec owners. The
-    /// returned immutable response keeps all destination charges from that same pool;
-    /// nested verifier graphs remain the documented producer funding obligation.
+    /// returned immutable response keeps all destination charges from that same pool.
+    /// The native producer prepays its bounded live graph workspace before decoding.
     ///
     /// # Errors
     /// Preserves State Busy, exact original native/portable refusal and stop policy.
     pub fn read_finality_proof_interval(
         &self,
-        owner: &CanonicalHistoryReadBudget,
+        owner: &NativeFinalityProofBudget,
         limits: &NativeFinalityProofIntervalLimits,
         cancelled: &AtomicBool,
     ) -> Result<NativeFinalityProofInterval, FinalityProofIntervalReadError> {
@@ -45,7 +47,7 @@ impl State {
 
     fn read_finality_proof_interval_after_read(
         &self,
-        owner: &CanonicalHistoryReadBudget,
+        owner: &NativeFinalityProofBudget,
         limits: &NativeFinalityProofIntervalLimits,
         cancelled: &AtomicBool,
         after_read: impl FnOnce(),
@@ -65,7 +67,8 @@ impl State {
                 self.network_id_ref(),
                 &hashes,
                 &self.kura,
-            );
+            )
+            .with_checkpoints(&self.finality_prefix_checkpoints);
             let retained = build_proof_interval(&source, owner, limits, cancelled)?;
             after_read();
             limits.check(cancelled)?;

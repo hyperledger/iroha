@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Shared NPoS genesis overrides for nexus localnet integration tests.
 use iroha::data_model::isi::{InstructionBox, SetParameter};
 use iroha_crypto::Hash as CryptoHash;

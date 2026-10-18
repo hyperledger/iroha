@@ -490,6 +490,7 @@ fn expected_read_operation(method: &str, path: &str) -> bool {
             && matches!(
                 path,
                 "/v1/accounts/query"
+                    | "/v1/accounts/inspect"
                     | "/v1/accounts/{account_id}/assets/query"
                     | "/v1/assets/{definition_id}/holders/query"
                     | "/v1/transactions/query"
@@ -3137,3 +3138,118 @@ fn openapi_uint64_bounds_keep_exact_integer_tokens_recursively() {
 mod privacy_release_qualification;
 #[path = "tests/validator_committee_contract.rs"]
 mod validator_committee_contract;
+
+#[test]
+fn multisig_occurrence_contract_separates_identity_from_content() {
+    let schemas = openapi_schemas();
+    for name in [
+        "MultisigProposeRequest",
+        "MultisigContractCallProposeRequest",
+    ] {
+        let schema = &schemas[name];
+        assert!(
+            schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str() == Some("proposal_nonce"))
+        );
+        assert_eq!(
+            schema["properties"]["proposal_nonce"]["not"]["const"].as_str(),
+            Some("0000000000000000000000000000000000000000000000000000000000000000")
+        );
+    }
+    for name in [
+        "MultisigApproveRequest",
+        "MultisigContractCallApproveRequest",
+        "MultisigResponse",
+        "MultisigContractCallResponse",
+    ] {
+        let schema = &schemas[name];
+        for field in ["proposal_id", "instructions_hash"] {
+            assert!(
+                schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|v| v.as_str() == Some(field)),
+                "{name}.{field}"
+            );
+            assert_eq!(schema["properties"][field]["type"].as_str(), Some("string"));
+        }
+    }
+    let resolve = &schemas["MultisigProposalsResolveRequest"];
+    assert!(resolve["properties"].get("instructions_hash").is_none());
+    assert!(
+        resolve["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str() == Some("proposal_id"))
+    );
+    let cancel = &schemas["MultisigCancelRequest"];
+    for field in [
+        "proposal_nonce",
+        "target_proposal_id",
+        "target_instructions_hash",
+    ] {
+        assert!(
+            cancel["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str() == Some(field))
+        );
+    }
+    assert!(cancel["properties"].get("proposal_id").is_none());
+    assert!(cancel["properties"].get("instructions_hash").is_none());
+    assert!(
+        schemas["MultisigCancelResponse"]["properties"]
+            .get("action")
+            .is_none()
+    );
+    assert!(
+        schemas["MultisigProposalPayload"]["properties"]
+            .get("is_relayed")
+            .is_none()
+    );
+    assert!(
+        schemas["AccountRecoveryRequest"]["properties"]
+            .get("invalidated_multisig_proposal_hashes")
+            .is_none()
+    );
+    assert!(
+        schemas["AccountRecoveryRequest"]["properties"]
+            .get("invalidated_multisig_proposal_ids")
+            .is_some()
+    );
+    let evidence = &schemas["MultisigExecutionEvidenceV1"];
+    for field in [
+        "proposal_id",
+        "instructions_hash",
+        "approval_outcome",
+        "canceled_target_terminal_execution",
+    ] {
+        assert!(
+            evidence["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str() == Some(field))
+        );
+    }
+    let outcome = &evidence["properties"]["approval_outcome"];
+    assert!(
+        outcome["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|variant| variant["type"].as_str() == Some("null"))
+    );
+    assert!(
+        outcome["description"]
+            .as_str()
+            .unwrap()
+            .contains("Financial execution verification requires it")
+    );
+}

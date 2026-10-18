@@ -24,11 +24,14 @@
 //!
 //! `transcript_repr = F::from_uniform_bytes(BLAKE2b(64, "Iroha-PlonkVK-v1",
 //! descriptor_digest || vk_bytes))` binds the relation, the params digest, the
-//! instance shape and the keys. It replaces the vendored hash of the `Debug`
-//! rendering. Unit tests may inject the
-//! vendored value with `VerifyingKey::with_transcript_repr_for_oracle`.
+//! instance shape and the keys. Decoding derives this representation from the
+//! admitted descriptor and exact key bytes; there is no caller override.
 
 use core::fmt;
+use std::sync::Arc;
+
+mod selectors;
+pub use selectors::{SelectorBitmap, SelectorBitmaps};
 
 use ff::PrimeField;
 use iroha_pasta::{PastaAffine, PastaCurve, poseidon::hash_with_domain};
@@ -162,10 +165,9 @@ impl VkError {
 pub struct VerifyingKey<C: PastaCurve> {
     k: u32,
     compress_selectors: bool,
-    fixed_commitments: Vec<C::AffineExt>,
-    permutation_commitments: Vec<C::AffineExt>,
-    selectors: Vec<Vec<bool>>,
-    bytes: Vec<u8>,
+    fixed_commitments: Arc<[C::AffineExt]>,
+    permutation_commitments: Arc<[C::AffineExt]>,
+    bytes: Arc<[u8]>,
     descriptor_digest: [u8; 32],
     transcript_repr: TranscriptRepr<C>,
 }
@@ -251,7 +253,7 @@ impl<C: PastaCurve> VerifyingKey<C> {
         for (index, point) in self
             .fixed_commitments
             .iter()
-            .chain(&self.permutation_commitments)
+            .chain(self.permutation_commitments.iter())
             .enumerate()
         {
             let (x, y) = Option::from(point.coordinates()).ok_or(VkError::Point {
@@ -357,11 +359,11 @@ impl<C: PastaCurve> VerifyingKey<C> {
                     }
                 })?;
         }
+        drop(selectors);
         Self::bind(
             binding,
             fixed_commitments,
             permutation_commitments,
-            selectors,
             bytes,
             cancellation,
         )
@@ -372,7 +374,6 @@ impl<C: PastaCurve> VerifyingKey<C> {
         binding: &DescriptorBinding,
         fixed_commitments: Vec<C::AffineExt>,
         permutation_commitments: Vec<C::AffineExt>,
-        selectors: Vec<Vec<bool>>,
         bytes: Vec<u8>,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, VkError> {
@@ -380,9 +381,8 @@ impl<C: PastaCurve> VerifyingKey<C> {
         Ok(Self {
             k: u32::from(descriptor.k),
             compress_selectors: descriptor.selectors.compress,
-            fixed_commitments,
-            permutation_commitments,
-            selectors,
+            fixed_commitments: fixed_commitments.into(),
+            permutation_commitments: permutation_commitments.into(),
             transcript_repr: TranscriptRepr::derive_cancellable(
                 binding.is_v2(),
                 descriptor.transcript,
@@ -390,7 +390,7 @@ impl<C: PastaCurve> VerifyingKey<C> {
                 &bytes,
                 cancellation,
             )?,
-            bytes,
+            bytes: bytes.into(),
             descriptor_digest: *binding.digest(),
         })
     }
@@ -470,31 +470,11 @@ impl<C: PastaCurve> VerifyingKey<C> {
         let permutation_commitments = points.split_off(descriptor.num_fixed_columns as usize);
         let fixed_commitments = points;
 
-        let n = binding.n();
-        let width = bitmap_bytes(n);
-        let mut selectors = Vec::new();
         if compress {
             let start = VK_HEADER_BYTES + MESSAGE_BYTES * point_count;
-            for (selector, chunk) in bytes[start..].chunks(width).enumerate() {
-                let mut rows = Vec::with_capacity(n);
-                for (byte_index, byte) in chunk.iter().enumerate() {
-                    if byte_index % 512 == 0 {
-                        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
-                    }
-                    for bit in 0..8 {
-                        let row = 8 * byte_index + bit;
-                        let active = (byte >> bit) & 1 == 1;
-                        if row < n {
-                            rows.push(active);
-                        } else if active {
-                            return Err(VkError::BitmapPadding { selector });
-                        }
-                    }
-                }
-                selectors.push(rows);
-            }
+            selectors::validate_cancellable(&bytes[start..], binding.n(), cancellation)?;
             descriptor
-                .check_selector_plan_cancellable(&selectors, cancellation)
+                .check_packed_selector_plan_cancellable(&bytes[start..], cancellation)
                 .map_err(|error| {
                     if error.is_cancelled() {
                         VkError::Cancelled
@@ -507,20 +487,9 @@ impl<C: PastaCurve> VerifyingKey<C> {
             binding,
             fixed_commitments,
             permutation_commitments,
-            selectors,
             bytes.to_vec(),
             cancellation,
         )
-    }
-
-    /// Replaces `transcript_repr` with the vendored value (unit tests
-    /// only, spec 6.4). Never compiled into shipping binaries.
-    #[cfg(test)]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn with_transcript_repr_for_oracle(mut self, transcript_repr: C::ScalarExt) -> Self {
-        self.transcript_repr = TranscriptRepr::Scalar(transcript_repr);
-        self
     }
 
     /// `log2` of the domain size.
@@ -547,10 +516,13 @@ impl<C: PastaCurve> VerifyingKey<C> {
         &self.permutation_commitments
     }
 
-    /// The selector activations (present only with compression).
+    /// Selector activations borrowed from the canonical encoding (only with compression).
+    /// No expanded row arrays are retained, and clones share the immutable bytes.
     #[must_use]
-    pub fn selectors(&self) -> &[Vec<bool>] {
-        &self.selectors
+    pub fn selectors(&self) -> SelectorBitmaps<'_> {
+        let start = VK_HEADER_BYTES
+            + MESSAGE_BYTES * (self.fixed_commitments.len() + self.permutation_commitments.len());
+        SelectorBitmaps::new(&self.bytes[start..], 1_usize << self.k)
     }
 
     /// The `0x02` bytes.

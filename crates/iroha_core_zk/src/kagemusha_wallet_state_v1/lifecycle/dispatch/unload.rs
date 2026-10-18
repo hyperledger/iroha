@@ -23,7 +23,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::Invalid("unknown Unload request"))?;
         let original = self
             .archive
-            .read_object(&entry.request, REQUEST_MAX_BYTES)?;
+            .read_object(&entry.retained_request()?, REQUEST_MAX_BYTES)?;
         let (scheme, _) = self.proofs.ledger_scope()?;
         let intent = NativeIntentV1::decode(&original, &scheme)?;
         intent
@@ -69,7 +69,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::WitnessLost("Unload plan mapping"))?;
         let plan: Plan = archive::decode(&self.archive.read_object(&plan_address, PLAN_BOUND)?)?;
         plan.require(&self.scheme_id, &self.wallet_id, &intent, &original)?;
-        if plan.request_object != entry.request
+        if Some(plan.request_object) != entry.request
             || manifest
                 .capsule_plans
                 .get(&mut self.archive, &capsule)?
@@ -95,7 +95,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             &scheme,
             *amount,
             charge.as_ref(),
-            credential,
+            &credential,
             certificates,
             package,
             account,
@@ -116,7 +116,7 @@ fn compose(
     scheme: &KagemushaWalletSchemeV1,
     amount: u128,
     charge: Option<&ChargeOriginalsV1>,
-    credential: KagemushaWalletCredentialV1,
+    credential: &KagemushaWalletCredentialV1,
     certificates: KagemushaWalletCertificateSetV1,
     package: KagemushaWalletPackageV1,
     account: &AccountId,
@@ -157,7 +157,7 @@ fn compose(
     };
     let claim = KagemushaWalletUnloadClaimV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
-        credential,
+        credential: *credential,
         package,
         account: account.clone(),
         charge,

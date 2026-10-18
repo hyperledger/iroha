@@ -13,12 +13,13 @@ from .codec import Cursor
 from .curve import IDENTITY, inverse
 from .descriptor import Descriptor
 from .parameters import Parameters, _decide
-from .transcript import Transcript
+from .transcript import (Transcript, evaluation_challenge, multiopening_challenge,
+                         nonzero_challenge)
 
 
 @dataclass(frozen=True)
 class Verified:
-    """Observed public challenges and a generator already independently decided."""
+    """Raw scalar squeeze tape, mapped rounds and an independently decided G."""
     descriptor_digest: bytes
     challenges: tuple[int, ...]
     generator: tuple
@@ -40,6 +41,7 @@ def key_points(d: Descriptor, raw: bytes):
         patterns = [{i for i in range(d.n) if bitmap[i // 8] & (1 << (i % 8))}
                     for bitmap in bitmaps]
         degrees = [degree for degree, _, _ in d['selectors'][2]]
+        budget = min(d['degree'], max(7, max(degrees, default=0)))
         groups = [[i] for i, degree in enumerate(degrees) if degree == 0]
         assigned = {i for group in groups for i in group}
         for i, degree in enumerate(degrees):
@@ -49,11 +51,11 @@ def key_points(d: Descriptor, raw: bytes):
             assigned.add(i)
             largest = degree - 1
             for j in range(i + 1, len(degrees)):
-                if largest + len(members) == d['degree']:
+                if largest + len(members) == budget:
                     break
                 if j in assigned or any(patterns[j] & patterns[m] for m in members):
                     continue
-                if max(largest, degrees[j] - 1) + len(members) + 1 > d['degree']:
+                if max(largest, degrees[j] - 1) + len(members) + 1 > budget:
                     continue
                 members.append(j)
                 assigned.add(j)
@@ -110,6 +112,11 @@ def lagrange(d, x, xn, row):
     return root * (xn - 1) * inverse(d.n * (x - root), m) % m
 
 
+def norm_factor(value: int, modulus: int) -> int:
+    """Nonvanishing Pasta grand-product factor N(t)=t^2-5."""
+    return (value * value - 5) % modulus
+
+
 def evaluate_constraints(d, fixed, advice, instances, sigma, products, lookups,
                          theta, beta, gamma, x, xn, y):
     """Gate, permutation and lookup constraints in the exact normative order."""
@@ -120,7 +127,7 @@ def evaluate_constraints(d, fixed, advice, instances, sigma, products, lookups,
     active = (1 - last - blind) % m
     terms = [d.expression(expr, [fixed, advice, instances]) for gate in d['gates'] for expr in gate]
     if products:
-        terms += [first * (1 - products[0][0]), last * (products[-1][0] ** 2 - products[-1][0])]
+        terms += [first * (1 - products[0][0]), last * (products[-1][0] - 1)]
         terms += [first * (products[i][0] - products[i - 1][2]) for i in range(1, len(products))]
         delta = pow(5, 1 << 32, m)
         columns = d['permutation']
@@ -133,8 +140,8 @@ def evaluate_constraints(d, fixed, advice, instances, sigma, products, lookups,
                 kind, index = columns[j]
                 table, values = tables[kind]
                 value = values[table.index((index, 0))]
-                left = left * (value + beta * sigma[j] + gamma) % m
-                right = right * (value + beta * pow(delta, j, m) * x + gamma) % m
+                left = left * norm_factor(value + beta * sigma[j] + gamma, m) % m
+                right = right * norm_factor(value + beta * pow(delta, j, m) * x + gamma, m) % m
             terms.append(active * (left - right))
     for (input_exprs, table_exprs), (z, zn, a, ap, s) in zip(d['lookups'], lookups):
         def compressed(expressions):
@@ -143,8 +150,9 @@ def evaluate_constraints(d, fixed, advice, instances, sigma, products, lookups,
                 value = (value * theta + d.expression(expr, [fixed, advice, instances])) % m
             return value
         source, target = compressed(input_exprs), compressed(table_exprs)
-        terms += [first * (1 - z), last * (z*z - z),
-                  active * (zn * (a + beta) * (s + gamma) - z * (source + beta) * (target + gamma)),
+        terms += [first * (1 - z), last * (z - 1),
+                  active * (zn * norm_factor(a + beta, m) * norm_factor(s + gamma, m)
+                            - z * norm_factor(source + beta, m) * norm_factor(target + gamma, m)),
                   first * (a - s), active * (a - s) * (a - ap)]
     folded = 0
     for term in terms:
@@ -165,8 +173,9 @@ def interpolate(points, values, at, modulus):
     return value
 
 
-def _verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
-            instances, proof: bytes, oracle_repr):
+def verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
+           instances, proof: bytes) -> Verified:
+    """Verify the sole current equations through the complete generator decision."""
     d = Descriptor.decode(descriptor, version)
     curve, m = d.curve, d.curve.scalar
     params = Parameters.decode(parameter_bytes, curve, d['k'])
@@ -180,17 +189,13 @@ def _verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
                     len(d['advice_queries']) + len(d['fixed_queries']) + 1 + len(d['permutation']) +
                     max(3*nz - 1, 0) + 5*nl + len(sets) + 2)
     require(len(proof) == 32 * (point_count + scalar_count), 'proof length')
-    transcript = Transcript(curve, d['transcript'], proof, oracle=oracle_repr is not None)
-    if oracle_repr is not None:
-        require(version == 1, 'oracle descriptor profile')
-        transcript.common_scalar(oracle_repr)
-    else:
-        transcript.common_native(d.repr(key))
-        for word in [int.from_bytes(b'pipainst', 'little'), len(instances), *d['instance_lengths']]:
-            transcript.common_native(word)
-        if version == 2:
-            for tag, bits in d['instance_types']:
-                transcript.common_native(tag if tag < 2 else 2 + bits)
+    transcript = Transcript(curve, d['transcript'], proof)
+    transcript.common_native(d.repr(key))
+    for word in [int.from_bytes(b'pipainst', 'little'), len(instances), *d['instance_lengths']]:
+        transcript.common_native(word)
+    if version == 2:
+        for tag, bits in d['instance_types']:
+            transcript.common_native(tag if tag < 2 else 2 + bits)
     commitments = {}
     if d['instance_mode'] == 0:
         for i, column in enumerate(instances):
@@ -214,7 +219,7 @@ def _verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
     commitments[('random', 0)] = transcript.point()
     y = transcript.squeeze()
     h_points = [transcript.point() for _ in range(d['quotient_pieces'])]
-    x = transcript.squeeze()
+    x = evaluation_challenge(transcript.squeeze(), m)
     xn = pow(x, d.n, m)
     require(x != 0 and xn != 1, 'degenerate evaluation challenge')
     commitments[('h', 0)] = curve.sum((pow(xn, i, m), point) for i, point in enumerate(h_points))
@@ -251,7 +256,7 @@ def _verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
         individual[identity] = evaluation
     x1, x2 = transcript.squeeze(), transcript.squeeze()
     qprime = transcript.point()
-    x3 = transcript.squeeze()
+    x3 = multiopening_challenge(transcript.squeeze(), m)
     require(all(x3 != point for point in point_values), 'opening point collision')
     qt = [transcript.scalar() for _ in sets]
     x4 = transcript.squeeze()
@@ -280,17 +285,17 @@ def _verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
         opening = curve.add(opening, curve.multiply(point, weight))
         value = (value + weight * qt[i]) % m
     cs = transcript.point()
-    xi, zeta = transcript.squeeze(), transcript.squeeze()
+    xi, zeta = nonzero_challenge(transcript.squeeze(), m), transcript.squeeze()
     terms = [(1, opening), (-value, params.g[0]), (xi, cs)]
     rounds = []
     for _ in range(d['k']):
         left, right = transcript.point(), transcript.point()
-        u = transcript.squeeze()
+        u = nonzero_challenge(transcript.squeeze(), m)
         require(u != 0, 'zero IPA challenge')
         rounds.append(u)
         terms += [(inverse(u, m), left), (u, right)]
     c, f = transcript.scalar(), transcript.scalar()
-    suffix = transcript.point(absorb=False) if d['proof_suffix'] else None
+    suffix = transcript.generator() if d['proof_suffix'] else None
     transcript.finish()
     weights = [1]
     for u in rounds:
@@ -307,16 +312,3 @@ def _verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
     terms += [(-c, generator), (-c*b*zeta, params.u), (-f, params.w)]
     require(curve.sum(terms)[2] == 0, 'IPA group equation')
     return Verified(d.digest, tuple(transcript.challenges), generator, tuple(rounds))
-
-
-def verify(descriptor: bytes, version: int, key: bytes, parameter_bytes: bytes,
-           instances, proof: bytes) -> Verified:
-    """Verify an explicit production profile through its complete group decision."""
-    return _verify(descriptor, version, key, parameter_bytes, instances, proof, None)
-
-
-def verify_captured_oracle(descriptor: bytes, key: bytes, parameter_bytes: bytes,
-                           instances, proof: bytes, transcript_repr: int) -> Verified:
-    """Historical test-only framing, explicit and separate from production admission."""
-    require(type(transcript_repr) is int, 'explicit canonical oracle binding')
-    return _verify(descriptor, 1, key, parameter_bytes, instances, proof, transcript_repr)

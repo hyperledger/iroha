@@ -159,7 +159,7 @@ fn malformed_genesis_never_reaches_compiler_or_signer() {
     let root = PrivateDirectory::open_or_create(temp.path().canonicalize().unwrap().join("inputs"))
         .unwrap();
     publish(&root, "request.json", &request_bytes()).unwrap();
-    assert!(run(root.path().join("request.json").to_str().unwrap()).is_err());
+    assert!(run(root.path().join("request.json").to_str().unwrap(), None).is_err());
     assert_eq!(root.entries(10).unwrap().len(), 1);
 }
 

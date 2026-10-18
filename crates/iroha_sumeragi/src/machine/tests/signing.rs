@@ -775,3 +775,249 @@ fn det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_re
     );
     assert!(h.core.mine.prepare.is_none());
 }
+
+#[derive(Debug)]
+struct ClockedProposalAdmission {
+    context: crate::api::ControlWitnessContext,
+    payload: PayloadBytes,
+    wall: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl crate::proposal_admission::ProposalAdmissionOwner for ClockedProposalAdmission {
+    fn check(
+        &self,
+        request: &crate::proposal_admission::ProposalSigningRequest,
+    ) -> Result<(), SigningError> {
+        if request.instance() != I
+            || request.epoch() != self.context.epoch
+            || request.height() != self.context.height
+            || request.view() != self.context.view
+            || request.parent_hash() != self.context.parent_hash
+            || request.parent_result() != self.context.parent_result
+            || request.payload().as_slice() != self.payload.as_slice()
+        {
+            return Err(SigningError::InvalidInput);
+        }
+        let observed_ms = self.wall.load(Ordering::Relaxed);
+        if observed_ms < 1_000 {
+            return Err(SigningError::ClockAhead {
+                block_time_ms: 1_000,
+                observed_ms,
+                max_clock_drift_ms: 0,
+            });
+        }
+        Ok(())
+    }
+}
+
+fn clocked_proposal(
+    h: &H,
+    bytes: &[u8],
+    wall: &Arc<std::sync::atomic::AtomicU64>,
+) -> crate::proposal_admission::BuiltPayload {
+    let req = h.last_build.unwrap();
+    let mut built = h.payload(bytes).unwrap();
+    let owner = iroha_allocation::shared::Shared::new(
+        ClockedProposalAdmission {
+            context: h.core.fresh_proposal_context(req).unwrap(),
+            payload: built.payload.clone(),
+            wall: wall.clone(),
+        },
+        (),
+    );
+    built.admission = crate::proposal_admission::ProposalAdmission::from_owner(
+        owner.project::<dyn crate::proposal_admission::ProposalAdmissionOwner>(|value| value),
+    );
+    built
+}
+
+#[test]
+fn det_ct3_proposal_signing_rechecks_original_clock_after_backend_refusal() {
+    let mut h = H::new(4, pick::leader(0));
+    h.run_until(1_000);
+    let signer = refuse(&mut h);
+    let wall = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+    let built = clocked_proposal(&h, b"original timestamp and custody", &wall);
+    let out = h.fire(Event::PayloadBuilt {
+        req: h.last_build.unwrap(),
+        payload: Some(built),
+    });
+    assert_refused(&out, SigningKind::Proposal);
+    let original = h.core.safety.as_ref().unwrap().proposal.clone().unwrap();
+    assert!(h.core.safety.as_ref().unwrap().proposal_signature.is_none());
+    wall.store(999, Ordering::Relaxed);
+    allow_identical_retry(&signer);
+    let out = h.tick(h.local.rebroadcast_interval);
+    assert!(
+        proposals(&out).is_empty() && h.core.mine.proposal.is_none(),
+        "a delayed first proposal signature must recheck the original timestamp against the current wall clock"
+    );
+    assert!(out.iter().any(|action| matches!(
+        action,
+        Action::LocalFault(LocalFault::SigningFailed {
+            kind: SigningKind::Proposal,
+            error: SigningError::ClockAhead {
+                block_time_ms: 1_000,
+                observed_ms: 999,
+                max_clock_drift_ms: 0
+            },
+            ..
+        })
+    )));
+    assert_eq!(
+        h.core.safety.as_ref().unwrap().proposal.as_ref(),
+        Some(&original)
+    );
+    assert_eq!(signer.attempts.lock().unwrap().len(), 1);
+    wall.store(1_000, Ordering::Relaxed);
+    let out = h.tick(h.local.rebroadcast_interval);
+    assert_eq!(
+        proposals(&out)[0].block_hash(&h.v.crypto),
+        original.block_hash
+    );
+    assert_identical_attempts(&signer);
+}
+
+#[test]
+fn det_ct3_successful_proposal_signature_is_durable_before_publication() {
+    let mut h = H::new(4, pick::leader(0));
+    h.run_until(1_000);
+    let out = h.built(b"successful original proposal signature");
+    let proposal = proposals(&out)[0].clone();
+    let durable = out.iter().position(|action| {
+        matches!(action,
+            Action::PersistSafety(record) if record.proposal_signature == Some(proposal.sig)
+        )
+    });
+    let published = out
+        .iter()
+        .position(|action| !proposals(std::slice::from_ref(action)).is_empty())
+        .unwrap();
+    assert!(
+        durable.is_some_and(|index| index < published),
+        "a successful proposal signature must be durable before any proposal publication"
+    );
+    assert_eq!(h.durable().unwrap().proposal_signature, Some(proposal.sig));
+    let restored = h.restart();
+    assert_eq!(proposals(&restored), vec![proposal]);
+    assert!(
+        !restored
+            .iter()
+            .any(|action| matches!(action, Action::RecoverProposalAdmission { .. }))
+    );
+}
+
+#[test]
+fn det_ct3_restore_authenticates_stored_successful_proposal_signature() {
+    let mut h = H::new(4, pick::leader(0));
+    h.run_until(1_000);
+    h.built(b"stored proposal signature must authenticate");
+    let mut record = h.durable().unwrap();
+    record.proposal_signature = Some(Signature([0; 96]));
+    h.records
+        .insert(record.key.clone(), record.encode(&h.v.crypto).unwrap());
+    let out = h.restart();
+    assert!(
+        !halts(&out).is_empty() && proposals(&out).is_empty(),
+        "a checksummed record with a forged successful proposal signature must fail closed"
+    );
+}
+
+#[test]
+fn det_ct3_unsigned_proposal_restart_recovers_original_admission_before_signing() {
+    let mut h = H::new(4, pick::leader(0));
+    h.run_until(1_000);
+    let signer = refuse(&mut h);
+    let wall = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+    let built = clocked_proposal(&h, b"same paid original after unsigned restart", &wall);
+    let admission = built.admission.clone();
+    let out = h.fire(Event::PayloadBuilt {
+        req: h.last_build.unwrap(),
+        payload: Some(built),
+    });
+    assert_refused(&out, SigningKind::Proposal);
+    let original = h.durable().unwrap().proposal.unwrap();
+    let block = h.bodies.get(&original.block_hash).unwrap().clone();
+    assert!(h.core.safety.as_ref().unwrap().proposal_signature.is_none());
+    h.auto_fetch = false;
+    let out = h.restart();
+    assert!(proposals(&out).is_empty());
+    let out = h.fire(Event::BodyAvailable { block });
+    assert!(
+        proposals(&out).is_empty() && h.core.mine.proposal.is_none(),
+        "an unsigned proposal reservation must reacquire original admission before its first signature"
+    );
+    let req = out
+        .iter()
+        .find_map(|action| match action {
+            Action::RecoverProposalAdmission { req, body } => {
+                assert_eq!(body.hash(&h.v.crypto), original.block_hash);
+                Some(*req)
+            }
+            _ => None,
+        })
+        .unwrap();
+    // A slow original-body worker retains its request across cadence ticks. Request churn
+    // would otherwise make every successful completion stale forever.
+    for _ in 0..3 {
+        let out = h.tick(h.local.rebroadcast_interval);
+        assert!(
+            !out.iter()
+                .any(|action| matches!(action, Action::RecoverProposalAdmission { .. })),
+            "a live original-body admission request must survive cadence ticks without replacement"
+        );
+        assert_eq!(h.core.proposal_recovery.as_ref().unwrap().req, req);
+    }
+    let out = h.fire(Event::ProposalAdmissionRecovered {
+        req: req + 1,
+        admission: Some(admission.clone()),
+    });
+    assert!(proposals(&out).is_empty());
+    wall.store(999, Ordering::Relaxed);
+    let out = h.fire(Event::ProposalAdmissionRecovered {
+        req,
+        admission: Some(admission),
+    });
+    assert!(proposals(&out).is_empty());
+    assert!(h.core.safety.as_ref().unwrap().proposal_signature.is_none());
+    assert_eq!(
+        h.core.safety.as_ref().unwrap().proposal.as_ref(),
+        Some(&original)
+    );
+    wall.store(1_000, Ordering::Relaxed);
+    let out = h.tick(h.local.rebroadcast_interval);
+    let published = proposals(&out)[0].clone();
+    assert_eq!(published.block_hash(&h.v.crypto), original.block_hash);
+    assert_eq!(signer.attempts.lock().unwrap().len(), 1);
+    wall.store(999, Ordering::Relaxed);
+    h.auto_fetch = true;
+    let out = h.restart();
+    assert_eq!(proposals(&out), vec![published]);
+    assert!(
+        !out.iter()
+            .any(|action| matches!(action, Action::RecoverProposalAdmission { .. }))
+    );
+}
+
+#[test]
+fn det_ct3_genuine_matching_pqc_reproposes_without_fresh_clock_owner() {
+    let mut h = H::new(4, pick::leader(1));
+    let block = h.block(0, b"genuine certified bytes survive clock rewind");
+    let bh = h.bh(&block);
+    let qc = h.qc_q(VoteKind::Prepare, 0, &block);
+    h.bodies.insert(bh, block.clone());
+    let entries: Vec<_> = h
+        .others(h.q(), &[])
+        .into_iter()
+        .map(|peer| (peer, Some(qc.clone())))
+        .collect();
+    let tc = h.tc(0, &entries);
+    let out = h.deliver(h.others(1, &[])[0], WireMessage::Tc(Box::new(tc)));
+    let proposal = proposals(&out).into_iter().next().unwrap();
+    assert_eq!(proposal.block_hash(&h.v.crypto), bh);
+    assert_eq!(proposal.header, *block.header());
+    assert!(!out.iter().any(|action| matches!(
+        action,
+        Action::BuildPayload { .. } | Action::RecoverProposalAdmission { .. }
+    )));
+}

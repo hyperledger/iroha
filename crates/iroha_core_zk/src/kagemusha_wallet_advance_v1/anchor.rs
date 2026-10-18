@@ -7,8 +7,9 @@
 //! keychain item, which Apple never backs up, syncs or escrows:
 //!
 //! - it is created add-only with `NONE` when the slot is created (E2);
-//! - it is raised only to a marker that is already durable: generation 0 (E4), every Released
-//!   marker before its Selected predecessor is retired (A10), and every terminal marker;
+//! - it is raised only to a marker that is already durable: generation 0 (E4), every Selected
+//!   marker before signing (A6), every Released marker before its Selected predecessor is
+//!   retired (A10), and every terminal marker;
 //! - selection compares it with the current marker: absent while markers exist is
 //!   `AnchorMissing`, ahead of the files is `RolledBack`, the same generation with another
 //!   digest is `AnchorMismatch`; a lower generation or `NONE` is accepted and raised before
@@ -23,8 +24,14 @@
 //! the slot. The check follows that record: a platform answer that disagrees with it (for
 //! example an Apple adapter reporting no anchor for a keychain-anchored slot) refuses the slot
 //! as `UnavailableCustodyData("anchor policy")` instead of skipping the check.
-// TODO(G2-iOS): device tests of the residual window (an anchor update lost to power loss
-// followed by a restore of exactly the files before that Advance is not detected).
+//!
+//! Successful mutation acknowledgement is required even when a read finds the target value:
+//! readback resolves visibility, not persistence. Selected and Released acknowledgements
+//! protect against loss of only the final anchor write. They do not establish a bound on
+//! writes lost to power failure; the public SecItem API documents no durability fence.
+// TODO(G2-iOS): establish the platform persistence contract and qualify physical restore and
+// power-loss schedules. Loss of both Selected and Released updates followed by restoration
+// of pre-Advance files remains undetected if the payment key survives.
 
 use super::{
     KagemushaWalletLostCustodyV1, KagemushaWalletProviderErrorV1, decode_envelope_v1,
@@ -137,12 +144,10 @@ pub(super) fn kagemusha_wallet_read_anchor_v1<P: KagemushaWalletPlatformV1 + ?Si
     platform: &P,
     slot: &KagemushaWalletSlotIdV1,
 ) -> Result<Option<KagemushaWalletAnchorV1>, KagemushaWalletProviderErrorV1> {
-    platform
-        .storage_state()
+    super::counters::probe_storage(platform)
         .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
     let answer = platform.anchor_read(slot);
-    platform
-        .storage_state()
+    super::counters::probe_storage(platform)
         .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
     match answer {
         KagemushaWalletProbeV1::Present(bytes) => KagemushaWalletAnchorV1::decode(&bytes)
@@ -221,13 +226,13 @@ fn compare(
 }
 
 /// Create the `NONE` anchor of a new slot (E2; add-only). An existing `NONE` anchor (a retried
-/// E2) is accepted.
+/// E2) requires an acknowledged exact update, since its earlier creation may be uncertain.
 ///
 /// # Errors
 ///
 /// `Invalid("anchor.exists")` when the slot already has a named anchor, `Unavailable` when the
 /// keychain refuses (for example without a device passcode: enrollment is then refused) and
-/// `Uncertain` when the outcome stays unknown after a re-read.
+/// `Uncertain` when the mutation is not acknowledged; visible bytes never substitute for it.
 pub(super) fn kagemusha_wallet_create_anchor_v1<P: KagemushaWalletPlatformV1 + ?Sized>(
     platform: &P,
     slot: &KagemushaWalletSlotIdV1,
@@ -241,7 +246,7 @@ pub(super) fn kagemusha_wallet_create_anchor_v1<P: KagemushaWalletPlatformV1 + ?
         KagemushaWalletPublishOutcomeV1::NotPublished(
             KagemushaWalletNotPublishedV1::DestinationExists,
         ) => match kagemusha_wallet_read_anchor_v1(platform, slot)? {
-            Some(anchor) if anchor == none => Ok(()),
+            Some(anchor) if anchor == none => acknowledge_update(platform, slot, &none),
             Some(_) => Err(KagemushaWalletProviderErrorV1::Invalid {
                 field: "anchor.exists",
             }),
@@ -251,16 +256,15 @@ pub(super) fn kagemusha_wallet_create_anchor_v1<P: KagemushaWalletPlatformV1 + ?
         },
         KagemushaWalletPublishOutcomeV1::NotPublished(reason) => Err(not_published(reason)),
         KagemushaWalletPublishOutcomeV1::Uncertain(reason) => {
-            match kagemusha_wallet_read_anchor_v1(platform, slot)? {
-                Some(anchor) if anchor == none => Ok(()),
-                _ => Err(KagemushaWalletProviderErrorV1::Uncertain(reason)),
-            }
+            Err(KagemushaWalletProviderErrorV1::Uncertain(reason))
         }
     }
 }
 
-/// Raise the anchor of a durable marker's slot to name that marker (E4, A10, terminal steps).
-/// An anchor already naming it is left unchanged; an anchor is never lowered.
+/// Raise the anchor of a durable marker's slot to name that marker (E4, A6, A10, terminal
+/// steps). An anchor already naming it requires an acknowledged exact update too: after
+/// restart its visible bytes cannot establish whether an earlier mutation was acknowledged.
+/// An anchor is never lowered.
 ///
 /// The caller passes only a marker that is durable, so the anchor never names a marker that
 /// could still be lost.
@@ -268,25 +272,36 @@ pub(super) fn kagemusha_wallet_create_anchor_v1<P: KagemushaWalletPlatformV1 + ?
 /// # Errors
 ///
 /// `LostCustody` when the anchor is absent or ahead of `durable`, `Unavailable` when the
-/// keychain refuses, `Uncertain` when an update's outcome stays unknown after a re-read, and
+/// keychain refuses, `Uncertain` when an update is not acknowledged, and
 /// the policy error of [`kagemusha_wallet_check_anchor_v1`].
 pub(super) fn kagemusha_wallet_raise_anchor_v1<P: KagemushaWalletPlatformV1 + ?Sized>(
     platform: &P,
     durable: &KagemushaWalletMarkerRecordV1,
 ) -> Result<(), KagemushaWalletProviderErrorV1> {
-    if kagemusha_wallet_check_anchor_v1(platform, durable)? != KagemushaWalletAnchorCheckV1::Lagging
+    if kagemusha_wallet_check_anchor_v1(platform, durable)?
+        == KagemushaWalletAnchorCheckV1::NotRequired
     {
         return Ok(());
     }
-    let target = KagemushaWalletAnchorV1::naming(durable);
-    match platform.anchor_update(durable.slot(), &target.encode()?) {
+    acknowledge_update(
+        platform,
+        durable.slot(),
+        &KagemushaWalletAnchorV1::naming(durable),
+    )
+}
+
+/// Require one exact mutation acknowledgement. The caller reconciles an uncertain outcome
+/// on its next attempt; neither an immediate nor a later read is a persistence barrier.
+fn acknowledge_update<P: KagemushaWalletPlatformV1 + ?Sized>(
+    platform: &P,
+    slot: &KagemushaWalletSlotIdV1,
+    target: &KagemushaWalletAnchorV1,
+) -> Result<(), KagemushaWalletProviderErrorV1> {
+    match platform.anchor_update(slot, &target.encode()?) {
         KagemushaWalletPublishOutcomeV1::Published => Ok(()),
         KagemushaWalletPublishOutcomeV1::NotPublished(reason) => Err(not_published(reason)),
         KagemushaWalletPublishOutcomeV1::Uncertain(reason) => {
-            match kagemusha_wallet_read_anchor_v1(platform, durable.slot())? {
-                Some(anchor) if anchor == target => Ok(()),
-                _ => Err(KagemushaWalletProviderErrorV1::Uncertain(reason)),
-            }
+            Err(KagemushaWalletProviderErrorV1::Uncertain(reason))
         }
     }
 }

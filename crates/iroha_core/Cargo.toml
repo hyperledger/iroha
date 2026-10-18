@@ -31,6 +31,11 @@ name = "privacy_exact12_action_driver"
 path = "src/bin/privacy_exact12_action_driver.rs"
 required-features = ["privacy-release-evidence"]
 
+[[bin]]
+name = "kagemusha_enrollment_journal_init"
+path = "src/bin/kagemusha_enrollment_journal_init.rs"
+required-features = ["node"]
+
 [lints]
 workspace = true
 
@@ -293,7 +298,7 @@ required-features = ["bench"]
 [[bench]]
 name = "queries"
 harness = false
-required-features = ["bench"]
+required-features = ["bench", "iroha-core-tests"]
 
 [[bench]]
 name = "queries_client"

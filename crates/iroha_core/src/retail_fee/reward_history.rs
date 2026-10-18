@@ -39,6 +39,40 @@ fn read_u64(world: &impl WorldReadOnly, path: &StatePath) -> Result<Option<u64>,
         .transpose()
 }
 
+/// Earliest month that can still require its original pricing schedule.
+///
+/// An ordered seek reads one frontier row, irrespective of wallet/history count.
+/// Pending credits already carry the complete earning policy and do not widen this bound.
+pub(crate) fn oldest_unsettled_policy_month(
+    world: &impl WorldReadOnly,
+    now_ms: u64,
+) -> Result<u64, FeeReadError> {
+    let current_month = honiara_month_bounds(now_ms)?.0;
+    let start: StatePath = FRONTIER_PREFIX
+        .parse()
+        .expect("canonical retail frontier prefix");
+    let Some((path, bytes)) = world
+        .smart_contract_state()
+        .range(start..)
+        .next()
+        .filter(|(path, _)| path.as_ref().starts_with(FRONTIER_PREFIX))
+    else {
+        return Ok(current_month);
+    };
+    let period = path
+        .as_ref()
+        .strip_prefix(FRONTIER_PREFIX)
+        .and_then(|suffix| suffix.split('/').next())
+        .and_then(|month| month.parse::<u64>().ok())
+        .ok_or("malformed retail policy frontier month")?;
+    let present: u64 = norito::decode_canonical(bytes)
+        .map_err(|error| norito_decode_attempt_error(error, |error| error.to_string()))?;
+    if present != 1 || honiara_month_bounds(period)?.0 != period || period > current_month {
+        return Err("malformed retail policy frontier".to_owned().into());
+    }
+    Ok(period)
+}
+
 /// Last earning month durably sealed against any further authentic fee credit.
 pub(crate) fn reward_history_closed_through(
     world: &impl WorldReadOnly,
@@ -161,9 +195,12 @@ pub(crate) fn reward_history_is_closed(
 }
 
 /// Reconcile the exact index and closure invariant on current and rollback restoration.
-pub(crate) fn validate_reward_history_frontier(
-    world: &impl WorldReadOnly,
-) -> Result<(), FeeReadError> {
+///
+/// # Errors
+/// Rejects malformed wallet identities, noncanonical closure periods, unsettled
+/// wallets preceding closed history, and missing or extra frontier rows. Original
+/// local decoder refusals remain distinct from invalid stored state.
+pub fn validate_reward_history_frontier(world: &impl WorldReadOnly) -> Result<(), FeeReadError> {
     let mut expected = BTreeMap::new();
     let mut actual = BTreeMap::new();
     let closed = read_u64(world, &closed_key())?;
@@ -213,6 +250,81 @@ mod tests {
     use iroha_test_samples::{ALICE_ID, BOB_ID};
 
     const OPENED: u64 = 1_793_451_600_000;
+
+    #[test]
+    fn policy_frontier_preserves_dormant_wallet_pricing_until_actual_settlement() {
+        let period = honiara_month_bounds(OPENED).unwrap().0;
+        let current = honiara_month_bounds(OPENED).unwrap().1;
+        let now = current + 1_000;
+        crate::retail_fee_tests::fixture(now, |stx, policy| {
+            assert_eq!(
+                oldest_unsettled_policy_month(&stx.world, now).unwrap(),
+                current
+            );
+            let owner = AccountId::new(
+                iroha_crypto::KeyPair::from_seed(vec![3; 32], iroha_crypto::Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            );
+            let asset = AssetId::new(policy.ds_asset_id.clone(), owner.clone());
+            let (_, balance) = Asset::new(asset.clone(), quantity(10_000)).into_key_value();
+            stx.world.assets.insert(asset.clone(), balance);
+            let record = RetailFeeAccountStateV1::enroll(owner.clone(), OPENED, 10_000).unwrap();
+            write_account(&mut stx.world, &record).unwrap();
+            assert_eq!(
+                oldest_unsettled_policy_month(&stx.world, now).unwrap(),
+                period
+            );
+            let mut successor = policy.clone();
+            successor.policy_version = 2;
+            successor.previous_policy_hash = Some(policy.policy_hash().unwrap());
+            successor.effective_from_ms = current;
+            successor.notice_published_at_ms = current - RETAIL_FEE_NOTICE_MS;
+            let registry = super::super::registry(&stx.world).unwrap().unwrap();
+            let binding = registry
+                .payout_policies
+                .head()
+                .unwrap()
+                .payout_binding
+                .clone();
+            let revised = crate::validation_fee::tests::policy_registry(
+                &[policy.clone(), successor],
+                &[binding],
+            );
+            crate::validation_fee::tests::install_policy_registry_fixture(&revised, stx);
+            assert!(
+                revised
+                    .compacted_suffix(199_999, period, 199_999)
+                    .unwrap()
+                    .is_none(),
+                "dormant wallet keeps its original monthly tariff hot"
+            );
+            settle_balance_until(&mut stx.world, &asset, now).unwrap();
+            assert_eq!(
+                oldest_unsettled_policy_month(&stx.world, now).unwrap(),
+                current
+            );
+            assert!(stx.world.retail_fee_pending_credits.iter().any(
+                |(earned, month, amount)| *month == period
+                    && *amount > 0
+                    && earned.policy_version == 1
+            ));
+            let compacted = revised
+                .compacted_suffix(199_999, current, 199_999)
+                .unwrap()
+                .unwrap();
+            assert_eq!(compacted.registered_policies.len(), 1);
+            assert_eq!(compacted.registered_policies[0].policy.policy_version, 2);
+            finalize(stx).unwrap();
+            validate_reward_history_frontier(&stx.world).unwrap();
+            let next = account_state(&stx.world, &owner).unwrap().unwrap();
+            let path = frontier_key(&next).unwrap();
+            stx.world
+                .smart_contract_state
+                .insert(path, norito::to_bytes(&2_u64).unwrap());
+            assert!(oldest_unsettled_policy_month(&stx.world, now).is_err());
+        });
+    }
 
     #[test]
     fn original_month_history_waits_for_late_wallet_collection_and_credit_flush() {

@@ -1287,7 +1287,7 @@ where
         encoded_proof_envelope_bytes,
     };
     validate_vega_payload_integrity_v1(&prepared.payload, prepared.integrity())
-        .map_err(|_| VegaPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+        .map_err(|()| VegaPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     Ok(prepared)
 }
 /// Sign a payload returned by the canonical pure Vega prover.
@@ -1307,7 +1307,7 @@ pub fn sign_prepared_vega_privacy_action_v1(
     validate_vega_signing_authority_v1(prepared.payload.authority(), private_key)?;
     let integrity = prepared.integrity();
     validate_vega_payload_integrity_v1(&prepared.payload, integrity)
-        .map_err(|_| VegaPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+        .map_err(|()| VegaPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     let signed_transaction = TransactionBuilder::from_payload(prepared.payload)
         .map_err(|_| VegaPrivacyActionBuildErrorV1::InvalidTransactionContext)?
         .try_sign(private_key)
@@ -1324,7 +1324,7 @@ pub fn sign_prepared_vega_privacy_action_v1(
             _ => VegaPrivacyActionBuildErrorV1::TransactionSigning,
         })?;
     validate_vega_payload_integrity_v1(signed_transaction.payload(), integrity)
-        .map_err(|_| VegaPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
+        .map_err(|()| VegaPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
     let transaction_hash = *signed_transaction.hash().as_ref();
     let adaptive_signed_transaction_bytes =
         u32::try_from(norito::codec::encode_adaptive(&signed_transaction).len())

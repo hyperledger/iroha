@@ -394,6 +394,8 @@ macro_rules! build_world_block {
 #[cfg(test)]
 #[path = "world_acquisition/original_control_tests.rs"]
 mod original_control_tests;
+#[cfg(test)]
+pub(super) use original_control_tests::prepaid_world_table_writer_bytes;
 
 /// Test accounting follows the same complete inventory as actual acquisition.
 #[cfg(test)]
@@ -409,3 +411,44 @@ pub(super) fn original_world_cell_control_bytes(world: &super::World) -> usize {
     }
     with_world_overlay_fields!(sum_successors, world)
 }
+
+/// Exact current/undo layouts and successor controls of every funded World Cell.
+#[cfg(test)]
+pub(super) fn original_world_funded_cell_bytes(world: &super::World) -> (usize, usize) {
+    macro_rules! sum_funded {
+        ($owner:ident; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {{
+            let mut generations = 0;
+            let mut successors = 0;
+            $(for layout in $owner.$prefix.generation_layouts().into_iter().flatten() { generations += layout.size(); }
+            if $owner.$prefix.generation_layouts().iter().any(Option::is_some) { successors += $owner.$prefix.successor_layout().unwrap().size(); })*
+            $(for layout in $owner.$privacy.generation_layouts().into_iter().flatten() { generations += layout.size(); }
+            if $owner.$privacy.generation_layouts().iter().any(Option::is_some) { successors += $owner.$privacy.successor_layout().unwrap().size(); })*
+            $(for layout in $owner.$suffix.generation_layouts().into_iter().flatten() { generations += layout.size(); }
+            if $owner.$suffix.generation_layouts().iter().any(Option::is_some) { successors += $owner.$suffix.successor_layout().unwrap().size(); })*
+            (generations, successors)
+        }};
+    }
+    with_world_overlay_fields!(sum_funded, world)
+}
+
+/// Validate fixed original pools before a State accepts ownership of its World.
+/// This uses the sole field inventory and reads only pool identity handles: it
+/// allocates nothing, obtains no physical writer and never rebinds stored roots.
+pub(super) fn validate_world_original_pools(
+    world: &super::World,
+    budget: &iroha_allocation::AllocationBudget,
+) -> Result<(), AdmittedStorageError> {
+    macro_rules! validate_pools {
+        ($owner:ident, $budget:ident; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {{
+            $(if !original_control::OriginalControlSource::original_pool_matches(&$owner.$prefix, $budget) { return Err(AdmittedStorageError::ScopeIdentity); })*
+            $(if !original_control::OriginalControlSource::original_pool_matches(&$owner.$privacy, $budget) { return Err(AdmittedStorageError::ScopeIdentity); })*
+            $(if !original_control::OriginalControlSource::original_pool_matches(&$owner.$suffix, $budget) { return Err(AdmittedStorageError::ScopeIdentity); })*
+            Ok(())
+        }};
+    }
+    with_world_overlay_fields!(validate_pools, world, budget)
+}
+
+#[cfg(test)]
+#[path = "world_acquisition/pool_identity_tests.rs"]
+mod pool_identity_tests;

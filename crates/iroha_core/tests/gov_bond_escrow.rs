@@ -1,5 +1,5 @@
 //! Governance bond escrow locking test.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //!
 //! Ensures plain ballots move the configured bond amount into the escrow account.
 use iroha_core::{

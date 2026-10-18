@@ -1,5 +1,5 @@
 //! Host-level negative tests for typed TLV decoding via `CoreHost`.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::smartcontracts::ivm::host::CoreHost;
 use iroha_data_model::isi::smart_contract_code::RegisterSmartContractBytes;
 use iroha_data_model::prelude::*;
@@ -35,8 +35,12 @@ fn get_authority_spills_to_owned_heap_after_input_exhaustion() {
     let authority = ALICE_ID.clone();
     let mut host = CoreHost::new(authority.clone());
     let mut vm = IVM::new(u64::MAX);
-    vm.alloc_input_tlv(&vec![0; Memory::INPUT_SIZE as usize])
-        .expect("fill INPUT arena");
+    vm.alloc_input_tlv(&vec![
+        0;
+        usize::try_from(Memory::INPUT_SIZE)
+            .expect("INPUT arena size fits usize")
+    ])
+    .expect("fill INPUT arena");
     host.syscall(syscalls::SYSCALL_GET_AUTHORITY, &mut vm)
         .expect("return authority from owned HEAP");
     let pointer = vm.register(10);

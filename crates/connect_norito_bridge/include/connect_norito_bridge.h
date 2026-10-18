@@ -283,6 +283,11 @@ int32_t connect_norito_validation_fee_current_policy_proof_verify_v1(
 // output with connect_norito_free. Invalid input returns -506. These codecs do
 // not replace policy finality verification or ledger assessment admission.
 // Typed request JSON -> 32 raw intent hash bytes (at most 262144 input bytes).
+/* Derive native multisig occurrence from exact network/account/nonce JSON. */
+int32_t connect_norito_multisig_proposal_id(
+    const uint8_t *input_ptr, unsigned long input_len,
+    uint8_t **out_ptr, unsigned long *out_len);
+
 int32_t connect_norito_retail_fee_intent_hash_v1(
     const uint8_t* input, unsigned long input_len,
     uint8_t** output, unsigned long* output_len);
@@ -1808,6 +1813,7 @@ int32_t connect_norito_acceleration_state_get_v1(connect_norito_acceleration_sta
  * Failure: -1 input, -2 closed, -3 capacity, -4 artifacts, -5 unavailable, -6 uncertain,
  * -7 custody lost, -8 fold required, -9 proof rejected, -10 cancelled, -11 conflict,
  * -12 not enough storage, -13 terminal/key lost, -14 not enough memory,
+ * -15 blocked by the wallet's local blacklist (nothing debited, issued or credited),
  * -100 internal (outcome must be reconciled).
  */
 /* Design §5.3 runtime capacity results, checked on this phone before proving and before
@@ -1816,6 +1822,10 @@ int32_t connect_norito_acceleration_state_get_v1(connect_norito_acceleration_sta
  * holder retries after freeing storage or memory. Never a device verdict. */
 #define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_STORAGE -12
 #define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_MEMORY -14
+/* The wallet's locally installed blacklist lists the counterparty: a payer refusing to pay a
+ * listed receiver, or a receiver refusing to request or accept money from a listed payer.
+ * Refused before any mutation. */
+#define CONNECT_NORITO_KAGEMUSHA_WALLET_BLOCKED -15
 typedef struct {
     uint32_t tag; /* 0 success, 1 absent, 2 unavailable/not performed, 3 exists,
                      4 uncertain, 5 destination absent; interpreted per operation. */
@@ -1849,7 +1859,15 @@ typedef struct {
                       10 CreditStatus,11 preparing; setup only:12 original,
                       13 owned time challenge,14 time exchange retained;
                       open only:15 account challenge,16 admitted handle;17 activation transport; negative failure. */
-    int32_t reason; /* failure platform reason, -1 if inapplicable */
+    /* Failure reason, scoped by negative status. For -5/-6: platform reason 0-6.
+       For -7: 100 key without marker, 101 journal without marker, 102 anchor missing,
+       103 rollback, 104 anchor mismatch, 105 completion lost;
+       110 unavailable custody data (unspecified kind), 111 enrollment intent,
+       112 enrollment phase, 113 committed enrollment marker,
+       114 abandoned-slot custody conflict, 120 unexpected custody entry.
+       -1 means no more specific cause. Diagnostic only: no recovery permission,
+       actor/key data, or change to the refusal. platform_code stays zero for -7. */
+    int32_t reason;
     int32_t platform_code;
     uint64_t sequence_low;
     uint64_t sequence_high;
@@ -1918,10 +1936,12 @@ int32_t connect_norito_kagemusha_wallet_close_v1(uint64_t handle);
 int32_t connect_norito_kagemusha_wallet_activity_v1(uint64_t handle, uint8_t foreground, uint8_t charging);
 // Native lifecycle intent; no caller state, roots, proof, time or nonce. Selector meanings:
 // Load0(receipt,finality), Send1(Request), Receive2(Payment,credential,certificates),
-// Credential3/SchemePolicy4/Blacklist5/TimeAnchor6/QuotaShare7(update,certificates),
+// Credential3/SchemePolicy4/TimeAnchor6/QuotaShare7(update,certificates),
+// BlacklistInstall5(list,certificates): local install only, no operation, proof or retry
+// identity (request_id all zero); kind1 carries the held list's 32-byte object digest,
 // Unload8(optional quote+certificates, positive amount), Retire9(no originals),
 // ReceiveFromOffer10(Payment,signed Offer). Native extracts the Offer payer originals.
-// Unused slots/amount are zero. request_id is a nonzero local retry identity.
+// Unused slots/amount are zero. request_id is otherwise a nonzero local retry identity.
 // Original bounds are selector-specific; Payment remains <=10,000 bytes.
 typedef struct {
     const uint8_t* request_id;

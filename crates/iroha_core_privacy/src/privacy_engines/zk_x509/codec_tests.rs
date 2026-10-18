@@ -386,7 +386,7 @@ fn witness_decoder_clears_late_invalid_fields_and_transferred_owner() {
     for unwind in [false, true] {
         let decoded = ZkX509WitnessV1::decode_exact_v1(&encoded).unwrap();
         assert_eq!(decoded, canonical);
-        let (_, observations) = inspection::observe_v1(|| {
+        let ((), observations) = inspection::observe_v1(|| {
             let result = std::panic::catch_unwind(move || {
                 let _owner = decoded;
                 if unwind {
@@ -497,7 +497,7 @@ fn witness_writer_never_grows_and_clears_partial_success_error_and_unwind() {
     let value = witness();
     let expected = value.encode_v1().unwrap();
     for unwind in [false, true] {
-        let (_, observations) = inspection::observe_v1(|| {
+        let ((), observations) = inspection::observe_v1(|| {
             let result = std::panic::catch_unwind(|| {
                 let mut writer = PrivateWitnessWriterV1::new(expected.len() - 1).unwrap();
                 let address = writer.bytes.as_ptr();
@@ -516,7 +516,7 @@ fn witness_writer_never_grows_and_clears_partial_success_error_and_unwind() {
         assert!(observations.iter().any(|item| item.nonzero_before > 0));
         assert_cleared(&observations);
     }
-    let (_, observations) = inspection::observe_v1(|| {
+    let ((), observations) = inspection::observe_v1(|| {
         let mut writer = PrivateWitnessWriterV1::new(expected.len()).unwrap();
         let address = writer.bytes.as_ptr();
         assert_eq!(writer.write(&expected).unwrap(), expected.len());
@@ -614,7 +614,7 @@ fn witness_norito_decodes_unaligned_input_without_aligned_private_scratch() {
     // Only the final owner exists after successful decode, so no intermediate
     // clearing owner was destroyed or copied into another allocation.
     assert!(observations.is_empty());
-    let (_, observations) = inspection::observe_v1(|| drop(decoded));
+    let ((), observations) = inspection::observe_v1(|| drop(decoded));
     assert_eq!(
         observations.iter().map(|item| item.cells).sum::<usize>(),
         expected_cells(&original)

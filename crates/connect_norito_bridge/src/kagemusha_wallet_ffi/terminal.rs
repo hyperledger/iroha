@@ -19,7 +19,9 @@ pub(super) fn dispatch(id: u64, input: setup::Setup) -> Result<Response> {
     let owner = owner(id)?;
     // Cancel/join proof work before locking custody. This remains callable after an uncertain
     // destructive attempt solely so the same actual provider can reconcile its outcome.
-    let _priority = owner.background.payment(&owner.scheduler);
+    let _priority = owner
+        .background
+        .payment(&owner.scheduler, state::FoldCallClassV1::Payment);
     let mut guard = owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?;
     owner.closing.require_open()?;
     guard

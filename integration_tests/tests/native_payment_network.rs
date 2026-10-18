@@ -16,8 +16,8 @@ use iroha_data_model::{
     block::consensus::NexusFeeSettlementV1,
     domain::Domain,
     isi::{
-        AtomicSettlementMovement, AtomicSettlementMovements, Mint, Register, SettleAtomic,
-        SettlementId,
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, Mint,
+        Register, SettleAtomic, SettlementId,
     },
     nexus::FeeDebitSource,
     parameter::system::ConsensusMode,
@@ -269,6 +269,7 @@ fn paid_payment_and_bank_credit_resume_after_all_validators_restart_at_final_tip
                     quantity: 250_000_u32.into(),
                 }])
                 .map_err(|error| eyre!(error))?,
+                AtomicSettlementEscrows::empty(),
                 NonZeroU64::new(initial_height + 100).unwrap(),
                 Metadata::default(),
             ),

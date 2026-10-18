@@ -1,0 +1,114 @@
+# Independent retained-purification review
+
+The reviewed core is `target/parliament-coin-preparation-stage/purification.py`,
+SHA-256 `af3de761b621bd98e79e31ab20b3449e4f96eb0dba9d36180e40d7b08034d56f`.
+This review checks the fixed-sequence ideal wrapper against the owner's frozen
+169-input capture. It does not modify that wrapper or its original evidence.
+The independent tests found no blocking defect in the stated conditional scope.
+
+The 37 tests include 64 three-pair computational basis inputs, an arbitrary
+complex superposition entangling coin/purifier/spectator registers, complete
+forward/inverse recovery, and two negative initial-state controls. An initially
+entangled coin/purifier pair is not reset to the required Bell preparation.
+An initially entangled coin/external-spectator pair can leave each individual
+coin uniformly mixed while the coin remains correlated with the external state.
+These controls specifically reject using a uniform marginal as evidence of
+joint independence or freshness. Initial private zero/product states remain
+explicit unchecked premises.
+
+For a two-request synthetic body, tracing all retained purifiers from the final
+state equals an independently formed classical mixture over all four coin
+assignments. That comparison retains the full original-input/output/log/work
+state and an entangled external spectator, including its off-diagonal density
+entries. It is stronger than a comparison of output probabilities, but still
+only a finite toy control. The real body inverse runs before unpreparation and
+recovers the full initial state; applying unpreparation early does not.
+The synthetic body uses its archived fixture, while the amplitude interpreter
+and density calculations were written independently of the owner's test helpers.
+
+The earlier call touches no future coin or purifier register in the inspected
+toy stream. Its future Bell pair remains in a pure Bell state; an explicit
+interfering CNOT to an external spectator destroys that property while preserving
+the uniform coin marginal. The fixed list and noninterference premises therefore
+matter. This does not establish independence under adaptive request selection,
+external operations, postselection, or conditioning on a completed transcript.
+
+Ownership controls use adversarial-looking valid call names, including
+`persistent.log`, `purifier.other`, `event.persistent.log.input`, and
+`reusable.clean`. Distinct event/persistent/reusable/purifier prefixes remain
+globally unique, allocations partition the declared space, every purifier is
+past the original sequence boundary, and all coin/purifier wires are distinct.
+Frozen metadata cannot be assigned to, and mutating a returned resource report
+does not alter the wrapper or subsequent reports. H, CX, existing body gates,
+initial zero bits, and retained purifier bits are charged separately and exactly.
+
+## Source map and guard boundaries
+
+The selected source hashes are recorded in the captured receipt. Source reading
+covered these definitions, all from the archived owner tree:
+
+- `request_generator.py:74` constructs the actual input schema and at line155
+  counts original private coins. Its `fields` map at line144 contains derived
+  P1 `iv_pre`/`salt` aliases; these are not the wrapper's coin addresses.
+- `public_machine.py:198` puts original `iv_pre` and `salt` after public request
+  inputs. The wrapper's original suffix starts at public width P, before those
+  two fields, and ends at the original input boundary.
+- `purification.py:79` authenticates source layouts and derives thirteen coin
+  intervals. Eight row/role/cap combinations independently sum all thirteen
+  widths, verifying the original suffix and two separate schedule tapes.
+- `purification.py:117` checks ordered input names, widths, and register offsets.
+  A deliberately semantically fake generator with the correct structural schema
+  is accepted by this helper. This is expected: schema validation cannot attest
+  callback origin or semantics, and the wrapper explicitly preserves that limit.
+- `sequence.py` partitions each call's original interface and shares only the
+  declared persistent log/counter and reusable clean space. `purification.py:187`
+  relocates original coin spans and appends globally disjoint purifier intervals.
+- `purification.py:215` emits H/CX preparation and CX/H inverse in reversed pair
+  order. Its complete inverse uses the actual body's inverse first. Body inverse
+  gate order need not be the lexical reverse if the component validly reorders
+  commuting operations; full state recovery is the tested property.
+- `purification.py:234` preserves body accounting, adds one H and one CX per coin,
+  adds one retained purifier bit, and requires two initially zero private bits.
+
+Each of the twelve selected schema source files is separately mutated in a
+private temporary copy and refused. A thirteenth control mutates a file after
+the entry hash check, during schema construction, and observes refusal at the
+exit check. These selected hashes are not a complete runtime/source closure.
+
+The owner's authenticated full-cap observation is checked without repeating its
+factory run. The review verifies all169 captured source files, the159 stable
+component identities and the38 loaded observer/37 loaded test module memberships.
+It independently recomputes the original thirteen global coin intervals and
+the H/CX/storage additions for candidate VOTE/list3 at M=2^20. The recorded
+538737664 coin bits add exactly that many H gates, CX gates, and purifier bits.
+All original body counts remain unchanged, and the forward/inverse preparation
+prefixes address the first/last correct original coin and purifier bits.
+This is a recorded metadata check, not another full-cap circuit or state run.
+
+## Replay and remaining scope
+
+`capture.py` verifies the owner's outer manifest and receipt, restores all169
+source inputs plus its authenticated receipt and observation, then adds these
+four review files. It executes only the37 independent tests with exact ordered
+collection/execution membership and no skipped or failed reports, records loaded
+repository module hashes, and checks all175 selected execution/snapshot sources
+before and after. `capture/source` retains `.template` archives;
+`capture/execution-root` is the equivalent restored execution tree.
+
+```sh
+env PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  PYTEST_ADDOPTS='' PYTEST_PLUGINS='' PYTHONPATH='' \
+  /opt/homebrew/bin/python3.11 -B target/parliament-coin-preparation-review/capture.py
+```
+
+The capture refuses an existing output directory. Preserve original outputs and
+use a separate restored tree/output location for another capture. The source
+inventory is selected evidence, not a claim about Python/pytest dependencies.
+The captured model is distinct from the dirty current production candidate;
+known live Cargo drift is not repinned or treated as qualified.
+
+TODO: actual private initialization, full authenticated component/descriptor
+semantics, adaptive entry/routing and external operations, complete experiment
+resources and joint proof, primitive-security bridge, independent cryptographic
+review, and native qualification remain open. This review is an engineering
+control, not independent cryptographic approval. Production stays gated.

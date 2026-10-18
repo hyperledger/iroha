@@ -1,5 +1,5 @@
 //! Deterministic proposal-order execution test.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::items_after_statements)]
 //! Independent account metadata events expose execution order. Ordinary network transactions
 //! follow proposal position, and block results retain those positions after execution.
@@ -41,7 +41,9 @@ fn run_block(
         .map(SignedTransaction::hash_as_entrypoint)
         .collect();
     let proposal = chain.proposal(None, txs);
-    let mut pending = chain.begin_proposal(proposal, Default::default()).unwrap();
+    let mut pending = chain
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        .unwrap();
     let (block, execution_order) = pending
         .inspect(move |original| {
             let execution_order = original

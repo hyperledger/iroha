@@ -1,7 +1,12 @@
 //! Immutable Patricia indexes: one bounded path per access, with a source-anchored root.
+//! Each access counts its node loads, saves and path depth in the calling thread's
+//! [`crate::kagemusha_wallet_advance_v1::KagemushaWalletStorageCountersV1`] (observation only).
 
 use super::{Error, archive};
-use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1 as digest;
+use crate::kagemusha_wallet_advance_v1::{
+    counters::{self, EventV1, IndexWalkV1},
+    kagemusha_wallet_archive_object_digest_v1 as digest,
+};
 
 /// Largest value stored directly in an index leaf. Capsules/proofs live in separate objects;
 /// index leaves hold their digests or fixed replay/tree metadata.
@@ -21,6 +26,36 @@ pub trait ObjectStore {
     /// # Errors
     /// Storage failure or uncertain publication; a returned digest implies durable copies.
     fn write_object(&mut self, bytes: &[u8], max_bytes: usize) -> Result<[u8; 32], Error>;
+}
+
+/// Content-addressed object view for constructing unpublished roots.
+/// A staged digest proves content identity only; it does not acknowledge durability.
+/// The owner must materialize every staged object before publishing a root.
+pub trait ObjectWorkspace {
+    /// Read staged or durable bytes with the caller's allocation bound.
+    /// # Errors
+    /// Missing, corrupt, oversized or unavailable content is never absence.
+    fn read_staged_object(&mut self, digest: &[u8; 32], max_bytes: usize)
+    -> Result<Vec<u8>, Error>;
+    /// Make exact content available in this view and return its digest.
+    /// # Errors
+    /// Invalid size, bounded workspace exhaustion, content conflict or unavailable storage.
+    fn stage_object(&mut self, bytes: &[u8], max_bytes: usize) -> Result<[u8; 32], Error>;
+}
+
+// Durable stores also supply a logical view. Their existing acknowledgment
+// contract remains stronger; an unpublished workspace never implements ObjectStore.
+impl<T: ObjectStore + ?Sized> ObjectWorkspace for T {
+    fn read_staged_object(
+        &mut self,
+        digest: &[u8; 32],
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, Error> {
+        self.read_object(digest, max_bytes)
+    }
+    fn stage_object(&mut self, bytes: &[u8], max_bytes: usize) -> Result<[u8; 32], Error> {
+        self.write_object(bytes, max_bytes)
+    }
 }
 
 #[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -80,8 +115,9 @@ fn prefix(key: &[u8; 32], length: u16) -> [u8; 32] {
     result
 }
 
-fn load(store: &mut impl ObjectStore, root: [u8; 32], minimum: u16) -> Result<Node, Error> {
-    let bytes = store.read_object(&root, NODE_LIMIT)?;
+fn load(store: &mut impl ObjectWorkspace, root: [u8; 32], minimum: u16) -> Result<Node, Error> {
+    counters::count(EventV1::IndexNodeLoad);
+    let bytes = store.read_staged_object(&root, NODE_LIMIT)?;
     if digest(&bytes) != root {
         return Err(Error::WitnessLost("index node hash"));
     }
@@ -108,10 +144,11 @@ fn load(store: &mut impl ObjectStore, root: [u8; 32], minimum: u16) -> Result<No
     Ok(node)
 }
 
-fn save(store: &mut impl ObjectStore, node: &Node) -> Result<[u8; 32], Error> {
+fn save(store: &mut impl ObjectWorkspace, node: &Node) -> Result<[u8; 32], Error> {
+    counters::count(EventV1::IndexNodeSave);
     let bytes = archive::encode(node)?;
     let expected = digest(&bytes);
-    let saved = store.write_object(&bytes, NODE_LIMIT)?;
+    let saved = store.stage_object(&bytes, NODE_LIMIT)?;
     if saved != expected {
         return Err(Error::WitnessLost("index publication digest"));
     }
@@ -125,9 +162,10 @@ impl IndexRoot {
     /// Any unavailable, corrupt or oversized node on the authenticated path.
     pub fn get(
         self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<Option<Vec<u8>>, Error> {
+        let _walk = IndexWalkV1::start(true);
         let mut root = self.0;
         let mut minimum = 0;
         while root != [0; 32] {
@@ -150,20 +188,21 @@ impl IndexRoot {
         Ok(None)
     }
 
-    /// Insert or replace one value and return a new durable root. Publication alone changes no
+    /// Insert or replace one value and return a new view root. Staging alone changes no
     /// authority; the caller commits the resulting manifest through the source provider.
     ///
     /// # Errors
     /// Oversized values, corrupted/unavailable paths or uncertain publication.
     pub fn set(
         self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: [u8; 32],
         value: &[u8],
     ) -> Result<Self, Error> {
         if value.len() > INDEX_VALUE_LIMIT {
             return Err(Error::Invalid("index value size"));
         }
+        let _walk = IndexWalkV1::start(true);
         let leaf = Node::Leaf {
             key,
             value: value.to_vec(),
@@ -248,7 +287,8 @@ impl IndexRoot {
     ///
     /// # Errors
     /// Corrupted/unavailable paths or uncertain publication.
-    pub fn remove(self, store: &mut impl ObjectStore, key: &[u8; 32]) -> Result<Self, Error> {
+    pub fn remove(self, store: &mut impl ObjectWorkspace, key: &[u8; 32]) -> Result<Self, Error> {
+        let _walk = IndexWalkV1::start(true);
         let mut path = Vec::new();
         let mut root = self.0;
         let mut minimum = 0;
@@ -312,9 +352,10 @@ impl IndexRoot {
     /// Any unavailable, corrupt or oversized node on the selected authenticated paths.
     pub fn predecessor(
         self,
-        store: &mut impl ObjectStore,
+        store: &mut impl ObjectWorkspace,
         key: &[u8; 32],
     ) -> Result<Option<([u8; 32], Vec<u8>)>, Error> {
+        let _walk = IndexWalkV1::start(false);
         let mut root = self.0;
         let mut minimum = 0;
         let mut candidate = None;
@@ -487,5 +528,56 @@ mod tests {
         store.objects.insert(original.0, bytes);
         store.objects.get_mut(&original.0).unwrap().push(0);
         assert!(original.remove(&mut store, &[0; 32]).is_err());
+    }
+
+    #[test]
+    fn walks_count_every_node_load_save_and_path_depth() {
+        use crate::kagemusha_wallet_advance_v1::KagemushaWalletStorageCountersV1 as Counters;
+        let mut store = Memory::default();
+        let (root, first) = Counters::observe(|| {
+            IndexRoot::default()
+                .set(&mut store, [1; 32], b"one")
+                .unwrap()
+        });
+        assert_eq!(
+            (
+                first.index_node_saves,
+                first.index_node_loads,
+                first.index_walks
+            ),
+            (1, 0, 1),
+            "a set on an empty root saves only its leaf"
+        );
+        let (root, second) = Counters::observe(|| root.set(&mut store, [2; 32], b"two").unwrap());
+        assert_eq!(
+            (second.index_node_saves, second.index_node_loads),
+            (2, 1),
+            "a split saves the new leaf and its branch after loading the old leaf"
+        );
+        assert_eq!(second.index_max_depth, 1);
+        for i in 3_u8..64 {
+            let mut key = [0; 32];
+            key[0] = i;
+            store.reads = 0;
+            let (updated, update) = Counters::observe(|| root.set(&mut store, key, &[i]));
+            updated.unwrap();
+            assert_eq!(update.index_node_loads, u64::try_from(store.reads).unwrap());
+        }
+        store.reads = 0;
+        let (value, lookup) = Counters::observe(|| root.get(&mut store, &[2; 32]).unwrap());
+        assert_eq!(value, Some(b"two".to_vec()));
+        assert_eq!(lookup.index_node_loads, u64::try_from(store.reads).unwrap());
+        assert_eq!(lookup.index_max_depth, lookup.index_node_loads);
+        assert_eq!((lookup.index_walks, lookup.index_node_saves), (1, 0));
+        let ((), outer) = Counters::observe(|| {
+            let (_, inner) = Counters::observe(|| root.get(&mut store, &[1; 32]).unwrap());
+            assert_eq!(inner.index_walks, 1);
+            root.predecessor(&mut store, &[2; 32]).unwrap();
+        });
+        assert_eq!(
+            outer.index_walks, 2,
+            "an enclosing observation keeps inner work"
+        );
+        assert!(Counters::current().index_walks >= 2 + 64);
     }
 }

@@ -125,6 +125,75 @@ fn proposed_merge(floor: u64) -> MergeProposal {
     }
 }
 
+#[test]
+fn fresh_proposal_progress_recheck_uses_captured_time_with_original_signed_input() {
+    use crate::smartcontracts::isi::sccp::{
+        pause_record::RetainedSccpFastPauseRound, test_support::sample_fast_pause_round,
+    };
+    use iroha_data_model::{bridge::SccpNetworkV1, sccp::fast_pause::SccpPanelRoleV1};
+
+    let chain = original_parent_chain();
+    // Install the original parent's due observation. This test exercises proposer
+    // pacing, not Parliament authority or enactment of the retained pause round.
+    let mut round = sample_fast_pause_round(1);
+    round.certify_due = true;
+    let round =
+        RetainedSccpFastPauseRound::admit(&round, &chain.state().ivm_execution_budget()).unwrap();
+    let mut world = chain.state().world.block();
+    world
+        .sccp_fast_pause_rounds
+        .insert((SccpNetworkV1::TonMainnet, SccpPanelRoleV1::Backup), round);
+    world.commit();
+    let parent = chain.state().view().latest_block().unwrap().unwrap();
+    let mut selected = vec![accepted_tick(&chain, 3_000)];
+    let original = selected[0].entrypoint_bytes();
+    let original_hash = selected[0].hash_as_entrypoint();
+    let captured = Duration::from_millis(100_000);
+    let assembly = Assembly {
+        parent: &parent,
+        view: 1,
+        cadence: Duration::from_millis(1_000),
+        proposed_time: captured,
+    };
+    let view = chain.state().view();
+    let result = recheck_progress_for_proposal(
+        &view,
+        assembly,
+        &mut selected,
+        &MergeProposal::default(),
+        captured,
+    );
+    assert!(
+        result.is_ok(),
+        "fresh proposal progress must use captured time without replacing signed input"
+    );
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].hash_as_entrypoint(), original_hash);
+    assert!(std::sync::Arc::ptr_eq(
+        &original,
+        &selected[0].entrypoint_bytes()
+    ));
+    let proposal = assemble(chain.state(), assembly, &selected).unwrap();
+    assert_eq!(proposal.header().creation_time(), captured);
+    assert_eq!(
+        proposal.external_entrypoints_slice()[0].hash(),
+        original_hash
+    );
+    // A retained candidate remains stale after a later wait; its timestamp is
+    // never refreshed merely because this precheck runs again.
+    assert!(matches!(
+        recheck_progress_for_proposal(
+            &view,
+            assembly,
+            &mut selected,
+            &MergeProposal::default(),
+            captured + Duration::from_millis(60_001),
+        ),
+        Err(PayloadError::ParentService(reason)) if reason.contains("StaleDueWork")
+    ));
+    assert_eq!(selected[0].hash_as_entrypoint(), original_hash);
+}
+
 fn previous_two_build_reference(
     state: &State,
     assembly: Assembly<'_>,

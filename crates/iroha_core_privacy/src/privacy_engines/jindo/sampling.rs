@@ -194,7 +194,7 @@ where
     Err(JindoSamplingErrorV1::RejectionBudgetExhausted)
 }
 /// Sample one independent small Gaussian application-ring polynomial.
-pub(crate) fn sample_gaussian_polynomial_v1<R>(
+pub fn sample_gaussian_polynomial_v1<R>(
     width: JindoGaussianWidthV1,
     moduli: [JindoPrimeModulusV1; 2],
     rng: &mut R,
@@ -212,7 +212,7 @@ where
     ))
 }
 /// Sample a polynomial with independent coefficients uniform in `[0,b)`.
-pub(crate) fn sample_uniform_encoding_polynomial_v1<R>(
+pub fn sample_uniform_encoding_polynomial_v1<R>(
     rng: &mut R,
 ) -> Result<JindoRnsPolynomialV1, JindoSamplingErrorV1>
 where
@@ -228,7 +228,7 @@ where
     ))
 }
 /// Sample a polynomial with independent coefficients uniform in `[-b,b)`.
-pub(crate) fn sample_mlwe_polynomial_v1<R>(
+pub fn sample_mlwe_polynomial_v1<R>(
     rng: &mut R,
 ) -> Result<JindoRnsPolynomialV1, JindoSamplingErrorV1>
 where
@@ -251,7 +251,7 @@ where
 ///
 /// `exponent_numerator` is `-||v||^2 - 2<y,v>` and the exponent denominator
 /// is `2 sigma^2`, with the exact half-integer `sigma=8241321404272819/2`.
-pub(crate) fn accept_aggregation_rejection_v1<R>(
+pub fn accept_aggregation_rejection_v1<R>(
     exponent_numerator: i128,
     rng: &mut R,
 ) -> Result<bool, JindoSamplingErrorV1>
@@ -304,7 +304,7 @@ where
         DecayThresholdV1::Finite(value) => draw < value,
     })
 }
-pub(crate) fn sample_bounded_u64_v1(
+pub fn sample_bounded_u64_v1(
     bound: u64,
     rng: &mut impl RngCore,
 ) -> Result<u64, JindoSamplingErrorV1> {
@@ -467,18 +467,24 @@ fn integer_decay_table_q256_v1() -> &'static [U512; MAX_DECAY_INTEGER_V1 + 1] {
     })
 }
 fn fraction_decay_table_q256_v1() -> &'static [U512; FRACTION_TABLE_LEN_V1] {
-    static TABLE: OnceLock<[U512; FRACTION_TABLE_LEN_V1]> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let one = U512::ONE.shl_vartime(Q256_FRACTION_BITS_V1);
-        let step = U512::ONE.shl_vartime(Q256_FRACTION_BITS_V1 - FRACTION_TABLE_BITS_V1);
-        let decay_step = small_decay_q256_v1(step, FRACTION_STEP_SERIES_TERMS_V1);
-        let mut table = [U512::ZERO; FRACTION_TABLE_LEN_V1];
-        table[0] = one;
-        for index in 1..table.len() {
-            table[index] = q256_mul_round_v1(table[index - 1], decay_step);
-        }
-        table
-    })
+    static TABLE: OnceLock<Box<[U512; FRACTION_TABLE_LEN_V1]>> = OnceLock::new();
+    TABLE.get_or_init(build_fraction_decay_table_q256_v1)
+}
+fn build_fraction_decay_table_q256_v1() -> Box<[U512; FRACTION_TABLE_LEN_V1]> {
+    let one = U512::ONE.shl_vartime(Q256_FRACTION_BITS_V1);
+    let step = U512::ONE.shl_vartime(Q256_FRACTION_BITS_V1 - FRACTION_TABLE_BITS_V1);
+    let decay_step = small_decay_q256_v1(step, FRACTION_STEP_SERIES_TERMS_V1);
+    // The 256 KiB public table stays on the heap throughout initialization
+    // and publication; no fixed array passes through a native caller's stack.
+    let mut table = vec![U512::ZERO; FRACTION_TABLE_LEN_V1];
+    table[0] = one;
+    for index in 1..table.len() {
+        table[index] = q256_mul_round_v1(table[index - 1], decay_step);
+    }
+    table
+        .into_boxed_slice()
+        .try_into()
+        .unwrap_or_else(|_| unreachable!("fixed fractional-decay table length"))
 }
 fn decay_q256_v1(value: U512) -> U512 {
     let bytes = value.to_be_bytes();

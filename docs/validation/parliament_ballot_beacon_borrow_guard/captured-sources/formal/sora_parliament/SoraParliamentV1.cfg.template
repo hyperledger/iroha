@@ -1,0 +1,67 @@
+SPECIFICATION Spec
+
+CONSTANTS
+    MaxHeight = 22
+    EpochLengthBlocks = 3
+    SortitionPulseDelayBlocks = 1
+    MaxSortitionRetries = 2
+    MaxRandomnessRedraws = 2
+    RegistrationBlocks = 4
+    SurvivorBlocks = 3
+    CommitmentBlocks = 2
+    MaxCorpusEntries = 3
+    ReleaseDelay = 1
+    OpeningBlocks = 2
+    FindingBlocks = 2
+    EnactDelay = 2
+    MaxRetries = 2
+    MaxConcurrentReservations = 2
+    ReservationIds = {Reservation0, Reservation1, Reservation2}
+    FirstConflictingReservation = Reservation0
+    SecondConflictingReservation = Reservation1
+    Bodies = {RulesCommittee, PolicyJury}
+    SeatedAssignments = {Seat0, Seat1}
+    FirstAssignment = Seat0
+    SecondAssignment = Seat1
+    FindingRoots = {Finding0, Finding1}
+    TleSessions = {Tle0, Tle1, Tle2}
+    AvailableReleaseSessions = {Tle0, Tle2}
+    ExpectedHead = Head0
+    CompetingHead = Head1
+    None = None
+
+PROPERTIES
+    AwaitingPulseLeavesOnlyByExactConsumption
+    SortitionSlotNeverChangesAfterRegistration
+
+INVARIANTS
+    TypeOK
+    ProposalWideRandomnessRedrawBudget
+    FuturePulseSortition
+    ObjectiveBoundedSortitionRetries
+    HiddenElectorateCapacityConsumesNoPulse
+    NativeSortitionPulseSlots
+    StrictlyIncreasingGenerationSlots
+    FrozenSortitionRequestSlot
+    ExactPulseWaitIsGovernanceLocal
+    TimedOvnReservationSafety
+    RejectedReservationDoesNotLeak
+    TimedOvnReservationAuditShape
+    SimultaneousInitialDraw
+    AuthorityBoundImmutableMemberRecords
+    PublicFindingQuorumBinding
+    ExactPublicFindingDeadline
+    ExactBallotSchedule
+    PhaseCapacity
+    ExactPhaseBoundaries
+    ObjectiveReleaseAvailability
+    BoundedOpeningWindow
+    FreshRetrySessions
+    AtomicPolicyConfirmationCapacity
+    NoPlaintextOrFallback
+    CertificateBindsApprovedResult
+    ExactHeightCasEnactment
+    CertifiedCannotPassDueHeight
+    NoResultTerminalization
+
+CHECK_DEADLOCK FALSE

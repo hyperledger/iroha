@@ -5,7 +5,7 @@ use iroha_plonk::frontend::{Error, Region};
 use iroha_plonk_gadgets::{Bit, GlueChip};
 use iroha_plonk_recursion::verifier::{VerifierChip, VerifierKeyCells};
 
-use crate::operation_relation::incoming_statement::StatementView;
+use crate::{operation_relation::incoming_statement::StatementView, q_sigma::QSigmaPlan};
 
 use crate::a_relation::{
     SigmaBindingCells, bind_sigma, bounded_word,
@@ -15,15 +15,14 @@ use crate::a_relation::{
     split::{bind_claim, bind_mode, bind_statements},
 };
 
-/// Exact trusted key and own sigma source needed by the Receive Proofs owner.
+/// Exact trusted key and sources needed by the Receive Proofs owner. A proves
+/// the own step inline, so the incoming sigma is the only `Q_sigma` slot.
 #[derive(Clone, Copy)]
 pub struct ReceiveProofInputs<'a> {
     /// Original active Omega and the exact incoming sigma Q projection.
     pub sources: &'a ReceiveProofSources,
     /// Witness key whose digest is hard-bound to the carried normal Omega key.
     pub omega_key: &'a VerifierKeyCells<Ep>,
-    /// Own hard sigma binding, in addition to the retained original incoming sigma.
-    pub own_sigma: &'a SigmaBindingCells,
 }
 
 /// Same-source total Omega view and incoming sigma Q binding. The fixed Objects
@@ -66,7 +65,7 @@ impl ReceiveProofSources {
         plan: &ContextPlan,
         input: &ContextInputs<'_>,
     ) -> Result<(), Error> {
-        if input.objects.len() != 11 || plan.object_specs().len() != 11 {
+        if input.objects.len() != 9 || plan.object_specs().len() != 9 {
             return Err(Error::Synthesis);
         }
         let incoming = input.incoming.ok_or(Error::Synthesis)?;
@@ -112,9 +111,12 @@ impl ReceiveProofSources {
             GlueChip::assert_equal(region, a, &b)?;
         }
         let columns = input.q_instances.first().ok_or(Error::Synthesis)?;
-        let sigma_plan = &plan.operation().sigma;
+        let sigma_plan = plan.operation().sigma_plan()?;
+        let row = sigma_plan
+            .position(QSigmaPlan::INCOMING)
+            .ok_or(Error::Synthesis)?;
         if columns.len() != 5
-            || sigma_plan.slot_count() != 2
+            || sigma_plan.has_own()
             || columns
                 .iter()
                 .zip(sigma_plan.instance_lengths())
@@ -123,13 +125,15 @@ impl ReceiveProofSources {
             return Err(Error::Synthesis);
         }
         for (actual, expected) in [
-            (&columns[0][1], self.sigma.statement().digest()),
-            (&columns[2][1], self.sigma.key_index()),
+            (&columns[0][row], self.sigma.statement().digest()),
+            (&columns[2][row], self.sigma.key_index()),
         ] {
             let actual = bounded_word(chip, region, actual)?;
             GlueChip::assert_equal(region, &actual, expected)?;
         }
-        let chunks = sigma_plan.chunk_range(1).ok_or(Error::Synthesis)?;
+        let chunks = sigma_plan
+            .chunk_range(QSigmaPlan::INCOMING)
+            .ok_or(Error::Synthesis)?;
         if chunks.len() != self.sigma.proof_chunks().len() {
             return Err(Error::Synthesis);
         }
@@ -208,12 +212,12 @@ impl ReceiveProofSources {
             proof.omega_key,
             input.successor.public.omega_key_digest(),
         )?;
-        let bindings = [proof.own_sigma.clone(), self.sigma.clone()];
-        bind_statements(region, input, &bindings)?;
+        let bindings = [self.sigma.clone()];
+        bind_statements(region, input, false, &bindings)?;
         let sigma = bind_sigma(
             chip,
             region,
-            &plan.operation().sigma,
+            plan.operation().sigma_plan()?,
             input.q_instances.first().ok_or(Error::Synthesis)?,
             &bindings,
         )?;

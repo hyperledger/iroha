@@ -2,8 +2,8 @@
 
 use super::*;
 
-fn digest(domain: &[u8; 8], original: &[u8]) -> [u8; 32] {
-    kagemusha_wallet_poseidon_bytes_v1(u64::from_le_bytes(*domain), original)
+fn digest(domain: [u8; 8], original: &[u8]) -> [u8; 32] {
+    kagemusha_wallet_poseidon_bytes_v1(u64::from_le_bytes(domain), original)
 }
 
 // Preserve the carried operation/version/capsule/payment and signature even when
@@ -112,7 +112,7 @@ fn decode_original(
                 .to_le_bytes()
                 .to_vec();
             proof_tape.extend_from_slice(&package.step_proof.bytes);
-            let proof = digest(b"kgwstep1", &proof_tape);
+            let proof = digest(*b"kgwstep1", &proof_tape);
             let signer = authority(KagemushaWalletReceiptSignerV1::from_credential(
                 &request.receiver_credential,
             ))?;
@@ -156,7 +156,7 @@ fn decode_original(
                 status.proof_digest,
                 receipt_digest,
                 status.lineage.lineage_digest(),
-                digest(b"kgwcopn1", &opening),
+                digest(*b"kgwcopn1", &opening),
             ] {
                 tape.extend_from_slice(&word);
             }
@@ -169,7 +169,7 @@ fn decode_original(
                     2,
                     request.body.credit_id(),
                     *payment_digest,
-                    digest(b"kgwcsts1", &tape),
+                    digest(*b"kgwcsts1", &tape),
                 ),
                 status: tape,
                 credit_opening: opening,
@@ -185,7 +185,7 @@ pub(super) fn credited_digest(
     payment_digest: &[u8; 32],
 ) -> Result<[u8; 32], Error> {
     Ok(digest(
-        b"kgwcrdd1",
+        *b"kgwcrdd1",
         decode_original(bytes, request, payment_digest)?.credited(),
     ))
 }
@@ -198,7 +198,7 @@ pub(super) fn original(
     proposal: ArchiveIncomingWitnessV1,
 ) -> Result<native::Evidence, Error> {
     let original = decode_original(bytes, request, payment_digest)?;
-    if digest(b"kgwcrdd1", original.credited()) != *expected_digest {
+    if digest(*b"kgwcrdd1", original.credited()) != *expected_digest {
         return Err(Error::Authority);
     }
     match (original, proposal) {

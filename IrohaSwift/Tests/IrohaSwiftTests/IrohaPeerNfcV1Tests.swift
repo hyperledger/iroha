@@ -22,14 +22,11 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
             0xF0, 0x50, 0x4B, 0x45, 0x50, 0x4B, 0x52, 0x4E, 0x46, 0x43, 0x01,
         ])
         let expectedAidHex = "F0504B45504B524E464301"
+        XCTAssertEqual(IrohaPeerNfcApplicationIdentifierV1.protocolDefault.bytes, expectedAid)
+        XCTAssertEqual(IrohaPeerNfcApplicationIdentifierV1.protocolDefault.hex, expectedAidHex)
         XCTAssertEqual(
-            IrohaPeerNfcV1.applicationIdentifier,
-            expectedAid
-        )
-        XCTAssertEqual(IrohaPeerNfcV1.applicationIdentifierHex, expectedAidHex)
-        XCTAssertEqual(
-            IrohaPeerNfcV1.buildProfileMarker,
-            "IrohaPeerNfcV1.AID.\(expectedAidHex)"
+            try IrohaPeerNfcApplicationIdentifierV1(hex: expectedAidHex.lowercased()),
+            .protocolDefault
         )
         XCTAssertEqual(IrohaPeerNfcInstructionV1.getInfo.rawValue, 0x10)
         XCTAssertEqual(IrohaPeerNfcInstructionV1.readRequest.rawValue, 0x11)
@@ -43,7 +40,7 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         let request = try message(kind: .request, byte: 0x31, count: 200)
         let payment = try message(kind: .payment, byte: 0x32, count: 700)
         let commands: [IrohaPeerNfcCommandV1] = [
-            .selectApplication,
+            .selectApplication(.protocolDefault),
             .getInfo,
             .readRequest(
                 sessionID: sessionID,
@@ -605,7 +602,7 @@ final class IrohaPeerNfcV1Tests: XCTestCase {
         )
 
         // SELECT and GET_INFO are read-only and byte-identical on retry.
-        let select = IrohaPeerNfcCommandV1.selectApplication
+        let select = IrohaPeerNfcCommandV1.selectApplication(.protocolDefault)
         _ = try receiver.handle(select) // response lost
         XCTAssertEqual(try receiver.handle(select), Data())
         _ = try receiver.handle(.getInfo) // response lost

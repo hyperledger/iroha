@@ -617,6 +617,16 @@ impl ValidQueryRequest {
                         params,
                         stored_cursor_budget
                     ),
+                    QueryItemKind::BondRecord => run_query!(
+                        iroha_data_model::bond::BondRecord,
+                        iroha_data_model::query::bond::prelude::FindBonds,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params,
+                        stored_cursor_budget
+                    ),
                     QueryItemKind::OracleFeedConfig => run_query!(
                         iroha_data_model::oracle::FeedConfig,
                         iroha_data_model::query::oracle::prelude::FindOracleFeeds,
@@ -1172,6 +1182,15 @@ impl ValidQueryRequest {
                     QueryItemKind::AssetEscrowsByStatus => run_query!(
                         iroha_data_model::escrow::AssetEscrowRecord,
                         iroha_data_model::query::escrow::prelude::FindAssetEscrowsByStatus,
+                        decoder,
+                        predicate_bytes,
+                        selector_bytes,
+                        query_payload,
+                        params
+                    ),
+                    QueryItemKind::BondRecord => run_query!(
+                        iroha_data_model::bond::BondRecord,
+                        iroha_data_model::query::bond::prelude::FindBonds,
                         decoder,
                         predicate_bytes,
                         selector_bytes,

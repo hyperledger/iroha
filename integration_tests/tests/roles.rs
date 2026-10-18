@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests for role registration and assignment flows.
 use executor_custom_data_model::permissions::CanControlDomainLives;
 use eyre::Result;

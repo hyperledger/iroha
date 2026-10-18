@@ -2,7 +2,8 @@
 //!
 //! The original source schema is circuit metadata. Incoming Trivial mode selects
 //! source k16 and the pinned accumulator; Accept/Corrected retain the original k.
-//! Every selected source and all sixteen scalar cells enter the transcript;
+//! Generic folds privately hash every exact input; the closed terminal owner
+//! instead binds the hard frame prefix and its own opening.
 //! an all-short selected input list rejects. Soft mode
 //! is total for all fixed-size witness bytes and returns a proven verdict plus
 //! the pinned deciding trivial claim on failure. An accepted output remains an
@@ -21,15 +22,17 @@ use iroha_plonk::{
 };
 use iroha_plonk_gadgets::{
     Bit, GlueChip, Uint, Word,
-    bytes::element::{LeElement, element_value, scalar_bytes_canonical},
-    ecc::{EccChip, NonIdentityPoint, ScalarLimbs},
+    bytes::element::LeElement,
+    ecc::{EccChip, ScalarLimbs},
     range::u128::UintChip,
 };
 
 use crate::{
     ACCUMULATOR_BYTES, FOLD_WITNESS_BYTES, K, K_U32, PALLAS_TRIVIAL_GENERATOR,
     VESTA_TRIVIAL_GENERATOR,
-    codec::{ScalarCells, decode_point_soft, decode_scalar_soft},
+    codec::{
+        GeneratorPoint, ScalarCells, decode_generator_soft, decode_point_soft, decode_scalar_soft,
+    },
     obligation::ModeCells,
     transcript::{Domain, TranscriptChip},
     verifier::{GeneratorClaimCells, VerificationMode, VerifierChip, scalar::Scalar},
@@ -72,6 +75,10 @@ fn trivial_point<C: PastaCurve>() -> Result<C::AffineExt, crate::Error> {
 pub struct FoldPlan<C: PastaCurve> {
     sources: Vec<FoldSource>,
     g0: C::AffineExt,
+    g1: C::AffineExt,
+    w: C::AffineExt,
+    context: [C::Base; 4],
+    purpose: crate::FoldPurpose,
     auxiliary: C::AffineExt,
     trivial: C::AffineExt,
 }
@@ -81,10 +88,15 @@ impl<C: PastaCurve> FoldPlan<C> {
     ///
     /// # Errors
     /// Empty slots, unsupported source k, no k16 slot, or insufficient parameters.
-    pub fn new(params: &PinnedParams<C>, source_ks: Vec<u32>) -> Result<Self, crate::Error> {
+    pub fn new(
+        params: &PinnedParams<C>,
+        source_ks: Vec<u32>,
+        purpose: crate::FoldPurpose,
+    ) -> Result<Self, crate::Error> {
         Self::with_sources(
             params,
             source_ks.into_iter().map(FoldSource::Fixed).collect(),
+            purpose,
         )
     }
 
@@ -97,7 +109,11 @@ impl<C: PastaCurve> FoldPlan<C> {
     pub fn with_sources(
         params: &PinnedParams<C>,
         sources: Vec<FoldSource>,
+        purpose: crate::FoldPurpose,
     ) -> Result<Self, crate::Error> {
+        if !purpose.permits_shape::<C>(sources.len()) {
+            return Err(crate::Error::Purpose);
+        }
         params.require_k(K_U32).map_err(crate::Error::Parameters)?;
         if sources.is_empty() {
             return Err(crate::Error::EmptyInputs);
@@ -117,7 +133,11 @@ impl<C: PastaCurve> FoldPlan<C> {
         }
         u64::try_from(sources.len()).map_err(|_| crate::Error::InputCount)?;
         Ok(Self {
+            context: crate::accumulation::context(params, purpose, sources.len()),
+            purpose,
             sources,
+            g1: params.params().g()[1],
+            w: params.params().w(),
             g0: params.params().g()[0],
             auxiliary: params.params().u(),
             trivial: trivial_point::<C>()?,
@@ -152,10 +172,9 @@ impl<C: PastaCurve> FoldInputDecodePlan<C> {
         params
             .require_k(source_k)
             .map_err(crate::Error::Parameters)?;
-        let dummy = params.params().g()[..1 << source_k]
-            .iter()
-            .fold(C::identity(), |sum, point| sum + point.to_curve())
-            .to_affine();
+        let dummy = params
+            .generator_prefix_sum(source_k)
+            .map_err(crate::Error::Parameters)?;
         if bool::from(dummy.is_identity()) {
             return Err(crate::Error::Encoding(
                 iroha_plonk::transcript::TranscriptError::IdentityPoint,
@@ -177,7 +196,7 @@ impl<C: PastaCurve> FoldInputDecodePlan<C> {
 pub struct SoftFoldInputCells<C: PastaCurve> {
     /// Checked original claim, or the source-specific fixed deciding dummy.
     pub value: FoldInputCells<C>,
-    /// Length, finite canonical point, canonical scalars and exact padding/nonzero verdict.
+    /// Length, canonical full-group G, canonical scalars and exact padding/nonzero verdict.
     pub valid: Bit<C::Base>,
 }
 
@@ -187,11 +206,33 @@ pub struct SoftFoldInputCells<C: PastaCurve> {
 pub struct FoldInputCells<C: PastaCurve> {
     source: FoldSource,
     source_k: Word<C::Base>,
-    g: NonIdentityPoint<C::Base>,
+    g: GeneratorPoint<C::Base>,
     challenges: [ScalarCells<C>; K],
 }
 
 impl<C: PastaCurve> FoldInputCells<C> {
+    /// Explicit full-k16 deciding padding slot, constrained to compiled params.
+    ///
+    /// # Errors
+    /// An invalid compiled trivial point or a circuit layout failure.
+    pub fn pinned_trivial(
+        chip: &mut VerifierChip<C>,
+        region: &mut Region<'_, C::Base>,
+    ) -> Result<Self, Error> {
+        let g = trivial_point::<C>().map_err(|_| Error::Synthesis)?;
+        let g = chip.ecc.constant_point(region, &g.to_curve())?;
+        let g = GeneratorPoint::from_assigned(g);
+        let one = chip.constant(region, C::ScalarExt::ONE)?;
+        let one = chip.export(region, &one)?;
+        Self::from_normalized(
+            chip,
+            region,
+            K_U32,
+            g,
+            core::array::from_fn(|_| one.clone()),
+        )
+    }
+
     /// Binds A's normalized sigma part without changing Omega's fixed program.
     /// Exactly one of k12/k14/k16 is admitted; the first `16-k` challenges
     /// are exactly zero and every remaining challenge is nonzero. All sixteen
@@ -204,7 +245,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
         chip: &mut VerifierChip<C>,
         region: &mut Region<'_, C::Base>,
         source_k: &Word<C::Base>,
-        g: NonIdentityPoint<C::Base>,
+        g: GeneratorPoint<C::Base>,
         challenges: [ScalarCells<C>; K],
     ) -> Result<Self, Error> {
         let mut choices = Vec::with_capacity(3);
@@ -262,7 +303,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
             C::Base::from(u64::try_from(ACCUMULATOR_BYTES).map_err(|_| Error::BoundsFailure)?),
         )?;
         let mut valid = chip.glue.is_equal(region, length.word(), &expected)?;
-        let point = decode_point_soft::<C>(
+        let point = decode_generator_soft::<C>(
             &mut UintChip::new(&mut chip.glue, &mut chip.range),
             &mut chip.ecc,
             region,
@@ -288,7 +329,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
         let dummy = chip.ecc.constant_point(region, &plan.dummy.to_curve())?;
         let selected =
             EccChip::<C>::select(&mut chip.glue, region, &valid, point.value.point(), &dummy)?;
-        let g = EccChip::<C>::assert_non_identity(&mut chip.glue, region, &selected)?;
+        let g = GeneratorPoint::from_assigned(selected);
         let mut challenges = Vec::with_capacity(K);
         for (round, scalar) in decoded.iter().enumerate() {
             let low = chip.glue.select_constant(
@@ -341,7 +382,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
         if messages.len() != K + 1 {
             return Err(Error::Synthesis);
         }
-        let g = crate::codec::decode_point::<C>(
+        let g = crate::codec::decode_generator::<C>(
             &mut UintChip::new(&mut chip.glue, &mut chip.range),
             &mut chip.ecc,
             region,
@@ -360,7 +401,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
         )
     }
 
-    /// Checks an existing normalized vector and finite generator claim.
+    /// Checks an existing normalized vector and scoped full-group generator claim.
     ///
     /// # Errors
     /// Unsupported metadata k or layout errors. Bad witness padding or a zero
@@ -369,7 +410,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
         chip: &mut VerifierChip<C>,
         region: &mut Region<'_, C::Base>,
         source_k: u32,
-        g: NonIdentityPoint<C::Base>,
+        g: GeneratorPoint<C::Base>,
         challenges: [ScalarCells<C>; K],
     ) -> Result<Self, Error> {
         if !(1..=K_U32).contains(&source_k) {
@@ -411,7 +452,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
         chip: &mut VerifierChip<C>,
         region: &mut Region<'_, C::Base>,
         original: &Self,
-        corrected: &NonIdentityPoint<C::Base>,
+        corrected: &GeneratorPoint<C::Base>,
         mode: &ModeCells<C::Base>,
     ) -> Result<Self, Error> {
         let FoldSource::Fixed(k) = original.source else {
@@ -434,7 +475,7 @@ impl<C: PastaCurve> FoldInputCells<C> {
         let trivial = chip.ecc.constant_point(region, &trivial.to_curve())?;
         let selected =
             EccChip::<C>::select(&mut chip.glue, region, mode.trivial(), &trivial, &selected)?;
-        let g = EccChip::<C>::assert_non_identity(&mut chip.glue, region, &selected)?;
+        let g = GeneratorPoint::from_assigned(selected);
         let one = chip.constant(region, C::ScalarExt::ONE)?;
         let mut challenges = Vec::with_capacity(K);
         for value in &original.challenges {
@@ -496,9 +537,9 @@ impl<C: PastaCurve> FoldInputCells<C> {
     pub const fn source_k(&self) -> &Word<C::Base> {
         &self.source_k
     }
-    /// The finite generator claim.
+    /// The scoped full-group generator claim, including identity.
     #[must_use]
-    pub const fn g(&self) -> &NonIdentityPoint<C::Base> {
+    pub const fn g(&self) -> &GeneratorPoint<C::Base> {
         &self.g
     }
     /// Exactly sixteen canonical cells with the checked leading zero prefix.
@@ -516,6 +557,37 @@ pub struct FoldOutputCells<C: PastaCurve> {
     pub valid: Bit<C::Base>,
     /// The actual generator claim, or the pinned deciding trivial claim on failure.
     pub claim: GeneratorClaimCells<C>,
+    /// Diagnostic exact native/circuit transcript comparison.
+    pub prelude: [ScalarCells<C>; 3],
+    /// Diagnostic private hash comparison.
+    pub digest: Word<C::Base>,
+    /// Diagnostic checked correction comparison.
+    pub gamma: ScalarCells<C>,
+}
+
+// Only a closed frame owner can select the terminal binding. Generic folds
+// always hash every exact input. This enum is not part of the public API.
+enum InputBinding<C: PastaCurve> {
+    Exact,
+    Terminal {
+        descriptor: [u8; 32],
+        raw: Word<C::Base>,
+    },
+}
+
+// Retain the transcript, challenges and opening data from one committed prelude.
+struct FoldPreludeCells<C: PastaCurve> {
+    transcript: TranscriptChip<C::Base>,
+    challenges: [ScalarCells<C>; 3],
+    masks: Vec<ScalarCells<C>>,
+    digest: Word<C::Base>,
+}
+
+// The closed caller selects the verification mode and its input binding together.
+#[derive(Clone, Copy)]
+struct FoldVerification<'a, C: PastaCurve> {
+    mode: VerificationMode,
+    binding: &'a InputBinding<C>,
 }
 
 impl<C: PastaCurve> VerifierChip<C> {
@@ -536,36 +608,119 @@ impl<C: PastaCurve> VerifierChip<C> {
         Ok(value)
     }
 
-    fn fold_prelude(
+    fn committed_fold_prelude(
         &mut self,
         region: &mut Region<'_, C::Base>,
-        transcript: &mut TranscriptChip<C::Base>,
+        plan: &FoldPlan<C>,
         inputs: &[FoldInputCells<C>],
-        salt: &LeElement<C::Base>,
+        messages: &[LeElement<C::Base>],
         valid: &mut Bit<C::Base>,
-    ) -> Result<[ScalarCells<C>; 3], Error> {
-        let salt_ok = scalar_bytes_canonical::<C::Base, C::Base>(&mut self.uint(), region, salt)?;
-        self.combine(region, valid, &salt_ok)?;
-        let salt = element_value(&mut self.glue, region, salt)?;
-        let salt = self
-            .glue
-            .select_constant(region, &salt_ok, &salt, C::Base::ZERO)?;
-        transcript.common_word(&salt);
-        transcript.common_constant(C::Base::from(
-            u64::try_from(inputs.len()).map_err(|_| Error::BoundsFailure)?,
-        ));
-        for input in inputs {
-            transcript.common_point(&input.g);
-            transcript.common_word(&input.source_k);
-            for challenge in &input.challenges {
-                transcript.common_scalar(challenge);
+        binding: &InputBinding<C>,
+    ) -> Result<FoldPreludeCells<C>, Error> {
+        let d = decode_point_soft::<C>(
+            &mut UintChip::new(&mut self.glue, &mut self.range),
+            &mut self.ecc,
+            region,
+            &messages[0],
+        )?;
+        self.combine(region, valid, &d.valid)?;
+        let rho = decode_scalar_soft::<C>(&mut self.uint(), region, &messages[2 * K + 3])?;
+        self.combine(region, valid, &rho.valid)?;
+        let mut masks = Vec::with_capacity(2 * K);
+        for message in &messages[2 * K + 4..] {
+            let b = decode_scalar_soft::<C>(&mut self.uint(), region, message)?;
+            self.combine(region, valid, &b.valid)?;
+            masks.push(b.value);
+        }
+        let mut words = Vec::new();
+        for x in plan.context {
+            words.push(self.glue.constant(region, x)?);
+        }
+        let bound_inputs = match binding {
+            InputBinding::Exact => inputs,
+            InputBinding::Terminal { descriptor, raw } => {
+                for limb in descriptor.chunks_exact(16) {
+                    words.push(self.glue.constant(
+                        region,
+                        C::Base::from_u128(u128::from_le_bytes(
+                            limb.try_into().map_err(|_| Error::Synthesis)?,
+                        )),
+                    )?);
+                }
+                words.push(raw.clone());
+                // The complete A own-opening claim is NOT in its first prefix.
+                // The closed owner derives all other slots from the bound frame.
+                &inputs[1..2]
+            }
+        };
+        for input in bound_inputs {
+            words.extend([
+                input.g.x().clone(),
+                input.g.y().clone(),
+                input.source_k.clone(),
+            ]);
+            for u in &input.challenges {
+                if let Some(x) = u.native_word() {
+                    words.push(x.clone());
+                } else {
+                    words.extend([u.lo().word().clone(), u.hi().word().clone()]);
+                }
             }
         }
-        Ok([
+        for b in &masks {
+            if let Some(x) = b.native_word() {
+                words.push(x.clone());
+            } else {
+                words.extend([b.lo().word().clone(), b.hi().word().clone()]);
+            }
+        }
+        let mut duplex = self.duplex.take().ok_or(Error::Synthesis)?;
+        if !duplex.is_clear() || duplex.buffered() != 0 {
+            return Err(Error::Synthesis);
+        }
+        duplex.absorb_constant(C::Base::from(u64::from_le_bytes(match binding {
+            InputBinding::Exact => *b"pipa-in1",
+            InputBinding::Terminal { .. } => *b"pipa-tm1",
+        })));
+        duplex.absorb_constant(C::Base::from(words.len() as u64));
+        for word in &words {
+            duplex.absorb(word);
+        }
+        let digest = duplex.squeeze_and_clear(region)?;
+        let limbs = iroha_plonk_gadgets::ff::CanonicalS6::from_native_word(
+            &mut self.uint(),
+            region,
+            &digest,
+        )?;
+        let lo = ScalarCells::<C>::from_native_word(&mut self.uint(), region, limbs.lo().word())?;
+        let hi = ScalarCells::<C>::from_native_word(&mut self.uint(), region, limbs.hi().word())?;
+        let mut opening = self.ecc.constant_point(region, &C::identity())?;
+        for (p, s) in [(plan.g0, &lo), (plan.g1, &hi), (plan.w, &rho.value)] {
+            let point = self.ecc.constant_point(region, &p.to_curve())?;
+            let scalar = self.import(region, s)?;
+            let term = self.scale_point(region, &point, &scalar)?;
+            opening = self.ecc.add(region, &opening, &term)?;
+        }
+        let neg_d = EccChip::<C>::neg(&mut self.glue, region, d.value.point())?;
+        let difference = self.ecc.add(region, &opening, &neg_d)?;
+        let opening_ok = EccChip::<C>::is_identity(&mut self.glue, region, &difference)?;
+        self.combine(region, valid, &opening_ok)?;
+        let mut transcript = TranscriptChip::from_duplex(duplex, Domain::Fold)?;
+        for value in plan.context {
+            transcript.common_constant(value);
+        }
+        transcript.common_point(&d.value);
+        let prelude = [
             transcript.squeeze_scalar::<C>(&mut self.uint(), region)?,
             transcript.squeeze_scalar::<C>(&mut self.uint(), region)?,
             transcript.squeeze_scalar::<C>(&mut self.uint(), region)?,
-        ])
+        ];
+        Ok(FoldPreludeCells {
+            transcript,
+            challenges: prelude,
+            masks,
+            digest,
+        })
     }
 
     fn fold_claim(
@@ -573,12 +728,12 @@ impl<C: PastaCurve> VerifierChip<C> {
         region: &mut Region<'_, C::Base>,
         plan: &FoldPlan<C>,
         valid: &Bit<C::Base>,
-        suffix: &NonIdentityPoint<C::Base>,
+        suffix: &GeneratorPoint<C::Base>,
         rounds: &[ScalarCells<C>],
     ) -> Result<GeneratorClaimCells<C>, Error> {
         let dummy = self.ecc.constant_point(region, &plan.trivial.to_curve())?;
         let selected = EccChip::<C>::select(&mut self.glue, region, valid, suffix.point(), &dummy)?;
-        let g = EccChip::<C>::assert_non_identity(&mut self.glue, region, &selected)?;
+        let g = GeneratorPoint::from_assigned(selected);
         let one = self.constant(region, C::ScalarExt::ONE)?;
         let mut challenges = Vec::with_capacity(K);
         for cells in rounds {
@@ -599,9 +754,9 @@ impl<C: PastaCurve> VerifierChip<C> {
         })
     }
 
-    /// Verifies the exact 1,120-byte local witness with complete group equations.
+    /// Verifies the exact 2,176-byte committed-mask witness with complete group equations.
     ///
-    /// `messages` is salt, sixteen L/R pairs, c, G′, each linked to the same
+    /// `messages` is D, sixteen masked L/R pairs, c, G′, rho and32 masks, linked to the same
     /// caller-owned byte tape as the supplied LE32 `length`. Inputs must match
     /// the fixed ordered source-k schema. No input or constant filler is inferred.
     ///
@@ -617,6 +772,32 @@ impl<C: PastaCurve> VerifierChip<C> {
         length: &Uint<C::Base, 32>,
         mode: VerificationMode,
     ) -> Result<FoldOutputCells<C>, Error> {
+        if plan.purpose == crate::FoldPurpose::WrapperVesta {
+            return Err(Error::Synthesis);
+        }
+        self.verify_fold_bound(
+            region,
+            plan,
+            inputs,
+            messages,
+            length,
+            FoldVerification {
+                mode,
+                binding: &InputBinding::Exact,
+            },
+        )
+    }
+
+    fn verify_fold_bound(
+        &mut self,
+        region: &mut Region<'_, C::Base>,
+        plan: &FoldPlan<C>,
+        inputs: &[FoldInputCells<C>],
+        messages: &[LeElement<C::Base>],
+        length: &Uint<C::Base, 32>,
+        verification: FoldVerification<'_, C>,
+    ) -> Result<FoldOutputCells<C>, Error> {
+        let FoldVerification { mode, binding } = verification;
         if messages.len() != FOLD_WITNESS_BYTES / 32
             || inputs.len() != plan.sources.len()
             || inputs
@@ -626,7 +807,7 @@ impl<C: PastaCurve> VerifierChip<C> {
         {
             return Err(Error::Synthesis);
         }
-        let length_constant = self.glue.constant(region, C::Base::from(1120))?;
+        let length_constant = self.glue.constant(region, C::Base::from(2176))?;
         let mut valid = self
             .glue
             .is_equal(region, length.word(), &length_constant)?;
@@ -643,10 +824,14 @@ impl<C: PastaCurve> VerifierChip<C> {
             has_full = self.glue.not(region, &missing)?;
         }
         self.combine(region, &mut valid, &has_full)?;
-        let duplex = self.duplex.take().ok_or(Error::Synthesis)?;
-        let mut transcript = TranscriptChip::from_duplex(duplex, Domain::Fold)?;
-        let [alpha_cells, z_cells, zeta_cells] =
-            self.fold_prelude(region, &mut transcript, inputs, &messages[0], &mut valid)?;
+        let FoldPreludeCells {
+            mut transcript,
+            challenges: prelude,
+            masks,
+            digest,
+        } = self.committed_fold_prelude(region, plan, inputs, messages, &mut valid, binding)?;
+        let [alpha_cells, z_cells, zeta_cells] = prelude.clone();
+        let mut gamma_pairs = Vec::with_capacity(2 * K);
         let alpha = self.import(region, &alpha_cells)?;
         let z = self.import(region, &z_cells)?;
         let zeta = self.import(region, &zeta_cells)?;
@@ -696,8 +881,14 @@ impl<C: PastaCurve> VerifierChip<C> {
             transcript.common_point(&left.value);
             transcript.common_point(&right.value);
             let cells = transcript.squeeze_scalar::<C>(&mut self.uint(), region)?;
+            let cells = cells.nonzero_or_one(&mut self.uint(), region)?;
             let challenge = self.import(region, &cells)?;
-            let inverse = self.inverse(region, &challenge, &mut valid)?;
+            // Exact constrained nz round cells; no zero/identity refusal is added.
+            let inverse = self.arithmetic.ff.inverse(region, &challenge)?;
+            let left_mask = self.import(region, &masks[2 * round])?;
+            let right_mask = self.import(region, &masks[2 * round + 1])?;
+            gamma_pairs.push((left_mask, inverse.clone()));
+            gamma_pairs.push((right_mask, challenge.clone()));
             let left_term = self.scale_point(region, left.value.point(), &inverse)?;
             let right_term = self.scale_point(region, right.value.point(), &challenge)?;
             equation = self.ecc.add(region, &equation, &left_term)?;
@@ -706,8 +897,8 @@ impl<C: PastaCurve> VerifierChip<C> {
         }
         let coefficient = decode_scalar_soft::<C>(&mut self.uint(), region, &messages[1 + 2 * K])?;
         self.combine(region, &mut valid, &coefficient.valid)?;
-        transcript.common_scalar(&coefficient.value);
-        let suffix = decode_point_soft::<C>(
+        // Private c is never absorbed into a live continuation.
+        let suffix = decode_generator_soft::<C>(
             &mut UintChip::new(&mut self.glue, &mut self.range),
             &mut self.ecc,
             region,
@@ -732,15 +923,35 @@ impl<C: PastaCurve> VerifierChip<C> {
             let term = self.scale_point(region, point, &scalar)?;
             equation = self.ecc.add(region, &equation, &term)?;
         }
+        // All masks and round challenges retain their original checked imports.
+        // Batched unsigned dot products compute the same scalar gamma modulo Fr.
+        let mut gamma = self.constant(region, C::ScalarExt::ZERO)?;
+        for chunk in gamma_pairs.chunks(8) {
+            let pairs = chunk.iter().map(|(a, b)| (a, b)).collect::<Vec<_>>();
+            let part = self.arithmetic.dot(
+                &mut UintChip::new(&mut self.glue, &mut self.range),
+                region,
+                &pairs,
+            )?;
+            gamma = self.add(region, &gamma, &part)?;
+        }
+        let w = self.ecc.constant_point(region, &plan.w.to_curve())?;
+        let negative_gamma = self.neg(region, &gamma)?;
+        let correction = self.scale_point(region, &w, &negative_gamma)?;
+        equation = self.ecc.add(region, &equation, &correction)?;
+        let gamma = self.export(region, &gamma)?;
         let zero = EccChip::<C>::is_identity(&mut self.glue, region, &equation)?;
         self.combine(region, &mut valid, &zero)?;
         if mode == VerificationMode::Hard {
             self.glue
                 .enforce_constant(region, valid.word(), C::Base::ONE)?;
-            // This assertion includes salt/length/source metadata, every
-            // canonical finite point, every round's nonzero challenge and the
-            // complete fold equation. Forward those exact certified cells.
+            // This assertion includes the committed private tape, purpose/length/source
+            // metadata, canonical finite D/L/R and full-group G, every mapped nonzero
+            // round challenge and the complete fold equation. Forward those exact cells.
             return Ok(FoldOutputCells {
+                prelude,
+                digest,
+                gamma,
                 valid,
                 claim: GeneratorClaimCells {
                     k: K_U32,
@@ -750,6 +961,166 @@ impl<C: PastaCurve> VerifierChip<C> {
             });
         }
         let claim = self.fold_claim(region, plan, &valid, &suffix.value, &rounds)?;
-        Ok(FoldOutputCells { valid, claim })
+        Ok(FoldOutputCells {
+            valid,
+            claim,
+            prelude,
+            digest,
+            gamma,
+        })
+    }
+}
+
+/// Terminal wrapper result whose lineage word and four fold slots come from the
+/// same hard-verified frame. No caller-selected digest or slot list is accepted.
+pub struct TerminalFoldOutputCells {
+    /// A's lineage binding, from its actual first public frame word.
+    pub lineage: Word<iroha_pasta::Fq>,
+    /// The new complete fold verdict and undecided output claim.
+    pub fold: FoldOutputCells<iroha_pasta::Eq>,
+}
+impl VerifierChip<iroha_pasta::Eq> {
+    fn terminal_coordinate(
+        chip: &mut VerifierChip<iroha_pasta::Eq>,
+        region: &mut Region<'_, iroha_pasta::Fq>,
+        words: &[Word<iroha_pasta::Fq>],
+    ) -> Result<Word<iroha_pasta::Fq>, Error> {
+        if words.len() != 2 {
+            return Err(Error::Synthesis);
+        }
+        let lo = chip.uint().range_check::<128>(region, &words[0])?;
+        let hi = chip.uint().range_check::<127>(region, &words[1])?;
+        let hi = iroha_plonk_gadgets::range::u128::UintChip::widen::<127, 128>(&hi);
+        iroha_plonk_gadgets::bytes::element::assert_le_max(
+            &mut chip.uint(),
+            region,
+            lo.word(),
+            &hi,
+            iroha_plonk_gadgets::bytes::element::modulus_max::<iroha_pasta::Fq>(),
+        )?;
+        chip.uint().glue().linear(
+            region,
+            &[
+                (iroha_pasta::Fq::ONE, lo.word()),
+                (
+                    iroha_pasta::Fq::from_u128(u128::MAX) + iroha_pasta::Fq::ONE,
+                    hi.word(),
+                ),
+            ],
+            iroha_pasta::Fq::ZERO,
+        )
+    }
+    fn terminal_point(
+        chip: &mut VerifierChip<iroha_pasta::Eq>,
+        region: &mut Region<'_, iroha_pasta::Fq>,
+        words: &[Word<iroha_pasta::Fq>],
+    ) -> Result<GeneratorPoint<iroha_pasta::Fq>, Error> {
+        if words.len() != 4 {
+            return Err(Error::Synthesis);
+        }
+        let x = Self::terminal_coordinate(chip, region, &words[..2])?;
+        let y = Self::terminal_coordinate(chip, region, &words[2..])?;
+        chip.constrain_generator(region, &x, &y)
+    }
+    fn terminal_claim(
+        chip: &mut VerifierChip<iroha_pasta::Eq>,
+        region: &mut Region<'_, iroha_pasta::Fq>,
+        words: &[Word<iroha_pasta::Fq>],
+        scalars: &[ScalarCells<iroha_pasta::Eq>],
+    ) -> Result<FoldInputCells<iroha_pasta::Eq>, Error> {
+        let g = Self::terminal_point(chip, region, words)?;
+        FoldInputCells::from_normalized(
+            chip,
+            region,
+            16,
+            g,
+            scalars.to_vec().try_into().map_err(|_| Error::Synthesis)?,
+        )
+    }
+    /// Closed terminal-only fold, binding the raw prefix of the same hard A
+    /// verification and its exact own-opening claim. Derives all frame slots.
+    ///
+    /// # Errors
+    /// An incompatible hard frame, descriptor, slot schema or message shape, or
+    /// a circuit layout failure. Invalid witness values make the circuit unsatisfied.
+    pub fn verify_terminal_frame_fold(
+        &mut self,
+        region: &mut Region<'_, iroha_pasta::Fq>,
+        plan: &FoldPlan<iroha_pasta::Eq>,
+        frame: crate::verifier::HardVerifiedFrame<iroha_pasta::Eq>,
+        messages: &[LeElement<iroha_pasta::Fq>],
+        length: &Uint<iroha_pasta::Fq, 32>,
+    ) -> Result<TerminalFoldOutputCells, Error> {
+        let descriptor = frame.binding.descriptor();
+        if plan.purpose != crate::FoldPurpose::WrapperVesta
+            || descriptor.k != 16
+            || descriptor.instance_lengths != [69]
+            || descriptor.instance_types.as_deref()
+                != Some(&[iroha_plonk::cs::InstanceType::Bounded])
+            || plan.sources
+                != [
+                    FoldSource::SigmaChoice,
+                    FoldSource::Fixed(16),
+                    FoldSource::Fixed(16),
+                    FoldSource::Incoming(16),
+                ]
+            || frame.instances.len() != 1
+            || frame.instances[0].len() != 69
+        {
+            return Err(Error::Synthesis);
+        }
+        let scalars = &frame.instances[0];
+        let words = scalars
+            .iter()
+            .map(|s| s.native_word().cloned().ok_or(Error::Synthesis))
+            .collect::<Result<Vec<_>, _>>()?;
+        let part_point = Self::terminal_point(self, region, &words[2..6])?;
+        let mut inputs = Vec::with_capacity(4);
+        inputs.push(FoldInputCells::from_sigma_part(
+            self,
+            region,
+            &words[1],
+            part_point,
+            scalars[6..22]
+                .to_vec()
+                .try_into()
+                .map_err(|_| Error::Synthesis)?,
+        )?);
+        inputs.push(FoldInputCells::from_claim(self, region, &frame.own_claim)?);
+        inputs.push(Self::terminal_claim(
+            self,
+            region,
+            &words[22..26],
+            &scalars[26..42],
+        )?);
+        let incoming = Self::terminal_claim(self, region, &words[42..46], &scalars[46..62])?;
+        let modes = words[62..65]
+            .to_vec()
+            .try_into()
+            .map_err(|_| Error::Synthesis)?;
+        let modes = ModeCells::constrain(self.uint().glue(), region, &modes)?;
+        let corrected = Self::terminal_point(self, region, &words[65..69])?;
+        let selected =
+            FoldInputCells::select_incoming(self, region, &incoming, &corrected, &modes)?;
+        inputs.push(selected);
+        let binding = InputBinding::Terminal {
+            descriptor: *frame.binding.digest(),
+            raw: frame.first_raw,
+        };
+        let fold = self.verify_fold_bound(
+            region,
+            plan,
+            &inputs,
+            messages,
+            length,
+            FoldVerification {
+                mode: VerificationMode::Hard,
+                binding: &binding,
+            },
+        )?;
+        Ok(TerminalFoldOutputCells {
+            lineage: words[0].clone(),
+            fold,
+        })
     }
 }

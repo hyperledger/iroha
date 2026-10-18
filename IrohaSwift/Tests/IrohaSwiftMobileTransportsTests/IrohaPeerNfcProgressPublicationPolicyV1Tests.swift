@@ -415,7 +415,7 @@ final class IrohaPeerNfcRetryGateV1Tests: XCTestCase {
         ] {
             XCTAssertTrue(IrohaPeerNfcStartupResponseRetryPolicyV1.shouldRetry(
                 IrohaPeerNfcAPDUResponseV1(statusWord: status),
-                for: .selectApplication
+                for: .selectApplication(.protocolDefault)
             ))
             XCTAssertFalse(IrohaPeerNfcStartupResponseRetryPolicyV1.shouldRetry(
                 IrohaPeerNfcAPDUResponseV1(statusWord: status),
@@ -424,11 +424,11 @@ final class IrohaPeerNfcRetryGateV1Tests: XCTestCase {
         }
         XCTAssertFalse(IrohaPeerNfcStartupResponseRetryPolicyV1.shouldRetry(
             IrohaPeerNfcAPDUResponseV1(statusWord: .success),
-            for: .selectApplication
+            for: .selectApplication(.protocolDefault)
         ))
         XCTAssertFalse(IrohaPeerNfcStartupResponseRetryPolicyV1.shouldRetry(
             IrohaPeerNfcAPDUResponseV1(statusWord: .storageFailure),
-            for: .selectApplication
+            for: .selectApplication(.protocolDefault)
         ))
     }
 

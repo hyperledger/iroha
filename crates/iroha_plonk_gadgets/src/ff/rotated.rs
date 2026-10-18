@@ -20,8 +20,8 @@
 //! remain Proper; Canonical requires the separate integer comparison.
 
 use super::{
-    CARRIES, CARRY_OFFSET_BITS, CarryLayout, ForeignModulus, FusedTerms, FusedWitness, LIMB_BITS,
-    LIMBS, Mode, TOP_LIMB_BITS, fused_constraints, serialized::ranged,
+    CARRIES, CARRY_OFFSET_BITS, CarryLayout, ForeignModulus, FusedPadding, FusedTerms,
+    FusedWitness, LIMB_BITS, LIMBS, Mode, TOP_LIMB_BITS, fused_constraints, serialized::ranged,
 };
 use crate::{
     GlueChip, Word,
@@ -50,6 +50,7 @@ pub struct RotatedFfConfig {
 struct Staged {
     sums: [Column<Advice>; 5],
     phases: PhaseColumns,
+    packed_port: Option<Column<Advice>>,
 }
 impl Staged {
     fn proper_finish(self) -> Enable {
@@ -143,6 +144,31 @@ impl RotatedFfConfig {
         modulus: ForeignModulus,
         phases: PhaseColumns,
     ) -> Self {
+        Self::configure_staged_ports(meta, columns, sums, modulus, phases, None)
+    }
+
+    /// Uses a fifth existing equality port for three-row short CRT products.
+    /// The port must be disjoint from the four roots and five temporary sums.
+    pub fn configure_staged_packed_phased<F: PastaField>(
+        meta: &mut ConstraintSystem<F>,
+        columns: [Column<Advice>; 4],
+        sums: [Column<Advice>; 5],
+        modulus: ForeignModulus,
+        phases: PhaseColumns,
+        packed_port: Column<Advice>,
+    ) -> Self {
+        assert!(!columns.contains(&packed_port) && !sums.contains(&packed_port));
+        meta.enable_equality(packed_port);
+        Self::configure_staged_ports(meta, columns, sums, modulus, phases, Some(packed_port))
+    }
+    fn configure_staged_ports<F: PastaField>(
+        meta: &mut ConstraintSystem<F>,
+        columns: [Column<Advice>; 4],
+        sums: [Column<Advice>; 5],
+        modulus: ForeignModulus,
+        phases: PhaseColumns,
+        packed_port: Option<Column<Advice>>,
+    ) -> Self {
         assert!(
             columns
                 .iter()
@@ -157,7 +183,11 @@ impl RotatedFfConfig {
             modulus,
             phases.enable(1, Some((5, 3, 5))),
             phases.enable(1, Some((5, 4, 5))),
-            Some(Staged { sums, phases }),
+            Some(Staged {
+                sums,
+                phases,
+                packed_port,
+            }),
         )
     }
     fn configure_on<F: PastaField>(
@@ -323,6 +353,30 @@ impl RotatedFfConfig {
         witness: Value<FusedWitness<F>>,
         layout: CarryLayout,
     ) -> Result<[Word<F>; LIMBS], Error> {
+        self.constrain_short_product_padding(
+            glue,
+            range,
+            region,
+            FusedPadding {
+                mode,
+                layout,
+                norm: false,
+            },
+            operands,
+            witness,
+        )
+    }
+
+    pub(super) fn constrain_short_product_padding<F: PastaField>(
+        &self,
+        glue: &mut GlueChip<F>,
+        range: &mut RunningSumChip<F>,
+        region: &mut Region<'_, F>,
+        padding: FusedPadding,
+        operands: (&[Word<F>; LIMBS], &[Word<F>; LIMBS]),
+        witness: Value<FusedWitness<F>>,
+    ) -> Result<[Word<F>; LIMBS], Error> {
+        let FusedPadding { mode, layout, norm } = padding;
         let staged = self.staged.ok_or(Error::Synthesis)?;
         if glue.config().advice() != self.columns
             || layout == CarryLayout::Full
@@ -333,6 +387,9 @@ impl RotatedFfConfig {
                 .cmp_vartime(&super::Nat::pow2(254))
                 .is_gt()
         {
+            return Err(Error::Synthesis);
+        }
+        if norm && mode != Mode::Mul {
             return Err(Error::Synthesis);
         }
         let bounded = layout == CarryLayout::BoundedPasta;
@@ -363,9 +420,20 @@ impl RotatedFfConfig {
             }),
             [if bounded { 93 } else { 90 }; 3],
         )?;
-        let start = glue.reserve_shared_rows(4)?;
+        let packed = staged.packed_port.is_some();
+        let shift = usize::from(packed);
+        let start = glue.reserve_shared_rows(4 - shift)?;
         let (left, right, subtracted, padding) = match mode {
-            Mode::Mul => (operands.0, operands.1, &result, [0; LIMBS]),
+            Mode::Mul => (
+                operands.0,
+                operands.1,
+                &result,
+                if norm {
+                    super::norm_padding(self.modulus)?
+                } else {
+                    [0; LIMBS]
+                },
+            ),
             Mode::Div => (
                 operands.1,
                 &result,
@@ -377,12 +445,26 @@ impl RotatedFfConfig {
             Mode::Mul => self.mul,
             Mode::Div => self.div,
         }
-        .enable(region, start + 1)?;
+        .enable(region, start + 1 - shift)?;
+        if norm {
+            staged
+                .phases
+                .enable(1, Some((4, 3, 3)))
+                .enable(region, start + 1 - shift)?;
+        }
+        if packed {
+            staged.carry().enable(region, start)?;
+        }
         if bounded {
-            staged.finish().enable(region, start + 2)?;
-            staged.carry().enable(region, start + 2)?;
+            (if packed {
+                staged.proper_finish()
+            } else {
+                staged.finish()
+            })
+            .enable(region, start + 2 - shift)?;
+            staged.carry().enable(region, start + 2 - shift)?;
         } else {
-            staged.proper_finish().enable(region, start + 2)?;
+            staged.proper_finish().enable(region, start + 2 - shift)?;
         }
         for (i, word) in left
             .iter()
@@ -392,7 +474,16 @@ impl RotatedFfConfig {
             .chain(&carries)
             .enumerate()
         {
-            copy_word(region, word, self.columns[i % 4], start + i / 4)?;
+            if let Some(port) = staged.packed_port {
+                let col = if i % 5 == 4 {
+                    port
+                } else {
+                    self.columns[i % 5]
+                };
+                copy_word(region, word, col, start + i / 5)?;
+            } else {
+                copy_word(region, word, self.columns[i % 4], start + i / 4)?;
+            }
         }
         let values = left
             .iter()
@@ -405,9 +496,12 @@ impl RotatedFfConfig {
             });
         let values = values.map(|values| product_values(&values[..3], &values[3..], padding));
         for (i, column) in staged.sums.into_iter().enumerate() {
-            region.assign_advice(column, start + 2, values.map(|v| v[i]))?;
+            if packed {
+                region.assign_advice(column, start, values.map(|v| v[i]))?;
+            }
+            region.assign_advice(column, start + 2 - shift, values.map(|v| v[i]))?;
             if bounded {
-                region.assign_advice(column, start + 3, values.map(|v| v[i]))?;
+                region.assign_advice(column, start + 3 - shift, values.map(|v| v[i]))?;
             }
         }
         Ok(result)
@@ -636,21 +730,65 @@ fn configure_staged<F: PastaField>(
                 )
             });
             let q = enable.query(cells);
-            let products: [_; 5] = core::array::from_fn(|column| {
+            // Payload4=3 denotes norm padding on multiplication rows. ECC
+            // tail/add use the same four-code domain and therefore vanish.
+            let norm = if enable == mul {
+                cells.query_fixed(staged.phases.coefficients()[4], Rotation::cur())
+                    * F::from(3).invert().expect("three nonzero")
+            } else {
+                Expression::Constant(F::ZERO)
+            };
+            let norm_padding = super::norm_padding(modulus).unwrap_or([0; LIMBS]);
+            let packed_roots: [_; 6] = core::array::from_fn(|i| {
+                staged.packed_port.map_or_else(
+                    || roots[i].clone(),
+                    |port| {
+                        cells.query_advice(
+                            if i % 5 == 4 { port } else { ports[i % 5] },
+                            Rotation(i32::try_from(i / 5).expect("six roots occupy two rows")),
+                        )
+                    },
+                )
+            });
+            let packed = if staged.packed_port.is_some() {
+                cells.query_fixed(staged.phases.coefficients()[3], Rotation::cur())
+                    * F::from(3).invert().unwrap()
+            } else {
+                Expression::Constant(F::ZERO)
+            };
+            let product = |r: &[Expression<F>; 6], column: usize| {
                 if column == 4 {
-                    super::recompose(&roots[..3]) * super::recompose(&roots[3..])
-                        + Expression::Constant(super::from_limbs(&padding).to_field::<F>())
+                    super::recompose(&r[..3]) * super::recompose(&r[3..])
                 } else {
-                    let mut value = Expression::Constant(
-                        padding.get(column).map_or(F::ZERO, |x| F::from_u128(*x)),
-                    );
+                    let mut value = Expression::Constant(F::ZERO);
                     for i in 0..LIMBS {
                         if let Some(j) = column.checked_sub(i).filter(|j| *j < LIMBS) {
-                            value = value + roots[i].clone() * roots[3 + j].clone();
+                            value = value + r[i].clone() * r[3 + j].clone();
                         }
                     }
                     value
                 }
+            };
+            let products: [_; 5] = core::array::from_fn(|column| {
+                let old = product(&roots, column);
+                let next = product(&packed_roots, column);
+                let (pad, norm_pad) = if column == 4 {
+                    (
+                        super::from_limbs(&padding).to_field::<F>(),
+                        super::from_limbs(&norm_padding).to_field::<F>(),
+                    )
+                } else {
+                    (
+                        padding.get(column).map_or(F::ZERO, |x| F::from_u128(*x)),
+                        norm_padding
+                            .get(column)
+                            .map_or(F::ZERO, |x| F::from_u128(*x)),
+                    )
+                };
+                (Expression::Constant(F::ONE) - packed.clone()) * old
+                    + packed.clone() * next
+                    + Expression::Constant(pad)
+                    + norm.clone() * norm_pad
             });
             staged
                 .sums
@@ -719,16 +857,37 @@ fn configure_staged<F: PastaField>(
     meta.create_gate("staged Proper product three-carry residuals", |cells| {
         let roots: [_; 9] = core::array::from_fn(|i| {
             let index = i + 6;
-            cells.query_advice(
-                ports[index % 4],
-                Rotation(i32::try_from(index / 4).expect("four rows") - 2),
-            )
+            if let Some(port) = staged.packed_port {
+                cells.query_advice(
+                    if index % 5 == 4 {
+                        port
+                    } else {
+                        ports[index % 5]
+                    },
+                    Rotation(
+                        i32::try_from(index / 5).expect("fifteen roots occupy three rows") - 1,
+                    ),
+                )
+            } else {
+                cells.query_advice(
+                    ports[index % 4],
+                    Rotation(i32::try_from(index / 4).expect("fifteen roots occupy four rows") - 2),
+                )
+            }
         });
         let products = staged
             .sums
             .map(|column| cells.query_advice(column, Rotation::cur()));
+        let narrow = if staged.packed_port.is_some() {
+            cells.query_fixed(staged.phases.coefficients()[3], Rotation::cur())
+                * F::from(3).invert().unwrap()
+        } else {
+            Expression::Constant(F::ZERO)
+        };
         let carries = core::array::from_fn::<_, 3, _>(|i| {
-            roots[6 + i].clone() - super::constant::<F>(1 << 89)
+            roots[6 + i].clone()
+                - super::constant::<F>(1 << 89)
+                - narrow.clone() * (F::from_u128(1 << 92) - F::from_u128(1 << 89))
         });
         let radix = F::from_u128(1 << LIMB_BITS);
         let modulus_limbs = modulus.limbs();

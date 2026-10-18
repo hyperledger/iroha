@@ -1,5 +1,5 @@
 //! Oracle ISI integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::parameters::{
     actual::{
         Oracle as OracleConfig, OracleChangeThresholds, OracleEconomics, OracleGovernance,

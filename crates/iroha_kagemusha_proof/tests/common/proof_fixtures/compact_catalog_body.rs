@@ -2,18 +2,17 @@
 use bootstrap_outer::{RootedBootstrapOmega, bootstrap_chain};
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::omega::{OmegaCircuit, OmegaPlan, OmegaWitness, native};
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, PastaCurve, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, Fp, Fq, PastaCurve, msm::MemoryBudget};
 use iroha_plonk::{
     DescriptorBinding, Protocol, ProverConfig, ProverRandomness, VerifyingKey, Witness,
     create_proof_owned_with_claim,
     frontend::{Circuit, synthesize},
     keys::{KeygenConfigV2, keygen_pk_v2},
     pcs::ipa::PinnedParams,
-    verifier::accumulate_generator,
 };
 use iroha_plonk_gadgets::range::secondary::SecondaryPlan;
 use iroha_plonk_recursion::{
-    AccumulatorT, FoldConfig, FoldInput, create_fold, verifier::CompactSpans,
+    AccumulatorT, FoldConfig, FoldInput, FoldPurpose, FoldTape, verifier::CompactSpans,
 };
 use load_outer::{
     DiagnosticLoadOmega,
@@ -41,17 +40,24 @@ fn wrap(
     catalog: &[VerifyingKey<Eq>],
 ) -> (OmegaCircuit, Vec<Vec<Fq>>, AccumulatorT<Eq>) {
     let params = PinnedParams::<Eq>::derive(16).unwrap();
-    let frame: [Fp; 69] = source.instances.try_into().unwrap();
-    let slots = native::terminal_fold_inputs(&frame, source.opening.clone()).unwrap();
-    let (fold, vesta) = create_fold(
-        &params,
-        &slots,
-        Fq::from(181).to_repr(),
-        &FoldConfig::default(),
-    )
-    .unwrap();
+    let owner = terminal_plan(source, catalog, params.clone());
+    let index = catalog
+        .iter()
+        .position(|key| key.to_bytes() == source.key.to_bytes())
+        .unwrap();
+    let parsed = owner
+        .read(
+            index,
+            &[source.instances.to_vec()],
+            source.proof,
+            &FoldConfig::default(),
+        )
+        .unwrap();
+    let (fold, vesta) = parsed
+        .create(public_fold_tape::<Eq>(), &FoldConfig::default())
+        .unwrap();
     vesta.decide(&params, MemoryBudget::DEFAULT).unwrap();
-    let (x, y) = vesta.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
     let public = vec![
         vec![Fq::from_repr(source.instances[0].to_repr()).unwrap()],
         vec![x, y],
@@ -77,7 +83,9 @@ fn wrap(
             instances: source.instances.to_vec(),
             proof: source.proof.to_vec(),
             length: source.proof.len().try_into().unwrap(),
-            fold: fold.to_bytes(),
+            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                fold.to_private_bytes(),
+            ),
         },
     )
     .unwrap();
@@ -231,7 +239,7 @@ impl Program {
                     public: *source.public,
                     pallas: source.pallas.clone(),
                 },
-                Fq::from(181).to_repr(),
+                public_fold_tape::<Eq>(),
                 MemoryBudget::DEFAULT,
             )
             .unwrap();
@@ -242,26 +250,31 @@ impl Program {
         assert_eq!(output.pallas, *source.pallas);
         assert_eq!(output.vesta, vesta);
         let transport = output.transport();
-        let restored = session
-            .restore_transport(&transport, MemoryBudget::DEFAULT)
-            .unwrap();
-        assert_eq!(restored.transport(), transport);
-        assert_eq!(restored.proof, output.proof);
-        assert_eq!(restored.instances, output.instances);
-        assert_eq!(restored.pallas, output.pallas);
-        assert_eq!(restored.vesta, output.vesta);
-        assert_eq!(restored.opening, output.opening);
+        let proof_bytes = Protocol::new(self.binding.descriptor())
+            .unwrap()
+            .proof_length();
+        assert_eq!(output.proof.len(), proof_bytes);
         assert_eq!(output.proof.len(), 3712);
-        let opened = accumulate_generator(
+        assert_eq!(transport.len(), 4800);
+        let (proof, claims) = transport.split_at(proof_bytes);
+        let (p, v) = claims.split_at(iroha_plonk_recursion::ACCUMULATOR_BYTES);
+        assert_eq!(proof, output.proof);
+        assert_eq!(AccumulatorT::<Ep>::from_bytes(p).unwrap(), *source.pallas);
+        assert_eq!(AccumulatorT::<Eq>::from_bytes(v).unwrap(), output.vesta);
+        assert_eq!(
+            transport.len(),
+            proof_bytes + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
+        );
+        let opened = iroha_plonk::verifier::verify_full_opening_cancellable(
             &params,
             &self.binding,
             &self.key,
             &public,
-            &output.proof,
+            proof,
             MemoryBudget::DEFAULT,
+            None,
         )
         .unwrap();
-        opened.decide(&params, MemoryBudget::DEFAULT).unwrap();
         assert_eq!(opened.g(), output.opening.g());
         assert_eq!(opened.challenges(), output.opening.challenges());
         for (column, row) in [(0, 0), (1, 0), (2, 0)] {
@@ -280,8 +293,10 @@ impl Program {
             );
         }
         eprintln!(
-            "COMPACT_CATALOG_OUTER terminal={label} catalog_size={} actual_proof=3712 transport=4800 native_original_import=true native_transport_restore=true known_unknown_equal=true immutable_key=true decides=2 full_catalog=false release_qualified=false",
-            self.catalog.len()
+            "COMPACT_CATALOG_OUTER terminal={label} catalog_size={} actual_proof={} transport={} native_original_import=true known_unknown_equal=true immutable_key=true decides=2 full_catalog=false release_qualified=false",
+            self.catalog.len(),
+            proof_bytes,
+            transport.len()
         );
         Outer {
             proof: output.proof,
@@ -322,12 +337,8 @@ fn rebuild_bootstrap_load(
     initial_load: &load_chain::AuthenticatedLoad,
     fixture: &LoadFixture,
 ) -> DiagnosticLoadOmega {
-    let source = bootstrap_chain::authenticated_bootstrap_with_profile(
-        false,
-        program.digest(),
-        PROFILE,
-        Some(2),
-    );
+    let source =
+        bootstrap_chain::authenticated_bootstrap_with_profile(false, program.digest(), PROFILE);
     assert_eq!(source.binding, initial_bootstrap.binding);
     assert_eq!(source.key.to_bytes(), initial_bootstrap.key.to_bytes());
     assert_eq!(source.state.lineage[17], program.digest());
@@ -457,7 +468,7 @@ impl BootstrapCatalogSeed {
 }
 
 /// Build a genuine zero-balance receiver under a one-terminal native catalog.
-/// Native original import, exact native transport replay and both decisions are checked.
+/// Native original import, the exact native transport and both decisions are checked.
 pub fn compact_bootstrap_catalog_seed() -> (BootstrapCatalogSeed, Program, RootedBootstrapOmega) {
     let mut receiver = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap_with_identity(
         bootstrap_chain::BootstrapIdentity::Receiver,
@@ -566,7 +577,6 @@ fn rebuild_receiver_bootstrap(
         false,
         program.digest(),
         PROFILE,
-        Some(2),
         bootstrap_chain::BootstrapIdentity::Receiver,
     );
     assert_eq!(&source.binding, expected_binding);
@@ -626,30 +636,92 @@ impl Program {
     }
 }
 
-// Deliberately dishonest PIPA-AS prover, copied in structure from the recursion
-// adversarial test. It satisfies the succinct equation but chooses round points
-// without the generator witness. No production prover calls this helper.
+// Explicit public diagnostic coins. Never used for private production proving.
+fn public_fold_tape<C: PastaCurve>() -> FoldTape<C> {
+    let mut next = 181_u64;
+    FoldTape::try_fill::<core::convert::Infallible>(|word| {
+        *word = C::ScalarExt::from(next);
+        next += 1;
+        Ok(())
+    })
+    .unwrap()
+}
+
+fn terminal_plan(
+    source: Terminal<'_>,
+    catalog: &[VerifyingKey<Eq>],
+    params: PinnedParams<Eq>,
+) -> iroha_plonk_recursion::terminal::TerminalPlan {
+    iroha_plonk_recursion::terminal::TerminalPlan::new(
+        source.binding.encoded(),
+        &catalog
+            .iter()
+            .map(|key| key.to_bytes().to_vec())
+            .collect::<Vec<_>>(),
+        params,
+    )
+    .unwrap()
+}
+
+// A diagnostic reproduction of the exact pipa-tm1 framing. Its raw prefix comes
+// from the actual complete succinct parser. The resulting witness is accepted
+// only through TerminalFrame::verify; this helper grants no production capability.
+fn terminal_digest(
+    params: &PinnedParams<Eq>,
+    descriptor: &[u8; 32],
+    raw: Fq,
+    own: &FoldInput<Eq>,
+    tape: &FoldTape<Eq>,
+) -> Fq {
+    use iroha_pasta::poseidon::Sponge;
+    use iroha_plonk::transcript::pipa_r::scalar_elements;
+    let mut words =
+        iroha_plonk_recursion::accumulation::context(params, FoldPurpose::WrapperVesta, 4).to_vec();
+    words.extend(
+        descriptor
+            .chunks_exact(16)
+            .map(|part| Fq::from_u128(u128::from_le_bytes(part.try_into().unwrap()))),
+    );
+    words.push(raw);
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(own.g());
+    words.extend([x, y, Fq::from(u64::from(own.source_k()))]);
+    for u in own.challenges() {
+        words.extend(scalar_elements::<Eq>(u));
+    }
+    for mask in tape.masks() {
+        words.extend(scalar_elements::<Eq>(mask));
+    }
+    let mut sponge = Sponge::<Fq>::new();
+    sponge.update(&[
+        Fq::from(u64::from_le_bytes(*b"pipa-tm1")),
+        Fq::from(words.len() as u64),
+    ]);
+    sponge.update(&words);
+    sponge.squeeze()
+}
+
+// Dishonest committed-mask prover: D opens to every exact input/mask, L/R include
+// the masks, and gamma is removed exactly. f=1 lets it choose a final G satisfying
+// the succinct equation without knowing the required generator-vector opening.
+// All allocated bytes and coins here are explicitly public adversarial DATA.
 fn forged_fold<C: PastaCurve>(
     params: &PinnedParams<C>,
     inputs: &[FoldInput<C>],
+    purpose: FoldPurpose,
+    digest: impl FnOnce(&FoldTape<C>) -> C::Base,
 ) -> iroha_plonk_recursion::FoldWitness<C> {
     use iroha_plonk::{
         pcs::ipa::fold_evaluation,
         transcript::{BasePoseidonHash, Transcript, TranscriptWrite, TranscriptWriter},
     };
-    let salt = C::Base::from(123);
+    let tape = public_fold_tape::<C>();
+    let [h0, h1] = iroha_plonk_recursion::accumulation::digest_limbs::<C>(digest(&tape));
+    let commitment = C::from(params.params().g()[0]) * h0
+        + C::from(params.params().g()[1]) * h1
+        + C::from(params.params().w()) * *tape.rho();
     let mut t = TranscriptWriter::<C, _>::new(BasePoseidonHash::with_domain(*b"pipa-as1"));
-    t.common_base(&salt).unwrap();
-    t.common_base(&C::Base::from(u64::try_from(inputs.len()).unwrap()))
-        .unwrap();
-    for input in inputs {
-        t.common_point(input.g()).unwrap();
-        t.common_base(&C::Base::from(u64::from(input.source_k())))
-            .unwrap();
-        for challenge in input.challenges() {
-            t.common_scalar(challenge);
-        }
-    }
+    iroha_plonk_recursion::accumulation::prelude(&mut t, params, inputs, purpose).unwrap();
+    t.write_point(&commitment.to_affine()).unwrap();
     let alpha = t.squeeze_challenge();
     let z = t.squeeze_challenge();
     let zeta = t.squeeze_challenge();
@@ -661,19 +733,27 @@ fn forged_fold<C: PastaCurve>(
     }
     equation -= C::from(params.params().g()[0]) * evaluation;
     let mut challenges = [C::ScalarExt::ZERO; iroha_plonk_recursion::K];
-    for challenge in &mut challenges {
-        let left = C::generator().to_affine();
-        let right = (C::generator() * C::ScalarExt::from(2)).to_affine();
+    let mut gamma = C::ScalarExt::ZERO;
+    for (round, challenge) in challenges.iter_mut().enumerate() {
+        let left =
+            (C::generator() + C::from(params.params().w()) * tape.masks()[2 * round]).to_affine();
+        let right = (C::generator() * C::ScalarExt::from(2)
+            + C::from(params.params().w()) * tape.masks()[2 * round + 1])
+            .to_affine();
         t.write_point(&left).unwrap();
         t.write_point(&right).unwrap();
-        *challenge = t.squeeze_challenge();
-        equation =
-            equation + C::from(left) * challenge.invert().unwrap() + C::from(right) * *challenge;
+        *challenge = iroha_plonk::transcript::pipa_r::nonzero_challenge(t.squeeze_challenge());
+        let inverse = challenge.invert().unwrap();
+        gamma += tape.masks()[2 * round] * inverse + tape.masks()[2 * round + 1] * *challenge;
+        equation = equation + C::from(left) * inverse + C::from(right) * *challenge;
     }
     t.write_scalar(&C::ScalarExt::ONE);
+    equation -= C::from(params.params().w()) * gamma;
     equation -= C::from(params.params().u()) * (fold_evaluation(z, &challenges) * zeta);
-    t.append_unabsorbed_point(&equation.to_affine()).unwrap();
-    iroha_plonk_recursion::FoldWitness::new(salt.to_repr(), &t.finish()).unwrap()
+    t.append_unabsorbed_generator(&equation.to_affine());
+    let mut original = t.finish();
+    original.extend_from_slice(&tape.to_private_bytes());
+    iroha_plonk_recursion::FoldWitness::from_private_bytes(&original).unwrap()
 }
 fn deciding_correction<C: PastaCurve>(
     params: &PinnedParams<C>,
@@ -698,13 +778,45 @@ impl Program {
         let vparams = PinnedParams::<Eq>::derive(16).unwrap();
         let frame: [Fp; 69] = source.instances.try_into().unwrap();
         let claims = native::terminal_fold_inputs(&frame, source.opening.clone()).unwrap();
-        let fold = forged_fold(&vparams, &claims);
-        let vesta =
-            iroha_plonk_recursion::verify_fold(&vparams, &claims, &fold, &FoldConfig::default())
-                .unwrap();
+        let owner = terminal_plan(source, &self.catalog, vparams.clone());
+        let index = self
+            .catalog
+            .iter()
+            .position(|key| key.to_bytes() == source.key.to_bytes())
+            .unwrap();
+        let closed = owner
+            .read(
+                index,
+                &[source.instances.to_vec()],
+                source.proof,
+                &FoldConfig::default(),
+            )
+            .unwrap();
+        let parsed = iroha_plonk::verifier::accumulate_frame_cancellable(
+            &vparams,
+            source.binding,
+            source.key,
+            &[source.instances.to_vec()],
+            source.proof,
+            MemoryBudget::DEFAULT,
+            None,
+        )
+        .unwrap();
+        assert_eq!(parsed.own_claim().g(), source.opening.g());
+        assert_eq!(parsed.own_claim().challenges(), source.opening.challenges());
+        let fold = forged_fold(&vparams, &claims, FoldPurpose::WrapperVesta, |tape| {
+            terminal_digest(
+                &vparams,
+                source.binding.digest(),
+                *parsed.first_raw(),
+                source.opening,
+                tape,
+            )
+        });
+        let vesta = closed.verify(&fold, &FoldConfig::default()).unwrap();
         assert!(vesta.decide(&vparams, MemoryBudget::DEFAULT).is_err());
         let corrected = deciding_correction(&vparams, &vesta);
-        let (x, y) = vesta.g().coordinates().unwrap();
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
         let public = vec![
             vec![Fq::from_repr(source.instances[0].to_repr()).unwrap()],
             vec![x, y],
@@ -729,7 +841,9 @@ impl Program {
                 instances: source.instances.to_vec(),
                 length: source.proof.len().try_into().unwrap(),
                 proof: source.proof.to_vec(),
-                fold: fold.to_bytes(),
+                fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+                    fold.to_private_bytes(),
+                ),
             },
         )
         .unwrap()

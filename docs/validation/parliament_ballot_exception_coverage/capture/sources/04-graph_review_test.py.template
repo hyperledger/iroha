@@ -1,0 +1,93 @@
+"""Independent synthetic coverage-graph regressions for the draft exception audit."""
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+HELPER = Path(__file__).resolve().parents[1] / "parliament-exception-coverage-stage/scripts/parliament_ballot_exception_coverage.py"
+SPEC = importlib.util.spec_from_file_location("exception_coverage_reviewed", HELPER)
+AUDIT = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(AUDIT)
+
+
+def test_unreachable_cleanup_seeds_transitively_and_deduplicates():
+    """All pads activate with their reached owner, including a newly reached callee."""
+    instructions = {0x100: ("bl", "0x900"), 0x104: ("ret", ""),
+                    0x110: ("bl", "0x200"), 0x114: ("ret", ""),
+                    0x200: ("ret", ""), 0x208: ("bl", "0x904"), 0x20C: ("ret", "")}
+    functions = {0x100: dict(name="root", end=0x120), 0x200: dict(name="callee", end=0x210)}
+    tables = {0x100: dict(owner_start=0x100, owner_end=0x120,
+                          rows=[dict(landing_pad=0x110), dict(landing_pad=0x110)]),
+              0x200: dict(owner_start=0x200, owner_end=0x210, rows=[dict(landing_pad=0x208)])}
+    stubs = {0x900: "_exit", 0x904: "__Unwind_Resume"}
+    ordinary = AUDIT.coverage_graph(instructions, functions, stubs, tables, [0x100], False)
+    augmented = AUDIT.coverage_graph(instructions, functions, stubs, tables, [0x100], True)
+    assert ordinary["reachable_instructions"] == [0x100, 0x104]
+    assert augmented["reachable_instructions"] == sorted(instructions)
+    assert augmented["landing_pad_seeds"] == [[0x100, 0x110], [0x200, 0x208]]
+    assert augmented["native_symbols"] == {"__Unwind_Resume": 1, "_exit": 1}
+    assert augmented["complete_exception_semantics"] is False
+    assert augmented["landing_pad_register_state_known"] is False
+
+
+@pytest.mark.parametrize("op,operand", [("b.eq", "0x108"), ("cbz", "x1, 0x108"),
+                                       ("tbz", "x2, #3, 0x108")])
+def test_both_branch_arms_and_loops_are_preserved(op, operand):
+    """Condition values are not assumed; revisiting a loop is finite in the analysis."""
+    instructions = {0x100: (op, operand), 0x104: ("b", "0x100"), 0x108: ("ret", "")}
+    result = AUDIT.coverage_graph(instructions, {0x100: dict(name="root", end=0x10C)}, {}, {}, [0x100])
+    assert result["reachable_instructions"] == sorted(instructions)
+    assert result["frontiers"] == []
+
+
+@pytest.mark.parametrize("op,operand,kind,continues", [
+    ("blr", "x8", "indirect_call", True), ("br", "x8", "indirect_branch", False),
+    ("brk", "#1", "trap_or_system_control", True),
+    ("mystery_control", "x8", "unsupported_instruction", True),
+    ("ret", "x8", "unsupported_return", False)])
+def test_opaque_control_is_retained_as_a_frontier(op, operand, kind, continues):
+    """Opaque control never becomes a known native cost or a complete certificate."""
+    instructions = {0x100: (op, operand), 0x104: ("ret", "")}
+    result = AUDIT.coverage_graph(instructions, {0x100: dict(name="root", end=0x108)}, {}, {}, [0x100])
+    assert result["frontier_counts"] == {kind: 1}
+    assert (0x104 in result["reachable_instructions"]) is continues
+
+
+@pytest.mark.parametrize("target,kind", [("0x204", "cross_owner_nonentry"),
+                                       ("0x104", "missing_instruction"),
+                                       ("0x900", "unresolved_target")])
+def test_unknown_destinations_never_disappear(target, kind):
+    """Interior cross-owner transfers and unmapped destinations stay unresolved."""
+    instructions = {0x100: ("b", target), 0x200: ("ret", ""), 0x204: ("ret", "")}
+    functions = {0x100: dict(name="root", end=0x108), 0x200: dict(name="other", end=0x208)}
+    result = AUDIT.coverage_graph(instructions, functions, {}, {}, [0x100])
+    assert result["frontier_counts"] == {kind: 1}
+    assert result["reachable_functions"] == [0x100]
+
+
+def test_explicit_tail_follows_entry_but_adjacent_fallthrough_does_not():
+    """Adjacency is not an implicit cross-function CFG edge."""
+    functions = {0x100: dict(name="root", end=0x104), 0x104: dict(name="next", end=0x108)}
+    tail = AUDIT.coverage_graph({0x100: ("b", "0x104"), 0x104: ("ret", "")}, functions, {}, {}, [0x100])
+    fall = AUDIT.coverage_graph({0x100: ("nop", ""), 0x104: ("ret", "")}, functions, {}, {}, [0x100])
+    assert tail["reachable_functions"] == [0x100, 0x104]
+    assert fall["reachable_functions"] == [0x100]
+    assert fall["frontier_counts"] == {"function_fallthrough": 1}
+
+
+def test_symbol_annotation_does_not_change_control_target():
+    """The retained llvm-objdump input contains symbolic annotations after addresses."""
+    result = AUDIT.coverage_graph({0x100: ("bl", "0x200 <panic::handler+0x0>"),
+                                   0x104: ("ret", ""), 0x200: ("ret", "")},
+                                  {0x100: dict(name="root", end=0x108),
+                                   0x200: dict(name="panic::handler", end=0x204)}, {}, {}, [0x100])
+    assert result["reachable_instructions"] == [0x100, 0x104, 0x200]
+
+
+def test_outside_owner_landing_pad_refuses_before_graph_walk():
+    """A parser-supplied pad must belong to its asserted raw function interval."""
+    table = dict(owner_start=0x100, owner_end=0x108, rows=[dict(landing_pad=0x200)])
+    with pytest.raises(ValueError, match="unmapped landing pad"):
+        AUDIT.coverage_graph({0x100: ("ret", ""), 0x200: ("ret", "")},
+                             {0x100: dict(name="root", end=0x108), 0x200: dict(name="other", end=0x204)},
+                             {}, {0x100: table}, [0x100])

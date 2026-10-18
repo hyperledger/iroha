@@ -1,5 +1,5 @@
 //! Quarantine lane: classification + explicit overflow rejection test.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::items_after_statements)]
 // no nonzero macro used in this file
 use iroha_core::sumeragi::test_chain::{CertifiedTestChain, Signers, TestChainConfig};
@@ -54,7 +54,11 @@ fn quarantine_overflow_rejects_one_tx() {
     // The same original inputs pass native payload execution and three-of-four
     // certification. The fixture does not author transaction results.
     let proposal = chain.proposal(None, vec![tx1, tx2]);
-    let committed = chain.commit_proposal(proposal, Signers::Quorum, Default::default());
+    let committed = chain.commit_proposal(
+        proposal,
+        Signers::Quorum,
+        iroha_sumeragi::types::ControlWitness::default(),
+    );
     let block = committed.block();
     assert_eq!(block.external_transactions().count(), 2);
     // Exactly one approved input and one explicit quarantine overflow remain.

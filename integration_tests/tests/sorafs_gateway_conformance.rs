@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests for the `SoraFS` gateway conformance harness.
 use integration_tests::{
     sorafs_gateway_capability_refusal,

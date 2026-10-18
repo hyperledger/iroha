@@ -21,6 +21,8 @@ import org.hyperledger.iroha.sdk.core.model.FeePaymentIntent;
 import org.hyperledger.iroha.sdk.core.model.InstructionBox;
 import org.hyperledger.iroha.sdk.core.model.JsonValue;
 import org.junit.jupiter.api.Test;
+import org.hyperledger.iroha.sdk.address.AccountAddress;
+import org.hyperledger.iroha.sdk.testing.TestEd25519Keys;
 
 /** Java consumers call the canonical Kotlin owner; these are DATA controls, not money admission. */
 final class CanonicalMultisigJavaConsumerTest {
@@ -31,8 +33,8 @@ final class CanonicalMultisigJavaConsumerTest {
         "iroha.custom", InstructionBatchHashFixture.bytes("custom_instruction_frame_hex")));
   }
 
-  private static MultisigProposeRequest request(byte[] instruction, String publicKey, JsonValue assessment) {
-    return new MultisigProposeRequest(null, "controller@bank", "signer-fixture",
+  private static MultisigProposeRequest request(byte[] instruction, String publicKey, JsonValue assessment) throws Exception {
+    return new MultisigProposeRequest(account(), "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707",
         Collections.singletonList(instruction), publicKey, null, 123L,
         FeePaymentIntent.authority(Collections.emptyList(), 7L), "invoice 42", assessment);
   }
@@ -47,8 +49,10 @@ final class CanonicalMultisigJavaConsumerTest {
     byte[] first = request.canonicalToriiJsonBytes();
     @SuppressWarnings("unchecked")
     Map<String, Object> payload = (Map<String, Object>) JsonParser.parse(new String(first, StandardCharsets.UTF_8));
-    assertEquals("controller@bank", payload.get("multisig_account_alias"));
+    assertEquals(account(), payload.get("multisig_account_id"));
+    assertFalse(payload.containsKey("multisig_account_alias"));
     assertEquals("signer-fixture", payload.get("signer_account_id"));
+    assertEquals("0707070707070707070707070707070707070707070707070707070707070707", payload.get("proposal_nonce"));
     assertEquals(123L, ((Number) payload.get("creation_time_ms")).longValue());
     assertEquals("invoice 42", payload.get("memo"));
     assertEquals(Collections.singletonList(Base64.getEncoder().encodeToString(expected)), payload.get("instructions"));
@@ -97,15 +101,15 @@ final class CanonicalMultisigJavaConsumerTest {
   }
 
   @Test
-  void ambiguousSelectorsAndEmptyInstructionsRefuseAtCanonicalConstructor() throws Exception {
+  void invalidConcreteAccountsAndEmptyInstructionsRefuseAtCanonicalConstructor() throws Exception {
     byte[] instruction = instruction();
     FeePaymentIntent fee = FeePaymentIntent.authority(Collections.emptyList());
     assertThrows(IllegalArgumentException.class, () -> new MultisigProposeRequest(
-        "account-fixture", "controller@bank", "signer-fixture", Collections.singletonList(instruction), null, null, null, fee, null, null));
+        "controller@bank", "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(instruction), null, null, null, fee, null, null));
     assertThrows(IllegalArgumentException.class, () -> new MultisigProposeRequest(
-        null, null, "signer-fixture", Collections.singletonList(instruction), null, null, null, fee, null, null));
+        "", "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(instruction), null, null, null, fee, null, null));
     assertThrows(IllegalArgumentException.class, () -> new MultisigProposeRequest(
-        null, "controller@bank", "signer-fixture", Collections.emptyList(), null, null, null, fee, null, null));
+        account(), "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.emptyList(), null, null, null, fee, null, null));
     assertThrows(IllegalArgumentException.class, () -> request(new byte[0], null, null));
   }
 
@@ -131,7 +135,7 @@ final class CanonicalMultisigJavaConsumerTest {
         "iroha.custom", InstructionBatchHashFixture.bytes("custom_instruction_frame_hex"));
     FeePaymentIntent fee = FeePaymentIntent.authority(Collections.emptyList(), 7L);
     MultisigProposeRequest request = MultisigProposeRequest.fromInstructionBoxes(
-        null, "controller@bank", "signer-fixture", Collections.singletonList(original),
+        account(), "signer-fixture", "0707070707070707070707070707070707070707070707070707070707070707", Collections.singletonList(original),
         null, null, 123L, fee, "invoice 42", null);
     byte[] expected = NoritoJavaCodecAdapter.encodeInstructionBox(original);
     assertArrayEquals(expected, request.getInstructions().get(0));
@@ -149,4 +153,9 @@ final class CanonicalMultisigJavaConsumerTest {
     for (int index = 0; index < count; index++) result.append(value);
     return result.toString();
   }
+  private static String account() throws Exception {
+    return AccountAddress.fromAccount(TestEd25519Keys.publicKey(0x37), "ed25519")
+        .toI105(AccountAddress.DEFAULT_I105_DISCRIMINANT);
+  }
+
 }

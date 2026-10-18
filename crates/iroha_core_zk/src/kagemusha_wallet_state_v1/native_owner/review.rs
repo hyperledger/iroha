@@ -112,6 +112,12 @@ pub struct ReviewedOperationV1 {
     action: OperationActionV1,
     unload_beneficiary: Option<Vec<u8>>,
 }
+// A review must stay `Send`, so it can never retain a call-scoped, `!Send` native
+// derivation (`NativePreparedOperationV1`), independently of any mobile boundary bound.
+const _: () = {
+    const fn send<T: Send>() {}
+    send::<ReviewedOperationV1>();
+};
 impl ReviewedOperationV1 {
     /// Borrow the immutable financial DATA for hardware UI approval.
     #[must_use]
@@ -267,6 +273,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             manifest.issued_requests,
             manifest.direct_anchors,
             manifest.finality_epochs,
+            manifest.blacklist.clone(),
         )?;
         let credential = custody
             .original(PreparationOriginalV1::CurrentCredential)?
@@ -291,17 +298,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             charge_quote_digest,
         ) = match &action {
             OperationActionV1::Send { request } => {
-                let blacklist = if before.enforces_blacklist() {
-                    let original = custody
-                        .original(PreparationOriginalV1::Blacklist)?
-                        .ok_or(Error::WitnessLost("review blacklist"))?;
-                    Some(read_model_original(
-                        || KagemushaWalletBlacklistV1::decode_canonical(&original, &self.scheme_id),
-                        Error::Invalid("G1 validation"),
-                    )?)
-                } else {
-                    None
-                };
+                // A listed receiver is refused here, before the user is asked to confirm.
+                let blacklist = custody.local_blacklist()?;
                 let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
                     let original = custody
                         .original(PreparationOriginalV1::QuotaShare)?
@@ -409,8 +407,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             payment_key: owner.credential().body.payment_key,
             artifact_manifest_digest: self.proofs.installed.verifier().manifest_digest(),
         };
-        // Release the single archive borrow before checking actual selection again.
-        drop(custody);
+        // Preparation reads are complete before checking actual selection again.
         let (current_selected, current) = self.sync_manifest()?;
         if current_selected != selected
             || current.capsule != released.retained.capsule_digest
@@ -428,6 +425,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 
     /// Authenticate an exact signed Request against the current folded payer and all controls.
     /// No nonce, map insertion, proof, hardware signature or Advance is produced.
+    /// A running local fold continues; an uncovered current head returns `FoldRequired`.
     /// # Errors
     /// Invalid/foreign Request, missing or changed source/fold/originals, failed controls or unavailable storage/observations.
     pub fn review_send(
@@ -435,7 +433,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         request_original: &[u8],
         destination_account_original: &[u8],
     ) -> Result<ReviewedOperationV1, Error> {
-        let _payment = self.scheduler.payment();
         if request_original.is_empty()
             || request_original.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
             || destination_account_original.is_empty()
@@ -455,6 +452,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     /// Authenticate current folded Unload amount/destination and optional signed charge.
     /// The fee is withheld from the ledger payout; the offline debit remains the face amount.
     /// No nonce, map insertion, proof, signature or Advance is produced.
+    /// A running local fold continues; execution alone takes payment priority and rechecks
+    /// the review's source after hardware approval.
     /// # Errors
     /// Unavailable or changed source, missing fold, invalid amount or foreign/malformed
     /// quote/certificates/beneficiary. Charged reviews require the exact canonical beneficiary.
@@ -464,7 +463,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         charge: Option<ChargeOriginalsV1>,
         beneficiary_original: Option<&[u8]>,
     ) -> Result<ReviewedOperationV1, Error> {
-        let _payment = self.scheduler.payment();
         self.review_action(
             OperationActionV1::Unload { amount, charge },
             None,

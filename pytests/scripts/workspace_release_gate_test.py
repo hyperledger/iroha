@@ -1377,6 +1377,18 @@ def test_release_gate_selects_every_basic_census_test_except_the_four_peer_fixtu
      "src/query/native_receipts/lane_payload/tests.rs", "query::native_receipts::lane_payload::tests"),
     ("iroha_core", "src/query/native_receipts/ordinary_writes.rs", "tests",
      "src/query/native_receipts/ordinary_writes/tests.rs", "query::native_receipts::ordinary_writes::tests"),
+    ("iroha_core", "src/validation_fee.rs", "policy_history",
+     "src/validation_fee/policy_history.rs", "validation_fee::policy_history::tests"),
+    ("iroha_core", "src/lib.rs", "retail_fee_tests",
+     "src/retail_fee_tests.rs", "retail_fee_tests"),
+    ("iroha_core", "src/retail_fee/native_maintenance.rs", "tests",
+     "src/retail_fee/native_maintenance_tests.rs", "retail_fee::native_maintenance::tests"),
+    ("iroha_core", "src/fastpq/source_reservation/admission.rs", "tests",
+     "src/fastpq/source_reservation/admission/tests.rs", "fastpq::source_reservation::admission::tests"),
+    ("iroha_core", "src/sns.rs", "native_maintenance_tests",
+     "src/sns/native_maintenance_tests.rs", "sns::native_maintenance_tests"),
+    ("iroha_core", "src/smartcontracts/isi/sns.rs", "rekey_auto_renew_tests",
+     "src/smartcontracts/isi/sns/rekey_auto_renew_tests.rs", "smartcontracts::isi::sns::rekey_auto_renew_tests"),
     ("iroha_torii", "src/finality_interval.rs", "tests",
      "src/finality_interval/tests.rs", "finality_interval::tests"),
     ("iroha_torii", "src/lib.rs", "history_producer",
@@ -1389,7 +1401,7 @@ def test_release_gate_selects_every_basic_census_test_except_the_four_peer_fixtu
 def test_release_gate_selects_current_amx_load_and_identity_owner_controls(
     package: str, parent: str, module: str, source: str, prefix: str
 ) -> None:
-    """Select current AMX, archive, finality transport and identity owners, including async tests."""
+    """Select current AMX, finality, identity and fee maintenance owners, including async tests."""
 
     directory = _workspace_packages()[package]
     assert re.search(rf"\bmod\s+{re.escape(module)}\s*[;{{]",

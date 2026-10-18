@@ -111,7 +111,7 @@ def test_repo_agreement_readback_rejects_noncanonical_quantities(quantity: objec
                 "maturity_timestamp_ms": 2_000,
                 "initiated_timestamp_ms": 1_000,
                 "last_margin_check_timestamp_ms": 1_000,
-                "governance": {"haircut_bps": 500, "margin_frequency_secs": 3600},
+                "governance": {"haircut_bps": 500, "margin_frequency_secs": 3600, "allow_early_repayment": False},
                 "settlement_timestamp_ms": None,
                 "status": "active",
             }
@@ -136,7 +136,7 @@ def test_repo_agreement_readback_requires_quantity_fields() -> None:
         "maturity_timestamp_ms": 2_000,
         "initiated_timestamp_ms": 1_000,
         "last_margin_check_timestamp_ms": 1_000,
-        "governance": {"haircut_bps": 500, "margin_frequency_secs": 3600},
+        "governance": {"haircut_bps": 500, "margin_frequency_secs": 3600, "allow_early_repayment": False},
         "settlement_timestamp_ms": None,
         "status": "active",
     }

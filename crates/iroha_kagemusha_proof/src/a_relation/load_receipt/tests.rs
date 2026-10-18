@@ -1,5 +1,8 @@
 //! Receipt tape parity, malformed terms and advice-cell tampering.
 
+#[path = "../../../../iroha_data_model/src/kagemusha/kagemusha_wallet_v1/test_fixture_cohort.rs"]
+mod test_fixture_cohort;
+
 use super::*;
 use iroha_plonk::{
     check::{CheckMode, check_circuit},
@@ -243,6 +246,21 @@ fn malformed_terms_reject_even_with_recomputed_digest_and_public_fields() {
 }
 
 #[test]
+fn payer_identity_must_be_nonzero_even_with_recomputed_digest() {
+    let mut bytes = sample();
+    bytes[250..282].fill(0);
+    assert!(!valid(&bytes, &public(&bytes)));
+
+    // Either bounded half suffices; this is a nonzero identity, not two
+    // independently nonzero limbs.
+    for offset in [250, 266] {
+        let mut nonzero = bytes.clone();
+        nonzero[offset] = 1;
+        assert!(valid(&nonzero, &public(&nonzero)));
+    }
+}
+
+#[test]
 fn every_receipt_advice_cell_is_constrained() {
     let bytes = sample();
     let circuit = ReceiptCircuit {
@@ -258,8 +276,7 @@ fn every_receipt_advice_cell_is_constrained() {
 
 #[test]
 fn native_model_receipt_fixture_matches_the_circuit() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/kagemusha/ordinary_load_receipt_v1.json");
+    let path = test_fixture_cohort::path("fixtures/kagemusha/ordinary_load_receipt_v1.json");
     let text = std::fs::read_to_string(path).expect("native-generated receipt fixture");
     let fixture: norito::json::Value = norito::json::from_str(&text).unwrap();
     let decode = |name: &str| {

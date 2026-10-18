@@ -109,6 +109,12 @@ where
     pub fn new() -> Self {
         Self::with_domain(*b"pipa-rb1")
     }
+    /// Squeezes the raw base-field value before the scalar challenge map.
+    /// Protocol owners must retain this from the same admitted verification;
+    /// an arbitrary caller-provided raw value carries no verification authority.
+    pub(crate) fn squeeze_raw(&mut self) -> C::Base {
+        self.sponge.squeeze()
+    }
     /// A base-field transcript with an explicit eight-byte protocol domain.
     #[must_use]
     pub fn with_domain(domain: [u8; 8]) -> Self {
@@ -125,6 +131,31 @@ where
 #[must_use]
 pub fn challenge_from_base<C: PastaCurve>(value: &C::Base) -> C::ScalarExt {
     C::ScalarExt::from_raw_reduced(value.to_canonical_limbs())
+}
+
+/// Total first-release evaluation challenge, after transcript field conversion.
+/// Five is nonsquare in both admitted Pasta fields; the result is nonzero and
+/// nonsquare, hence outside every supported power-of-two evaluation domain.
+#[must_use]
+pub fn evaluation_challenge<F: PastaField>(raw: F) -> F {
+    let nonzero = nonzero_challenge(raw);
+    F::from(5) * nonzero.square()
+}
+
+/// Total first-release multiopening challenge, after transcript field conversion.
+/// The result is a square but not a fourth power. Supported domain rotations
+/// are fourth powers, so this differs from every rotated evaluation challenge.
+#[must_use]
+pub fn multiopening_challenge<F: PastaField>(raw: F) -> F {
+    let nonzero = nonzero_challenge(raw);
+    F::from(25) * nonzero.square().square()
+}
+
+/// Total nonzero challenge for IPA masking and actual IPA/accumulation rounds.
+/// This does not apply to normalization padding, which remains exactly zero.
+#[must_use]
+pub fn nonzero_challenge<F: PastaField>(raw: F) -> F {
+    F::conditional_select(&raw, &F::ONE, raw.is_zero())
 }
 
 /// The injective scalar encoding in the base field: one element for Vesta,
@@ -164,7 +195,7 @@ where
         Ok(())
     }
     fn squeeze(&mut self) -> C::ScalarExt {
-        challenge_from_base::<C>(&self.sponge.squeeze())
+        challenge_from_base::<C>(&self.squeeze_raw())
     }
 }
 

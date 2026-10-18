@@ -1,0 +1,119 @@
+"""Joint controller wiring with explicit same-F calls; synthetic generation only."""
+from collections import Counter
+from dataclasses import replace
+from pathlib import Path
+import hashlib,random,sys
+
+import pytest
+
+STAGE=Path(__file__).resolve().parents[1]/'parliament-ideal-machine-stage'
+sys.path.insert(0,str(STAGE))
+from bit_ir import Builder,Cost,bits,unpack
+from hash_machine import prefix_query
+from stage_plan import CleanMap,Invocation,RetainedPlan
+from public_machine import PublicShape
+from request_generator import Generator
+from request_transition import RequestTransition
+from content_request import ContentRequest
+from write_machine import Frame,ProgrammedWrites
+from return_machine import ReturnProjection
+
+
+def fixture():
+    names=(('mu',8),('primary_challenges',512),('counter',32),('primary_flags',2),
+           ('challenge_2',8),('exhausted',1),('namespace_digest',8),('challenge',8),('challenge_1',8))
+    cursor=0;positions={}
+    for name,width in names:positions[name]=(cursor,width);cursor+=width
+    original=Builder(cursor);outputs=list(range(cursor));outputs[0]=original.bit('not',0)
+    # The test primitive restricts one source-padded F at final domain0. It is
+    # a genuine two-query clean prefix adapter, not a direct Python lookup gate.
+    def oracle_stage():
+        query=tuple(range(8))+tuple(range(8,16))  # eight clean zero domain bits
+        yield from prefix_query(query,tuple(range(2128,2136)),tuple(range(16,2128)))
+    oracle=CleanMap(8,8,2120,Cost(cx=8,base_calls=2),oracle_stage)
+    validation=Builder(60)
+    plan=RetainedPlan((('provided_validation',60),('material',cursor)),(
+        Invocation('P0',CleanMap.block(validation.finish(tuple(range(60)))),(('provided_validation',0,60),)),
+        Invocation('ordinary_read',oracle,(('material',positions['namespace_digest'][0],8),)),
+        Invocation('derived',CleanMap.block(original.finish(tuple(outputs))),(('material',0,cursor),))))
+    fields=tuple((name,('ordinary_read',0,8) if name=='namespace_digest' else ('derived',off,width))
+                 for name,(off,width) in positions.items())
+    fields+=(('public_validation',('P0',0,60)),('public_valid',('P0',0,1)))
+    g=Generator(plan,fields,PublicShape('VOTE',list_count=3),2,cursor)
+    frames=(Frame(b'Q',(('mu',1),('namespace_digest',1)),9,1),
+            Frame(b'Q',(('challenge_1',1),('namespace_digest',1)),10,1),
+            Frame(b'Q',(('namespace_digest',1),('challenge_2',1),('counter_u32_le',4)),11,32))
+    w=ProgrammedWrites(frames,2,6,4,8,32)
+    e=ReturnProjection((('counter',4),('challenge',1)),('challenge','counter'),last_counter=65535)
+    return ContentRequest(RequestTransition(g,w,e)),positions
+
+
+def run(state,gates):
+    calls=[];counts=Counter()
+    for opcode,*wires in gates:
+        counts[opcode]+=1
+        if opcode.startswith('F:'):
+            n=int(opcode[2:]);assert len(wires)==8*n+2112
+            message=bytes(sum(state[wires[8*i+j]]<<j for j in range(8)) for i in range(n))
+            assert message[-1]==0
+            value=int.from_bytes(hashlib.shake_256(b'JOINT CONTENT'+message).digest(128),'little')
+            calls.append(message)
+            for i,wire in enumerate(wires[8*n:]):state[wire]^=(value>>i)&1
+        else:
+            assert len(wires)=={'x':1,'cx':2,'ccx':3}[opcode] and len(set(wires))==len(wires)
+            assert all(type(w) is int and 0<=w<len(state) for w in wires)
+            bit=1
+            for w in wires[:-1]:bit&=state[w]
+            state[wires[-1]]^=bit
+    return calls,counts
+
+
+@pytest.mark.parametrize('valid,exhausted,previous',[(0,0,0),(0,1,6),(1,0,0),(1,1,2)])
+def test_joint_rejection_or_proof_and_oracle_uncompute_with_true_log_inverse(valid,exhausted,previous):
+    c,fields=fixture();p=c.layout();rng=random.Random(529)
+    state=[rng.randrange(2) for _ in range(p['original_input_bits'])]+[0]*(p['size']-p['original_input_bits'])
+    payload=bits(4,3)+bits(0,16)+bits(3,16)+bits(65535,16)+bits(0,8)
+    state[:60]=[valid]+([0]*59 if valid else list(payload))
+    def original(name):off,n=fields[name];return 60+off,n
+    start,n=original('exhausted');state[start]=exhausted
+    start,n=original('primary_flags');state[start:start+n]=[1,exhausted] if valid else [0,1]
+    width=1+c.writes.append().record_bits
+    for i in range(previous):
+        start=p['log']+i*width;state[start:start+width]=[1]+[rng.randrange(2) for _ in range(width-1)]
+    state[p['counter']:p['output']]=bits(previous,p['counter_bits'])
+    target=[rng.randrange(2) for _ in range(p['output_bits'])]
+    state[p['output']:p['retained']]=target;state+=[1,1,0,1];before=state[:]
+    calls,counts=run(state,c.emit())
+    assert len(calls)==4 and len(set(calls))==1
+    assert state[:p['log']]==before[:p['log']] and state[-4:]==before[-4:]
+    assert not any(state[p['retained']:-4])
+    result=[a^b for a,b in zip(state[p['output']:p['retained']],target)]
+    if not valid:
+        assert result==list(bits(2,2)+payload)+( [0]*(32+64+40))
+        assert state[p['log']:p['output']]==before[p['log']:p['output']]
+    else:
+        assert unpack(result[:2])==exhausted and not any(result[2:61])
+        assert unpack(result[61:93])==65535*exhausted
+        assert unpack(result[93:157])==5*(1-exhausted)
+        proof=[]
+        for name in ('counter','challenge'):
+            start,n=original(name);proof.extend(before[start:start+n])
+        assert result[157:]==[x*(1-exhausted) for x in proof]
+        assert unpack(state[p['counter']:p['output']])==previous+3+exhausted
+        assert state[p['log']:p['log']+previous*width]==before[p['log']:p['log']+previous*width]
+    cost=c.resources()['gates']
+    assert all(counts[k]==cost[k] for k in ('x','cx','ccx'))
+    assert counts['F:2']==cost['base_xor_oracle_calls']==4
+    inverse_calls,_=run(state,c.emit(inverse=True));assert inverse_calls==calls and state==before
+
+
+def test_aliased_p0_source_and_missing_uncompute_mutations_are_detected():
+    c,_=fixture()
+    fields=tuple((name,('derived',0,60)) if name=='public_validation' else
+                 (name,('derived',0,1)) if name=='public_valid' else (name,piece)
+                 for name,piece in c.generator.fields)
+    with pytest.raises(ValueError):ContentRequest(replace(c.base,generator=replace(c.generator,fields=fields)))
+    p=c.layout();state=[0]*p['size'];state[0]=0;state[1]=1;state[59]=1
+    gates=list(c.emit());gates.pop()
+    run(state,gates)
+    assert any(state[p['retained']:])

@@ -400,8 +400,8 @@ fn verify_with_transcript_core_v1(
         multipliers,
     )
     .map_err(PresentationProofErrorV1::Toolbox)?;
-    let recovered_w1 = recover_gamma_high(&matrices, &z1, &z21, &t_a1, challenge, &hint)?;
-    validate_compressed_response_bound(&matrices, &z1, &z21, &t_a1, challenge, &recovered_w1)?;
+    let recovered_w1 = recover_gamma_high(&matrices, &z1, &z21, &t_a1, &challenge, &hint)?;
+    validate_compressed_response_bound(&matrices, &z1, &z21, &t_a1, &challenge, &recovered_w1)?;
     let b_z21 = matrix_vector_product_v1(&matrices.b_prime, z21.as_ref())
         .map_err(PresentationProofErrorV1::Toolbox)?;
     let variables = QuadraticVariablesV1 {
@@ -427,12 +427,12 @@ fn verify_with_transcript_core_v1(
             .evaluate(&variables.negate())
             .map_err(PresentationProofErrorV1::Toolbox)?,
     ];
-    let (linear_z, q2_z) = decompose_signed_quadratic_evaluations(q0, q_z, q_negative_z)?;
+    let (linear_z, q2_z) = decompose_signed_quadratic_evaluations(&q0, &q_z, &q_negative_z)?;
     let recovered_v = q2_z
         .add(challenge.multiply(linear_z))
         .add(challenge.multiply(challenge).multiply(q0))
         .sub(f);
-    let pre_challenge = pre_challenge_wire(&t_b, &h, &t_a1, &z3, &z4, &recovered_w1, recovered_v)?;
+    let pre_challenge = pre_challenge_wire(&t_b, &h, &t_a1, &z3, &z4, &recovered_w1, &recovered_v)?;
     let expected = transcript
         .derive_final_challenge(&pre_challenge)
         .map_err(|error| PresentationProofErrorV1::Toolbox(ToolboxErrorV1::Transcript(error)))?;
@@ -475,7 +475,7 @@ fn prove_attempt(
         )
         .map_err(PresentationProofErrorV1::Toolbox)?,
     );
-    let weights = derive_schwartz_weights(transcript, &*t_b)?;
+    let weights = derive_schwartz_weights(transcript, &t_b)?;
     let variables = QuadraticVariablesV1 {
         short: short
             .polynomials()
@@ -508,7 +508,7 @@ fn prove_attempt(
     });
     require_schwartz_commitment_shape(&h)?;
     let multipliers =
-        derive_equation_multipliers(transcript, &*t_b, &h, &z3.polynomials, &z4.polynomials)?;
+        derive_equation_multipliers(transcript, &t_b, &h, &z3.polynomials, &z4.polynomials)?;
     equation.bind_final_equations(h.clone(), multipliers);
     // These two values are invariant across every response-mask retry.  In
     // particular, checking Q(secret) here preserves the witness soundness
@@ -543,10 +543,10 @@ fn prove_attempt(
         let (t_candidate, v) = quadratic_linearization(
             &equation,
             &variables,
-            q0,
-            *q_secret,
+            &q0,
+            &q_secret,
             matrices,
-            *b_s21_linearization,
+            &b_s21_linearization,
             &y1.polynomials,
             array_prefix::<S21_POLYNOMIALS_V1, TBOX_M2_V1>(&y2.polynomials),
         )?;
@@ -559,7 +559,7 @@ fn prove_attempt(
             array_suffix::<TBOX_KMSIS_V1, TBOX_M2_V1>(&y2.polynomials),
         )?;
         let pre_challenge =
-            pre_challenge_wire(&*t_b, &h, &t_a1, &z3.polynomials, &z4.polynomials, &w1, v)?;
+            pre_challenge_wire(&t_b, &h, &t_a1, &z3.polynomials, &z4.polynomials, &w1, &v)?;
         let challenge = transcript
             .derive_final_challenge(&pre_challenge)
             .map_err(|error| {
@@ -567,11 +567,11 @@ fn prove_attempt(
             })?;
         let c_short = SecretPolynomialVectorV1::from_polynomials(multiply_vector_by_polynomial(
             short.polynomials(),
-            challenge,
+            &challenge,
         ));
         let c_s2 = SecretPolynomialVectorV1::from_polynomials(multiply_vector_by_polynomial(
             &s2.polynomials,
-            challenge,
+            &challenge,
         ));
         let z1 = SecretPolynomialVectorV1::from_polynomials(add_arrays(
             &y1.polynomials,
@@ -605,7 +605,7 @@ fn prove_attempt(
         }
         let c_t_a2 = SecretPolynomialVectorV1::from_polynomials(multiply_vector_by_polynomial(
             &t_a2.polynomials,
-            challenge,
+            &challenge,
         ));
         for index in 0..TBOX_KMSIS_V1 {
             let response_index = S21_POLYNOMIALS_V1 + index;
@@ -624,10 +624,10 @@ fn prove_attempt(
             array_suffix::<TBOX_KMSIS_V1, TBOX_M2_V1>(&z2.polynomials),
         )?;
         let proof = construct_proof(
-            &*t_b,
+            &t_b,
             &h,
             &t_a1,
-            challenge,
+            &challenge,
             &hint,
             &z1.polynomials,
             array_prefix::<S21_POLYNOMIALS_V1, TBOX_M2_V1>(&z2.polynomials),
@@ -650,7 +650,7 @@ fn prove_projected_responses(
     randomness: &mut ProofRandomnessV1,
     rejection_budget: &mut ProofRejectionBudgetV1,
 ) -> Result<Option<ProjectionProofV1>, PresentationProofErrorV1> {
-    let s3 = Zeroizing::new(projected_norm_witness_v1(short));
+    let s3 = projected_norm_witness_v1(short);
     let s4 = Zeroizing::new(
         application_quotient_v1(relation, short).map_err(PresentationProofErrorV1::Toolbox)?,
     );
@@ -666,7 +666,7 @@ fn prove_projected_responses(
     }) {
         return Err(PresentationProofErrorV1::ApplicationQuotientBoundExceeded);
     }
-    let s3_coefficients = Zeroizing::new(centered_vector(s3.as_ref()));
+    let s3_coefficients = Zeroizing::new(centered_vector(s3.polynomials()));
     let s4_coefficients = Zeroizing::new(centered_vector(s4.as_ref()));
     for _ in 0..MAX_PROJECTION_SAMPLING_ATTEMPTS_PER_PROVE_ATTEMPT_V1 {
         if !rejection_budget.reserve(ProofRejectionStageV1::Projection) {
@@ -882,10 +882,10 @@ fn commit_short_witness(
 fn quadratic_linearization(
     equation: &QuadraticEquationV1<'_>,
     secret: &QuadraticVariablesV1,
-    q0: ProofPolynomialV1,
-    q_secret: ProofPolynomialV1,
+    q0: &ProofPolynomialV1,
+    q_secret: &ProofPolynomialV1,
     matrices: &InternalMatricesV1,
-    b_s21_linearization: ProofPolynomialV1,
+    b_s21_linearization: &ProofPolynomialV1,
     y1: &[ProofPolynomialV1; TBOX_M1_V1],
     y21: &[ProofPolynomialV1; S21_POLYNOMIALS_V1],
 ) -> Result<(ProofPolynomialV1, ProofPolynomialV1), PresentationProofErrorV1> {
@@ -911,16 +911,16 @@ fn quadratic_linearization(
     Ok((t, v))
 }
 fn decompose_signed_quadratic_evaluations(
-    q0: ProofPolynomialV1,
-    q_positive: ProofPolynomialV1,
-    q_negative: ProofPolynomialV1,
+    q0: &ProofPolynomialV1,
+    q_positive: &ProofPolynomialV1,
+    q_negative: &ProofPolynomialV1,
 ) -> Result<(ProofPolynomialV1, ProofPolynomialV1), PresentationProofErrorV1> {
     let linear = q_positive
-        .sub(q_negative)
+        .sub(*q_negative)
         .scale_canonical(PROOF_INVERSE_TWO_V1)
         .map_err(|_| PresentationProofErrorV1::InternalInvariant)?;
     let quadratic = q_positive
-        .add(q_negative)
+        .add(*q_negative)
         .sub(q0.scale_centered(2))
         .scale_canonical(PROOF_INVERSE_TWO_V1)
         .map_err(|_| PresentationProofErrorV1::InternalInvariant)?;
@@ -929,8 +929,8 @@ fn decompose_signed_quadratic_evaluations(
 fn decompose_mask_quadratic_evaluations(
     secret: &QuadraticVariablesV1,
     mask: &QuadraticVariablesV1,
-    q0: ProofPolynomialV1,
-    q_secret: ProofPolynomialV1,
+    q0: &ProofPolynomialV1,
+    q_secret: &ProofPolynomialV1,
     mut evaluate: impl FnMut(
         &QuadraticVariablesV1,
     ) -> Result<ProofPolynomialV1, PresentationProofErrorV1>,
@@ -940,9 +940,9 @@ fn decompose_mask_quadratic_evaluations(
     let q_mask = Zeroizing::new(evaluate(mask)?);
     let q_negative_mask = Zeroizing::new(evaluate(&mask.negate())?);
     let q_sum = Zeroizing::new(evaluate(&secret.add(mask))?);
-    let bilinear = (*q_sum).sub(q_secret).sub(*q_mask).add(q0);
+    let bilinear = (*q_sum).sub(*q_secret).sub(*q_mask).add(*q0);
     let (linear, quadratic) =
-        decompose_signed_quadratic_evaluations(q0, *q_mask, *q_negative_mask)?;
+        decompose_signed_quadratic_evaluations(q0, &q_mask, &q_negative_mask)?;
     Ok((bilinear, linear, quadratic))
 }
 fn decompose_mask_commitment(
@@ -1014,7 +1014,7 @@ fn recover_gamma_high(
     z1: &[ProofPolynomialV1; Z1_POLYNOMIALS_V1],
     z21: &[ProofPolynomialV1; Z21_POLYNOMIALS_V1],
     t_a1: &[ProofPolynomialV1; T_A1_POLYNOMIALS_V1],
-    challenge: ProofPolynomialV1,
+    challenge: &ProofPolynomialV1,
     hint: &[ProofPolynomialV1; HINT_POLYNOMIALS_V1],
 ) -> Result<[ProofPolynomialV1; TBOX_KMSIS_V1], PresentationProofErrorV1> {
     let tmp1 = compressed_response_residue(matrices, z1, z21, t_a1, challenge)?;
@@ -1036,7 +1036,7 @@ fn compressed_response_residue(
     z1: &[ProofPolynomialV1; Z1_POLYNOMIALS_V1],
     z21: &[ProofPolynomialV1; Z21_POLYNOMIALS_V1],
     t_a1: &[ProofPolynomialV1; T_A1_POLYNOMIALS_V1],
-    challenge: ProofPolynomialV1,
+    challenge: &ProofPolynomialV1,
 ) -> Result<[ProofPolynomialV1; TBOX_KMSIS_V1], PresentationProofErrorV1> {
     let a1_z1 =
         matrix_vector_product_v1(&matrices.a1, z1).map_err(PresentationProofErrorV1::Toolbox)?;
@@ -1054,7 +1054,7 @@ fn validate_compressed_response_bound(
     z1: &[ProofPolynomialV1; Z1_POLYNOMIALS_V1],
     z21: &[ProofPolynomialV1; Z21_POLYNOMIALS_V1],
     t_a1: &[ProofPolynomialV1; T_A1_POLYNOMIALS_V1],
-    challenge: ProofPolynomialV1,
+    challenge: &ProofPolynomialV1,
     recovered_w1: &[ProofPolynomialV1; TBOX_KMSIS_V1],
 ) -> Result<(), PresentationProofErrorV1> {
     let tmp1 = compressed_response_residue(matrices, z1, z21, t_a1, challenge)?;
@@ -1078,7 +1078,7 @@ fn construct_proof(
     t_b: &[ProofPolynomialV1; T_B_POLYNOMIALS_V1],
     h: &[ProofPolynomialV1; H_POLYNOMIALS_V1],
     t_a1: &[ProofPolynomialV1; T_A1_POLYNOMIALS_V1],
-    challenge: ProofPolynomialV1,
+    challenge: &ProofPolynomialV1,
     hint: &[ProofPolynomialV1; HINT_POLYNOMIALS_V1],
     z1: &[ProofPolynomialV1; Z1_POLYNOMIALS_V1],
     z21: &[ProofPolynomialV1; Z21_POLYNOMIALS_V1],
@@ -1090,7 +1090,7 @@ fn construct_proof(
         t_b.as_slice(),
         h.as_slice(),
         t_a1.as_slice(),
-        core::slice::from_ref(&challenge),
+        core::slice::from_ref(challenge),
         hint.as_slice(),
         z1.as_slice(),
         z21.as_slice(),
@@ -1112,7 +1112,7 @@ fn pre_challenge_wire(
     z3: &[ProofPolynomialV1; Z3_POLYNOMIALS_V1],
     z4: &[ProofPolynomialV1; Z4_POLYNOMIALS_V1],
     w1: &[ProofPolynomialV1; TBOX_KMSIS_V1],
-    v: ProofPolynomialV1,
+    v: &ProofPolynomialV1,
 ) -> Result<Vec<u8>, PresentationProofErrorV1> {
     let mut output = Vec::new();
     for (tag, section) in [
@@ -1122,7 +1122,7 @@ fn pre_challenge_wire(
         (4, z3.as_slice()),
         (5, z4.as_slice()),
         (6, w1.as_slice()),
-        (7, core::slice::from_ref(&v)),
+        (7, core::slice::from_ref(v)),
     ] {
         let encoded = encode_polynomials_v1(section);
         output.push(tag);
@@ -1241,7 +1241,7 @@ fn polynomials_from_centered_projection(
 }
 fn multiply_vector_by_polynomial<const N: usize>(
     vector: &[ProofPolynomialV1; N],
-    scalar: ProofPolynomialV1,
+    scalar: &ProofPolynomialV1,
 ) -> Box<[ProofPolynomialV1; N]> {
     boxed_polynomial_array_from_fn_v1(|index| scalar.multiply(vector[index]))
 }
@@ -1763,9 +1763,10 @@ fn bootle_lantern_statement_matches_policy_v1(
     statement: &IrohaBootleLanternAnoncredStatementV1,
     policy: &BootleLanternIssuerPolicyV1,
 ) -> bool {
+    let authoritative_issuer_epoch = policy.epoch;
     statement.issuer_id == policy.issuer_id
         && statement.policy_id == policy.policy_id
-        && statement.issuer_policy_epoch == policy.epoch
+        && statement.issuer_policy_epoch == authoritative_issuer_epoch
         && statement.issuer_policy_record_digest == policy.record_digest
         && statement.issuer_parameter_id == policy.issuer_parameter_id
         && statement.issuer_parameter_digest == policy.issuer_parameter_digest
@@ -2083,7 +2084,7 @@ fn finalize_bootle_lantern_prepared_presentation_privacy_action_v1(
         &prepared.issuer_policy,
         prepared.integrity(),
     )
-    .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+    .map_err(|()| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     Ok(prepared)
 }
 #[cfg(test)]
@@ -2167,7 +2168,7 @@ pub fn sign_prepared_bootle_lantern_presentation_privacy_action_v1(
         &prepared.issuer_policy,
         integrity,
     )
-    .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+    .map_err(|()| BootleLanternPresentationPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     let BootleLanternPreparedPresentationPrivacyActionV1 {
         payload,
         issuer_policy,
@@ -2196,7 +2197,7 @@ pub fn sign_prepared_bootle_lantern_presentation_privacy_action_v1(
         &issuer_policy,
         integrity,
     )
-    .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
+    .map_err(|()| BootleLanternPresentationPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
     let transaction_hash = *signed_transaction.hash().as_ref();
     let adaptive_signed_transaction_bytes =
         u32::try_from(norito::codec::encode_adaptive(&signed_transaction).len()).map_err(|_| {
@@ -3049,12 +3050,12 @@ mod tests {
         );
     }
     fn quadratic_test_variables(
-        x: ProofPolynomialV1,
-        y: ProofPolynomialV1,
+        x: &ProofPolynomialV1,
+        y: &ProofPolynomialV1,
     ) -> QuadraticVariablesV1 {
         let mut variables = QuadraticVariablesV1::zero();
-        variables.short[0] = x;
-        variables.message[0] = y;
+        variables.short[0] = *x;
+        variables.message[0] = *y;
         variables
     }
     fn quadratic_test_map(variables: &QuadraticVariablesV1) -> ProofPolynomialV1 {
@@ -3159,7 +3160,7 @@ mod tests {
     }
     fn scale_quadratic_variables(
         variables: &QuadraticVariablesV1,
-        scalar: ProofPolynomialV1,
+        scalar: &ProofPolynomialV1,
     ) -> QuadraticVariablesV1 {
         QuadraticVariablesV1 {
             short: boxed_polynomial_array_from_fn_v1(|index| {
@@ -3181,7 +3182,7 @@ mod tests {
         let negative = equation
             .evaluate(&variables.negate())
             .expect("actual Q at negated variables");
-        decompose_signed_quadratic_evaluations(q0, positive, negative)
+        decompose_signed_quadratic_evaluations(&q0, &positive, &negative)
             .expect("fixed inverse of two")
     }
     fn autostable_challenges() -> [ProofPolynomialV1; 3] {
@@ -3266,13 +3267,13 @@ mod tests {
     #[test]
     fn verifier_quadratic_reuse_matches_legacy_formulas_at_adversarial_residues() {
         for (x, y, _, _) in adversarial_quadratic_inputs() {
-            let variables = quadratic_test_variables(x, y);
+            let variables = quadratic_test_variables(&x, &y);
             let zero = QuadraticVariablesV1::zero();
             let q0 = quadratic_test_map(&zero);
             let q_positive = quadratic_test_map(&variables);
             let q_negative = quadratic_test_map(&variables.negate());
             let (linear, quadratic) =
-                decompose_signed_quadratic_evaluations(q0, q_positive, q_negative)
+                decompose_signed_quadratic_evaluations(&q0, &q_positive, &q_negative)
                     .expect("fixed inverse of two");
             let legacy_linear = q_positive
                 .sub(q_negative)
@@ -3299,8 +3300,8 @@ mod tests {
     #[test]
     fn prover_mask_reuse_is_exactly_three_evaluations_and_matches_legacy_formulas() {
         for (secret_x, secret_y, mask_x, mask_y) in adversarial_quadratic_inputs() {
-            let secret = quadratic_test_variables(secret_x, secret_y);
-            let mask = quadratic_test_variables(mask_x, mask_y);
+            let secret = quadratic_test_variables(&secret_x, &secret_y);
+            let mask = quadratic_test_variables(&mask_x, &mask_y);
             let zero = QuadraticVariablesV1::zero();
             let q0 = quadratic_test_map(&zero);
             let q_secret = quadratic_test_map(&secret);
@@ -3312,7 +3313,7 @@ mod tests {
             ];
             let mut calls = 0_usize;
             let (bilinear, linear, quadratic) =
-                decompose_mask_quadratic_evaluations(&secret, &mask, q0, q_secret, |variables| {
+                decompose_mask_quadratic_evaluations(&secret, &mask, &q0, &q_secret, |variables| {
                     assert!(
                         calls < PROVER_QUADRATIC_EVALUATIONS_PER_MASK_RETRY_V1,
                         "the retry kernel must not make a fourth evaluation"
@@ -3372,8 +3373,8 @@ mod tests {
             let result = decompose_mask_quadratic_evaluations(
                 &secret,
                 &mask,
-                ProofPolynomialV1::ZERO,
-                ProofPolynomialV1::ZERO,
+                &ProofPolynomialV1::ZERO,
+                &ProofPolynomialV1::ZERO,
                 |_| {
                     let index = calls;
                     calls += 1;
@@ -3485,7 +3486,7 @@ mod tests {
         let variables = actual_quadratic_variables();
         let (linear, quadratic) = actual_quadratic_parts(&equation, &variables);
         for challenge in autostable_challenges() {
-            let scaled = scale_quadratic_variables(&variables, challenge);
+            let scaled = scale_quadratic_variables(&variables, &challenge);
             let (scaled_linear, scaled_quadratic) = actual_quadratic_parts(&equation, &scaled);
             assert_eq!(
                 scaled_linear,
@@ -3655,10 +3656,12 @@ mod tests {
     }
     #[test]
     fn complete_native_proof_round_trip_and_adversarial_matrix() {
-        assert!(
-            BOOTLE_LANTERN_FULL_ENGINE_AVAILABLE_V1,
-            "the first-release public Bootle/Lantern engine must be active"
-        );
+        const {
+            assert!(
+                BOOTLE_LANTERN_FULL_ENGINE_AVAILABLE_V1,
+                "the first-release public Bootle/Lantern engine must be active"
+            )
+        };
         let fixture = fixture();
         let mut rng = TestRng::healthy(0x9e37_79b9_7f4a_7c15);
         let proof = prove_bound_presentation_v1(

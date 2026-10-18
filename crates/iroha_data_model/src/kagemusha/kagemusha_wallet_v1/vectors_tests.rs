@@ -65,7 +65,7 @@ type Domain = KagemushaWalletSigningDomainV1;
 type ObjectDomain = KagemushaWalletObjectDigestDomainV1;
 
 /// Path of the vectors file relative to this crate.
-const VECTORS_PATH: &str = "../../fixtures/kagemusha/wallet_v1_vectors.json";
+const VECTORS_PATH: &str = "fixtures/kagemusha/wallet_v1_vectors.json";
 /// Test-only switch that rewrites the vectors file instead of comparing it.
 const UPDATE_VARIABLE: &str = "IROHA_UPDATE_KAGEMUSHA_WALLET_VECTORS";
 /// Common prefix of every wallet V1 frame name.
@@ -286,8 +286,8 @@ fn vector_blacklist(f: &MessageFixture, count: u32) -> KagemushaWalletBlacklistV
 
 /// Stand-in verifying-key allowlist: the one the test scheme's relation identity binds
 /// ([`scheme_allowlist`]): every operation with the vectored σ length, Send also with every
-/// control enabled, Receive also with the blacklist bit, and the vectored Ω transport length;
-/// the verifying-key digests are labelled stand-ins.
+/// control enabled, and the vectored Ω transport length; the verifying-key digests are
+/// labelled stand-ins.
 fn vector_allowlist() -> KagemushaWalletVerifyingKeyAllowlistV1 {
     let allowlist = scheme_allowlist();
     assert_eq!(
@@ -519,13 +519,13 @@ fn build_world() -> VectorWorld {
 
     let request = f.request(true);
     let payment = f.payment(true, VECTOR_PROOF_LEN);
-    assert_eq!(payment.request, request.signed());
+    assert_eq!(payment.signed_request().unwrap(), request.signed());
     assert_eq!(
-        payment.request.body.scheme_policy,
+        payment.signed_request().unwrap().body.scheme_policy,
         scheme_policy.scheme_policy_digest()
     );
     assert_eq!(
-        payment.request.body.fee_schedule,
+        payment.signed_request().unwrap().body.fee_schedule,
         fee_schedule.fee_schedule_digest()
     );
     let payer_issuer = KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate])
@@ -578,7 +578,7 @@ fn build_world() -> VectorWorld {
             0,
             KagemushaWalletLifecycleV1::Active,
             payment
-                .receive_effect(&request, &receiver, &receiver_head_state(&receiver), None)
+                .receive_effect(&request, &receiver, &receiver_head_state(&receiver))
                 .expect("receive effect"),
         )
     };
@@ -756,10 +756,10 @@ fn build_world() -> VectorWorld {
         allowlist
     );
     allowlist
-        .check_package(&payment.send, None)
+        .check_package(&payment.send)
         .expect("the Payment's proofs have the allowlisted lengths");
     allowlist
-        .check_package(&receive, Some(&request.body))
+        .check_package(&receive)
         .expect("the Receive package has the allowlisted σ length");
     allowlist
         .check_lineage(&lineage.lineage)
@@ -2275,7 +2275,7 @@ fn ledger_objects(w: &VectorWorld) -> LedgerObjects {
         .verify(&w.scheme())
         .expect("unload claim verifies");
     w.allowlist
-        .check_package(&unload_claim.package, None)
+        .check_package(&unload_claim.package)
         .expect("the unload claim's proofs have the allowlisted lengths");
 
     let fee_claim = KagemushaWalletFeeClaimV1 {
@@ -2326,7 +2326,7 @@ fn ledger_objects(w: &VectorWorld) -> LedgerObjects {
         .verify(&w.scheme())
         .expect("close loads verifies");
     w.allowlist
-        .check_package(&close_loads.package, None)
+        .check_package(&close_loads.package)
         .expect("the close-loads package's proofs have the allowlisted lengths");
 
     let head_marker = w
@@ -3042,13 +3042,7 @@ fn enum_tag_table(w: &VectorWorld) -> Vec<EnumTags> {
         unit_tags(
             "KagemushaWalletPolicyUpdateKindV1",
             &KagemushaWalletPolicyUpdateKindV1::ALL,
-            &[
-                "Credential",
-                "SchemePolicy",
-                "Blacklist",
-                "QuotaShare",
-                "TimeAnchor",
-            ],
+            &["Credential", "SchemePolicy", "QuotaShare", "TimeAnchor"],
             KagemushaWalletPolicyUpdateKindV1::tag,
         ),
         EnumTags {
@@ -3290,8 +3284,7 @@ fn stand_ins_json() -> Value {
             "verifying_key_rule",
             json_text(
                 "σ verifying-key digest: 32 bytes 0x80 | tag << 3 | mask; Ω transport key: 32 \
-                 bytes 0xc4; σ length: 48 at the empty mask, 49 at the other mask of Send and \
-                 Receive",
+                 bytes 0xc4; σ length: 48 at the empty mask, 49 at the other mask of Send",
             ),
         ),
     ])
@@ -3365,6 +3358,14 @@ fn bounds_json() -> Value {
             json_number(KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1),
         ),
         (
+            "sigma_proof_cap_bytes",
+            json_number(KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1),
+        ),
+        (
+            "omega_proof_cap_bytes",
+            json_number(KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1),
+        ),
+        (
             "credited_receive_fixed_bytes",
             json_number(KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1),
         ),
@@ -3385,8 +3386,9 @@ fn bounds_json() -> Value {
             json_text(
                 "the exact σ and Ω transport lengths of the frozen verifying-key allowlist, with \
                  Ω + the largest σ_send <= payment_proof_budget_bytes, σ_recv <= \
-                 credited_receive_proof_budget_bytes and Ω <= lineage_proof_cap_bytes; until \
-                 the artifacts freeze only the carrying frames bound them",
+                 credited_receive_proof_budget_bytes and Ω <= lineage_proof_cap_bytes; every \
+                 σ <= sigma_proof_cap_bytes and Ω <= omega_proof_cap_bytes; structural \
+                 Payment admission enforces both role capacities independently of the joint budget",
             ),
         ),
         (
@@ -3548,8 +3550,8 @@ fn json_state(state: &KagemushaWalletStateV1) -> Vec<(&'static str, Value)> {
 
 /// The controlled state over the identities of `base` ([`controlled_state`]): every core and
 /// rest element distinct, with each field's value by name (integers in decimal, 32-byte values
-/// in hex), so a consumer binds every element position to its field (owner answers Q3, Q4, Q5
-/// and Q10).
+/// in hex), so a consumer binds every element position to its field (owner answers Q3, Q4 and
+/// Q10).
 fn json_controlled_state(base: &KagemushaWalletStateV1) -> Value {
     let state = controlled_state(base);
     let core = &state.core;
@@ -3597,19 +3599,6 @@ fn json_controlled_state(base: &KagemushaWalletStateV1) -> Value {
                 number(u128::from(core.time_anchor_max_response_ms)),
             ),
             (
-                "blacklist_version",
-                number(u128::from(core.blacklist_version)),
-            ),
-            ("blacklist_root", json_hex(&core.blacklist_root)),
-            (
-                "blacklist_issued_at_ms",
-                number(u128::from(core.blacklist_issued_at_ms)),
-            ),
-            (
-                "blacklist_max_age_ms",
-                number(u128::from(core.blacklist_max_age_ms)),
-            ),
-            (
                 "lease_expires_at_ms",
                 number(u128::from(core.lease_expires_at_ms)),
             ),
@@ -3630,11 +3619,6 @@ fn json_controlled_state(base: &KagemushaWalletStateV1) -> Value {
             ),
             ("scheme_policy", json_hex(&rest.scheme_policy)),
             ("fee_schedule", json_hex(&rest.fee_schedule)),
-            ("blacklist", json_hex(&rest.blacklist)),
-            (
-                "blacklist_history_root",
-                json_hex(&rest.blacklist_history_root),
-            ),
             ("quota_share", json_hex(&rest.quota_share)),
             ("quota_share_id", number(u128::from(rest.quota_share_id))),
             ("time_anchor", json_hex(&rest.time_anchor)),
@@ -3847,7 +3831,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
     let receive_proof_body = length_prefixed(&[&w.receive.step_proof.bytes]);
     let payment_transcript = kagemusha_wallet_payment_transcript_v1(
         &digests.request,
-        &payment.payer_payment_key,
+        &payment.send.lineage.lineage().unwrap().public.payment_key,
         &digests.payer_credential,
         &digests.package.package,
     );
@@ -3984,7 +3968,8 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         window_kind: KagemushaWalletQuotaWindowKindV1::Daily,
         window_start_ms: QUOTA_START_MS,
         window_end_ms: QUOTA_START_MS + DAY_MS,
-        used: payment.request.body.amount + payment.request.body.fee,
+        used: payment.signed_request().unwrap().body.amount
+            + payment.signed_request().unwrap().body.fee,
     };
     let map_values = json_object(vec![
         (
@@ -4380,8 +4365,9 @@ fn indexed_tree_json(
     ])
 }
 
-/// The limb-ordered blacklist tree (§7, owner answer A4): entries whose unsigned byte order
-/// differs from their limb order, the first gap leaf, a node, the root and a gap opening.
+/// The limb-ordered tree of the local blacklist's native `entries_root` (§7, owner answer A4):
+/// entries whose unsigned byte order differs from their limb order, the first gap leaf, a node
+/// and the root.
 fn blacklist_json(w: &VectorWorld) -> Value {
     let entries = &w.blacklist.entries;
     let blacklist_leaf_items = |lower: &[u8; 32], upper: &[u8; 32]| {
@@ -4400,10 +4386,6 @@ fn blacklist_json(w: &VectorWorld) -> Value {
     );
     let leaf_1 =
         kagemusha_wallet_blacklist_leaf_v1(&entries[0].account_digest, &entries[1].account_digest);
-    let outsider = kagemusha_wallet_digest_v1(Role::Account, b"unlisted");
-    let gap = w.blacklist.gap_opening(&outsider).expect("gap opening");
-    gap.verify(&w.blacklist.body.entries_root, &outsider)
-        .expect("gap opening verifies");
     let mut byte_ordered: Vec<[u8; 32]> =
         entries.iter().map(|entry| entry.account_digest).collect();
     byte_ordered.sort_unstable();
@@ -4445,20 +4427,6 @@ fn blacklist_json(w: &VectorWorld) -> Value {
             ),
         ),
         ("entries_root_hex", json_hex(&w.blacklist.body.entries_root)),
-        (
-            "gap_opening",
-            json_object(vec![
-                ("account_digest_hex", json_hex(&outsider)),
-                (
-                    "leaf_index",
-                    json_number(usize::try_from(gap.leaf_index).expect("index")),
-                ),
-                ("lower_hex", json_hex(&gap.lower)),
-                ("upper_hex", json_hex(&gap.upper)),
-                ("siblings", json_items(&gap.siblings)),
-                ("root_hex", json_hex(&gap.root().expect("gap root"))),
-            ]),
-        ),
     ])
 }
 
@@ -4724,7 +4692,7 @@ fn vectors_file_text(w: &VectorWorld) -> String {
 }
 
 fn vectors_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(VECTORS_PATH)
+    crate::kagemusha::kagemusha_wallet_v1::test_fixture_path(VECTORS_PATH)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -4748,6 +4716,7 @@ fn kagemusha_wallet_v1_vectors_file_matches_the_generated_vectors() {
             path.display()
         );
     };
+    // TODO(blacklist-local G5): regenerate fixtures/kagemusha/wallet_v1_vectors.json.
     if existing != text {
         let line = existing
             .lines()
@@ -5138,7 +5107,7 @@ fn kagemusha_wallet_v1_every_version_field_precedes_the_scheme() {
     );
     let mut fee = l.fee_claim.clone();
     fee.payment.send.statement.version = 2;
-    fee.payment.request.body.scheme_id = foreign;
+    fee.payment.send.statement.scheme_id = foreign;
     assert_version_error(
         KagemushaWalletFeeClaimV1::decode_canonical(
             &norito::encode_canonical(&fee).expect("encode"),
@@ -5381,11 +5350,9 @@ fn kagemusha_wallet_v1_vector_artifacts_bind_manifest_and_exact_proof_lengths() 
         ("CloseLoads", &ledger.close_loads.package),
         ("FeeClaim Payment", &ledger.fee_claim.payment.send),
     ] {
-        w.allowlist
-            .check_package(package, Some(&w.request.body))
-            .unwrap_or_else(|error| {
-                panic!("{name} proofs differ from the vectored allowlist: {error:?}");
-            });
+        w.allowlist.check_package(package).unwrap_or_else(|error| {
+            panic!("{name} proofs differ from the vectored allowlist: {error:?}");
+        });
     }
     w.allowlist
         .check_lineage(&w.lineage.lineage)
@@ -5403,14 +5370,7 @@ fn kagemusha_wallet_v1_vector_artifacts_bind_manifest_and_exact_proof_lengths() 
     );
     let status_entry = w
         .allowlist
-        .entry(
-            KagemushaWalletOperationKindV1::Receive,
-            if w.request.body.receiver_blacklist_version == 0 {
-                0
-            } else {
-                KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-            },
-        )
+        .entry(KagemushaWalletOperationKindV1::Receive, 0)
         .expect("status Receive selector");
     let status_sigma = stand_in_proof(usize::try_from(status_entry.proof_bytes).expect("σ length"));
     assert_eq!(
@@ -5422,10 +5382,7 @@ fn kagemusha_wallet_v1_vector_artifacts_bind_manifest_and_exact_proof_lengths() 
         )
         .expect("status σ digest")
     );
-    let (kind, mask) = w
-        .receive
-        .verifying_key_selector(Some(&w.request.body))
-        .expect("Receive selector");
+    let (kind, mask) = w.receive.verifying_key_selector();
     assert_eq!(w.capsule.body().kind, kind);
     w.allowlist
         .check_step_proof(kind, mask, &w.capsule.body().step_proof)
@@ -5438,8 +5395,7 @@ fn kagemusha_wallet_v1_vector_artifacts_bind_manifest_and_exact_proof_lengths() 
     let mut longer_step = w.receive.clone();
     longer_step.step_proof.bytes.push(0);
     assert!(matches!(
-        w.allowlist
-            .check_package(&longer_step, Some(&w.request.body)),
+        w.allowlist.check_package(&longer_step),
         Err(KagemushaWalletValidationErrorV1::InvalidField {
             field: "step_proof.length"
         })

@@ -628,15 +628,62 @@ storage; malformed, oversized, or over-depth wire values never become a
 `Json`. Raw JSON producers use the fallible `Json::from_raw_json`, while plain
 text that should become a JSON string uses `Json::new` or `Json::from`.
 Each generic or tape-first typed document entry point preflights the complete
-document's maximum value depth once with an allocation-free, quote-aware scalar
+document's maximum value depth with an allocation-free, quote-aware scalar
 scan before generated `JsonDeserialize` or custom `FastFromJson` recursion
-begins. Generic-to-tape adapters may validate the exact next subtree again to
+begins. Fast entry checks depth before allocating the Stage-1 tape and retains
+the walker's cached-depth guard; constructing the walker scans depth again.
+Generic-to-tape adapters may validate the exact next subtree again to
 find its boundary, but construct their tape over only that non-overlapping
 slice and never rescan unrelated enclosing bytes. The security bound is
 independent of the selected hardware Stage-1 tape, so every node reaches the
 same decision. Unknown fields then use the same strict iterative subtree
 grammar, so an individually valid subtree cannot exceed the global limit by
 hiding beneath a typed outer object or array.
+
+JSON decoding also enforces every active `DecodeLimits` nesting budget against
+the complete structure before allocating decoder storage. The root requires no
+additional depth: a scalar or empty container fits a zero-depth budget, while
+each nested value consumes one level. A peak check preserves the original
+scope, relative depth and refusal provenance without advancing depth or
+resetting counters. The fixed JSON depth ceiling is checked first. Conversion
+from an existing `Value` uses a bounded, allocation-free borrowed traversal
+before cloning or serializing it, and the consuming conversion retains its
+iterative cleanup path on refusal. Transparent `Box` ownership does not add a
+JSON structural level; its separate fixed recursion guard remains enforced.
+
+Native `Value` and collection conversions charge each array or object entry
+against the active per-sequence and cumulative element budgets before reserving
+destination storage or converting children. A native `Value` copy uses the same
+charged string, vector and map owners, including copied object keys and nested
+values. The original scope owns these additional allocations; already owning
+the input does not fund a second copy. Scalar and empty native `Value` variants
+need no element or heap charge. Transparent `Option` and `Box` conversions do
+not duplicate collection counts; `Box` still charges its own storage.
+
+The default `JsonDeserialize::json_from_value` adapter serializes its native
+`Value` input through the count-first bounded writer. Its exact temporary JSON
+buffer is charged to the active decode scope before allocation; the subsequent
+typed parser retains that scope and independently charges its destination owners.
+This complete-document scratch is not a single decoded string field. The native
+`Value` writer identifies empty arrays and objects explicitly: an empty terminal
+at structural depth 33 requires no child level, while populated containers retain
+the original child-level guard. Its paired sink entry and exit remain mandatory.
+
+Owned `Parser` strings, `Parser`/`TapeWalker` string-reference and key readers,
+and native string/map conversions check decoded UTF-8 field bytes against the
+active `max_field_bytes` limit.
+Escapes count their decoded bytes, including object keys and hexadecimal string
+fields; quoting and escape spelling do not add field bytes. The original scope
+and error provenance are retained. Existing owned-string allocation charges
+remain single charges. Arena and inline tape string readers validate/count their
+own escape grammar before allocating scratch, then emit admitted bytes through
+the same kernel. This field check does not replace arena allocation accounting
+or add a field policy to lexical-only skipping APIs or raw `Reader` token slices.
+
+Owned JSON cleanup threads parent ownership through existing child slots and
+releases only leaves or empty containers with ordinary drop. It therefore uses
+constant native stack space and allocates no cleanup storage, including for
+manually constructed branching trees beyond the parser's fixed depth ceiling.
 
 Checked JSON writers stream into the original `JsonWriteSink`. Every container
 they successfully enter is released when the write returns, including byte,

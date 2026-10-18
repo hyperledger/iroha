@@ -13,14 +13,14 @@ use iroha_data_model::sccp::light_client::SccpLcInitExpectationV1;
 
 use crate::v1::payload::SccpTransferPayloadV1;
 
-const T0: u32 = 1_790_000_000;
+pub(super) const T0: u32 = 1_790_000_000;
 const UNTIL0: u32 = T0 + 65_536;
 const MINTER: [u8; 32] = [0x4d; 32];
 const OWNER: [u8; 32] = [0x0a; 32];
 /// A Taira time after every synthetic block of the tests.
 const LATER_MS: u64 = (T0 as u64 + 2_000) * 1_000;
 
-fn profiles() -> SccpChainProfilesV1 {
+pub(super) fn profiles() -> SccpChainProfilesV1 {
     *SccpChainProfilesV1::genesis()
 }
 
@@ -28,7 +28,7 @@ fn params() -> SccpLightClientParamsV1 {
     SccpLightClientParamsV1::defaults_for(NETWORK).expect("external")
 }
 
-fn installed(chain: &SyntheticTonChainV1) -> (SccpLcMemoryStateV1, u64) {
+pub(super) fn installed(chain: &SyntheticTonChainV1) -> (SccpLcMemoryStateV1, u64) {
     let now = u64::from(T0) * 1_000 + 60_000;
     let mut memory = SccpLcMemoryStateV1::new();
     let initial = initialize_light_client_with_profiles(

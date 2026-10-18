@@ -1,5 +1,5 @@
 //! Admission-time rejection when on-chain manifest `abi_hash` mismatches node policy.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::smartcontracts::Execute; // bring trait for `.execute()` on ISIs
 use iroha_core::{
     governance::manifest::LaneManifestRegistry, prelude::World,
@@ -184,12 +184,12 @@ fn manifest_admission_root_parameter() -> iroha_data_model::parameter::Parameter
 }
 #[test]
 fn ivm_manifest_mismatched_abi_hash_rejected_at_admission() {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
         transaction::{Executable, TransactionBuilder},
     };
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     // Build world with a domain and an authority account
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
@@ -280,12 +280,12 @@ fn ivm_manifest_mismatched_abi_hash_rejected_at_admission() {
 }
 #[test]
 fn ivm_manifest_matching_abi_hash_accepted_at_admission() {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
         transaction::{Executable, TransactionBuilder},
     };
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     // Build world with a domain and an authority account
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
@@ -406,12 +406,12 @@ fn ivm_manifest_matching_abi_hash_accepted_at_admission() {
 }
 #[test]
 fn ivm_manifest_without_abi_hash_is_rejected_at_admission() {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
         transaction::{Executable, TransactionBuilder},
     };
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     // Build world with a domain and an authority account
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
@@ -496,12 +496,12 @@ fn ivm_manifest_without_abi_hash_is_rejected_at_admission() {
 }
 #[test]
 fn ivm_manifest_matching_abi_hash_v1_accepted_at_admission() {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
         transaction::{Executable, TransactionBuilder},
     };
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let kp = checked_random_ivm_manifest_keypair();
@@ -616,12 +616,12 @@ fn ivm_manifest_matching_abi_hash_v1_accepted_at_admission() {
 }
 #[test]
 fn ivm_manifest_unknown_syscall_rejected_before_execution() {
-    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
         transaction::{Executable, TransactionBuilder},
     };
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let kp = checked_random_ivm_manifest_keypair();

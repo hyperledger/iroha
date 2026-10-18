@@ -219,12 +219,18 @@ fn read_original(
     bytes.try_reserve_exact(size).map_err(|_| {
         RegistrationErrorV1::Unavailable(io::Error::other("registration allocation unavailable"))
     })?;
-    let mut buffer = [0_u8; 65536];
+    let mut buffer = Vec::new();
     while bytes.len() < size {
         if cancelled() {
             return Err(RegistrationErrorV1::Cancelled);
         }
         file.revalidate().map_err(storage)?;
+        if buffer.is_empty() {
+            buffer
+                .try_reserve_exact(65536)
+                .map_err(|error| RegistrationErrorV1::Unavailable(io::Error::other(error)))?;
+            buffer.resize(65536, 0_u8);
+        }
         let maximum = (size - bytes.len()).min(buffer.len());
         let read = file.read(&mut buffer[..maximum]);
         file.revalidate().map_err(storage)?;
@@ -319,7 +325,7 @@ pub fn verify_registration_source_v1(
             )?,
             None => genesis.clone(),
         };
-        let verified = if ordinal == 1 {
+        let verified_block = if ordinal == 1 {
             match verifier.verify_retained_decision(&proof) {
                 Ok(value) => value,
                 Err(_) => verifier.verify(&proof)?,
@@ -335,7 +341,7 @@ pub fn verify_registration_source_v1(
                 &mut cancelled,
             )?)?;
             let result = verify_finalized_kagemusha_wallet_registration_v1(
-                &verified,
+                &verified_block,
                 &committed,
                 network,
                 genesis.chain_id(),

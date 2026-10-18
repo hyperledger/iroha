@@ -284,21 +284,28 @@ fn permissions_allow_account_domain_manifest<'a>(
             .try_into_any_norito::<CanPublishSpaceDirectoryManifestForAccountDomain>()
             .is_ok_and(|token| {
                 token.dataspace == dataspace
-                    && uaid_is_bound_to_account_domain(
-                        state_transaction,
-                        uaid,
-                        dataspace,
-                        &token.domain,
-                    )
+                    && uaid_is_bound_to_account_domain(state_transaction, uaid, &token.domain)
             })
     })
 }
 fn uaid_is_bound_to_account_domain(
     state_transaction: &StateTransaction<'_, '_>,
     uaid: UniversalAccountId,
-    dataspace: DataSpaceId,
     domain: &iroha_model_base::domain::DomainId,
 ) -> bool {
+    // The governed manifest dataspace was checked against the token separately. The
+    // account cohort belongs to the token's exact alias-domain namespace, which may
+    // be different (for example a home-domain customer joining the universal lane).
+    let Some(alias_dataspace) = state_transaction
+        .nexus
+        .dataspace_catalog
+        .entries()
+        .iter()
+        .find(|entry| entry.alias == domain.dataspace().as_ref())
+        .map(|entry| entry.id)
+    else {
+        return false;
+    };
     let Some(account_id) = state_transaction.world.uaid_accounts.get(&uaid) else {
         return false;
     };
@@ -320,7 +327,7 @@ fn uaid_is_bound_to_account_domain(
                 state_transaction.block_unix_timestamp_ms(),
             ),
             Ok(Some(ref resolved)) if resolved == account_id
-        ) || alias.dataspace != dataspace
+        ) || alias.dataspace != alias_dataspace
         {
             continue;
         }
@@ -940,6 +947,367 @@ mod tests {
         assert!(record.lifecycle.revocation.is_none());
         assert!(record.lifecycle.expired_epoch.is_none());
     }
+
+    fn cross_dataspace_domain_fixture(
+        namespace: &str,
+        domain_name: &str,
+    ) -> (
+        State,
+        AccountId,
+        AccountId,
+        UniversalAccountId,
+        iroha_data_model::account::rekey::AccountAlias,
+    ) {
+        let mut state = test_state();
+        let home = DataSpaceId::new(7);
+        seed_dataspace_catalog_with_alias(&mut state, home, namespace);
+        seed_dataspace_catalog_with_alias(&mut state, DataSpaceId::new(9), "unrelated");
+        let registrar = checked_account_id();
+        let customer = checked_account_id();
+        let uaid = UniversalAccountId::from_hash(Hash::new(b"cross-dataspace-domain-customer"));
+        let domain = DomainId::try_new(domain_name, namespace).expect("exact customer domain");
+        seed_domain(&mut state, &domain, &registrar);
+        state.world.account_permissions.insert(
+            registrar.clone(),
+            [home, DataSpaceId::UNIVERSAL]
+                .into_iter()
+                .map(|dataspace| {
+                    Permission::from(CanPublishSpaceDirectoryManifestForAccountDomain {
+                        dataspace,
+                        domain: domain.clone(),
+                    })
+                })
+                .collect(),
+        );
+        let mut block = state.block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+        let mut tx = block.transaction();
+        Register::account(NewAccount::new(registrar.clone()))
+            .execute(&registrar, &mut tx)
+            .expect("register domain registrar");
+        Register::account(NewAccount::new(customer.clone()).with_uaid(Some(uaid)))
+            .execute(&registrar, &mut tx)
+            .expect("register customer UAID");
+        let alias = iroha_data_model::account::rekey::AccountAlias::from_literal(
+            &format!("customer@{domain_name}.{namespace}"),
+            &tx.nexus.dataspace_catalog,
+        )
+        .expect("current home alias");
+        seed_active_cross_dataspace_alias(&mut tx, &alias, &customer);
+        PublishSpaceDirectoryManifest::new(sample_manifest(uaid, home, 1))
+            .execute(&registrar, &mut tx)
+            .expect("authorized home manifest");
+        tx.apply();
+        block
+            .commit_world_overlay_for_testing()
+            .expect("retain home-only customer");
+        (state, registrar, customer, uaid, alias)
+    }
+
+    fn seed_active_cross_dataspace_alias(
+        tx: &mut StateTransaction<'_, '_>,
+        alias: &iroha_data_model::account::rekey::AccountAlias,
+        account: &AccountId,
+    ) {
+        tx.world
+            .insert_account_alias_binding(alias.clone(), account.clone());
+        tx.world.replace_account_rekey_record(
+            iroha_data_model::account::rekey::AccountRekeyRecord::new(
+                alias.clone(),
+                account.clone(),
+            ),
+        );
+        seed_account_alias_lease(tx, alias, account);
+        assert_eq!(
+            crate::sns::resolve_active_account_alias(
+                &tx.world,
+                &tx.nexus.dataspace_catalog,
+                alias,
+                tx.block_unix_timestamp_ms()
+            )
+            .expect("genuine current SNS fixture"),
+            Some(account.clone())
+        );
+    }
+
+    #[test]
+    fn home_domain_publishes_empty_universal_membership_for_lane_admission() {
+        use crate::nexus::space_directory::{
+            LaneIdentityMetadataError, extract_lane_identity_metadata,
+        };
+        let (state, registrar, customer, uaid, _) =
+            cross_dataspace_domain_fixture("bpng", "retail");
+        let home = DataSpaceId::new(7);
+        let universal = DataSpaceId::UNIVERSAL;
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 2_000, 0));
+        let mut tx = block.transaction();
+        let home_before = tx
+            .world
+            .space_directory_manifests
+            .get(&uaid)
+            .unwrap()
+            .get(&home)
+            .unwrap()
+            .clone();
+        assert!(home_before.manifest.entries.is_empty());
+        assert!(extract_lane_identity_metadata(&tx.world, &customer, home).is_ok());
+        assert_eq!(
+            extract_lane_identity_metadata(&tx.world, &customer, universal),
+            Err(LaneIdentityMetadataError::MissingDataspaceBinding {
+                uaid,
+                dataspace: universal
+            })
+        );
+        PublishSpaceDirectoryManifest::new(sample_manifest(uaid, universal, 2))
+            .execute(&registrar, &mut tx)
+            .expect("exact home-domain token governs DS0 independently");
+        assert_eq!(
+            extract_lane_identity_metadata(&tx.world, &customer, universal),
+            Ok((Some(uaid), vec![])),
+            "the same native identity admission used by Queue and transaction validation now admits DS0"
+        );
+        let manifests = tx.world.space_directory_manifests.get(&uaid).unwrap();
+        assert_eq!(
+            manifests.get(&home),
+            Some(&home_before),
+            "home manifest is not replaced"
+        );
+        assert!(
+            manifests
+                .get(&universal)
+                .unwrap()
+                .manifest
+                .entries
+                .is_empty(),
+            "membership does not mint asset capabilities"
+        );
+    }
+
+    #[test]
+    fn cross_dataspace_domain_manifest_rejects_wrong_scope_and_inactive_aliases() {
+        for fault in [
+            "wrong-domain",
+            "wrong-target",
+            "missing-uaid",
+            "reverse-only",
+            "expired",
+            "retargeted",
+            "unknown-catalog",
+            "stale-catalog",
+        ] {
+            let (mut state, registrar, customer, uaid, alias) =
+                cross_dataspace_domain_fixture("bpng", "retail");
+            let target = DataSpaceId::UNIVERSAL;
+            {
+                let mut block =
+                    state.block(BlockHeader::new(nonzero!(2_u64), None, None, 1_500, 0));
+                let mut tx = block.transaction();
+                PublishSpaceDirectoryManifest::new(sample_manifest(uaid, target, 2))
+                    .execute(&registrar, &mut tx)
+                    .expect("seed real active target before corrupting authority");
+                tx.apply();
+                block
+                    .commit_world_overlay_for_testing()
+                    .expect("retain existing target manifest");
+            }
+            if fault == "wrong-domain" || fault == "wrong-target" {
+                grant_account_domain_manifest_permission(
+                    &mut state.world,
+                    &registrar,
+                    if fault == "wrong-target" {
+                        DataSpaceId::new(9)
+                    } else {
+                        target
+                    },
+                    DomainId::try_new(
+                        if fault == "wrong-domain" {
+                            "other"
+                        } else {
+                            "retail"
+                        },
+                        "bpng",
+                    )
+                    .unwrap(),
+                );
+            }
+            if fault == "unknown-catalog" || fault == "stale-catalog" {
+                let entries = state
+                    .nexus
+                    .read()
+                    .dataspace_catalog
+                    .entries()
+                    .iter()
+                    .cloned()
+                    .filter_map(|mut entry| {
+                        if entry.id == alias.dataspace {
+                            if fault == "unknown-catalog" {
+                                return None;
+                            }
+                            entry.alias = "replacement".into();
+                        }
+                        Some(entry)
+                    })
+                    .collect();
+                state.set_dataspace_catalog_for_testing(DataSpaceCatalog::new(entries).unwrap());
+                // Catalog maintenance prunes stale tokens. Reinsert an adversarial stored
+                // token so the authorization test independently checks current catalog scope.
+                grant_account_domain_manifest_permission(
+                    &mut state.world,
+                    &registrar,
+                    target,
+                    DomainId::try_new("retail", "bpng").unwrap(),
+                );
+            }
+            let mut block = state.block(BlockHeader::new(nonzero!(3_u64), None, None, 2_000, 0));
+            let mut tx = block.transaction();
+            match fault {
+                "missing-uaid" => {
+                    tx.world.uaid_accounts.remove(uaid);
+                }
+                "reverse-only" => {
+                    tx.world.account_aliases.remove(alias.clone());
+                }
+                "retargeted" => {
+                    let other = checked_account_id();
+                    Register::account(NewAccount::new(other.clone()))
+                        .execute(&registrar, &mut tx)
+                        .unwrap();
+                    seed_active_cross_dataspace_alias(&mut tx, &alias, &other);
+                    // Preserve an adversarial stale reverse index for the original account.
+                    tx.world
+                        .account_aliases_by_account
+                        .insert(customer.clone(), BTreeSet::from([alias.clone()]));
+                }
+                "expired" => {
+                    let selector =
+                        crate::sns::selector_for_account_alias(&alias, &tx.nexus.dataspace_catalog)
+                            .unwrap();
+                    let address =
+                        iroha_data_model::account::AccountAddress::from_account_id(&customer)
+                            .unwrap();
+                    let record = iroha_data_model::sns::NameRecordV1::new(
+                        selector.clone(),
+                        customer.clone(),
+                        vec![iroha_data_model::sns::NameControllerV1::account(&address)],
+                        0,
+                        0,
+                        1,
+                        1,
+                        1,
+                        Metadata::default(),
+                    );
+                    tx.world.smart_contract_state.insert(
+                        crate::sns::record_storage_key(&selector),
+                        norito::codec::Encode::encode(&record),
+                    );
+                }
+                _ => {}
+            }
+            let before = tx.world.space_directory_manifests.get(&uaid).cloned();
+            assert!(
+                before.as_ref().unwrap().get(&target).unwrap().is_active(),
+                "{fault}"
+            );
+            let denied = InstructionExecutionError::InvariantViolation(
+                "not permitted: CanPublishSpaceDirectoryManifest".into(),
+            );
+            assert_eq!(
+                PublishSpaceDirectoryManifest::new(sample_manifest(uaid, target, 3))
+                    .execute(&registrar, &mut tx)
+                    .expect_err(fault),
+                denied,
+                "{fault}"
+            );
+            assert_eq!(
+                RevokeSpaceDirectoryManifest {
+                    uaid,
+                    dataspace: target,
+                    revoked_epoch: 3,
+                    reason: None
+                }
+                .execute(&registrar, &mut tx)
+                .expect_err(fault),
+                denied,
+                "{fault}"
+            );
+            assert_eq!(
+                ExpireSpaceDirectoryManifest {
+                    uaid,
+                    dataspace: target,
+                    expired_epoch: 3
+                }
+                .execute(&registrar, &mut tx)
+                .expect_err(fault),
+                denied,
+                "{fault}"
+            );
+            assert_eq!(
+                tx.world.space_directory_manifests.get(&uaid).cloned(),
+                before,
+                "{fault}"
+            );
+        }
+    }
+
+    #[test]
+    fn cross_dataspace_domain_manifest_preserves_current_sibling_fi_exclusion() {
+        let (mut state, hbl, customer, uaid, _) = cross_dataspace_domain_fixture("sbp", "hbl");
+        let ubl = checked_account_id();
+        let domain = DomainId::try_new("ubl", "sbp").unwrap();
+        seed_domain(&mut state, &domain, &ubl);
+        grant_account_domain_manifest_permission(
+            &mut state.world,
+            &ubl,
+            DataSpaceId::UNIVERSAL,
+            domain,
+        );
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 2_000, 0));
+        let mut tx = block.transaction();
+        let publish =
+            PublishSpaceDirectoryManifest::new(sample_manifest(uaid, DataSpaceId::UNIVERSAL, 2));
+        publish
+            .clone()
+            .execute(&ubl, &mut tx)
+            .expect_err("sibling FI cannot manage home customer");
+        publish
+            .clone()
+            .execute(&hbl, &mut tx)
+            .expect("the sole FI home is authorized");
+        let other_alias = iroha_data_model::account::rekey::AccountAlias::from_literal(
+            "customer@ubl.sbp",
+            &tx.nexus.dataspace_catalog,
+        )
+        .unwrap();
+        seed_active_cross_dataspace_alias(&mut tx, &other_alias, &customer);
+        let before = tx
+            .world
+            .space_directory_manifests
+            .get(&uaid)
+            .unwrap()
+            .clone();
+        for authority in [&hbl, &ubl] {
+            publish
+                .clone()
+                .execute(authority, &mut tx)
+                .expect_err("two genuinely active FI homes fail closed");
+            RevokeSpaceDirectoryManifest {
+                uaid,
+                dataspace: DataSpaceId::UNIVERSAL,
+                revoked_epoch: 3,
+                reason: None,
+            }
+            .execute(authority, &mut tx)
+            .expect_err("dual FI revoke");
+            ExpireSpaceDirectoryManifest {
+                uaid,
+                dataspace: DataSpaceId::UNIVERSAL,
+                expired_epoch: 3,
+            }
+            .execute(authority, &mut tx)
+            .expect_err("dual FI expire");
+        }
+        assert_eq!(tx.world.space_directory_manifests.get(&uaid), Some(&before));
+    }
+
     fn sample_manifest(
         uaid: UniversalAccountId,
         dataspace: DataSpaceId,

@@ -1,5 +1,5 @@
 //! `CoreHost` Norito serialization helper syscall coverage.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::smartcontracts::ivm::host::CoreHost;
 use iroha_crypto::Hash;
 use iroha_model_base::{name::Name, state_path::StatePath};

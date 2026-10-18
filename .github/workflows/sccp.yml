@@ -39,7 +39,7 @@ jobs:
       - name: Verify primitives, destination behavior and every reference fixture
         run: |
           mkdir -p target/qualification/sccp
-          python3 -m pytest -q pytests/scripts/test_sccp_reference.py 2>&1 | tee target/qualification/sccp/python-reference.log
+          python3 -m pytest -q pytests/scripts/test_sccp_reference.py pytests/scripts/test_sccp_sdk_governance.py 2>&1 | tee target/qualification/sccp/python-reference.log
       - name: Retain the reference test record
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -132,7 +132,7 @@ jobs:
       - name: Install the pinned test runner
         run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
       - name: Test toolchain authentication, vector rendering and StateInit encoding
-        run: python3 -m pytest -q scripts/tests/ton_sccp_builder_test.py
+        run: python3 -m pytest -q scripts/tests/ton_sccp_builder_test.py scripts/tests/sccp_ton_live_replay_test.py
       # "all" authenticates Acton 1.2.0 / Tolk 1.4.2, checks generated vectors,
       # formatting and wrappers, then runs the full emulator, gas and golden checks.
       - name: Build and test all three TON contracts

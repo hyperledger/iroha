@@ -1,10 +1,10 @@
 //! WsvHost state overlay staging and commit/rollback behaviour.
+use crate::common;
 use ivm::{IVM, Memory, MockWorldStateView, PointerType, WsvHost, host::IVMHost, syscalls};
 use std::{
     fs,
     time::{SystemTime, UNIX_EPOCH},
 };
-mod common;
 fn make_tlv(pty: PointerType, payload: &[u8]) -> Vec<u8> {
     let payload = common::payload_for_type(pty, payload);
     let mut v = Vec::with_capacity(7 + payload.len() + 32);

@@ -181,6 +181,14 @@ Types: `SetKeyValue<T>` and `RemoveKeyValue<T>` with `T ∈ { Domain, Account, A
 ### Permissions and Roles: Grant / Revoke
 Types: `Grant<O, D>` and `Revoke<O, D>`, with boxed enums for `Permission`/`Role` to/from `Account`, and `Permission` to/from `Role`.
 
+`CanReadCertifiedOriginals` has the exact unit (`null`) payload. Only an existing
+`CanReadAllLedgerData` holder may grant or revoke it; a recipient cannot delegate
+it directly or through a role. It authorizes only the signed native
+resource-name and fixed-family authority-original endpoints. Those endpoints
+recheck the current permission before source capture and before egress. It grants
+no generic private query, full-block carrier, event-stream, SoraFS publication,
+or write authority. `CanReadAllLedgerData` remains genesis-only and nondelegable.
+
 - Grant Permission to Account: adds `Permission` unless already inherent. Events: `AccountEvent::PermissionAdded`. Errors: `Repetition(Grant, Permission)` if duplicate. Code: `core/.../isi/account.rs`.
 - Revoke Permission from Account: removes if present. Events: `AccountEvent::PermissionRemoved`. Errors: `FindError::Permission` if absent. Code: `core/.../isi/account.rs`.
 - Grant Role to Account: inserts `(account, role)` mapping if absent. Events: `AccountEvent::RoleGranted`. Errors: `Repetition(Grant, RoleId)`. Code: `core/.../isi/account.rs`.

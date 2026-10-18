@@ -56,7 +56,6 @@ test("missing and invalid instruction contexts fail before any owner call", () =
       () => api.noritoEncodeInstructionBoxArchive(fixture, prefix),
       () => api.noritoDecodeInstructionBoxArchive(Buffer.of(1), prefix),
       () => api._encodeMultisigInstructions([], prefix),
-      () => api.noritoEncodeMultisigProposeRequest({ instructions: [] }, prefix),
       () => api.inspectSubscriptionTriggerAction("action", prefix),
     ]) assert.throws(call, /networkPrefix must be an integer/);
   }
@@ -141,7 +140,7 @@ test("client contexts are caller-selected and missing codec context fails before
     }
   }
   const browser = new ToriiBrowserClient("https://example.invalid", { fetchImpl });
-  await assert.rejects(browser.submitMultisigPropose({ instructions: [] }), /networkPrefix/);
+  await assert.rejects(browser.submitMultisigPropose({ instructions: [] }), /requires one account selector/);
   const full = new ToriiClient("https://example.invalid", { fetchImpl });
   await assert.rejects(full.getValidationFeeCurrentPolicyProofPage({}, null, {}), /localSigningContext/);
   assert.equal(requests, 0);

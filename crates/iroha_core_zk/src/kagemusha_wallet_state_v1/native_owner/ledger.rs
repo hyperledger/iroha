@@ -242,7 +242,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     /// # Errors
     /// Bounded canonical decoding, certificate/continuity, custody and publication failures.
     pub fn ingest_ledger_finality(&mut self, original: &[u8]) -> Result<LedgerProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         let genesis = Arc::clone(&self.proofs.genesis);
         self.ingest_ledger_original(&genesis, original)
     }
@@ -263,7 +262,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         world: &[u8],
         payout: &[u8],
     ) -> Result<(), Error> {
-        let _payment = self.scheduler.payment();
         let genesis = Arc::clone(&self.proofs.genesis);
         self.acknowledge_payout_originals(&genesis, credit, world, payout)
     }

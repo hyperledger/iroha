@@ -10,7 +10,7 @@ fn metadata<C: PastaCurve>(root: &Path, name: &str) -> KeyArtifact<C> {
     let mut reader = File::open(root.join(name)).unwrap();
     let mut header = [0; 44];
     reader.read_exact(&mut header).unwrap();
-    assert_eq!(&header[..8], b"PIPAPK01");
+    assert_eq!(&header[..8], &iroha_plonk::keys::pk::artifact::MAGIC);
     let length = u32::from_le_bytes(header[40..44].try_into().unwrap()) as usize;
     assert!(length <= VERIFYING_KEY_MAX_BYTES_V1);
     let mut vk = vec![0; length];
@@ -54,7 +54,7 @@ fn renewed_receive_first_source_from_retained_metadata() {
     let input = PathBuf::from(std::env::var("KAGEMUSHA_DIAGNOSTIC_INPUT").unwrap());
     let bytes = bounded_file(&input, 16_384).unwrap();
     let input: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
-    let sigmas: [KeyArtifact<Eq>; 16] =
+    let sigmas: [KeyArtifact<Eq>; 11] =
         core::array::from_fn(|index| metadata(&directory, input["sigma"][index].as_str().unwrap()));
     let policy = bounded_file(
         &directory.parent().unwrap().join("source-policy.norito"),
@@ -68,15 +68,20 @@ fn renewed_receive_first_source_from_retained_metadata() {
     .unwrap();
     let scope = SourceScopeV1::new(provider, Affine { x, y }).unwrap();
     let (source, signatures) =
-        q_source_recipe(scope, Variant::ReceiveRenewed, &[10], &[2, 6], &sigmas).unwrap();
+        q_source_recipe(scope, Variant::ReceiveRenewed, &[6], &[2, 4], &sigmas).unwrap();
     let keys = (0..3)
         .map(|index| metadata(&directory, input["q"][index].as_str().unwrap()))
         .collect();
-    let recipe = QProgramRecipeV1::from_metadata(source.plan().clone(), signatures, keys).unwrap();
+    let recipe = QProgramRecipeV1::from_metadata(
+        source.as_ref().map(|source| source.plan().clone()),
+        signatures,
+        keys,
+    )
+    .unwrap();
     let omega = metadata(&directory, input["omega"].as_str().unwrap());
     let route = OperationRoute {
         variant: Variant::ReceiveRenewed,
-        own: 10,
+        own: 6,
         incoming: Some(2),
     };
     let operation::Plan::Receive(plan) = operation::plan(route, scope, &recipe, &omega).unwrap()
@@ -113,7 +118,7 @@ fn renewed_receive_first_source_from_retained_metadata() {
 fn key_failure_preserves_typed_stage_and_resource_cause() {
     let route = OperationRoute {
         variant: Variant::ReceiveRenewed,
-        own: 10,
+        own: 6,
         incoming: Some(2),
     };
     let source = KeyError::Synthesis(iroha_plonk::frontend::Error::BoundsFailure);

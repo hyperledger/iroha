@@ -26,17 +26,17 @@ use iroha_data_model::privacy::{
 };
 use thiserror::Error;
 /// Stable identity of the verifier-owned MAIN I/O declaration compiler.
-pub(crate) const ZK_X509_MAIN_IO_DECLARATIONS_DESCRIPTOR_V1: &[u8] = b"zk-x509-main-io-declarations-v1-incompatible:statement-only:three-spki-prefix:serial-length+padded:per-disclosure-attribute-length+padded:three-certificate-tbs-pairs:optional-certificate-selector:three-certificate-signature-triples:crl-tbs+complete-crl+signature:issuer+leaf-keys:issuer+root-spki:active-projection-sha-triples:public-digests-verifier-fixed:declarations=40+5d:logical-rows=55922+4736d:max74866:fixed-capacity262144:first-release";
+pub const ZK_X509_MAIN_IO_DECLARATIONS_DESCRIPTOR_V1: &[u8] = b"zk-x509-main-io-declarations-v1-incompatible:statement-only:three-spki-prefix:serial-length+padded:per-disclosure-attribute-length+padded:three-certificate-tbs-pairs:optional-certificate-selector:three-certificate-signature-triples:crl-tbs+complete-crl+signature:issuer+leaf-keys:issuer+root-spki:active-projection-sha-triples:public-digests-verifier-fixed:declarations=40+5d:logical-rows=55922+4736d:max74866:fixed-capacity262144:first-release";
 /// Fixed declaration count with no selective disclosures.
-pub(crate) const ZK_X509_MAIN_IO_BASE_DECLARATIONS_V1: usize = 40;
+pub const ZK_X509_MAIN_IO_BASE_DECLARATIONS_V1: usize = 40;
 /// Additional declarations for each selectively disclosed attribute.
-pub(crate) const ZK_X509_MAIN_IO_DECLARATIONS_PER_DISCLOSURE_V1: usize = 5;
+pub const ZK_X509_MAIN_IO_DECLARATIONS_PER_DISCLOSURE_V1: usize = 5;
 /// Fixed logical byte-access rows with no selective disclosures.
-pub(crate) const ZK_X509_MAIN_IO_BASE_LOGICAL_ROWS_V1: usize = 55_922;
+pub const ZK_X509_MAIN_IO_BASE_LOGICAL_ROWS_V1: usize = 55_922;
 /// Additional logical byte-access rows for each selective disclosure.
-pub(crate) const ZK_X509_MAIN_IO_LOGICAL_ROWS_PER_DISCLOSURE_V1: usize = 4_736;
+pub const ZK_X509_MAIN_IO_LOGICAL_ROWS_PER_DISCLOSURE_V1: usize = 4_736;
 /// Maximum logical byte-access rows admitted by the closed statement shape.
-pub(crate) const ZK_X509_MAIN_IO_MAX_LOGICAL_ROWS_V1: usize = ZK_X509_MAIN_IO_BASE_LOGICAL_ROWS_V1
+pub const ZK_X509_MAIN_IO_MAX_LOGICAL_ROWS_V1: usize = ZK_X509_MAIN_IO_BASE_LOGICAL_ROWS_V1
     + ZK_X509_MAIN_IO_LOGICAL_ROWS_PER_DISCLOSURE_V1 * ZK_X509_MAX_DISCLOSED_ATTRIBUTES_V1;
 const FIXED_CERTIFICATE_SLOTS_V1: usize = 3;
 const LENGTH_BYTES_V1: usize = core::mem::size_of::<u64>();
@@ -45,7 +45,7 @@ const SHA256_DIGEST_BYTES_V1: usize = 32;
 const OPTIONAL_CERTIFICATE_SELECTOR_BYTES_V1: usize = 1;
 /// Verifier-owned declarations and the exact non-padding row census.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509MainIoDeclarationsV1 {
+pub struct ZkX509MainIoDeclarationsV1 {
     /// Sequential fixed channel declarations.
     pub(crate) declarations: Vec<ZkX509IoChannelDeclarationV1>,
     /// Exact producer-plus-consumer byte accesses before fixed-capacity padding.
@@ -307,7 +307,7 @@ fn logical_rows_v1(
 /// The full typed statement is first validated against the Taira hard-ceiling profile. The
 /// resulting declarations depend only on its disclosure count and public projection digests. Every
 /// remaining statement field is bound by the other verifier-owned MAIN fixed-column providers.
-pub(crate) fn compile_zk_x509_main_io_declarations_v1(
+pub fn compile_zk_x509_main_io_declarations_v1(
     statement: &IrohaZkX509StarkP256StatementV1,
 ) -> Result<ZkX509MainIoDeclarationsV1, ZkX509MainIoPlanErrorV1> {
     PrivacyStatementV1::IrohaZkX509StarkP256V1(statement.clone())
@@ -369,16 +369,14 @@ pub(crate) fn compile_zk_x509_main_io_declarations_v1(
     })
 }
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use super::*;
     use crate::privacy_engines::zk_x509::projection_air::tests::fixture;
     use iroha_data_model::privacy::{
         PrivacyAttributeDigestV1, PrivacyCertificateKeyDigestV1, PrivacyNullifierV1,
         PrivacyZkX509DisclosedAttributeV1,
     };
-    pub(crate) fn statement_with_disclosures_v1(
-        disclosures: usize,
-    ) -> IrohaZkX509StarkP256StatementV1 {
+    pub fn statement_with_disclosures_v1(disclosures: usize) -> IrohaZkX509StarkP256StatementV1 {
         let (mut statement, _) = fixture();
         // The projection AIR fixture intentionally exercises a non-consensus
         // action index. MAIN I/O compilation validates the complete Taira

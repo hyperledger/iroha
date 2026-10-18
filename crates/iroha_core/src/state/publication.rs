@@ -8,6 +8,10 @@
 use super::*;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
+#[path = "publication/capture_deferral.rs"]
+pub(in crate::state) mod capture_deferral;
+pub use capture_deferral::StateCaptureDeferral;
+
 #[path = "publication/retained_musubi.rs"]
 mod retained_musubi;
 #[path = "publication/retained_musubi_group.rs"]
@@ -18,10 +22,13 @@ mod retained_rows;
 pub(super) use retained_musubi::RetainedPackageReadError;
 #[cfg(test)]
 pub(super) use retained_musubi::retained_package_control_layout_for_test;
-#[cfg(test)]
 pub(super) use retained_musubi_group::RetainedMusubiGroupReadError;
+pub(super) use retained_musubi_group::{OriginalMusubiImage, OriginalMusubiRows};
 #[cfg(test)]
-pub(super) use retained_musubi_group::retained_musubi_group_control_layout_for_test;
+pub(super) use retained_musubi_group::{
+    original_musubi_admission_control_layout_for_test,
+    original_musubi_admission_live_layout_for_test, retained_musubi_group_control_layout_for_test,
+};
 
 /// Local result of attempting publication of the exact retained State.
 #[derive(Debug)]
@@ -46,6 +53,8 @@ impl StatePublicationOutcome {
 /// All original detached effects and notices live beside, never inside a borrow of,
 /// the State fields. No physical guard borrows this struct across an attempt return.
 pub(super) struct StatePublication<'state> {
+    // Captured from the same original block as the fields, never reloaded on retry.
+    capture_policy: iroha_config::parameters::actual::StateCapture,
     geometry_cleanup: crate::kura::KuraPublicationSlot<'state>,
     effect_cleanup: effect_publication::StateEffectLocks<'state>,
     lifecycle_index_releases: LaneLifecycleReleases<'state>,
@@ -92,8 +101,12 @@ pub(super) struct StatePublication<'state> {
 }
 
 impl<'state> StatePublication<'state> {
-    fn new(state: &'state State) -> Self {
+    fn new(
+        state: &'state State,
+        capture_policy: iroha_config::parameters::actual::StateCapture,
+    ) -> Self {
         Self {
+            capture_policy,
             geometry_cleanup: crate::kura::KuraPublicationSlot::new(&state.kura),
             effect_cleanup: effect_publication::StateEffectLocks::new(state),
             lifecycle_index_releases: LaneLifecycleReleases::new(state),
@@ -146,7 +159,7 @@ impl<'state> StateBlock<'state> {
         let mut original = self
             .publication
             .take()
-            .unwrap_or_else(|| StatePublication::new(self.state_ref));
+            .unwrap_or_else(|| StatePublication::new(self.state_ref, self.pipeline.state_capture));
         if original.published {
             self.publication = Some(original);
             return StatePublicationOutcome::Published;
@@ -157,10 +170,9 @@ impl<'state> StateBlock<'state> {
                 TransactionsBlockError::PublicationRecoveryRequired,
             );
         }
-        // Structural read capture grants no publication authority. The materializer
-        // must explicitly retire every read/index before the unchanged engine runs.
-        // Invoking publication earlier is a local ordering invariant, never a
-        // fabricated writer wait or consensus rejection. Keep the original owner.
+        // Unscheduled diagnostic readers grant no publication authority and must
+        // retire explicitly. The engine's scheduled group instead resumes below
+        // under this same original owner before the installation fence.
         if original
             .package_read
             .as_ref()
@@ -168,7 +180,7 @@ impl<'state> StateBlock<'state> {
             || original
                 .musubi_group_read
                 .as_ref()
-                .is_some_and(|plan| !plan.retired)
+                .is_some_and(|plan| !plan.retired && !plan.scheduled)
         {
             self.publication = Some(original);
             return StatePublicationOutcome::Deferred(TransactionsBlockError::ExecutionDeferred(
@@ -206,6 +218,7 @@ impl<'state> StateBlock<'state> {
                     && matches!(
                         &error,
                         TransactionsBlockError::ExecutionDeferred(_)
+                            | TransactionsBlockError::CaptureDeferred(_)
                             | TransactionsBlockError::BlockHashesBusy(_)
                             | TransactionsBlockError::PublicationBusy(_)
                             | TransactionsBlockError::MembershipAdmission(
@@ -263,6 +276,7 @@ impl<'state> StateBlock<'state> {
         self.require_storage_admission()
             .map_err(TransactionsBlockError::LocalStateStorage)?;
         let StatePublication {
+            capture_policy,
             geometry_cleanup,
             effect_cleanup,
             lifecycle_index_releases,
@@ -274,7 +288,7 @@ impl<'state> StateBlock<'state> {
             musubi_live_validated,
             musubi_validated,
             package_read: _,
-            musubi_group_read: _,
+            musubi_group_read,
             tiered_snapshot,
             da_effects,
             lifecycle_effects,
@@ -621,10 +635,26 @@ impl<'state> StateBlock<'state> {
             // refusal preserves its original cause and admits no success marker.
             *musubi_validated = true;
         }
-        // TODO: retain unfinished work inside each validator as well as complete
-        // passes; only successful same-cut phases survive this narrow retry seam.
-        // TODO: connect finite retained materialization and incremental dependency
-        // authority to StatePublication; this pure-stage reuse is not a State root.
+        // The same publication owns the frozen sources, pinned policy, charged
+        // semantic controls and three canonical table trees through every retry.
+        // Whole-validation failures above retain their original priority.
+        retained_musubi_group::OriginalMusubiCapture {
+            state: state_ref,
+            world: &mut *world,
+            group: &mut *musubi_group_read,
+            policy: *capture_policy,
+            generation: current_generation,
+        }
+        .advance_for_publication()?;
+        // Installation cannot consume a cursor while an original source reader
+        // remains. Completed canonical nodes remain in the group's admitted owner.
+        if musubi_group_read.as_ref().is_none_or(|plan| !plan.retired) {
+            return Err(TransactionsBlockError::SnapshotObservationChanged);
+        }
+        // TODO: join all remaining canonical tables/cells, membership companion
+        // and certified history in the complete authenticated State capsule.
+        // This subordinate three-table capture authorizes neither restoration nor
+        // physical lane retirement; no complete State root is published here.
         if tiered_snapshot.is_none() {
             *tiered_snapshot = Some(tiered_publication::PreparedTieredSnapshot::prepare(
                 world,
@@ -1205,4 +1235,13 @@ impl State {
             self.state_commit_lock.try_lock().is_some(),
         )
     }
+}
+
+/// Shared actual four-validator and frozen publication fixture for materializer controls.
+#[cfg(test)]
+pub(in crate::state) mod musubi_materializer_test_support {
+    pub(in crate::state) use crate::state::acquisition_fixture_tests::fixture;
+    pub(in crate::state) use crate::state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::{
+        staged_block, retained_musubi_group_tests::{pending, start},
+    };
 }

@@ -29,7 +29,7 @@ pub enum AtomicPaymentProjectionError {
     /// The expected intent contains invalid movement or owner semantics.
     #[error("invalid expected payment intent: {0}")]
     InvalidIntent(&'static str),
-    /// PipelineGas lacks a supported typed authenticated outcome.
+    /// `PipelineGas` lacks a supported typed authenticated outcome.
     #[error("payment projection does not support PipelineGas charges")]
     UnsupportedFeeOutcome,
     /// The Nexus charge does not bind the original signed source and height.
@@ -112,6 +112,7 @@ pub fn project_atomic_payment_receipt_unverified(
         details: SettlementDetails::Atomic(AtomicSettlementDetails {
             movements: actual.movements.resolve().map_err(Error::InvalidIntent)?,
             intent_hash: actual.intent_hash()?,
+            escrow_ids: actual.escrows.escrow_ids(),
         }),
     })
 }

@@ -1,5 +1,5 @@
 //! Oneshot execution of `apply_blocks` benchmark.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Can be useful to profile using flamegraph.
 //!
 //! ```bash

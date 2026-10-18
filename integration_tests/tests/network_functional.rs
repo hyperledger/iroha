@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Grouped integration harness for network churn and functional network scenarios.
 #[path = "alias_registry_bootstrap_network.rs"]
 mod alias_registry_bootstrap_network;

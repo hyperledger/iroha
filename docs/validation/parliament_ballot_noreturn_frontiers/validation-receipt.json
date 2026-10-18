@@ -1,0 +1,48 @@
+{
+  "checks": [
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.11/bin/python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_noreturn_frontiers_test.py"
+      ],
+      "exit_code": 0,
+      "output": "tests.txt",
+      "output_sha256": "d6d30253bf8a7cf4ccad9c20d2caa562992ba0a40c888193c712e82bc2396c41"
+    },
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.11/bin/python3.11",
+        "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_noreturn_frontiers.py",
+        "--output",
+        "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_noreturn_frontiers/analysis"
+      ],
+      "exit_code": 0,
+      "output": "analysis.txt",
+      "output_sha256": "7228ba75df79d914a3c2c73ff86abf61e9cc5f1e1e4a73ea00d80ccf01190413"
+    }
+  ],
+  "complete_workspace_certificate": false,
+  "guarded_input_count": 53,
+  "helper_sha256": "7d5186c8d7aa4f4f06d8e8a9646a517e77e73b7de011572ed6eeefa194761572",
+  "input_changes": {},
+  "observed_at_utc": "2026-10-13T09:51:53.188587+00:00",
+  "peer_review": {
+    "reviewed_helper_sha256": "7d5186c8d7aa4f4f06d8e8a9646a517e77e73b7de011572ed6eeefa194761572",
+    "reviewed_test_sha256": "b847d6a593ced8b40db8be4b941d9f66694a3646f2e9d6a108b32c3f68a877f9",
+    "reviewer": "independent root agent",
+    "scope": [
+      "Read full helper and checked all-exit assessment, ordinary reachability, least fixed point, native-return handling and classification.",
+      "Independently ran19 tests and a fresh analysis; PASS_UNDER_PREMISES.",
+      "Verified native continuations and all-input unknowns remain separate from ordinary-control exclusions."
+    ],
+    "verdict": "No actionable finding within the stated conditional ordinary-control scope."
+  },
+  "profile_qualified": false,
+  "report_sha256": "c4b69b2bea1b42d713d56f502b5797b33e074bd885bbd3ca68323ca362aff3e7",
+  "schema": "parliament-noreturn-frontiers-validation-v1",
+  "test_sha256": "b847d6a593ced8b40db8be4b941d9f66694a3646f2e9d6a108b32c3f68a877f9",
+  "unit_tests_passed": 19
+}

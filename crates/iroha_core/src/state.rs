@@ -70,6 +70,7 @@ use iroha_data_model::{
         consensus::{ExecKv, ExecWitness},
         proofs::BlockProofs,
     },
+    bond::{BondEntitlement, BondEntitlementId, BondRecord},
     confidential::ConfidentialFeatureDigest,
     consensus::{
         ConsensusKeyId, ConsensusKeyRecord, ConsensusKeyRole, ConsensusKeyStatus,
@@ -221,8 +222,9 @@ use norito::{
 use once_cell::sync::OnceCell as SyncOnceCell;
 use range_bounds::*;
 pub use range_bounds::{
-    AsAssetIdAccountCompare, AsAssetIdAccountDefinitionCompare, AssetByAccountBounds,
-    AssetByAccountDefinitionBounds, RoleIdByAccountBounds,
+    AsAssetIdAccountCompare, AsAssetIdAccountDefinitionCompare, AsBondEntitlementBondCompare,
+    AssetByAccountBounds, AssetByAccountDefinitionBounds, BondEntitlementsByBondBounds,
+    RoleIdByAccountBounds,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 
@@ -390,8 +392,15 @@ pub use native_execution_evidence::{
 mod tiered;
 mod tiered_publication;
 use crate::execution_attempt::ExecutionAttemptError;
-pub use block_proofs::{BlockProofLimits, BlockProofResource};
-use block_proofs::{block_proofs_for_entry_from_kura, executed_block_wire_from_kura};
+pub use block_proofs::{
+    BlockProofLimits, BlockProofResource, KagemushaLedgerAttemptKindV1, KagemushaLedgerAttemptV1,
+    KagemushaLedgerEntryInclusionV1, KagemushaLedgerEntryOwnerV1,
+};
+use block_proofs::{
+    block_proofs_for_entry_from_kura, executed_block_wire_from_kura,
+    kagemusha_ledger_entry_owner_from_body, kagemusha_ledger_inclusion_for_entry_from_body,
+    read_checkpointed_body,
+};
 use canonical_history::committed_block_from_kura;
 mod finality_proof_interval;
 pub use finality_proof_interval::FinalityProofIntervalReadError;
@@ -1378,6 +1387,9 @@ macro_rules! with_world_overlay_fields {
             repo_agreements_by_counterparty,
             repo_agreements_by_custodian,
             settlement_receipts,
+            bonds,
+            bond_entitlements,
+            bond_vaults,
             public_lane_validators,
             public_lane_stake_shares,
             public_lane_stake_custody,
@@ -2190,21 +2202,7 @@ impl BlockHashesBlock<'_> {
 /// Move-only original successor, including its real tree family and predecessor.
 pub(crate) struct DetachedBlockHashes {
     work: BlockHashWork,
-    #[cfg_attr(
-        not(any(test, feature = "iroha-core-tests", feature = "bench")),
-        expect(
-            dead_code,
-            reason = "TODO: connect retained aggregate hash preparation; preserve the original block mode until its exact successor is published"
-        )
-    )]
     mode: mv::BlockMode,
-    #[cfg_attr(
-        not(any(test, feature = "iroha-core-tests", feature = "bench")),
-        expect(
-            dead_code,
-            reason = "TODO: connect retained aggregate hash preparation; preserve the original visible prefix through refusal and retry"
-        )
-    )]
     visible_len: usize,
     reserved_tip: Option<usize>,
 }
@@ -4623,6 +4621,13 @@ pub struct WorldData {
     pub(crate) repo_agreements_by_custodian: Storage<AccountId, BTreeSet<RepoAgreementId>>,
     /// Successful settlement receipts keyed by their one-shot identifier.
     pub(crate) settlement_receipts: Storage<SettlementId, SettlementReceipt>,
+    /// Native bond records keyed by the bond asset definition.
+    pub(crate) bonds: Storage<AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: Storage<BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    #[norito(skip)]
+    pub(crate) bond_vaults: Storage<AccountId, AssetDefinitionId>,
     /// Public-lane validators keyed by `(lane_id, validator account id)`.
     #[norito(skip)]
     pub(crate) public_lane_validators: Storage<(LaneId, AccountId), PublicLaneValidatorRecord>,
@@ -5645,6 +5650,13 @@ pub struct WorldBlockFields<'world> {
         StorageField<'world, AccountId, BTreeSet<RepoAgreementId>>,
     /// Successful settlement receipts keyed by their one-shot identifier.
     pub(crate) settlement_receipts: StorageField<'world, SettlementId, SettlementReceipt>,
+    /// Native bond records keyed by the bond asset definition.
+    pub(crate) bonds: StorageField<'world, AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: StorageField<'world, BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    #[norito(skip)]
+    pub(crate) bond_vaults: StorageField<'world, AccountId, AssetDefinitionId>,
     /// Public lane validator registry.
     #[norito(skip)]
     pub(crate) public_lane_validators:
@@ -6500,6 +6512,9 @@ impl WorldBlock<'_> {
             repo_agreements_by_counterparty,
             repo_agreements_by_custodian,
             settlement_receipts,
+            bonds,
+            bond_entitlements,
+            bond_vaults,
             public_lane_validators,
             public_lane_stake_shares,
             public_lane_stake_custody,
@@ -6581,8 +6596,10 @@ impl WorldBlock<'_> {
             sccp_anchor_open,
             sccp_pause_panel,
         );
+        storage!(sccp_forgery_offences);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC386")))]
+        storage!(sccp_destination_pending_generations);
         storage!(
-            sccp_forgery_offences,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history_leaves,
@@ -6602,6 +6619,10 @@ impl WorldBlock<'_> {
             sccp_reconciliations,
             sccp_reconciliation_proven,
             sccp_pending_refund_amount,
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC387")))]
+        storage!(sccp_reconciliation_due);
+        storage!(
             sccp_light_clients,
             sccp_light_client_sets,
             sccp_light_client_checkpoints,
@@ -7354,6 +7375,12 @@ pub struct WorldTransaction<'block, 'world> {
         StorageTransaction<'block, AccountId, BTreeSet<RepoAgreementId>>,
     /// Successful settlement receipts keyed by their one-shot identifier.
     pub(crate) settlement_receipts: StorageTransaction<'block, SettlementId, SettlementReceipt>,
+    /// Native bond records keyed by the bond asset definition.
+    pub(crate) bonds: StorageTransaction<'block, AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: StorageTransaction<'block, BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    pub(crate) bond_vaults: StorageTransaction<'block, AccountId, AssetDefinitionId>,
     /// Public-lane validators keyed by lane and account.
     pub(crate) public_lane_validators:
         StorageTransaction<'block, (LaneId, AccountId), PublicLaneValidatorRecord>,
@@ -9737,6 +9764,12 @@ pub struct WorldView<'world> {
         StorageView<'world, AccountId, BTreeSet<RepoAgreementId>>,
     /// Successful settlement receipts keyed by their one-shot identifier.
     pub(crate) settlement_receipts: StorageView<'world, SettlementId, SettlementReceipt>,
+    /// Native bond records keyed by the bond asset definition.
+    pub(crate) bonds: StorageView<'world, AssetDefinitionId, BondRecord>,
+    /// Record-date bond entitlements keyed by bond, cash flow and holder.
+    pub(crate) bond_entitlements: StorageView<'world, BondEntitlementId, BondEntitlement>,
+    /// Bond identifiers keyed by their deterministic vault account.
+    pub(crate) bond_vaults: StorageView<'world, AccountId, AssetDefinitionId>,
     /// Public-lane validators keyed by lane and account.
     pub(crate) public_lane_validators:
         StorageView<'world, (LaneId, AccountId), PublicLaneValidatorRecord>,
@@ -12292,6 +12325,11 @@ pub struct State {
     /// Keeping public query traffic separate prevents an untrusted stream of
     /// distinct contracts from evicting consensus-path trigger runtimes.
     contract_query_ivm_cache: parking_lot::Mutex<IvmCache>,
+    /// Bounded completed native prefixes that finite finality proof walks resume from.
+    ///
+    /// Process-local memory only; every use rechecks the pinned frame against the
+    /// captured hash generation and verifies all later heights natively.
+    finality_prefix_checkpoints: crate::sumeragi::certified_chain::FinalityPrefixCheckpoints,
     /// Process-persistent immutable artifacts and runtimes shared by pipeline workers.
     pipeline_ivm_prepared_cache: PublicationRwLock<PreparedContractCache>,
     /// Original immutable pool identity; looking it up acquires no notifying reader.
@@ -12706,7 +12744,10 @@ pub struct StateBlock<'state> {
 }
 
 mod publication;
+pub use publication::StateCaptureDeferral;
 pub(crate) use publication::StatePublicationOutcome;
+#[cfg(test)]
+pub(crate) use publication::capture_deferral::buffer_refusal_for_test as capture_buffer_refusal_for_test;
 
 mod history_reader_releases;
 pub(crate) use history_reader_releases::StateViewReleases;
@@ -13565,7 +13606,6 @@ impl<'state> StateBlock<'state> {
                 .world
                 .privacy_root_heads
                 .get(&plan.head_key)
-                .copied()
                 .unwrap_or_else(|| {
                     panic!(
                         "typed privacy retention plan for {:?}/{:?} has no head at incoming block \
@@ -13577,7 +13617,7 @@ impl<'state> StateBlock<'state> {
             let next_head = crate::privacy_state::PrivacyRootHeadRecordV1::new(
                 head.epoch(),
                 head.root(),
-                head.provenance(),
+                head.provenance().clone(),
                 Some(plan.new_anchor),
             )
             .unwrap_or_else(|error| {
@@ -14113,7 +14153,7 @@ pub struct StateTransaction<'block, 'state> {
     /// Active multisig proposals whose deferred instructions are executing in this transaction.
     pub(crate) multisig_deferred_execution_stack: Vec<(
         AccountId,
-        HashOf<Vec<iroha_data_model::isi::InstructionBox>>,
+        iroha_executor_data_model::isi::multisig::MultisigProposalId,
     )>,
     /// Implicit accounts created so far within this transaction.
     pub implicit_account_creations_in_tx: u32,
@@ -19237,6 +19277,9 @@ impl World {
             repo_agreements_by_counterparty: Storage::default(),
             repo_agreements_by_custodian: Storage::default(),
             settlement_receipts: Storage::default(),
+            bonds: Storage::default(),
+            bond_entitlements: Storage::default(),
+            bond_vaults: Storage::default(),
             ministry_agenda_proposals: Storage::default(),
             governance_proposals: Storage::default(),
             governance_referenda: Storage::default(),
@@ -19318,6 +19361,7 @@ impl World {
             .rebuild_vpn_lease_indexes()
             .map_err(|error| format!("invalid VPN lease indexes in world constructor: {error}"))?;
         world.rebuild_repo_agreement_indexes();
+        world.rebuild_bond_vault_index();
         world.rebuild_proof_status_index();
         world.validate_identifier_claims().map_err(|error| {
             format!("identifier claims must match account bindings in world constructor: {error}")
@@ -20007,6 +20051,16 @@ impl World {
         self.vpn_active_lease_by_address_slot = active_by_address_slot.into_iter().collect();
         self.vpn_settled_leases_by_account = by_account.into_iter().collect();
         Ok(())
+    }
+    /// Rebuild the derived vault index from the registered bond records.
+    pub(crate) fn rebuild_bond_vault_index(&mut self) {
+        let vaults: BTreeMap<AccountId, AssetDefinitionId> = self
+            .bonds
+            .view()
+            .iter()
+            .map(|(id, record)| (record.vault().clone(), id.clone()))
+            .collect();
+        self.bond_vaults = vaults.into_iter().collect();
     }
     fn rebuild_repo_agreement_indexes(&mut self) {
         let (by_initiator, by_counterparty, by_custodian) = {
@@ -21054,6 +21108,12 @@ macro_rules! world_ro_accessors {
             storage repo_agreements_by_custodian: AccountId => BTreeSet<RepoAgreementId>;
             /// Successful settlement receipts (read-only).
             storage settlement_receipts: SettlementId => SettlementReceipt;
+            /// Native bond records (read-only).
+            storage bonds: AssetDefinitionId => BondRecord;
+            /// Record-date bond entitlements (read-only).
+            storage bond_entitlements: BondEntitlementId => BondEntitlement;
+            /// Bond identifiers keyed by vault account (read-only).
+            storage bond_vaults: AccountId => AssetDefinitionId;
             /// Public lane validators keyed by `(lane_id, validator)` (read-only).
             storage public_lane_validators: (LaneId, AccountId) => PublicLaneValidatorRecord;
             /// Public lane stake shares keyed by `(lane_id, validator, staker)` (read-only).
@@ -21862,6 +21922,19 @@ pub trait WorldReadOnly {
             .get(definition_id)
             .into_iter()
             .flat_map(BTreeSet::iter)
+    }
+    /// Iterate the entitlements of `bond` in key order (cash flow, then holder), strictly
+    /// between the optional `after` and `before` entitlements of the same bond.
+    fn bond_entitlements_of_bond_iter<'a>(
+        &'a self,
+        bond: &'a AssetDefinitionId,
+        after: Option<&'a BondEntitlementId>,
+        before: Option<&'a BondEntitlementId>,
+    ) -> impl DoubleEndedIterator<Item = (&'a BondEntitlementId, &'a BondEntitlement)> + 'a {
+        self.bond_entitlements()
+            .range::<dyn AsBondEntitlementBondCompare>(BondEntitlementsByBondBounds::new(
+                bond, after, before,
+            ))
     }
     /// Iterate assets in account
     #[allow(clippy::type_complexity)]
@@ -24720,6 +24793,9 @@ impl WorldTransaction<'_, '_> {
             soradns_last_publish_ms: _,
             soradns_history_len: _,
             settlement_receipts: _,
+            bonds: _,
+            bond_entitlements: _,
+            bond_vaults: _,
             public_lane_validators: _,
             public_lane_stake_shares: _,
             public_lane_stake_custody: _,
@@ -24948,6 +25024,9 @@ impl WorldTransaction<'_, '_> {
         self.soradns_last_publish_ms.apply();
         self.soradns_history_len.apply();
         self.settlement_receipts.apply();
+        self.bonds.apply();
+        self.bond_entitlements.apply();
+        self.bond_vaults.apply();
         self.domain_committees.apply();
         self.domain_endorsement_policies.apply();
         self.domain_endorsements.apply();
@@ -27151,6 +27230,7 @@ impl State {
             .map_err(|error| format!("failed to rebuild contract alias indexes: {error}"))?;
         self.rebuild_snapshot_root_indexes()?;
         self.world.rebuild_game_session_indexes()?;
+        self.world.rebuild_bond_vault_index();
         self.world.rebuild_nft_custody_indexes()?;
         for (_, record) in self.world.nft_custody_records.view().iter() {
             if record.network_id != self.network_id {
@@ -27365,6 +27445,9 @@ impl State {
         network_id: iroha_data_model::NetworkId,
         #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
     ) -> core::result::Result<Self, MergeLedgerCommitError> {
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC385")))]
+        world_acquisition::validate_world_original_pools(&world, &execution_budget)
+            .map_err(StateStorageAdmissionError::World)?;
         crate::sumeragi::lanes::custody::admit_world_state(&mut world, &execution_budget)
             .map_err(MergeLedgerCommitError::NativeLaneCustodyAdmission)?;
         crate::sumeragi::amx::admit_world_state(&mut world, &execution_budget)
@@ -27509,6 +27592,7 @@ impl State {
             ivm_cache_max_decoded_ops:
                 iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
             ivm_cache_max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
+            state_capture: iroha_config::parameters::actual::StateCapture::default(),
             ivm_execution_max_bytes: execution_budget.limit_bytes(),
             ivm_prover_threads: iroha_config::parameters::defaults::pipeline::IVM_PROVER_THREADS,
             overlay_max_instructions:
@@ -27628,6 +27712,8 @@ impl State {
                     pipeline_cache_size, execution_budget.clone(),
                 ),
             )),
+            finality_prefix_checkpoints:
+                crate::sumeragi::certified_chain::FinalityPrefixCheckpoints::new(),
             ivm_execution_budget: execution_budget.clone(),
             pipeline_ivm_prepared_cache: PublicationRwLock::try_new(
                 PreparedContractCache::with_execution_budget(pipeline_cache_size, execution_budget.clone()),
@@ -28448,6 +28534,39 @@ impl State {
             query_handle,
             (*DEFAULT_TEST_CHAIN_ID).clone(),
         )
+    }
+    /// Rebind an independently executed component prefix to its original crash store.
+    ///
+    /// Only reward process-crash tests call this after joining the original executor.
+    /// Every durable prefix frame must match before any resource owner changes.
+    /// This is not snapshot admission: no decoded or caller-authored World is accepted.
+    #[cfg(test)]
+    pub(crate) fn rebind_reward_crash_kura_for_testing(
+        &mut self,
+        replacement: Arc<Kura>,
+    ) -> Result<(), String> {
+        for height in 1..=self.committed_height() {
+            let height = NonZeroUsize::new(height)
+                .ok_or_else(|| "reward crash prefix height is zero".to_owned())?;
+            let original = self
+                .kura
+                .canonical_block_wire_bytes_for_testing(height)
+                .map_err(|error| error.to_string())?;
+            let recovered = replacement
+                .canonical_block_wire_bytes_for_testing(height)
+                .map_err(|error| error.to_string())?;
+            if original != recovered {
+                return Err("reward crash recovery has a different original prefix".to_owned());
+            }
+        }
+        let LoadedStateJournals {
+            query_index,
+            query_projection_checkpoint,
+        } = load_state_journals(&replacement, None, true);
+        *self.query_index_journal.get_mut() = query_index;
+        *self.query_projection_checkpoint_journal.get_mut() = query_projection_checkpoint;
+        self.kura = replacement;
+        Ok(())
     }
     /// Create an isolated State whose Kura is opened at the supplied authoritative
     /// pre-genesis Nexus geometry.
@@ -30258,6 +30377,113 @@ impl State {
         let wire = executed_block_wire_from_kura(source, block_height, expected_hash, limits)?;
         self.recheck_committed_block_hash_for_proof(block_height, expected_hash)?;
         Ok(wire)
+    }
+
+    /// Project the signer and explicit KAGEMUSHA Activate/Unload attempts (with each Unload
+    /// claim's paid account) of one committed External Network input, for an account-scoped
+    /// ledger-finality route filter.
+    ///
+    /// The body is read through the checkpoint-resumed native authenticator (as
+    /// [`Self::read_executed_carrier_from_checkpoints`] reads) under the five explicit
+    /// [`BlockProofLimits`], with source frames, their decoding and the Activate/Unload shape
+    /// decodes charged to `read_budget`. No Merkle path is built and no output is copied. The
+    /// projection is DATA, never finality authority. Source work depends on node-local
+    /// checkpoints, so on-chain readers must not use it.
+    /// # Errors
+    /// Rejects absent or replaced committed history, an unauthenticated or invalid body and
+    /// exceeded limits, all before building paths. Genesis and a sealed input carry no
+    /// attempt and are refused as [`BlockProofError::EntrypointNotFound`]. A local decoder
+    /// refusal of an Activate or Unload frame stays [`BlockProofError::Deferred`].
+    #[track_caller]
+    pub fn kagemusha_ledger_entry_owner(
+        &self,
+        block_height: NonZeroU64,
+        entry_hash: HashOf<TransactionEntrypoint>,
+        limits: BlockProofLimits,
+        read_budget: &CanonicalHistoryReadBudget,
+    ) -> Result<KagemushaLedgerEntryOwnerV1, BlockProofError> {
+        let block = self.kagemusha_ledger_body(block_height, entry_hash, limits, read_budget)?;
+        // Activate/Unload shape decodes are charged to the same request decoder allowance.
+        read_budget
+            .with(|| kagemusha_ledger_entry_owner_from_body(&block, block_height, entry_hash))
+    }
+
+    /// Read the selective inclusion of one committed External Network input whose owner
+    /// projection `admit` accepts: its entry path, joined complete Network output and output
+    /// path.
+    ///
+    /// The body is read as [`Self::kagemusha_ledger_entry_owner`] reads it. An owner that
+    /// `admit` refuses answers `None` before any path is built or any output is copied. The
+    /// response limit bounds the inclusion frame before its output row is copied.
+    /// # Errors
+    /// Rejects what [`Self::kagemusha_ledger_entry_owner`] rejects, a missing output join, or
+    /// an inclusion frame above the response limit.
+    #[track_caller]
+    pub fn kagemusha_ledger_inclusion_for_entry(
+        &self,
+        block_height: NonZeroU64,
+        entry_hash: HashOf<TransactionEntrypoint>,
+        limits: BlockProofLimits,
+        read_budget: &CanonicalHistoryReadBudget,
+        admit: impl FnOnce(&KagemushaLedgerEntryOwnerV1) -> bool,
+    ) -> Result<Option<KagemushaLedgerEntryInclusionV1>, BlockProofError> {
+        let block = self.kagemusha_ledger_body(block_height, entry_hash, limits, read_budget)?;
+        read_budget.with(|| {
+            kagemusha_ledger_inclusion_for_entry_from_body(
+                &block,
+                block_height,
+                entry_hash,
+                limits,
+                admit,
+            )
+        })
+    }
+
+    /// One committed body for the KAGEMUSHA ledger reads, bound to this State's captured hash
+    /// journal and native execution tip, and rechecked against the journal afterwards.
+    fn kagemusha_ledger_body(
+        &self,
+        block_height: NonZeroU64,
+        entry_hash: HashOf<TransactionEntrypoint>,
+        limits: BlockProofLimits,
+        read_budget: &CanonicalHistoryReadBudget,
+    ) -> Result<iroha_data_model::block::SharedSignedBlock, BlockProofError> {
+        // Genesis carries no wallet attempt and has no compact certificate: read nothing.
+        if block_height == NonZeroU64::MIN {
+            return Err(BlockProofError::EntrypointNotFound {
+                entry_hash,
+                block_height,
+            });
+        }
+        let expected_hash = self.committed_block_hash_for_proof(block_height)?;
+        // Capture only the immutable journal and opaque native tip within one publication
+        // interval, as `read_executed_carrier_from_checkpoints` does.
+        let (hashes, tip) = loop {
+            let before = self.state_view_generation();
+            if !before.is_multiple_of(2) {
+                std::thread::yield_now();
+                continue;
+            }
+            let hashes = self.block_hashes.view();
+            let tip = *self.native_execution_tip.view().get();
+            if is_stable_state_view_generation(before, self.state_view_generation()) {
+                break (hashes, tip);
+            }
+            drop(hashes);
+            std::thread::yield_now();
+        };
+        let history =
+            CanonicalHistorySource::new(&self.kura, &hashes, tip, read_budget.frames().clone());
+        let block = read_checkpointed_body(
+            &self.kura,
+            history,
+            block_height,
+            expected_hash,
+            limits,
+            read_budget,
+        )?;
+        self.recheck_committed_block_hash_for_proof(block_height, expected_hash)?;
+        Ok(block)
     }
 
     /// Read one complete native execution for an off-chain reader, starting the
@@ -33038,10 +33264,10 @@ impl State {
             if let Ok(permission) = iroha_executor_data_model::permission::nexus::CanPublishSpaceDirectoryManifestForAccountDomain::try_from(
                 permission,
             ) {
+                // The manifest target and account-alias namespace are independent scopes.
+                // Both must remain in the current catalog; equality is not required.
                 return !dataspace_ids.contains(&permission.dataspace)
-                    || dataspace_ids_by_alias
-                        .get(permission.domain.dataspace().as_ref())
-                        .is_none_or(|dataspace| *dataspace != permission.dataspace);
+                    || !dataspace_aliases.contains(permission.domain.dataspace().as_ref());
             }
             false
         };

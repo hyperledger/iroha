@@ -1,0 +1,270 @@
+"""Explicit retained purification of a fixed classical sequence's private coins.
+
+The source mode authenticates the input schema, not arbitrary generator/kernel
+semantics. Initial zero states, register privacy, source contracts and one fixed
+oracle remain premises. TODO: actual preparation, adaptive entry and full proof.
+"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+
+from bit_ir import integer, require
+from content_request import ContentRequest
+from l0_machine import OverlayLookup
+from public_machine import PublicShape
+from request_family import ContentFamily, RejectedVoteFamily
+from request_generator import Generator
+from request_transition import RequestTransition
+from sequence import Sequence, natural
+from stage_plan import RetainedPlan
+
+
+SCHEMA_PINS = {
+    'target/parliament-ideal-machine-stage/bit_ir.py': 'f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64',
+    'target/parliament-ideal-machine-stage/content_request.py': '5290f62284e8bc7a1d6ce9795d9a738074d956fc518ed7bc216c0ef3f416c3e0',
+    'target/parliament-ideal-machine-stage/opening.py': '6223057116ba7652d90025327635384c102f7d68193715dc5d9d82b334ae9118',
+    'target/parliament-ideal-machine-stage/public_machine.py': 'da79c4e07bc5f504ff5b02a6af96f2bfcf4b09ea480eafdc2e5d59bfcf55cd6f',
+    'target/parliament-ideal-machine-stage/request_family.py': '26a91d48a98a538de02b5d38d7875ef224fac1bbffc78bfa7b41155897f34041',
+    'target/parliament-ideal-machine-stage/request_generator.py': '0f3173dfb0d806685d7b437297928ae4edf31805b21a1628684d0b15cfb201d9',
+    'target/parliament-ideal-machine-stage/request_transition.py': '02d43d565b893497a16ec606917a19e3261479f82f5db8aaafbf4d9355bfdcd1',
+    'target/parliament-ideal-machine-stage/schedule.py': 'f46ef5e6899aa2eaa078131d1d88eb7478e7e63cb49b72c0a8663178827405cf',
+    'target/parliament-ideal-machine-stage/stage_plan.py': '4087930673266d460ead30c4306e742a3e70595b70555210beec1a70b8b0ece4',
+    'target/parliament-sequential-composition-stage/sequence.py': '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131',
+    'crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs': 'a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e',
+    'crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs': '535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f',
+}
+
+
+def authenticate_schema_sources(root):
+    """Check selected layout definitions; this is not a runtime/source closure."""
+    require(isinstance(root, (str, Path)), 'source root path')
+    root = Path(root)
+    pins = {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in SCHEMA_PINS}
+    require(pins == SCHEMA_PINS, 'coin schema source identity')
+    return tuple(sorted(pins.items()))
+
+
+@dataclass(frozen=True)
+class CoinInterval:
+    """A named interval inside one component's original-input register."""
+    name: str
+    start: int
+    bits: int
+
+    def __post_init__(self):
+        require(type(self.name) is str and 0 < len(self.name) <= 128, 'coin field name')
+        natural(self.start, 'coin start')
+        natural(self.bits, 'coin width', 1)
+
+
+@dataclass(frozen=True)
+class SourceSchema:
+    """Exact ordered source layout; semantic generator origin remains external."""
+    shape: PublicShape
+    trials: int
+    inputs: tuple
+    coins: tuple
+    public_bits: int
+    input_bits: int
+    coin_bits: int
+
+
+def source_schema(root, shape, trials):
+    """Locate original iv_pre/salt, never their derived P1 field aliases."""
+    before = authenticate_schema_sources(root)
+    require(type(shape) is PublicShape, 'source public shape')
+    integer(trials, 1, 1 << 20, 'source trial cap')
+    if shape.role == 'VOTE':
+        require(3 <= shape.list_count <= 1000, 'source bounded VOTE shape')
+    tau, opening, g = {'candidate': (33, 229, 704), 'comparator': (22, 225, 696)}[shape.row]
+    ell = 35840 if shape.role == 'REG' else 53504
+    public_bits = (8*(shape.body_bytes+sum(shape.context_bytes)+192) if shape.role == 'REG'
+                   else 8*(451+128*shape.list_count))
+    regions = dict(shape.input_regions())
+    require(regions['iv_pre'] == tuple(range(public_bits, public_bits+128))
+            and regions['salt'] == tuple(range(public_bits+128, public_bits+384))
+            and shape.inputs == public_bits+384, 'original public coin geometry')
+    inputs = (('public_preparation', public_bits+384), ('schedule_tapes', 512*trials),
+              ('hidden_commitment_coins', 896*tau), ('frontier_key_coins', 256*opening),
+              ('corrections', (tau-1)*ell), ('mult_corrections', 10*g),
+              ('challenge_1', 2112), ('u_tilde', 1024), ('masked_witness', ell),
+              ('challenge_2', 832), ('coefficients', 1536))
+    cursor = public_bits
+    intervals = []
+    widths = (('iv_pre', 128), ('salt', 256), ('primary_tape', 256*trials),
+              ('auxiliary_tape', 256*trials), *inputs[2:])
+    for name, width in widths:
+        intervals.append(CoinInterval(name, cursor, width))
+        cursor += width
+    total = sum(width for _, width in inputs)
+    expected = 512*trials+896*tau+256*opening+tau*ell+10*g+5888
+    require(cursor == total and total-public_bits == expected, 'coin schema total')
+    require(authenticate_schema_sources(root) == before, 'coin schema source drift')
+    return SourceSchema(shape, trials, inputs, tuple(intervals), public_bits, total, expected)
+
+
+def source_generator_coins(root, generator):
+    """Validate the actual factory's ordered input shape, not callback semantics."""
+    require(type(generator) is Generator, 'source generator type')
+    require(type(generator.plan) is RetainedPlan, 'source retained input plan')
+    schema = source_schema(root, generator.shape, generator.trials)
+    require(generator.plan.inputs == schema.inputs, 'exact source generator input schema')
+    natural(generator.original_private_coin_bits, 'source private coin count')
+    require(generator.original_private_coin_bits == schema.coin_bits, 'source private coin count')
+    layout = generator.plan.layout()
+    require(layout['input_bits'] == schema.input_bits, 'source original input width')
+    cursor = 0
+    for name, width in schema.inputs:
+        require(layout['registers'][name] == (cursor, width), 'source original input offset')
+        cursor += width
+    return schema.coins
+
+
+def request_generator(machine):
+    """Return only supported generating components; other components use no coins."""
+    if type(machine) is ContentFamily:
+        return machine.request.generator
+    if type(machine) in (RequestTransition, ContentRequest):
+        return machine.generator
+    require(type(machine) in (OverlayLookup, RejectedVoteFamily), 'unsupported coin component')
+    return None
+
+
+def validate_intervals(intervals, input_bits, coin_bits):
+    """Enforce exact-width, named, pairwise-disjoint original-input intervals."""
+    natural(input_bits, 'original input width', 1)
+    natural(coin_bits, 'private coin count')
+    require(type(intervals) is tuple and all(type(v) is CoinInterval for v in intervals),
+            'immutable coin intervals')
+    require(len({v.name for v in intervals}) == len(intervals), 'duplicate coin field')
+    require(sum(v.bits for v in intervals) == coin_bits, 'coin interval total')
+    ordered = sorted(intervals, key=lambda v: v.start)
+    for interval in ordered:
+        require(interval.start+interval.bits <= input_bits, 'coin outside original input')
+    for left, right in zip(ordered, ordered[1:]):
+        require(left.start+left.bits <= right.start, 'coin intervals alias')
+    return intervals
+
+
+@dataclass(frozen=True)
+class PreparedInterval:
+    """Disjoint global original coin and retained purifier intervals."""
+    call: str
+    field: str
+    coin: int
+    purifier: int
+    bits: int
+
+
+@dataclass(frozen=True, init=False)
+class PurifiedSequence:
+    """Prepare all fixed-call coins once, retain purifiers, then emit the body.
+
+    Source mode validates the exact source input schema. Toy mode requires an
+    explicit separate contract and cannot claim source coordinates. Neither
+    mode authenticates arbitrary component semantics or checks quantum states.
+    """
+    sequence: Sequence
+    mode: str
+    schema_pins: tuple
+    intervals: tuple
+    allocations: tuple
+    coins: int
+    size: int
+
+    def __init__(self, sequence, *, source_root=None, toy_coin_intervals=None):
+        require(type(sequence) is Sequence, 'typed fixed classical sequence')
+        require((source_root is None) != (toy_coin_intervals is None), 'choose source or explicit toy contract')
+        pins = authenticate_schema_sources(source_root) if source_root is not None else ()
+        generators = tuple((call, request_generator(call.machine)) for call in sequence.calls)
+        if toy_coin_intervals is not None:
+            require(type(toy_coin_intervals) is tuple and all(type(entry) is tuple and len(entry) == 2
+                    and type(entry[0]) is str for entry in toy_coin_intervals), 'immutable toy coin contract')
+            toy = dict(toy_coin_intervals)
+            require(len(toy) == len(toy_coin_intervals), 'duplicate toy call')
+            require(set(toy) == {call.name for call, g in generators if g is not None},
+                    'exact toy generating-call membership')
+        cursor = sequence.size
+        prepared = []
+        allocations = list(sequence.allocations)
+        for index, (call, generator) in enumerate(generators):
+            if generator is None:
+                continue
+            layout = generator.plan.layout()
+            intervals = (source_generator_coins(source_root, generator) if source_root is not None
+                         else toy[call.name])
+            validate_intervals(intervals, layout['input_bits'], generator.original_private_coin_bits)
+            width = generator.original_private_coin_bits
+            if width:
+                allocations.append(('purifier.'+call.name, cursor, width))
+            for interval in intervals:
+                coin = sequence.mappings[index].span(interval.start, interval.bits)
+                prepared.append(PreparedInterval(call.name, interval.name, coin, cursor, interval.bits))
+                cursor += interval.bits
+        ordered = sorted(prepared, key=lambda p: p.coin)
+        require(all(p.coin+p.bits <= sequence.size and p.purifier >= sequence.size for p in ordered),
+                'coins or purifiers outside distinct regions')
+        require(all(a.coin+a.bits <= b.coin for a, b in zip(ordered, ordered[1:])), 'global coin alias')
+        coins = cursor-sequence.size
+        require(coins == sequence.resources()['retained_coin_bits'], 'all declared body coins covered')
+        if source_root is not None:
+            require(authenticate_schema_sources(source_root) == pins, 'source schema changed during binding')
+        for name, value in (('sequence', sequence), ('mode', 'source-schema' if source_root is not None else 'toy'),
+                           ('schema_pins', pins), ('intervals', tuple(prepared)),
+                           ('allocations', tuple(allocations)), ('coins', coins), ('size', cursor)):
+            object.__setattr__(self, name, value)
+
+    def emit_preparation(self, *, inverse=False):
+        """Actual H/CX stream; its inverse is CX/H in reverse pair order."""
+        require(type(inverse) is bool, 'preparation inverse flag')
+        intervals = reversed(self.intervals) if inverse else self.intervals
+        for part in intervals:
+            indices = range(part.bits-1, -1, -1) if inverse else range(part.bits)
+            for bit in indices:
+                h = ('h', part.coin+bit)
+                cx = ('cx', part.coin+bit, part.purifier+bit)
+                yield from (cx, h) if inverse else (h, cx)
+
+    def emit(self, *, inverse=False):
+        """Inverse the actual body before unpreparing its retained coin pairs."""
+        require(type(inverse) is bool, 'purified sequence inverse flag')
+        if inverse:
+            yield from self.sequence.emit(inverse=True)
+            yield from self.emit_preparation(inverse=True)
+        else:
+            yield from self.emit_preparation()
+            yield from self.sequence.emit()
+
+    def resources(self):
+        """Keep Hadamards separate; add CNOTs without mutating body accounting."""
+        body = self.sequence.resources()
+        gates = body['gates']
+        return dict(scope='fixed classical sequence with explicit retained ideal coin purification',
+            contract=self.mode, source_input_schema_authenticated=self.mode == 'source-schema',
+            selected_schema_sha256=dict(self.schema_pins),
+            original_coin_bits=self.coins, retained_purifier_bits=self.coins,
+            original_coin_and_purifier_zero_bits_required=2*self.coins,
+            body_logical_bits=self.sequence.size, logical_bits=self.size, allocations=self.allocations,
+            original_coin_and_purifier_intervals=tuple((p.call, p.field, p.coin, p.purifier, p.bits)
+                                                     for p in self.intervals),
+            body_gates=dict(gates), preparation_gates=dict(h=self.coins, cx=self.coins),
+            aggregate_gate_vector=dict(h=self.coins, x=gates['x'], cx=gates['cx']+self.coins,
+                                       ccx=gates['ccx'], base_xor_oracle_calls=gates['base_xor_oracle_calls']),
+            non_h_elementary_gates=gates['elementary_gates']+self.coins,
+            hadamard_gates=self.coins, hadamard_cost_merged_into_non_h=False,
+            all_preparation_up_front=True, private_purifiers_retained=True,
+            source_schema_is_not_generator_semantics_authentication=True,
+            initial_quantum_state_checked=False, requires_zero_private_coin_and_purifier_inputs=True,
+            requires_private_future_register_noninterference=True,
+            requires_same_immutable_F_and_source_component_contracts=True,
+            requires_body_clean_workspace_and_initial_zero_log_and_counter=True,
+            public_input_and_descriptor_preparation_external=True,
+            physical_entropy_or_reset_implemented=False, dependency_closure_authenticated=False,
+            full_cap_stream_executed=False, full_adaptive_driver_implemented=False,
+            full_joint_quantum_theorem_proved=False, complete_resource_vector=False,
+            physical_workspace_qualification=False, independent_cryptographic_review=False,
+            current_candidate_qualified=False, profile_qualified=False, production_gate_changed=False,
+            remaining_unknown_terms=('physical_initialization_and_private_environment',
+                'public_inputs_and_descriptor_authentication', 'adaptive_selection_and_routing',
+                'external_adversary_work_and_state', 'base_oracle_implementation_and_state',
+                'uniform_family_envelope', 'primitive_entry_and_advantages'))

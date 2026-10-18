@@ -112,9 +112,7 @@ async fn signed_snapshot_restore_accepts_configured_governed_lane() {
     )
     .unwrap();
     let mut state = State::try_new_with_chain_and_network_id(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget().clone(),
         world,
         Arc::clone(&kura),
         LiveQueryStore::start_test(),

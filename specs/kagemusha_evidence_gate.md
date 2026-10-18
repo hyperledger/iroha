@@ -1,11 +1,37 @@
 # KAGEMUSHA verification checklist
 
-Status: working checklist, 2026-10-13, for the split-lineage proposal and its
+Status: working checklist, 2026-10-16, for the split-lineage proposal and its
 accepted native BLS Load-finality amendment. This document records useful checks for
 [the single protocol](kagemusha_single_design_proposal.md). It is not an
 approval process and does not block use, production integration or deployment.
-The filename is retained for existing links. Section 8 records current
-component checks; complete protocol and physical-device qualification remain open.
+The filename is retained for existing links. Section 8 distinguishes current
+requirements from historical component checks; complete protocol and physical-device qualification remain open.
+
+The selected conditional source arguments cover reachable valid preparation, the
+integer, hash, tree, signature and recursive-verifier kernels, complete group
+arithmetic (GROUP), finite Strict checking (K-check), and common-template causal
+transfer. The [logical composition](kagemusha_c12_composition_v1.md) includes
+setup before pins and causal private-byte materialization under one ideal raw
+setup oracle, with matching valid source witnesses and exact retained originals.
+Applying that model to deterministic BLAKE2b is an explicit instantiation
+assumption, not a theorem conditioned on literal release pins or a requirement
+for a new simulator executable against a chosen installed key.
+
+Each source candidate, its admitted catalog and matching native/managed
+artifacts require a coherent join and their own qualification. The 16 October
+captured candidate has passing strict profiles, compiled registry inspections,
+native builds and host JNI tests. The earlier catalog and build-storage failures
+recorded in section 8 retain their historical scope.
+Genuine four-validator monetary execution, matching SDK artifacts, physical
+carrier measurements and physical-to-logical storage/refusal refinement remain
+required. Mathematical source arguments do not establish machine-code or
+physical failure behavior. The initial phones are Pixel 6 and the connected
+iPhone 16 Pro Max. Current-candidate iPhone enrollment must retain its actual
+App Attest evidence. Payment release still requires a retained nonrollback
+anchor excluding the old wallet head, or a guarantee that losing that anchor
+makes the same payment key unusable. If both anchors are lost while old wallet
+files and the same payment key remain usable, Keychain readback alone does not
+establish that boundary.
 
 Runtime signature, proof, authorization, replay and durability checks remain
 part of the protocol. Removing a release gate does not make an invalid
@@ -333,7 +359,7 @@ in-circuit verifiers must accept exactly the same set for every object that
 `Λ` verifies after a native check: run differential and fuzz tests, in the
 relation owners' CI, over `Ω` including its deferred values, `σ`, `τ`, the
 Request, Credited evidence, ordinary Load receipt bindings, fee schedules,
-certificates, credentials, and policy, list, time and credential updates. Load's
+certificates, credentials, and policy, time and credential updates. Load's
 BLS certificate and counted event inclusion are verified natively before Advance
 signing under the accepted [design §6.1](kagemusha_single_design_proposal.md#61-load-and-unload)
 trust boundary; exercise their native mutation and pre-signing refusal cases
@@ -355,6 +381,35 @@ voluntary transfers to a different scheme separately; breaking changes cannot
 require old wallets to update or reconnect to keep using their existing value.
 
 ## 6. Complete device exchanges
+
+The user-selected initial measurement population is Pixel 6 and the connected
+iPhone 16 Pro Max. These are measurement subjects, not a runtime device allowlist. Record
+fresh OS/build and app/native/catalog identities for each run; expansion to other
+phones remains separate work. Report Android → iPhone and iPhone → Android
+individually for every actually supported carrier. Do not pool different
+directions, carriers, cold starts or enabled-control profiles into one percentile.
+
+For each qualified timing cell, retain 200 ordered attempts and use the
+nearest-rank empirical p95 (the 190th ordered duration). Retain failed,
+cancelled and interrupted attempts in their original positions; report their
+counts and reasons rather than silently replacing them with successes. A cell
+with failures does not establish the completion target from successful timings
+alone. Preliminary diagnostic runs may use fewer attempts, clearly labeled,
+to identify bottlenecks before the full evaluation. Durable-completion time and
+the later local-fold time until received value is spendable remain separate
+measurements. No timing or durability success is established by selecting this
+population or procedure.
+
+Use a continuous local clock that includes device sleep for every timestamp in
+an attempt; do not subtract timestamps across phones or reboots. The nearby
+harness uses Darwin `CLOCK_MONOTONIC_RAW` and Android `elapsedRealtimeNanos`.
+After native admission authenticates the exact Credited response, its earlier
+arrival on the payer's clock bounds receiver durable completion from above;
+the later payer admission time measures delivery confirmation separately. An
+arrival upper bound within the target can establish the timing bound, but an
+upper bound above it alone does not prove the receiver missed the target.
+Recovery without the original clock anchor supplies no timing sample. Neither
+clock selection nor an authenticated acknowledgement proves power-loss durability.
 
 Run real proofs and the software provider on stock phones for each claimed
 device and ordered sender/receiver/carrier combination. Label runs with
@@ -459,7 +514,61 @@ Starting points, not evidence that this protocol has passed:
 
 ## 8. Recorded results
 
-### Current implementation checkpoint (2026-10-12)
+### Current first-release completion requirements (2026-10-16)
+
+The selected [logical C12 composition](kagemusha_c12_composition_v1.md) retains
+its named setup, masking, valid-source, concrete-coin and causal-custody
+premises. It includes all three Q stages, both exposed accumulators,
+checkpoints, retries and stopped outcomes. Its conditional logical result does
+not qualify a compiled catalog or physical device. The 16 October captured
+candidate has matching strict engineering/production profiles, installed registry
+DATA, native builds and host JNI tests. Genuine monetary execution across all
+supported variants, four-validator execution and physical carrier measurements
+remain open. Later source changes need matching validation; historical source
+and execution records below do not qualify a successor.
+
+The initial phones are Pixel 6 and the connected iPhone 16 Pro Max. Current
+candidate enrollment must carry actual platform evidence, including App Attest
+on iPhone. Release across power loss or restoration must exclude replay of an
+old head under a still-usable payment key through the retained authority/key
+boundary described above. These are implementation requirements, not an
+additional approval or deployment process.
+
+### Historical complete catalog capture (source9696, 2026-10-15)
+
+The earlier captured source identity was
+`9696be0d5573d45534cc7d18f9785df2a69aded4160643d6ac476aacb11f1755`;
+its strict exported registry DATA was
+`1ae7a48772cd342e0176f583a321f58596ed32c6178b17ba3c4b757f43eb139a`.
+That catalog covered 52 routes, 32 programs, 32 terminal keys and 505 originals.
+Its native strict reconstruction/export passed, including all 488 private mask
+checks, 16 active sigma imports and 89 active Q imports. The initial export's
+private-file mode refusal remains a failed attempt; the continuation copied the
+same originals to exclusive immutable files and reran strict native admission.
+The terminal export receipt SHA was
+`d214cf379b22bbfea86c1bb0faf017ee8f7c47591b6cc165a4bf26b3f01d1287`.
+These are catalog observations at that source, not genuine monetary or phone
+qualification and not evidence for the current source proposal.
+
+The corresponding final macOS and Linux captures stopped on exhausted build
+storage. Those failed attempts retain their logs and candidate identities;
+this historical result is not a claim that the current build storage is
+exhausted. Matching final artifacts and execution were not established by
+that capture.
+
+The reviewed source arguments accompanying the capture covered reached
+operation relations, their integer/hash/tree/signature/recursive dependencies,
+complete group arithmetic and finite Strict checking at their recorded source
+scope. Finite controls supported the derivations but did not prove universal
+correctness or physical privacy. The current conditional logical argument and
+its bounded source transfers are stated in the linked composition and
+recursion documents.
+
+### Earlier captured implementation observations (through 2026-10-12)
+
+The following records describe only their named captured candidates. Their
+pending-work statements are historical; the current requirements above do not
+transfer qualification from those candidates.
 
 The measured lookup-mask candidate reuses two dead quotient-workspace columns for
 public lookup-mask weights, without changing proof bytes, random draws or the

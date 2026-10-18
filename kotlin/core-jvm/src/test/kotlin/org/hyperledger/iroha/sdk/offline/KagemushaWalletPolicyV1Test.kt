@@ -66,9 +66,9 @@ class KagemushaWalletPolicyV1Test {
         assertEquals(BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE), android.minimumPackageVersion)
         assertEquals(431, maximal.transcript().size)
         val enrollment = KagemushaWalletEnrollmentPolicyV1.decodeCanonical(case("android_maximal").hex("enrollment_policy_frame_hex"))
-        assertEquals(572, enrollment.transcript().size)
+        assertEquals(564, enrollment.transcript().size)
         assertEquals(8, assertIs<KagemushaWalletEnrollmentPolicyV1.Platform.Android>(enrollment.platform).roots().size)
-        assertEquals(167, KagemushaWalletEnrollmentPolicyV1.decodeCanonical(case("apple").hex("enrollment_policy_frame_hex")).transcript().size)
+        assertEquals(159, KagemushaWalletEnrollmentPolicyV1.decodeCanonical(case("apple").hex("enrollment_policy_frame_hex")).transcript().size)
         assertTrue(KagemushaWalletAppPolicyV1.decodeCanonical(case("apple_maximal").hex("app_policy_frame_hex")).transcript().size <= 294)
     }
 

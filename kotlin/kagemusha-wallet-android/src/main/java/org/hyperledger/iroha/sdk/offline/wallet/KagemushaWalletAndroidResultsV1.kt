@@ -233,7 +233,7 @@ internal sealed class KagemushaWalletAndroidAttestationChainV1 {
 
 /** Custody root path, or why it is not available now. */
 internal sealed class KagemushaWalletAndroidCustodyRootV1 {
-    /** Absolute canonical path of the custody root; Rust creates the directory durably. */
+    /** Absolute validated path of the prepared custody root; Native opens existing custody. */
     class Present(@JvmField val path: String) : KagemushaWalletAndroidCustodyRootV1() {
         override fun toString(): String = "Present($path)"
     }

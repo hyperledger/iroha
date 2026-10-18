@@ -1,5 +1,5 @@
 //! Tests for automatic ReferendumOpened/ReferendumClosed events via height triggers.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(
     clippy::doc_markdown,
     clippy::too_many_lines,

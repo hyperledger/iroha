@@ -7,7 +7,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 import pytest
@@ -15,9 +15,6 @@ import requests
 from client_test_support import (
     CANONICAL_OWNER,
     CANONICAL_OWNER_HEADER,
-)
-from client_test_support import (
-    app_api_transaction_draft as _app_api_transaction_draft,
 )
 from client_test_support import (
     authority_fee_payment as _authority_fee_payment,
@@ -31,7 +28,6 @@ from client_test_support import (
 from sumeragi_exact_json_test_support import (
     RecordingSession,
     StubResponse,
-    sumeragi_exact_json_response_cases,
 )
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -48,7 +44,6 @@ from iroha_torii_client import (  # noqa: E402  (import depends on sys.path muta
     GovernanceContractResponse,
     GovernanceLockCustody,
     GovernanceLockRecord,
-    MultisigResponse,
     NetworkTimeSnapshot,
     NetworkTimeStatus,
     ToriiCanonicalRequestAuth,
@@ -80,8 +75,6 @@ _NATIVE_AMX_VALIDATOR_SET = [
     "ea013099BA3FACE165941434D3238C4D5767059EBFFFB4120A9885A4EB2BAC9CD868F690660D2936B03C0214FBDAD36034D578",
     "ea0130B921EAC90D1A99EC9DA3FF8C8A29EBEE19DD1B659A4C6FC21BC8046EA30DE566668EDCCEAE4CB5932F4F860606A1E0E3",
 ]
-_MULTISIG_DRAFT_EXECUTABLE = b"trusted multisig executable archive"
-_MULTISIG_DRAFT_METADATA = (0).to_bytes(8, "little")
 _CONTRACT_DRAFT_EXECUTABLE = b"trusted contract-call executable archive"
 _CONTRACT_DRAFT_METADATA = b"trusted final contract-call metadata archive"
 _CONTRACT_ADDRESS = (
@@ -131,39 +124,6 @@ def _contract_draft_intent(
         code_hash_hex=code_hash_hex,
         payload_digest_hex=contract_payload_digest_hex(payload),
     )
-
-
-def _multisig_transaction_draft(
-    *,
-    authority: str = CANONICAL_OWNER,
-    fee_payment: Optional[Mapping[str, Any]] = None,
-    creation_time_ms: int = 42,
-    executable: bytes = _MULTISIG_DRAFT_EXECUTABLE,
-    metadata: bytes = _MULTISIG_DRAFT_METADATA,
-) -> Dict[str, Any]:
-    def field(value: bytes) -> bytes:
-        return client_module._multisig_norito_field(value)
-
-    normalized_fee = ToriiClient._normalize_fee_payment_intent(
-        fee_payment or _authority_fee_payment(),
-        context="multisig fixture fee_payment",
-    )
-    payload = b"".join(
-        field(value)
-        for value in (
-            (0).to_bytes(4, "little")
-            + field(bytes.fromhex(OFFLINE_NETWORK_ID[5:69])),
-            client_module._multisig_account_id_archive(authority),
-            creation_time_ms.to_bytes(8, "little"),
-            executable,
-            b"\x01" + field((100_000).to_bytes(8, "little")),
-            b"\x00",
-            client_module._multisig_fee_payment_archive(normalized_fee),
-            metadata,
-            b"\x00",
-        )
-    )
-    return _app_api_transaction_draft(payload)
 
 
 def _contract_operation_receipt(
@@ -3494,44 +3454,6 @@ def test_call_contract_response_requires_operation_receipt() -> None:
         ToriiClient._parse_contract_call_response(payload, context="contract call response")
 
 
-
-
-
-
-
-
-@pytest.mark.parametrize("field", ["tx_hash_hex", "executed_tx_hash_hex"])
-def test_multisig_transaction_hashes_require_iroha_marker(field: str) -> None:
-    payload = {
-        "ok": True,
-        "resolved_multisig_account_id": CANONICAL_OWNER,
-        "submitted": True,
-        "proposal_id": "aa" * 32,
-        "instructions_hash": "aa" * 32,
-        "tx_hash_hex": "ab" * 32,
-        "executed_tx_hash_hex": None,
-        "creation_time_ms": 123,
-        "transaction_payload_b64": None,
-        "signing_message_b64": None,
-    }
-    payload[field] = "aa" * 32
-
-    with pytest.raises(RuntimeError, match="HashOf marker"):
-        ToriiClient._parse_multisig_response(payload, context="multisig response")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_call_contract_rejects_ambiguous_selector() -> None:
     client = ToriiClient("http://node.test", session=RecordingSession())
 
@@ -6407,10 +6329,11 @@ def test_sumeragi_native_evidence_rejects_invalid_offender_attribution(mutation:
 def test_retired_generic_multisig_proposal_has_no_shipping_base_api() -> None:
     session = RecordingSession()
     client = ToriiClient("http://node.test", session=session)
-    for name in ("propose_multisig", "multisig_instruction_b64"):
+    for name in ("propose_multisig", "multisig_instruction_b64", "_parse_multisig_response"):
         assert not hasattr(ToriiClient, name)
         assert not hasattr(client, name)
     assert not hasattr(torii_module, "MultisigDraftIntent")
+    assert not hasattr(torii_module, "MultisigResponse")
     assert session.calls == []
 
 

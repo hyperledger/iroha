@@ -1,10 +1,10 @@
 //! Adversarial lifecycle tests for canonical role operations.
+use crate::common;
 use ivm::{
     IVM,
     mock_wsv::{MockWorldStateView, PermissionToken, WsvHost},
 };
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 fn load(vm: &mut IVM, program: &[u8], context: &str) {
     vm.load_program(program)
         .unwrap_or_else(|error| panic!("load {context}: {error:?}"));

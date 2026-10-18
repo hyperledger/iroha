@@ -3723,7 +3723,7 @@ mod tests {
                 .all(|query| query.current_row.len() == TRACE_WIDTH)
         );
         assert_eq!(CANONICAL_PROOF_BYTES_V1, 2_131_222);
-        assert!(CANONICAL_PROOF_BYTES_V1 < 8 * 1024 * 1024);
+        const { assert!(CANONICAL_PROOF_BYTES_V1 < 8 * 1024 * 1024) };
     }
     #[test]
     fn zero_knowledge_and_fri_degree_budgets_are_machine_checked() {
@@ -3733,7 +3733,7 @@ mod tests {
         // A query opens both the current and next trace row.  The structured
         // trace mask therefore has strictly more independent coefficients than
         // the maximum number of direct evaluations of any private column.
-        assert!(TRACE_MASK_COEFFICIENTS > 2 * QUERY_COUNT);
+        const { assert!(TRACE_MASK_COEFFICIENTS > 2 * QUERY_COUNT) };
         let geometry = transparent_stark_zk_mask_geometry_v1(
             REDUCED_AIR_DEGREE_V1,
             CHALLENGE_EXTENSION_DEGREE,
@@ -3769,11 +3769,11 @@ mod tests {
         // independent R-mask coefficient space.  Consequently R can
         // statistically decouple the complete folded transcript, not merely
         // the selected round-zero openings.
-        assert!(MASKED_TRACE_MAX_DEGREE < FRI_MASK_COEFFICIENTS);
-        assert!(COMPOSITION_MAX_DEGREE < FRI_MASK_COEFFICIENTS);
-        assert!(MASKED_TRACE_MAX_DEGREE < FRI_CODE_DEGREE_BOUND_EXCLUSIVE);
-        assert!(COMPOSITION_MAX_DEGREE < FRI_CODE_DEGREE_BOUND_EXCLUSIVE);
-        assert!(FRI_MASK_COEFFICIENTS < FRI_CODE_DEGREE_BOUND_EXCLUSIVE);
+        const { assert!(MASKED_TRACE_MAX_DEGREE < FRI_MASK_COEFFICIENTS) };
+        const { assert!(COMPOSITION_MAX_DEGREE < FRI_MASK_COEFFICIENTS) };
+        const { assert!(MASKED_TRACE_MAX_DEGREE < FRI_CODE_DEGREE_BOUND_EXCLUSIVE) };
+        const { assert!(COMPOSITION_MAX_DEGREE < FRI_CODE_DEGREE_BOUND_EXCLUSIVE) };
+        const { assert!(FRI_MASK_COEFFICIENTS < FRI_CODE_DEGREE_BOUND_EXCLUSIVE) };
     }
     #[test]
     fn air_degree_mask_and_work_security_substitution_fail_closed() {

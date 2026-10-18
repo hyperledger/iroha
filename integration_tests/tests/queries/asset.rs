@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Asset query regression scenarios.
 use eyre::{Result, eyre};
 use integration_tests::sandbox;

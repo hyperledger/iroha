@@ -44,8 +44,8 @@ fn read(space: Space, generation: u16, index: u32, value: u64) -> [F; packet::WI
         generation,
         index,
         write: false,
-        before: (value as u128).to_le_bytes(),
-        after: (value as u128).to_le_bytes(),
+        before: u128::from(value).to_le_bytes(),
+        after: u128::from(value).to_le_bytes(),
         before_private: 0,
         after_private: 0,
     }
@@ -188,7 +188,7 @@ impl Fixture {
         append_control_residues(
             &mut out,
             program,
-            self.schedule,
+            &self.schedule,
             self.witness(),
             &self.packets,
         );
@@ -207,7 +207,7 @@ impl Fixture {
         let decoded = append_control_residues(
             &mut out,
             program,
-            self.schedule,
+            &self.schedule,
             self.witness(),
             &self.packets,
         );
@@ -215,7 +215,7 @@ impl Fixture {
             return false;
         }
         evaluate_scan(
-            self.schedule,
+            &self.schedule,
             &decoded,
             &self.packets,
             &mut scratch,
@@ -490,7 +490,7 @@ fn composed_callable_relations_retain_exact_degree_four_and_lookup_three() {
                 append_control_residues(
                     &mut residues,
                     &program,
-                    fixture.schedule,
+                    &fixture.schedule,
                     witness,
                     &fixture.packets,
                 );

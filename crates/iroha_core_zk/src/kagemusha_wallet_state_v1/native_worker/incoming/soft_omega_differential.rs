@@ -21,7 +21,7 @@ use iroha_kagemusha_proof::{
     a_relation::{IncomingLineageCells, VestaClaimCells, own::ConsumingProofCells},
     omega::OmegaPlan,
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     DescriptorBinding, Protocol, VerifyingKey,
     check::{CheckMode, check_circuit},
@@ -34,6 +34,7 @@ use iroha_plonk::{
         Circuit, Error, Layouter, Region, SimpleFloorPlanner, Synthesized, Value, synthesize,
     },
     pcs::ipa::PinnedParams,
+    transcript::generator_coordinates,
     verifier::verify_full,
 };
 use iroha_plonk_gadgets::{
@@ -337,7 +338,7 @@ fn public_model(words: &[Fp; 18]) -> KagemushaWalletLineagePublicV1 {
 }
 fn instances(value: &super::TransportV1) -> [Vec<Fq>; 3] {
     let mut words = value.public.to_vec();
-    let (x, y) = Option::<(Fp, Fp)>::from(value.pallas.g().coordinates()).unwrap();
+    let (x, y) = generator_coordinates::<Ep>(value.pallas.g());
     words.extend([x, y]);
     for u in value.pallas.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -345,7 +346,7 @@ fn instances(value: &super::TransportV1) -> [Vec<Fq>; 3] {
     assert_eq!(words.len(), 52);
     let to_fq = |word: Fp| Option::<Fq>::from(Fq::from_repr(word.to_repr())).unwrap();
     let digest = to_fq(hash_with_domain(LINEAGE_DOMAIN, &words));
-    let (x, y) = Option::<(Fq, Fq)>::from(value.vesta.g().coordinates()).unwrap();
+    let (x, y) = generator_coordinates::<Eq>(value.vesta.g());
     [
         vec![digest],
         vec![x, y],
@@ -359,7 +360,7 @@ fn instances(value: &super::TransportV1) -> [Vec<Fq>; 3] {
     ]
 }
 fn p_words(claim: &FoldInput<Ep>) -> Vec<Fp> {
-    let (x, y) = Option::<(Fp, Fp)>::from(claim.g().coordinates()).unwrap();
+    let (x, y) = generator_coordinates::<Ep>(claim.g());
     let mut out = vec![Fp::from(u64::from(claim.source_k())), x, y];
     for u in claim.challenges() {
         out.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -415,7 +416,7 @@ fn expected(
     out.extend(result.public);
     out.extend(p_words(&result.pallas.as_input()));
     out.push(Fp::from(u64::from(K)));
-    let (x, y) = Option::<(Fq, Fq)>::from(result.vesta.g().coordinates()).unwrap();
+    let (x, y) = generator_coordinates::<Eq>(result.vesta.g());
     for coordinate in [x, y] {
         out.extend(foreign_limbs(&coordinate).map(Fp::from_u128));
     }
@@ -542,10 +543,10 @@ fn current_omega_soft_local_decoders_match_native_and_retain_opening() {
             "noncanonical-scalar" => {
                 raw[320 + proof_length - 96..320 + proof_length - 64].fill(0xff)
             }
-            "malformed-p" => raw[320 + proof_length..352 + proof_length].fill(0),
+            "malformed-p" => raw[320 + proof_length..352 + proof_length].fill(0xff),
             "malformed-v" => raw
                 [320 + proof_length + ACCUMULATOR_BYTES..352 + proof_length + ACCUMULATOR_BYTES]
-                .fill(0),
+                .fill(0xff),
             "noncanonical-public" => raw[66..98].fill(0xff),
             _ => unreachable!(),
         }
@@ -651,4 +652,13 @@ fn current_omega_soft_local_decoders_match_native_and_retain_opening() {
         "fixture_manifest_sha256":(hex(&sha(&fixture.manifest_bytes))),
         "descriptor_sha256":(hex(&fixture.manifest.files[0].sha256)),"key_sha256":(hex(&fixture.manifest.files[1].sha256))
     })).unwrap());
+}
+
+#[test]
+fn malformed_claim_marker_is_invalid_while_identity_is_canonical() {
+    // Zero is a valid scoped generator identity, so it cannot stand for malformed DATA.
+    assert!(iroha_plonk::transcript::decode_generator::<Ep>(&[0; 32]).is_ok());
+    assert!(iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).is_ok());
+    assert!(iroha_plonk::transcript::decode_generator::<Ep>(&[0xff; 32]).is_err());
+    assert!(iroha_plonk::transcript::decode_generator::<Eq>(&[0xff; 32]).is_err());
 }

@@ -230,7 +230,8 @@
           ],
           "key_expiry_grace_blocks": 0,
           "key_overlap_grace_blocks": 8,
-          "max_clock_drift_ms": 1000},
+          "max_clock_drift_ms": 1000,
+          "due_work_max_lag_ms": 60000},
         "transaction": {
           "ivm_bytecode_size": 4194304,
           "max_decompressed_bytes": 1048576,

@@ -241,6 +241,7 @@ fn fixture_with_source_delta_limit(
             "overlay_atomic_business".parse().expect("reference"),
         ),
         AtomicSettlementMovements::try_from(movements).expect("canonical full vector"),
+        iroha_data_model::isi::AtomicSettlementEscrows::empty(),
         nonzero!(100_u64),
         Metadata::default(),
     );
@@ -417,10 +418,12 @@ fn atomic_overlay_direct_and_boxed_execute_exact_owner_consents() {
             let SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails {
                 movements,
                 intent_hash,
+                escrow_ids,
             }) = &receipt.details
             else {
                 panic!("atomic receipt");
             };
+            assert!(escrow_ids.is_empty(), "no escrow legs were signed");
             assert_eq!(
                 movements,
                 &instruction.movements().resolve().expect("exact scopes")

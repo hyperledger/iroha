@@ -144,7 +144,7 @@ fn key_output_local_relation_covers_both_depths_all_slots_and_fp4_lift() {
                     &aux,
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     terminal_claims_v1(),
                 )
                 .unwrap();
@@ -174,8 +174,8 @@ fn key_output_mutations_cannot_change_authenticated_byte_node_or_offset() {
     table[BASE_INSTANCE] = row[BASE_H];
     for lane in 0..4 {
         assert_eq!(
-            node_query_factor_v1(&row, &fixed, lane, challenges),
-            serial_node_lookup_factor_v1(&table, lane, challenges)
+            node_query_factor_v1(&row, &fixed, lane, &challenges),
+            serial_node_lookup_factor_v1(&table, lane, &challenges)
         );
     }
     // Node fields can be changed coherently in current and next; the fixed
@@ -197,15 +197,15 @@ fn key_output_mutations_cannot_change_authenticated_byte_node_or_offset() {
         changed[column] = changed[column].add(F::ONE);
         for lane in 0..4 {
             assert_ne!(
-                node_query_factor_v1(&changed, &fixed, lane, challenges),
-                serial_node_lookup_factor_v1(&table, lane, challenges),
+                node_query_factor_v1(&changed, &fixed, lane, &challenges),
+                serial_node_lookup_factor_v1(&table, lane, &challenges),
                 "node field {column}"
             );
             let mut changed_e = row.map(E::from_base);
             changed_e[column] = changed_e[column].add(E::canonical([0, 1, 3, 5]).unwrap());
             assert_ne!(
-                node_query_factor_v1(&changed_e, &fixed.map(E::from_base), lane, challenges),
-                E::from_base(serial_node_lookup_factor_v1(&table, lane, challenges))
+                node_query_factor_v1(&changed_e, &fixed.map(E::from_base), lane, &challenges),
+                E::from_base(serial_node_lookup_factor_v1(&table, lane, &challenges))
             );
         }
     }
@@ -219,14 +219,14 @@ fn key_output_mutations_cannot_change_authenticated_byte_node_or_offset() {
                 row[BASE_ADDRESS],
                 row[BASE_VALUE],
                 lane,
-                challenges,
+                &challenges,
             );
             let query = serial_byte_lookup_factor_v1(
                 changed[BASE_DOCUMENT],
                 changed[BASE_ADDRESS],
                 changed[BASE_SERIAL_BYTE_QUERY_VALUE],
                 lane,
-                challenges,
+                &challenges,
             );
             assert_ne!(query, source, "byte field {column}");
         }
@@ -337,8 +337,8 @@ fn key_output_arbitrary_selectors_and_complete_degree_inventory_are_polynomial()
         [E::ZERO; OUTPUT_SOURCE_RESIDUES_V1]
     );
     assert_eq!(
-        node_query_factor_v1(&current, &suppressed, 0, challenges_v1()),
-        serial_node_lookup_factor_v1(&current, 0, challenges_v1())
+        node_query_factor_v1(&current, &suppressed, 0, &challenges_v1()),
+        serial_node_lookup_factor_v1(&current, 0, &challenges_v1())
     );
     let samples = (0..9)
         .map(|point| {
@@ -463,7 +463,7 @@ fn key_output_constructor_borrows_exact_source_and_rejects_bad_lengths_offsets_a
 fn key_output_source_rows_compact_without_new_capacity_and_clear_on_error_and_unwind() {
     use crate::privacy_engines::zk_x509::private_table::inspection::observe_v1;
     for fail in [false, true] {
-        let (_, observed) = observe_v1(|| {
+        let ((), observed) = observe_v1(|| {
             let (mut row, _) = key_row_fixture_v1(1, 1, 64);
             // Deterministic replay helpers are populated after compact storage.
             row[66..].fill(F::ZERO);
@@ -597,7 +597,7 @@ fn key_output_complete_source_multiplicity_and_auxiliary_replay_closes() {
                 build_zk_x509_rfc5280_stark_aux_column_v1(
                     &material,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     start + lane,
                     &ZkX509ShaUnionCentersV1::identity_fixture_v1(),
                 )

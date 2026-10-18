@@ -768,6 +768,8 @@ mod block {
         PublicationBusy(iroha_allocation::release::ReleaseWait),
         /// Local execution resources refused publication before any effects: {0}
         ExecutionDeferred(#[source] crate::execution_attempt::ExecutionDeferred),
+        /// The original frozen State capture retains a local resource refusal: {0}
+        CaptureDeferred(#[source] crate::state::StateCaptureDeferral),
         /// `TransactionsBlock::insert_block()` was not called
         MissingInsertBlock,
         /// Block height `{actual_current_height}` does not match expected `{expected_current_height}`;

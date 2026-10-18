@@ -394,19 +394,21 @@ impl Transaction for WsvLedger<'_, '_, '_> {
             .ok_or(Error::Unavailable)
     }
     fn fee_inputs(&self, claim: &KagemushaWalletFeeClaimV1) -> Result<FeeInputs> {
-        let scheme = claim.payment.request.body.scheme_id;
+        let scheme = claim.payment.send.statement.scheme_id;
+        let signed_request = claim.payment.signed_request()?;
+        let identity = claim.payment.digests()?;
         let request = self
             .read(&storage::key(
                 storage::REQUEST,
                 scheme,
-                claim.payment.request.request_digest(),
+                signed_request.request_digest(),
             ))?
             .ok_or(Error::Unavailable)?;
         let credential: CredentialRecord = self
             .read(&storage::key(
                 storage::CREDENTIAL,
                 scheme,
-                claim.payment.payer_credential_digest,
+                identity.payer_credential,
             ))?
             .ok_or(Error::Unavailable)?;
         Ok(FeeInputs {

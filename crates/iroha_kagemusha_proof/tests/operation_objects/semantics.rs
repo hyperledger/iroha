@@ -12,9 +12,8 @@ use iroha_plonk::frontend::Region;
 use iroha_plonk_gadgets::Word;
 use iroha_plonk_recursion::obligation::ledger::Variant;
 
-const CREDENTIAL_WIDTHS: [usize; 29] = [
-    2, 32, 32, 32, 32, 65, 32, 1, 32, 8, 4, 4, 4, 4, 32, 8, 4, 4, 4, 4, 32, 4, 8, 8, 32, 8, 4, 8,
-    32,
+const CREDENTIAL_WIDTHS: [usize; 28] = [
+    2, 32, 32, 32, 32, 65, 32, 1, 32, 8, 4, 4, 4, 4, 32, 8, 4, 4, 4, 4, 32, 4, 8, 32, 8, 4, 8, 32,
 ];
 fn set(c: &mut ObjectCircuit, index: usize, value: u64) {
     let start: usize = CREDENTIAL_WIDTHS[..index].iter().sum();
@@ -55,28 +54,27 @@ fn credential_evidence_and_policy_rules_return_total_verdicts() {
         (16, 1 << 31, "undefined fresh fact"),
         (15, 1, "fresh time before enrollment"),
         (16, 0, "first credential fresh record differs"),
-        (21, 8, "undefined control"),
-        (22, 1, "age without blacklist"),
-        (23, 1, "response with no time rule"),
-        (27, 1, "lease without permission"),
-        (21, 2, "quota without response"),
-        (21, 4, "lease without response/expiry"),
+        (21, 4, "undefined control"),
+        (22, 1, "response with no time rule"),
+        (26, 1, "lease without permission"),
+        (21, 1, "quota without response"),
+        (21, 2, "lease without response/expiry"),
     ] {
         let mut wrong = c.clone();
         set(&mut wrong, index, value);
         invalid(wrong, reason);
     }
-    for index in [1, 2, 3, 4, 8, 14, 20, 24, 28] {
+    for index in [1, 2, 3, 4, 8, 14, 20, 23, 27] {
         let mut wrong = c.clone();
         set(&mut wrong, index, 0);
         invalid(wrong, "zero binding");
     }
     let mut renewed = c.clone();
-    set(&mut renewed, 26, 1);
+    set(&mut renewed, 25, 1);
     set(&mut renewed, 16, 0); // Required enrollment facts are not invented for fresh evidence.
     assert!(renewed.accepts(Fp::ZERO));
     let mut controlled = c.clone();
-    for (index, value) in [(21, 7), (22, 100), (23, 5), (27, 1000)] {
+    for (index, value) in [(21, 3), (22, 5), (26, 1000)] {
         set(&mut controlled, index, value);
     }
     assert!(controlled.accepts(Fp::ZERO));
@@ -106,6 +104,36 @@ fn credential_evidence_and_policy_rules_return_total_verdicts() {
     let unknown = synthesize(&c.without_witnesses(), 12, None).expect("unknown");
     assert_eq!(known.tables.fixed(), unknown.tables.fixed());
     assert_eq!(known.tables.permutation(), unknown.tables.permutation());
+}
+
+#[test]
+fn credential_reserved_fact_bit_is_false_for_initial_and_renewed_evidence() {
+    for (kind, facts) in [(1, 1085), (2, 1087), (3, 192)] {
+        let mut valid = credential();
+        set(&mut valid, 7, kind);
+        for index in [10, 16] {
+            set(&mut valid, index, facts);
+        }
+        if kind == 3 {
+            for index in [11, 12, 13, 17, 18, 19] {
+                set(&mut valid, index, 0);
+            }
+        }
+        assert!(valid.accepts(Fp::ZERO));
+        // Both records match, so initial-evidence equality cannot mask this rejection.
+        let mut initial = valid.clone();
+        for index in [10, 16] {
+            set(&mut initial, index, facts | (1 << 9));
+        }
+        invalid(initial, "reserved bit in matching initial evidence");
+        set(&mut valid, 25, 1);
+        assert!(valid.accepts(Fp::ZERO));
+        for index in [10, 16] {
+            let mut renewed = valid.clone();
+            set(&mut renewed, index, facts | (1 << 9));
+            invalid(renewed, "reserved bit in either renewed evidence record");
+        }
+    }
 }
 
 pub fn parse(
@@ -190,14 +218,14 @@ impl Renewal {
 fn renewal_keeps_every_immutable_field_and_cannot_wrap_counter() {
     let before = credential();
     let mut after = before.clone();
-    set(&mut after, 26, 1);
+    set(&mut after, 25, 1);
     let c = Renewal {
         before,
         after,
         valid: true,
     };
     assert!(c.accepts());
-    for index in [1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 13, 20, 24] {
+    for index in [1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 13, 20, 23] {
         let mut wrong = c.clone();
         let start: usize = CREDENTIAL_WIDTHS[..index].iter().sum();
         wrong.after.bytes[start + usize::from(index == 5)] ^= 1;
@@ -211,15 +239,15 @@ fn renewal_keeps_every_immutable_field_and_cannot_wrap_counter() {
         (14, 9),
         (15, 1_790_000_001_000),
         (16, 0),
-        (25, 1_790_000_002_000),
-        (28, 10),
+        (24, 1_790_000_002_000),
+        (27, 10),
     ] {
         set(&mut changed.after, index, value);
     }
     assert!(changed.accepts());
     let mut wrapped = c.clone();
-    set(&mut wrapped.before, 26, u64::from(u32::MAX));
-    set(&mut wrapped.after, 26, 0);
+    set(&mut wrapped.before, 25, u64::from(u32::MAX));
+    set(&mut wrapped.after, 25, 0);
     wrapped.valid = false;
     assert!(wrapped.accepts());
     wrapped.valid = true;
@@ -417,9 +445,8 @@ fn status_receipt_projects_every_head_kind_without_witness_dependent_layout() {
                 let kind = match variant {
                     Variant::RefreshCredential => 1,
                     Variant::RefreshSchemePolicy => 2,
-                    Variant::RefreshBlacklist => 3,
-                    Variant::RefreshQuotaShare => 4,
-                    Variant::RefreshTimeAnchor => 5,
+                    Variant::RefreshQuotaShare => 3,
+                    Variant::RefreshTimeAnchor => 4,
                     _ => unreachable!(),
                 };
                 (
@@ -593,8 +620,8 @@ fn receipt_bindings_match_send_and_receive_vectors_and_reject_every_substitution
     }
 }
 
-const REQUEST_WIDTHS: [usize; 19] = [
-    2, 32, 32, 32, 32, 32, 32, 16, 32, 16, 32, 16, 8, 32, 8, 8, 32, 32, 32,
+const REQUEST_WIDTHS: [usize; 17] = [
+    2, 32, 32, 32, 32, 32, 32, 16, 32, 16, 32, 16, 8, 32, 8, 32, 32,
 ];
 pub fn request_set(c: &mut ObjectCircuit, index: usize, value: u128) {
     let offset: usize = REQUEST_WIDTHS[..index].iter().sum();
@@ -608,7 +635,7 @@ pub fn request_credit(c: &ObjectCircuit) -> Fp {
     let mut words = Vec::new();
     for (index, n) in REQUEST_WIDTHS.into_iter().enumerate() {
         let b = &c.bytes[offset..offset + n];
-        if [8, 10, 13, 16, 17].contains(&index) {
+        if [8, 10, 13, 15].contains(&index) {
             words.push(
                 Fp::from_repr(b.try_into().expect("field"))
                     .into_option()
@@ -640,7 +667,7 @@ fn request_body_overflow_pairs_and_identity_checks_are_total() {
     c.soft = true;
     c.body_check = BodyCheck::Semantic;
     assert!(c.accepts(request_credit(&c)));
-    for index in [1, 2, 3, 4, 5, 6, 8, 9, 17, 18] {
+    for index in [1, 2, 3, 4, 5, 6, 8, 9, 15, 16] {
         let mut wrong = c.clone();
         request_set(&mut wrong, index, 0);
         wrong.valid = false;
@@ -655,8 +682,6 @@ fn request_body_overflow_pairs_and_identity_checks_are_total() {
         vec![(10, 0), (11, 1)],
         vec![(12, 0), (13, 1)],
         vec![(12, 1), (13, 0)],
-        vec![(15, 0), (16, 1)],
-        vec![(15, 1), (16, 0)],
         vec![(9, u128::MAX), (11, 1)],
     ] {
         let mut wrong = c.clone();
@@ -684,7 +709,7 @@ fn request_body_overflow_pairs_and_identity_checks_are_total() {
         assert!(boundary.accepts(request_credit(&boundary)));
     }
     let mut free = c.clone();
-    for i in [10, 11, 12, 13, 15, 16] {
+    for i in [10, 11, 12, 13] {
         request_set(&mut free, i, 0);
     }
     assert!(free.accepts(request_credit(&free)));
@@ -694,7 +719,6 @@ pub fn policy_set(c: &mut ObjectCircuit, index: usize, value: u128) {
     let widths: &[usize] = match c.kind {
         ObjectKind::SchemePolicy => &[2, 32, 32, 8, 4, 32, 32],
         ObjectKind::FeeSchedule => &[2, 32, 32, 8, 32, 4, 16, 16, 16, 1, 32],
-        ObjectKind::Blacklist => &[2, 32, 8, 8, 4, 32, 32],
         ObjectKind::QuotaShare => &[2, 32, 32, 32, 8, 8, 8, 32, 4, 32],
         ObjectKind::TimeAnchor => &[2, 32, 32, 32, 8, 32],
         ObjectKind::ChargeQuote => &[2, 32, 32, 32, 1, 16, 16, 16, 32, 8, 32],
@@ -722,7 +746,7 @@ fn issuer_body_rules_match_native_bounds_and_have_total_false_paths() {
         c.body_check = BodyCheck::Semantic;
         assert!(c.accepts(Fp::ZERO), "{name}");
         let attacks: &[(usize, u128)] = match c.kind {
-            ObjectKind::SchemePolicy => &[(1, 0), (2, 0), (3, 0), (4, 8), (6, 0)],
+            ObjectKind::SchemePolicy => &[(1, 0), (2, 0), (3, 0), (4, 4), (6, 0)],
             ObjectKind::FeeSchedule => &[
                 (1, 0),
                 (2, 0),
@@ -733,7 +757,6 @@ fn issuer_body_rules_match_native_bounds_and_have_total_false_paths() {
                 (9, 3),
                 (10, 0),
             ],
-            ObjectKind::Blacklist => &[(1, 0), (2, 0), (4, 65_536), (5, 0), (6, 0)],
             ObjectKind::QuotaShare => &[
                 (1, 0),
                 (2, 0),

@@ -17,7 +17,10 @@
 //! The durable store and the platform services are private to the provider: custody files
 //! and the payment key are reached only through its operations.
 
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
 use iroha_data_model::kagemusha::{
     KagemushaWalletCompletionRecordV1, KagemushaWalletRecoveryCapsuleV1,
@@ -131,6 +134,20 @@ pub struct KagemushaWalletProviderV1<
     /// Bytes are the phase, Client, Accepted permit and Slot selection, in that order.
     pub(super) slot_phases:
         std::cell::RefCell<BTreeMap<KagemushaWalletSlotIdV1, ([u8; 32], [Vec<u8>; 4])>>,
+    /// Exact archive records this process published durably (`archive.rs`): bounded, in memory
+    /// only, forgotten before removal and on full reconciliation.
+    pub(super) archive_writes: std::cell::RefCell<super::archive::ArchiveWritesV1>,
+    /// Current archive phase (`archive.rs`). Every custody call, poison, remembered status and
+    /// reconcile ends it, so its skipped reconcile never spans a custody operation.
+    pub(super) archive_phase: Option<super::archive::ArchivePhaseV1>,
+    /// Archive records staged by the open embedder call of each slot (`archive.rs`): an entry
+    /// exists exactly while a call is open. In memory only; phase ends, poison, remembered
+    /// statuses and reconciliation never touch it, and dropping the provider discards it.
+    pub(super) archive_batches: BTreeMap<KagemushaWalletSlotIdV1, super::archive::ArchiveBatchV1>,
+    /// Slots whose archive directory this provider swept of staging residue at a full
+    /// reconcile (R1) since its last failed archive access on the slot: later full reconciles
+    /// skip that listing, which grows with the archive (`reconcile.rs`).
+    pub(super) archive_swept: BTreeSet<KagemushaWalletSlotIdV1>,
     sentinel: KagemushaWalletRootSentinelV1,
     _lock: F::Lock,
     _frames: PhantomData<fn() -> (C, R)>,
@@ -165,8 +182,7 @@ where
                 field: "options.ballast_bytes",
             });
         }
-        platform
-            .storage_state()
+        super::counters::probe_storage(&platform)
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
         let store = KagemushaWalletDurableStoreV1::new(fs);
         let lock = store
@@ -206,6 +222,10 @@ where
             generation_dispatches: BTreeMap::new(),
             adopted: std::cell::RefCell::new(BTreeMap::new()),
             slot_phases: std::cell::RefCell::new(BTreeMap::new()),
+            archive_writes: std::cell::RefCell::default(),
+            archive_phase: None,
+            archive_batches: BTreeMap::new(),
+            archive_swept: BTreeSet::new(),
             sentinel,
             _lock: lock,
             _frames: PhantomData,
@@ -316,6 +336,44 @@ where
         self.reconcile_slot(slot, Some(owner))
     }
 
+    /// Positively identify a platform-only orphan for an independently authorized lookup.
+    /// This is no custody/recovery authority: `status` still reports KeyWithoutMarker.
+    /// A directory, retained Phase/Slot, or any unknown answer cannot qualify.
+    pub(crate) fn key_only_orphan(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<
+        Option<iroha_data_model::kagemusha::KagemushaDevicePublicKeyV1>,
+        KagemushaWalletProviderErrorV1,
+    > {
+        match self.status(slot) {
+            Err(KagemushaWalletProviderErrorV1::LostCustody(
+                super::KagemushaWalletLostCustodyV1::KeyWithoutMarker,
+            )) => {}
+            Ok(_) => return Ok(None),
+            Err(error) => return Err(error),
+        }
+        // status has checked the complete Phase/Slot graph and found no binding for this
+        // key. Even an empty surviving directory is owned/ambiguous custody, not an orphan.
+        self.require_storage()?;
+        let absent = kagemusha_wallet_list_dir_v1(
+            &self.store,
+            &super::layout::kagemusha_wallet_slot_dir_v1(slot),
+        )?
+        .is_none();
+        self.require_storage()?;
+        if !absent {
+            return Ok(None);
+        }
+        match self.probe_key(slot)? {
+            super::KagemushaWalletProbeV1::Present(key) => Ok(Some(key)),
+            super::KagemushaWalletProbeV1::Absent => Err(KagemushaWalletProviderErrorV1::KeyLost),
+            super::KagemushaWalletProbeV1::Unavailable(reason) => {
+                Err(KagemushaWalletProviderErrorV1::Unavailable(reason))
+            }
+        }
+    }
+
     /// Read the actual payment key inside protected-storage brackets, without generation.
     /// Positive lookup remains useful even when the platform cannot prove absence.
     /// # Errors
@@ -418,6 +476,17 @@ where
         self.require_storage().and(answer)
     }
 
+    /// Read only the live E1 process clock inside both protected-storage checks.
+    /// This grants no boot identity, persisted anchor or cross-process freshness authority.
+    pub(crate) fn live_enrollment_reading(
+        &self,
+    ) -> Result<super::LiveEnrollmentReadingV1, KagemushaWalletProviderErrorV1> {
+        self.require_storage()?;
+        let answer = super::live_enrollment_clock::read(&self.platform)
+            .map_err(KagemushaWalletProviderErrorV1::Unavailable);
+        self.require_storage().and(answer)
+    }
+
     pub(crate) fn prekey_root_identity(&self) -> [u8; 32] {
         self.sentinel.root_nonce
     }
@@ -470,8 +539,7 @@ where
     ///
     /// `Unavailable` with the platform's reason.
     pub(super) fn require_storage(&self) -> Result<(), KagemushaWalletProviderErrorV1> {
-        self.platform
-            .storage_state()
+        super::counters::probe_storage(&self.platform)
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)
     }
 
@@ -545,8 +613,10 @@ where
             .insert((dir.clone(), name.as_str().to_owned()), bytes.to_vec());
     }
 
-    /// Forget the verified state of `slot`; the next operation reconciles it fully.
+    /// Forget the verified state of `slot`; the next operation reconciles it fully. This ends
+    /// the current archive phase.
     pub(super) fn poison(&mut self, slot: &KagemushaWalletSlotIdV1) {
+        self.archive_phase = None;
         self.cache.remove(slot);
     }
 
@@ -559,13 +629,14 @@ where
         self.pending_reasons.insert(*slot, reason);
     }
 
-    /// Remember a verified stable state of `slot`.
+    /// Remember a verified stable state of `slot`. This ends the current archive phase.
     pub(super) fn remember(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
         durable: KagemushaWalletDurableMarkerV1,
         status: KagemushaWalletSlotStatusV1,
     ) {
+        self.archive_phase = None;
         self.cache.insert(*slot, CachedSlotV1 { durable, status });
     }
 

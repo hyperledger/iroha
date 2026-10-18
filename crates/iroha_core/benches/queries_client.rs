@@ -1,6 +1,5 @@
 //! Client-path-like query builder benches using a mock, in-process `QueryExecutor` (no network).
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
-#![allow(clippy::all)]
+
 use criterion::Criterion;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{

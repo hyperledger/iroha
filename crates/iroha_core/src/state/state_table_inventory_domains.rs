@@ -56,6 +56,23 @@ pub(super) struct OtherDomains {
 pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     OtherDomains {
         usage: Use::Name,
+        reason: "Schema identity of the retained native KAGEMUSHA A/B/C exchange result read by the signed test-chain fixture; selects the exact result layout, not a hash domain or State-content root",
+        literals: &[r"iroha.kagemusha.native-abc-result.v1"],
+    },
+    OtherDomains {
+        usage: Use::Name,
+        reason: "JSON schema identities of signed test-chain KAGEMUSHA fee and online-charge evidence; select exact fixture result layouts, not hash domains or State-content roots",
+        literals: &[
+            r"iroha.kagemusha.executed-charge-continuation.v1",
+            r"iroha.kagemusha.executed-fee-settlement.v1",
+            r"iroha.kagemusha.executed-online-charge.v1",
+            r"iroha.kagemusha.fee-payout-evidence.v1",
+            r"iroha.kagemusha.native-fee-result.v1",
+            r"iroha.kagemusha.native-online-charge-result.v1",
+        ],
+    },
+    OtherDomains {
+        usage: Use::Name,
         reason: "Nominal Model codec identities of the committed fraud admission policy and its exact components; the value lives in world.parameters, and these literals select schema identities rather than hash domains or independent State roots",
         literals: &[
             r"iroha:fraud:admission-attester:v1",
@@ -144,7 +161,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Norito schema names for eligibility authority/policy/request/observation/response records and pre-key permit records. They describe bounded DTO layouts; decoding or naming them establishes no authenticated provider, signing or State authority",
+        reason: "Norito schema names for eligibility authority/policy/request/observation/response records, pre-key permit records and issuer expiry-proof bodies and envelopes. They describe bounded DTO layouts; decoding or naming them establishes no authenticated provider, signing or State authority",
         literals: &[
             r"iroha.kagemusha.eligibility.authority.v1",
             r"iroha.kagemusha.eligibility.decision.v1",
@@ -155,6 +172,8 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.kagemusha.eligibility.request.v1",
             r"iroha.kagemusha.eligibility.response.v1",
             r"iroha.kagemusha.eligibility.response_body.v1",
+            r"iroha.kagemusha.enrollment.expiry-proof.body.v1",
+            r"iroha.kagemusha.enrollment.expiry-proof.v1",
             r"iroha.kagemusha.enrollment.permit.body.v1",
             r"iroha.kagemusha.enrollment.permit.platform.v1",
             r"iroha.kagemusha.enrollment.permit.purpose.v1",
@@ -178,12 +197,13 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "Enrollment eligibility policy/request identities, signed response preimage and exact operation-original binding; pre-key permit signing preimage, selected scope data and seven original input frames. Each hashes one supplied record or message, with independent current provider, registration, role and original-journal checks still required",
+        reason: "Enrollment eligibility policy/request identities, signed response preimage and exact operation-original binding; pre-key permit and issuer expiry-proof signing preimages, selected scope data and seven original input frames. Each hashes one supplied record or message, with independent current provider, registration, role and original-journal checks still required. The expiry proof binds narrow pre-E2 cleanup only, not a permit or ledger action",
         literals: &[
             r"iroha:kagemusha:eligibility:policy:v1\0",
             r"iroha:kagemusha:eligibility:request:v1\0",
             r"iroha:kagemusha:eligibility:response:v1\0",
             r"iroha:kagemusha:issuer-eligibility-operation:v1\0",
+            r"iroha:kagemusha:pre-key-expired:v1\0",
             r"iroha:kagemusha:pre-key-originals:v1\0",
             r"iroha:kagemusha:pre-key-permit:v1\0",
             r"iroha:kagemusha:pre-key-scope:v1\0",
@@ -236,6 +256,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha:kagemusha:reserve-asset:v1\0",
             r"iroha:kagemusha:reserve-definition:v1\0",
         ],
+    },
+    OtherDomains {
+        usage: Use::Seed,
+        reason: "Derived key-less bond vault account: a non-signing Ed25519 point derived from the bond identifier. It names protocol custody of funded payment assets; it commits no State content and grants no signing authority",
+        literals: &[r"iroha:bond:vault:v1"],
     },
     OtherDomains {
         usage: Use::ResultBinding,

@@ -105,6 +105,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let prepared = proof(preparation.prepare_bootstrap(&owner, marker_digest, plan.nonce))?;
         let frozen = if let Some(reference) = self.archive.get(ArchiveKey::BootstrapFrozen, 32)? {
             let capsule = reference
+                .as_slice()
                 .try_into()
                 .map_err(|_| Error::WitnessLost("Bootstrap frozen reference"))?;
             let frozen = self.frozen(capsule)?;

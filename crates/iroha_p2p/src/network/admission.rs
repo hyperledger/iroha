@@ -232,6 +232,13 @@ impl AcceptBucket {
     }
 }
 
+/// Configured refill rate and optional burst for one accept-throttle dimension.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct AcceptRate {
+    pub(super) rate_per_sec: Option<f64>,
+    pub(super) burst: Option<f64>,
+}
+
 /// Immutable shape of the inbound accept throttle.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct AcceptThrottleParams {
@@ -247,12 +254,16 @@ pub(super) struct AcceptThrottleParams {
 
 impl AcceptThrottleParams {
     pub(super) fn new(
-        prefix_rate_per_sec: Option<f64>,
-        prefix_burst: Option<f64>,
+        AcceptRate {
+            rate_per_sec: prefix_rate_per_sec,
+            burst: prefix_burst,
+        }: AcceptRate,
         prefix_v4_bits: u8,
         prefix_v6_bits: u8,
-        ip_rate_per_sec: Option<f64>,
-        ip_burst: Option<f64>,
+        AcceptRate {
+            rate_per_sec: ip_rate_per_sec,
+            burst: ip_burst,
+        }: AcceptRate,
         max_buckets: usize,
         bucket_idle: Duration,
     ) -> Self {
@@ -544,12 +555,16 @@ mod tests {
     fn accept_bucket_cap_is_aggregate_across_prefix_and_ip_maps() {
         const MAX_BUCKETS: usize = 7;
         let params = AcceptThrottleParams::new(
-            Some(1_000.0),
-            Some(1_000.0),
+            AcceptRate {
+                rate_per_sec: Some(1_000.0),
+                burst: Some(1_000.0),
+            },
             24,
             64,
-            Some(1_000.0),
-            Some(1_000.0),
+            AcceptRate {
+                rate_per_sec: Some(1_000.0),
+                burst: Some(1_000.0),
+            },
             MAX_BUCKETS,
             Duration::from_secs(60),
         );
@@ -576,12 +591,16 @@ mod tests {
     #[test]
     fn insufficient_cap_for_enabled_dimensions_fails_closed() {
         let params = AcceptThrottleParams::new(
-            Some(1_000.0),
-            Some(1_000.0),
+            AcceptRate {
+                rate_per_sec: Some(1_000.0),
+                burst: Some(1_000.0),
+            },
             24,
             64,
-            Some(1_000.0),
-            Some(1_000.0),
+            AcceptRate {
+                rate_per_sec: Some(1_000.0),
+                burst: Some(1_000.0),
+            },
             1,
             Duration::from_secs(60),
         );

@@ -1,0 +1,214 @@
+"""W0 fixed primary schedule, concrete transcript framing and persistent append.
+
+This is a reversible transition on a retained chronological log, not a clean
+XOR kernel on that log. Source transcript registers and S0 write flags remain
+available until the enclosing machine clears them. No auxiliary tape is input.
+"""
+from dataclasses import dataclass
+import hashlib
+from pathlib import Path
+import types
+
+from bit_ir import Cost, integer, require
+from chronological_log import EnabledAppend, population_sum
+
+FRAMING_PATH = "scripts/parliament_ballot_write_framing.py"
+FRAMING_SHA = "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617"
+MAX_TRIALS = 1 << 20
+
+
+@dataclass(frozen=True)
+class Frame:
+    """Immutable public field geometry; all variable byte values are wires."""
+    prefix: bytes
+    fields: tuple
+    domain: int
+    value_bytes: int
+
+    def __post_init__(self):
+        require(type(self.prefix) is bytes and type(self.fields) is tuple, "frame containers")
+        names = set()
+        for item in self.fields:
+            require(type(item) is tuple and len(item) == 2, "frame field")
+            name, size = item
+            require(type(name) is str and name and name not in names, "frame field name")
+            names.add(name)
+            integer(size, 1, 215150, "field bytes")
+        integer(self.domain, 0, 255, "domain byte")
+        integer(self.value_bytes, 1, 264, "value bytes")
+        integer(self.key_bytes, 1, 215150, "key bytes")
+
+    @property
+    def key_bytes(self):
+        return len(self.prefix)+sum(n for _, n in self.fields)+1
+
+    @property
+    def scatter_cost(self):
+        return Cost(x=self.key_bytes.bit_count()+sum(b.bit_count() for b in self.prefix)+self.domain.bit_count(),
+                    cx=8*(sum(n for _, n in self.fields)+self.value_bytes))
+
+
+def actual_frames(root, row, role):
+    """Load the reviewed field order from exact bytes, without import-cache trust."""
+    require(type(row) is str and type(role) is str, "row and role names")
+    path = Path(root)/FRAMING_PATH
+    raw = path.read_bytes()
+    require(hashlib.sha256(raw).hexdigest() == FRAMING_SHA, "framing source changed")
+    module = types.ModuleType("reviewed_write_framing")
+    module.__file__ = str(path)
+    exec(compile(raw, str(path), "exec"), module.__dict__)
+    plans = tuple(module.shape(row, role, i) for i in (1, 2, 3))
+    result = tuple(Frame(p['prefix'], tuple(p['fields']), p['domain'], p['value_bytes']) for p in plans)
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == FRAMING_SHA, "framing source drift")
+    return result
+
+
+@dataclass(frozen=True)
+class ProgrammedWrites:
+    """Fixed M+2 scans with explicit enable wires and a separate trial counter.
+
+    The log starts with a canonical active prefix and at least M+2 free slots.
+    Repeating at most T times from an empty T*(M+2)-slot log establishes this
+    capacity premise inductively. S0 supplies the prefix flags, including the
+    accepting primary attempt; exhaustion supplies M ones. This component does
+    not validate arbitrary purported S0 flags or generate transcript fields.
+    """
+    frames: tuple
+    trials: int
+    capacity: int
+    length_bits: int
+    key_capacity: int
+    value_capacity: int = 264
+
+    def __post_init__(self):
+        require(type(self.frames) is tuple and len(self.frames) == 3
+                and all(type(f) is Frame for f in self.frames), "three immutable frames")
+        integer(self.trials, 1, MAX_TRIALS, "primary cap")
+        integer(self.capacity, self.trials+2, (1 << 64)*(MAX_TRIALS+2), "log capacity")
+        integer(self.length_bits, 1, 4096, "length width")
+        integer(self.key_capacity, 1, 215150, "key capacity")
+        integer(self.value_capacity, 1, 264, "value capacity")
+        for frame in self.frames:
+            require(frame.key_bytes <= self.key_capacity and frame.key_bytes < 1 << self.length_bits,
+                    "key does not fit staging")
+            require(frame.value_bytes <= self.value_capacity, "value does not fit staging")
+        require([f.domain for f in self.frames] == [9, 10, 11], "programmed domains")
+        require(all('counter_u32_le' not in dict(f.fields) for f in self.frames[:2])
+                and dict(self.frames[2].fields).get('counter_u32_le') == 4, "trial counter geometry")
+        self.field_inventory()
+
+    def field_inventory(self):
+        """Shared immutable transcript fields, each allocated once."""
+        fields = {}
+        for frame in self.frames:
+            for name, width in frame.fields:
+                if name == 'counter_u32_le':
+                    continue
+                require(name not in fields or fields[name] == width, "conflicting shared field width")
+                fields[name] = width
+        for i in range(2):
+            name, width = 'challenge_'+str(i+1), self.frames[i].value_bytes
+            require(name not in fields or fields[name] == width, "challenge value width")
+            fields[name] = width
+        return tuple(fields.items())
+
+    def append(self):
+        return EnabledAppend(self.capacity, self.length_bits+8*self.key_capacity, 8*self.value_capacity)
+
+    def layout(self):
+        fields, cursor = {}, 0
+        for name, count in self.field_inventory():
+            fields[name] = (cursor, 8*count)
+            cursor += 8*count
+        primary, primary_bits = cursor, self.trials*8*self.frames[2].value_bytes
+        flags = primary+primary_bits
+        inputs = flags+self.trials
+        a = self.append().layout()
+        trial = inputs+a['size']
+        return dict(fields=fields, primary=primary, primary_bits=primary_bits, flags=flags,
+                    input_bits=inputs, log=inputs, log_bits=a['log_bits'],
+                    counter=inputs+a['counter'], enable=inputs+a['enable'],
+                    staging=inputs+a['incoming'], append_work=inputs+a['work'],
+                    trial=trial, size=trial+32)
+
+    def scatter(self, challenge, index=0):
+        """Prepare or clear padded staging using only fixed X/CNOT wire maps."""
+        integer(challenge, 1, 3, "challenge number")
+        integer(index, 0, self.trials-1, "trial index")
+        p, frame = self.layout(), self.frames[challenge-1]
+        for j in range(self.length_bits):
+            if (frame.key_bytes >> j)&1:
+                yield ('x', p['staging']+j)
+        cursor = p['staging']+self.length_bits
+        for byte in frame.prefix:
+            for j in range(8):
+                if (byte >> j)&1: yield ('x', cursor+j)
+            cursor += 8
+        for name, count in frame.fields:
+            start = p['trial'] if name == 'counter_u32_le' else p['fields'][name][0]
+            for j in range(8*count): yield ('cx', start+j, cursor+j)
+            cursor += 8*count
+        for j in range(8):
+            if (frame.domain >> j)&1: yield ('x', cursor+j)
+        value = (p['primary']+index*8*frame.value_bytes if challenge == 3
+                 else p['fields']['challenge_'+str(challenge)][0])
+        target = p['staging']+self.length_bits+8*self.key_capacity
+        for j in range(8*frame.value_bytes): yield ('cx', value+j, target+j)
+
+    def emit_record(self, challenge, index=0, *, inverse=False):
+        """One fixed scan, charged even when its primary write flag is zero."""
+        integer(challenge, 1, 3, "challenge number")
+        integer(index, 0, self.trials-1, "trial index")
+        require(type(inverse) is bool, "inverse flag")
+        p = self.layout()
+        def controls():
+            if challenge == 3:
+                for j in range(32):
+                    if (index >> j)&1: yield ('x', p['trial']+j)
+                yield ('cx', p['flags']+index, p['enable'])
+            else:
+                yield ('x', p['enable'])
+        yield from controls()
+        yield from self.scatter(challenge, index)
+        for gate in self.append().emit(inverse=inverse):
+            yield (gate[0], *(p['input_bits']+wire for wire in gate[1:]))
+        yield from self.scatter(challenge, index)
+        yield from controls()
+
+    def emit(self, *, inverse=False):
+        """Forward chronological writes, or their exact clean inverse traversal."""
+        require(type(inverse) is bool, "inverse flag")
+        if inverse:
+            for i in range(self.trials-1, -1, -1): yield from self.emit_record(3, i, inverse=True)
+            for challenge in (2, 1): yield from self.emit_record(challenge, inverse=True)
+        else:
+            for challenge in (1, 2): yield from self.emit_record(challenge)
+            for i in range(self.trials): yield from self.emit_record(3, i)
+
+    def resources(self):
+        p, a = self.layout(), self.append()
+        raw = a.resources()['gates']
+        cost = Cost(raw['x'], raw['cx'], raw['ccx']).times(self.trials+2)
+        cost += (self.frames[0].scatter_cost+self.frames[1].scatter_cost).times(2)
+        cost += self.frames[2].scatter_cost.times(2*self.trials)
+        cost += Cost(x=4+2*population_sum(self.trials), cx=2*self.trials)
+        return dict(gates=cost.as_dict(), input_bits=p['input_bits'],
+                    persistent_log_bits=p['log_bits'], persistent_counter_bits=a.counter_bits,
+                    clean_work_bits=1+a.record_bits+a.counter_bits+32,
+                    primary_random_tape_bits=p['primary_bits'], primary_flag_bits=self.trials,
+                    fixed_append_scans=self.trials+2, successful_appends_upper=self.trials+2,
+                    auxiliary_tape_inputs=0, auxiliary_writes=0, trial_counter_bits=32,
+                    all_disabled_scan_gates_charged=True, framing_and_schedule_implemented=True,
+                    conditional_on_S0_flags_generated_transcript_and_canonical_log=True,
+                    complete_W0_source_join=False, complete_simulator_coverage=False,
+                    complete_resource_vector=False, actual_input_entry_bridge=False,
+                    profile_qualified=False, production_gate_changed=False)
+
+
+def actual_writes(root, row, role, requests, length_bits=64):
+    """Full-cap source geometry with a lifetime-sized, lazily addressed log."""
+    integer(requests, 1, 1 << 64, "request cap")
+    integer(length_bits, 1, 4096, "length width")
+    require((1 << length_bits) > 6882996, "combined honest-read length envelope")
+    return ProgrammedWrites(actual_frames(root, row, role), MAX_TRIALS,
+                            requests*(MAX_TRIALS+2), length_bits, 215150)

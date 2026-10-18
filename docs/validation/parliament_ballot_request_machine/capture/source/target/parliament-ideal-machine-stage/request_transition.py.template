@@ -1,0 +1,147 @@
+"""Accepted fixed-shape request: generate, program, return, clean derived work.
+
+The persistent log uses its true append inverse; it is never mistaken for a
+clean XOR kernel. This transition assumes one immutable, source-padded F and
+no interleaving during the call. Its generator reads only domains disjoint from
+the programmed domains, as justified in cleanup-design.md.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost, integer, require
+from request_generator import Generator, build_generator, gate_cost
+from write_machine import ProgrammedWrites, actual_frames
+from return_machine import ReturnProjection, actual_return
+
+
+@dataclass(frozen=True)
+class RequestTransition:
+    """Retain original public/tape inputs and mutate log/counter plus XOR return."""
+    generator: Generator
+    writes: ProgrammedWrites
+    returns: ReturnProjection
+
+    def __post_init__(self):
+        require(type(self.generator) is Generator and type(self.writes) is ProgrammedWrites
+                and type(self.returns) is ReturnProjection, 'request component contracts')
+        require(self.generator.trials == self.writes.trials, 'schedule/write cap mismatch')
+        self.source_pieces('writes')
+        self.source_pieces('returns')
+
+    def source_pieces(self, stage):
+        """Every supplied field points to its actual generating/input register."""
+        fields = self.generator.field_positions()
+        pieces = []
+        def take(name, width):
+            require(name in fields and fields[name][1] == width, 'request field width: '+name)
+            pieces.append(fields[name])
+        if stage == 'writes':
+            for name,count in self.writes.field_inventory(): take(name,8*count)
+            take('primary_challenges',256*self.writes.trials)
+            take('primary_flags',self.writes.trials)
+            require(sum(n for _,n in pieces) == self.writes.layout()['input_bits'], 'write input inventory')
+        elif stage == 'returns':
+            take('exhausted',1)
+            lengths = dict(self.returns.fields)
+            for name in self.returns.input_order: take(name,8*lengths[name])
+            require(sum(n for _,n in pieces) == self.returns.input_bits, 'return input inventory')
+        else: raise ValueError('unknown request stage')
+        ordered = sorted(pieces)
+        require(all(a+n <= b for (a,n),(b,_) in zip(ordered,ordered[1:])), 'request input pieces alias')
+        return tuple(pieces)
+
+    def layout(self):
+        g = self.generator.plan.layout()
+        a = self.writes.append()
+        log = g['input_bits']
+        counter = log+a.capacity*(1+a.record_bits)
+        output = counter+a.counter_bits
+        retained = output+self.returns.output_bits
+        work = retained+g['retained_bits']
+        write_work = 1+a.record_bits+a.counter_bits+32
+        work_bits = max(g['scratch_bits'], write_work, 1)
+        return dict(generator=g, original_input_bits=g['input_bits'], log=log,
+                    log_bits=counter-log, counter=counter, counter_bits=a.counter_bits,
+                    output=output, output_bits=self.returns.output_bits,
+                    retained=retained, retained_bits=g['retained_bits'], work=work,
+                    work_bits=work_bits, write_work_bits=write_work, size=work+work_bits)
+
+    def emit(self, *, inverse=False):
+        """Actual lazy elementary/oracle stream, including both generator traversals."""
+        require(type(inverse) is bool, 'request inverse flag')
+        p = self.layout(); g = p['generator']
+        def generator_wire(local):
+            integer(local,0,g['size']-1,'request generator wire')
+            if local < g['input_bits']: return local
+            if local < g['scratch']: return p['retained']+local-g['input_bits']
+            return p['work']+local-g['scratch']
+        def run_generator(backward):
+            for gate in self.generator.plan.emit(inverse=backward):
+                yield (gate[0],*(generator_wire(w) for w in gate[1:]))
+        def source_mapper(name):
+            boundaries, cursor = [],0
+            for start,width in self.source_pieces(name):
+                boundaries.append((cursor+width,start-cursor)); cursor += width
+            def source(local):
+                for end,shift in boundaries:
+                    if local < end: return generator_wire(local+shift)
+                raise ValueError('unreachable request source')
+            return source
+        def run_writes():
+            w = self.writes.layout(); source = source_mapper('writes')
+            def wire(local):
+                integer(local,0,w['size']-1,'request write wire')
+                if local < w['input_bits']: return source(local)
+                if local < w['counter']: return p['log']+local-w['log']
+                if local < w['enable']: return p['counter']+local-w['counter']
+                return p['work']+local-w['enable']
+            for gate in self.writes.emit(inverse=inverse):
+                yield (gate[0],*(wire(wire_id) for wire_id in gate[1:]))
+        def run_return():
+            e = self.returns.layout(); source = source_mapper('returns')
+            def wire(local):
+                integer(local,0,e['size']-1,'request return wire')
+                if local < self.returns.input_bits: return source(local)
+                if local < e['output']: return p['work']+local-self.returns.input_bits
+                return p['output']+local-e['output']
+            for gate in self.returns.emit_clean():
+                yield (gate[0],*(wire(w) for w in gate[1:]))
+        yield from run_generator(False)
+        if inverse:
+            yield from run_return()
+            yield from run_writes()
+        else:
+            yield from run_writes()
+            yield from run_return()
+        yield from run_generator(True)
+
+    def resources(self):
+        p = self.layout()
+        generation = self.generator.resources()
+        writes, returns = self.writes.resources(), self.returns.resources()
+        gates = gate_cost(generation['forward_and_inverse_gates'])+gate_cost(writes['gates'])+gate_cost(returns['gates'])
+        return dict(gates=gates.as_dict(), original_input_bits=p['original_input_bits'],
+                    original_private_coin_bits=self.generator.original_private_coin_bits,
+                    persistent_log_bits=p['log_bits'], persistent_counter_bits=p['counter_bits'],
+                    caller_output_bits=p['output_bits'], retained_derived_bits=p['retained_bits'],
+                    shared_work_bits=p['work_bits'], total_logical_bits=p['size'],
+                    components=dict(generator=generation,writes=writes,returns=returns),
+                    accepted_fixed_shape_request_transition_implemented=True,
+                    all_original_coins_retained=True, derived_work_cleared_by_reverse_dependency_order=True,
+                    requires_canonical_log_and_M_plus_2_free_slots=True,
+                    generator_domains=(0,1,4,5,8), programmed_domains=(9,10,11),
+                    requires_one_immutable_source_padded_F_and_no_interleaving=True,
+                    malformed_public_request_dispatch_implemented=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    primitive_advantage_assumed=False, independent_cryptographic_review=False,
+                    profile_qualified=False, production_gate_changed=False)
+
+
+def actual_transition(root, shape, requests, *, trials=1 << 20, length_bits=64):
+    """Build the source-bound accepted family; smaller trial caps are test-only."""
+    integer(requests,1,1 << 64,'lifetime request cap')
+    integer(trials,1,1 << 20,'trial cap')
+    integer(length_bits,23,4096,'combined message length bits')
+    generator = build_generator(root,shape,trials)
+    role = 'registration' if shape.role == 'REG' else 'vote'
+    writes = ProgrammedWrites(actual_frames(root,shape.row,role),trials,requests*(trials+2),length_bits,215150)
+    return RequestTransition(generator,writes,actual_return(root,shape.row,role))

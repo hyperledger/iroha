@@ -1,5 +1,5 @@
 // Gateway and control-plane quota configuration in the actual parameter scope.
-/// Per-action quota configuration for SoraFS control-plane endpoints.
+/// Per-action quota configuration for `SoraFS` control-plane endpoints.
 #[derive(Debug, Clone, Copy)]
 pub struct SorafsQuotaWindow {
     /// Maximum events permitted within the rolling window. `None` disables the quota.
@@ -13,7 +13,7 @@ impl_default!(SorafsQuotaWindow => {
             window: Duration::from_secs(1),
         }
 });
-/// Consolidated quota configuration for SoraFS control-plane endpoints.
+/// Consolidated quota configuration for `SoraFS` control-plane endpoints.
 #[derive(Debug, Clone, Copy)]
 pub struct SorafsQuota {
     /// Quota applied to capacity declaration submissions.
@@ -87,7 +87,7 @@ impl_default!(SorafsAliasCachePolicy => {
         }
 });
 use iroha_service_model::soranet::{AnonymityPolicy, RolloutPhase};
-/// Gateway policy configuration for SoraFS delivery.
+/// Gateway policy configuration for `SoraFS` delivery.
 #[derive(Debug, Clone)]
 pub struct SorafsGateway {
     /// Require clients to attach the manifest envelope.
@@ -96,7 +96,7 @@ pub struct SorafsGateway {
     pub enforce_admission: bool,
     /// Enforce advertised capabilities (e.g., chunk-range fetch) before serving data.
     pub enforce_capabilities: bool,
-    /// Directory containing SoraNet salt announcements (Norito JSON).
+    /// Directory containing `SoraNet` salt announcements (Norito JSON).
     pub salt_schedule_dir: Option<PathBuf>,
     /// Named static-site bindings loaded and cached when Torii starts.
     pub site_bindings: SorafsGatewaySiteBindings,

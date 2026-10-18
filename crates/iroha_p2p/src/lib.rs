@@ -2,7 +2,7 @@
 //! connections between blockchain nodes. Sane defaults for secure
 //! Cryptography are chosen in this module, and encapsulated.
 #![allow(unexpected_cfgs)]
-#![allow(clippy::all)]
+
 use aead::{Nonce, Tag};
 use iroha_crypto::{Algorithm, KeyPair, encryption::ChaCha20Poly1305};
 pub use iroha_data_model::{
@@ -16,6 +16,7 @@ mod dial_policy;
 #[cfg(test)]
 mod frame_identity_tests;
 pub mod network;
+mod p2p_mutation_guard;
 #[cfg(test)]
 mod payload_codec_tests;
 pub mod peer;

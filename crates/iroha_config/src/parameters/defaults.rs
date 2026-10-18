@@ -1,9 +1,4 @@
 //! Parameters default values
-#![allow(
-    clippy::doc_markdown,
-    clippy::doc_link_with_quotes,
-    clippy::assertions_on_constants
-)]
 use iroha_crypto::Algorithm;
 use iroha_data_model::{
     account::{AccountId, curve::CurveId},
@@ -134,10 +129,10 @@ pub mod data_dir {
     pub const SECRETS_DIR: &str = "secrets";
     /// Derived state paths: configuration key and path relative to [`STATE_DIR`].
     ///
-    /// TODO: the SoraFS provider sub-states (`sorafs.storage.pop_credentials.*`,
+    /// TODO: the `SoraFS` provider sub-states (`sorafs.storage.pop_credentials.*`,
     /// moderation, reputation, reserve-transparency, hedging-billing and evidence-viewer
     /// checkpoints) and `torii.privacy_bootle_lantern_issuer.state_dir` still default to
-    /// `./storage/...`; they are only used when the embedded SoraFS provider or the
+    /// `./storage/...`; they are only used when the embedded `SoraFS` provider or the
     /// Bootle/Lantern issuer is enabled, which no compiled profile does.
     pub const STATE_PATHS: &[(&[&str], &str)] = &[
         (&["kura", "store_dir"], "kura"),
@@ -169,7 +164,7 @@ pub mod data_dir {
     ];
     /// Validator BLS private key (`private_key_file`).
     pub const VALIDATOR_KEY: &str = "validator.key";
-    /// SoraNet transport Ed25519 private key (`soranet_transport_private_key_file`).
+    /// `SoraNet` transport Ed25519 private key (`soranet_transport_private_key_file`).
     pub const TRANSPORT_KEY: &str = "transport.key";
     /// Streaming identity Ed25519 private key (`streaming.identity_private_key_file`).
     pub const STREAMING_KEY: &str = "streaming.key";
@@ -181,7 +176,7 @@ pub mod data_dir {
     pub const FAUCET_AUTHORITY_KEY: &str = "authority/faucet.key";
     /// Onboarding authority private key (`torii.account_onboarding.private_key_file`).
     pub const ONBOARDING_AUTHORITY_KEY: &str = "authority/onboarding.key";
-    /// SoraFS council authority private key.
+    /// `SoraFS` council authority private key.
     pub const SORAFS_COUNCIL_AUTHORITY_KEY: &str = "authority/sorafs_council.key";
 }
 /// Node process lifecycle defaults.
@@ -245,9 +240,9 @@ pub mod taira {
     pub const NEXUS_KURA_BLOCKS_BPS: u16 = 2_500;
     /// WSV snapshot share of the Nexus disk budget, in basis points.
     pub const NEXUS_WSV_SNAPSHOTS_BPS: u16 = 1_250;
-    /// SoraFS share of the Nexus disk budget, in basis points.
+    /// `SoraFS` share of the Nexus disk budget, in basis points.
     pub const NEXUS_SORAFS_BPS: u16 = 6_250;
-    /// Effective SoraFS component cap derived from the aggregate budget.
+    /// Effective `SoraFS` component cap derived from the aggregate budget.
     pub const SORAFS_STORAGE_CAP_BYTES: u64 =
         NEXUS_STORAGE_BUDGET_BYTES * NEXUS_SORAFS_BPS as u64 / STORAGE_WEIGHT_BASIS_POINTS as u64;
     /// Inrou egress request budget per minute.
@@ -281,7 +276,9 @@ pub mod taira {
                 4 * (VALIDATOR_MEMORY_BYTES + INROU_MAX_MEMORY_BYTES) + SYSTEM_MEMORY_RESERVE_BYTES;
             assert_eq!(memory, 13 * 1024 * 1024 * 1024);
             assert!(memory < 16 * 1024 * 1024 * 1024);
-            assert!(NEXUS_MAX_WSV_MEMORY_BYTES < VALIDATOR_MEMORY_BYTES);
+            const {
+                assert!(NEXUS_MAX_WSV_MEMORY_BYTES < VALIDATOR_MEMORY_BYTES);
+            };
         }
         #[test]
         fn nexus_storage_contains_the_complete_admitted_preseed() {
@@ -367,7 +364,7 @@ pub mod musubi_publication {
     pub const RECEIPT_LIFETIME_MS: u64 = 60_000;
     /// Paid-pin storage tier used by the publication coordinator.
     pub const PIN_STORAGE_CLASS: &str = "hot";
-    /// Paid-pin lifetime beyond submission, long enough for the SoraFS ingest deadline.
+    /// Paid-pin lifetime beyond submission, long enough for the `SoraFS` ingest deadline.
     pub const PIN_RETENTION_HORIZON_SECS: u64 = 30 * 24 * 60 * 60;
     /// Operator ceiling for one paid-pin retention request.
     pub const MAX_PIN_RETENTION_HORIZON_SECS: u64 = 365 * 24 * 60 * 60;
@@ -424,14 +421,14 @@ pub mod soracloud_runtime {
     pub const MODEL_WEIGHT_CACHE_BUDGET_BYTES: NonZeroU64 = nonzero!(4_096_u64 * 1024 * 1024);
     /// Whether this node advertises local Inrou hosting by default.
     pub const INROU_ENABLED: bool = false;
-    /// First uid/gid in the canonical four-slot PortableVM identity reservation.
+    /// First uid/gid in the canonical four-slot `PortableVM` identity reservation.
     pub const INROU_PORTABLE_VM_ID_BASE: u32 = 70_000;
-    /// Number of canonical PortableVM identities that may coexist on one host.
+    /// Number of canonical `PortableVM` identities that may coexist on one host.
     pub const INROU_PORTABLE_VM_ID_SLOT_COUNT: u32 = 4;
-    /// Exclusive upper bound of the canonical PortableVM identity reservation.
+    /// Exclusive upper bound of the canonical `PortableVM` identity reservation.
     pub const INROU_PORTABLE_VM_ID_MAX_EXCLUSIVE: u32 =
         INROU_PORTABLE_VM_ID_BASE + INROU_PORTABLE_VM_ID_SLOT_COUNT;
-    /// Return the canonical PortableVM identity slot for an exact uid/gid pair.
+    /// Return the canonical `PortableVM` identity slot for an exact uid/gid pair.
     #[must_use]
     pub const fn inrou_portable_vm_identity_slot(uid: u32, gid: u32) -> Option<u32> {
         if uid != gid
@@ -443,9 +440,9 @@ pub mod soracloud_runtime {
             Some(uid - INROU_PORTABLE_VM_ID_BASE)
         }
     }
-    /// Dedicated QEMU uid. `None` keeps PortableVM hosting fail-closed until configured.
+    /// Dedicated QEMU uid. `None` keeps `PortableVM` hosting fail-closed until configured.
     pub const INROU_PORTABLE_VM_UID: Option<NonZeroU32> = None;
-    /// Dedicated QEMU primary gid. `None` keeps PortableVM hosting fail-closed until configured.
+    /// Dedicated QEMU primary gid. `None` keeps `PortableVM` hosting fail-closed until configured.
     pub const INROU_PORTABLE_VM_GID: Option<NonZeroU32> = None;
     /// Disabled-profile fallback aggregate physical CPU ceiling, including VMM overhead.
     pub const INROU_MAX_CPU_MILLIS: NonZeroU32 = nonzero!(8_000_u32);
@@ -535,9 +532,11 @@ pub mod transaction {
         // margin above currently observed payloads.
         nonzero!(100_000_u64)
     }
+    /// Maximum Kotodama bytecode length in bytes for local readers and admission.
+    pub const IVM_BYTECODE_MAX_BYTES: usize = 4 * 2_usize.pow(20);
     /// Maximum Kotodama bytecode length (bytes) allowed during admission.
     pub const fn ivm_bytecode_size() -> NonZeroU64 {
-        nonzero!(4 * 2_u64.pow(20))
+        nonzero!(IVM_BYTECODE_MAX_BYTES as u64)
     }
 }
 /// Compute lane defaults.
@@ -755,9 +754,9 @@ pub mod content {
     pub const EGRESS_BURST_BYTES: u64 = 1024 * 1024 * 1024;
     /// Target availability in basis points (10000 = 100%).
     pub const TARGET_AVAILABILITY_BPS: u32 = 9_990;
-    /// Default PoW difficulty (leading zero bits) when enabled for content fetches.
+    /// Default `PoW` difficulty (leading zero bits) when enabled for content fetches.
     pub const POW_DIFFICULTY_BITS: u8 = 0;
-    /// Default header name carrying PoW nonces.
+    /// Default header name carrying `PoW` nonces.
     pub fn default_pow_header() -> String {
         "x-iroha-pow".to_string()
     }
@@ -1143,7 +1142,7 @@ pub mod network {
         nonzero!(128 * 1024 * 1024_usize);
     /// Maximum low-priority stream wire bytes retained per peer, including frame prefixes; the
     /// inbound transport mirrors this as separate process-wide source and alignment-scratch pools.
-    /// This funds plaintext and encryption copies for both 17 MiB BlockSync and gossip
+    /// This funds plaintext and encryption copies for both 17 MiB `BlockSync` and gossip
     /// classes, plus their bounded envelopes, without sharing either class's reservation.
     pub const P2P_OUTBOUND_FRAME_QUEUE_MAX_LOW_BYTES: NonZeroUsize =
         nonzero!(72 * 1024 * 1024_usize);
@@ -1236,7 +1235,7 @@ pub mod network {
     /// Maximum frame size for other miscellaneous topics.
     pub const MAX_FRAME_BYTES_OTHER: NonZeroUsize = nonzero!(131_072_usize); // 128 KiB
     // TCP options
-    /// Whether to enable TCP_NODELAY for reduced latency.
+    /// Whether to enable `TCP_NODELAY` for reduced latency.
     pub const TCP_NODELAY: bool = true;
     /// Default TCP keepalive (recommended for long-lived P2P sockets)
     pub const TCP_KEEPALIVE: Duration = Duration::from_secs(60);
@@ -1320,10 +1319,12 @@ pub mod streaming {
         }
         /// Default entropy mode string (bundled rANS only).
         pub fn entropy_mode() -> String {
-            assert!(
-                norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-                "Bundled rANS is mandatory; rebuild with ENABLE_RANS_BUNDLES=1"
-            );
+            const {
+                assert!(
+                    norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+                    "Bundled rANS is mandatory; rebuild with ENABLE_RANS_BUNDLES=1"
+                );
+            }
             BUNDLED_ENTROPY_MODE.to_string()
         }
         /// Default bundle width for bundled rANS encoders.
@@ -1337,19 +1338,19 @@ pub mod streaming {
     }
 }
 /// SoraNet-specific defaults.
-/// SoraFS storage defaults.
+/// `SoraFS` storage defaults.
 pub mod sorafs {
-    /// Defaults governing the embedded SoraFS storage worker.
+    /// Defaults governing the embedded `SoraFS` storage worker.
     pub mod storage {
         use iroha_config_base::util::Bytes;
         use std::path::PathBuf;
-        /// Feature toggle for the embedded SoraFS storage worker.
+        /// Feature toggle for the embedded `SoraFS` storage worker.
         pub const ENABLED: bool = false;
         /// Default root directory for pinned chunks and manifest metadata.
         pub fn data_dir() -> PathBuf {
             PathBuf::from("./storage/sorafs")
         }
-        /// Maximum on-disk capacity allocated to SoraFS (bytes).
+        /// Maximum on-disk capacity allocated to `SoraFS` (bytes).
         pub const MAX_CAPACITY_BYTES: Bytes = Bytes(100 * 1024 * 1024 * 1024);
         /// Maximum concurrent fetch operations served by the gateway.
         pub const MAX_PARALLEL_FETCHES: usize = 32;
@@ -1377,7 +1378,7 @@ pub mod sorafs {
         /// providers.
         pub mod pop_credentials {
             use std::path::PathBuf;
-            /// PoP service routes and workers are disabled by default.
+            /// `PoP` service routes and workers are disabled by default.
             pub const ENABLED: bool = false;
             /// Required dual-control quorum when the service is enabled.
             pub const APPROVAL_QUORUM: u8 = 2;
@@ -1728,7 +1729,7 @@ pub mod sorafs {
                 /// The provider-ingest runtime validates the largest variable
                 /// fields at 256 bytes for the manifest CID and 128 bytes for
                 /// the chunker handle. This reserve also covers the fixed job,
-                /// cursor, provider, order, manifest, chunk-plan, PoR, and
+                /// cursor, provider, order, manifest, chunk-plan, `PoR`, and
                 /// content-length fields.
                 pub const TERMINAL_AUTHORIZATION_CANONICAL_RESERVE_BYTES_V1: u64 = 4 * 1024;
                 /// Canonical reserve for terminal evidence other than `completed_by`.
@@ -1825,7 +1826,7 @@ pub mod sorafs {
         pub const RUNTIME_EVENT_HISTORY_LIMIT: usize = 4_096;
         /// Maximum entries retained in each auxiliary runtime state index.
         pub const RUNTIME_STATE_ENTRY_LIMIT: usize = 65_536;
-        /// First-release hard ceiling shared by node and Torii PoR projections.
+        /// First-release hard ceiling shared by node and Torii `PoR` projections.
         pub const RUNTIME_STATE_ENTRY_LIMIT_MAX: usize = 65_536;
         /// Maximum encoded size accepted for one auxiliary runtime checkpoint.
         pub const RUNTIME_CHECKPOINT_MAX_BYTES: Bytes = Bytes(64 * 1024 * 1024);
@@ -1839,7 +1840,7 @@ pub mod sorafs {
         pub fn alias() -> Option<String> {
             None
         }
-        /// Default SoraFS availability tier string.
+        /// Default `SoraFS` availability tier string.
         pub fn advert_availability() -> String {
             "hot".to_string()
         }
@@ -2052,7 +2053,7 @@ pub mod sorafs {
             pub const SESSION_TTL_MS: u64 = 5 * 60 * 1_000;
             /// Rotating bearer-grant lifetime in milliseconds.
             pub const GRANT_TTL_MS: u64 = 60 * 1_000;
-            /// WebAuthn challenge lifetime in milliseconds.
+            /// `WebAuthn` challenge lifetime in milliseconds.
             pub const CHALLENGE_TTL_MS: u64 = 2 * 60 * 1_000;
             /// Maximum authenticated plaintext bytes per range request.
             pub const MAX_RANGE_BYTES: Bytes = Bytes(4 * 1024 * 1024);
@@ -2116,7 +2117,7 @@ pub mod sorafs {
             pub const ADMISSION_LEASE_TTL_MS: u64 = 120_000;
         }
     }
-    /// Defaults for native SoraFS repair workers and transaction forwarding.
+    /// Defaults for native `SoraFS` repair workers and transaction forwarding.
     pub mod repair {
         /// Maximum total authenticated remote repair duration in milliseconds.
         pub const SOURCE_TIMEOUT_MS: u64 = 60_000;
@@ -2135,7 +2136,7 @@ pub mod sorafs {
         /// Hard ceiling for concurrent native repair executions per node.
         pub const WORKER_CONCURRENCY_LIMIT: usize = 64;
     }
-    /// Defaults for the SoraFS GC scheduler configuration.
+    /// Defaults for the `SoraFS` GC scheduler configuration.
     pub mod gc {
         use std::path::PathBuf;
         /// Enable the GC worker (disabled by default).
@@ -2154,10 +2155,10 @@ pub mod sorafs {
     /// Defaults for the Proof-of-Retrievability coordinator runtime.
     pub mod por {
         use std::path::PathBuf;
-        /// Enable the PoR coordinator runtime.
+        /// Enable the `PoR` coordinator runtime.
         ///
         pub const ENABLED: bool = false;
-        /// Length of a PoR epoch (seconds).
+        /// Length of a `PoR` epoch (seconds).
         pub const EPOCH_INTERVAL_SECS: u64 = 60 * 60;
         /// Response window allowed for proofs (seconds).
         pub const RESPONSE_WINDOW_SECS: u64 = 15 * 60;
@@ -2185,17 +2186,17 @@ pub mod sorafs {
         pub const VRF_RETENTION_EPOCHS: u64 = 7 * 24;
         /// Maximum accepted clock skew for signed VRF submissions.
         pub const VRF_MAX_CLOCK_SKEW_SECS: u64 = 60;
-        /// Canonical PoR coordinator snapshot filename.
+        /// Canonical `PoR` coordinator snapshot filename.
         pub const COORDINATOR_STATE_FILE: &str = "por-coordinator.to";
         /// Canonical verified drand high-water filename.
         pub const DRAND_STATE_FILE: &str = "drand-high-water.to";
         /// Canonical authenticated provider VRF state filename.
         pub const VRF_STATE_FILE: &str = "provider-vrf-state.to";
-        /// Default private directory for PoR coordinator, drand, and VRF state.
+        /// Default private directory for `PoR` coordinator, drand, and VRF state.
         pub fn state_dir() -> PathBuf {
             PathBuf::from("./storage/sorafs/por")
         }
-        /// Durable PoR coordinator snapshot path.
+        /// Durable `PoR` coordinator snapshot path.
         pub fn coordinator_state_path() -> PathBuf {
             state_dir().join(COORDINATOR_STATE_FILE)
         }
@@ -2208,7 +2209,7 @@ pub mod sorafs {
             state_dir().join(VRF_STATE_FILE)
         }
     }
-    /// Defaults for the SoraFS gateway policy and automation surface.
+    /// Defaults for the `SoraFS` gateway policy and automation surface.
     pub mod gateway {
         /// Require clients to attach the manifest envelope before serving data.
         pub const REQUIRE_MANIFEST_ENVELOPE: bool = true;
@@ -2248,7 +2249,7 @@ pub mod sorafs {
             /// Temporary ban duration applied after repeated violations.
             pub const BAN: Option<Duration> = Some(Duration::from_secs(30));
         }
-        /// Default staged anonymity policy applied to SoraNet transports.
+        /// Default staged anonymity policy applied to `SoraNet` transports.
         pub const DEFAULT_ANONYMITY_POLICY: &str = "anon-guard-pq";
         /// Default rollout phase label for the staged PQ activation.
         pub const DEFAULT_ROLLOUT_PHASE: &str = "canary";
@@ -2542,7 +2543,7 @@ pub mod torii {
     /// Default per-IP pre-auth connection cap, including bounded query waiters.
     /// A solo client's next heavy-query wave must reach the execution queue.
     pub const PREAUTH_MAX_CONNECTIONS_PER_IP: Option<NonZeroUsize> = Some(nonzero!(256usize));
-    /// SoraNet privacy ingestion defaults (disabled until explicitly configured).
+    /// `SoraNet` privacy ingestion defaults (disabled until explicitly configured).
     pub mod soranet_privacy_ingest {
         use super::*;
         /// Require an explicit allow-list before accepting signed privacy telemetry.
@@ -2660,7 +2661,7 @@ pub mod torii {
         pub const EPHEMERAL_STATE_CAPACITY: usize = 4_096;
         /// Maximum accepted per-kind ephemeral-state capacity.
         pub const MAX_EPHEMERAL_STATE_CAPACITY: usize = 65_536;
-        /// Maximum number of persisted operator WebAuthn credentials.
+        /// Maximum number of persisted operator `WebAuthn` credentials.
         pub const CREDENTIAL_CAPACITY: usize = 64;
         /// Maximum accepted persisted credential capacity.
         pub const MAX_CREDENTIAL_CAPACITY: usize = 1_024;
@@ -2676,37 +2677,37 @@ pub mod torii {
         pub const LOCKOUT_WINDOW_SECS: u64 = 300;
         /// Lockout duration once triggered (seconds).
         pub const LOCKOUT_DURATION_SECS: u64 = 900;
-        /// WebAuthn configuration defaults.
+        /// `WebAuthn` configuration defaults.
         pub mod webauthn {
-            /// Master enable switch for WebAuthn.
+            /// Master enable switch for `WebAuthn`.
             pub const ENABLED: bool = true;
             /// Require user verification during assertions.
             pub const REQUIRE_USER_VERIFICATION: bool = true;
-            /// Challenge TTL for WebAuthn ceremonies (seconds).
+            /// Challenge TTL for `WebAuthn` ceremonies (seconds).
             pub const CHALLENGE_TTL_SECS: u64 = 120;
-            /// Session token TTL after successful WebAuthn assertion (seconds).
+            /// Session token TTL after successful `WebAuthn` assertion (seconds).
             pub const SESSION_TTL_SECS: u64 = 900;
-            /// Default RP name used in WebAuthn options.
+            /// Default RP name used in `WebAuthn` options.
             pub fn rp_name() -> String {
                 "Iroha Operator".to_string()
             }
-            /// Default user id encoded into WebAuthn options.
+            /// Default user id encoded into `WebAuthn` options.
             pub fn user_id() -> String {
                 "operator".to_string()
             }
-            /// Default user name encoded into WebAuthn options.
+            /// Default user name encoded into `WebAuthn` options.
             pub fn user_name() -> String {
                 "operator".to_string()
             }
-            /// Default user display name encoded into WebAuthn options.
+            /// Default user display name encoded into `WebAuthn` options.
             pub fn user_display_name() -> String {
                 "Iroha Operator".to_string()
             }
-            /// Allowed WebAuthn origins (empty => must be configured).
+            /// Allowed `WebAuthn` origins (empty => must be configured).
             pub fn origins() -> Vec<String> {
                 Vec::new()
             }
-            /// Allowed WebAuthn algorithms (COSE labels).
+            /// Allowed `WebAuthn` algorithms (COSE labels).
             pub fn allowed_algorithms() -> Vec<String> {
                 vec!["es256".to_string(), "ed25519".to_string()]
             }
@@ -2815,7 +2816,7 @@ pub mod torii {
         pub const POW_SCRYPT_R: u32 = 8;
         /// Scrypt parallelization parameter for faucet proof-of-work.
         pub const POW_SCRYPT_P: u32 = 1;
-        /// Maximum committed-block age for accepted faucet PoW anchors.
+        /// Maximum committed-block age for accepted faucet `PoW` anchors.
         pub const POW_MAX_ANCHOR_AGE_BLOCKS: NonZeroU64 = nonzero!(6u64);
         /// Number of recent committed blocks to scan for prior faucet claims when adapting difficulty.
         pub const POW_ADAPTIVE_LOOKBACK_BLOCKS: u64 = 0;
@@ -2941,7 +2942,7 @@ pub mod torii {
     pub fn da_replay_cache_store_dir() -> PathBuf {
         PathBuf::from("./storage/da_replay")
     }
-    /// Default directory for queued DA manifests awaiting SoraFS orchestration.
+    /// Default directory for queued DA manifests awaiting `SoraFS` orchestration.
     pub fn da_manifest_store_dir() -> PathBuf {
         PathBuf::from("./storage/da_manifests")
     }
@@ -3044,7 +3045,7 @@ pub mod torii {
     pub const DA_RENT_PROTOCOL_RESERVE_BPS: u16 = 2_000;
     /// Default PDP bonus share in basis points.
     pub const DA_RENT_PDP_BONUS_BPS: u16 = 500;
-    /// Default PoTR bonus share in basis points.
+    /// Default `PoTR` bonus share in basis points.
     pub const DA_RENT_POTR_BONUS_BPS: u16 = 250;
     /// Default egress credit per GiB in XOR.
     pub fn da_rent_egress_credit_per_gib() -> XorQuantity {
@@ -3212,29 +3213,29 @@ pub mod torii {
     pub fn iso_bridge_structured_address_mode() -> String {
         ISO_BRIDGE_STRUCTURED_ADDRESS_MODE.to_owned()
     }
-    /// SoraFS discovery disabled by default.
+    /// `SoraFS` discovery disabled by default.
     pub const SORAFS_DISCOVERY_ENABLED: bool = false;
     /// Maximum number of admitted provider replay high-water marks persisted by Torii.
     pub const SORAFS_DISCOVERY_REPLAY_MAX_ENTRIES: NonZeroUsize = nonzero!(65_536usize);
-    /// Default path for the durable SoraFS provider advert replay checkpoint.
+    /// Default path for the durable `SoraFS` provider advert replay checkpoint.
     pub fn sorafs_discovery_replay_checkpoint_path() -> PathBuf {
         PathBuf::from("sorafs_discovery/provider_advert_replay.to")
     }
-    /// Maximum SoraFS capacity declarations per provider per hour.
+    /// Maximum `SoraFS` capacity declarations per provider per hour.
     pub const SORAFS_QUOTA_DECLARATION_MAX_EVENTS: Option<u32> = Some(4);
-    /// Rolling window (seconds) for SoraFS capacity declarations.
+    /// Rolling window (seconds) for `SoraFS` capacity declarations.
     pub const SORAFS_QUOTA_DECLARATION_WINDOW_SECS: u64 = 60 * 60;
-    /// Maximum SoraFS capacity telemetry reports per provider per hour.
+    /// Maximum `SoraFS` capacity telemetry reports per provider per hour.
     pub const SORAFS_QUOTA_TELEMETRY_MAX_EVENTS: Option<u32> = Some(12);
-    /// Rolling window (seconds) for SoraFS capacity telemetry.
+    /// Rolling window (seconds) for `SoraFS` capacity telemetry.
     pub const SORAFS_QUOTA_TELEMETRY_WINDOW_SECS: u64 = 60 * 60;
-    /// Maximum SoraFS disputes per provider per day.
+    /// Maximum `SoraFS` disputes per provider per day.
     pub const SORAFS_QUOTA_DISPUTE_MAX_EVENTS: Option<u32> = Some(2);
-    /// Rolling window (seconds) for SoraFS disputes.
+    /// Rolling window (seconds) for `SoraFS` disputes.
     pub const SORAFS_QUOTA_DISPUTE_WINDOW_SECS: u64 = 24 * 60 * 60;
-    /// Maximum SoraFS PoR submissions per provider per hour.
+    /// Maximum `SoraFS` `PoR` submissions per provider per hour.
     pub const SORAFS_QUOTA_POR_MAX_EVENTS: Option<u32> = Some(60);
-    /// Rolling window (seconds) for SoraFS PoR submissions.
+    /// Rolling window (seconds) for `SoraFS` `PoR` submissions.
     pub const SORAFS_QUOTA_POR_WINDOW_SECS: u64 = 60 * 60;
     /// Default appeal-finance settlement worker reconciliation scan interval (milliseconds).
     pub const SORAFS_APPEAL_FINANCE_SETTLEMENT_WORKER_SCAN_INTERVAL_MS: u64 = 30_000;
@@ -3558,7 +3559,7 @@ pub mod nexus {
         pub const KURA_BLOCKS_BPS: u16 = 3_500;
         /// Budget share for tiered-state cold snapshots (basis points).
         pub const WSV_SNAPSHOTS_BPS: u16 = 2_000;
-        /// Budget share for SoraFS storage (basis points).
+        /// Budget share for `SoraFS` storage (basis points).
         pub const SORAFS_BPS: u16 = 4_500;
         /// Total basis points for storage budgeting.
         pub const BPS_TOTAL: u16 = 10_000;
@@ -3661,7 +3662,7 @@ pub mod nexus {
         pub const MAX_PENDING_UNBONDS_PER_SHARE: NonZeroU32 = nonzero!(8_u32);
         /// Minimum delay between scheduling and finalising unbonds.
         pub const UNBONDING_DELAY: Duration = Duration::from_secs(0);
-        /// Maximum slash ratio (basis points, 10_000 = 100%).
+        /// Maximum slash ratio (basis points, `10_000` = 100%).
         pub const MAX_SLASH_BPS: u16 = 10_000;
         /// Escrow account that custodies bonded stake.
         pub const STAKE_ESCROW_ACCOUNT_ID: &str = super::fees::FEE_SINK_ACCOUNT_ID;
@@ -3820,7 +3821,7 @@ pub mod connect {
     pub const DEDUPE_CAP: usize = 8_192;
     /// Enable P2P re-broadcast relay.
     pub const RELAY_ENABLED: bool = true;
-    /// Relay strategy string: "broadcast" or "local_only".
+    /// Relay strategy string: "broadcast" or "`local_only`".
     pub const RELAY_STRATEGY: &str = "broadcast";
     /// Default hop TTL for Connect relay envelopes (0 disables cross-node rebroadcast).
     pub const P2P_TTL_HOPS: u8 = 8;
@@ -3914,6 +3915,47 @@ pub mod pipeline {
     pub const IVM_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024; // 64 MiB
     /// Finite requested allocation credits for active IVM execution (zero denies allocation).
     pub const IVM_EXECUTION_MAX_BYTES: usize = 1024 * 1024 * 1024; // 1 GiB
+    /// Independent local State capture admission, never consensus or allocation limits.
+    ///
+    /// Defaults select finite service envelopes: sixteen million nested source
+    /// elements, 256 MiB of visited variable input, eight million planned row
+    /// visits, four million evidence-index entries and model/hash calls, and
+    /// 65,536 signature checks. Each attempt grants 65,536 structural
+    /// resolve/comparison units and 64 Mi canonical-encoding work units. The
+    /// encoding quantum covers three bounded value rows plus canonical setup;
+    /// smaller configured quanta retain the same cursors across retries. These are operator scheduling
+    /// choices, not protocol maxima or memory-derived grants; an exhausted
+    /// capture retains its original source and progress for local recovery.
+    pub mod state_capture {
+        /// Maximum visited containers, variants and nested entries across original source shapes. Zero refuses this work.
+        pub const SOURCE_ELEMENTS: u64 = 16 * 1024 * 1024;
+        /// Maximum visited variable text, key and signature input bytes; no allocation credit. Zero refuses this work.
+        pub const SOURCE_VARIABLE_BYTES: u64 = 256 * 1024 * 1024;
+        /// Maximum row visits across the explicitly enumerated semantic passes. Zero refuses this work.
+        pub const SOURCE_TABLE_PASS_ROWS: u64 = 8 * 1024 * 1024;
+        /// Maximum original fixed-key evidence index population admitted for semantic lookup. Zero refuses this work.
+        pub const SOURCE_LOOKUP_INDEX_ENTRIES: u64 = 4 * 1024 * 1024;
+        /// Maximum explicitly planned model-validation and hash invocations. Zero refuses this work.
+        pub const SOURCE_MODEL_OPERATIONS: u64 = 4 * 1024 * 1024;
+        /// Maximum signature verifications, counting repeated provider edges. Zero refuses this work.
+        pub const SOURCE_SIGNATURE_CHECKS: u64 = 65_536;
+        /// Additional native resolve/comparison work granted per scheduled capture attempt. Zero refuses this work.
+        pub const NATIVE_WORK_PER_ATTEMPT: usize = 65_536;
+        /// Maximum selected tables in each canonical builder; each semantic builder selects one table. Zero refuses this work.
+        pub const TABLE_COUNT: usize = 1;
+        /// Maximum canonical rows per table, matching the ordered-tree row geometry by default. Zero refuses this work.
+        pub const TABLE_ROWS: u64 = 65_536;
+        /// Maximum emitted payload bytes per key or value; the encoder also enforces its key bound. Zero refuses this work.
+        pub const TABLE_PAYLOAD_BYTES: usize = 1024 * 1024;
+        /// Maximum retained ordered framing per table, matching the canonical ordered-tree bound by default. Zero refuses this work.
+        pub const TABLE_ORDERED_BYTES: usize = 64 * 1024 * 1024;
+        /// Maximum aggregate canonical value bytes across both encoding passes per table. Zero refuses this work.
+        pub const TABLE_STREAMED_VALUE_BYTES: u64 = 256 * 1024 * 1024;
+        /// Maximum canonical rows across the three captured semantic tables. Zero refuses this work.
+        pub const TOTAL_TABLE_ROWS: u64 = 3 * 65_536;
+        /// Additional canonical encoding work per scheduled attempt, independent of native source work. Zero refuses this work.
+        pub const ENCODING_WORK_PER_ATTEMPT: usize = 64 * 1024 * 1024;
+    }
     /// Rayon worker cap for prover/trace verification (0 = number of physical cores).
     pub const IVM_PROVER_THREADS: usize = 0;
     /// Ed25519-specific batch size (0 disables batching).
@@ -4181,7 +4223,7 @@ pub mod zk {
         ///
         /// Acceptance still requires binaries built with `zk-stark`.
         pub const ENABLED: bool = true;
-        /// Maximum accepted outer STARK OpenVerifyEnvelope length (bytes).
+        /// Maximum accepted outer STARK `OpenVerifyEnvelope` length (bytes).
         pub const MAX_ENVELOPE_BYTES: usize = 1024 * 1024; // 1 MiB
         /// Maximum accepted proof payload length (bytes).
         ///
@@ -4246,7 +4288,7 @@ pub mod sumeragi {
     /// Suffix of the default key installation log, a sibling of the Kura store directory and
     /// outside the record directory (§7.4).
     pub const INSTALLATION_LOG_SUFFIX: &str = "-sumeragi-installation.log";
-    /// NPoS epoch, randomness, election, and reconfiguration defaults.
+    /// `NPoS` epoch, randomness, election, and reconfiguration defaults.
     pub mod npos {
         /// Epoch length in blocks.
         pub const EPOCH_LENGTH_BLOCKS: u64 = 3_600;
@@ -4483,7 +4525,7 @@ pub mod governance {
     pub fn viral_campaign_cap() -> Quantity {
         Quantity::zero()
     }
-    /// Default SoraFS pin policy constraints enforced by governance.
+    /// Default `SoraFS` pin policy constraints enforced by governance.
     pub mod sorafs_pin_policy {
         /// Minimum replicas floor required for approved manifests.
         pub const MIN_REPLICAS_FLOOR: u16 = 1;
@@ -4495,7 +4537,7 @@ pub mod governance {
         pub const REQUIRE_COUNCIL_SIGNATURES: bool = false;
         /// Default distinct trusted approval-signature quorum.
         pub const APPROVAL_QUORUM: u16 = 1;
-        /// Hard ceiling for governed SoraFS pin-approval signers.
+        /// Hard ceiling for governed `SoraFS` pin-approval signers.
         pub const MAX_APPROVAL_SIGNERS: usize = 64;
         /// Maximum number of retained pin-manifest records in consensus state.
         pub const MAX_GLOBAL_MANIFESTS: u64 = 1_000_000;
@@ -4510,7 +4552,7 @@ pub mod governance {
         /// Maximum number of retained direct successors admitted for one manifest.
         pub const MAX_SUCCESSOR_FANOUT: u32 = 32;
     }
-    /// Default SoraFS public pin fee configuration.
+    /// Default `SoraFS` public pin fee configuration.
     pub mod sorafs_pin_fee {
         use iroha_data_model::account::AccountId;
         /// XOR asset definition used to collect public pin fees.
@@ -4530,13 +4572,13 @@ pub mod governance {
                 .expect("default SoraFS pin fee treasury account")
         }
     }
-    /// Default SoraFS under-delivery penalty policy thresholds.
+    /// Default `SoraFS` under-delivery penalty policy thresholds.
     pub mod sorafs_penalty {
         /// Minimum utilisation ratio (basis points) required before counting a strike.
         pub const UTILISATION_FLOOR_BPS: u16 = 7_500;
         /// Minimum uptime success rate (basis points) before counting a strike.
         pub const UPTIME_FLOOR_BPS: u16 = 9_500;
-        /// Minimum PoR success rate (basis points) before counting a strike.
+        /// Minimum `PoR` success rate (basis points) before counting a strike.
         pub const POR_SUCCESS_FLOOR_BPS: u16 = 9_700;
         /// Number of consecutive strikes required before issuing a slash.
         pub const STRIKE_THRESHOLD: u32 = 3;
@@ -4546,10 +4588,10 @@ pub mod governance {
         pub const COOLDOWN_WINDOWS: u32 = 2;
         /// Maximum PDP failures tolerated within a telemetry window before forcing a strike (0 = none).
         pub const MAX_PDP_FAILURES: u32 = 0;
-        /// Maximum PoTR SLA breaches tolerated within a telemetry window before forcing a strike (0 = none).
+        /// Maximum `PoTR` SLA breaches tolerated within a telemetry window before forcing a strike (0 = none).
         pub const MAX_POTR_BREACHES: u32 = 0;
     }
-    /// Default authentication and validation policy for SoraFS telemetry.
+    /// Default authentication and validation policy for `SoraFS` telemetry.
     pub mod sorafs_telemetry {
         /// Require telemetry submissions to originate from an authorised submitter list.
         pub const REQUIRE_SUBMITTER: bool = false;
@@ -4648,7 +4690,7 @@ pub mod confidential {
     /// Confidential ruleset version advertised during handshake.
     pub const RULES_VERSION: u32 = iroha_data_model::confidential::CONFIDENTIAL_RULES_VERSION;
 }
-/// SoraNet privacy telemetry defaults shared by relay runtimes.
+/// `SoraNet` privacy telemetry defaults shared by relay runtimes.
 pub mod soranet {
     /// Configuration defaults for privacy bucket aggregation.
     pub mod privacy {
@@ -4669,7 +4711,7 @@ pub mod soranet {
         /// Capacity of the in-memory privacy event buffer.
         pub const EVENT_BUFFER_CAPACITY: usize = 4_096;
     }
-    /// Defaults for the SoraNet VPN control plane and scheduler.
+    /// Defaults for the `SoraNet` VPN control plane and scheduler.
     pub mod vpn {
         use std::time::Duration;
         /// Enable the VPN tunnel by default.

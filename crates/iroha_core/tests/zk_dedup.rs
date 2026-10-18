@@ -1,5 +1,4 @@
 #![doc = "Pre-verify deduplication tests for ZK attachments."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! Unit tests for pre-verify dedup logic with optional `vk_commitment`.
 #![cfg(feature = "zk-preverify")]

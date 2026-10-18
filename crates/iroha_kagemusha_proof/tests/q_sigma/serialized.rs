@@ -106,7 +106,7 @@ fn serialized_single_sigma_preserves_byte_and_public_bindings() {
         let circuit = QSigmaCircuit::new(
             QSigmaPlan::new(class, None, &params).unwrap(),
             QSigmaWitness {
-                own,
+                own: Some(own),
                 incoming: None,
             },
         )
@@ -131,7 +131,7 @@ fn serialized_single_sigma_preserves_byte_and_public_bindings() {
             result(&circuit, 2, &forged, false);
         }
         let mut forged = circuit.clone();
-        forged.witness.own.length -= 1;
+        forged.witness.own.as_mut().unwrap().length -= 1;
         result(
             &forged,
             2,
@@ -139,7 +139,7 @@ fn serialized_single_sigma_preserves_byte_and_public_bindings() {
             false,
         );
         let mut forged = circuit.clone();
-        forged.witness.own.proof[0] ^= 1;
+        forged.witness.own.as_mut().unwrap().proof[0] ^= 1;
         result(
             &forged,
             2,
@@ -161,13 +161,13 @@ fn serialized_two_sigmas_fold_and_prove_without_default_key_changes() {
         for valid in [true, false] {
             let selected = if valid { incoming_claim.clone() } else { trivial.as_input() };
             let (fold, part) = create_fold(&params, &[own_claim.clone(), selected, trivial.as_input()],
-                Fq::from(73).to_repr(), &FoldConfig::default()).unwrap();
+                common::public_fixture_tape::<Eq>(73), FoldPurpose::SigmaBatch, &FoldConfig::default()).unwrap();
             part.decide(&params, MemoryBudget::DEFAULT).unwrap();
             let mut sigma = incoming.clone();
             if !valid { sigma.proof[0] ^= 1; }
             let circuit = QSigmaCircuit::new(plan.clone(), QSigmaWitness {
-                own: own.clone(), incoming: Some(IncomingSigmaWitness { sigma,
-                    mode: [valid,!valid,false], corrected: Eq::from(*trivial.g()), fold: fold.to_bytes() })
+                own: Some(own.clone()), incoming: Some(IncomingSigmaWitness { sigma,
+                    mode: [valid,!valid,false], corrected: Eq::from(*trivial.g()), fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(fold) })
             }).unwrap();
             let public = public(&circuit, &part.as_input(), &[3,9], valid);
             let protocol = inventory(&circuit, 2, &public, if valid { "two-accept" } else { "two-trivial" });
@@ -175,7 +175,8 @@ fn serialized_two_sigmas_fold_and_prove_without_default_key_changes() {
             forged_public[3][1] = Fq::from(u64::from(!valid));
             result(&circuit, 2, &forged_public, false);
             let mut forged = circuit.clone();
-            forged.witness.incoming.as_mut().unwrap().fold[32] ^= 1;
+            let incoming = forged.witness.incoming.as_mut().unwrap();
+            incoming.fold = common::mutated_private_fold(&incoming.fold, 32);
             result(&forged, 2, &public, false);
             let mut forged = circuit.clone();
             forged.witness.incoming.as_mut().unwrap().mode = [true,true,false];
@@ -188,7 +189,7 @@ fn serialized_two_sigmas_fold_and_prove_without_default_key_changes() {
                 assert!(Witness::from_circuit(&key, &circuit, &public).is_err());
                 let output = create_proof_owned_with_claim(&params, &key,
                     Witness::from_circuit(&key, &candidate, &public).unwrap(),
-                    common::recovery(99), ProverConfig::default()).unwrap();
+                    common::fresh_randomness(), ProverConfig::default()).unwrap();
                 assert_eq!(output.proof.len(), protocol.proof_length());
                 iroha_plonk::verify_full(&params, key.binding(), key.vk(), &public,
                     &output.proof, MemoryBudget::DEFAULT).unwrap();

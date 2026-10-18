@@ -16,7 +16,8 @@ use crate::{
     prelude::{AccountId, AssetDefinitionId},
 };
 pub use atomic::{
-    ATOMIC_SETTLEMENT_MAX_MOVEMENTS, ATOMIC_SETTLEMENT_MIN_MOVEMENTS, AtomicSettlementMovement,
+    ATOMIC_SETTLEMENT_MAX_ESCROWS, ATOMIC_SETTLEMENT_MAX_MOVEMENTS, ATOMIC_SETTLEMENT_MIN_LEGS,
+    AtomicSettlementEscrow, AtomicSettlementEscrows, AtomicSettlementMovement,
     AtomicSettlementMovements, ResolvedSettlementMovement, ResolvedSettlementMovements,
     SettleAtomic,
 };
@@ -798,6 +799,11 @@ pub struct AtomicSettlementDetails {
     pub movements: ResolvedSettlementMovements,
     /// Exact complete network-bound intent approved by the debit owners.
     pub intent_hash: Hash,
+    /// Conditional escrows opened by this settlement, in signed canonical order.
+    ///
+    /// Empty when the intent has no escrow legs. The retained escrow records own
+    /// custody, terms and lifecycle state.
+    pub escrow_ids: Vec<crate::escrow::EscrowId>,
 }
 
 /// Exactly one successful settlement operation and its fully resolved movements.

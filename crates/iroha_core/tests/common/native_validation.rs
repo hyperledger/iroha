@@ -13,7 +13,7 @@ use iroha_core::{
     tx::AcceptedTransaction,
 };
 use iroha_data_model::{block::SignedBlock, transaction::SignedTransaction};
-use iroha_sumeragi::{message::BlockHeader, preimage::payload_hash};
+use iroha_sumeragi::{message::BlockHeader, preimage::payload_hash, types::ControlWitness};
 use std::{borrow::Cow, time::Duration};
 
 pub(super) fn proposal(chain: &CertifiedTestChain, txs: Vec<SignedTransaction>) -> SignedBlock {
@@ -47,7 +47,7 @@ pub(super) fn validate(
         .ready(chain.height() + 1)
         .unwrap();
     let header = BlockHeader {
-        control_witness: Default::default(),
+        control_witness: ControlWitness::default(),
         instance: chain.instance(),
         epoch: iroha_core::sumeragi::schedule::core_epoch(&scheduled.epoch)
             .unwrap()

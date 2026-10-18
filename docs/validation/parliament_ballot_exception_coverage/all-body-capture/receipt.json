@@ -1,0 +1,72 @@
+{
+  "applies_to_current_checkout": false,
+  "command": [
+    "/opt/homebrew/opt/python@3.15/bin/python3.15",
+    "-B",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/compare-all-body.py",
+    "--out",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/all-body-capture/comparison.json"
+  ],
+  "complete_exception_semantics": false,
+  "complete_workspace_certificate": false,
+  "cwd": "/Users/mtakemiya/dev/iroha",
+  "environment_overrides": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONOPTIMIZE": "0",
+    "PYTHONPATH": ""
+  },
+  "error": null,
+  "exit_code": 0,
+  "output_sha256": {
+    "comparison.json": "f247b7a1ddee0ff6e659eba89d1ae400bbc490a7fe7aa4364b2e6cad8d3aaf7b",
+    "sources/00-compare-all-body.py.template": "d0154ac752022eff36e48c557d3f9883d213df222ef7ec18f64c534e0955ee25",
+    "sources/01-all_body_reference.py.template": "53b468943fde0f0d7a4405cae957230d94932b8e061a9e8a6be9881ad366e1ad",
+    "sources/02-capture-all-body.py.template": "1a231d4618b001589ef08ade23c09f4dd2816c1e1e5431169d8759b7a5eef783",
+    "stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout.txt": "e7857ed17f1822fe1a68cff95b5a4e443bc2de474f27563502950548cafa8306"
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "runtime_after": {
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb"
+  },
+  "runtime_before": {
+    "/opt/homebrew/Cellar/python@3.15/3.15.0/Frameworks/Python.framework/Versions/3.15/bin/python3.15": "15c72833c1ffc09bc4e05d1e1866784d126721ad548d9c4d8f943641262535cb"
+  },
+  "schema": "parliament-final-exception-whole-body-capture-v1",
+  "scope": "New independent static comparison against exact frozen final report; no historical tests, workers or LLVM command rerun. Selected source observations are non-atomic; Python dependencies, cache coherence and original text instruction decoding remain trusted.",
+  "seconds": 0.6541483749169856,
+  "source_after": {
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/disassembly.txt": "a43721df6e2ce58c92d3a5304cdc3f483c6b5d5d3a8774a13dfae15a5a75d596",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/starts.txt": "fa77d078fcc9b7a0d27ed96d1f21261c5b1c8885d5644db1a4d7acfec7f4f853",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/stubs.txt": "9ba48479e64abe79f6a2417a24fd8692f120ff72f9c08c2d68d7c0004a64ed4d",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/disassembly.txt": "1f8f8e31db679a2738e2916efd73f55b0b4581698294080dcc8b0a457ea06cdd",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/starts.txt": "bcf217bd0a5dc8bfc3a25c13ae5cc98bf15f43d1c9cf43c1bac34dbcf2a9abc9",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/stubs.txt": "b9e1b3f3beb9e5ce33e678adcc47e5ec49590f657b49081cafcdc06439503f8b",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture-all-body.py": "1a231d4618b001589ef08ade23c09f4dd2816c1e1e5431169d8759b7a5eef783",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture/analysis.json.gz": "3e4891e20cc4c731677a1ddbd8b4342ab22a524ad40976d2821df8ac2f8938d9",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture/receipt.json": "e1fc5f8456793e4b02b4ebe8a5adc8399c261ccdf2ec7bdb1e4fcec95ef1170f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/compare-all-body.py": "d0154ac752022eff36e48c557d3f9883d213df222ef7ec18f64c534e0955ee25",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-graph-review/all_body_reference.py": "53b468943fde0f0d7a4405cae957230d94932b8e061a9e8a6be9881ad366e1ad"
+  },
+  "source_before": {
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/disassembly.txt": "a43721df6e2ce58c92d3a5304cdc3f483c6b5d5d3a8774a13dfae15a5a75d596",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/starts.txt": "fa77d078fcc9b7a0d27ed96d1f21261c5b1c8885d5644db1a4d7acfec7f4f853",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/accel/stubs.txt": "9ba48479e64abe79f6a2417a24fd8692f120ff72f9c08c2d68d7c0004a64ed4d",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/disassembly.txt": "1f8f8e31db679a2738e2916efd73f55b0b4581698294080dcc8b0a457ea06cdd",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/starts.txt": "bcf217bd0a5dc8bfc3a25c13ae5cc98bf15f43d1c9cf43c1bac34dbcf2a9abc9",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_current_candidate/stack/portable/stubs.txt": "b9e1b3f3beb9e5ce33e678adcc47e5ec49590f657b49081cafcdc06439503f8b",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture-all-body.py": "1a231d4618b001589ef08ade23c09f4dd2816c1e1e5431169d8759b7a5eef783",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture/analysis.json.gz": "3e4891e20cc4c731677a1ddbd8b4342ab22a524ad40976d2821df8ac2f8938d9",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture/receipt.json": "e1fc5f8456793e4b02b4ebe8a5adc8399c261ccdf2ec7bdb1e4fcec95ef1170f",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/compare-all-body.py": "d0154ac752022eff36e48c557d3f9883d213df222ef7ec18f64c534e0955ee25",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-graph-review/all_body_reference.py": "53b468943fde0f0d7a4405cae957230d94932b8e061a9e8a6be9881ad366e1ad"
+  },
+  "source_snapshots": {
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/capture-all-body.py": "sources/02-capture-all-body.py.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-coverage-stage/compare-all-body.py": "sources/00-compare-all-body.py.template",
+    "/Users/mtakemiya/dev/iroha/target/parliament-exception-graph-review/all_body_reference.py": "sources/01-all_body_reference.py.template"
+  },
+  "status": "PASS",
+  "worker_executed": false
+}

@@ -250,6 +250,7 @@ fn parliament_validation_fee_policy_enacts_at_the_exact_due_height() {
         VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS, ValidationFeeChargingMode,
         ValidationFeePolicyV1,
     };
+    assert_live_pricing_capacity_waits_for_certified_settlement();
     let ds_asset_id = AssetDefinitionId::derive_from_components(
         DomainId::try_new("fees", "paynet").unwrap(),
         "fee_token".parse().unwrap(),
@@ -634,5 +635,221 @@ fn parliament_terminal_effect_failure_retains_atomic_rollback_and_exact_outcome(
             .unwrap()
             .status,
         crate::state::GovernanceProposalStatus::ExecutionFailed
+    );
+}
+
+#[test]
+fn parliament_validation_fee_payout_json_capacity_rolls_back_permissions_and_events() {
+    use crate::validation_fee::tests::{
+        install_policy_registry_fixture, payout_registry_entry, register_bound_payout_time_trigger,
+        signed_payout_lifecycle_registry_fixture,
+    };
+    use iroha_data_model::validation_fee::{
+        MAX_VALIDATION_FEE_REGISTRY_BYTES, ValidationFeePayoutPolicyEntryV1,
+        ValidationFeePayoutPolicyRegistryV1,
+    };
+
+    let (mut chain, mut candidate) = signed_payout_lifecycle_registry_fixture();
+    while chain.height() < PARLIAMENT_DUE_CERTIFICATE_HEIGHT - 1 {
+        chain.commit_at((chain.height() + 1) * 1_000, Vec::new());
+    }
+    // Original runtime custody comes from signed deployments. The many accepted
+    // historical entries below are explicit component prestate, not a claim that
+    // this short chain enacted a lifetime of Parliament proposals.
+    let mut live = ValidationFeePolicyRegistryV1 {
+        history: None,
+        registered_policies: Vec::new(),
+        payout_policies: ValidationFeePayoutPolicyRegistryV1 {
+            entries: Vec::new(),
+        },
+    };
+    let mut revision = 1_u64;
+    loop {
+        candidate.min_reward_claim_xor_minor = revision;
+        live.payout_policies
+            .entries
+            .push(payout_registry_entry(&candidate, revision, 20));
+        live.validate().unwrap();
+        assert!(norito::to_bytes(&live).unwrap().len() < MAX_VALIDATION_FEE_REGISTRY_BYTES);
+        match live.clone().into_custom_parameter() {
+            Ok(_) => revision = revision.checked_add(1).unwrap(),
+            Err(error) => {
+                assert!(error.decode_resource_error().is_none(), "{error:?}");
+                assert_eq!(
+                    error.to_string(),
+                    "bounded JSON body exceeds its byte limit"
+                );
+                live.payout_policies.entries.pop().unwrap();
+                break;
+            }
+        }
+    }
+    live.validate().unwrap();
+    assert!(live.payout_policies.entries.len() > 2);
+    let live_parameter = live.clone().into_custom_parameter().unwrap();
+    assert!(live_parameter.payload().get().len() <= iroha_primitives::json::MAX_JSON_BYTES);
+    let original_state = crate::snapshot::canonical_state_snapshot_bytes(chain.state());
+    let original_height = chain.height();
+    let original_tip = chain.state().view().latest_block_hash();
+    let proposal = chain.proposal(Some(PARLIAMENT_DUE_CERTIFICATE_HEIGHT * 1_000), Vec::new());
+    let state = std::sync::Arc::clone(chain.state());
+    {
+        let mut block = state.block(proposal.header());
+        let fixture = {
+            let mut setup = block.transaction();
+            register_bound_payout_time_trigger(
+                &mut setup,
+                &candidate,
+                Hash::prehashed(candidate.code_hash),
+                "json_capacity_validation_fee_wrapper",
+            );
+            install_policy_registry_fixture(&live, &mut setup);
+            let previous = &live.payout_policies.head().unwrap().payout_binding;
+            install_derived_validation_fee_runtime_permissions(previous, &mut setup).unwrap();
+            validate_validation_fee_payout_lifecycle_runtime(previous, &setup).unwrap();
+            validate_validation_fee_payout_lifecycle_runtime_before_effect_install(
+                &candidate, &setup,
+            )
+            .unwrap();
+            let fixture = seed_due_parliament_certificate(
+                &mut setup,
+                ProposalKind::ValidationFeePayoutLifecycle(ValidationFeePayoutLifecycleProposal {
+                    proposal_operator: ALICE_ID.clone(),
+                    payout_binding: candidate.clone(),
+                }),
+            );
+            setup.world.internal_event_buf.clear();
+            setup.apply();
+            fixture
+        };
+        let staged = crate::snapshot::canonical_staged_state_snapshot_bytes(&block);
+        // Canonical WSV snapshots normalize this delivery buffer to committed
+        // state, so retain the exact block-local event cut separately.
+        let staged_events = block.world.pending_external_events().to_vec();
+        {
+            let mut attempt = block.transaction();
+            let record = attempt
+                .world
+                .governance_proposals
+                .get(&fixture.proposal_id)
+                .unwrap()
+                .clone();
+            let authorization = validation_fee_parliament_authorization(
+                fixture.proposal_id,
+                &record,
+                &fixture.certificate,
+                attempt.block_height(),
+            )
+            .unwrap();
+            let mut oversized = live.clone();
+            oversized
+                .payout_policies
+                .entries
+                .push(ValidationFeePayoutPolicyEntryV1 {
+                    revision,
+                    proposal_id: fixture.proposal_id,
+                    lifecycle_seal: candidate.lifecycle_seal().unwrap(),
+                    payout_binding: candidate.clone(),
+                    parliament_authorization: authorization,
+                });
+            oversized.validate().unwrap();
+            assert!(
+                norito::to_bytes(&oversized).unwrap().len() < MAX_VALIDATION_FEE_REGISTRY_BYTES
+            );
+            assert_eq!(
+                oversized.into_custom_parameter().unwrap_err().to_string(),
+                "bounded JSON body exceeds its byte limit",
+                "the exact certified successor must hit the independent JSON capacity"
+            );
+            let permissions = validation_fee_runtime_permissions(
+                &attempt,
+                &candidate,
+                &candidate.pool_contract_address,
+            )
+            .unwrap();
+            assert!(attempt.world.internal_event_buf.is_empty());
+            let error = apply_parliament_proposal_effect_v1(
+                fixture.proposal_id,
+                &record,
+                &fixture.certificate,
+                &mut attempt,
+            )
+            .expect_err("payout append must return its real JSON-capacity rejection");
+            assert!(
+                error
+                    .to_string()
+                    .contains("validation-fee registry parameter encoding failed: bounded JSON body exceeds its byte limit"),
+                "{error}"
+            );
+            assert!(!attempt.is_execution_deferred());
+            assert_eq!(
+                validation_fee_policy_registry(&attempt).unwrap(),
+                Some(live.clone())
+            );
+            // This successor only changes the claim minimum, so permission values
+            // are idempotent. Reinstallation nevertheless emits staged events:
+            // observe them to prove execution reached the later encoding refusal.
+            assert_eq!(attempt.world.internal_event_buf.len(), permissions.len());
+            for (permission, holder, _) in &permissions {
+                assert!(
+                    attempt
+                        .world
+                        .account_contains_inherent_permission(holder, permission)
+                );
+                assert!(
+                    attempt
+                        .world
+                        .internal_event_buf
+                        .iter()
+                        .any(|event| matches!(
+                            event.as_ref(),
+                            iroha_data_model::events::data::DataEvent::Account(
+                                AccountEvent::PermissionAdded(added)
+                            ) if &added.account == holder && &added.permission == permission
+                        ))
+                );
+            }
+            // The production owner drops a failed child transaction rather than
+            // publishing the staged permission events or any other effect.
+        }
+        assert_eq!(
+            crate::snapshot::canonical_staged_state_snapshot_bytes(&block),
+            staged,
+            "failed payout append must preserve the full registry and permission snapshot"
+        );
+        assert_eq!(
+            block.world.pending_external_events(),
+            staged_events.as_slice(),
+            "failed payout append must not publish its staged permission events"
+        );
+        {
+            let mut attempt = block.transaction();
+            assert!(matches!(
+                execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut attempt)
+                    .unwrap(),
+                DueParliamentCertificateExecutionV1::EffectFailed { .. }
+            ));
+            assert!(!attempt.is_execution_deferred());
+            assert_eq!(attempt.world.internal_event_buf.len(), 3);
+        }
+        assert_eq!(
+            crate::snapshot::canonical_staged_state_snapshot_bytes(&block),
+            staged
+        );
+        assert_eq!(
+            block.world.pending_external_events(),
+            staged_events.as_slice(),
+            "the refused due-certificate effect must not publish staged events"
+        );
+    }
+    assert_eq!(
+        crate::snapshot::canonical_state_snapshot_bytes(chain.state()),
+        original_state
+    );
+    assert_eq!(chain.height(), original_height);
+    assert_eq!(chain.state().view().latest_block_hash(), original_tip);
+    assert_eq!(
+        chain.kura().blocks_count(),
+        usize::try_from(original_height).unwrap()
     );
 }

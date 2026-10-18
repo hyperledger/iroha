@@ -914,7 +914,7 @@ fn integer_negacyclic_square_v1(
     Some(output)
 }
 fn challenge_integer_power_v1(
-    challenge: ProofPolynomialV1,
+    challenge: &ProofPolynomialV1,
 ) -> Option<[SignedU512V1; APPLICATION_RING_DEGREE_V1]> {
     if !CHALLENGE_NORM_POWER_V1.is_power_of_two() {
         return None;
@@ -929,7 +929,7 @@ fn challenge_integer_power_v1(
     }
     (exponent == CHALLENGE_NORM_POWER_V1).then_some(power)
 }
-fn challenge_eta_norm_v1(challenge: ProofPolynomialV1) -> Option<U1024> {
+fn challenge_eta_norm_v1(challenge: &ProofPolynomialV1) -> Option<U1024> {
     let power = challenge_integer_power_v1(challenge)?;
     let sigma_power: [SignedU512V1; APPLICATION_RING_DEGREE_V1] = core::array::from_fn(|index| {
         if index == 0 {
@@ -972,7 +972,7 @@ fn challenge_eta_norm_is_accepted_v1(norm: U1024) -> bool {
 /// All arithmetic is over the integer negacyclic ring `Z[X]/(X^64 + 1)`, before reduction modulo
 /// the proof modulus. The challenge is accepted exactly when
 /// `||sigma_-1(c^32) * c^32||_1 <= 140^64`.
-pub(crate) fn challenge_eta_is_valid_v1(challenge: ProofPolynomialV1) -> bool {
+pub(crate) fn challenge_eta_is_valid_v1(challenge: &ProofPolynomialV1) -> bool {
     challenge_eta_norm_v1(challenge).is_some_and(challenge_eta_norm_is_accepted_v1)
 }
 /// Derive the unique auto-stable 64-coefficient challenge over the proof
@@ -1046,7 +1046,7 @@ fn derive_challenge_from_transcript_binding_v1(
         }
         let challenge =
             ProofPolynomialV1::new(challenge).map_err(|_| TranscriptErrorV1::InternalInvariant)?;
-        if challenge_eta_is_valid_v1(challenge) {
+        if challenge_eta_is_valid_v1(&challenge) {
             return Ok(challenge);
         }
     }
@@ -1211,7 +1211,7 @@ mod tests {
         }
         ProofPolynomialV1::new(coefficients).expect("canonical challenge fixture")
     }
-    fn centered_first_half(challenge: ProofPolynomialV1) -> [i64; APPLICATION_RING_DEGREE_V1 / 2] {
+    fn centered_first_half(challenge: &ProofPolynomialV1) -> [i64; APPLICATION_RING_DEGREE_V1 / 2] {
         core::array::from_fn(|index| challenge.centered_coefficient(index))
     }
     fn presentation_transcript() -> ProofTranscriptCoreV1 {
@@ -1368,14 +1368,14 @@ mod tests {
         let challenge = derive_presentation_challenge_v1(binding(), b"canonical commitments")
             .expect("challenge");
         assert_eq!(
-            centered_first_half(challenge),
+            centered_first_half(&challenge),
             [
                 -1, 0, -6, -6, 0, 6, -1, -4, 1, 5, 4, -2, 5, -8, -7, -8, -4, 0, -3, -8, -3, 6, -6,
                 -4, 0, 7, 8, -4, -5, -1, 3, 4,
             ],
             "cross-language accepted challenge KAT"
         );
-        assert!(challenge_eta_is_valid_v1(challenge));
+        assert!(challenge_eta_is_valid_v1(&challenge));
         let coefficients = challenge.coefficients();
         for coefficient in &coefficients[..32] {
             let centered = if *coefficient <= PROOF_MODULUS_V1 / 2 {
@@ -1432,6 +1432,21 @@ mod tests {
         );
     }
     #[test]
+    fn borrowed_challenge_readers_preserve_acceptance_and_overflow_owners() {
+        let accepted = ProofPolynomialV1::constant(1).expect("canonical unit");
+        let overflow =
+            ProofPolynomialV1::constant(PROOF_MODULUS_V1 / 2).expect("canonical centered boundary");
+        for (owner, expected) in [(&accepted, Some(U1024::ONE)), (&overflow, None)] {
+            let original = *owner.coefficients();
+            assert_eq!(challenge_eta_norm_v1(owner), expected);
+            assert_eq!(challenge_eta_is_valid_v1(owner), expected.is_some());
+            assert_eq!(owner.coefficients(), &original);
+        }
+        assert_eq!(accepted.centered_coefficient(0), 1);
+        assert_eq!(overflow.coefficients()[0], PROOF_MODULUS_V1 / 2);
+    }
+
+    #[test]
     fn challenge_eta_integer_norm_has_exact_boundary_and_adversarial_kats() {
         let threshold = U1024::from_be_hex(
             "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000135917022c83ac72f601fd7feb91854b28ece4c1c0c55bfc320799795f633239ec3bd12172d0f6f950100000000000000000000000000000000",
@@ -1442,32 +1457,32 @@ mod tests {
             threshold.wrapping_add(&U1024::ONE)
         ));
         let all_eight = challenge_from_first_half([8; 32]);
-        let all_eight_norm = challenge_eta_norm_v1(all_eight).expect("bounded exact arithmetic");
+        let all_eight_norm = challenge_eta_norm_v1(&all_eight).expect("bounded exact arithmetic");
         assert_eq!(
             all_eight_norm,
             U1024::from_be_hex(
                 "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000635046cf4f8a3d84a044b68b1c7becaf4d576a9f511854c6a8392bcb65f637c32ee4b37fc37bbeb7a68001000000000000000000000000000000000000000000000000"
             )
         );
-        assert!(!challenge_eta_is_valid_v1(all_eight));
+        assert!(!challenge_eta_is_valid_v1(&all_eight));
         let patterned = challenge_from_first_half(core::array::from_fn(|index| {
             i64::try_from(index % 17).expect("small index") - 8
         }));
         assert_eq!(
-            challenge_eta_norm_v1(patterned).expect("bounded exact arithmetic"),
+            challenge_eta_norm_v1(&patterned).expect("bounded exact arithmetic"),
             U1024::from_be_hex(
                 "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004ab3012ce9d08088eb4a788c6b4cad45c85ec62c27744691a8c55461387b484e6ae9a8c7aeef5eaf0e2e3ee31722a449bb154a85c10000"
             )
         );
-        assert!(challenge_eta_is_valid_v1(patterned));
+        assert!(challenge_eta_is_valid_v1(&patterned));
         let all_one = challenge_from_first_half([1; 32]);
         assert_eq!(
-            challenge_eta_norm_v1(all_one).expect("bounded exact arithmetic"),
+            challenge_eta_norm_v1(&all_one).expect("bounded exact arithmetic"),
             U1024::from_be_hex(
                 "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000635046cf4f8a3d84a044b68b1c7becaf4d576a9f511854c6a8392bcb65f637c32ee4b37fc37bbeb7a68001"
             )
         );
-        assert!(challenge_eta_is_valid_v1(all_one));
+        assert!(challenge_eta_is_valid_v1(&all_one));
     }
     #[test]
     fn challenge_eta_rejection_retries_sequentially_in_one_xof() {
@@ -1476,26 +1491,26 @@ mod tests {
             -6, 3, -8, -7, -4, 5, 3,
         ]);
         assert_eq!(
-            challenge_eta_norm_v1(rejected).expect("bounded exact arithmetic"),
+            challenge_eta_norm_v1(&rejected).expect("bounded exact arithmetic"),
             U1024::from_be_hex(
                 "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000037f055a112ed6f89a668c29c50d5fff240da284be486dea877b97e7d5b9b0e9ab3dd7156f072c8d729ccfbaa23b4bfb37a965101a6f093b2b59"
             )
         );
-        assert!(!challenge_eta_is_valid_v1(rejected));
+        assert!(!challenge_eta_is_valid_v1(&rejected));
         let expected = [
             7, 6, 7, 2, -6, 4, 5, -1, 4, -2, 0, -8, -3, 4, 0, -1, 2, 0, 6, -2, -7, 5, -7, 1, 8, -4,
             -5, -8, 5, -3, 4, 0,
         ];
         let accepted = derive_presentation_challenge_v1(binding(), b"eta-retry-136")
             .expect("second sequential candidate accepts");
-        assert_eq!(centered_first_half(accepted), expected);
+        assert_eq!(centered_first_half(&accepted), expected);
         assert_eq!(
-            challenge_eta_norm_v1(accepted).expect("bounded exact arithmetic"),
+            challenge_eta_norm_v1(&accepted).expect("bounded exact arithmetic"),
             U1024::from_be_hex(
                 "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010144c07dc530ffb210758e2823201cae6b6441be35e8d1acbdbb7e9881806ec897f32409fba754f154ce0b8467e2652a2fb79"
             )
         );
-        assert!(challenge_eta_is_valid_v1(accepted));
+        assert!(challenge_eta_is_valid_v1(&accepted));
         assert_eq!(
             accepted,
             derive_presentation_challenge_v1(binding(), b"eta-retry-136")

@@ -502,7 +502,7 @@ fn accumulate_with_batches_v1<'a>(
                 .mul(F(2).inv().ok_or(ZkX509StarkErrorV1::ProfileMismatch)?)
                 .mul(point_inverse);
             weighted_mask.fill(E::ZERO);
-            let mut caches: [NativeFamilyCacheV1; 2] = core::array::from_fn(|_| Default::default());
+            let mut caches: [NativeFamilyCacheV1; 2] = core::array::from_fn(|_| NativeFamilyCacheV1::default());
             for (index, (link, &alpha)) in links.iter().zip(alphas).enumerate() {
                 if link.point != point {
                     continue;

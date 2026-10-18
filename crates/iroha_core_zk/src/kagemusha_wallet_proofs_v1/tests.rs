@@ -2,6 +2,7 @@
 
 use super::*;
 use iroha_crypto::Hash;
+use iroha_pasta::PastaAffine;
 use p256::ecdsa::{Signature, SigningKey, signature::Signer};
 
 fn key(seed: u8) -> SigningKey {
@@ -258,7 +259,10 @@ fn lineage_digest_matches_independent_integer_rp57_endian_and_order_vector() {
         payment_key: KagemushaDevicePublicKeyV1::from_sec1_bytes(&key).unwrap(),
         lifecycle: KagemushaWalletLifecycleV1::Active,
         policy_epoch: 0x0102_0304_0506_0708,
-        enabled_controls: 7,
+        // TODO(blacklist-local G5): recompute the known answer below with the independent
+        // integer implementation; it was pinned for the retired three-bit mask 7, which the
+        // two-control lineage no longer admits.
+        enabled_controls: KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
         burned_total: 0x1122_3344_5566_7788_99aa_bbcc_ddee_ff00,
         pending_outgoing_root: Fp::from(9).to_repr(),
         credit_digest_root: Fp::from(10).to_repr(),
@@ -416,20 +420,34 @@ fn rebind_capsule_data(capsule: &mut KagemushaWalletRecoveryBodyV1) {
 fn receipt_free_context_uses_retained_request_without_mutating_originals() {
     let (scheme, capsule, credential) = receive_capsule_data();
     let original = capsule.clone();
-    let request = retained_request(&capsule).expect("held Request");
-    let expected_mask = if request.body.receiver_blacklist_version == 0 {
-        0
-    } else {
-        KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-    };
+    retained_request(&capsule).expect("held Request");
+    // Receive has one key: its selector reads no list recorded by the Request.
     assert_eq!(
         capsule_selector(&scheme, &capsule, &credential),
-        Ok((KagemushaWalletOperationKindV1::Receive, expected_mask))
+        Ok((KagemushaWalletOperationKindV1::Receive, 0))
     );
     assert_eq!(
         capsule, original,
         "all retained canonical bytes remain exact"
     );
+}
+
+#[test]
+fn receive_package_selects_its_one_key_from_the_package_alone() {
+    // Package verification takes no Request: Receive's key is mask 0 whatever controls the
+    // receiver's predecessor carries in the statement.
+    let mut package: KagemushaWalletPackageV1 = capsule_data_fixture("KagemushaWalletPackageV1");
+    assert_eq!(
+        package.statement.effect.kind(),
+        KagemushaWalletOperationKindV1::Receive
+    );
+    for controls in 0..=KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1 {
+        package.statement.enabled_controls = controls;
+        assert_eq!(
+            package.verifying_key_selector(),
+            (KagemushaWalletOperationKindV1::Receive, 0)
+        );
+    }
 }
 
 #[test]
@@ -538,34 +556,6 @@ fn receipt_free_context_rejects_another_installed_scheme_or_current_credential()
 }
 
 #[test]
-fn receipt_free_context_cannot_change_historical_selector_without_request_signature() {
-    let (scheme, mut capsule, credential) = receive_capsule_data();
-    let mut request = retained_request(&capsule).expect("Request");
-    request.body.receiver_blacklist_version = request
-        .body
-        .receiver_blacklist_version
-        .checked_add(1)
-        .expect("historical version");
-    if request.body.receiver_blacklist_root == [0; 32] {
-        request.body.receiver_blacklist_root = Fp::from(99).to_repr();
-    }
-    request
-        .body
-        .validate()
-        .expect("structurally valid changed Request body");
-    *request_original(&mut capsule) =
-        norito::encode_canonical(&request).expect("canonical mutation");
-    capsule
-        .validate()
-        .expect("the capsule does not authenticate Request by shape");
-    assert_eq!(
-        capsule_selector(&scheme, &capsule, &credential),
-        Err(Error::Authority),
-        "a canonical but unauthenticated historical version cannot choose another key"
-    );
-}
-
-#[test]
 fn receipt_free_context_preserves_soft_incoming_original_for_receive_relation() {
     let (scheme, mut capsule, credential) = receive_capsule_data();
     let expected = capsule_selector(&scheme, &capsule, &credential).expect("Request context");
@@ -611,9 +601,21 @@ fn send_capsule_data() -> (
     .expect("exact canonical payer credential");
     payer.validate().expect("maintained payer credential");
     let payment: KagemushaWalletPaymentV1 = capsule_data_fixture("KagemushaWalletPaymentV1");
-    assert_eq!(payment.request, request.signed());
-    assert_eq!(payment.payer_payment_key, payer.body.payment_key);
-    assert_eq!(payment.payer_credential_digest, payer.credential_digest());
+    assert_eq!(payment.signed_request().unwrap(), request.signed());
+    assert_eq!(
+        payment.send.lineage.lineage().unwrap().public.payment_key,
+        payer.body.payment_key
+    );
+    assert_eq!(
+        payment
+            .send
+            .lineage
+            .lineage()
+            .unwrap()
+            .public
+            .credential_digest,
+        payer.credential_digest()
+    );
     assert_eq!(request.body.payer_wallet_id, payer.body.wallet_id);
     assert_eq!(request.body.payer_account_digest, payer.body.account_digest);
     assert_eq!(request.body.asset_digest, payer.body.asset_digest);
@@ -648,7 +650,6 @@ fn send_capsule_data() -> (
     state.rest.scheme_policy = request.body.scheme_policy;
     state.rest.fee_schedule = request.body.fee_schedule;
     state.rest.permitted_controls = payer.body.regulatory_policy.permitted_controls;
-    state.core.blacklist_max_age_ms = payer.body.regulatory_policy.blacklist_max_age_ms;
     state.core.time_anchor_max_response_ms =
         payer.body.regulatory_policy.time_anchor_max_response_ms;
     state.core.lease_expires_at_ms = payer.body.lease_expires_at_ms;
@@ -793,8 +794,9 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
     let token = iroha_pasta::CancellationToken::new();
     token.cancel();
     let budget = MemoryBudget::DEFAULT;
+    let work = KagemushaWalletVerificationCountsV1::current_thread();
     assert_eq!(
-        verifier.verify_package_proofs_cancellable(&payment.send, None, budget, Some(&token)),
+        verifier.verify_package_proofs_cancellable(&payment.send, budget, Some(&token)),
         Err(Error::Cancelled)
     );
     assert_eq!(
@@ -822,8 +824,16 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
     );
     // A fresh operation has no inherited signal and performs actual authority checks.
     assert_eq!(
-        verifier.verify_package_proofs(&payment.send, None, budget),
+        verifier.verify_package_proofs(&payment.send, budget),
         Err(Error::Authority)
+    );
+    // Only the direct lineage call started; refusals before it ran no proof work.
+    assert_eq!(
+        KagemushaWalletVerificationCountsV1::current_thread().since(work),
+        KagemushaWalletVerificationCountsV1 {
+            verify_lineage: 1,
+            proofs: iroha_plonk::VerificationCounts::default(),
+        }
     );
 }
 
@@ -846,4 +856,461 @@ fn retained_request_read_preserves_original_refusal_and_exact_retry() {
     assert!(capsule_selector(&scheme, &capsule, &payer).is_ok());
     *request_original(&mut capsule) = vec![0];
     assert_eq!(retained_request(&capsule), Err(Error::Authority));
+}
+
+#[test]
+fn generator_identity_transport_is_canonical_data_and_uses_zero_coordinates() {
+    use ff::Field;
+    use iroha_plonk::transcript::decode_generator;
+    let p =
+        AccumulatorT::<Ep>::new(decode_generator::<Ep>(&[0; 32]).unwrap(), [Fq::ONE; K]).unwrap();
+    let v =
+        AccumulatorT::<Eq>::new(decode_generator::<Eq>(&[0; 32]).unwrap(), [Fp::ONE; K]).unwrap();
+    assert_eq!(generator_coordinates::<Ep>(p.g()), (Fp::ZERO, Fp::ZERO));
+    assert_eq!(generator_coordinates::<Eq>(v.g()), (Fq::ZERO, Fq::ZERO));
+    let mut transport = vec![7; 32];
+    transport.extend(p.to_bytes());
+    transport.extend(v.to_bytes());
+    let (opening, decoded_p, decoded_v) = decode_transport(&transport, 32).unwrap();
+    assert_eq!(opening, &[7; 32]);
+    assert_eq!(decoded_p, p);
+    assert_eq!(decoded_v, v);
+    // Transport syntax and the digest confer no deciding or proof authority.
+    let public = lineage_public();
+    let key = Fp::from(11).to_repr();
+    let mut words = lineage_public_fields(&public, key)
+        .unwrap()
+        .map(|v| v.to_repr())
+        .to_vec();
+    words.extend([Fp::ZERO.to_repr(); 2]);
+    for _ in 0..K {
+        words.extend([Fp::ONE.to_repr(), Fp::ZERO.to_repr()]);
+    }
+    assert_eq!(
+        lineage_digest(&public, key, &p).unwrap(),
+        kagemusha_wallet_poseidon_v1(u64::from_le_bytes(*b"kgwomg_1"), &words).unwrap()
+    );
+    transport[32..64].fill(255);
+    assert!(decode_transport(&transport, 32).is_err());
+}
+
+#[test]
+fn model_admission_and_recursive_input_tapes_share_role_capacities() {
+    use iroha_kagemusha_proof::a_relation::receive::{
+        MAX_OMEGA_RAW_BYTES, MAX_SEND_PROOF_BYTES, MAX_SIGMA_RAW_BYTES, OMEGA_TRANSPORT_CAP,
+        PAYMENT_PROOF_BUDGET, PAYMENT_RAW_PROOF_BUDGET,
+    };
+    assert_eq!(
+        PAYMENT_PROOF_BUDGET,
+        KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1
+    );
+    assert_eq!(MAX_SEND_PROOF_BYTES, KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
+    assert_eq!(MAX_SIGMA_RAW_BYTES, KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
+    assert_eq!(OMEGA_TRANSPORT_CAP, KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1);
+    // The internal Omega tape adds the public prefix; it does not gain proof capacity.
+    assert_eq!(MAX_OMEGA_RAW_BYTES - OMEGA_TRANSPORT_CAP, 320);
+    assert_eq!(PAYMENT_RAW_PROOF_BUDGET - PAYMENT_PROOF_BUDGET, 320);
+    assert_eq!(
+        MAX_OMEGA_RAW_BYTES + MAX_SIGMA_RAW_BYTES,
+        PAYMENT_RAW_PROOF_BUDGET
+    );
+    assert!(OMEGA_TRANSPORT_CAP <= KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1);
+}
+
+/// A genuine k16 Pallas PIPA-R key in the installed Omega profile whose only relation copies
+/// its three public columns into advice (a selector-gated equality, so blinding rows stay
+/// free), and every canonical instance has a real proof. The
+/// wallet's Omega relation cannot be proved under an installed scheme here (its public outputs
+/// bind that scheme), so this relation stands in for it: the installed verifier's complete
+/// lineage boundary then runs on real proof bytes, namely the exact transport split, D_A over
+/// the public fields and acc_P, the instances that bind acc_V, full verification and both
+/// decides on the shared owners. It is never a wallet relation or a catalog member.
+#[derive(Clone)]
+struct TransportRelation {
+    instances: Option<Vec<Vec<Fq>>>,
+}
+
+impl iroha_plonk::Circuit<Fq> for TransportRelation {
+    type Config = (
+        iroha_plonk::cs::Selector,
+        iroha_plonk::cs::Column<iroha_plonk::cs::Advice>,
+        iroha_plonk::cs::Column<iroha_plonk::cs::Advice>,
+        Vec<iroha_plonk::cs::Column<iroha_plonk::cs::Instance>>,
+    );
+    type FloorPlanner = iroha_plonk::SimpleFloorPlanner;
+    type Params = ();
+
+    fn without_witnesses(&self) -> Self {
+        Self { instances: None }
+    }
+
+    fn configure(meta: &mut iroha_plonk::cs::ConstraintSystem<Fq>) -> Self::Config {
+        let enabled = meta.selector();
+        let copied = meta.advice_column();
+        let mirror = meta.advice_column();
+        meta.enable_equality(copied);
+        let columns = [1, 2, K]
+            .into_iter()
+            .map(|length| {
+                let column = meta.instance_column(length);
+                meta.enable_equality(column);
+                column
+            })
+            .collect();
+        meta.create_gate("copied public value", |cells| {
+            let enabled = cells.query_selector(enabled);
+            vec![
+                enabled
+                    * (cells.query_advice(copied, iroha_plonk::cs::Rotation::cur())
+                        - cells.query_advice(mirror, iroha_plonk::cs::Rotation::cur())),
+            ]
+        });
+        (enabled, copied, mirror, columns)
+    }
+
+    fn synthesize(
+        &self,
+        (enabled, copied, mirror, columns): Self::Config,
+        mut layouter: impl iroha_plonk::Layouter<Fq>,
+    ) -> Result<(), iroha_plonk::Error> {
+        let lengths = [1, 2, K];
+        let cells = layouter.assign_region(
+            || "public copies",
+            |mut region| {
+                let mut cells = Vec::new();
+                for (column, length) in lengths.iter().enumerate() {
+                    for index in 0..*length {
+                        let value = self
+                            .instances
+                            .as_ref()
+                            .map_or_else(iroha_plonk::Value::unknown, |all| {
+                                iroha_plonk::Value::known(all[column][index])
+                            });
+                        let row = cells.len();
+                        region.enable_selector(|| "copied public value", &enabled, row)?;
+                        region.assign_advice(mirror, row, value)?;
+                        cells.push(region.assign_advice(copied, row, value)?.cell());
+                    }
+                }
+                Ok(cells)
+            },
+        )?;
+        let mut cells = cells.into_iter();
+        for (column, length) in columns.iter().zip(lengths) {
+            for row in 0..length {
+                let cell = cells.next().ok_or(iroha_plonk::Error::Synthesis)?;
+                layouter.constrain_instance(cell, *column, row)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// An honest accumulator `(<s(u), g>, u)` of 16 explicit challenges on `params`.
+fn honest_claim<C: PastaCurve>(params: &PinnedParams<C>, first: u64) -> AccumulatorT<C> {
+    let challenges = core::array::from_fn(|index| C::ScalarExt::from(first + index as u64));
+    let g = params
+        .folded_generator_cancellable(&challenges, MemoryBudget::DEFAULT, None)
+        .unwrap();
+    AccumulatorT::new(g, challenges).unwrap()
+}
+
+/// Verify-once evidence at the installed verifier boundary (M1). Warm the installed verifier's
+/// shared Pallas and Vesta owners with a real transport, then present every mutation of that
+/// transport and of each public field: each verdict equals the verdict of freshly derived
+/// owners, no mutation is answered from the memo, nothing negative is retained, and the exact
+/// transport is still accepted (from the memo) after every refusal and after cancellation.
+#[test]
+#[ignore = "genuine k16 Pallas transport proof and repeated installed-verifier derivation; run optimized"]
+fn installed_lineage_memo_matches_fresh_owners_for_every_transport_mutation() {
+    use crate::kagemusha_wallet_artifacts_v1::{
+        ArtifactOriginalV1, InstalledVerifierPackV1, engineering_fixture,
+    };
+    use iroha_plonk::{
+        ProverConfig, ProverRandomness,
+        keys::{CosetCachePolicy, KeygenConfigV2, keygen_pk_v2},
+        prover::{Witness, create_proof_owned},
+        transcript::encode_point,
+    };
+
+    let budget = MemoryBudget::DEFAULT;
+    let pallas = PinnedParams::<Ep>::derive(16).unwrap();
+    let vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    let mut config = KeygenConfigV2::pipa_r(vec![
+        InstanceType::Bounded,
+        InstanceType::Field,
+        InstanceType::Bounded,
+    ]);
+    config.coset_cache = CosetCachePolicy::OnDemand;
+    let proving_key =
+        keygen_pk_v2(&pallas, &TransportRelation { instances: None }, &config).unwrap();
+    let (pack, installation) =
+        engineering_fixture::signed_inventory_with_lineage(ArtifactOriginalV1 {
+            descriptor: proving_key.binding().encoded().to_vec(),
+            verifying_key: proving_key.vk().to_bytes().to_vec(),
+        });
+    let original = pack.to_canonical_bytes().unwrap();
+    let fresh = || InstalledVerifierPackV1::load(&original, installation).unwrap();
+    let warm = fresh();
+    let verifier = warm.verifier();
+    let proof_bytes = verifier.lineage.proof_bytes;
+
+    // The exact transport: public outputs under the installed scheme, honest acc_P and acc_V,
+    // and a real proof of the instances verify_lineage derives from them.
+    let mut outputs = lineage_public();
+    outputs.scheme_id = verifier.scheme.scheme_id();
+    outputs.relation_id = verifier.scheme.relation_id;
+    let acc_p = honest_claim(&pallas, 21);
+    let acc_v = honest_claim(&vesta, 41);
+    let digest = lineage_digest(
+        &outputs,
+        verifier.allowlist.lineage_verifying_key_digest,
+        &acc_p,
+    )
+    .unwrap();
+    let (x, y) = generator_coordinates::<Eq>(acc_v.g());
+    let instances = vec![
+        vec![Fq::from_repr(digest).unwrap()],
+        vec![x, y],
+        acc_v
+            .challenges()
+            .iter()
+            .map(|challenge| Fq::from_repr(challenge.to_repr()).unwrap())
+            .collect(),
+    ];
+    let relation = TransportRelation {
+        instances: Some(instances.clone()),
+    };
+    let proof = create_proof_owned(
+        &pallas,
+        &proving_key,
+        Witness::from_circuit(&proving_key, &relation, &instances).unwrap(),
+        ProverRandomness::hedged(),
+        ProverConfig::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        verify_full_cancellable(
+            &pallas,
+            proving_key.binding(),
+            proving_key.vk(),
+            &instances,
+            &proof,
+            budget,
+            None,
+        ),
+        Ok(()),
+        "the stand-in proof verifies under its own key"
+    );
+    drop(proving_key);
+    assert_eq!(proof.len(), proof_bytes);
+    let mut transport = proof;
+    transport.extend_from_slice(&acc_p.to_bytes());
+    transport.extend_from_slice(&acc_v.to_bytes());
+    let exact = KagemushaWalletLineageV1 {
+        public: outputs,
+        proof: transport.clone(),
+    };
+
+    let counted = |verifier: &ArtifactSet,
+                   lineage: &KagemushaWalletLineageV1,
+                   token: Option<&iroha_pasta::CancellationToken>| {
+        let start = KagemushaWalletVerificationCountsV1::current_thread();
+        let verdict = verifier.verify_lineage_cancellable(lineage, budget, token);
+        (
+            verdict,
+            KagemushaWalletVerificationCountsV1::current_thread().since(start),
+        )
+    };
+    // Cold: the exact transport computes Omega's generator and both decides.
+    let (verdict, cold) = counted(verifier, &exact, None);
+    assert_eq!(verdict, Ok(()));
+    assert_eq!(
+        (
+            cold.verify_lineage,
+            cold.proofs.verify_full,
+            cold.proofs.reused_verifications,
+            cold.proofs.decides,
+            cold.proofs.generator_msms,
+        ),
+        (1, 1, 0, 2, 3)
+    );
+    // Warm: the same bytes are answered from the shared owners' memos.
+    let warm_reuse = |verifier: &ArtifactSet, label: &str| {
+        let (verdict, reuse) = counted(verifier, &exact, None);
+        assert_eq!(verdict, Ok(()), "exact transport after {label}");
+        assert_eq!(
+            (
+                reuse.proofs.verify_full,
+                reuse.proofs.reused_verifications,
+                reuse.proofs.decides,
+                reuse.proofs.reused_generators,
+                reuse.proofs.generator_msms,
+            ),
+            (1, 1, 2, 2, 0),
+            "exact transport after {label}"
+        );
+    };
+    warm_reuse(verifier, "warming");
+    // A cancelled call on the warm owners has no verdict.
+    let token = iroha_pasta::CancellationToken::new();
+    token.cancel();
+    assert_eq!(
+        counted(verifier, &exact, Some(&token)).0,
+        Err(Error::Cancelled)
+    );
+    warm_reuse(verifier, "cancellation");
+
+    // Every mutation: canonical foreign P and V, decidable but unbound P and V, a changed P
+    // challenge, proof bit flips at the start, middle and end, length +-1, each public field.
+    let p_at = proof_bytes;
+    let v_at = proof_bytes + ACCUMULATOR_BYTES;
+    let mut mutations: Vec<(String, KagemushaWalletLineageV1)> = Vec::new();
+    let mut transport_case = |label: &str, changed: Vec<u8>| {
+        mutations.push((
+            label.to_owned(),
+            KagemushaWalletLineageV1 {
+                public: outputs,
+                proof: changed,
+            },
+        ));
+    };
+    for (label, at, point) in [
+        (
+            "foreign canonical P",
+            p_at,
+            encode_point::<Ep>(&(-*acc_p.g())),
+        ),
+        (
+            "foreign canonical V",
+            v_at,
+            encode_point::<Eq>(&(-*acc_v.g())),
+        ),
+    ] {
+        let mut changed = transport.clone();
+        assert_ne!(&changed[at..at + 32], point.as_slice());
+        changed[at..at + 32].copy_from_slice(&point);
+        transport_case(label, changed);
+    }
+    let other_p = honest_claim(&pallas, 61);
+    let other_v = honest_claim(&vesta, 81);
+    assert_eq!(other_p.decide(&pallas, budget), Ok(()));
+    assert_eq!(other_v.decide(&vesta, budget), Ok(()));
+    for (label, at, bytes) in [
+        ("decidable unbound P", p_at, other_p.to_bytes()),
+        ("decidable unbound V", v_at, other_v.to_bytes()),
+    ] {
+        let mut changed = transport.clone();
+        changed[at..at + ACCUMULATOR_BYTES].copy_from_slice(&bytes);
+        transport_case(label, changed);
+    }
+    let mut changed = transport.clone();
+    changed[p_at + 32..p_at + 64].copy_from_slice(&Fq::from(2).to_repr());
+    transport_case("changed P challenge", changed);
+    for (label, index) in [
+        ("proof bit at start", 0),
+        ("proof bit in middle", proof_bytes / 2),
+        ("proof bit at end", proof_bytes - 1),
+    ] {
+        let mut changed = transport.clone();
+        changed[index] ^= 1;
+        transport_case(label, changed);
+    }
+    let mut longer = transport.clone();
+    longer.push(0);
+    transport_case("length + 1", longer);
+    transport_case("length - 1", transport[..transport.len() - 1].to_vec());
+    for field in 0..13 {
+        let mut changed = outputs;
+        let label = match field {
+            0 => {
+                changed.version = 2;
+                "public version"
+            }
+            1 => {
+                changed.scheme_id[0] ^= 1;
+                "public scheme"
+            }
+            2 => {
+                changed.relation_id[0] ^= 1;
+                "public relation"
+            }
+            3 => {
+                changed.head.value = Fp::from(12).to_repr();
+                "public head"
+            }
+            4 => {
+                changed.wallet_id[0] ^= 1;
+                "public wallet"
+            }
+            5 => {
+                changed.credential_digest = Fp::from(13).to_repr();
+                "public credential"
+            }
+            6 => {
+                changed.payment_key = public(&key(14));
+                "public payment key"
+            }
+            7 => {
+                changed.lifecycle = KagemushaWalletLifecycleV1::Retiring;
+                "public lifecycle"
+            }
+            8 => {
+                changed.policy_epoch += 1;
+                "public policy epoch"
+            }
+            9 => {
+                changed.enabled_controls = 1;
+                "public controls"
+            }
+            10 => {
+                changed.burned_total += 1;
+                "public burned total"
+            }
+            11 => {
+                changed.pending_outgoing_root = Fp::from(15).to_repr();
+                "public pending root"
+            }
+            _ => {
+                changed.credit_digest_root = Fp::from(16).to_repr();
+                "public credit root"
+            }
+        };
+        mutations.push((
+            label.to_owned(),
+            KagemushaWalletLineageV1 {
+                public: changed,
+                proof: transport.clone(),
+            },
+        ));
+    }
+    assert_eq!(mutations.len(), 23);
+
+    let mut verdicts = Vec::with_capacity(mutations.len());
+    for (label, lineage) in &mutations {
+        let (on_warm, work) = counted(verifier, lineage, None);
+        let independent = fresh();
+        let on_fresh = independent
+            .verifier()
+            .verify_lineage_cancellable(lineage, budget, None);
+        assert!(on_warm.is_err(), "{label} must be refused");
+        assert_eq!(on_warm, on_fresh, "{label}: warm and fresh owners disagree");
+        assert_eq!(
+            work.proofs.reused_verifications, 0,
+            "{label} was answered from the memo"
+        );
+        warm_reuse(verifier, label);
+        verdicts.push(format!("{label}={on_warm:?}"));
+    }
+    // A fresh owner accepts the exact transport from nothing; the warm owner still reuses it.
+    let (verdict, again) = counted(fresh().verifier(), &exact, None);
+    assert_eq!(verdict, Ok(()));
+    assert_eq!(again.proofs.reused_verifications, 0);
+    warm_reuse(verifier, "every mutation");
+    eprintln!(
+        "INSTALLED_LINEAGE_MEMO_PARITY mutations={} warm_equals_fresh=true exact_reused_after_each=true \
+         omega_relation=transport_stand_in verdicts=[{}]",
+        mutations.len(),
+        verdicts.join(", ")
+    );
 }

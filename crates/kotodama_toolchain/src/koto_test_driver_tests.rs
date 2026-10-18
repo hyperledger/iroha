@@ -2453,13 +2453,16 @@ fn transfer_control_effects_require_exact_subject_asset_domain_and_dataspace_sco
         )
     };
     assert!(
-        match (
-            &(call_availability(&mut host)),
-            &(ivm::VMError::PermissionDenied)
-        ) {
-            (Err(ivm::VMError::PermissionDenied), ivm::VMError::PermissionDenied) => true,
-            _ => false,
-        },
+        matches!(
+            (
+                &(call_availability(&mut host)),
+                &(ivm::VMError::PermissionDenied)
+            ),
+            (
+                Err(ivm::VMError::PermissionDenied),
+                ivm::VMError::PermissionDenied
+            )
+        ),
         "an app grant and a wrong-account subject grant must not authorize the effect"
     );
     assert_eq!(
@@ -3196,13 +3199,16 @@ fn invocation_alias_decoding_preserves_read_deferral_before_test_failure() {
         // Restore credit and retain the deterministic unknown-actor failure.
         if target_actor {
             budget.set_limit_bytes(occupied + 8 * std::mem::size_of::<ivm::AccessRange>());
-            assert!(match (
-                &(host.invoke_entrypoint(&mut vm, false)),
-                &(ivm::VMError::AssertionFailed)
-            ) {
-                (Err(ivm::VMError::AssertionFailed), ivm::VMError::AssertionFailed) => true,
-                _ => false,
-            });
+            assert!(matches!(
+                (
+                    &(host.invoke_entrypoint(&mut vm, false)),
+                    &(ivm::VMError::AssertionFailed)
+                ),
+                (
+                    Err(ivm::VMError::AssertionFailed),
+                    ivm::VMError::AssertionFailed
+                )
+            ));
             assert!(host.last_test_error().unwrap().contains("unknown actor"));
         }
         drop(vm);

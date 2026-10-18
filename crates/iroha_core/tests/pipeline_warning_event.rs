@@ -1,9 +1,10 @@
 //! Canonical execution is independent of local advisory DAG sidecars.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Advisory metadata cannot add consensus-visible warning events.
 use iroha_core::kura::{PipelineDagSnapshot, PipelineRecoverySidecar, PipelineTxSnapshot};
 use iroha_data_model::{events::EventBox, prelude::*};
 use iroha_model_base::domain::DomainId;
+use iroha_sumeragi::types::ControlWitness;
 use std::sync::Arc;
 // unused
 #[test]
@@ -83,7 +84,7 @@ fn canonical_execution_ignores_mismatching_local_dag_sidecar() {
     let cb = chain.commit_proposal(
         new_block,
         iroha_core::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        ControlWitness::default(),
     );
     assert!(
         cb.block()
@@ -188,7 +189,7 @@ fn pipeline_warning_ignored_for_stale_sidecar() {
     let cb = chain.commit_proposal(
         new_block,
         iroha_core::sumeragi::test_chain::Signers::Quorum,
-        Default::default(),
+        ControlWitness::default(),
     );
     assert!(
         cb.block()

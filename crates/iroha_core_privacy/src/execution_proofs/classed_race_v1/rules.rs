@@ -65,7 +65,7 @@ pub const fn class_performance_v1(class: ClassedRaceClassV1) -> ClassPerformance
     }
 }
 
-/// Track lengths copied into this new version rather than changing the retained RaceV1 catalog.
+/// Track lengths copied into this new version rather than changing the retained `RaceV1` catalog.
 #[must_use]
 pub const fn classed_track_length_v1(track: ClassedRaceTrackV1) -> i64 {
     match track {

@@ -11,7 +11,7 @@ fn select_receiver_head(wallet: &mut Wallet, frozen: &FrozenTransition) {
     frozen.validate().unwrap();
     let c = &frozen.capsule;
     let capsule = c.custody_digest();
-    let owner = TransitionOwner::new(frozen.credential.clone());
+    let owner = TransitionOwner::new(&frozen.credential);
     let signature: Signature =
         signer(&frozen.credential).sign(&kagemusha_wallet_signing_message_v1(
             KagemushaWalletSigningDomainV1::Receipt,
@@ -115,7 +115,7 @@ fn receive_projection_wallet(burn: bool) -> (Wallet, FrozenTransition, [u8; 32])
     let receiver = request.receiver_credential.clone();
     assert_ne!(
         receiver.body.wallet_id,
-        payment.request.body.payer_wallet_id
+        payment.signed_request().unwrap().body.payer_wallet_id
     );
     let mut wallet = wallet();
     wallet.wallet_id = receiver.body.wallet_id;
@@ -193,6 +193,10 @@ fn receiver_projection_updates_at_covering_fold_before_collection_and_new_unfold
         assert_eq!(wallet.custody.signatures, signatures);
         assert_eq!(&first[..8], &[1, 0, 1, 0, 0, 0, 0, 0]);
         assert!(!first[92..].is_empty());
+        assert_eq!(
+            &first[88..92],
+            &u32::try_from(first.len() - 92).unwrap().to_le_bytes()
+        );
         snapshot_test_fold(&mut wallet);
         let folded = wallet.receive_credit_projection(&id).unwrap().bytes();
         assert_eq!(folded[2], if burn { 3 } else { 2 });
@@ -291,7 +295,7 @@ fn payer_projection_wallet(
         .0;
     let anchor = archive::encode(&credited).unwrap();
     let descriptor = KagemushaWalletPendingOutgoingLeafV1 {
-        credit_id: payment.request.body.credit_id(),
+        credit_id: payment.signed_request().unwrap().body.credit_id(),
         receiver_wallet_id: request.body.receiver_wallet_id,
         send_ordinal: request.body.send_ordinal,
         amount: request.body.amount,
@@ -373,7 +377,7 @@ fn payer_projection_wallet(
     current.validate().unwrap();
     let c = &current.capsule;
     let capsule = c.custody_digest();
-    let owner = TransitionOwner::new(current.credential.clone());
+    let owner = TransitionOwner::new(&current.credential);
     let signature: Signature =
         signer(&current.credential).sign(&kagemusha_wallet_signing_message_v1(
             KagemushaWalletSigningDomainV1::Receipt,
@@ -560,6 +564,7 @@ fn payer_projection_observes_later_credit_status_after_send_collection_without_a
             .bytes();
         assert_eq!(result[2..5], [if burn { 3 } else { 2 }, 2, 0]);
         assert_eq!(result.len(), 92);
+        assert_eq!(&result[88..92], &[0; 4]);
         let root = payer.manifest().unwrap().0;
         let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
         let refused = norito::with_decode_limits_scope(limits, || {

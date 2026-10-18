@@ -79,6 +79,9 @@ impl<
                 field: "ledger_control.source",
             });
         }
+        // Archive records staged by the open call (the signed plan's) are durable before the
+        // payment key signs.
+        self.drain_archive(slot)?;
         self.require_storage()?;
         let result = kagemusha_wallet_sign_domain_v1(
             &self.platform,
@@ -121,6 +124,9 @@ impl<
                 field: "setup.source",
             });
         }
+        // Archive records staged by the open call (the signed plan's) are durable before the
+        // payment key signs.
+        self.drain_archive(slot)?;
         self.require_storage()?;
         let result = kagemusha_wallet_sign_domain_v1(&self.platform, slot, key, domain, body)
             .map_err(Into::into);

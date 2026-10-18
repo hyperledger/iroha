@@ -1,0 +1,276 @@
+"""Independent arithmetic, NIST vectors and emitted clean-map controls."""
+from collections import Counter
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import random
+import sys
+
+import pytest
+
+STAGE = Path(__file__).resolve().parent
+IR = STAGE.parent / "parliament-ideal-machine-stage/bit_ir.py"
+assert hashlib.sha256(IR.read_bytes()).hexdigest() == "f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64"
+sys.path.insert(0, str(IR.parent))
+sys.path.insert(0, str(STAGE))
+from bit_ir import Builder, apply_gates, bits, unpack
+from aes256 import (AES256Kernel, aes256_block, byte, expand_key, mix_columns,
+                    multiply, shift_rows, square, substitute, xor_bytes, xor_constant, xtime)
+
+REPORT_SPEC = importlib.util.spec_from_file_location('parliament_aes_report', STAGE / 'report.py')
+REPORT = importlib.util.module_from_spec(REPORT_SPEC)
+REPORT_SPEC.loader.exec_module(REPORT)
+
+
+# FIPS 197 Table 4, literal truth table used only in the independent tests.
+SBOX = bytes.fromhex(
+    "637c777bf26b6fc53001672bfed7ab76"
+    "ca82c97dfa5947f0add4a2af9ca472c0"
+    "b7fd9326363ff7cc34a5e5f171d83115"
+    "04c723c31896059a071280e2eb27b275"
+    "09832c1a1b6e5aa0523bd6b329e32f84"
+    "53d100ed20fcb15b6acbbe394a4c58cf"
+    "d0efaafb434d338545f9027f503c9fa8"
+    "51a3408f929d38f5bcb6da2110fff3d2"
+    "cd0c13ec5f974417c4a77e3d645d1973"
+    "60814fdc222a908846eeb814de5e0bdb"
+    "e0323a0a4906245cc2d3ac629195e479"
+    "e7c8376d8dd54ea96c56f4ea657aae08"
+    "ba78252e1ca6b4c6e8dd741f4bbd8b8a"
+    "703eb5664803f60e613557b986c11d9e"
+    "e1f8981169d98e949b1e87e9ce5528df"
+    "8ca1890dbfe6426841992d0fb054bb16")
+
+
+def gf_reference(a, b):
+    """Independent Russian-peasant byte multiplication, with integer state."""
+    result = 0
+    for _ in range(8):
+        if b & 1:
+            result ^= a
+        a = ((a << 1) ^ (0x11b if a & 128 else 0)) & 255
+        b >>= 1
+    return result
+
+
+def encode(value):
+    """Bytes to low-bit-first input wires, independently of cipher construction."""
+    return tuple((b >> i) & 1 for b in value for i in range(8))
+
+
+def decode(value):
+    """Output wires back to byte order."""
+    assert len(value) % 8 == 0
+    return bytes(sum(value[start+i] << i for i in range(8)) for start in range(0, len(value), 8))
+
+
+def test_byte_helpers_reject_missing_and_out_of_range_wires():
+    b = Builder(16)
+    for value in ((), list(range(8)), (True,)*8, (-1,)*8, (16,)*8):
+        with pytest.raises(ValueError):
+            byte(b, value)
+    with pytest.raises(ValueError):
+        xor_bytes(b, tuple(range(8)))
+    for value in (-1, 256, True):
+        with pytest.raises(ValueError):
+            xor_constant(b, tuple(range(8)), value)
+
+
+def test_xor_and_constants_all_byte_values():
+    b = Builder(16)
+    a, c = tuple(range(8)), tuple(range(8,16))
+    block = b.finish(xor_bytes(b, a, c) + xor_constant(b, a, 0xa5))
+    for x in range(256):
+        y = (197*x + 53) % 256
+        assert decode(block.evaluate(encode(bytes((x,y))))) == bytes((x ^ y, x ^ 0xa5))
+
+
+def test_polynomial_linear_maps_exhaustive():
+    b = Builder(8)
+    a = tuple(range(8))
+    block = b.finish(xtime(b, a) + square(b, a))
+    for value in range(256):
+        assert decode(block.evaluate(encode(bytes((value,))))) == bytes((gf_reference(value,2), gf_reference(value,value)))
+
+
+def test_polynomial_product_basis_and_random_pairs():
+    b = Builder(16)
+    block = b.finish(multiply(b, tuple(range(8)), tuple(range(8,16))))
+    pairs = [(x, 1 << bit) for x in range(256) for bit in range(8)]
+    rng = random.Random(197)
+    pairs += [(rng.randrange(256), rng.randrange(256)) for _ in range(512)]
+    pairs += [(x,x) for x in range(256)]
+    for x,y in pairs:
+        assert unpack(block.evaluate(encode(bytes((x,y))))) == gf_reference(x,y)
+
+
+def test_sbox_all_256_values_against_literal_fips_table():
+    b = Builder(8)
+    block = b.finish(substitute(b, tuple(range(8))))
+    assert len(SBOX) == 256
+    for value, expected in enumerate(SBOX):
+        assert unpack(block.evaluate(bits(value,8))) == expected
+
+
+def test_sbox_emitted_clean_map_and_arbitrary_output():
+    b = Builder(8)
+    block = b.finish(substitute(b, tuple(range(8))))
+    gates = tuple(block.emit_clean())
+    for value in range(256):
+        initial = list(bits(value,8) + (0,)*block.derived + bits(value ^ 0xa5,8))
+        state = list(initial)
+        apply_gates(state, gates)
+        assert state[:8] == initial[:8]
+        assert not any(state[8:-8])
+        assert unpack(state[-8:]) == (value ^ 0xa5 ^ SBOX[value])
+    counts = Counter(g[0] for g in gates)
+    reported = block.clean_resources()["gates"]
+    assert (counts['x'], counts['cx'], counts['ccx']) == tuple(reported[n] for n in ('x','cx','ccx'))
+
+
+def test_shift_rows_literal_column_major_permutation_and_shape():
+    assert shift_rows(tuple(range(16))) == (0,5,10,15,4,9,14,3,8,13,2,7,12,1,6,11)
+    with pytest.raises(ValueError):
+        shift_rows(tuple(range(15)))
+
+
+def test_mix_columns_independent_matrix_and_nist_round():
+    b = Builder(128)
+    block = b.finish(tuple(w for x in mix_columns(b, tuple(tuple(range(8*i,8*i+8)) for i in range(16))) for w in x))
+    matrix = ((2,3,1,1),(1,2,3,1),(1,1,2,3),(3,1,1,2))
+    inputs = [bytes(16), bytes(range(16)), bytes.fromhex('2b7e7062e22fd0892528fc3442b028f8')]
+    inputs += [bytes(1 << (i % 8) if j == i//8 else 0 for j in range(16)) for i in range(128)]
+    for data in inputs:
+        expected = bytes(gf_reference(data[col*4],row[0]) ^ gf_reference(data[col*4+1],row[1])
+                         ^ gf_reference(data[col*4+2],row[2]) ^ gf_reference(data[col*4+3],row[3])
+                         for col in range(4) for row in matrix)
+        assert decode(block.evaluate(encode(data))) == expected
+    assert decode(block.evaluate(encode(inputs[2]))).hex() == 'c62513b7f75ef6cbfa5eb2d39fb9b1b5'
+    with pytest.raises(ValueError):
+        mix_columns(b, ())
+
+
+def test_key_schedule_against_independent_byte_algorithm():
+    b = Builder(256)
+    key = tuple(tuple(range(8*i,8*i+8)) for i in range(32))
+    block = b.finish(tuple(w for byte in expand_key(b,key) for w in byte))
+    raw = bytes(range(32))
+    words = [bytearray(raw[i:i+4]) for i in range(0,32,4)]
+    for i in range(8,60):
+        temp = words[i-1][:]
+        if i % 8 == 0:
+            temp = bytearray(SBOX[x] for x in temp[1:]+temp[:1])
+            temp[0] ^= 1 << (i//8-1)
+        elif i % 8 == 4:
+            temp = bytearray(SBOX[x] for x in temp)
+        words.append(bytearray(a ^ c for a,c in zip(words[i-8],temp)))
+    assert decode(block.evaluate(encode(raw))) == b''.join(words)
+    with pytest.raises(ValueError):
+        expand_key(b, key[:16])
+
+
+@pytest.mark.parametrize('key,plain,cipher', [
+    ('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+     '00112233445566778899aabbccddeeff','8ea2b7ca516745bfeafc49904b496089'),
+    ('603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4',
+     '6bc1bee22e409f96e93d7e117393172a','f3eed1bdb5d2a03c064b5a7e3db181f8'),
+    ('603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4',
+     'ae2d8a571e03ac9c9eb76fac45af8e51','591ccb10d410ed26dc5ba74a31362870'),
+    ('603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4',
+     '30c81c46a35ce411e5fbc1191a0a52ef','b6ed21b99ca6f4f9f153e7b1beafed1d'),
+    ('603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4',
+     'f69f2445df4f9b17ad2b417be66c3710','23304b7a39f9f3ff067d8d8f9e24ecc7')])
+def test_aes256_nist_known_answers(key,plain,cipher):
+    assert decode(AES256Kernel().evaluate(encode(bytes.fromhex(key+plain)))).hex() == cipher
+
+
+def test_complete_relocated_clean_map_gate_count_and_inverse():
+    kernel = AES256Kernel()
+    # Disjoint reversed labels check relocation rather than relying on layout equality.
+    width = kernel.inputs + kernel.outputs + kernel.work
+    inputs = tuple(range(width-1,width-1-kernel.inputs,-1))
+    outputs = tuple(range(kernel.outputs))
+    work = tuple(range(kernel.outputs,width-kernel.inputs))
+    source = bytes(range(32)) + bytes.fromhex('00112233445566778899aabbccddeeff')
+    destination = bytes.fromhex('a52e8436095bf648135925adbace6307')
+    state = [0]*width
+    for register,value in ((inputs,encode(source)),(outputs,encode(destination))):
+        for wire,bit in zip(register,value): state[wire] = bit
+    before = list(state)
+    counts = Counter()
+    def counted():
+        for gate in kernel.emit(inputs,outputs,work):
+            counts[gate[0]] += 1
+            yield gate
+    apply_gates(state,counted())
+    assert tuple(state[w] for w in inputs) == encode(source)
+    assert not any(state[w] for w in work)
+    result = bytes(a ^ b for a,b in zip(destination,bytes.fromhex('8ea2b7ca516745bfeafc49904b496089')))
+    assert tuple(state[w] for w in outputs) == encode(result)
+    cost = kernel.cost.as_dict()
+    assert (counts['x'],counts['cx'],counts['ccx']) == tuple(cost[n] for n in ('x','cx','ccx'))
+    assert cost['base_xor_oracle_calls'] == 0
+    apply_gates(state,kernel.emit(inputs,outputs,work))
+    assert state == before
+
+
+@pytest.mark.parametrize('mutation', ('width','alias','bool','negative','list'))
+def test_kernel_rejects_bad_registers(mutation):
+    k = AES256Kernel()
+    ins = tuple(range(k.inputs))
+    outs = tuple(range(k.inputs,k.inputs+k.outputs))
+    work = tuple(range(k.inputs+k.outputs,k.inputs+k.outputs+k.work))
+    if mutation == 'width': work = work[:-1]
+    elif mutation == 'alias': outs = ins[:k.outputs]
+    elif mutation == 'bool': ins = (True,)+ins[1:]
+    elif mutation == 'negative': work = (-1,)+work[1:]
+    else: ins = list(ins)
+    with pytest.raises(ValueError):
+        next(k.emit(ins,outs,work))
+
+
+def test_report_ordinary_and_refusal_match_and_never_qualify(tmp_path):
+    normal, refused = tmp_path / 'normal.json', tmp_path / 'refused.json'
+    assert REPORT.main(['--out', str(normal)]) == 0
+    assert REPORT.main(['--out', str(refused), '--require-qualified']) == 2
+    assert normal.read_bytes() == refused.read_bytes()
+    value = json.loads(normal.read_text())
+    assert value['source_before'] == value['source_after']
+    assert value['checked_component_construction'] is True
+    assert value['gates']['elementary_gates'] == 1230412
+    assert all(value[flag] is False for flag in REPORT.FLAGS)
+    with pytest.raises(FileExistsError):
+        REPORT.main(['--out', str(normal)])
+
+
+def test_report_refuses_source_drift_and_module_substitution(monkeypatch, tmp_path):
+    pins = dict(REPORT.PINS)
+    pins[IR] = '0'*64
+    with monkeypatch.context() as changed:
+        changed.setattr(REPORT,'PINS',pins)
+        assert REPORT.main(['--out',str(tmp_path/'drift.json')]) == 1
+        result = json.loads((tmp_path/'drift.json').read_text())
+        assert result['checked_component_construction'] is False
+        assert all(result[flag] is False for flag in REPORT.FLAGS)
+    with monkeypatch.context() as changed:
+        changed.setattr(REPORT.aes256,'__file__',str(tmp_path/'foreign.py'))
+        with pytest.raises(ValueError, match='loaded AES path'):
+            REPORT.observed()
+    assert REPORT.digest(STAGE/'aes256.py') == hashlib.sha256((STAGE/'aes256.py').read_bytes()).hexdigest()
+
+
+def test_report_detects_mid_computation_identity_drift(monkeypatch):
+    original = REPORT.observed
+    calls = 0
+    def changed_observation():
+        nonlocal calls
+        calls += 1
+        current = original()
+        if calls == 2:
+            current['changed'] = '0'*64
+        return current
+    monkeypatch.setattr(REPORT,'observed',changed_observation)
+    with pytest.raises(ValueError, match='source changed during report'):
+        REPORT.report()
+

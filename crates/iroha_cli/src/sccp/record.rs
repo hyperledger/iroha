@@ -70,9 +70,10 @@ fn require_native_committee(
     state: &CommitteeStateV1,
     native: &SccpCommitteeGenerationV1,
 ) -> Result<()> {
+    let same_committee = state.root == native.committee_root;
     ensure!(
         state.generation == native.generation
-            && state.root == native.committee_root
+            && same_committee
             && state.start == native.start_height
             && state.until_ms <= native.deadline_ms,
         "destination committee differs from its original native generation"
@@ -211,7 +212,7 @@ pub(super) fn preflight(
     Ok(evidence)
 }
 
-pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()> {
+pub(super) fn send<C: RunContext>(context: &mut C, args: &SendArgs) -> Result<()> {
     let network = parse_network(&args.network)?;
     let recipient = parse_recipient(network, &args.recipient)?;
     let amount: Numeric = args
@@ -226,12 +227,14 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
         recipient: hex::encode(&recipient),
         revision: args.revision,
     })?);
+    let client = blocking(context)?;
+    let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let flow = flows::open(context, SccpFlowKindV1::Outbound, &args.flow, intent)?;
-    if flows::recover_taira(context, &flow, Action::Record)? {
+    if flows::recover_taira(context, &original, &flow, Action::Record)? {
         let step = flow
             .latest(Action::Record)?
             .ok_or_else(|| eyre!("original record custody disappeared"))?;
-        if !flows::confirmed(&step.outcome()?) {
+        if !flows::confirmed(step.outcome()?.as_ref()) {
             return Ok(());
         }
         let retained = step
@@ -258,8 +261,6 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
         )?;
         return context.print_data(&view);
     }
-    let client = blocking(context)?;
-    let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let capabilities = client.sccp().capabilities()?;
     let parameters = original.parameters(&capabilities)?;
     let current = original.current_generation(&capabilities)?;
@@ -366,6 +367,7 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
     )?);
     let outcome = flows::taira(
         context,
+        &original,
         &flow,
         Action::Record,
         vec![InstructionBox::from(RecordSccpMessage {
@@ -376,7 +378,7 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
         })],
         evidence,
     )?;
-    if !flows::confirmed(&outcome) {
+    if !flows::confirmed(outcome.as_ref()) {
         return Ok(());
     }
     let sent = SentTransfer {
@@ -568,7 +570,7 @@ mod tests {
                 revision: 1,
                 next_outbound_nonce: 100,
                 records: vec![SccpOutboundMessageViewV1 {
-                    message_id: [nonce as u8; 32],
+                    message_id: [u8::try_from(nonce).expect("fixture nonces fit u8"); 32],
                     record: SccpOutboundMessageRecordV1 {
                         network,
                         revision: 1,

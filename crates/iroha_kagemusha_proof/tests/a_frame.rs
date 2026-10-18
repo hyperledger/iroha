@@ -131,7 +131,7 @@ impl Circuit<Fp> for Frame {
                     &mut region,
                     &fields.try_into().map_err(|_| Error::Synthesis)?,
                 )?;
-                let p = chip.witness_point(
+                let p = chip.witness_generator(
                     &mut region,
                     self.value(Ep::from(
                         decode_point::<Ep>(&PALLAS_TRIVIAL_GENERATOR).unwrap(),
@@ -215,7 +215,7 @@ fn frame(variant: Variant) -> Frame {
     }
 }
 #[test]
-fn all_fourteen_variants_share_one_frame_and_descriptor() {
+fn all_thirteen_variants_share_one_frame_and_descriptor() {
     let mut descriptor = None;
     for variant in Variant::ALL {
         let circuit = frame(variant);

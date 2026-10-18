@@ -53,6 +53,21 @@ impl ReadRecord {
             custody: None,
         })
     }
+    /// The enclosing ancestry/frame job retains this original directory through
+    /// decoding and authentication; the raw reader independently retains its leaf.
+    pub(in crate::sumeragi) fn open_owned(
+        directory: &iroha_fs::OwnerDirectory,
+        name: &str,
+        budget: AllocationBudget,
+    ) -> io::Result<Self> {
+        let state = ArtifactRead::open_in(directory, name, MAX_FRAME_FILE_BYTES)?
+            .map_or(RecordState::Absent, RecordState::Reading);
+        Ok(Self {
+            state,
+            budget,
+            custody: None,
+        })
+    }
     fn open_in(
         custody: super::LaneReadCustody,
         name: &str,

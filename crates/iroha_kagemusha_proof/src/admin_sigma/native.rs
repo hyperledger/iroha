@@ -5,7 +5,10 @@
 //! equality transitively admit original proving material; no separate PK signature
 //! is required. Each typed owner
 //! checks its existing compiled circuit, imports its original key and completely
-//! self-verifies proofs. No runtime key generation or profile fallback is used.
+//! self-verifies proofs. A qualified wallet instead rebuilds the key of that same
+//! compiled circuit from its admission seal (`from_source_view_cancellable`):
+//! witnessless synthesis and FFTs only, with no runtime VK generation, commitment
+//! MSMs or profile fallback.
 //! A still authenticates objects, map effects, signatures and predecessor proofs.
 //! TODO(G3/G4): mount these components in the authenticated producer inventory
 //! and original G1 preparation before granting any Native wallet-open capability.
@@ -17,9 +20,13 @@ use iroha_pasta::{Eq, Fp};
 use iroha_plonk::{
     DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, ProvingKey,
     VerifyError, VerifyingKey, Witness, create_proof_owned,
-    cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2},
+    cs::{CurveV1, InstanceModeV1, ProofSuffixV1, ProtocolDescriptor, TranscriptV2},
     frontend::Circuit,
-    keys::pk::artifact::{Error as ArtifactError, ReadConfig},
+    keys::{
+        CosetCachePolicy, RebuildError, SourceBoundVerifyingKeyV2, SourceBoundViewV2,
+        keygen_pk_from_vk_v2_cancellable,
+        pk::artifact::{Error as ArtifactError, ReadConfig},
+    },
     pcs::ipa::PinnedParams,
 };
 
@@ -48,6 +55,8 @@ pub enum AdminSigmaError {
     Artifact(ArtifactError),
     /// The original PK does not retain the independently installed VK.
     UnauthorizedKey,
+    /// The sealed admitted source did not rebuild into this operation's exact key.
+    Rebuild(RebuildError),
     /// Witness assignment or actual proof generation failed.
     Prover(ProverError),
     /// Complete self-verification failed.
@@ -64,6 +73,7 @@ impl AdminSigmaError {
     pub fn is_cancelled(&self) -> bool {
         match self {
             Self::Artifact(error) => error.is_cancelled(),
+            Self::Rebuild(error) => error.is_cancelled(),
             Self::Prover(error) => error.is_cancelled(),
             Self::Verify(error) => error.is_cancelled(),
             _ => false,
@@ -89,6 +99,100 @@ impl AdminProver {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, AdminSigmaError> {
+        let (binding, _) = Self::original_metadata(
+            &params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            cancellation,
+        )?;
+        // Witnessless import checks the operation's fixed tables, copy mapping,
+        // selectors and commitments, not merely the shared descriptor class.
+        let key = ProvingKey::from_masked_artifact_v2_cancellable(
+            original,
+            &binding,
+            &params,
+            circuit,
+            config,
+            cancellation,
+        )
+        .map_err(AdminSigmaError::Artifact)?;
+        if key.vk().to_bytes() != installed_vk {
+            return Err(AdminSigmaError::UnauthorizedKey);
+        }
+        Ok(Self { params, key })
+    }
+
+    /// Rebuild the typed owner's key from an admitted source view, never from bytes.
+    /// # Errors
+    /// Non-k12 parameters, another typed profile, another actual source or
+    /// identity, or cancellation without a partial key.
+    fn from_source_view_cancellable<C: Circuit<Fp>>(
+        circuit: &C,
+        params: PinnedParams<Eq>,
+        view: SourceBoundViewV2<'_, Eq>,
+        coset_cache: CosetCachePolicy,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, AdminSigmaError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation)
+            .map_err(|_| AdminSigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
+        if params.k() != BOOTSTRAP_K {
+            return Err(AdminSigmaError::Parameters);
+        }
+        Self::require_profile(view.binding().descriptor())?;
+        // Reconstruction checks the operation's fixed tables, copy mapping, selectors
+        // and complete source against the seal; its minting checked every commitment.
+        let key =
+            keygen_pk_from_vk_v2_cancellable(&params, circuit, &view, coset_cache, cancellation)
+                .map_err(AdminSigmaError::Rebuild)?;
+        Ok(Self { params, key })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn admit_original_artifact_cancellable<C: Circuit<Fp>>(
+        circuit: &C,
+        params: &PinnedParams<Eq>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceBoundVerifyingKeyV2<Eq>, AdminSigmaError> {
+        let (binding, validated_vk) = Self::original_metadata(
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            cancellation,
+        )?;
+        let metadata = admission
+            .admit(
+                original,
+                &binding,
+                &validated_vk,
+                params,
+                circuit,
+                config,
+                cancellation,
+            )
+            .map_err(AdminSigmaError::Artifact)?;
+        if metadata.verifying_key().to_bytes() != installed_vk {
+            return Err(AdminSigmaError::UnauthorizedKey);
+        }
+        Ok(metadata)
+    }
+
+    fn original_metadata(
+        params: &PinnedParams<Eq>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(DescriptorBinding, VerifyingKey<Eq>), AdminSigmaError> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| AdminSigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
         if params.k() != BOOTSTRAP_K {
@@ -104,7 +208,18 @@ impl AdminProver {
         }
         let binding =
             DescriptorBinding::decode_v2(descriptor).map_err(AdminSigmaError::Descriptor)?;
-        let d = binding.descriptor();
+        Self::require_profile(binding.descriptor())?;
+        if binding.n() > config.maximum_rows {
+            return Err(AdminSigmaError::Artifact(ArtifactError::Length));
+        }
+        let key = VerifyingKey::<Eq>::read(installed_vk, &binding).map_err(|error| {
+            AdminSigmaError::Artifact(ArtifactError::Key(KeyError::VerifyingKey(error)))
+        })?;
+        Ok((binding, key))
+    }
+
+    // The one fixed V2 administrative profile, for original intake and rebuild alike.
+    fn require_profile(d: &ProtocolDescriptor) -> Result<(), AdminSigmaError> {
         if u32::from(d.k) != BOOTSTRAP_K
             || d.curve != CurveV1::Vesta
             || d.transcript != TranscriptV2::KagemushaPoseidonRp57Base
@@ -115,34 +230,14 @@ impl AdminProver {
         {
             return Err(AdminSigmaError::Profile);
         }
-        if binding.n() > config.maximum_rows {
-            return Err(AdminSigmaError::Artifact(ArtifactError::Length));
-        }
-        VerifyingKey::<Eq>::read(installed_vk, &binding).map_err(|error| {
-            AdminSigmaError::Artifact(ArtifactError::Key(KeyError::VerifyingKey(error)))
-        })?;
-        // Witnessless import checks the operation's fixed tables, copy mapping,
-        // selectors and commitments, not merely the shared descriptor class.
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original,
-            &binding,
-            &params,
-            circuit,
-            config,
-            cancellation,
-        )
-        .map_err(AdminSigmaError::Artifact)?;
-        if key.vk().to_bytes() != installed_vk {
-            return Err(AdminSigmaError::UnauthorizedKey);
-        }
-        Ok(Self { params, key })
+        Ok(())
     }
 
     fn prove<C: Circuit<Fp>>(
         &self,
         circuit: &C,
         instances: [Vec<Fp>; 1],
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<AdminSigmaProof, AdminSigmaError> {
         let witness =
@@ -287,7 +382,119 @@ macro_rules! admin_prover {
                 })
             }
 
-            /// Imported original key; access grants no scheme or wallet authority.
+            /// Rebuild this fixed operation's proving key from an admitted source view:
+            /// the installed descriptor and VK bound to the opaque seal that strict
+            /// original admission or an exact closed built-in member minted. Only this
+            /// owner's compiled circuit is used. Reconstruction checks the descriptor,
+            /// k12 Vesta parameters, VK SHA-256, binding, selectors and complete source
+            /// fingerprint against the seal; nothing is imported and nothing falls
+            /// back to an original import. The installation owner must first bind the
+            /// view to its signed member and revalidate that member's exact originals.
+            ///
+            /// # Errors
+            /// Non-k12 parameters, another typed profile, another compiled operation
+            /// or identity, or cancellation without a partial key.
+            pub fn from_source_view_cancellable(
+                params: PinnedParams<Eq>,
+                view: SourceBoundViewV2<'_, Eq>,
+                coset_cache: CosetCachePolicy,
+                cancellation: Option<&iroha_pasta::CancellationToken>,
+            ) -> Result<Self, AdminSigmaError> {
+                iroha_pasta::CancellationToken::checkpoint(cancellation)
+                    .map_err(|_| AdminSigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
+                Ok(Self {
+                    inner: AdminProver::from_source_view_cancellable(
+                        &Self::source_circuit(),
+                        params,
+                        view,
+                        coset_cache,
+                        cancellation,
+                    )?,
+                })
+            }
+
+            /// Admit this fixed operation's native source and original commitments,
+            /// retaining only descriptor/VK metadata and opaque source authority.
+            /// Authentication and source selection requirements match full import;
+            /// no proving FFTs, masks or caches are constructed during admission.
+            /// Parameters are borrowed for admission and are not retained by the result.
+            /// # Errors
+            /// The same profile, source, commitment or installed-key mismatch as
+            /// full import, or cancellation without a partial source capability.
+            pub fn admit_original_artifact_cancellable(
+                params: &PinnedParams<Eq>,
+                descriptor: &[u8],
+                installed_vk: &[u8],
+                original: &[u8],
+                config: ReadConfig,
+                cancellation: Option<&iroha_pasta::CancellationToken>,
+            ) -> Result<SourceBoundVerifyingKeyV2<Eq>, AdminSigmaError> {
+                Self::admit_original_with_admission_cancellable(
+                    params,
+                    descriptor,
+                    installed_vk,
+                    original,
+                    config,
+                    crate::original_admission::OriginalAdmission::Strict,
+                    cancellation,
+                )
+            }
+
+            /// Admit an exact original through an explicitly selected closed built-in source.
+            /// All typed plan, source-profile and installed-key checks remain mandatory.
+            /// The member attests only its pinned relation. The installation owner must
+            /// bind this supplied plan to the complete selected built-in profile; a
+            /// same-schema foreign plan is not certified by membership. Proof-time source
+            /// reconstruction remains mandatory and rejects a different actual source.
+            /// Parameters are borrowed for admission and are not retained by the result.
+            /// # Errors
+            /// The ordinary importer errors, closed-member mismatch, or cancellation.
+            #[allow(clippy::too_many_arguments)]
+            pub fn admit_builtin_original_artifact_cancellable(
+                params: &PinnedParams<Eq>,
+                descriptor: &[u8],
+                installed_vk: &[u8],
+                original: &[u8],
+                config: ReadConfig,
+                member: iroha_plonk::keys::BuiltinSourceMemberV1,
+                cancellation: Option<&iroha_pasta::CancellationToken>,
+            ) -> Result<SourceBoundVerifyingKeyV2<Eq>, AdminSigmaError> {
+                Self::admit_original_with_admission_cancellable(
+                    params,
+                    descriptor,
+                    installed_vk,
+                    original,
+                    config,
+                    crate::original_admission::OriginalAdmission::Builtin(member),
+                    cancellation,
+                )
+            }
+
+            #[allow(clippy::too_many_arguments)]
+            fn admit_original_with_admission_cancellable(
+                params: &PinnedParams<Eq>,
+                descriptor: &[u8],
+                installed_vk: &[u8],
+                original: &[u8],
+                config: ReadConfig,
+                admission: crate::original_admission::OriginalAdmission,
+                cancellation: Option<&iroha_pasta::CancellationToken>,
+            ) -> Result<SourceBoundVerifyingKeyV2<Eq>, AdminSigmaError> {
+                iroha_pasta::CancellationToken::checkpoint(cancellation)
+                    .map_err(|_| AdminSigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
+                AdminProver::admit_original_artifact_cancellable(
+                    &Self::source_circuit(),
+                    params,
+                    descriptor,
+                    installed_vk,
+                    original,
+                    config,
+                    admission,
+                    cancellation,
+                )
+            }
+
+            /// Imported or seal-rebuilt key; access grants no scheme or wallet authority.
             #[must_use]
             pub const fn proving_key(&self) -> &ProvingKey<Eq> {
                 &self.inner.key
@@ -299,7 +506,7 @@ macro_rules! admin_prover {
                 self.inner.key.binding()
             }
 
-            /// Exact installed VK retained by the imported original.
+            /// Exact installed VK retained by the imported or seal-rebuilt key.
             #[must_use]
             pub fn verifying_key(&self) -> &VerifyingKey<Eq> {
                 self.inner.key.vk()
@@ -320,7 +527,7 @@ macro_rules! admin_prover {
             pub fn prove(
                 &self,
                 witness: &$witness,
-                randomness: ProverRandomness<'_>,
+                randomness: ProverRandomness,
                 config: ProverConfig,
             ) -> Result<AdminSigmaProof, AdminSigmaError> {
                 let circuit = $circuit::new(witness);

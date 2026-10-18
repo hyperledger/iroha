@@ -144,6 +144,7 @@ futures-util = "0.3.31"
 nonzero_ext = { workspace = true }
 iroha_test_samples = { workspace = true }
 iroha_genesis = { workspace = true }
+iroha_fs = { workspace = true }
 iroha_core = { workspace = true, features = ["node", "iroha-core-tests"], default-features = false }
 iroha_core_zk = { workspace = true, default-features = false, features = ["test-utils"] }
 iroha_sumeragi = { workspace = true }

@@ -243,8 +243,8 @@
         },
         "sumeragi": {
           "block_cadence_ms": 100,
-          "due_work_max_lag_ms": 60000,
-          "max_clock_drift_ms": 1000},
+          "max_clock_drift_ms": 1000,
+          "due_work_max_lag_ms": 60000},
         "transaction": {
           "ivm_bytecode_size": 4194304,
           "max_instructions": 4096,

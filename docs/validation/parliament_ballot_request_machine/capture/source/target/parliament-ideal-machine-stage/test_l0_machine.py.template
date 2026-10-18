@@ -1,0 +1,240 @@
+"""Independent full-message overlay reference, interpreter and mutation tests."""
+from collections import Counter
+from dataclasses import replace
+import hashlib
+import importlib.util
+import itertools
+from pathlib import Path
+
+import pytest
+
+from bit_ir import apply_gates
+from hash_machine import prefix_query
+import l0_machine as l0
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def put(state, start, width, value):
+    state[start:start+width] = [(value >> i)&1 for i in range(width)]
+
+
+def get(state, start, width):
+    return sum(state[start+i] << i for i in range(width))
+
+
+def base(message):
+    """One deterministic byte-string function across all lengths and responses."""
+    return int.from_bytes(hashlib.shake_256(b'L0 test F\0'+message).digest(264), 'little')
+
+
+def execute(state, gates, oracle=base):
+    seen, calls = Counter(), []
+    for gate in gates:
+        name, *args = gate
+        seen[name] += 1
+        if name == 'F:variable':
+            length, bits, message, capacity, response, value_bits = args
+            count = get(state, length, bits)
+            assert count <= capacity, 'test only interprets legal finite-domain lengths'
+            raw = bytes(get(state, message+8*i, 8) for i in range(count))
+            calls.append(raw)
+            value = oracle(raw)
+            for j in range(value_bits): state[response+j] ^= (value >> j)&1
+        elif name.startswith('F:'):
+            count = int(name[2:])
+            assert len(args) == count*8+2112
+            raw = bytes(sum(state[args[8*i+j]] << j for j in range(8)) for i in range(count))
+            calls.append(raw)
+            value = oracle(raw)
+            for j, wire in enumerate(args[count*8:]): state[wire] ^= (value >> j)&1
+        else:
+            assert name in ('x', 'cx', 'ccx')
+            assert len(set(args)) == len(args)
+            assert all(type(w) is int and 0 <= w < len(state) for w in args)
+            state[args[-1]] ^= int(all(state[w] for w in args[:-1]))
+    return seen, calls
+
+
+def setup(machine, records, query, enable, target):
+    p, state = machine.layout(), [0]*machine.layout()['size']
+    for i, (active, message, value) in enumerate(records):
+        start = i*machine.record_bits
+        state[start] = active
+        put(state, start+1, machine.length_bits, len(message))
+        put(state, start+1+machine.length_bits, 8*machine.key_bytes, int.from_bytes(message, 'little'))
+        put(state, start+1+machine.key_bits, machine.value_bits, value)
+    put(state, p['length'], machine.length_bits, len(query))
+    put(state, p['message'], 8*machine.message_bytes, int.from_bytes(query, 'little'))
+    state[p['enable']] = enable
+    put(state, p['output'], machine.value_bits, target)
+    return state
+
+
+def expected(records, query, enable, target, width):
+    value = base(query)
+    for active, key, programmed in records:
+        if active and key == query: value = programmed
+    return target ^ ((value & ((1 << width)-1)) if enable else 0)
+
+
+def test_exhaustive_three_slot_holes_duplicate_values_query_enable_and_target():
+    machine = l0.OverlayLookup(3, 3, 1, 3, 1)
+    p, gates = machine.layout(), tuple(machine.emit_clean())
+    for flags, keys, values, query_bit, enable, target in itertools.product(range(8),range(8),range(8),range(2),range(2),range(2)):
+        records = [((flags >> i)&1, bytes([(keys >> i)&1]), (values >> i)&1) for i in range(3)]
+        query = bytes([query_bit])
+        state = setup(machine, records, query, enable, target)
+        before = state[:]
+        _, calls = execute(state, gates)
+        wanted = before[:]
+        put(wanted, p['output'], 1, expected(records, query, enable, target, 1))
+        assert state == wanted
+        assert calls == [query, query]
+
+
+@pytest.mark.parametrize('query', [b'', b'\x00', b'\x91', b'\x91\x01', b'\x91\x02', b'\x91\x01\x03'])
+@pytest.mark.parametrize('enable', [0, 1])
+def test_full_query_tail_and_length_are_preserved_and_never_truncated(query, enable):
+    machine = l0.OverlayLookup(4, 3, 1, 3, 13)
+    records = [(1,b'\x91',17), (0,b'',155), (1,b'\x91',1234), (1,b'',713)]
+    p = machine.layout()
+    state = setup(machine, records, query, enable, 8191)
+    before = state[:]
+    _, calls = execute(state, machine.emit_clean())
+    wanted = before[:]
+    put(wanted, p['output'],13, expected(records,query,enable,8191,13))
+    assert state == wanted and calls == [query,query]
+    execute(state, machine.emit_clean())
+    assert state == before
+
+
+@pytest.mark.parametrize('n', [0, 1, 2, 3, 8])
+def test_emitted_counts_and_workspace_match_independent_frozen_formula(n):
+    machine = l0.OverlayLookup(n,4,1,4,8)
+    seen = Counter(g[0] for g in machine.emit_clean())
+    resource = machine.resources()
+    assert resource['smaller_width_is_distinct_synthetic_oracle_contract'] is True
+    assert resource['actual_base_response_width'] is False
+    assert seen == {**{k:resource['gates'][k] for k in ('x','cx','ccx') if resource['gates'][k]}, 'F:variable':2}
+    spec = importlib.util.spec_from_file_location('prior_overlay_readonly', ROOT/'scripts/parliament_ballot_oracle_log_circuit.py')
+    prior = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prior)
+    earlier = prior.resource_vector(n, machine.key_bits, machine.value_bits)
+    for field in ('x','cx','ccx'): assert earlier['lookup'][field] == resource['gates'][field]
+    assert earlier['lookup_clean_work_wires'] == resource['clean_work_bits']
+    assert machine.layout()['size'] == sum(resource[k] for k in
+        ('persistent_log_bits','query_input_bits','enable_input_bits','output_bits','clean_work_bits'))
+
+
+@pytest.mark.parametrize('query', [b'\x00', b'\x00\x19', b'\x00\x19\x02'])
+def test_variable_and_fixed_length_interfaces_restrict_the_same_F(query):
+    machine = l0.OverlayLookup(0,3,1,3,2112)
+    state = setup(machine, [], query, 1, 0)
+    execute(state, machine.emit_clean())
+    variable = get(state,machine.layout()['output'],2112)
+    n = len(query)*8
+    fixed = [0]*(n+2*2112)
+    put(fixed,0,n,int.from_bytes(query,'little'))
+    execute(fixed, prefix_query(range(n),range(n,n+2112),range(n+2112,n+4224)))
+    assert variable == get(fixed,n,2112) == base(query)
+    assert not any(fixed[n+2112:])
+
+
+@pytest.mark.parametrize('domain,width', [(0,1024),(1,512),(3,384),(4,128),(5,10),
+                                         (8,512),(9,2112),(10,832),(11,256)])
+def test_source_domain_padded_F_is_same_fixed_and_variable_interface(domain,width):
+    # A concrete test specialization of the provided typed F contract. The
+    # circuit does not get a free domain-dependent mask after a raw-XOF call.
+    assert dict(l0.SOURCE_RESPONSE_BITS)[domain] == width
+    query = bytes([17,domain])
+    def padded(message):
+        if message and message[-1] in dict(l0.SOURCE_RESPONSE_BITS):
+            return base(message) & ((1 << dict(l0.SOURCE_RESPONSE_BITS)[message[-1]])-1)
+        return 0  # Explicit fixed test completion, not a derived native rule.
+    machine = l0.OverlayLookup(0,3,1,3,2112)
+    state = setup(machine,[],query,1,0)
+    execute(state,machine.emit_clean(),padded)
+    response = get(state,machine.layout()['output'],2112)
+    assert response == base(query)&((1 << width)-1)
+    assert response >> width == 0
+    fixed = [0]*(16+4224)
+    put(fixed,0,16,int.from_bytes(query,'little'))
+    execute(fixed,prefix_query(range(16),range(16,2128),range(2128,4240)),padded)
+    assert response == get(fixed,16,2112) and not any(fixed[2128:])
+
+
+def test_padded_programmed_hit_cannot_reveal_a_larger_base_tail():
+    machine = l0.OverlayLookup(1,3,2,3,2112)
+    query = b'\x44\x0b'
+    programmed = (1 << 256)-1
+    state = setup(machine,[(1,query,programmed)],query,1,0)
+    execute(state,machine.emit_clean())
+    assert get(state,machine.layout()['output'],2112)==programmed
+    assert not any(state[machine.layout()['work']:])
+
+
+def test_missing_second_base_call_and_stateful_oracle_break_clean_map():
+    machine = l0.OverlayLookup(1,3,1,3,13)
+    p = machine.layout()
+    original = setup(machine,[(1,b'\x01',7)],b'\x02',1,0)
+    gates = list(machine.emit_clean())
+    second = [i for i,g in enumerate(gates) if g[0]=='F:variable'][1]
+    state = original[:]
+    execute(state,gates[:second]+gates[second+1:])
+    assert get(state,p['output'],13) == base(b'\x02') & 8191
+    assert get(state,p['base'],13) != 0
+    call = 0
+    def mutable(message):
+        nonlocal call
+        call += 1
+        return base(message) ^ (call == 2)
+    state = original[:]
+    execute(state,gates,mutable)
+    assert get(state,p['base'],13) == 1
+
+
+def test_actual_lifetime_is_lazy_and_retains_explicit_full_query_capacity():
+    machine = l0.actual_lookup(ROOT, 1 << 64, 6882996)
+    n = (1 << 64)*((1 << 20)+2)
+    assert machine.capacity == n
+    assert machine.layout()['log_bits'] == n*(1+64+8*215150+2112)
+    assert len(list(itertools.islice(machine.emit_clean(),3))) == 3
+    resource = machine.resources()
+    assert resource['query_input_bits'] == 64+8*6882996
+    assert resource['actual_base_response_width'] is True
+    assert resource['smaller_width_is_distinct_synthetic_oracle_contract'] is False
+    for flag in ('complete_simulator_coverage','complete_resource_vector','profile_qualified','production_gate_changed'):
+        assert resource[flag] is False
+    # Increasing the experiment's full message capacity does not shrink or alter the compared head.
+    larger = l0.actual_lookup(ROOT,1,1 << 80,128)
+    assert larger.message_bytes == 1 << 80 and larger.key_bytes == 215150
+
+
+@pytest.mark.parametrize('change', [{'capacity':True},{'capacity':-1},{'length_bits':False},
+    {'length_bits':4097},{'message_bytes':0},{'message_bytes':8},{'message_bytes':1.0},
+    {'key_bytes':0},{'key_bytes':215151},{'value_bits':0},{'value_bits':True},{'value_bits':2113}])
+def test_strict_geometry_refuses_malformed(change):
+    with pytest.raises(ValueError): replace(l0.OverlayLookup(3,3,1,3,13),**change)
+
+
+def test_source_changes_and_midrun_drift_refused(tmp_path,monkeypatch):
+    for path in l0.PINS:
+        copy = tmp_path/path
+        copy.parent.mkdir(parents=True,exist_ok=True)
+        copy.write_bytes((ROOT/path).read_bytes()+b'\n')
+    with pytest.raises(ValueError,match='source changed'): l0.actual_lookup(tmp_path,1,6882996)
+    original, counts = Path.read_bytes, Counter()
+    def read(path):
+        counts[str(path)] += 1
+        raw = original(path)
+        return raw+b'\n' if counts[str(path)]==2 else raw
+    monkeypatch.setattr(Path,'read_bytes',read)
+    with pytest.raises(ValueError,match='source drift'): l0.actual_lookup(ROOT,1,6882996)
+
+
+@pytest.mark.parametrize('args', [(True,6882996,64),(1,6882995,64),(1,6882996,22),(1,6882996,1.0)])
+def test_factory_refuses_before_reading_source(monkeypatch,args):
+    def cannot_read(path): raise AssertionError('invalid shape reached source')
+    monkeypatch.setattr(Path,'read_bytes',cannot_read)
+    with pytest.raises(ValueError): l0.actual_lookup(ROOT,*args)

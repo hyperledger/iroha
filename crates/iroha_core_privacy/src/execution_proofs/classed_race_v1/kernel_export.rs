@@ -69,10 +69,10 @@ fn grid_graph(
         class_id: CLASS,
         track,
         player_count: players,
-        frames: (0..64)
+        frames: (0_u16..64)
             .map(|control| ClassedRaceInputFrameV1 {
-                tick: control,
-                controls: vec![control as u16; usize::from(players)],
+                tick: u32::from(control),
+                controls: vec![control; usize::from(players)],
             })
             .collect(),
         dnf_events: vec![],
@@ -230,6 +230,7 @@ fn reference_fixture(
                 if car.dnf_tick.is_some() || players == 8 && slot >= 6 {
                     return 0;
                 }
+                let slot = u32::try_from(slot).expect("at most eight car slots fit u32");
                 let target = if slot % 2 == 0 { -1600 } else { 1600 };
                 let steer = if state.tick < 90 {
                     if slot % 2 == 0 { 8 } else { 4 }
@@ -242,7 +243,7 @@ fn reference_fixture(
                 };
                 1 | 16
                     | steer
-                    | if (state.tick + slot as u32 * 11) % 90 < 25 {
+                    | if (state.tick + slot * 11) % 90 < 25 {
                         32
                     } else {
                         0
@@ -286,7 +287,7 @@ fn transition_fixture(
         1,
         0,
         0,
-        i64::from(state.tick % BATCH_TICKS == 0),
+        i64::from(state.tick.is_multiple_of(BATCH_TICKS)),
         rain,
         wind,
     ];
@@ -368,7 +369,8 @@ fn environment_transitions() -> Result<Vec<Json>, ClassedRaceSimulationErrorV1> 
                     state.tick = tick;
                     let car = &mut state.cars[0];
                     car.progress_mm = center + offset;
-                    car.lateral_mm = (x + lateral_offset) as i32;
+                    car.lateral_mm = i32::try_from(x + lateral_offset)
+                        .expect("fixed object-edge fixture fits i32");
                     car.speed_mm_per_tick = 2400;
                     car.dnf_tick = inactive.then_some(tick);
                     fixtures.push(transition_fixture(&graph, &table, name, &state, 49)?);
@@ -483,7 +485,7 @@ mod tests {
                 assert_eq!(event[1].as_i64(), Some(0));
             }
             if event[0].as_i64() == Some(1) || event[1].as_i64() == Some(1) {
-                seen[event[2].as_u64().unwrap() as usize] = true;
+                seen[usize::try_from(event[2].as_u64().unwrap()).unwrap()] = true;
             }
         }
         assert_eq!(seen, [true; 3]);

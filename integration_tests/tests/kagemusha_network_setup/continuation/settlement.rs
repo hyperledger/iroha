@@ -1,13 +1,16 @@
-//! Genuine C claim through ordinary four-validator Unload and exact retained retries.
+//! Genuine C claim through ordinary four-validator policy refusal, Unload and exact retries.
 use super::*;
 use iroha_data_model::{
     ValidationFail,
-    isi::error::InstructionExecutionError,
+    isi::error::{AssetTransferAdmissionError, InstructionExecutionError},
     transaction::{TransactionResult, error::TransactionRejectionReason},
 };
 use iroha_torii_shared::PipelineTransactionStatusResponse;
 
-fn state_rejection(
+#[path = "settlement/policy.rs"]
+pub(super) mod policy;
+
+pub(super) fn state_rejection(
     transaction: HashOf<SignedTransaction>,
     response: Option<&PipelineTransactionStatusResponse>,
 ) -> Result<Option<u64>> {
@@ -45,13 +48,16 @@ fn claim_failure<'a>(
             reason,
             TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
                 InstructionExecutionError::InvariantViolation(_)
+                    | InstructionExecutionError::AssetTransferAdmission(
+                        AssetTransferAdmissionError::OutgoingDisabled(_)
+                    )
             ))
         ),
-        "unrelated execution failure cannot qualify invalid-claim rejection"
+        "unrelated execution failure cannot qualify the selected claim or policy rejection"
     );
     ensure!(
         reason == expected,
-        "certified failure differs from the exact invalid claim"
+        "certified failure differs from the exact selected rejection"
     );
     Ok(reason)
 }
@@ -71,7 +77,7 @@ fn canonical_observation<T: norito::NoritoSerialize>(
     publish(output, name, &bytes)
 }
 
-fn failed_execution(
+pub(super) fn failed_execution(
     verified: &VerifiedSumeragiBlock,
     network: &Network,
     signed: &SignedTransaction,
@@ -134,6 +140,7 @@ fn refused(
     seed: u8,
     signed: SignedTransaction,
     expected: &TransactionRejectionReason,
+    expected_balances: [u128; 4],
     name: &str,
 ) -> Result<norito::json::Value> {
     let before = committed_height(network)?;
@@ -156,7 +163,7 @@ fn refused(
     let client = running_peer(network)?.client_for(&account(seed), key(seed).private_key().clone());
     let error = client
         .submit_transaction_and_wait(&signed)
-        .expect_err("foreign Unload must not succeed");
+        .expect_err("selected Unload must be refused");
     ensure!(
         error
             .downcast_ref::<iroha::client::TransactionDispatchOutcomeUnknownError>()
@@ -197,7 +204,7 @@ fn refused(
     for proof in history {
         let verified = verifier.verify(&proof)?;
         if let Some(committed) = failed_execution(&verified, network, &signed, expected)? {
-            ensure!(committed_failure.is_none(), "duplicate foreign transaction");
+            ensure!(committed_failure.is_none(), "duplicate refused transaction");
             committed_failure = Some(verified.height());
             originals.push(canonical_observation(
                 output,
@@ -219,13 +226,21 @@ fn refused(
             .all(|height| Some(*height) == committed_failure),
         "state rejection does not match native-certified failure"
     );
-    let snapshots = balances(network, [900, 0, 100, 0])?;
+    let snapshots = balances(network, expected_balances)?;
     let qualified = committed_failure.is_some();
+    // A valid claim refused by committed policy is not a cryptographic negative.
+    let adversarial_qualified = qualified
+        && matches!(
+            expected,
+            TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+                InstructionExecutionError::InvariantViolation(_)
+            ))
+        );
     let observation = norito::json::to_vec(&norito::json!({
         "name":name, "phase":"submitted", "transaction_hash_hex":(hex::encode(signed.hash().as_ref())),
         "height_before":before, "height_after":after, "committed_failure_height":committed_failure,
         "originals":originals, "peer_statuses":statuses, "balances":snapshots,
-        "authoritative_rejection_observed":qualified, "adversarial_input_rejection_qualified":qualified,
+        "authoritative_rejection_observed":qualified, "adversarial_input_rejection_qualified":adversarial_qualified,
         "scope":"Certified exact execution reason qualifies rejection. Redacted pre-route errors remain observations; their local canonical decoder failure is recorded separately and never creates network authority."
     }))?;
     ensure!(
@@ -238,6 +253,102 @@ fn refused(
     )
 }
 
+// This explicit selection is independent of the genuine C exchange result. A physical
+// payment key is never asked to re-sign an altered proof for an adversarial fixture.
+fn adversarial_selection(command: &norito::json::Value) -> Result<Option<&norito::json::Value>> {
+    let choice = &command["adversarial"];
+    match choice["kind"].as_str() {
+        Some("none") => {
+            activation::closed(choice, &["kind"])?;
+            Ok(None)
+        }
+        Some("software_bad_sigma") => {
+            activation::closed(choice, &["kind", "claim"])?;
+            activation::selection(&choice["claim"])?;
+            Ok(Some(choice))
+        }
+        _ => bail!("explicit adversarial selection required"),
+    }
+}
+
+pub(super) fn require_command(command: &norito::json::Value) -> Result<()> {
+    activation::closed(
+        command,
+        &[
+            "schema",
+            "phase",
+            "setup_sha256",
+            "previous_sha256",
+            "exchange",
+            "target",
+            "verifier_pack",
+            "adversarial",
+        ],
+    )?;
+    ensure!(
+        command["schema"].as_str() == Some("iroha.kagemusha.real-network-command.v1")
+            && command["phase"].as_str() == Some("settlement"),
+        "settlement command schema/phase"
+    );
+    digest(&command["setup_sha256"])?;
+    digest(&command["previous_sha256"])?;
+    for name in ["exchange", "target", "verifier_pack"] {
+        activation::selection(&command[name])?;
+    }
+    adversarial_selection(command)?;
+    Ok(())
+}
+
+fn verify_bad_sigma(
+    bad_sigma_bytes: &[u8],
+    claim_bytes: &[u8],
+    claim: &KagemushaWalletUnloadClaimV1,
+    installed: &InstalledVerifierPackV1,
+    scheme_id: &[u8; 32],
+) -> Result<()> {
+    let paid = claim.verify(installed.verifier().scheme())?;
+    let bad_sigma = KagemushaWalletUnloadClaimV1::decode_canonical(bad_sigma_bytes, scheme_id)?;
+    let mut bad_payout = bad_sigma.verify(installed.verifier().scheme())?;
+    ensure!(
+        bad_payout.package != paid.package,
+        "negative proof must change its package digest"
+    );
+    bad_payout.package = paid.package; // Only the proof/receipt-dependent identity changes.
+    ensure!(
+        bad_payout == paid,
+        "negative fixture changed payout or its public binding"
+    );
+    ensure!(
+        bad_sigma.package.step_proof.bytes.len() == claim.package.step_proof.bytes.len()
+            && bad_sigma.package.step_proof.bytes != claim.package.step_proof.bytes,
+        "same-length actual sigma mutation required"
+    );
+    let mut normalized = bad_sigma.clone();
+    normalized.package.step_proof.bytes = claim.package.step_proof.bytes.clone();
+    normalized.package.receipt = claim.package.receipt.clone();
+    ensure!(
+        norito::encode_canonical(&normalized)? == claim_bytes,
+        "negative fixture changed unrelated claim fields"
+    );
+    ensure!(
+        matches!(
+            installed.verifier().verify_package_proofs(
+                &bad_sigma.package,
+                None,
+                Default::default()
+            ),
+            Err(iroha_core_zk::kagemusha_wallet_proofs_v1::Error::Proof)
+        ),
+        "model-valid negative must fail the actual installed proof verifier"
+    );
+    Ok(())
+}
+
+fn omitted_proof_observation() -> norito::json::Value {
+    norito::json!({"name":"bad-sigma", "selected":false, "qualified":false,
+        "scope":"No software bad-sigma fixture selected. Native proof-rejection coverage is unqualified; genuine C payout verification remains mandatory."})
+}
+
 pub(super) fn run(
     network: &Network,
     root: &Path,
@@ -245,6 +356,7 @@ pub(super) fn run(
     setup_sha: &str,
     funded_bytes: &[u8],
 ) -> Result<Vec<u8>> {
+    require_command(command)?;
     let funded: norito::json::Value = norito::json::from_slice(funded_bytes)?;
     let (exchange_path, exchange_bytes) = selected(command, "exchange", 16 << 10)?;
     let exchange: norito::json::Value = norito::json::from_slice(&exchange_bytes)?;
@@ -309,69 +421,28 @@ pub(super) fn run(
         (paid.amount, paid.account_payout, paid.online_charge) == (100, 100, 0),
         "exact C payout required"
     );
-    // Admit all negative DATA before the successful payout. The signed fixture uses
-    // C's existing software test key, but is never a provider transition or released claim.
-    let bad_source = &exchange["c_unload_bad_sigma_claim"];
-    ensure!(
-        bad_source["name"].as_str() == Some("c-unload-bad-sigma-claim.norito")
-            && bad_source["mutation"].as_str() == Some("sigma_ipa_f_plus_one")
-            && bad_source["model_verified"].as_bool() == Some(true)
-            && bad_source["native_proof_rejected"].as_bool() == Some(true)
-            && bad_source["adversarial_fixture_signatures"].as_u64() == Some(1),
-        "native bad-sigma fixture grammar"
-    );
-    let bad_sigma_bytes = read(
-        &source.join("c-unload-bad-sigma-claim.norito"),
-        KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
-        bad_source["sha256"]
-            .as_str()
-            .ok_or_else(|| eyre!("negative claim pin"))?,
-    )?;
-    ensure!(
-        bad_source["bytes"].as_u64() == Some(bad_sigma_bytes.len() as u64),
-        "negative claim extent differs"
-    );
-    let bad_sigma = KagemushaWalletUnloadClaimV1::decode_canonical(&bad_sigma_bytes, &scheme_id)?;
-    let mut bad_payout = bad_sigma.verify(installed.verifier().scheme())?;
-    ensure!(
-        bad_payout.package != paid.package,
-        "negative proof must change its package digest"
-    );
-    bad_payout.package = paid.package; // Only the proof/receipt-dependent identity changes.
-    ensure!(
-        bad_payout == paid,
-        "negative fixture changed payout or its public binding"
-    );
-    ensure!(
-        bad_sigma.package.step_proof.bytes.len() == claim.package.step_proof.bytes.len()
-            && bad_sigma.package.step_proof.bytes != claim.package.step_proof.bytes,
-        "same-length actual sigma mutation required"
-    );
-    let mut normalized = bad_sigma.clone();
-    normalized.package.step_proof.bytes = claim.package.step_proof.bytes.clone();
-    normalized.package.receipt = claim.package.receipt.clone();
-    ensure!(
-        norito::encode_canonical(&normalized)? == claim_bytes,
-        "negative fixture changed unrelated claim fields"
-    );
+    // Genuine proof verification is mandatory even when no adversarial input is selected.
     installed
         .verifier()
         .verify_package_proofs(&claim.package, None, Default::default())?;
-    ensure!(
-        matches!(
-            installed.verifier().verify_package_proofs(
-                &bad_sigma.package,
-                None,
-                Default::default()
-            ),
-            Err(iroha_core_zk::kagemusha_wallet_proofs_v1::Error::Proof)
-        ),
-        "model-valid negative must fail the actual installed proof verifier"
-    );
+    let bad_sigma_bytes = if let Some(selection) = adversarial_selection(command)? {
+        let (_, bytes) = selected(
+            selection,
+            "claim",
+            KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
+        )?;
+        verify_bad_sigma(&bytes, &claim_bytes, &claim, &installed, &scheme_id)?;
+        Some(bytes)
+    } else {
+        None
+    };
     balances(network, [900, 0, 0, 100])?;
     let output = root.join("settlement");
     private_directory(&output)?;
     let instruction = KagemushaWalletLedgerV1::new(scheme_id, Action::Unload(claim_bytes.clone()));
+    // The exact genuine claim must survive an authoritative policy refusal without
+    // consuming its payout key. Availability changes use the ordinary asset owner.
+    let policy_retry = policy::before_payout(network, &output, &instruction, 43, [900, 0, 0, 100])?;
     let (transaction, settled_height) = submit(
         network,
         43,
@@ -379,6 +450,11 @@ pub(super) fn run(
         &output,
         "unload-signed-transaction.norito",
     )?;
+    ensure!(
+        policy_retry["refused_transaction_hash_hex"].as_str()
+            != Some(hex::encode(transaction.hash().as_ref()).as_str()),
+        "successful claim retry must have a fresh signed transaction identity"
+    );
     let settled_balances = balances(network, [900, 0, 100, 0])?;
     let client = running_peer(network)?.client_for(&account(43), key(43).private_key().clone());
     // Exact transport retry may return the already applied outcome without a block.
@@ -420,6 +496,7 @@ pub(super) fn run(
             43,
             transaction,
             &expected_account,
+            [900, 0, 100, 0],
             "foreign-account",
         )?,
         Err(error) => {
@@ -461,27 +538,41 @@ pub(super) fn run(
             norito::json!({"name":"foreign-account", "transaction_hash_hex":null, "qualified":false, "observation_original":original})
         }
     };
-    let expected_proof = TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
-        InstructionExecutionError::InvariantViolation(
-            format!(
-                "KAGEMUSHA ledger: {}",
-                iroha_core::kagemusha_wallet_v1::Error::Proof
-            )
-            .into(),
-        ),
-    ));
-    let altered_proof = refused(
-        network,
-        &output,
-        43,
-        signed(
+    let altered_proof = if let Some(bad_sigma_bytes) = bad_sigma_bytes {
+        publish(&output, "software-bad-sigma-claim.norito", &bad_sigma_bytes)?;
+        let expected_proof = TransactionRejectionReason::Validation(
+            ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(
+                format!(
+                    "KAGEMUSHA ledger: {}",
+                    iroha_core::kagemusha_wallet_v1::Error::Proof
+                )
+                .into(),
+            )),
+        );
+        let mut observation = refused(
             network,
+            &output,
             43,
-            vec![KagemushaWalletLedgerV1::new(scheme_id, Action::Unload(bad_sigma_bytes)).into()],
-        )?,
-        &expected_proof,
-        "bad-sigma",
-    )?;
+            signed(
+                network,
+                43,
+                vec![
+                    KagemushaWalletLedgerV1::new(scheme_id, Action::Unload(bad_sigma_bytes)).into(),
+                ],
+            )?,
+            &expected_proof,
+            [900, 0, 100, 0],
+            "bad-sigma",
+        )?;
+        let fields = observation
+            .as_object_mut()
+            .ok_or_else(|| eyre!("proof observation object"))?;
+        fields.insert("selected".into(), true.into());
+        fields.insert("input_custody".into(), "software-fixture-only".into());
+        observation
+    } else {
+        omitted_proof_observation()
+    };
     let account_specific_network_rejection_qualified =
         foreign_account["qualified"].as_bool() == Some(true);
     let native_proof_rejection_qualified = altered_proof["qualified"].as_bool() == Some(true);
@@ -520,9 +611,9 @@ pub(super) fn run(
         "source_pins":(exchange["source_pins"].clone()), "network_hex":(hex::encode(network.network_id().as_bytes())), "chain_id":(network.chain_id().to_string()), "instance_hex":(hex::encode(native(network)?.instance().0)),
         "target_sha256":(exchange["target_sha256"].clone()), "receipt_sha256":(funded["receipt_sha256"].clone()), "exchange_sha256":(hash(&exchange_bytes)), "claim_sha256":(hash(&claim_bytes)),
         "settlement_height":settled_height, "last_certified_height":through, "settlement_transaction_hash_hex":(hex::encode(transaction.hash().as_ref())), "settlement_block_hash_hex":(settled_hash.ok_or_else(|| eyre!("settlement absent"))?),
-        "adversarial_qualified":adversarial_qualified, "native_proof_rejection_qualified":native_proof_rejection_qualified, "account_specific_network_rejection_qualified":account_specific_network_rejection_qualified, "account_binding_model_refusal":true, "instruction_retry_height":instruction_retry_height, "exact_transaction_retry_returned_original":true,
-        "settled_balances":settled_balances, "foreign_account_observation":foreign_account, "altered_proof_observation":altered_proof,
-        "originals":originals, "scope":"Actual four-validator settlement, replay and native proof-negative execution. Account binding is checked locally; redacted pre-route refusal does not qualify account-specific network evidence. Same native C confirmation and node-store restart follow separately."
+        "genuine_installed_proof_verified":true, "adversarial_selection":(command["adversarial"].clone()), "adversarial_qualified":adversarial_qualified, "native_proof_rejection_qualified":native_proof_rejection_qualified, "account_specific_network_rejection_qualified":account_specific_network_rejection_qualified, "account_binding_model_refusal":true, "instruction_retry_height":instruction_retry_height, "exact_transaction_retry_returned_original":true,
+        "settled_balances":settled_balances, "policy_retry":policy_retry, "foreign_account_observation":foreign_account, "altered_proof_observation":altered_proof,
+        "originals":originals, "scope":"Actual four-validator settlement and replay of the genuine installed-verifier-checked C claim after certified reserve-outgoing policy refusal and ordinary re-enablement of the exact same claim. Native proof-negative coverage is qualified only by an explicitly selected software fixture and certified rejection. An omitted fixture is unqualified. Account binding is checked locally; redacted pre-route refusal does not qualify account-specific network evidence. Same native C confirmation and node-store restart follow separately."
     }))?;
     ensure!(
         result.len() <= 16 << 10,
@@ -636,4 +727,61 @@ fn canonical_observation_retains_exact_bytes_and_refuses_oversized_or_replaced_o
         .is_err()
     );
     assert!(!directory.path().join("oversized.norito").exists());
+}
+
+#[test]
+fn settlement_requires_explicit_closed_adversarial_selection() {
+    let none = norito::json!({"adversarial":{"kind":"none"}});
+    assert!(adversarial_selection(&none).unwrap().is_none());
+    let software = norito::json!({"adversarial":{"kind":"software_bad_sigma", "claim":{"path":"/private/bad-sigma.norito", "sha256":(hash(b"negative"))}}});
+    assert!(adversarial_selection(&software).unwrap().is_some());
+    for changed in [
+        norito::json!({}),
+        norito::json!({"adversarial":null}),
+        norito::json!({"adversarial":{"kind":"none", "claim":(software["adversarial"]["claim"].clone())}}),
+        norito::json!({"adversarial":{"kind":"software_bad_sigma"}}),
+        norito::json!({"adversarial":{"kind":"physical_key_resign", "claim":(software["adversarial"]["claim"].clone())}}),
+        norito::json!({"adversarial":{"kind":"software_bad_sigma", "claim":{"path":"relative", "sha256":(hash(b"negative"))}}}),
+    ] {
+        assert!(adversarial_selection(&changed).is_err());
+    }
+}
+
+#[test]
+fn omitted_software_input_never_qualifies_adversarial_coverage() {
+    let observation = omitted_proof_observation();
+    assert_eq!(observation["selected"].as_bool(), Some(false));
+    assert_eq!(observation["qualified"].as_bool(), Some(false));
+    assert!(
+        observation["scope"]
+            .as_str()
+            .unwrap()
+            .contains("genuine C payout verification remains mandatory")
+    );
+}
+
+#[test]
+fn settlement_command_refuses_implicit_or_foreign_proof_inputs() {
+    let reference = norito::json!({"path":"/private/original", "sha256":(hash(b"original"))});
+    let original = norito::json!({"schema":"iroha.kagemusha.real-network-command.v1", "phase":"settlement",
+        "setup_sha256":(hash(b"setup")), "previous_sha256":(hash(b"funded")), "exchange":(reference.clone()), "target":(reference.clone()),
+        "verifier_pack":reference, "adversarial":{"kind":"none"}});
+    require_command(&original).unwrap();
+    for name in ["adversarial", "verifier_pack", "exchange"] {
+        let mut changed = original.clone();
+        changed.as_object_mut().unwrap().remove(name);
+        assert!(require_command(&changed).is_err());
+    }
+    let mut changed = original.clone();
+    changed
+        .as_object_mut()
+        .unwrap()
+        .insert("c_unload_bad_sigma_claim".into(), true.into());
+    assert!(require_command(&changed).is_err());
+    changed = original;
+    changed
+        .as_object_mut()
+        .unwrap()
+        .insert("phase".into(), "funding".into());
+    assert!(require_command(&changed).is_err());
 }

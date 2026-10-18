@@ -102,6 +102,7 @@ pathdiff = "0.2.3"
 tempfile = { workspace = true }
 
 [dev-dependencies]
+iroha_sccp = { workspace = true, features = ["test-fixtures"] }
 iroha_data_model = { workspace = true, default-features = false, features = ["test-fixtures", "transparent_api"] }
 iroha_sumeragi = { workspace = true }
 iroha_test_samples = { workspace = true }

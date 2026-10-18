@@ -32,7 +32,10 @@ fn genesis_preexecution_preserves_selected_profile_across_threads() {
         .map(NetworkPeer::id)
         .collect::<Vec<_>>();
     let topology_entries = network.topology_entries.clone();
-    let genesis_key_pair = network.genesis_key_pair.clone();
+    let genesis_key_pair = network
+        .genesis_key_pair
+        .clone()
+        .expect("generated genesis must retain its signing owner");
     let extra = network.genesis_isi.clone();
     let post_topology = network.genesis_post_topology_isi.clone();
     let chain = network.chain_id();
@@ -98,6 +101,7 @@ fn genesis_preexecution_preserves_selected_profile_across_threads() {
                 Some(handshake),
                 None,
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+                None,
             );
         assert!(
             generated

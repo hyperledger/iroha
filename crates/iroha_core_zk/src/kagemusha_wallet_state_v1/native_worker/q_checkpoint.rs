@@ -1,6 +1,8 @@
 //! Bounded canonical Q originals with strict installed verification on restoration.
 
-use iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact;
+use iroha_kagemusha_proof::{
+    a_relation::native::artifact::KeyArtifact, private_fold::PrivateFoldBytes,
+};
 use iroha_pasta::Ep;
 use iroha_plonk::{Protocol, pcs::ipa::PinnedParams, verifier::verify_full_cancellable};
 use norito::{NoritoDeserialize, NoritoSchema, NoritoSerialize};
@@ -17,6 +19,7 @@ struct Payload {
     source: [u8; 32],
     proof: Vec<u8>,
     instances: Vec<Vec<[u8; 32]>>,
+    private_fold: Option<PrivateFoldBytes>,
 }
 
 pub(super) struct Layout {
@@ -26,9 +29,17 @@ pub(super) struct Layout {
     key: [u8; 32],
     proof_bytes: usize,
     columns: Vec<usize>,
+    requires_fold: bool,
 }
 impl Layout {
-    pub(super) fn new(stage: usize, key: &KeyArtifact<Ep>) -> Result<Self, Error> {
+    pub(super) fn new(
+        stage: usize,
+        key: &KeyArtifact<Ep>,
+        requires_fold: bool,
+    ) -> Result<Self, Error> {
+        if requires_fold && stage != 0 {
+            return Err(Error::Proof("Q private fold stage"));
+        }
         let stage = u32::try_from(stage).map_err(|_| Error::Proof("Q ordinal"))?;
         let descriptor = *key.binding().digest();
         let digest = proof(key.key().kagemusha_digest(key.binding()))?.to_repr();
@@ -48,6 +59,7 @@ impl Layout {
             source: [0; 32],
             proof: vec![0; proof_bytes],
             instances: columns.iter().map(|n| vec![[0; 32]; *n]).collect(),
+            private_fold: requires_fold.then(PrivateFoldBytes::unknown),
         };
         let bytes = proof(norito::canonical_frame_len(&specimen))?;
         Ok(Self {
@@ -57,6 +69,7 @@ impl Layout {
             key: digest,
             proof_bytes,
             columns,
+            requires_fold,
         })
     }
     fn check(&self, payload: &Payload, source: [u8; 32]) -> Result<(), Error> {
@@ -65,6 +78,7 @@ impl Layout {
             || payload.descriptor != self.descriptor
             || payload.key != self.key
             || payload.source != source
+            || payload.private_fold.is_some() != self.requires_fold
             || payload.proof.len() != self.proof_bytes
             || payload.instances.len() != self.columns.len()
             || payload
@@ -97,6 +111,7 @@ impl Layout {
 pub(super) struct Original {
     pub(super) proof: Vec<u8>,
     pub(super) instances: Vec<Vec<Fq>>,
+    pub(super) private_fold: Option<PrivateFoldBytes>,
 }
 
 pub(super) fn encode(
@@ -105,11 +120,12 @@ pub(super) fn encode(
     stage: usize,
     source: [u8; 32],
     original: &Original,
+    requires_fold: bool,
     budget: MemoryBudget,
     cancellation: &Cancellation,
-) -> Result<Vec<u8>, Error> {
+) -> Result<PrivateArchiveBytes, Error> {
     cancellation.check()?;
-    let layout = Layout::new(stage, key)?;
+    let layout = Layout::new(stage, key, requires_fold)?;
     let payload = Payload {
         version: 1,
         stage: layout.stage,
@@ -117,6 +133,7 @@ pub(super) fn encode(
         key: layout.key,
         source,
         proof: original.proof.clone(),
+        private_fold: original.private_fold.clone(),
         instances: original
             .instances
             .iter()
@@ -133,7 +150,7 @@ pub(super) fn encode(
         budget,
         Some(cancellation.prover_token()),
     ))?;
-    let bytes = proof(norito::encode_canonical(&payload))?;
+    let bytes = proof(PrivateArchiveBytes::encode(&payload))?;
     if bytes.len() != layout.custody.payload_bytes as usize {
         return Err(Error::Proof("Q checkpoint encoding"));
     }
@@ -144,18 +161,18 @@ pub(super) fn encode(
     clippy::too_many_arguments,
     reason = "exact checkpoint identity and borrowed installed verifier parameters remain explicit"
 )]
-pub(super) fn restore(
+pub(super) fn read_verified(
     key: &KeyArtifact<Ep>,
     params: &PinnedParams<Ep>,
     stage: usize,
     source: [u8; 32],
     bytes: &[u8],
-    expected: &[Vec<Fq>],
+    requires_fold: bool,
     budget: MemoryBudget,
     cancellation: &Cancellation,
 ) -> Result<Original, Error> {
     cancellation.check()?;
-    let payload = Layout::new(stage, key)?.decode(bytes, source)?;
+    let payload = Layout::new(stage, key, requires_fold)?.decode(bytes, source)?;
     let instances = payload
         .instances
         .into_iter()
@@ -169,9 +186,6 @@ pub(super) fn restore(
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if instances != expected {
-        return Err(Error::Proof("Q changed source instance"));
-    }
     proof(verify_full_cancellable(
         params,
         key.binding(),
@@ -184,7 +198,37 @@ pub(super) fn restore(
     Ok(Original {
         proof: payload.proof,
         instances,
+        private_fold: payload.private_fold,
     })
+}
+
+/// Require the complete independently reconstructed frame after installed proof admission.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn restore(
+    key: &KeyArtifact<Ep>,
+    params: &PinnedParams<Ep>,
+    stage: usize,
+    source: [u8; 32],
+    bytes: &[u8],
+    expected: &[Vec<Fq>],
+    requires_fold: bool,
+    budget: MemoryBudget,
+    cancellation: &Cancellation,
+) -> Result<Original, Error> {
+    let original = read_verified(
+        key,
+        params,
+        stage,
+        source,
+        bytes,
+        requires_fold,
+        budget,
+        cancellation,
+    )?;
+    if original.instances != expected {
+        return Err(Error::Proof("Q changed source instance"));
+    }
+    Ok(original)
 }
 
 #[cfg(test)]
@@ -273,13 +317,18 @@ mod tests {
         scheduler.set_activity(true, false);
         let running = scheduler.start().unwrap();
         let cancellation = running.token.clone();
-        let original = Original { proof, instances };
+        let original = Original {
+            proof,
+            instances,
+            private_fold: None,
+        };
         let bytes = encode(
             &metadata,
             &params,
             0,
             source,
             &original,
+            false,
             MemoryBudget::DEFAULT,
             &cancellation,
         )
@@ -291,6 +340,7 @@ mod tests {
             source,
             &bytes,
             &original.instances,
+            false,
             MemoryBudget::DEFAULT,
             &cancellation,
         )
@@ -306,6 +356,7 @@ mod tests {
                 source,
                 &bytes,
                 &original.instances,
+                false,
                 MemoryBudget::DEFAULT,
                 &cancellation
             )
@@ -319,6 +370,7 @@ mod tests {
                 [0x22; 32],
                 &bytes,
                 &original.instances,
+                false,
                 MemoryBudget::DEFAULT,
                 &cancellation
             )
@@ -332,12 +384,13 @@ mod tests {
                 source,
                 &bytes,
                 &[vec![Fq::from(2)]],
+                false,
                 MemoryBudget::DEFAULT,
                 &cancellation
             )
             .is_err()
         );
-        let mut changed = Layout::new(0, &metadata)
+        let mut changed = Layout::new(0, &metadata, false)
             .unwrap()
             .decode(&bytes, source)
             .unwrap();
@@ -351,6 +404,7 @@ mod tests {
                 source,
                 &changed,
                 &original.instances,
+                false,
                 MemoryBudget::DEFAULT,
                 &cancellation
             )
@@ -365,6 +419,7 @@ mod tests {
                 source,
                 &bytes,
                 &original.instances,
+                false,
                 MemoryBudget::DEFAULT,
                 &cancellation
             ),
@@ -380,6 +435,7 @@ mod tests {
             source,
             &bytes,
             &original.instances,
+            false,
             MemoryBudget::DEFAULT,
             &retry_running.token,
         )
@@ -397,6 +453,7 @@ mod tests {
             source: [3; 32],
             proof: vec![4; 64],
             instances: vec![vec![[5; 32]; 3], vec![[6; 32]; 2]],
+            private_fold: None,
         };
         let bytes = norito::canonical_frame_len(&payload).unwrap();
         let layout = Layout {
@@ -406,6 +463,7 @@ mod tests {
             key: [2; 32],
             proof_bytes: 64,
             columns: vec![3, 2],
+            requires_fold: false,
         };
         (layout, payload)
     }
@@ -444,6 +502,35 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn retained_fold_presence_is_exact_and_its_bytes_survive_guarded_encoding() {
+        // Carrier grammar only: the zero private specimen grants no fold authority.
+        // Production recovery additionally verifies the installed Q proof and restores
+        // this witness against the independently reconstructed incoming source.
+        let (mut layout, mut payload) = specimen();
+        payload.private_fold = Some(PrivateFoldBytes::unknown());
+        assert!(layout.check(&payload, [3; 32]).is_err());
+        layout.stage = 0;
+        layout.requires_fold = true;
+        payload.stage = 0;
+        let bytes = PrivateArchiveBytes::encode(&payload).unwrap();
+        layout.custody =
+            super::super::layout(&layout.descriptor, &layout.key, 1, 0, bytes.len()).unwrap();
+        let decoded = layout.decode(&bytes, [3; 32]).unwrap();
+        assert_eq!(
+            decoded.private_fold.as_ref().unwrap().as_slice(),
+            payload.private_fold.as_ref().unwrap().as_slice(),
+        );
+        assert_eq!(PrivateArchiveBytes::encode(&decoded).unwrap(), bytes);
+        payload.private_fold = None;
+        assert!(layout.check(&payload, [3; 32]).is_err());
+        let missing = PrivateArchiveBytes::encode(&payload).unwrap();
+        assert!(layout.decode(&missing, [3; 32]).is_err());
+        let mut trailing = zeroize::Zeroizing::new(bytes.as_slice().to_vec());
+        trailing.push(0);
+        assert!(layout.decode(&trailing, [3; 32]).is_err());
+    }
+
     #[test]
     fn q_checkpoint_read_refusal_preserves_original_and_exact_retry() {
         let (layout, payload) = specimen();

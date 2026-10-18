@@ -1,5 +1,5 @@
 //! Integration tests covering the `SoraFS` pin registry flows.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STD};
 use iroha_core::{
     kura::Kura,
@@ -529,7 +529,7 @@ fn register_manifest_rejects_policy_above_governance_replica_ceiling() {
     let mut state = make_state();
     state.gov.sorafs_pin_policy.max_replicas_ceiling = Some(2);
     assert_governed_policy_rejection(
-        state,
+        &state,
         default_policy(),
         "pin policy exceeds maximum replicas 2",
     );
@@ -540,7 +540,7 @@ fn register_manifest_rejects_policy_beyond_governance_retention_ceiling() {
     state.gov.sorafs_pin_policy.max_retention_epoch = Some(30);
     let mut policy = default_policy();
     policy.retention_epoch = 31;
-    assert_governed_policy_rejection(state, policy, "pin retention epoch must be <= 30");
+    assert_governed_policy_rejection(&state, policy, "pin retention epoch must be <= 30");
 }
 #[test]
 fn register_manifest_rejects_storage_class_outside_governance_allowlist() {
@@ -548,7 +548,7 @@ fn register_manifest_rejects_storage_class_outside_governance_allowlist() {
     state.gov.sorafs_pin_policy.allowed_storage_classes =
         Some(BTreeSet::from([StorageClass::Cold]));
     assert_governed_policy_rejection(
-        state,
+        &state,
         default_policy(),
         "storage class `Hot` is not permitted by policy",
     );
@@ -942,7 +942,7 @@ fn pin_fee_balance(
         .get(&asset_id)
         .map_or_else(Quantity::zero, |value| value.clone().into_inner())
 }
-fn assert_governed_policy_rejection(state: State, policy: PinPolicy, expected_message: &str) {
+fn assert_governed_policy_rejection(state: &State, policy: PinPolicy, expected_message: &str) {
     let mut block = state.block(block_header(1));
     let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0x91; Hash::LENGTH]));
     bootstrap_sorafs(&mut tx);

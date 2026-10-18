@@ -266,9 +266,6 @@ fn query_memory_reclamation_native_control_refusal_reclaims_partial_constructor_
     let observation = observation.finish();
     assert_eq!(observation.refused, 1);
     assert_physically_reclaimed(&observation);
-    assert_eq!(
-        response.status(),
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    );
+    assert_eq!(response.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(pool.available_bytes(), WORKING as u64);
 }

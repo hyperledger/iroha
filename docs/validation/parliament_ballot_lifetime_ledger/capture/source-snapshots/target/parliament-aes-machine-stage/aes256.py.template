@@ -1,0 +1,210 @@
+"""Concrete public AES-256 circuit for the scratch IdealFrontierSim machine.
+
+The input is key[32] || plaintext[16], with low-bit-first byte coordinates.
+The clean interface XORs AES(key, plaintext) into a disjoint 128-bit target.
+This is a mathematical circuit, not a native implementation or PRP reduction.
+"""
+from __future__ import annotations
+
+from functools import lru_cache
+
+from bit_ir import Builder, Cost, integer, require
+
+
+def byte(builder, wires):
+    """Check eight currently allocated static wire labels."""
+    require(type(wires) is tuple and len(wires) == 8, "byte wire shape")
+    for wire in wires:
+        integer(wire, 0, builder.cursor - 1, "byte wire")
+    return wires
+
+
+def xor_bytes(builder, *words):
+    """Emit a fixed XOR reduction at each byte coordinate."""
+    require(len(words) >= 2, "byte XOR arity")
+    for word in words:
+        byte(builder, word)
+    out = words[0]
+    for word in words[1:]:
+        out = tuple(builder.bit("xor", a, b) for a, b in zip(out, word))
+    return out
+
+
+def xtime(builder, word):
+    """Multiply by x modulo x^8+x^4+x^3+x+1 using explicit XORs."""
+    word = byte(builder, word)
+    return (word[7], builder.bit("xor", word[0], word[7]), word[1],
+            builder.bit("xor", word[2], word[7]),
+            builder.bit("xor", word[3], word[7]), word[4], word[5], word[6])
+
+
+def multiply(builder, left, right):
+    """Schoolbook polynomial multiplication followed by fixed binary reduction."""
+    left, right = byte(builder, left), byte(builder, right)
+    coefficients = []
+    for degree in range(15):
+        terms = [builder.bit("and", left[i], right[degree-i])
+                 for i in range(8) if 0 <= degree-i < 8]
+        value = terms[0]
+        for term in terms[1:]:
+            value = builder.bit("xor", value, term)
+        coefficients.append(value)
+    for degree in range(14, 7, -1):
+        for tap in (0, 1, 3, 4):
+            index = degree - 8 + tap
+            coefficients[index] = builder.bit("xor", coefficients[index], coefficients[degree])
+    return tuple(coefficients[:8])
+
+
+def square(builder, word):
+    """Apply the fixed linear polynomial-squaring map without secret lookup."""
+    word = byte(builder, word)
+    # Images of each public basis monomial under x^(2i) mod the AES polynomial.
+    images = []
+    for i in range(8):
+        value = 1 << (2*i)
+        for degree in range(14, 7, -1):
+            if (value >> degree) & 1:
+                value ^= 0x11b << (degree - 8)
+        images.append(value)
+    out = []
+    for coordinate in range(8):
+        terms = [word[i] for i in range(8) if (images[i] >> coordinate) & 1]
+        require(bool(terms), "empty square coordinate")
+        value = terms[0]
+        for term in terms[1:]:
+            value = builder.bit("xor", value, term)
+        out.append(value)
+    return tuple(out)
+
+
+def substitute(builder, word):
+    """Compute the FIPS 197 S-box by inversion and its fixed affine transform.
+
+    The chain computes exponent 254 with four multiplications and seven
+    squarings. Zero maps to zero before the affine transform, as required.
+    """
+    word = byte(builder, word)
+    x2 = square(builder, word)
+    x3 = multiply(builder, x2, word)
+    x6 = square(builder, x3)
+    x12 = square(builder, x6)
+    x15 = multiply(builder, x12, x3)
+    x30 = square(builder, x15)
+    x60 = square(builder, x30)
+    x120 = square(builder, x60)
+    x240 = square(builder, x120)
+    x252 = multiply(builder, x240, x12)
+    inv = multiply(builder, x252, x2)
+    out = []
+    for i in range(8):
+        value = inv[i]
+        for offset in (4, 5, 6, 7):
+            value = builder.bit("xor", value, inv[(i + offset) % 8])
+        if (0x63 >> i) & 1:
+            value = builder.bit("not", value)
+        out.append(value)
+    return tuple(out)
+
+
+def xor_constant(builder, word, constant):
+    """XOR a public byte constant without preparing a secret-address table."""
+    word = byte(builder, word)
+    integer(constant, 0, 255, "byte constant")
+    return tuple(builder.bit("not", bit) if (constant >> i) & 1 else bit
+                 for i, bit in enumerate(word))
+
+
+def expand_key(builder, key):
+    """Emit all 60 AES-256 four-byte round-key words in source byte order."""
+    require(type(key) is tuple and len(key) == 32, "AES-256 key width")
+    for word in key:
+        byte(builder, word)
+    words = [key[i:i+4] for i in range(0, 32, 4)]
+    rcon = 1
+    for i in range(8, 60):
+        temporary = words[-1]
+        if i % 8 == 0:
+            temporary = temporary[1:] + temporary[:1]
+            temporary = tuple(substitute(builder, b) for b in temporary)
+            temporary = (xor_constant(builder, temporary[0], rcon),) + temporary[1:]
+            rcon = ((rcon << 1) ^ (0x1b if rcon & 0x80 else 0)) & 255
+        elif i % 8 == 4:
+            temporary = tuple(substitute(builder, b) for b in temporary)
+        words.append(tuple(xor_bytes(builder, a, b) for a, b in zip(words[i-8], temporary)))
+    return tuple(b for word in words for b in word)
+
+
+def shift_rows(state):
+    """Public column-major byte permutation; no data-dependent addressing."""
+    require(type(state) is tuple and len(state) == 16, "AES state width")
+    return tuple(state[4*((column + row) % 4) + row]
+                 for column in range(4) for row in range(4))
+
+
+def mix_columns(builder, state):
+    """Emit the fixed FIPS 197 forward column matrix."""
+    require(type(state) is tuple and len(state) == 16, "AES state width")
+    out = []
+    for column in range(4):
+        a = state[4*column:4*column+4]
+        twice = tuple(xtime(builder, v) for v in a)
+        for row in range(4):
+            out.append(xor_bytes(builder, twice[row], twice[(row+1) % 4],
+                                 a[(row+1) % 4], a[(row+2) % 4], a[(row+3) % 4]))
+    return tuple(out)
+
+
+@lru_cache(maxsize=1)
+def aes256_block():
+    """Construct the immutable bit IR for the complete key expansion and cipher."""
+    builder = Builder(384)
+    key = tuple(tuple(range(8*i, 8*i+8)) for i in range(32))
+    state = tuple(tuple(range(256+8*i, 256+8*i+8)) for i in range(16))
+    expanded = expand_key(builder, key)
+
+    def add_key(state, round_number):
+        return tuple(xor_bytes(builder, value, expanded[16*round_number+i])
+                     for i, value in enumerate(state))
+
+    state = add_key(state, 0)
+    for round_number in range(1, 15):
+        state = shift_rows(tuple(substitute(builder, value) for value in state))
+        if round_number != 14:
+            state = mix_columns(builder, state)
+        state = add_key(state, round_number)
+    return builder.finish(tuple(bit for value in state for bit in value))
+
+
+class AES256Kernel:
+    """Explicit clean AES map for concrete public computation, with no oracle calls."""
+    name = "concrete-fips197-aes256"
+    inputs = 384
+    outputs = 128
+
+    @property
+    def work(self):
+        """One fresh wire for every actual intermediate Boolean value."""
+        return aes256_block().derived
+
+    @property
+    def cost(self):
+        """Price the emitted compute/copy/uncompute circuit exactly."""
+        return aes256_block().cost.times(2) + Cost(cx=self.outputs)
+
+    def evaluate(self, inputs):
+        """Evaluate the Boolean model; native AES/library behavior is not asserted."""
+        return aes256_block().evaluate(inputs)
+
+    def emit(self, inputs, outputs, work):
+        """Relocate the entire clean circuit into disjoint caller-owned registers."""
+        require(type(inputs) is tuple and type(outputs) is tuple and type(work) is tuple,
+                "AES wire containers")
+        require(len(inputs) == self.inputs and len(outputs) == self.outputs and len(work) == self.work,
+                "AES wire widths")
+        wires = inputs + work + outputs
+        require(all(type(w) is int and w >= 0 for w in wires) and len(set(wires)) == len(wires),
+                "AES wire aliases")
+        for gate in aes256_block().emit_clean():
+            yield (gate[0], *(wires[w] for w in gate[1:]))
+

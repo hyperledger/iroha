@@ -1,7 +1,7 @@
 //! Fixed native map roles and unpublished preparation drafts over the source archive.
 //!
-//! A draft can write redundant immutable objects, but never select a monetary head or
-//! publish an archive manifest. Only its coordinator may retain/promote the descriptor.
+//! Logical drafts stage immutable objects in an explicit workspace. Only the coordinator
+//! may materialize their complete batch and publish a descriptor after acknowledgment.
 
 use super::{map_tree::PersistentMapV1, *};
 
@@ -17,24 +17,15 @@ pub enum PreparationMapV1 {
     Recovery,
     /// Fee-claim recovery map.
     Fee,
-    /// Permanent Request-recorded blacklist-version history.
-    BlacklistHistory,
 }
 impl PreparationMapV1 {
-    const ALL: [Self; 5] = [
-        Self::Consumed,
-        Self::Pending,
-        Self::Recovery,
-        Self::Fee,
-        Self::BlacklistHistory,
-    ];
+    const ALL: [Self; 4] = [Self::Consumed, Self::Pending, Self::Recovery, Self::Fee];
     const fn index(self) -> usize {
         match self {
             Self::Consumed => 0,
             Self::Pending => 1,
             Self::Recovery => 2,
             Self::Fee => 3,
-            Self::BlacklistHistory => 4,
         }
     }
     fn state_root(self, state: &KagemushaWalletStateV1) -> [u8; 32] {
@@ -43,7 +34,6 @@ impl PreparationMapV1 {
             Self::Pending => state.core.pending_outgoing_root,
             Self::Recovery => state.core.load_redeem_recovery_root,
             Self::Fee => state.core.fee_claim_root,
-            Self::BlacklistHistory => state.rest.blacklist_history_root,
         }
     }
 }
@@ -52,7 +42,7 @@ impl PreparationMapV1 {
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::SourceMapsV1")]
 pub(super) struct SourceMapsV1 {
     version: u16,
-    maps: [PersistentMapV1; 5],
+    maps: [PersistentMapV1; 4],
     quota_slots: [Option<KagemushaWalletQuotaUsageLeafV1>; 64],
 }
 impl Default for SourceMapsV1 {
@@ -65,9 +55,6 @@ impl Default for SourceMapsV1 {
     }
 }
 impl SourceMapsV1 {
-    pub(super) fn history(&self) -> &PersistentMapV1 {
-        &self.maps[PreparationMapV1::BlacklistHistory.index()]
-    }
     pub(super) fn pending(&self) -> &PersistentMapV1 {
         &self.maps[PreparationMapV1::Pending.index()]
     }
@@ -99,14 +86,14 @@ impl SourceMapsV1 {
     }
 }
 
-// Keeps ObjectStore generic helpers monomorphized without exposing archive selection.
-struct BorrowedStore<'a>(&'a mut dyn ObjectStore);
-impl ObjectStore for BorrowedStore<'_> {
-    fn read_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
-        self.0.read_object(key, maximum)
+// Keeps ObjectWorkspace generic helpers monomorphized without exposing archive selection.
+struct BorrowedStore<'a>(&'a mut dyn ObjectWorkspace);
+impl ObjectWorkspace for BorrowedStore<'_> {
+    fn read_staged_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
+        self.0.read_staged_object(key, maximum)
     }
-    fn write_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
-        self.0.write_object(bytes, maximum)
+    fn stage_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
+        self.0.stage_object(bytes, maximum)
     }
 }
 
@@ -124,11 +111,11 @@ impl<'a> PreparationMapsV1<'a> {
     pub(super) fn snapshot(&self) -> SourceMapsV1 {
         self.draft.clone()
     }
-    pub(crate) fn store(&mut self) -> &mut dyn ObjectStore {
+    pub(crate) fn store(&mut self) -> &mut dyn ObjectWorkspace {
         self.store.0
     }
     pub(super) fn new(
-        store: &'a mut dyn ObjectStore,
+        store: &'a mut dyn ObjectWorkspace,
         selected: &SourceMapsV1,
         state: &KagemushaWalletStateV1,
         kind: KagemushaWalletOperationKindV1,
@@ -182,6 +169,25 @@ impl<'a> PreparationMapsV1<'a> {
         self.draft.maps[role.index()].non_membership(&mut self.store, key)
     }
 
+    /// Authenticate the actual member or bracketing low leaf without changing this map.
+    /// Conditional no-op circuits still require this real path against the selected root.
+    ///
+    /// # Errors
+    /// Missing/corrupt objects, invalid key or an opening that differs from the selected root.
+    pub fn member_or_low(
+        &mut self,
+        role: PreparationMapV1,
+        key: &[u8; 32],
+    ) -> Result<
+        (
+            KagemushaWalletIndexedLeafV1,
+            KagemushaWalletIndexedOpeningV1,
+        ),
+        Error,
+    > {
+        self.draft.maps[role.index()].member_or_low(&mut self.store, key)
+    }
+
     /// Derive a native insertion for a map owned by this operation.
     ///
     /// # Errors
@@ -197,9 +203,6 @@ impl<'a> PreparationMapsV1<'a> {
             (K::Receive, PreparationMapV1::Consumed)
             | (K::Send, PreparationMapV1::Pending | PreparationMapV1::Fee)
             | (K::Load | K::Unload, PreparationMapV1::Recovery) => true,
-            (K::RefreshPolicy, PreparationMapV1::BlacklistHistory) => {
-                self.refresh == Some(KagemushaWalletPolicyUpdateKindV1::Blacklist)
-            }
             _ => false,
         };
         if !allowed {

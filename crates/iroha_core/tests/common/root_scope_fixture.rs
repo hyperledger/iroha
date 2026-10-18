@@ -26,7 +26,7 @@ use iroha_primitives::json::Json;
 use std::num::NonZeroU64;
 
 /// The consensus handshake metadata parameter with a Global root scope.
-pub(crate) fn global_root_scope_parameter() -> Parameter {
+pub fn global_root_scope_parameter() -> Parameter {
     let context = SumeragiGenesisContextParameters::recommended();
     assert_eq!(context.root_scope, SumeragiRootScope::Global);
     let metadata = ConsensusHandshakeMetadata {
@@ -47,7 +47,7 @@ pub(crate) fn global_root_scope_parameter() -> Parameter {
 
 /// Commit the Global root scope as the World overlay of height one. Instructions of the
 /// calling test then execute in a block of height two or later.
-pub(crate) fn commit_global_root_scope(state: &State) {
+pub fn commit_global_root_scope(state: &State) {
     let header = BlockHeader::new(NonZeroU64::MIN, None, None, 0, 0);
     let mut block = state.block(header);
     let mut transaction = block.transaction();

@@ -1,0 +1,71 @@
+{
+  "audited_repository_read_paths": [
+    "crates/irohad/src/main.rs",
+    "crates/irohad/src/main/runtime_deps.rs",
+    "pytest.ini",
+    "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts/formal/rust_text.py",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts/tests/conftest.py"
+  ],
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "docs/validation/parliament_ballot_daemon_startup_guard/daemon-startup-controls.py.template",
+    "threshold_signer or threshold_startup or daemon_boxed_startup"
+  ],
+  "environment": {
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+  },
+  "exit": 0,
+  "log": "docs/validation/parliament_ballot_daemon_startup_guard/daemon-startup-controls.txt",
+  "log_sha256": "744d18356280d1e65eea9e483134aa78205f0b1cd10333c2dc29bbb397942472",
+  "observed_at_utc": "2026-10-13T14:18:48.306186+00:00",
+  "observed_read_count": 8,
+  "passed": 181,
+  "profile_qualified": false,
+  "pytest_arguments": [
+    "--import-mode=importlib",
+    "--import-mode=importlib",
+    "-q",
+    "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "-k",
+    "threshold_signer or threshold_startup or daemon_boxed_startup"
+  ],
+  "pytest_version": "9.1.1",
+  "read_scope": "Repository source/data/config reads; Python bytecode caches and generated evidence outputs excluded. Installed interpreter/pytest runtime trusted.",
+  "repository_imports": {
+    "__main__": "docs/validation/parliament_ballot_daemon_startup_guard/daemon-startup-controls.py.template",
+    "scripts.formal.check_sora_parliament_source_contract": "scripts/formal/check_sora_parliament_source_contract.py",
+    "scripts.tests.check_sora_parliament_source_contract_test": "scripts/tests/check_sora_parliament_source_contract_test.py",
+    "scripts.tests.conftest": "scripts/tests/conftest.py"
+  },
+  "runtime": {
+    "installed_runtime_trusted": true,
+    "python_executable": "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "python_executable_sha256": "1b5cb11d163e5ba34e2a05fc533c0ed89574d4425f9749a9d89405f651980e0d",
+    "python_version": "3.14.8 (main, Sep 30 2026, 17:55:09) [Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "schema": "parliament-daemon-startup-controls-v1",
+  "scope": "One hundred eighty-one focused Python threshold/readiness/startup controls, including forty-three boxed-entry controls. The exact original Iroha owner/signature, Box::pin preparation and activation, original argument handoff, awaits and error propagation are bound. Subsequent preflight checks are unchanged. Surrounding Box/name resolution and allocator/compiler/runtime behavior remain premises; no startup execution, memory or production qualification follows.",
+  "source_after": {
+    "crates/irohad/src/main.rs": "08450bc8940182983cd53ce3f958acb77a200fbce56c70eddb75619faf80efe3",
+    "crates/irohad/src/main/runtime_deps.rs": "4383422e071a531d1501a96d2b4584b1cd5bcf402417f2314854685c1b1fbb19",
+    "docs/validation/parliament_ballot_daemon_startup_guard/daemon-startup-controls.py.template": "7f6a7409dc3149547e59c5521712edcee9b4530c5390d05b1cbd621a6c0434a4",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "3c6117dd0ce007ba988fe18840a8463a42a3b355a80a80b73920d743eb0d0e6c",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "1e5a07771d064e3a7fca1d2a4d2aac9fc7cd84334150b7c93c6f4e821aa6f4a5",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_before": {
+    "crates/irohad/src/main.rs": "08450bc8940182983cd53ce3f958acb77a200fbce56c70eddb75619faf80efe3",
+    "crates/irohad/src/main/runtime_deps.rs": "4383422e071a531d1501a96d2b4584b1cd5bcf402417f2314854685c1b1fbb19",
+    "docs/validation/parliament_ballot_daemon_startup_guard/daemon-startup-controls.py.template": "7f6a7409dc3149547e59c5521712edcee9b4530c5390d05b1cbd621a6c0434a4",
+    "pytest.ini": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62",
+    "scripts/formal/check_sora_parliament_source_contract.py": "3c6117dd0ce007ba988fe18840a8463a42a3b355a80a80b73920d743eb0d0e6c",
+    "scripts/formal/rust_text.py": "b8d69b263c1e59fd3fd54f85b6273008c18e39b757cf7693685ca998fe447e82",
+    "scripts/tests/check_sora_parliament_source_contract_test.py": "1e5a07771d064e3a7fca1d2a4d2aac9fc7cd84334150b7c93c6f4e821aa6f4a5",
+    "scripts/tests/conftest.py": "63479ac338bacf1bcf0ca62fea3189cf5564acb7fb8af68e7222f7d797d0d36f"
+  },
+  "source_unchanged": true
+}

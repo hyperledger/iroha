@@ -1,0 +1,84 @@
+"""Source-bound concrete public hashing diagnostic; always unqualified."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+import bit_ir
+import keccak1600
+
+STAGE = Path(__file__).resolve().parent
+ROOT = STAGE.parents[1]
+PINS = {
+    ROOT / 'target/parliament-ideal-machine-stage/bit_ir.py': 'f36158489182058a4742843b458d9285e11901b7714b503b42d4c940feb4cc64',
+    ROOT / 'crates/iroha_zkp_vole/src/hash.rs': 'c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70',
+    ROOT / 'crates/iroha_parliament_ballot_proof/src/framing.rs': '784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0',
+    ROOT / 'crates/iroha_parliament_ballot_proof/src/profile.rs': '9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d',
+    STAGE / 'references/NIST.FIPS.202.pdf': '1592607831ff0908cc590632ce371c6c95e94025bb1a0c8ae90a4d0ec1ed025e',
+}
+EXECUTING = ('keccak1600.py', 'report.py', 'test_keccak1600.py', 'README.md')
+FLAGS = dict(full_generator_implemented=False, complete_simulator_coverage=False,
+             complete_public_framing=False, complete_resource_vector=False,
+             actual_input_primitive_entry=False, primitive_advantage_assumed=False,
+             independent_cryptographic_review=False, native_workspace_certificate=False,
+             profile_qualified=False, production_gate_changed=False)
+
+
+def digest(path):
+    """Hash exact original bytes without evaluating source text."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def observed():
+    """Check loaded locations and the complete selected identity inventory."""
+    bit_ir.require(Path(bit_ir.__file__).resolve() == ROOT / 'target/parliament-ideal-machine-stage/bit_ir.py',
+                   'loaded IR path differs')
+    bit_ir.require(Path(keccak1600.__file__).resolve() == STAGE / 'keccak1600.py',
+                   'loaded Keccak path differs')
+    actual = {path: digest(path) for path in PINS}
+    bit_ir.require(actual == PINS, 'selected Keccak reference/source changed')
+    return {str(path): value for path, value in actual.items()} | {
+        str(STAGE / name): digest(STAGE / name) for name in EXECUTING}
+
+
+def resource_row(kernel):
+    """Report the implementation's derived cost and exact wire interface."""
+    return dict(input_bits=kernel.inputs, output_bits=kernel.outputs,
+                clean_work_bits=kernel.work, gates=kernel.cost.as_dict())
+
+
+def report():
+    """Price the emitted permutation and selected fixed public sponge shapes."""
+    before = observed()
+    value = dict(schema='parliament-concrete-keccak1600-circuit-v1',
+                 checked_component_construction=True,
+                 permutation=resource_row(keccak1600.Keccak1600Kernel()),
+                 sha3_512={str(n): resource_row(keccak1600.SHA3_512Kernel(n))
+                           for n in (0, 71, 72, 73, 144, 321)},
+                 source_before=before, **FLAGS)
+    value['source_after'] = observed()
+    bit_ir.require(before == value['source_after'], 'source changed during report')
+    return value
+
+
+def main(argv=None):
+    """Distinguish useful component diagnostics from full qualification."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path)
+    parser.add_argument('--require-qualified', action='store_true')
+    args = parser.parse_args(argv)
+    try:
+        value, code = report(), 2 if args.require_qualified else 0
+    except (OSError, ValueError) as error:
+        value, code = dict(error=str(error), checked_component_construction=False, **FLAGS), 1
+    encoded = json.dumps(value, indent=2, sort_keys=True) + '\n'
+    if args.out is None:
+        print(encoded, end='')
+    else:
+        with args.out.open('x') as output:
+            output.write(encoded)
+    return code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

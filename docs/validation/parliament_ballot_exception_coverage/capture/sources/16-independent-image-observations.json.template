@@ -1,0 +1,46 @@
+{
+  "accel": {
+    "action_offsets": {
+      "0": 1080,
+      "1": 120,
+      "5": 3,
+      "7": 5
+    },
+    "binary_sha256": "40219e559636f092c3b4197f6e65eb1ab083f25444fcafd2b635221b4f7e18e7",
+    "callsite_rows": 1208,
+    "first_type_index_sign_observed": {
+      "negative": 120,
+      "positive": 8
+    },
+    "lsda_descriptor_count": 228,
+    "lsda_encodings": {
+      "(255, 155, 1)": 85,
+      "(255, 255, 1)": 143
+    },
+    "nonzero_landing_rows": 730,
+    "unique_lsda_addresses": 228,
+    "zero_landing_rows": 478
+  },
+  "portable": {
+    "action_offsets": {
+      "0": 1076,
+      "1": 118,
+      "5": 3,
+      "7": 5
+    },
+    "binary_sha256": "3f658228a903c50c9a549baedd0b822e14fca03f654659720cb434b83d9bb9dc",
+    "callsite_rows": 1202,
+    "first_type_index_sign_observed": {
+      "negative": 118,
+      "positive": 8
+    },
+    "lsda_descriptor_count": 228,
+    "lsda_encodings": {
+      "(255, 155, 1)": 85,
+      "(255, 255, 1)": 143
+    },
+    "nonzero_landing_rows": 727,
+    "unique_lsda_addresses": 228,
+    "zero_landing_rows": 475
+  }
+}

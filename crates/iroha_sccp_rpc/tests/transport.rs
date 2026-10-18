@@ -4,6 +4,9 @@
 //! public mainnet endpoints (`fixtures/sccp/rpc/transport`) and synthetic
 //! failures. Nothing here touches the network.
 
+#[path = "transport/transaction_proof.rs"]
+mod transaction_proof;
+
 use std::{
     collections::VecDeque,
     fmt::Write as _,

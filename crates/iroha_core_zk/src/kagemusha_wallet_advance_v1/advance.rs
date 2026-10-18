@@ -9,7 +9,8 @@
 //!   head, a record or a tombstone, and refuse its reuse with changed inputs;
 //! - **A2** validate the request against the current marker; **A3** reserve capacity;
 //! - **A4** stage both capsule copies; **A5** publish the Selected marker (the commit point);
-//! - **A6** retire the older marker; **A7** sign the receipt body under the Selected-marker
+//! - **A6** retire the older marker and anchor the durable Selected marker; **A7** sign the
+//!   receipt body under the Selected-marker
 //!   capability, unless a valid record for the head already exists; **A8** persist the
 //!   completion record in two copies; **A9** publish the Released marker binding its digest;
 //!   **A10** raise the iOS anchor; **A11** retire the Selected marker; **A12** regrow the
@@ -70,7 +71,8 @@ use super::{
     provider::{KagemushaWalletProviderV1, KagemushaWalletSlotStatusV1},
     retained::{
         KagemushaWalletLookupV1, KagemushaWalletRetainedStatusV1, KagemushaWalletRetainedV1,
-        KagemushaWalletTombstoneV1, OlderCompletionV1, load_older_completion, read_tombstone,
+        KagemushaWalletTombstoneV1, OlderCompletionV1, TombstoneReadV1, load_older_completion,
+        read_tombstone,
     },
 };
 
@@ -385,10 +387,11 @@ where
     /// # Errors
     ///
     /// `Terminal` for a terminal slot, `Invalid` for a slot without an enrollment marker,
-    /// `OperationIdConflict` when the operation identity is retained with other inputs, and the
-    /// reconcile errors. Unknown write outcomes from A4 on, and every failure after the
-    /// Selected marker is durable except custody loss (`LostCustody`, `KeyLost`), are
-    /// `Ok(Pending)`, never errors.
+    /// `OperationIdConflict` when the operation identity is retained with other inputs, the
+    /// reconcile errors and the errors of publishing the slot's staged archive records
+    /// ([`Self::drain_archive`]), before anything is selected. Unknown write outcomes from A4
+    /// on, and every failure after the Selected marker is durable except custody loss
+    /// (`LostCustody`, `KeyLost`), are `Ok(Pending)`, never errors.
     pub fn advance(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
@@ -414,6 +417,10 @@ where
                 });
             }
         };
+        // Archive records staged by the open call are durable before any effect of Advance (the
+        // capacity check, the capsule and every marker): a selected capsule never names an
+        // unpublished record.
+        self.drain_archive(slot)?;
         let Ok(frame) = request.capsule.encode_frame() else {
             return Ok(KagemushaWalletAdvanceOutcomeV1::NotPerformed(invalid(
                 "capsule",
@@ -689,6 +696,16 @@ where
         current: &KagemushaWalletMarkerRecordV1,
         operation_id: &[u8; 32],
     ) -> Result<KagemushaWalletLookupV1<R>, KagemushaWalletProviderErrorV1> {
+        // The permanent collection decision dominates any completion copy whose earlier
+        // unlink lost its writeback and later resurfaced. An unreadable or malformed decision
+        // never restores delivery authority or makes the operation identity reusable.
+        match read_tombstone(&self.store, slot, operation_id)? {
+            TombstoneReadV1::Found(tombstone) => {
+                return Ok(KagemushaWalletLookupV1::Archived(Box::new(tombstone)));
+            }
+            TombstoneReadV1::Invalid => return Ok(KagemushaWalletLookupV1::DeliveryDataLoss),
+            TombstoneReadV1::Absent => {}
+        }
         let binding = R::marker_binding(current.marker());
         Ok(
             match load_older_completion::<F, R>(&self.store, slot, operation_id, &binding)? {
@@ -696,12 +713,7 @@ where
                     KagemushaWalletRetainedV1::from_pair(pair),
                 )),
                 OlderCompletionV1::Invalid => KagemushaWalletLookupV1::DeliveryDataLoss,
-                OlderCompletionV1::Absent => match read_tombstone(&self.store, slot, operation_id)?
-                {
-                    Some(Some(tombstone)) => KagemushaWalletLookupV1::Archived(Box::new(tombstone)),
-                    Some(None) => KagemushaWalletLookupV1::DeliveryDataLoss,
-                    None => KagemushaWalletLookupV1::Unknown,
-                },
+                OlderCompletionV1::Absent => KagemushaWalletLookupV1::Unknown,
             },
         )
     }
@@ -883,7 +895,8 @@ where
         }
     }
 
-    /// Finish a durable Selected marker (A6-A12; reconcile R9): retire `lower`, sign the
+    /// Finish a durable Selected marker (A6-A12; reconcile R9): retire `lower`, anchor the
+    /// Selected marker, sign the
     /// receipt unless a valid record for the head exists, persist the record, publish and
     /// anchor the Released marker, retire the Selected marker and cache the result.
     ///
@@ -944,6 +957,11 @@ where
     ) -> Result<FinishedV1<R>, KagemushaWalletProviderErrorV1> {
         // A6: every older marker is retired before any signature.
         kagemusha_wallet_retire_markers_v1(&self.store, selected, lower)?;
+        // Bind the selected successor in the keychain before producing any signature. If
+        // only the later Released-anchor update is lost, restoring pre-Advance files still
+        // leaves an anchor ahead of those files. Two acknowledged writes are not a platform
+        // durability fence; losing both remains a separately documented qualification gap.
+        kagemusha_wallet_raise_anchor_v1(&self.platform, selected.record())?;
         let capability =
             selected
                 .selected_capability()

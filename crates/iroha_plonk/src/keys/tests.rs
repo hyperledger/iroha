@@ -1,6 +1,6 @@
 //! Key generation, the `0x02` codec and the proving-key tables.
 
-use ff::Field;
+use ff::{Field, PrimeField};
 use iroha_pasta::{Ep, Eq, Fp, PastaCurve, PastaField, fft::FftDomain, msm::MemoryBudget};
 
 use super::*;
@@ -198,6 +198,14 @@ fn proving_key_artifact_round_trip_proves_on_both_curves() {
             profile.compress_selectors = compress;
             let original = keygen_pk_v2(&params, &CIRCUIT, &profile).expect("frozen producer");
             let encoded = original.artifact_bytes_v2().expect("original bytes");
+            assert_eq!(&encoded[..8], b"PIPACPK1");
+            assert_eq!(encoded.len(), 108 + original.vk().to_bytes().len());
+            let dense_bytes = 76
+                + original.vk().to_bytes().len()
+                + (original.fixed_values().len() + original.permutation_values().len())
+                    * original.binding().n()
+                    * 32;
+            assert!(encoded.len() * 8 < dense_bytes);
             let config = pk::artifact::ReadConfig {
                 maximum_bytes: encoded.len(),
                 maximum_rows: 1 << K,
@@ -223,10 +231,19 @@ fn proving_key_artifact_round_trip_proves_on_both_curves() {
                 &params,
                 &imported,
                 witness,
-                ProverRandomness::hedged(),
+                ProverRandomness::fixed_seed_for_tests([91; 32]),
                 ProverConfig::default(),
             )
             .expect("actual imported proof");
+            let original_proof = create_proof_owned(
+                &params,
+                &original,
+                Witness::from_circuit(&original, &CIRCUIT, &instances).unwrap(),
+                ProverRandomness::fixed_seed_for_tests([91; 32]),
+                ProverConfig::default(),
+            )
+            .expect("actual original proof");
+            assert_eq!(proof, original_proof);
             verify_full(
                 &params,
                 original.binding(),
@@ -353,7 +370,7 @@ fn proving_key_artifact_rejects_source_encoding_allocation_and_commitment_change
     changed[vk_end + 32..vk_end + 64].fill(0xff);
     assert_eq!(
         read(&changed, &CIRCUIT, config),
-        Some(ArtifactError::Encoding)
+        Some(ArtifactError::Source)
     );
     let mut changed = encoded.clone();
     changed[vk_end + 32..vk_end + 64].fill(0);
@@ -362,13 +379,36 @@ fn proving_key_artifact_rejects_source_encoding_allocation_and_commitment_change
         read(&changed, &CIRCUIT, config),
         Some(ArtifactError::Source)
     );
-    let sigma_start = vk_end + 32 + original.fixed_values().len() * original.binding().n() * 32;
-    let mut changed = encoded.clone();
-    changed[sigma_start..sigma_start + 32].fill(0);
-    changed[sigma_start] = 19;
+    // The retired dense original is never accepted, even with room to read it.
+    let mut dense = encoded[..vk_end + 32].to_vec();
+    dense[..8].copy_from_slice(b"PIPAPK01");
+    for column in original
+        .fixed_values()
+        .iter()
+        .chain(original.permutation_values())
+    {
+        for value in column {
+            dense.extend(value.to_repr());
+        }
+    }
+    let mut dense_cap = config;
+    dense_cap.maximum_bytes = dense.len();
     assert_eq!(
-        read(&changed, &CIRCUIT, config),
-        Some(ArtifactError::Source)
+        ProvingKey::<Ep>::from_artifact_v2(
+            &dense,
+            original.binding(),
+            &params,
+            &NeverSynthesize,
+            dense_cap
+        )
+        .err(),
+        Some(ArtifactError::Length)
+    );
+    let mut wrong_magic = encoded.clone();
+    wrong_magic[..8].copy_from_slice(b"PIPAPK01");
+    assert_eq!(
+        read(&wrong_magic, &CIRCUIT, config),
+        Some(ArtifactError::Encoding)
     );
     let selectors_start =
         44 + 10 + (original.fixed_values().len() + original.permutation_values().len()) * 32;
@@ -451,8 +491,43 @@ fn round_trip<C: PastaCurve>() {
         assert_eq!(vk.k(), K);
         assert_eq!(vk.compress_selectors(), compress);
         assert_eq!(vk.selectors().len(), if compress { 3 } else { 0 });
+        let cloned = vk.clone();
+        assert_eq!(cloned.to_bytes().as_ptr(), vk.to_bytes().as_ptr());
+        assert_eq!(
+            cloned.fixed_commitments().as_ptr(),
+            vk.fixed_commitments().as_ptr()
+        );
+        assert_eq!(
+            cloned.permutation_commitments().as_ptr(),
+            vk.permutation_commitments().as_ptr()
+        );
+        for (index, bitmap) in cloned.selectors().iter().enumerate() {
+            let offset = 10 + 32 * (fixed + sigma) + index * 64 / 8;
+            assert_eq!(
+                bitmap.packed_bytes().as_ptr(),
+                vk.to_bytes()[offset..].as_ptr()
+            );
+        }
+        let expanded: Vec<Vec<bool>> = vk
+            .selectors()
+            .iter()
+            .map(|rows| rows.iter().collect())
+            .collect();
+        assert_eq!(
+            VerifyingKey::<C>::from_parts(
+                pk.binding(),
+                vk.fixed_commitments().to_vec(),
+                vk.permutation_commitments().to_vec(),
+                expanded
+            )
+            .unwrap()
+            .to_bytes(),
+            vk.to_bytes()
+        );
         let read = VerifyingKey::<C>::read(vk.to_bytes(), pk.binding()).expect("read");
         assert_eq!(read, vk);
+        // Sharing is local to clones; a separately admitted key owns its bytes.
+        assert_ne!(read.to_bytes().as_ptr(), vk.to_bytes().as_ptr());
         assert_eq!(
             *vk.transcript_repr(),
             crate::transcript::TranscriptRepr::Scalar(transcript_repr::<C::ScalarExt>(
@@ -1008,21 +1083,39 @@ fn small_domains_are_unpinned() {
 }
 
 #[test]
-fn unit_tests_can_inject_the_captured_transcript_repr() {
+fn decoding_derives_the_exact_descriptor_bound_transcript_repr() {
+    use crate::{cs::InstanceModeV1, transcript::TranscriptRepr};
     use iroha_pasta::Fq;
+
     let params = params::<Ep>();
-    let vk = keygen_vk(
+    let pk = keygen_pk(
         &params,
         &CIRCUIT,
         &config(TranscriptV1::Blake2bChallenge255, true),
     )
-    .expect("vk");
-    let injected = vk.clone().with_transcript_repr_for_oracle(Fq::from(5));
+    .expect("key");
+    let vk = VerifyingKey::<Ep>::read(pk.vk().to_bytes(), pk.binding()).expect("decoded key");
+    assert_eq!(vk.to_bytes(), pk.vk().to_bytes());
     assert_eq!(
-        *injected.transcript_repr(),
-        crate::transcript::TranscriptRepr::Scalar(Fq::from(5))
+        *vk.transcript_repr(),
+        TranscriptRepr::Scalar(transcript_repr::<Fq>(pk.binding().digest(), vk.to_bytes()))
     );
-    assert_eq!(injected.to_bytes(), vk.to_bytes());
+
+    // The same serialized key under another admitted instance mode gets a
+    // freshly derived representation; bytes never carry an injected override.
+    let mut descriptor = pk.binding().descriptor().arithmetic_layout();
+    descriptor.instance_mode = InstanceModeV1::Direct;
+    let changed_binding = DescriptorBinding::new(descriptor).expect("direct descriptor");
+    let changed = VerifyingKey::<Ep>::read(vk.to_bytes(), &changed_binding).expect("rebound key");
+    assert_eq!(changed.to_bytes(), vk.to_bytes());
+    assert_ne!(changed.transcript_repr(), vk.transcript_repr());
+    assert_eq!(
+        *changed.transcript_repr(),
+        TranscriptRepr::Scalar(transcript_repr::<Fq>(
+            changed_binding.digest(),
+            changed.to_bytes()
+        ))
+    );
 }
 
 fn wallet_digest<C: PastaCurve>() {
@@ -1096,7 +1189,10 @@ fn wallet_digest<C: PastaCurve>() {
         pk.binding(),
         fixed,
         vk.permutation_commitments().to_vec(),
-        vk.selectors().to_vec(),
+        vk.selectors()
+            .iter()
+            .map(|rows| rows.iter().collect())
+            .collect(),
     )
     .expect("foreign key");
     assert_ne!(
@@ -1174,22 +1270,30 @@ fn cancellable_keygen_preserves_originals_and_fresh_retry_on_both_curves() {
                     &binding,
                     vk.fixed_commitments().to_vec(),
                     vk.permutation_commitments().to_vec(),
-                    vk.selectors().to_vec(),
+                    vk.selectors()
+                        .iter()
+                        .map(|rows| rows.iter().collect())
+                        .collect(),
                     Some(&token)
                 ),
                 Err(VkError::Cancelled)
             ));
+            let expanded_selectors: Vec<Vec<bool>> = vk
+                .selectors()
+                .iter()
+                .map(|rows| rows.iter().collect())
+                .collect();
             assert!(
                 binding
                     .descriptor()
-                    .check_selector_plan_cancellable(vk.selectors(), Some(&token))
+                    .check_selector_plan_cancellable(&expanded_selectors, Some(&token))
                     .unwrap_err()
                     .is_cancelled()
             );
             assert_eq!(
                 binding
                     .descriptor()
-                    .check_selector_plan_cancellable(vk.selectors(), Some(&fresh)),
+                    .check_selector_plan_cancellable(&expanded_selectors, Some(&fresh)),
                 Ok(())
             );
             if table_budget.is_some_and(|budget| budget.bytes() == 0) {
@@ -1305,3 +1409,59 @@ fn cancellable_vk_hash_matches_every_transcript_profile() {
     check::<Ep>();
     check::<Eq>();
 }
+
+#[test]
+fn shared_descriptor_bindings_compare_by_exact_domain_digest_and_frame() {
+    let params = params::<Ep>();
+    let v2 = KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]);
+    let (built, _) = keygen_vk_with_binding_v2(&params, &CIRCUIT, &v2).expect("V2 verifier");
+    // A clone shares one immutable allocation.
+    let shared = built.clone();
+    assert!(Arc::ptr_eq(&shared.0, &built.0));
+    assert_eq!(shared, built);
+    // An independent admission decode of the same frame is another allocation
+    // with the same descriptor, digest and frame, so it compares equal.
+    let decoded = DescriptorBinding::decode_v2(built.encoded()).expect("canonical frame");
+    assert!(!Arc::ptr_eq(&decoded.0, &built.0));
+    assert_eq!(decoded, built);
+    assert_eq!(built, decoded);
+    assert_eq!(decoded.descriptor(), built.descriptor());
+    assert_eq!(decoded.digest(), built.digest());
+    // The V1 binding of the same circuit differs in its digest domain and frame.
+    let v1 = keygen_pk(
+        &params,
+        &CIRCUIT,
+        &config(TranscriptV1::Blake2bChallenge255, true),
+    )
+    .expect("V1 key");
+    assert!(!v1.binding().is_v2());
+    assert_ne!(v1.binding(), &built);
+    assert_ne!(v1.binding().digest(), built.digest());
+    // Another V2 descriptor of the same circuit is unequal in both directions.
+    let mut expanded = v2;
+    expanded.compress_selectors = false;
+    let (other, _) =
+        keygen_vk_with_binding_v2(&params, &CIRCUIT, &expanded).expect("expanded verifier");
+    assert_ne!(other, built);
+    assert_ne!(built, other);
+    // A changed frame byte never admits as, or compares equal to, the original.
+    for index in [0, built.encoded().len() / 2, built.encoded().len() - 1] {
+        let mut changed = built.encoded().to_vec();
+        changed[index] ^= 1;
+        if let Ok(changed) = DescriptorBinding::decode_v2(&changed) {
+            assert_ne!(changed, built);
+        }
+    }
+    // Sharing leaves the public Debug shape unchanged.
+    assert_eq!(
+        format!("{built:?}"),
+        format!(
+            "DescriptorBinding {{ descriptor: {:?}, encoded: {:?}, digest: {:?} }}",
+            built.descriptor(),
+            built.encoded(),
+            built.digest()
+        )
+    );
+}
+
+mod packed_selectors;

@@ -270,8 +270,7 @@ async fn multisig_proposals_resolve_rejects_unsigned_alias_selector() {
             multisig_account_id: None,
             multisig_account_alias: Some("banking@centralbank.universal".to_owned()),
         },
-        proposal_id: Some("deadbeef".to_owned()),
-        instructions_hash: None,
+        proposal_id: "de".repeat(32).parse().unwrap(),
     };
     let error = handler_post_multisig_proposals_resolve(
         State(mk_app_state_for_tests()),
@@ -344,8 +343,7 @@ async fn multisig_reads_reject_unsigned_concrete_account_selectors() {
         crate::loopback_connect_info(),
         multisig_read_payload(routing::MultisigProposalsResolveRequestDto {
             selector: selector(),
-            proposal_id: Some("a".repeat(64)),
-            instructions_hash: None,
+            proposal_id: ("a".repeat(64)).parse().unwrap(),
         }),
     )
     .await
@@ -618,8 +616,7 @@ async fn browser_read_endpoints_are_not_throttled_by_deploy_limiter() {
     assert_ne!(query_response.status(), StatusCode::TOO_MANY_REQUESTS);
     let resolve_request = routing::MultisigProposalsResolveRequestDto {
         selector: selector(),
-        proposal_id: Some("deadbeef".to_owned()),
-        instructions_hash: None,
+        proposal_id: "de".repeat(32).parse().unwrap(),
     };
     let resolve_response = handler_post_multisig_proposals_resolve(
         State(app),

@@ -1193,6 +1193,7 @@ fn is_time_sensitive_instruction_type(type_id: TypeId) -> bool {
         iroha_data_model::isi::social::ClaimTwitterFollowReward,
         iroha_data_model::isi::social::SendToTwitter,
         iroha_data_model::isi::repo::RepoInstructionBox,
+        iroha_data_model::isi::bond::BondInstructionBox,
         iroha_data_model::isi::settlement::SettlementInstructionBox,
         iroha_data_model::isi::staking::ExitPublicLaneValidator,
         iroha_data_model::isi::staking::SchedulePublicLaneUnbond,
@@ -6382,6 +6383,8 @@ pub mod tests {
         )
         .with_instructions([InstructionBox::from(MultisigPropose::new(
             multisig_id,
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61; 32])
+                .unwrap(),
             vec![registration.into()],
             None,
         ))])
@@ -6495,6 +6498,8 @@ pub mod tests {
         )
         .with_instructions([InstructionBox::from(MultisigPropose::new(
             multisig_id,
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61; 32])
+                .unwrap(),
             vec![registration.into()],
             None,
         ))])
@@ -7294,6 +7299,12 @@ pub mod tests {
         )
         .with_instructions([MultisigApprove::new(
             multisig_account.clone(),
+            iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+                &chain.network_id(),
+                &multisig_account.clone(),
+                &iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61; 32])
+                    .unwrap(),
+            ),
             instructions_hash,
         )])
         .sign(keypair.private_key());
@@ -8765,7 +8776,7 @@ pub mod tests {
             ),
             1u32,
         );
-        let governance = iroha_data_model::repo::RepoGovernance::with_defaults(100, 3600);
+        let governance = iroha_data_model::repo::RepoGovernance::new(100, 3600, false);
         let repo = iroha_data_model::isi::repo::RepoIsi::new(
             agreement_id.clone(),
             counterparty.clone(),
@@ -8788,6 +8799,25 @@ pub mod tests {
         assert!(super::is_time_sensitive_instruction(&InstructionBox::from(
             margin_call
         )));
+        // Every bond-kernel instruction is gated by committed block time.
+        let bond = collateral_leg.asset_definition_id.clone();
+        for instruction in [
+            InstructionBox::from(iroha_data_model::isi::bond::RecordBondCashflow::new(
+                bond.clone(),
+                0,
+            )),
+            InstructionBox::from(iroha_data_model::isi::bond::CallBond::new(
+                bond.clone(),
+                1_700_000_000_000,
+            )),
+            InstructionBox::from(iroha_data_model::isi::bond::ClaimBondCashflow::new(
+                bond,
+                0,
+                counterparty.clone(),
+            )),
+        ] {
+            assert!(super::is_time_sensitive_instruction(&instruction));
+        }
         let exit = iroha_data_model::isi::staking::ExitPublicLaneValidator {
             lane_id: TestLaneId::SINGLE,
             validator: counterparty.clone(),

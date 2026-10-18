@@ -1,6 +1,6 @@
 //! Committed metadata-assessment admission policy.
 //!
-//! An ordinary authorized SetParameter installs this exact V1 value. Core freezes
+//! An ordinary authorized `SetParameter` installs this exact V1 value. Core freezes
 //! the predecessor's validated value for a block; a change governs the following
 //! block. Endpoints and transport deadlines belong to the node, not this policy.
 
@@ -226,7 +226,7 @@ impl FraudAdmissionPolicyV1 {
             .find(|attester| attester.engine_id == engine_id)
     }
 
-    /// Author the parameter carried by an ordinary authorized SetParameter.
+    /// Author the parameter carried by an ordinary authorized `SetParameter`.
     #[must_use]
     pub fn into_custom_parameter(self) -> CustomParameter {
         CustomParameter::new(Self::parameter_id(), Json::new(self))

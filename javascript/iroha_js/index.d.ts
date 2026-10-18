@@ -3,6 +3,7 @@ import type { BrowserFeePayment } from "./transaction-codec.js";
 import { OperatorSigningContext } from "./operator-request.js";
 import type { RepoAgreementLifecycleFields } from "./repo-agreement.js";
 import type { ToriiBlockMerkleCommitment, ToriiBlockMerkleProof, ToriiBlockProofs, ToriiBlockProofTrustedAnchor, ToriiBlockProofVerification } from "./dist/blockProofTypes.js";
+import type { ToriiExplorerTransactionProof } from "./dist/explorerTransactionProofTypes.js";
 import type { BufferEncoding } from "./dist/nodeBufferTypes.js";
 import type {
   ToriiBrowserExplorerAssetDefinition,
@@ -45,6 +46,7 @@ export * from "./smart-contract-deployment.js";
 export * from "./bootle-lantern-issuance.js";
 export * from "./atomic-private-settlement.js";
 export * from "./dist/blockProofTypes.js";
+export type * from "./dist/explorerTransactionProofTypes.js";
 export * from "./dist/toriiBrowserExplorerTypes.js";
 export type * from "./dist/subscriptionTypes.js";
 export * from "./dist/sorafsOrderbookSubmission.js";
@@ -431,10 +433,7 @@ export interface MultisigProposalsQueryRequest extends MultisigAccountSelector {
 }
 
 export interface MultisigProposalsResolveRequest extends MultisigAccountSelector {
-  proposalId?: string | null;
-  instructionsHash?: string | null;
-  proposal_id?: string | null;
-  instructions_hash?: string | null;
+  proposalId: string;
 }
 
 export type MultisigProposeInstructionInput =
@@ -453,6 +452,11 @@ export interface LocalTransactionDraftIntent {
   metadataB64: string;
 }
 
+/** Caller-owned native commitment to the contract proposal's exact inner instructions. */
+export interface MultisigContractCallDraftIntent extends LocalTransactionDraftIntent {
+  instructionsHash: string;
+}
+
 /** Caller-trusted resolved contract and payload evidence for one unsigned call. */
 export interface ContractCallDraftIntent extends LocalTransactionDraftIntent {
   contractAddress: string;
@@ -462,6 +466,7 @@ export interface ContractCallDraftIntent extends LocalTransactionDraftIntent {
 
 export interface MultisigProposeRequest extends MultisigAccountSelector {
   signerAccountId: string;
+  proposalNonce: string;
   instructions: MultisigProposeInstructionInput[];
   feePayment: NoritoFeePaymentIntent;
   publicKeyHex?: string | null;
@@ -484,6 +489,7 @@ export interface MultisigProposePayload {
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id: string;
+  proposal_nonce: string;
   instructions: string[];
   fee_payment: NoritoFeePaymentIntent;
   public_key_hex?: string;
@@ -496,6 +502,7 @@ export interface MultisigProposePayload {
 export interface MultisigContractCallProposeRequest
   extends MultisigAccountSelector {
   signerAccountId: string;
+  proposalNonce: string;
   contractAddress?: never;
   contractAlias: string;
   entrypoint: string;
@@ -504,8 +511,7 @@ export interface MultisigContractCallProposeRequest
   publicKeyHex?: string | null;
   signatureB64?: string | null;
   creationTimeMs?: number | string | bigint | null;
-  draftIntent?: LocalTransactionDraftIntent;
-  draft_intent?: LocalTransactionDraftIntent;
+  draftIntent: MultisigContractCallDraftIntent;
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id?: string;
@@ -521,6 +527,7 @@ export interface MultisigContractCallProposePayload {
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id: string;
+  proposal_nonce: string;
   contract_address?: never;
   contract_alias: string;
   entrypoint: string;
@@ -534,8 +541,8 @@ export interface MultisigContractCallProposePayload {
 export interface MultisigContractCallApproveRequest
   extends MultisigAccountSelector {
   signerAccountId: string;
-  proposalId?: string | null;
-  instructionsHash?: string | null;
+  proposalId: string;
+  instructionsHash: string;
   feePayment: NoritoFeePaymentIntent;
   publicKeyHex?: string | null;
   signatureB64?: string | null;
@@ -561,8 +568,8 @@ export interface MultisigContractCallApprovePayload {
   multisig_account_id?: string;
   multisig_account_alias?: string;
   signer_account_id: string;
-  proposal_id?: string;
-  instructions_hash?: string;
+  proposal_id: string;
+  instructions_hash: string;
   fee_payment: NoritoFeePaymentIntent;
   public_key_hex?: string;
   signature_b64?: string;
@@ -577,8 +584,8 @@ export interface MultisigContractCallResponse {
   ok: boolean;
   resolved_multisig_account_id: string;
   submitted: boolean;
-  proposal_id: string | null;
-  instructions_hash: string | null;
+  proposal_id: string;
+  instructions_hash: string;
   tx_hash_hex: string | null;
   executed_tx_hash_hex: string | null;
   creation_time_ms: number | null;
@@ -1098,6 +1105,8 @@ export interface RepoLegDto {
 export interface RepoGovernanceDto {
   haircutBps: number;
   marginFrequencySecs: number;
+  /** Initiator may settle before maturity, paying interest accrued to the block time. */
+  allowEarlyRepayment: boolean;
 }
 
 export interface ToriiRepoAgreement extends RepoAgreementLifecycleFields {
@@ -1882,10 +1891,13 @@ export interface ToriiExplorerRwa {
 }
 
 export interface ToriiExplorerBlock {
+  /** Canonical uppercase hash:<HEX>#<CRC> literal, with checksum validated. */
   hash: string;
   height: number;
   createdAt: string;
+  /** Canonical hash literal, or null for genesis. */
   prevBlockHash: string | null;
+  /** Canonical hash literal, or null when the transaction root is unavailable. */
   transactionsHash: string | null;
   transactionsRejected: number;
   transactionsTotal: number;
@@ -3373,9 +3385,6 @@ type NoritoRuntimeNamespaceExport =
   | "noritoEncodeConfidentialMemoEnvelopeV1"
   | "noritoEncodeContractManifestSignaturePayload"
   | "noritoEncodeFeePaymentIntentArchive"
-  | "noritoEncodeMultisigContractCallApproveRequest"
-  | "noritoEncodeMultisigContractCallProposeRequest"
-  | "noritoEncodeMultisigProposeRequest"
   | "noritoEncodeSorafsBillingAcknowledgementProofV1"
   | "noritoEncodeOpenVerifyEnvelope"
   | "noritoEncodePrivacyExact12FixtureBundleV1"
@@ -8765,7 +8774,8 @@ export interface UaidPortfolioAccount {
 }
 
 export interface UaidPortfolioDataspace {
-  dataspace_id: number;
+  /** Unsigned 64-bit JSON integer; bigint above Number.MAX_SAFE_INTEGER. */
+  dataspace_id: number | bigint;
   dataspace_alias: string | null;
   accounts: ReadonlyArray<UaidPortfolioAccount>;
 }
@@ -8782,7 +8792,8 @@ export interface UaidPortfolioQueryOptions {
 }
 
 export interface UaidBindingsDataspace {
-  dataspace_id: number;
+  /** Unsigned 64-bit JSON integer; bigint above Number.MAX_SAFE_INTEGER. */
+  dataspace_id: number | bigint;
   dataspace_alias: string | null;
   accounts: ReadonlyArray<string>;
 }
@@ -8795,20 +8806,20 @@ export interface UaidBindingsResponse {
 export type UaidManifestStatus = "Pending" | "Active" | "Expired" | "Revoked";
 
 export interface UaidManifestLifecycleRevocation {
-  epoch: number;
+  epoch: number | bigint;
   reason: string | null;
 }
 
 export interface UaidManifestLifecycle {
-  activated_epoch: number | null;
-  expired_epoch: number | null;
+  activated_epoch: number | bigint | null;
+  expired_epoch: number | bigint | null;
   revocation: UaidManifestLifecycleRevocation | null;
 }
 
 export type UaidManifestRole = "Initiator" | "Participant";
 
 export interface UaidManifestScope {
-  dataspace?: number;
+  dataspace?: number | bigint;
   program?: string;
   method?: string;
   asset?: string;
@@ -8840,18 +8851,19 @@ export interface UaidManifestEntry {
   notes?: string;
 }
 
+/** u64 fields accept safe numbers or bigint; responses use bigint above Number.MAX_SAFE_INTEGER. */
 export interface UaidAssetPermissionManifest {
   version: 1;
   uaid: string;
-  dataspace: number;
-  issued_ms: number;
-  activation_epoch: number;
-  expiry_epoch?: number;
+  dataspace: number | bigint;
+  issued_ms: number | bigint;
+  activation_epoch: number | bigint;
+  expiry_epoch?: number | bigint;
   entries: ReadonlyArray<UaidManifestEntry>;
 }
 
 export interface UaidManifestRecord {
-  dataspace_id: number;
+  dataspace_id: number | bigint;
   dataspace_alias: string | null;
   manifest_hash: string;
   status: UaidManifestStatus;
@@ -9233,6 +9245,8 @@ export interface RemoveSmartContractBytesTransactionInput {
 
 export interface SubmitTransactionAndWaitOptions
   extends TransactionStatusPollOptions {
+  /** Establish an event stream before submission to capture rejection details. */
+  captureRejection?: boolean;
   /** Optional assertion; it must equal the hash derived from the signed bytes. */
   hashHex?: string;
 }
@@ -9908,6 +9922,7 @@ export interface ToriiRepoAgreementRow extends ToriiCollectionRowExtras {
   readonly governance?: {
     readonly haircut_bps?: number | null;
     readonly margin_frequency_secs?: ToriiU64 | null;
+    readonly allow_early_repayment?: boolean | null;
   } | null;
 }
 
@@ -9926,6 +9941,11 @@ export declare class TransactionStatusError extends Error {
   readonly hashHex: string;
   readonly status: string | null;
   readonly payload: ToriiPipelineTransactionStatus | null;
+  readonly blockHeight: ToriiU64 | null;
+  /** Set only by submitTransactionAndWait when it observed the rejection (captureRejection). */
+  readonly rejectionCode?: string | null;
+  /** Set only by submitTransactionAndWait when it observed the rejection (captureRejection). */
+  readonly rejectionReason?: string | null;
 }
 
 export declare class TransactionTimeoutError extends Error {
@@ -10102,6 +10122,8 @@ export type CanonicalJsonRequestSignature =
 
 /** Browser-keystore identity used for optional canonical Torii reads. */
 export interface ToriiBrowserCanonicalRequestAuth {
+  /** Opaque native inspection required for I105 identities in browser runtimes. */
+  readonly nativeIdentity?: NativeAccountIdentity;
   /** Exact canonical I105 account or canonical ASCII account alias. */
   readonly accountId: string;
   /** Sign one freshly constructed exact-network canonical request message. */
@@ -10112,6 +10134,7 @@ export interface ToriiBrowserCanonicalRequestAuth {
 
 export interface ToriiBrowserContractDeploymentStateOptions
   extends ToriiBrowserRequestOptions {
+  nativeIdentity?: NativeAccountIdentity;
   authAccountId?: string;
   sign?: (
     input: CanonicalJsonRequestSignerInput,
@@ -10122,6 +10145,7 @@ export interface ToriiBrowserContractDeploymentStateOptions
 
 export interface ToriiBrowserCanonicalRequestOptions
   extends ToriiBrowserRequestOptions {
+  nativeIdentity?: NativeAccountIdentity;
   authAccountId: string;
   sign: (
     input: CanonicalJsonRequestSignerInput,
@@ -10185,7 +10209,11 @@ export declare class ToriiBrowserClient {
     hashHex: string,
     options?: ToriiBrowserTransactionStatusPollOptions,
   ): Promise<ToriiAppliedTransactionStatus>;
-  /** Submit and wait; the transaction hash is derived from the signed bytes. */
+  /**
+   * Submit and wait; the transaction hash is derived from the signed bytes. An
+   * HTTP 409 `already_committed`/`already_enqueued` resubmission rejection
+   * continues with the finality wait.
+   */
   submitTransactionAndWait(
     signedTransaction: ArrayBufferView | ArrayBuffer | Buffer,
     options?: ToriiBrowserSubmitTransactionAndWaitOptions,
@@ -10193,6 +10221,15 @@ export declare class ToriiBrowserClient {
   /** Public capability advert (`GET /v1/node/capabilities`); no credentials are sent. */
   getNodeCapabilities(options?: { signal?: AbortSignal }): Promise<ToriiBrowserNodeCapabilities>;
   getAccountCapabilities(options?: { signal?: AbortSignal }): Promise<AccountCapabilitiesV1>;
+  /** Every native bond record (`GET /v1/bonds`). */
+  listBonds(options?: BondRecordPageOptions): Promise<BondRecordPage>;
+  /** One native bond record (`GET /v1/bonds/{bond_id}`); null when the bond is not registered. */
+  getBond(bondId: string, options?: { signal?: AbortSignal }): Promise<BondRecordJson | null>;
+  /** One page of a bond's record-date entitlements (`GET /v1/bonds/{bond_id}/entitlements`); null when the bond is not registered. */
+  getBondEntitlements(
+    bondId: string,
+    options?: BondEntitlementPageOptions,
+  ): Promise<BondEntitlementPage | null>;
   getContractDeploymentState(
     request: ToriiBrowserContractDeploymentStateRequest,
     options?: ToriiBrowserContractDeploymentStateOptions,
@@ -10285,6 +10322,17 @@ export declare class ToriiBrowserClient {
     hash: string,
     options?: Record<string, unknown>,
   ): Promise<ToriiBrowserExplorerTransactionDetail>;
+  /** Native syntax/controller inspection only; no ledger lookup or authority is granted. */
+  inspectAccountIdentity(accountId: string, options?: { signal?: AbortSignal }): Promise<NativeAccountIdentity>;
+  /** Selective evidence only; requires independent finality authentication before trust. */
+  getExplorerTransactionProof(
+    hash: string,
+    options?: {
+      signal?: AbortSignal;
+      /** Per-request signer; undefined uses the configured default and null selects public access. */
+      canonicalRequestAuth?: ToriiBrowserCanonicalRequestAuth | null;
+    },
+  ): Promise<ToriiExplorerTransactionProof>;
   getExplorerInstruction(
     transactionHash: string,
     index: number,
@@ -10547,6 +10595,15 @@ export declare class ToriiClient {
   listIdentifierPolicies(options?: {
     signal?: AbortSignal;
   }): Promise<IdentifierPolicyListResponse>;
+  /** Every native bond record (`GET /v1/bonds`): terms, schedule, lifecycle and servicing state. */
+  listBonds(options?: BondRecordPageOptions): Promise<BondRecordPage>;
+  /** One native bond record (`GET /v1/bonds/{bond_id}`); null when the bond is not registered. */
+  getBond(bondId: string, options?: { signal?: AbortSignal }): Promise<BondRecordJson | null>;
+  /** One page of a bond's record-date entitlements (`GET /v1/bonds/{bond_id}/entitlements`); null when the bond is not registered. */
+  getBondEntitlements(
+    bondId: string,
+    options?: BondEntitlementPageOptions,
+  ): Promise<BondEntitlementPage | null>;
   resolveIdentifier(
     options: IdentifierResolutionRequestOptions,
   ): Promise<IdentifierResolutionReceipt | null>;
@@ -10794,7 +10851,11 @@ export declare class ToriiClient {
     hashHex: string,
     options?: TransactionStatusPollOptions,
   ): Promise<ToriiAppliedTransactionStatus>;
-  /** Submit and wait; the transaction hash is derived from the signed bytes. */
+  /**
+   * Submit and wait; the transaction hash is derived from the signed bytes. An
+   * HTTP 409 `already_committed`/`already_enqueued` resubmission rejection
+   * continues with the finality wait.
+   */
   submitTransactionAndWait(
     payload: VersionedSignedTransactionV1,
     options?: SubmitTransactionAndWaitOptions,
@@ -10930,6 +10991,11 @@ export declare class ToriiClient {
     suffixId: number,
     options?: { signal?: AbortSignal },
   ): Promise<SnsSuffixPolicy>;
+  /** Read-only alias and SNS lease plan (`POST /v1/aliases/setup/plan`); the signer pays. */
+  planAliasSetup(
+    request: { schema_version: 1; intents: ReadonlyArray<Record<string, unknown>> },
+    options: { canonicalAuth: CanonicalRequestAuth; signal?: AbortSignal },
+  ): Promise<{ body: Record<string, unknown>; plan_hash: string }>;
   getSnsRegistration(
     selector: string,
     options?: { signal?: AbortSignal },
@@ -11062,6 +11128,15 @@ export declare class ToriiClient {
     height: number | string | bigint,
     options?: { signal?: AbortSignal },
   ): Promise<ToriiExplorerBlock | null>;
+  /** Selective evidence only; requires independent finality authentication before trust. */
+  getExplorerTransactionProof(
+    hash: string,
+    options?: {
+      signal?: AbortSignal;
+      /** Per-request signer; undefined uses the configured default and null selects public access. */
+      canonicalAuth?: CanonicalRequestAuth | null;
+    },
+  ): Promise<ToriiExplorerTransactionProof>;
   /**
    * Stream `/v1/events/sse`; `options.filter` uses the collection-query text
    * grammar over event fields. Abort with `options.signal` or by leaving the loop.
@@ -11827,37 +11902,6 @@ export function validateNoritoFrame(
   bytes: ArrayBufferView | ArrayBuffer | Buffer,
   options?: NoritoFrameValidationOptions,
 ): ValidatedNoritoFrame;
-export interface MultisigProposeNoritoRequest {
-  multisig_account_id?: string | null;
-  multisigAccountId?: string | null;
-  multisig_account_alias?: string | null;
-  multisigAccountAlias?: string | null;
-  signer_account_id?: string;
-  signerAccountId?: string;
-  public_key_hex?: string | null;
-  publicKeyHex?: string | null;
-  signature_b64?: string | null;
-  signatureB64?: string | null;
-  creation_time_ms?: number | string | bigint | null;
-  creationTimeMs?: number | string | bigint | null;
-  fee_payment?: NoritoFeePaymentIntent;
-  feePayment?: NoritoFeePaymentIntent;
-  memo?: string | null;
-  validation_fee_assessment?: RetailFeeAssessmentV1 | null;
-  instructions: Array<object | string | ArrayBufferView | ArrayBuffer | Buffer>;
-}
-export function noritoEncodeMultisigProposeRequest(
-  request: MultisigProposeNoritoRequest,
-  networkPrefix: number,
-): Buffer;
-export function noritoEncodeMultisigContractCallProposeRequest(
-  request: MultisigContractCallProposeRequest,
-  networkPrefix: number,
-): Buffer;
-export function noritoEncodeMultisigContractCallApproveRequest(
-  request: MultisigContractCallApproveRequest,
-  networkPrefix: number,
-): Buffer;
 export function noritoDecodeInstruction(
   bytes: ArrayBufferView | ArrayBuffer | Buffer,
   networkPrefix: number,
@@ -12049,11 +12093,62 @@ export function quoteAndSignTransaction(
   },
   options?: {
     canonicalAuth?: CanonicalRequestAuth;
+    /** Fee limit multiplier in basis points; defaults to 10000 (exact quote). */
+    feeLimitMarginBps?: number;
     signal?: AbortSignal;
   },
 ): Promise<
   SignedTransactionResult & {
     draft: TransactionPayloadDraftResult;
+    quote: FeeQuoteResponse;
+  }
+>;
+
+/**
+ * Exact 32 bytes an external wallet Ed25519-signs for one canonical payload
+ * (`HashOf<TransactionPayload>`).
+ */
+export function transactionPayloadSigningHash(
+  payloadBytes: Buffer | ArrayBuffer | ArrayBufferView,
+): Buffer;
+
+/** Attach an external Ed25519 signature to exact canonical payload bytes. */
+export function finalizeSignedTransaction(input: {
+  networkId: NetworkId;
+  payloadBytes: Buffer | ArrayBuffer | ArrayBufferView;
+  /** Raw 64-byte Ed25519 signature over {@link transactionPayloadSigningHash}. */
+  signature: Buffer | ArrayBuffer | ArrayBufferView;
+  /** Raw 32-byte Ed25519 public key controlling `authority`. */
+  publicKey: Buffer | ArrayBuffer | ArrayBufferView;
+  authority: string;
+}): SignedTransactionResult;
+
+/**
+ * Convert a fee quote's signed intent into the ergonomic `feePayment` shape,
+ * scaling each charge maximum by `marginBps / 10000` (default 20000), rounded up.
+ */
+export function feePaymentFromQuote(
+  quote: Pick<FeeQuoteResponse, "intent">,
+  options?: { marginBps?: number },
+): BrowserFeePayment;
+
+/**
+ * Quote a service-authored twin payload and build the wallet-authored payload
+ * with the quoted charge kinds and assets and scaled maxima.
+ */
+export function prepareExternalSignerTransactionPayload(
+  client: ToriiClient,
+  input: TransactionPayloadDraftInput,
+  options: {
+    canonicalAuth: CanonicalRequestAuth;
+    /** Multiplier for quoted maxima in basis points; default 20000 (2x), minimum 10000. */
+    feeLimitMarginBps?: number;
+    signal?: AbortSignal;
+  },
+): Promise<
+  TransactionPayloadDraftResult & {
+    signingHash: Buffer;
+    feePayment: BrowserFeePayment;
     quote: FeeQuoteResponse;
   }
 >;
@@ -12893,7 +12988,7 @@ export function buildMultisigProposeRequest(
 ): MultisigProposePayload;
 
 export function buildMultisigContractCallProposeRequest(
-  options: MultisigContractCallProposeRequest & {
+  options: Omit<MultisigContractCallProposeRequest, "draftIntent"> & {
     trigger: string;
     args?: JsonValue;
     argPreset?: MultisigTriggerArgsPreset;
@@ -13172,6 +13267,769 @@ export function buildSubmitBallotInstruction(
 export function buildFinalizeElectionInstruction(
   input: FinalizeElectionInstructionInput,
 ): object;
+
+/** Tagged native `ConditionalEscrowValue` JSON. */
+export type ConditionalEscrowValueJson =
+  | { kind: "Bool"; value: boolean }
+  | { kind: "Text"; value: string }
+  | { kind: "Quantity"; value: string };
+
+/**
+ * Conditional-escrow value input: booleans map to `Bool`, strings to `Text`,
+ * bigint or `KotodamaQuantity` to `Quantity`; the object forms select a kind explicitly.
+ */
+export type ConditionalEscrowValueInput =
+  | boolean
+  | string
+  | bigint
+  | KotodamaQuantity
+  | { quantity: QuantityInput }
+  | { text: string }
+  | { bool: boolean };
+
+/**
+ * One ordered conditional-escrow condition. Oracle sequences default to 1..n in
+ * array order; either every oracle condition names `sequence` or none does.
+ */
+export type ConditionalEscrowConditionInput =
+  | { id: string; attestor: string; equals: ConditionalEscrowValueInput; sequence?: number }
+  | { id: string; attestor: string; quantityAtMost: QuantityInput; sequence?: number }
+  | { id: string; withinMs: NumericLike };
+
+/** Tagged native `ConditionalEscrowCondition` JSON. */
+export type ConditionalEscrowConditionJson =
+  | {
+      kind: "Oracle";
+      value: {
+        id: string;
+        attestor: string;
+        predicate:
+          | { kind: "Equals"; value: ConditionalEscrowValueJson }
+          | { kind: "QuantityAtMost"; value: string };
+        sequence: number;
+      };
+    }
+  | { kind: "Within"; value: { id: string; duration_ms: number } };
+
+/**
+ * Owner-qualified native settlement identifier. `owner` is the participating debit
+ * owner whose namespace consumes the canonical `Name` `reference`.
+ */
+export interface SettlementIdJson {
+  owner: string;
+  reference: string;
+}
+
+/** `Grant::Permission(CanExecuteSettlement)` consent signed by the debited bucket owner. */
+export interface GrantSettlementConsentInstruction {
+  Grant: {
+    Permission: {
+      object: {
+        name: "CanExecuteSettlement";
+        payload: { debited_asset: string; settlement_id: SettlementIdJson; intent_hash: string };
+      };
+      destination: string;
+    };
+  };
+}
+
+export function buildGrantSettlementConsentInstruction(options: {
+  /** Account that submits the settlement or repo instruction. */
+  grantee: string;
+  /** Exact debited bucket `<asset-definition>#<account>[#dataspace:<id>]`. */
+  debitedAssetHoldingId: string;
+  /**
+   * Exact settlement id of the consented instruction; for repo consents
+   * `repoIntentHashes(instruction).settlementId` (`{ owner: initiator, reference: agreementId }`).
+   */
+  settlementId: SettlementIdJson;
+  /** Canonical `hash:<HEX>#<CRC>` intent hash. */
+  intentHash: string;
+}): GrantSettlementConsentInstruction;
+
+/** Domain-scoped `Grant::Permission(CanManageAssetDefinitionAlias)`. */
+export interface GrantAssetDefinitionAliasScopeInstruction {
+  Grant: {
+    Permission: {
+      object: {
+        name: "CanManageAssetDefinitionAlias";
+        payload: { scope: { scope: "domain"; value: string } };
+      };
+      destination: string;
+    };
+  };
+}
+
+export function buildGrantAssetDefinitionAliasScopeInstruction(options: {
+  grantee: string;
+  /** Fully qualified `domain.dataspace` id; labels are canonicalized. */
+  domainId: string;
+}): GrantAssetDefinitionAliasScopeInstruction;
+
+export function buildSetAssetDefinitionKeyValueInstruction(options: {
+  assetDefinitionId: string;
+  /** Canonical Iroha `Name` metadata key. */
+  key: string;
+  value: JsonValue;
+}): { SetKeyValue: { AssetDefinition: { object: string; key: string; value: JsonValue } } };
+
+export interface OpenConditionalEscrowInstruction {
+  OpenConditionalEscrow: {
+    escrow_id: string;
+    asset_definition: string;
+    beneficiary: string;
+    amount: string;
+    conditions: ConditionalEscrowConditionJson[];
+    expires_at_ms: number;
+    evidence_hashes: string[];
+  };
+}
+
+/** Lock the signer's global balance until every ordered condition passes or it expires. */
+export function buildOpenConditionalEscrowInstruction(options: {
+  escrowId: string;
+  assetDefinitionId: string;
+  beneficiary: string;
+  amount: QuantityInput;
+  conditions: ReadonlyArray<ConditionalEscrowConditionInput>;
+  expiresAtMs: NumericLike;
+  evidenceHashes?: ReadonlyArray<string> | null;
+}): OpenConditionalEscrowInstruction;
+
+export function buildAttestEscrowConditionInstruction(options: {
+  escrowId: string;
+  conditionId: string;
+  value: ConditionalEscrowValueInput;
+  evidenceHash?: string | null;
+}): {
+  AttestEscrowCondition: {
+    escrow_id: string;
+    condition_id: string;
+    value: ConditionalEscrowValueJson;
+    evidence_hash: string | null;
+  };
+};
+
+export function buildExpireConditionalEscrowInstruction(options: {
+  escrowId: string;
+}): { ExpireConditionalEscrow: { escrow_id: string } };
+
+export interface SettleAtomicMovementInput {
+  sourceAssetHoldingId: string;
+  recipient: string;
+  quantity: QuantityInput;
+}
+
+/** One escrow leg opened from a global-scope bucket by the atomic settlement. */
+export interface SettleAtomicEscrowLegInput {
+  sourceAssetHoldingId: string;
+  escrowId: string;
+  beneficiary: string;
+  amount: QuantityInput;
+  conditions: ReadonlyArray<ConditionalEscrowConditionInput>;
+  expiresAtMs: NumericLike;
+  evidenceHashes?: ReadonlyArray<string> | null;
+}
+
+export interface SettleAtomicEscrowLegJson {
+  source: string;
+  escrow_id: string;
+  beneficiary: string;
+  amount: string;
+  conditions: ConditionalEscrowConditionJson[];
+  expires_at_ms: number;
+  evidence_hashes: string[];
+}
+
+export interface SettleAtomicInstruction {
+  Settlement: {
+    Atomic: {
+      network_id: string;
+      settlement_id: SettlementIdJson;
+      movements: Array<{ source: string; recipient: string; quantity: string }>;
+      escrows: SettleAtomicEscrowLegJson[];
+      expires_at_height: number;
+      metadata: Record<string, JsonValue>;
+    };
+  };
+}
+
+/**
+ * Build a `Settlement::Atomic` instruction with natively ordered movements and
+ * escrow legs (0..=255 movements, 0..=16 escrows, at least one leg in total).
+ * `settlementId.owner` must own the source bucket of one movement or escrow leg.
+ */
+export function buildSettleAtomicInstruction(options: {
+  networkId: NetworkId | string;
+  settlementId: SettlementIdJson;
+  movements: ReadonlyArray<SettleAtomicMovementInput>;
+  escrows?: ReadonlyArray<SettleAtomicEscrowLegInput> | null;
+  expiresAtHeight: NumericLike;
+  metadata?: Record<string, JsonValue> | null;
+}): SettleAtomicInstruction;
+
+/** Sort atomic settlement JSON into the native order the codec admits, and validate it. */
+export function canonicalSettleAtomicInstruction(
+  instruction: SettleAtomicInstruction,
+): SettleAtomicInstruction;
+
+/** Exact `CanExecuteSettlement.intent_hash` literal of a canonical atomic settlement. */
+export function settleAtomicIntentHash(instruction: SettleAtomicInstruction): string;
+
+export interface RepoGovernanceInput {
+  haircutBps: number;
+  marginFrequencySecs: NumericLike;
+  /** Lets the initiator reverse before maturity; part of both consent hashes. */
+  allowEarlyRepayment: boolean;
+}
+
+export interface RepoInitiateInstruction {
+  Repo: {
+    Initiate: {
+      agreement_id: string;
+      initiator: string;
+      counterparty: string;
+      custodian: string | null;
+      cash_leg: { asset_definition_id: string; quantity: string };
+      collateral_leg: {
+        asset_definition_id: string;
+        quantity: string;
+        metadata: Record<string, JsonValue>;
+      };
+      rate_bps: number;
+      maturity_timestamp_ms: number;
+      governance: {
+        haircut_bps: number;
+        margin_frequency_secs: number;
+        allow_early_repayment: boolean;
+      };
+    };
+  };
+}
+
+export function buildRepoInitiateInstruction(options: {
+  agreementId: string;
+  initiator: string;
+  counterparty: string;
+  custodian?: string | null;
+  cashLeg: { assetDefinitionId: string; quantity: QuantityInput };
+  collateralLeg: {
+    assetDefinitionId: string;
+    quantity: QuantityInput;
+    metadata?: Record<string, JsonValue> | null;
+  };
+  rateBps: number;
+  maturityTimestampMs: NumericLike;
+  governance: RepoGovernanceInput;
+}): RepoInitiateInstruction;
+
+export function buildRepoReverseInstruction(options: {
+  agreementId: string;
+}): { Repo: { Reverse: { agreement_id: string } } };
+
+/**
+ * Exact initiation and maturity consent hash literals of one repo initiation, and
+ * the owner-qualified settlement id (`{ owner: initiator, reference: agreement_id }`)
+ * both consents bind.
+ */
+export function repoIntentHashes(instruction: RepoInitiateInstruction): {
+  initiation: string;
+  maturity: string;
+  settlementId: SettlementIdJson;
+};
+
+/** Maximum scheduled cash flows of registered bond terms. */
+export const BOND_MAX_CASHFLOWS: 400;
+/** Balances or escrow records one `RecordBondCashflow` step examines; recording is paged. */
+export const BOND_RECORDING_PAGE_ENTRIES: 512;
+/** Longest payment grace period a bond may register (366 days in milliseconds). */
+export const BOND_MAX_PAYMENT_GRACE_MS: 31622400000;
+/** Most records one `listBonds` page may request. */
+export const BOND_RECORD_PAGE_MAX_ITEMS: 20;
+/** Most rows one `getBondEntitlements` page may request. */
+export const BOND_ENTITLEMENT_PAGE_MAX_ITEMS: 1000;
+export const BOND_COUPON_FREQUENCIES: readonly [0, 1, 2, 4, 12];
+export const BOND_DAY_COUNTS: readonly ["ActActIcma", "Thirty360", "Act360", "Act365Fixed"];
+export const BOND_CASHFLOW_KINDS: readonly ["Coupon", "Redemption"];
+
+export type BondCouponFrequency = 0 | 1 | 2 | 4 | 12;
+export type BondDayCount = "ActActIcma" | "Thirty360" | "Act360" | "Act365Fixed";
+export type BondCashflowKind = "Coupon" | "Redemption";
+export type BondLifecycle = "Active" | "Called" | "Matured" | "Defaulted";
+export type BondCashflowStatus =
+  | "Scheduled"
+  | "Recording"
+  | "Recorded"
+  | "Funded"
+  | "Closed"
+  | "Defaulted"
+  | "Cancelled";
+/** 32 bytes, or 64 hexadecimal digits (rendered lowercase). */
+export type BondDigestInput = string | Uint8Array;
+
+/** Inputs of the fixed-rate bullet schedule helper (`fixed_rate_bullet_schedule`). */
+export interface BondScheduleRequest {
+  /** Payment-asset amount per bond unit. */
+  denomination: QuantityInput;
+  /** Annual coupon rate in basis points; 0 for zero-coupon bonds. */
+  couponRateBps: number;
+  couponFrequency: BondCouponFrequency;
+  /** Unix milliseconds (UTC midnight recommended). */
+  issueDateMs: NumericLike;
+  maturityDateMs: NumericLike;
+  /** Redemption price in basis points of the denomination (10000 = par). */
+  redemptionPriceBps: number;
+  /** Record date = payment date minus this offset, clamped to the issue date. */
+  recordOffsetMs: NumericLike;
+}
+
+/** One scheduled cash flow (builder input and `buildBondSchedule` output). */
+export interface BondCashflowInput {
+  index: number;
+  kind: BondCashflowKind;
+  recordDateMs: NumericLike;
+  paymentDateMs: NumericLike;
+  /** Exact payment-asset amount per unit (canonical decimal string). */
+  amountPerUnit: QuantityInput;
+}
+
+export interface BondScheduleEntry extends BondCashflowInput {
+  recordDateMs: number;
+  paymentDateMs: number;
+  amountPerUnit: string;
+}
+
+export interface BondTermsInput {
+  /** Issuer: owns the bond definition and signs registration, calls and paying-agent replacement. */
+  issuer: string;
+  /** Paying agent: funds, closes, declares defaults, may push claims. */
+  payingAgent: string;
+  paymentAsset: string;
+  denomination: QuantityInput;
+  couponRateBps: number;
+  couponFrequency: BondCouponFrequency;
+  dayCount: BondDayCount;
+  issueDateMs: NumericLike;
+  maturityDateMs: NumericLike;
+  redemptionPriceBps: number;
+  /** Grace after a payment date before a default may be declared (at most 366 days). */
+  paymentGraceMs: NumericLike;
+  call?: { firstCallDateMs: NumericLike; priceBps: number; noticeMs: NumericLike } | null;
+  /** Must be exactly the regular schedule of the terms (see `buildBondSchedule`). */
+  cashflows: ReadonlyArray<BondCashflowInput>;
+  identifiers: {
+    isin?: string | null;
+    cfi?: string | null;
+    issuerLei?: string | null;
+    bdtVersion: string;
+    bdtDocumentSha256?: BondDigestInput | null;
+  };
+  termsSha256: BondDigestInput;
+}
+
+export interface BondCashflowTermsJson {
+  index: number;
+  kind: BondCashflowKind;
+  record_date_ms: number;
+  payment_date_ms: number;
+  amount_per_unit: string;
+}
+
+/** Canonical native `BondTerms` JSON. */
+export interface BondTermsJson {
+  issuer: string;
+  paying_agent: string;
+  payment_asset: string;
+  denomination: string;
+  coupon_rate_bps: number;
+  coupon_frequency: number;
+  day_count: BondDayCount;
+  issue_date_ms: number;
+  maturity_date_ms: number;
+  redemption_price_bps: number;
+  payment_grace_ms: number;
+  call: { first_call_date_ms: number; price_bps: number; notice_ms: number } | null;
+  cashflows: BondCashflowTermsJson[];
+  identifiers: {
+    isin: string | null;
+    cfi: string | null;
+    issuer_lei: string | null;
+    bdt_version: string;
+    bdt_document_sha256: string | null;
+  };
+  terms_sha256: string;
+}
+
+/** Native `BondRecord` JSON served by Torii (`specs/finance/bond_ops.md`). */
+export interface BondRecordJson {
+  id: string;
+  vault: string;
+  terms: BondTermsJson;
+  state: {
+    lifecycle: BondLifecycle;
+    outstanding_units: string;
+    redeemed_units: string;
+    /** Issuer-held units burned by `Bond::RetireTreasuryUnits`. */
+    retired_units: string;
+    transfers_frozen: boolean;
+    cashflows: Array<{
+      terms: BondCashflowTermsJson;
+      status: BondCashflowStatus;
+      /** Resumption point while the status is `Recording`. */
+      recording: {
+        phase: "Holders" | "Escrows";
+        after_asset: string | null;
+        after_escrow: string | null;
+      } | null;
+      /** Holders with a recorded entitlement (rows of `getBondEntitlements`). */
+      holders: number;
+      claimed_holders: number;
+      entitled_units: string;
+      amount_due: string;
+      funded: string;
+      paid: string;
+      recorded_at_ms: number | null;
+      funded_at_ms: number | null;
+      closed_at_ms: number | null;
+      evidence_sha256: string | null;
+    }>;
+  };
+}
+
+/** One holder's record-date entitlement to one cash flow (`GET /v1/bonds/{bond_id}/entitlements`). */
+export interface BondEntitlementJson {
+  /** `<index>:<holder>`; the row identity and cursor key. */
+  id: string;
+  bond: string;
+  index: number;
+  holder: string;
+  /** Units held of record (own balance plus units the holder escrowed). */
+  units: string;
+  /** Payment at the payment-asset scale. */
+  amount: string;
+  claimed: boolean;
+  claimed_at_ms: number | null;
+}
+
+export interface BondRecordPageOptions {
+  /** Records per page, 1..=20 (default 20). */
+  limit?: number;
+  /** `nextCursor` of the previous page. */
+  cursor?: string | null;
+  /** Collection filter, e.g. `state.lifecycle = "Active"`. */
+  filter?: string;
+  signal?: AbortSignal;
+}
+
+export interface BondRecordPage {
+  items: BondRecordJson[];
+  nextCursor: string | null;
+  total?: number | bigint;
+}
+
+export interface BondEntitlementPageOptions {
+  /** Only this cash flow. */
+  index?: number;
+  /** Only this holder. */
+  holder?: string;
+  /** Rows per page, 1..=1000 (default 1000). */
+  limit?: number;
+  cursor?: string | null;
+  signal?: AbortSignal;
+}
+
+export interface BondEntitlementPage {
+  items: BondEntitlementJson[];
+  nextCursor: string | null;
+  total?: number | bigint;
+}
+
+/**
+ * Materialise a regular fixed-rate bullet schedule exactly as Core's
+ * `fixed_rate_bullet_schedule`: exact decimal amounts, end-of-month date
+ * stepping back from maturity; refuses irregular first periods and
+ * non-terminating coupons with Core's `bond.invalid_terms` message.
+ */
+export function buildBondSchedule(request: BondScheduleRequest): BondScheduleEntry[];
+
+/** Normalize terms and apply every `BondTerms::validate` rule; returns canonical native JSON. */
+export function validateBondTerms(terms: BondTermsInput): BondTermsJson;
+
+/** `floor(units × amountPerUnit)` at the payment scale (`null`: unconstrained, exact). */
+export function bondHolderPayment(input: {
+  units: QuantityInput;
+  amountPerUnit: QuantityInput;
+  paymentScale: number | null;
+}): string;
+
+/** Deterministic key-less vault account of a bond, rendered for `networkPrefix` (native). */
+export function bondVaultAccountId(bondId: string, networkPrefix: number): string;
+
+export interface RegisterBondInstruction {
+  Bond: { Register: { bond: string; terms: BondTermsJson } };
+}
+export interface BondCashflowInstructionJson {
+  bond: string;
+  index: number;
+}
+
+/** `Bond::Register` (issuer); terms validated; payment asset must differ from the bond. */
+export function buildRegisterBondInstruction(options: {
+  bondId: string;
+  terms: BondTermsInput;
+}): RegisterBondInstruction;
+/** `Bond::RecordCashflow` (any signer, at or after the record date; repeat until Recorded). */
+export function buildRecordBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+}): { Bond: { RecordCashflow: BondCashflowInstructionJson } };
+/** `Bond::FundCashflow` (paying agent or issuer) from its own global payment-asset balance. */
+export function buildFundBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+  sourceAssetHoldingId: string;
+}): { Bond: { FundCashflow: BondCashflowInstructionJson & { source: string } } };
+/** `Bond::ClaimCashflow` (holder or paying agent); pays the holder, a redemption also burns its units. */
+export function buildClaimBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+  holder: string;
+}): { Bond: { ClaimCashflow: BondCashflowInstructionJson & { holder: string } } };
+/** `Bond::CloseCashflow` (paying agent, from the payment date); unclaimed entitlements stay claimable. */
+export function buildCloseBondCashflowInstruction(options: {
+  bondId: string;
+  index: number;
+}): { Bond: { CloseCashflow: BondCashflowInstructionJson } };
+/** `Bond::Call` (issuer) at the payment date of a still scheduled coupon. */
+export function buildCallBondInstruction(options: {
+  bondId: string;
+  callDateMs: NumericLike;
+}): { Bond: { Call: { bond: string; call_date_ms: number } } };
+/**
+ * `Bond::DeclareDefault` (paying agent) after an unfunded payment date and its grace
+ * period; a recorded cash flow that owes nothing cannot default.
+ */
+export function buildDeclareBondDefaultInstruction(options: {
+  bondId: string;
+  index: number;
+  evidenceSha256: BondDigestInput;
+}): { Bond: { DeclareDefault: BondCashflowInstructionJson & { evidence_sha256: string } } };
+/** `Bond::ReplacePayingAgent` (issuer): an existing account becomes the paying agent. */
+export function buildReplaceBondPayingAgentInstruction(options: {
+  bondId: string;
+  payingAgent: string;
+}): { Bond: { ReplacePayingAgent: { bond: string; paying_agent: string } } };
+/**
+ * `Bond::RetireTreasuryUnits` (issuer): burn a positive whole number of units the
+ * issuer holds in its own global balance (unsold inventory, returned tranches,
+ * treasury units after maturity). Refused while a cash flow is being recorded and
+ * for units owed back as repo collateral.
+ */
+export function buildRetireBondTreasuryUnitsInstruction(options: {
+  bondId: string;
+  quantity: QuantityInput;
+}): { Bond: { RetireTreasuryUnits: { bond: string; quantity: string } } };
+
+/** Random canonical asset-definition id (UUIDv4 Base58 address). */
+export function generateAssetDefinitionId(): string;
+
+/**
+ * Deterministic asset-definition id using the native
+ * `AssetDefinitionId::derive_from_components` rule; `{ domain, name }` equals the
+ * Rust derivation of those components.
+ */
+export function assetDefinitionIdFromSeed(
+  seed: string | Uint8Array | { domain: string; name: string },
+): string;
+
+/** Canonical `EscrowId` hash literal; a seed yields `EscrowId::new(Hash::new(seed))`. */
+export function newEscrowId(seed?: string | Uint8Array): string;
+
+/**
+ * One-shot owner-qualified `SettlementId`: `owner` is the participating debit owner,
+ * `reference` is `settlement-<32 hex>` (random, or derived from the seed alone).
+ */
+export function newSettlementId(owner: string, seed?: string | Uint8Array): SettlementIdJson;
+
+/** Canonical `RepoAgreementId` name `repo-<32 hex>` (random, or derived from the seed). */
+export function newRepoAgreementId(seed?: string | Uint8Array): string;
+
+/** SNS suffix id of the domain namespace. */
+export const SNS_DOMAIN_SUFFIX_ID: 4098;
+
+/** Strict `EnsureAlias` domain-lease instruction JSON accepted by the native codec. */
+export interface EnsureAliasInstruction {
+  EnsureAlias: {
+    intent: {
+      kind: "domain";
+      intent: { domain: { canonical_name: string; dataspace_id: number }; owner: string };
+    };
+    acquisition: { term_years: number; pricing_class_hint: number | null };
+    quote_guard: {
+      expected_policy_version: number;
+      expected_payment_asset: string;
+      max_amount: string;
+      valid_until_ms: number;
+    };
+  };
+}
+
+export interface DomainLeasePlan {
+  /** Instructions to submit, signed by `authority` (the lease payer). */
+  instructions: EnsureAliasInstruction[];
+  /** Planner disposition: `create`, `repair` or `no_op`. */
+  disposition: string | undefined;
+  quote: Record<string, unknown> | null;
+  totalsByAsset: Array<{ payment_asset: string; amount: string }>;
+  authority: string;
+  /** Last time at which the plan may be used; bound the transaction TTL by it. */
+  validUntilMs: number;
+  planHash: string;
+  plan: { body: Record<string, unknown>; plan_hash: string };
+}
+
+/** Plan a paid SNS domain lease through `POST /v1/aliases/setup/plan`. */
+export function planDomainLease(
+  torii: ToriiClient,
+  request: {
+    owner: string;
+    /** Fully qualified `domain.dataspace` id. */
+    domain: string;
+    years: number;
+    /** Numeric data-space id; defaults to 0 for `<name>.universal`. */
+    dataspaceId?: number;
+    /** Explicit price cap; defaults to the matching tier base price times `years`. */
+    maxAmount?: string;
+    quoteValidityMs?: number;
+  },
+  options: { canonicalAuth: CanonicalRequestAuth; signal?: AbortSignal },
+): Promise<DomainLeasePlan>;
+
+/**
+ * V1 faucet proof-of-work challenge: SHA-256 over the domain, NetworkId bytes,
+ * UTF-8 account id, u64 BE anchor height, anchor block hash and optional salt.
+ */
+export function faucetPowChallenge(input: {
+  networkId: NetworkId;
+  accountId: string;
+  anchorHeight: number;
+  anchorBlockHashHex: string;
+  challengeSaltHex?: string | null;
+}): Buffer;
+
+/** scrypt digest of one 8-byte big-endian nonce over a faucet challenge. */
+export function faucetPowDigest(
+  challenge: Uint8Array,
+  nonceHex: string,
+  params: { N: number; r: number; p: number },
+): Promise<Buffer>;
+
+/** Raised when the capabilities advert and the genesis block disagree. */
+export declare class NetworkIdentityMismatchError extends Error {
+  readonly details: Record<string, unknown> | null;
+}
+
+/**
+ * Discover an endpoint's NetworkId from `GET /v1/accounts/capabilities` and
+ * require it to equal the genesis block hash from `GET /v1/explorer/blocks/1`.
+ */
+export function discoverNetworkIdentity(
+  torii: ToriiClient,
+  options?: { signal?: AbortSignal },
+): Promise<{ networkId: NetworkId; networkPrefix: number; genesisHashHex: string }>;
+
+export const TRANSACTION_REVIEW_SCHEMA: "iroha.connect-transaction-review.v1";
+export const TRANSACTION_REVIEW_MAX_INSTRUCTIONS: 64;
+
+export interface TransactionReviewField {
+  label: string;
+  value: string;
+}
+
+export interface TransactionReviewInstruction {
+  /** One-based position in the executable. */
+  index: number;
+  kind:
+    | "transfer"
+    | "mint"
+    | "burn"
+    | "grant_permission"
+    | "settlement_atomic"
+    | "settlement"
+    | "escrow"
+    | "repo"
+    | "bond"
+    | "unknown"
+    | "undecoded";
+  title: string;
+  fields: TransactionReviewField[];
+  /** Sanitized canonical instruction JSON, or null when not decodable. */
+  json: string | null;
+}
+
+export interface TransactionReview {
+  schema: "iroha.connect-transaction-review.v1";
+  networkId: string;
+  authority: string;
+  /** Exact 32-byte payload hash the signer signs (lowercase hex). */
+  payloadHashHex: string;
+  payloadByteLength: number;
+  creationTimeMs: string;
+  ttlMs: string | null;
+  feePayment: {
+    payer: "authority" | "sponsor" | null;
+    /** `sponsor/name@revision` for sponsored payloads, otherwise null. */
+    sponsorProgram: string | null;
+    gasLimit: string | null;
+    chargeLimits: Array<{ kind: "nexus" | "pipeline_gas" | null; assetDefinitionId: string; maxAmount: string }>;
+  };
+  metadata: string;
+  instructions: TransactionReviewInstruction[];
+  warnings: string[];
+}
+
+/** Escape control, format and bidirectional characters and bound review text. */
+export function sanitizeReviewText(value: unknown, maximum?: number): string;
+
+/** Bond context of a transaction review: a record and any of its entitlement rows. */
+export interface BondReviewContext {
+  /** Native record, for example from `ToriiClient.getBond`. */
+  record: BondRecordJson;
+  /** Entitlement rows of the bond, for example from `ToriiClient.getBondEntitlements`. */
+  entitlements?: ReadonlyArray<BondEntitlementJson> | null;
+}
+
+/**
+ * Decode an unsigned payload natively and describe it for a signer; fails
+ * closed on a NetworkId or authority mismatch or more than 64 instructions.
+ * Bond rows are built from the payload alone; `bonds` adds each cash flow's
+ * kind, dates, amounts, the holder's entitled units and exact payment, and the vault.
+ */
+export function reviewTransactionPayload(
+  payloadBytes: Buffer | ArrayBuffer | ArrayBufferView,
+  expected: {
+    networkId: NetworkId;
+    authority: string;
+    bonds?: ReadonlyArray<BondReviewContext> | null;
+  },
+): TransactionReview;
+
+/** Claim testnet funds through the V1 proof-of-work faucet (Node.js). */
+export function claimFaucet(
+  torii: ToriiClient,
+  request: { accountId: string; networkId: NetworkId | string },
+  options?: {
+    signal?: AbortSignal;
+    maxPuzzleAttempts?: number;
+    concurrency?: number;
+    /** Caller-owned 64-hex request identity; random by default. */
+    requestId?: string;
+    executionTtlMs?: number;
+    timeoutMs?: number;
+    /** Trusted faucet policy; defaults to the advertised policy of the selected network. */
+    policy?: { authority: string; assetDefinitionId: string; amount: string };
+  },
+): Promise<{ hash: string; blockHeight: number }>;
 
 export function buildRegisterSmartContractCodeInstruction(
   input: RegisterSmartContractCodeInstructionInput,
@@ -13822,3 +14680,92 @@ export interface StakingPreparationV1 {
 export function encodeValidatorStakingPreparationFrameV1<K extends "PreparationRequest" | "Preparation">(name: K, value: ValidatorStakingValueMapV1[K]): Buffer;
 export function decodeValidatorStakingPreparationFrameV1<K extends "PreparationRequest" | "Preparation">(name: K, payload: Uint8Array): ValidatorStakingValueMapV1[K];
 export function validateValidatorStakingPreparationV1(prepared: StakingPreparationV1, request: StakingPreparationRequestV1, networkId: NetworkId, xorDefinition: string): StakingPreparationV1;
+
+/** Request-bound native syntax/key inspection; this result does not authorize signing. */
+export function inspectAccountViaNativeTransport(
+  input: { networkId: NetworkId; requestId: string; nonce: string; accountId: string; publicKeyHex: string },
+  transport: (request: Readonly<{ requestId: string; body: string }>) => Promise<unknown>,
+  contract: Readonly<{ responseSchema: string; inspectionSchema: string }>,
+): Promise<Readonly<{ schema: string; networkId: string; accountId: string; publicKeyHex: string;
+  scope: "canonical-syntax-and-key-binding-only" }>>;
+
+/** Service/session context independently admitted by the native authority. */
+export interface NativeMultisigTransportContext {
+  networkId: NetworkId; actorAccountId: string; actorPublicKeyHex: string; deviceId: string;
+  portalOrigin: string; operatorBaseUrl: string; toriiBaseUrl: string; physicalDataspaceId: string; laneId: number;
+}
+/** Closed application-owned semantic intent; the native service enforces its schema and authority. */
+export type NativeMultisigTransportIntent = Readonly<Record<string, unknown> & {action: "propose" | "approve" | "cancel"}>;
+export type NativeMultisigTransport = (request: Readonly<{stage: "request" | "prepare" | "signed" | "finality" | "proposal-finality"; requestId: string; body: string}>) => Promise<unknown>;
+export interface NativeMultisigTransportContract { requestSchema: string; prepareSchema: string; signedSchema: string; }
+/** Immutable admitted handle; constructing a lookalike does not admit it. */
+export interface NativeMultisigRequestOriginal {
+  readonly stage: "request"; readonly path: string; readonly requestBytesBase64: string;
+  readonly requestBytesSha256: string; readonly proposalId: string; readonly instructionsHash: string; readonly expiresAtMs: string;
+}
+/** Native payload and prehash; contains no private signing material. */
+export interface NativeMultisigPreparedOriginal {
+  readonly stage: "prepared"; readonly admissionId: string; readonly path: string;
+  readonly requestBytesSha256: string; readonly prepareBytesSha256: string;
+  readonly payloadBase64: string; readonly payloadSha256: string;
+  readonly signingMessageBase64: string; readonly signingMessageSha256: string;
+  readonly proposalId: string; readonly instructionsHash: string; readonly creationTimeMs: string;
+  readonly payloadExpiresAtMs: string; readonly expiresAtMs: string;
+  readonly feePayment: Readonly<Record<string, unknown>>;
+}
+/** Exact request and native transaction originals for submission and finality verification. */
+export interface NativeMultisigSignedOriginal {
+  readonly stage: "signed"; readonly admissionId: string; readonly path: string;
+  readonly submitBytesBase64: string; readonly submitBytesSha256: string;
+  readonly signedTransactionBytesBase64: string; readonly transactionHashHex: string; readonly expiresAtMs: string;
+}
+export function requestNativeMultisigViaTransport(
+  input: {requestId: string; nonce: string; actionId: string; context: NativeMultisigTransportContext; intent: NativeMultisigTransportIntent},
+  transport: NativeMultisigTransport, contract: NativeMultisigTransportContract,
+): Promise<NativeMultisigRequestOriginal>;
+export function inspectNativeMultisigPrepareViaTransport(
+  request: NativeMultisigRequestOriginal, input: {requestId: string; nonce: string; prepareBytes: Uint8Array},
+): Promise<NativeMultisigPreparedOriginal>;
+export function inspectNativeMultisigSignedViaTransport(
+  prepared: NativeMultisigPreparedOriginal, input: {requestId: string; nonce: string; signature: Uint8Array},
+): Promise<NativeMultisigSignedOriginal>;
+/** Native-rooted execution result; participation commitment alone is not business execution. */
+export interface NativeMultisigFinality {
+  readonly stage: "finality"; readonly admissionId: string; readonly participationCommitted: boolean;
+  readonly businessExecuted: boolean; readonly cancellationCommitted: boolean; readonly subjectCanceled: boolean; readonly transactionHashHex: string;
+  readonly executedTransactionHashHex: string | null; readonly blockHeight: string | null; readonly blockHash: string | null;
+}
+export function queryNativeMultisigFinalityViaTransport(
+  input: {requestId: string; nonce: string; actionId: string; context: NativeMultisigTransportContext; admissionId: string;
+    intent: NativeMultisigTransportIntent; transactionHashHex: string},
+  transport: NativeMultisigTransport, contract: {finalitySchema: string},
+): Promise<NativeMultisigFinality>;
+
+/** Native-rooted effect of a complete reviewed proposal, independent of local participation. */
+export interface NativeMultisigProposalFinality {
+  readonly stage: "proposal-finality"; readonly businessExecuted: boolean; readonly cancellationCommitted: boolean; readonly subjectCanceled: boolean;
+  readonly executedTransactionHashHex: string | null; readonly blockHeight: string | null; readonly blockHash: string | null;
+}
+export function queryNativeMultisigProposalFinalityViaTransport(
+  input: {requestId: string; nonce: string; lookupId: string; context: NativeMultisigTransportContext;
+    intent: {multisigAccountId: string; proposalId: string; instructionsHash: string; operation: Readonly<Record<string, unknown>>; targetProposalId: string | null; targetInstructionsHash: string | null}},
+  transport: NativeMultisigTransport, contract: {proposalFinalitySchema: string},
+): Promise<NativeMultisigProposalFinality>;
+
+/** Native-only occurrence derivation; content commitment is independent. */
+export function deriveMultisigProposalId(networkId: NetworkId, accountId: string, proposalNonce: string): string;
+
+
+/** Opaque in-memory native inspection, bound to one HTTPS Torii URL and network. */
+declare const nativeAccountIdentityBrand: unique symbol;
+export interface NativeAccountIdentity {
+  readonly [nativeAccountIdentityBrand]: true;
+  readonly accountId: string;
+  readonly networkId: string;
+  readonly baseUrl: string;
+}
+/** Exact native response binding; the supplied transport must authenticate the HTTPS service. */
+export function inspectToriiAccountIdentityViaNativeTransport(
+  input: { networkId: NetworkId; baseUrl: string; accountId: string },
+  transport: (request: Readonly<{ requestId: string; body: string }>) => Promise<unknown>,
+): Promise<NativeAccountIdentity>;

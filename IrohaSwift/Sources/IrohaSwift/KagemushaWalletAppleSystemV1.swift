@@ -337,8 +337,10 @@ extension KagemushaWalletApplePlatformV1 {
   /// The root lives in `Library/Application Support` (never `Documents` or an App Group
   /// container, which app extensions could reach). It is created with mode `0700`; its mode,
   /// its default protection class and `isExcludedFromBackup` are re-applied on every call
-  /// (exclusion is Apple guidance only, so safety never depends on it: the keychain anchor
-  /// detects restored files). The canary is created once, create-new, and is never rewritten;
+  /// (exclusion is Apple guidance only, so safety never depends on it: a surviving newer
+  /// keychain anchor detects restored files). Keychain mutation acknowledgements have no
+  /// documented power-loss fence; rollback closure requires separate platform qualification.
+  /// The canary is created once, create-new, and is never rewritten;
   /// its Complete protection class is read back on every call, re-applied once when it
   /// differs, and the root is refused while it still differs. A root or canary that is a
   /// symbolic link or another kind of entry is refused; nothing is ever removed. Refused

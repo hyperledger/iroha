@@ -175,25 +175,48 @@ mod json_string_allocation_tests {
             json::Value::Bool(false),
             json::Value::Bool(true),
         ]);
-        let bytes = 3 * ::core::mem::size_of::<bool>();
-        let (copied, usage) = core::with_decode_limits_measured(allocation_limits(bytes), || {
-            Vec::<bool>::json_from_value(&vec_source)
-        });
-        assert_eq!(
-            copied.expect("exact copied-vector budget"),
-            [true, false, true]
-        );
-        assert_eq!(usage.total_allocated_bytes(), bytes);
-        let (rejected, usage) =
-            core::with_decode_limits_measured(allocation_limits(bytes - 1), || {
-                Vec::<bool>::json_from_value(&vec_source)
-            });
-        assert!(matches!(
-            rejected,
-            Err(json::Error::DecodeResource(
-                crate::core::DecodeResourceError::TotalAllocationExceeded { .. }
-            ))
-        ));
-        assert_eq!(usage.total_allocated_bytes(), 0);
+        let entries = 3;
+        let bytes = entries * ::core::mem::size_of::<bool>();
+        // Both native and text conversion charge entry metadata separately from
+        // the exact destination. Owning the input does not fund the output.
+        let total = entries + bytes;
+        for from_text in [false, true] {
+            let decode = || {
+                if from_text {
+                    json::from_json::<Vec<bool>>("[true,false,true]")
+                } else {
+                    Vec::<bool>::json_from_value(&vec_source)
+                }
+            };
+            let (copied, usage) =
+                core::with_decode_limits_measured(allocation_limits(total), decode);
+            let copied = copied.expect("exact metadata and destination budget");
+            assert_eq!(copied, [true, false, true]);
+            assert_eq!(copied.capacity(), entries);
+            assert_eq!(usage.total_elements(), entries);
+            assert_eq!(usage.total_allocated_bytes(), total);
+            // Retain both original small budgets, and check one byte below the
+            // complete total. A refused destination retains admitted metadata.
+            for (limit, attempted, charged) in [
+                (bytes, total, entries),
+                (bytes - 1, entries, 0),
+                (total - 1, total, entries),
+            ] {
+                let (rejected, usage) =
+                    core::with_decode_limits_measured(allocation_limits(limit), decode);
+                assert_eq!(
+                    rejected
+                        .expect_err("metadata and destination must both fit")
+                        .into_core_error()
+                        .decode_resource_error(),
+                    Some(crate::core::DecodeResourceError::TotalAllocationExceeded {
+                        attempted: u64::try_from(attempted).unwrap(),
+                        limit: u64::try_from(limit).unwrap(),
+                    })
+                );
+                assert_eq!(usage.total_elements(), entries);
+                assert_eq!(usage.total_allocated_bytes(), charged);
+            }
+        }
     }
 }

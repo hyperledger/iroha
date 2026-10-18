@@ -1507,8 +1507,10 @@ policy_digest_hex = "{policy_digest_hex}"
     fn nexus_fee_settlement_mode_accepts_direct_and_rejects_retired_modes() {
         {
             let canonical = "direct";
-            let mut fees = NexusFees::default();
-            fees.settlement_mode = canonical.to_owned();
+            let fees = NexusFees {
+                settlement_mode: canonical.to_owned(),
+                ..NexusFees::default()
+            };
             let mut emitter = Emitter::new();
             let parsed = fees.parse(&mut emitter);
             assert!(
@@ -1524,8 +1526,10 @@ policy_digest_hex = "{policy_digest_hex}"
             " direct",
             "direct ",
         ] {
-            let mut fees = NexusFees::default();
-            fees.settlement_mode = alias.to_owned();
+            let fees = NexusFees {
+                settlement_mode: alias.to_owned(),
+                ..NexusFees::default()
+            };
             let mut emitter = Emitter::new();
             let parsed = fees.parse(&mut emitter);
             assert!(

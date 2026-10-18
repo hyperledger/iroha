@@ -1,5 +1,4 @@
 #![doc = "Unit tests for pre-verify budget handling."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 //! Unit tests for pre-verify budget handling.
 #![cfg(feature = "zk-preverify")]

@@ -764,7 +764,7 @@ state_test! { sync pipeline_trigger_revalidates_a_sibling_replaced_after_matchin
     let state = authenticate_trigger_fixture(state);
 
     let_row! { block2 = trigger_component_block(&state, 2) };
-    let (state_block, recording, outputs, fragments_before) =
+    let (mut state_block, recording, outputs, fragments_before) =
         crate::state::run_empty_network_owner_fixture(&state, block2.as_ref());
     let outcomes = outputs.iter().map(|output| {
         let iroha_data_model::block::execution_output::ExecutionOutputV1::Pipeline(row) = output else {
@@ -774,12 +774,14 @@ state_test! { sync pipeline_trigger_revalidates_a_sibling_replaced_after_matchin
     }).collect::<Vec<_>>();
     assert_eq!(outcomes.len(), 1, "the stale sibling match must be skipped");
     assert_eq!(outcomes[0].0, &replacer_id);
-    assert!(outcomes[0].1.is_ok());
+    assert!(outcomes[0].1.is_ok(), "pipeline trigger returned {:?}", outcomes[0].1);
     assert_eq!(
         state_block.committed_fragment_count(),
         fragments_before.saturating_add(1),
         "a skipped stale match must not commit a phantom empty fragment",
     );
+    seed_trigger_component_window(&mut state_block)
+        .expect("retain original H2 through H4 component policy coverage");
     state_block.commit_world_overlay_for_testing().unwrap();
 
     {
@@ -809,7 +811,7 @@ state_test! { sync pipeline_trigger_revalidates_a_sibling_replaced_after_matchin
         (&row.invocation.trigger.trigger_id, &row.result)
     }).collect::<Vec<_>>();
     assert_eq!(outcomes.len(), 1);
-    assert!(outcomes[0].1.is_ok());
+    assert!(outcomes[0].1.is_ok(), "pipeline trigger returned {:?}", outcomes[0].1);
     state_block.commit_world_overlay_for_testing().unwrap();
 
     let view = state.view();

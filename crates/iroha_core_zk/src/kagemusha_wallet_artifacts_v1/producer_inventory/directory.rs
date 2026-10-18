@@ -8,7 +8,7 @@
 
 use std::{io, io::Read, io::Write, path::Path};
 
-use iroha_fs::{FileSnapshot, PrivateDirectory, SealedPrivateFile};
+use iroha_fs::{PrivateDirectory, SealedPrivateFile};
 use rand::rand_core::TryRngCore as _;
 use sha2::{Digest as _, Sha256};
 
@@ -41,16 +41,14 @@ fn name(digest: [u8; 32]) -> io::Result<String> {
 
 struct StableOriginal {
     file: SealedPrivateFile,
-    snapshot: FileSnapshot,
 }
 
 impl StableOriginal {
     fn recheck(&self) -> io::Result<()> {
-        self.file.revalidate()?;
-        if self.file.snapshot()? != self.snapshot {
-            return Err(invalid("original changed during streaming"));
-        }
-        Ok(())
+        // This sealed reader cannot update its retained baseline. Revalidation
+        // checks that exact metadata, immutable policy, named leaf and ancestry;
+        // taking another snapshot would repeat the same immutable predicates.
+        self.file.revalidate()
     }
 }
 
@@ -95,7 +93,8 @@ impl DirectoryOriginalsV1 {
     /// Reauthenticate one whole exact original using a bounded 64 KiB stream.
     ///
     /// # Errors
-    /// Changed extent, content address, immutable mode, original file or ancestry.
+    /// Changed extent, content address, immutable mode, original file or ancestry,
+    /// or scratch allocation failure.
     pub fn verify_original(&self, identity: BlobV1) -> io::Result<()> {
         self.require(identity)
     }
@@ -136,8 +135,7 @@ impl DirectoryOriginalsV1 {
             if file.is_empty()? {
                 return Err(invalid("empty original"));
             }
-            let snapshot = file.snapshot()?;
-            let original = StableOriginal { file, snapshot };
+            let original = StableOriginal { file };
             original.recheck()?;
             Ok(Some(original))
         })();
@@ -155,7 +153,7 @@ impl DirectoryOriginalsV1 {
         }
         let mut hash = Sha256::new();
         let mut total = 0_u64;
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = super::original_stream_buffer()?;
         loop {
             let count = original.read(&mut buffer)?;
             if count == 0 {
@@ -183,7 +181,8 @@ impl DirectoryOriginalsV1 {
     ///
     /// # Errors
     /// Wrong digest/length, oversized bytes, unsafe custody, conflicting existing original,
-    /// unavailable entropy/storage or uncertain native publication/durability.
+    /// unavailable entropy/storage, scratch allocation failure or uncertain native
+    /// publication/durability.
     pub fn store_original(&mut self, identity: BlobV1, bytes: &[u8]) -> io::Result<()> {
         if bytes.is_empty() || bytes.len() > self.maximum_bytes || BlobV1::of(bytes) != identity {
             return Err(invalid(
@@ -191,9 +190,8 @@ impl DirectoryOriginalsV1 {
             ));
         }
         let final_name = name(identity.sha256)?;
-        match self.reader_optional(identity.sha256)? {
-            Some(_) => return self.require(identity),
-            None => {}
+        if let Some(_original) = self.reader_optional(identity.sha256)? {
+            return self.require(identity);
         }
         let mut nonce = [0_u8; 16];
         rand::rngs::OsRng
@@ -278,6 +276,30 @@ mod tests {
         .unwrap();
         std::fs::write(root.join(hex::encode(identity.sha256)), bytes).unwrap();
         assert!(reader.read(&mut [0; 1]).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owned_reader_rejects_same_bytes_rewritten_on_the_retained_inode() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let (_temp, mut source) = directory();
+        let bytes = b"same bytes still require the original immutable metadata";
+        let identity = BlobV1::of(bytes);
+        source.store_original(identity, bytes).unwrap();
+        let path = source.root().unwrap().join(name(identity.sha256).unwrap());
+        let mut reader = source.open_original(identity.sha256).unwrap();
+        reader.read_exact(&mut [0; 1]).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        writer.write_all(bytes).unwrap();
+        writer
+            .set_modified(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        drop(writer);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let error = reader.read(&mut [0; 1]).unwrap_err();
+        assert!(error.get_ref().unwrap().is::<OriginalCustodyFailure>());
     }
 
     #[test]

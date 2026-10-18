@@ -246,8 +246,8 @@ fn branch_taken(opcode: u8, left: u64, right: u64) -> bool {
     match opcode {
         wide::control::BEQ => left == right,
         wide::control::BNE => left != right,
-        wide::control::BLT => (left as i64) < (right as i64),
-        wide::control::BGE => (left as i64) >= (right as i64),
+        wide::control::BLT => u64::cast_signed(left) < u64::cast_signed(right),
+        wide::control::BGE => u64::cast_signed(left) >= u64::cast_signed(right),
         wide::control::BLTU => left < right,
         wide::control::BGEU => left >= right,
         _ => false,
@@ -258,7 +258,7 @@ fn signed_field(value: i64) -> F {
     if value < 0 {
         F::ZERO.sub(F(value.unsigned_abs()))
     } else {
-        F(value as u64)
+        F(i64::cast_unsigned(value))
     }
 }
 
@@ -501,7 +501,7 @@ impl ProofManagedNoteStarkAdapterV1 for BranchStepAdapter {
         _: &[Vec<F>],
         _: &[Vec<F>],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<Vec<F>>, ProofManagedNoteStarkErrorV1> {
         Ok(Vec::new())
     }
@@ -514,7 +514,7 @@ impl ProofManagedNoteStarkAdapterV1 for BranchStepAdapter {
         _: &[F],
         fixed: &[F],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<F>, ProofManagedNoteStarkErrorV1> {
         residues(
             current

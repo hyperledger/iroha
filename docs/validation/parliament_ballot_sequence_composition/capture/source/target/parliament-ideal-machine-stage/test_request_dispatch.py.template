@@ -1,0 +1,115 @@
+"""Independent source-priority, full length payload and clean header controls."""
+from collections import Counter
+from pathlib import Path
+import random
+
+import pytest
+
+from bit_ir import Builder,bits,unpack
+import request_dispatch as dispatch
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def expected(vote,length):
+    if vote > 2: return 0,1,0,vote
+    if not 3<=length<=1000: return 0,2,length,0
+    return 1,0,0,0
+
+
+def decode(output):
+    return output[0],unpack(output[1:4]),unpack(output[4:68]),unpack(output[68:76])
+
+
+@pytest.mark.parametrize('constant',[0,1,2,3,127,128,254,255])
+def test_unsigned_comparator_exhaustive_eight_bit_words(constant):
+    b=Builder(8)
+    result=dispatch.less_constant(b,tuple(range(8)),constant)
+    block=b.finish((result,))
+    for value in range(256):assert block.evaluate(bits(value,8))==(int(value<constant),)
+
+
+@pytest.mark.parametrize('length',[0,1,2,3,999,1000,1001,1024,1025,65535,65536,(1<<32)-1,1<<32,(1<<63), (1<<64)-1])
+def test_all_vote_bytes_source_priority_and_untruncated_size_payload(length):
+    c=dispatch.source_bound_dispatch(ROOT)
+    for vote in range(256):
+        result=c.block.evaluate(bits(vote,8)+bits(length,64))
+        assert decode(result)==expected(vote,length)
+
+
+def test_every_boundary_neighborhood_and_all_high_length_bits():
+    c=dispatch.VoteHeaderDispatch()
+    for length in range(997,1004):
+        for vote in range(4):assert decode(c.block.evaluate(bits(vote,8)+bits(length,64)))==expected(vote,length)
+    # A low16-bit truncation would incorrectly continue for every one of these.
+    for high_bit in range(16,64):
+        length=(1<<high_bit)+3
+        assert decode(c.block.evaluate(bits(0,8)+bits(length,64)))==(0,2,length,0)
+
+
+@pytest.mark.parametrize('vote,length',[(0,0),(0,3),(2,1000),(0,1001),(255,0),(3,(1<<64)-1),(1,(1<<64)-1)])
+def test_actual_elementary_stream_arbitrary_target_complete_state_and_inverse(vote,length):
+    c=dispatch.VoteHeaderDispatch(); block=c.block;r=c.resources()
+    source=list(bits(vote,8)+bits(length,64))
+    rng=random.Random(971+vote+length)
+    target=[rng.randrange(2) for _ in range(76)]
+    state=source+[0]*(block.derived+block.work)+target+[1,0,1]
+    before=state[:];start=72+block.derived+block.work
+    want=expected(vote,length)
+    contribution=bits(want[0],1)+bits(want[1],3)+bits(want[2],64)+bits(want[3],8)
+    def run():
+        census=Counter()
+        for name,*wires in c.emit_clean():
+            assert name in ('x','cx','ccx') and len(set(wires))==len(wires)
+            assert all(type(w) is int and 0<=w<len(state)-3 for w in wires)
+            census[name]+=1
+            state[wires[-1]]^=int(all(state[w] for w in wires[:-1]))
+        return census
+    seen=run()
+    assert state[:start]==before[:start] and state[-3:]==[1,0,1]
+    assert state[start:-3]==[a^b for a,b in zip(target,contribution)]
+    assert seen=={k:r['gates'][k] for k in ('x','cx','ccx')}
+    run();assert state==before
+
+
+def test_independent_primitive_count_and_inventory_certificate():
+    c=dispatch.VoteHeaderDispatch();r=c.resources()
+    # Three explicit comparisons at8/64/64 bits with constant popcounts2/2/7.
+    # Each comparator: forward X=1+w,CX=w+2pop,CCX=w+pop.
+    # Remaining logic:3NOTs,75ANDs,1zero; output copy76; complete uncompute.
+    assert r['gates']==dict(x=284,cx=398,ccx=444,elementary_gates=2902,base_xor_oracle_calls=0)
+    assert r['history_bits']==379 and r['clean_kernel_work_bits']==0
+    assert r['input_bits']==72 and r['output_bits']==76 and r['total_clean_work_bits']==379
+    assert r['source_list_content_bits_read']==0 and not r['persistent_log_or_counter_touched']
+    assert r['same_typed_payload_and_length_authenticated_upstream'] is True
+    assert r['complete_fixed_family_dispatch_composed'] is False
+
+
+def test_missing_inverse_leaves_work_even_when_return_is_correct():
+    c=dispatch.VoteHeaderDispatch();b=c.block
+    source=list(bits(1,8)+bits(1001,64))
+    state=source+[0]*(b.derived+b.work)+[0]*76
+    gates=list(b.emit())+[('cx',wire,72+b.derived+b.work+i) for i,wire in enumerate(b.outputs)]
+    for _,*w in gates:state[w[-1]]^=int(all(state[i] for i in w[:-1]))
+    assert decode(state[-76:])==(0,2,1001,0)
+    assert any(state[72:-76])
+
+
+def test_bad_geometry_and_basis_inputs_refuse():
+    for wires,value in [([],0),((),0),(tuple(range(8)),True),(tuple(range(8)),256),((8,),1)]:
+        with pytest.raises(ValueError):dispatch.less_constant(Builder(8),wires,value)
+    for values in ([0]*71,[0]*73,[False]+[0]*71,[2]+[0]*71):
+        with pytest.raises(ValueError):dispatch.VoteHeaderDispatch().block.evaluate(values)
+
+
+def test_exact_source_pin_and_second_read_drift(tmp_path,monkeypatch):
+    for name in dispatch.SOURCE_PINS:
+        path=tmp_path/name;path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_bytes((ROOT/name).read_bytes()+b'\n')
+    with pytest.raises(ValueError,match='source changed'):dispatch.source_bound_dispatch(tmp_path)
+    real=Path.read_bytes;counts=Counter()
+    def read(path):
+        counts[str(path)]+=1;raw=real(path)
+        return raw+b'\n' if counts[str(path)]==2 else raw
+    monkeypatch.setattr(Path,'read_bytes',read)
+    with pytest.raises(ValueError,match='source drift'):dispatch.source_bound_dispatch(ROOT)

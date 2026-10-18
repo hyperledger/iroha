@@ -1,0 +1,90 @@
+{
+  "records": [
+    {
+      "manifest_sha256": "f8382651dd02ac9a1f064736390fd9a22c5d0a5e66eda179fb93a44a48b06127",
+      "path": "target/parliament-adaptive-arena-stage/capture",
+      "prefix": "capture",
+      "source_rules": [
+        {
+          "prefix": "source/",
+          "suffix": ""
+        }
+      ],
+      "source_set": "owner"
+    },
+    {
+      "manifest_sha256": "214f0ab113bf804b4ef5918ba136bc820ff35aa92688edf7dfa731c8f037c5a8",
+      "path": "target/parliament-adaptive-arena-stage/capture-prior55",
+      "prefix": "prior55",
+      "source_rules": [
+        {
+          "prefix": "source/",
+          "suffix": ""
+        }
+      ],
+      "source_set": "prior55"
+    },
+    {
+      "manifest_sha256": "36be0156040eaa901953975a0074574cc3c9e5a4bb3500921ec5d03a2e969300",
+      "path": "target/parliament-adaptive-arena-stage/capture-attempt1",
+      "prefix": "failed-attempt",
+      "source_rules": [
+        {
+          "prefix": "source/",
+          "suffix": ""
+        }
+      ],
+      "source_set": "failed-attempt"
+    },
+    {
+      "manifest_sha256": "f5cf06d2e9209da717d976ee18cad1b1f632a6a2bbbf691433e48065ecc69cbf",
+      "path": "target/parliament-adaptive-arena-review/capture",
+      "prefix": "review/capture",
+      "source_rules": [
+        {
+          "prefix": "source/",
+          "suffix": ".template"
+        }
+      ],
+      "source_set": "review"
+    },
+    {
+      "manifest_sha256": "272f0e68107b57f172abb78871ccd1a31a286708f198ac0ac1c2862b26395cf5",
+      "path": "target/parliament-adaptive-arena-review/before-initial-state-contract",
+      "prefix": "prior-review",
+      "source_rules": [
+        {
+          "prefix": "source/",
+          "suffix": ".template"
+        }
+      ],
+      "source_set": "prior-review"
+    },
+    {
+      "manifest_sha256": "b12b21da0723d3272335704c5c28500abe7a05e3003afb54f9b215871e8b060a",
+      "path": "target/parliament-adaptive-entry-audit",
+      "prefix": "audit"
+    },
+    {
+      "manifest_sha256": "427d6e38a7817f246e50f63a9fe23936186293e5104cdff955d75d3161efa7b5",
+      "path": "target/parliament-adaptive-arena-review",
+      "prefix": "review",
+      "source_rules": [
+        {
+          "prefix": "capture/source/",
+          "suffix": ".template"
+        },
+        {
+          "prefix": "before-initial-state-contract/source/",
+          "suffix": ".template"
+        },
+        {
+          "prefix": "audit-source/",
+          "suffix": ".template"
+        }
+      ]
+    }
+  ],
+  "review_capture": "target/parliament-adaptive-arena-review/capture",
+  "review_receipt_sha256": "31f706bf6b995a8d95343b88e40ba130e58b4fa97ad1d969ae72a4f0c698601c"
+}

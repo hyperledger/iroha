@@ -44,7 +44,7 @@ fn memory_merkle_compact_proofs_verify_for_deterministic_chunks() {
             );
             let wrong_leaf_count = NonZeroU64::new(commitment.leaf_count().get() / 2)
                 .expect("memory has more than one leaf");
-            let wrong_commitment = MerkleTreeCommitment::new(root.clone(), wrong_leaf_count);
+            let wrong_commitment = MerkleTreeCommitment::new(root, wrong_leaf_count);
             assert!(
                 !proof.verify_sha256(&leaf, &wrong_commitment),
                 "wrong memory leaf count must fail"

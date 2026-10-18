@@ -1,0 +1,86 @@
+"""Retain exact historical inputs without changing the current source checkout.
+
+This reconstructs input identities only. It does not rerun a build or establish
+equivalence to the current source. Output must be a new directory.
+"""
+from pathlib import Path
+import argparse
+import datetime
+import hashlib
+import json
+import subprocess
+
+REVISIONS = {
+    "Cargo.lock": "984343b41db8da310e0059f7a5cbdfdd15df9b90",
+    "crates/iroha_allocation/src/allocation/shared.rs": "17677530eea0e95b51ea404db7a5ff33a2f66688",
+    "crates/iroha_allocation/src/shared.rs": "17677530eea0e95b51ea404db7a5ff33a2f66688",
+    "crates/iroha_allocation/src/shared_reservation_tests.rs": "624a10be76963eda2ee1aa585ec719c9d82919f8",
+}
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    root, out = args.root.resolve(), args.output.resolve()
+    out.mkdir(parents=True, exist_ok=False)
+    source = root / "docs/validation/parliament_ballot_adapter_bound/report.json"
+    if sha(source) != "90b67fba04a4c7f1c73ed067eb4a8c8d5478707e05f4b4d51ddc27235da7a471":
+        raise RuntimeError("historical report identity changed")
+    report = json.loads(source.read_text())
+    if report["input_changes"] or report["verdict"] != "PASS_UNDER_STATED_PREMISES":
+        raise RuntimeError("historical report did not capture stable inputs")
+    recovered = {}
+    for relative, revision in REVISIONS.items():
+        original = str(root / relative)
+        expected = report["input_sha256"][original]
+        command = ["git", "show", revision + ":" + relative]
+        value = subprocess.check_output(command, cwd=root)
+        if hashlib.sha256(value).hexdigest() != expected:
+            raise RuntimeError("Git source does not match frozen identity: " + relative)
+        destination = out / "source" / (relative + ".template")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(value)
+        recovered[original] = {"revision": revision, "command": command,
+                               "path": str(destination), "sha256": expected}
+    resolved = {}
+    failures = {}
+    for original, expected in report["input_sha256"].items():
+        path = Path(recovered[original]["path"]) if original in recovered else Path(original)
+        actual = sha(path) if path.is_file() else None
+        resolved[original] = {"resolved_path": str(path), "sha256": actual}
+        if actual != expected:
+            failures[original] = {"expected": expected, "actual": actual}
+    # Recheck every resolved byte identity; live files are not changed or repinned.
+    during_changes = {name: sha(value["resolved_path"]) for name, value in resolved.items()
+                      if Path(value["resolved_path"]).is_file() and sha(value["resolved_path"]) != value["sha256"]}
+    current_drift = {name: {"expected": expected, "current": sha(name)}
+                     for name, expected in report["input_sha256"].items()
+                     if Path(name).is_file() and sha(name) != expected}
+    receipt = {
+        "schema": "parliament-historical-adapter-source-recovery-v1",
+        "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "historical_report": str(source), "historical_report_sha256": sha(source),
+        "recovered": recovered, "resolved_inputs": resolved,
+        "resolution_failures": failures, "during_resolution_changes": during_changes,
+        "current_source_changes": current_drift,
+        "historical_source_identities_resolved": not failures and not during_changes,
+        "live_sources_modified": False, "pins_refreshed": False,
+        "build_or_tests_rerun": False, "complete_source_archive": False,
+        "complete_workspace_certificate": False, "profile_qualified": False,
+        "scope": "Four changed source files recovered from exact Git revisions; other bound inputs remain at their guarded local paths. This is not an archive of every compiler/runtime dependency and does not transfer results to current source.",
+    }
+    (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    print(json.dumps({"resolved_inputs": len(resolved), "recovered_files": len(recovered),
+                      "failures": failures, "during_changes": during_changes,
+                      "current_drift_count": len(current_drift)}))
+    return int(bool(failures or during_changes))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -52,6 +52,23 @@ fn scope() -> SourceScopeV1 {
     SourceScopeV1::new([1, 2], Affine::GENERATOR).unwrap()
 }
 
+#[test]
+fn compiler_parameter_owners_reuse_exact_bases_and_keep_domains_separate() {
+    let mut cache = BTreeMap::<u32, PinnedParams<Ep>>::new();
+    let first = parameters(&mut cache, 6, CompilationPhaseV1::QParameters).unwrap();
+    let again = parameters(&mut cache, 6, CompilationPhaseV1::WParameters).unwrap();
+    assert!(core::ptr::eq(
+        first.params().g_lagrange().as_ptr(),
+        again.params().g_lagrange().as_ptr()
+    ));
+    let larger = parameters(&mut cache, 7, CompilationPhaseV1::WParameters).unwrap();
+    assert_eq!(first.k(), 6);
+    assert_eq!(larger.k(), 7);
+    assert_ne!(first.digest(), larger.digest());
+    assert!(parameters(&mut cache, u32::MAX, CompilationPhaseV1::QParameters).is_err());
+    assert_eq!(cache.len(), 2);
+}
+
 #[derive(Clone)]
 pub(super) struct Tiny<F: PastaField>(pub(super) F);
 impl<F: PastaField> Circuit<F> for Tiny<F> {
@@ -131,6 +148,33 @@ fn offline_publication_checks_limits_hashes_and_exact_source_after_storage() {
     assert_eq!(compiler.bytes, 0);
 }
 
+#[test]
+fn offline_publication_uses_compact_original_byte_limit() {
+    let params = PinnedParams::<Ep>::derive(8).unwrap();
+    let source = Tiny(Fq::ONE);
+    let key_config = config(vec![InstanceType::Bounded], false, limits());
+    let generated = keygen_pk_v2(&params, &source, &key_config).unwrap();
+    let original = generated.artifact_bytes_v2().unwrap();
+    assert_eq!(original.len(), 108 + generated.vk().to_bytes().len());
+    let mut read = limits();
+    read.maximum_bytes = original.len();
+    let mut disk = Memory::default();
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, read, 1 << 30).unwrap();
+    let compiled = compiler.key(&source, &params, &key_config).unwrap();
+    assert_eq!(compiled.original.proving_key, BlobV1::of(&original));
+    assert_eq!(
+        compiled.metadata.key().to_bytes(),
+        generated.vk().to_bytes()
+    );
+    drop(compiler);
+    read.maximum_bytes -= 1;
+    let mut rejected = Memory::default();
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut rejected, read, 1 << 30).unwrap();
+    assert!(compiler.key(&source, &params, &key_config).is_err());
+    assert_eq!(compiler.bytes, 0);
+    assert!(compiler.blobs.is_empty());
+}
+
 struct Disk(tempfile::TempDir);
 impl OriginalSourceV1 for Disk {
     fn open(&mut self, sha256: [u8; 32]) -> Result<Box<dyn std::io::Read + '_>, Error> {
@@ -161,7 +205,7 @@ impl OriginalSinkV1 for Disk {
 fn monetary_descriptor_classes_keep_complete_routes_within_terminal_capacity() {
     // Use the compiler's actual monetary recipe and compressed descriptors, without
     // generating any keys. Equal dimensions alone would not establish a Q class.
-    let descriptors: BTreeMap<_, _> = (2_u8..12)
+    let descriptors: BTreeMap<_, _> = (2_u8..7)
         .map(|selector| {
             let shape = sigma::monetary_shape(usize::from(selector)).unwrap();
             (selector, shape.descriptor::<Eq>().unwrap())
@@ -181,10 +225,11 @@ fn monetary_descriptor_classes_keep_complete_routes_within_terminal_capacity() {
         }
         groups
     };
-    let send = groups(2..=9);
-    let receive = groups(10..=11);
-    assert_eq!(send, [vec![2, 6], vec![3, 7], vec![4, 8], vec![5, 9]]);
-    assert_eq!(receive, [vec![10], vec![11]]);
+    let send = groups(2..=5);
+    let receive = groups(6..=6);
+    // The quota control selects k14; the lease adds no source structure.
+    assert_eq!(send, [vec![2, 4], vec![3, 5]]);
+    assert_eq!(receive, [vec![6]]);
 
     let representative = |selector| {
         send.iter()
@@ -193,7 +238,7 @@ fn monetary_descriptor_classes_keep_complete_routes_within_terminal_capacity() {
             .map_or(selector, |group| group[0])
     };
     let routes = compiled_routes();
-    assert_eq!(routes.len(), 52);
+    assert_eq!(routes.len(), 22);
     let mut classes = Vec::new();
     for route in routes {
         let class = (
@@ -211,13 +256,13 @@ fn monetary_descriptor_classes_keep_complete_routes_within_terminal_capacity() {
     // Receive and ReceiveRenewed remain separate variants in the actual product.
     assert_eq!(
         classes.len(),
-        10 + send.len() + 2 * receive.len() * send.len() + receive.len()
+        9 + send.len() + 2 * receive.len() * send.len() + receive.len()
     );
     assert!(classes.len() <= 32, "complete routes exceed Omega capacity");
 }
 
 #[test]
-#[ignore = "real16 sigma +Q +Bootstrap A/W +Omega original construction; optimized explicit component run"]
+#[ignore = "real11 sigma +Q +Bootstrap A +Omega original construction; optimized explicit component run"]
 fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_marker() {
     let mut disk = Disk(tempfile::tempdir().unwrap());
     let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 4 << 30).unwrap();
@@ -252,11 +297,13 @@ fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_
             );
         }
     }
+    // Lean Bootstrap proves its own step inline: one signature Q and one unsplit A.
     let q = compiler.q(Variant::Bootstrap, &[0], &[], &sigmas).unwrap();
-    assert_eq!(q.keys().len(), 2);
+    assert_eq!(q.keys().len(), 1);
     let route = compiled_routes()[0];
     let operation = compiler.operation(route, &q, None).unwrap();
-    assert_eq!(operation.stages(), 2);
+    assert_eq!(operation.stages(), 1);
+    assert!(operation.w.is_empty());
     let omega = compiler.omega(&[operation.terminal()]).unwrap();
     let closed = compiler.close_operation(&operation, &q, &omega).unwrap();
     assert_eq!(closed.context, operation.context);
@@ -265,9 +312,9 @@ fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_
     changed.context[0][0] ^= 1;
     assert!(compiler.close_operation(&changed, &q, &omega).is_err());
     let mut changed = operation.clone();
-    changed.w.clear();
+    changed.a.push(changed.a[0].clone());
     assert!(compiler.close_operation(&changed, &q, &omega).is_err());
-    let retiring_q = compiler.q(Variant::Retiring, &[15], &[], &sigmas).unwrap();
+    let retiring_q = compiler.q(Variant::Retiring, &[10], &[], &sigmas).unwrap();
     let retiring_route = compiled_routes()
         .into_iter()
         .find(|route| route.variant == Variant::Retiring)
@@ -275,7 +322,8 @@ fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_
     let retiring = compiler
         .operation(retiring_route, &retiring_q, Some(omega.key()))
         .unwrap();
-    assert_eq!(retiring.stages(), 4);
+    // Lean Retiring proves its own step inline: A1, W0, A2.
+    assert_eq!(retiring.stages(), 2);
     let final_omega = compiler
         .omega(&[operation.terminal(), retiring.terminal()])
         .unwrap();
@@ -307,7 +355,7 @@ fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_
         .unwrap();
     assert!(closed_bootstrap.predecessor.is_none());
     eprintln!(
-        "OFFLINE_FINAL_OMEGA_REBIND terminals=2 RetiringA=4 RetiringW=3 exact_originals=true changed_omega_key=true context_unchanged=true complete_catalog=false"
+        "OFFLINE_FINAL_OMEGA_REBIND terminals=2 RetiringA=2 RetiringW=1 exact_originals=true changed_omega_key=true context_unchanged=true complete_catalog=false"
     );
     assert!(
         compiler
@@ -329,7 +377,7 @@ fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_
             .is_err()
     );
     eprintln!(
-        "OFFLINE_BOOTSTRAP_SOURCE sigma=16 Q=2 A=2 W=1 Omega=1 signed_placeholder=false original_imports=true complete_catalog=false"
+        "OFFLINE_BOOTSTRAP_SOURCE sigma=11 Q=1 A=1 W=0 Omega=1 signed_placeholder=false original_imports=true complete_catalog=false"
     );
 }
 
@@ -405,4 +453,30 @@ fn indexed_original_reuse<C: PastaCurve>() {
 fn indexed_original_reuse_requires_complete_source_import_on_both_curves() {
     indexed_original_reuse::<Ep>();
     indexed_original_reuse::<Eq>();
+}
+
+fn changed_source_regenerates<C: PastaCurve>() {
+    let mut disk = Memory::default();
+    let params = PinnedParams::<C>::derive(8).unwrap();
+    let cfg = config(vec![InstanceType::Bounded], false, limits());
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 1 << 30).unwrap();
+    let previous = compiler
+        .key(&Tiny(C::ScalarExt::ONE), &params, &cfg)
+        .unwrap();
+    drop(compiler);
+    let count = disk.blobs.len();
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 1 << 30).unwrap();
+    compiler.index_original(previous.original).unwrap();
+    let changed = compiler
+        .key(&Tiny(C::ScalarExt::from(3)), &params, &cfg)
+        .unwrap();
+    assert_ne!(changed.original, previous.original);
+    drop(compiler);
+    assert!(disk.blobs.len() > count);
+}
+
+#[test]
+fn indexed_original_reuse_regenerates_changed_source_on_both_curves() {
+    changed_source_regenerates::<Ep>();
+    changed_source_regenerates::<Eq>();
 }

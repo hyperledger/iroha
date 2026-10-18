@@ -1,0 +1,154 @@
+"""Content-invalid log identity and source-error preservation with clean work."""
+from collections import Counter
+from pathlib import Path
+import random
+
+import pytest
+
+from bit_ir import apply_gates,bits
+from validated_request import ValidatedWrites,ValidatedReturn,P0_BITS
+from return_machine import ReturnProjection,actual_return
+from write_machine import ProgrammedWrites,actual_frames
+from test_write_machine import toy,record
+
+ROOT=Path(__file__).resolve().parents[2]
+
+
+def set_write_inputs(machine,valid,enabled,previous):
+    base=machine.writes;p=machine.layout();a=machine.append()
+    state=[0]*p['size'];fields={name:bytes([17+7*i]) for i,(name,_) in enumerate(machine.field_inventory())}
+    primary=[bytes([73+i]) for i in range(base.trials)]
+    for name,value in fields.items():
+        start,width=p['fields'][name];state[start:start+width]=bits(int.from_bytes(value,'little'),width)
+    state[p['primary']:p['flags']]=[b for value in primary for b in bits(value[0],8)]
+    state[p['flags']:p['valid']]=enabled
+    state[p['valid']]=valid
+    old=record(base,1,0,fields,primary)
+    for i in range(previous):state[p['log']+i*len(old):p['log']+(i+1)*len(old)]=old
+    state[p['counter']:p['enable']]=bits(previous,a.counter_bits)
+    return state,fields,primary
+
+
+@pytest.mark.parametrize('valid',[0,1])
+@pytest.mark.parametrize('enabled',[0,1,2,3])
+@pytest.mark.parametrize('previous',[0,2])
+def test_validated_write_chronology_or_invalid_identity_and_inverse(valid,enabled,previous):
+    machine=ValidatedWrites(toy());p=machine.layout()
+    state,fields,primary=set_write_inputs(machine,valid,[1]*enabled+[0]*(3-enabled),previous)
+    before=state[:];apply_gates(state,machine.emit())
+    wanted=before[:]
+    if valid:
+        records=[record(machine.writes,1,0,fields,primary),record(machine.writes,2,0,fields,primary)]
+        records += [record(machine.writes,3,i,fields,primary) for i in range(enabled)]
+        for i,item in enumerate(records,previous):wanted[p['log']+i*len(item):p['log']+(i+1)*len(item)]=item
+        wanted[p['counter']:p['enable']]=bits(previous+2+enabled,machine.append().counter_bits)
+    assert state==wanted
+    assert not any(state[p['enable']:])
+    apply_gates(state,machine.emit(inverse=True));assert state==before
+
+
+def test_invalid_full_log_and_arbitrary_flags_preserve_all_state():
+    machine=ValidatedWrites(toy());p=machine.layout()
+    state,_,_=set_write_inputs(machine,0,[0,1,0],machine.writes.capacity)
+    original=state[:]
+    apply_gates(state,machine.emit());assert state==original
+    apply_gates(state,machine.emit(inverse=True));assert state==original
+    # A wrong unconditional first-enable reproduces a detectable invalid write.
+    # Use available capacity for this explicit negative control.
+    state,_,_=set_write_inputs(machine,0,[1,0,1],0);original=state[:]
+    gates=list(machine.emit());at=next(i for i,g in enumerate(gates) if g==('cx',p['valid'],p['enable']))
+    gates[at]=('x',p['enable'])
+    apply_gates(state,gates);assert state!=original
+
+
+@pytest.mark.parametrize('trials',[1,2,3,8])
+def test_validated_write_exact_delta_counts_both_directions(trials):
+    base=toy(trials,trials+2);wrapper=ValidatedWrites(base)
+    a=base.resources()['gates'];b=wrapper.resources()['gates']
+    assert (b['x']-a['x'],b['cx']-a['cx'],b['ccx']-a['ccx'])==(-4,4-2*trials,2*trials)
+    for inverse in (False,True):
+        census=Counter(g[0] for g in wrapper.emit(inverse=inverse))
+        assert census=={key:b[key] for key in ('x','cx','ccx')}
+    p=wrapper.layout();r=wrapper.resources()
+    assert p['size']==r['input_bits']+r['persistent_log_bits']+r['persistent_counter_bits']+r['clean_work_bits']
+    assert r['clean_work_bits']==base.resources()['clean_work_bits']
+    assert b['base_xor_oracle_calls']==0
+    assert r['malformed_shape_dispatch_implemented'] is False
+
+
+def p0(valid,code=0,order=0,actual=0,declared=0,vote=0):
+    return (valid,)+bits(code,3)+bits(order,16)+bits(actual,16)+bits(declared,16)+bits(vote,8)
+
+
+P0_CASES=[p0(1),p0(0,1,vote=9),p0(0,2,actual=2),p0(0,3,order=17),
+          p0(0,4,actual=7,declared=91),p0(0,5)]
+
+
+@pytest.mark.parametrize('validation',P0_CASES)
+@pytest.mark.parametrize('exhausted',[0,1])
+def test_validated_return_exact_typed_union_nonzero_targets_cleanup_and_inverse(validation,exhausted):
+    e=ReturnProjection((('alpha',2),('beta',1)),('beta','alpha'),last_counter=5)
+    c=ValidatedReturn(e);p=c.layout();rng=random.Random(123+sum(validation))
+    # E input order differs from its wire proof order.
+    incoming=(exhausted,)+bits(0x71,8)+bits(0xE329,16)
+    values=validation+incoming
+    proof=bits(0xE329,16)+bits(0x71,8)
+    if not validation[0]:
+        wanted=bits(2,2)+validation[1:]+(0,)*(32+64+24)
+    elif exhausted:
+        wanted=bits(1,2)+(0,)*59+bits(5,32)+(0,)*(64+24)
+    else:
+        wanted=(0,)*(2+59+32)+bits(3,64)+proof
+    z=tuple(rng.randrange(2) for _ in range(c.output_bits))
+    state=list(values+(0,)*(p['output_start']-c.input_bits)+z);original=state[:]
+    gates=tuple(c.emit_clean());apply_gates(state,gates)
+    assert state[:c.input_bits]==list(values)
+    assert not any(state[c.input_bits:p['output_start']])
+    assert tuple(state[p['output_start']:])==tuple(a^b for a,b in zip(z,wanted))
+    apply_gates(state,gates);assert state==original
+    census=Counter(g[0] for g in gates);resource=c.resources();cost=resource['gates']
+    assert census=={key:cost[key] for key in ('x','cx','ccx')}
+    assert cost['base_xor_oracle_calls']==0
+    assert c.input_bits==60+e.input_bits and c.output_bits==e.output_bits+60
+    assert p['output_start']-c.input_bits==e.output_bits+2
+    assert resource['complete_resource_vector'] is False
+
+
+def test_validated_return_masks_noncanonical_inactive_payload_and_missing_cleanup_control():
+    e=ReturnProjection((('data',1),),('data',));c=ValidatedReturn(e);p=c.layout()
+    values=(1,)+(1,)*59+(0,)+bits(0x39,8)
+    state=list(values+(0,)*(p['size']-len(values)))
+    apply_gates(state,c.emit_clean())
+    start,width=c.output_regions()['public_error'];assert not any(state[p['output_start']+start:p['output_start']+start+width])
+    state=list(values+(0,)*(p['size']-len(values)))
+    gates=list(c.emit_clean());gates.pop()
+    apply_gates(state,gates);assert any(state[c.input_bits:p['output_start']])
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('role',['registration','vote'])
+def test_actual_source_geometry_accounting_without_production_gate_execution(row,role):
+    base=ProgrammedWrites(actual_frames(ROOT,row,role),1<<20,(1<<44)*((1<<20)+2),64,215150)
+    w=ValidatedWrites(base);wr=w.resources();br=base.resources()
+    assert wr['fixed_append_scans']==(1<<20)+2 and wr['clean_work_bits']==br['clean_work_bits']
+    assert wr['gates']['ccx']==br['gates']['ccx']+2*(1<<20)
+    assert wr['gates']['cx']==br['gates']['cx']+4-2*(1<<20)
+    assert next(w.emit())==('cx',w.layout()['valid'],w.layout()['enable'])
+    e=actual_return(ROOT,row,role);v=ValidatedReturn(e);vr=v.resources();er=e.resources();g=vr['gates']
+    assert g['x']==2*er['gates']['x']+2 and g['cx']==2*er['gates']['cx']+3
+    assert g['ccx']==2*er['gates']['ccx']+e.output_bits+59
+    assert vr['clean_work_bits']==e.output_bits+2
+    assert vr['proof_bytes']==e.proof_bytes
+    assert v.output_regions()['proof'][0]==157
+
+
+def test_strict_wrapper_types_and_indices_refused():
+    for invalid in (None,object(),False):
+        with pytest.raises(ValueError):ValidatedWrites(invalid)
+        with pytest.raises(ValueError):ValidatedReturn(invalid)
+    w=ValidatedWrites(toy())
+    for args in ((0,0),(4,0),(True,0),(3,-1),(3,3),(3,True)):
+        with pytest.raises(ValueError):list(w.emit_record(*args))
+    with pytest.raises(ValueError):list(w.emit(inverse=1))
+    with pytest.raises(ValueError):list(w.emit_record(1,inverse=1))
+    assert P0_BITS==1+3+16+16+16+8

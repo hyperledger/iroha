@@ -4,6 +4,14 @@ All notable changes to `IrohaSwift` are documented in this file.
 
 ## [Unreleased]
 
+- 2026-10-17: KAGEMUSHA blacklists are local-only. Added
+  `KagemushaWalletV1.installBlacklist(list:certificates:)`, which stores a signed list on the
+  phone (a replacement's version must increase; it has no retry identity); Native then refuses
+  to pay a listed receiver and to request or accept money from a listed payer with
+  `KagemushaWalletErrorV1.blockedStatus` (-15). Nothing is sent to peers or proved:
+  `KagemushaWalletRefreshKindV1.blacklist` is removed, and Requests drop the receiver blacklist
+  version and root (17-field body, 418-byte transcript, 24 `credit_id` elements).
+
 - Bridge ABI 29 (no ABI 28 compatibility). `KagemushaWalletEnrollmentV1.abandon()` returns
   `KagemushaWalletEnrollmentAbandonmentV1`: `localAbandoned` (Native result kind 58, nothing
   to submit) or `abandonment(frame)` (kind 28, the exact retained signed frame) instead of
@@ -19,8 +27,7 @@ All notable changes to `IrohaSwift` are documented in this file.
   32-byte Poseidon message. The artifact manifest alone has a SHA signed-object
   digest (`artifactManifestDigest(message:signature:)`); circuit-visible object,
   package, statement, operation and nullifier digests are opaque native Poseidon
-  values. Requests include the receiver's recorded blacklist version and root;
-  quota usage uses a depth-6 array. Only this layout is accepted.
+  values. Quota usage uses a depth-6 array. Only this layout is accepted.
 - Added `KagemushaWalletApplePlatformV1`, the iPhone platform adapter behind the
   Rust KAGEMUSHA wallet Advance provider: the Secure Enclave payment key, which
   signs exactly the 32-byte message the Rust signer passes with
@@ -106,9 +113,9 @@ All notable changes to `IrohaSwift` are documented in this file.
   error envelope.
 - `+` in query values is percent-encoded; `getStatusSnapshot()` no longer races
   on its sample state; `AccountId.make(publicKey:)` throws instead of trapping;
-  building a transfer with a non-empty `TransferRequest.description` throws
-  `TransactionInputError.transferDescriptionUnsupported` instead of silently
-  dropping the memo; the always-failing `deployContractInstance` and
+  building a transfer preserves non-empty `TransferRequest.description` exactly
+  in signed `memo` metadata; unsigned fee-quote payloads use the same native
+  instruction and payload encoder as signed transfers; the always-failing `deployContractInstance` and
   `activateContractInstance` were removed.
 - `ToriiCanonicalRequestAuth` is now only the account credential
   (`accountId`, `privateKey`); its `timestampMs`/`nonce` were removed because a

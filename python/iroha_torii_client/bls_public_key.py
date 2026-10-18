@@ -1,5 +1,6 @@
 """Canonical BLS-Normal public-key curve/subgroup admission."""
 from __future__ import annotations
+
 import functools
 import re
 from typing import Tuple

@@ -1,0 +1,189 @@
+{
+  "binding_ballot_available": false,
+  "broken_links": [],
+  "checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "docs/validation/parliament_ballot_b6.md",
+        "scripts/formal/check_sora_parliament_source_contract.py",
+        "scripts/parliament_ballot_ideal_sampler_accounting.py",
+        "scripts/parliament_ballot_profile_bound.py",
+        "scripts/parliament_ballot_typed_decoder_bound.py",
+        "scripts/tests/check_sora_parliament_source_contract_test.py",
+        "scripts/tests/parliament_ballot_ideal_sampler_accounting_test.py",
+        "scripts/tests/parliament_ballot_profile_bound_test.py",
+        "scripts/tests/parliament_ballot_typed_decoder_bound_test.py",
+        "specs/parliament_ballot_arena_sufficiency.md",
+        "specs/parliament_ballot_b6_ideal_sampler_accounting.md",
+        "specs/parliament_ballot_b6_requirement_audit.md",
+        "specs/parliament_ballot_implementation_goals.md"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_b6/decoder-profile-resource-scoped-diff.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "--",
+        "status.md"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_b6/decoder-profile-resource-shared-status-diff.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "complete_quantum_resource_vector": false,
+  "complete_workspace_certificate": false,
+  "current_adapter_input_changes": {
+    "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+      "after": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+      "before": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+      "after": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+      "before": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+      "after": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+      "before": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+    },
+    "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+      "after": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+      "before": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+    }
+  },
+  "current_status_roadmap_sha256": {
+    "roadmap.md": "fcd377a9c3eb2ea03af5937ddc74a23d1c4f66874a00bc872039f24d1a7ae074",
+    "status.md": "39bf873fc82016d76edb7eb5cbb1746e4345e054851062d1ce9273e5b27509f4"
+  },
+  "final_focused_controls_passed": 192,
+  "final_focused_controls_sha256": "06e4f8ab0e5fdee6026e9c1b6c6b301ffe97386a6dfc8d48358498b1ce62dfff",
+  "final_source_check_exit": 1,
+  "final_source_check_first_error": "crates/iroha_core/src/state.rs: start phases must use the original block and height in order",
+  "final_source_check_receipt": "docs/validation/parliament_ballot_b6/kura-claim-guard-source-check.json",
+  "final_source_check_sha256": "cde152896f2429edf5d4f254fc10f653545fb79ecd199d95a9605912609e1d01",
+  "final_source_guards_checked": 54,
+  "frozen_new_manifests": [
+    {
+      "entries": 9,
+      "path": "docs/validation/parliament_ballot_profile_bound/SHA256SUMS",
+      "sha256": "300ae6a89b19ef2c99ef27f6ba10e4ad8d981c62150ca12d1c95e1c586dd60cd"
+    },
+    {
+      "entries": 7,
+      "path": "docs/validation/parliament_ballot_typed_decoder_bound/SHA256SUMS",
+      "sha256": "3b6053c629e21af9331af6b3c86e82adce7513b65b2ab1630400aa5badd8be90"
+    },
+    {
+      "entries": 8,
+      "path": "docs/validation/parliament_ballot_ideal_sampler_accounting/SHA256SUMS",
+      "sha256": "82bfa0d481d8a116f753be5466f16a3f713199ea83d9c1582507355a3d90f9c1"
+    }
+  ],
+  "historical_compiled_bounds": {
+    "profile": {
+      "current_source_differences": {
+        "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+          "current": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+          "historical": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+        },
+        "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+          "current": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+          "historical": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+        },
+        "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+          "current": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+          "historical": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+        },
+        "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+          "current": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+          "historical": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+        }
+      },
+      "report_sha256": "5f686d26ff0fa65cbf7bad03f46633377f91df442a716253bbb44b721e5d1e8b",
+      "resolved_guards_checked": 2089
+    },
+    "typed_decoder": {
+      "current_source_differences": {
+        "/Users/mtakemiya/dev/iroha/Cargo.lock": {
+          "current": "d48624bc2e80c2821f6192b466c7afd7b6e62014e54fa9827663e44debbf0284",
+          "historical": "8893895108a7150d59f4814a8bdce5c3dbfe57fdacefd82fcdf2ba793c5f14db"
+        },
+        "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/allocation/shared.rs": {
+          "current": "c19d0dfce876f26cc7b41b4e5c822c526787e03caa7fe6115cf995ccedbe4a85",
+          "historical": "d7cb0dc84f70ed2947053de49b0c3d2e3e67b09b9839468204126ea4df19957c"
+        },
+        "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared.rs": {
+          "current": "90cb9601cf32f440d0207482565eef8a38d08d36f28ae1a3e98b5189538b682e",
+          "historical": "8f70d96f97a6f0bd8fcea7bfd094025f6c80b74a5a812e42a8a9d02e7640c65c"
+        },
+        "/Users/mtakemiya/dev/iroha/crates/iroha_allocation/src/shared_reservation_tests.rs": {
+          "current": "1ca65ab51447057eb323703dd4d8994363de9d5c1d8c6c53a484a03544a7a40e",
+          "historical": "599e1e63f5f54592837e6b529eecb238bba8595a1afecc98e034595fb001863e"
+        }
+      },
+      "report_sha256": "a8ca5fa99835c7fc3461acb56645f0330e22b4c8ecfba676ce89af315347805c",
+      "resolved_guards_checked": 2103
+    }
+  },
+  "historical_queue_controls_insufficient": true,
+  "historical_queue_false_approval_receipt_sha256": "e29e5b9f29e44fc083a08892faf714314320fb5e56cee798cc9a38c82e13d741",
+  "local_links_checked": 224,
+  "no_experimental_core_torii_dependencies": true,
+  "observed_at_utc": "2026-10-13T12:39:06.669224+00:00",
+  "prior_entries": 1060,
+  "prior_manifest_sha256": "f84dd3b8d78ac31cf442a31b2f7cf10207e81e6de5776959768443882010195f",
+  "profile_qualified": false,
+  "qualified_attempt_latency_ms": null,
+  "queue_only_source_check_current_drift": {
+    "crates/iroha_torii/src/lib.rs": {
+      "after": "1a4a4b5bfb2745c6446326263da67ca2e430de5ac07044045836588309258366",
+      "before": "9f4d0a46e4bdd78990ca63508eee4b38457a4c4fb9fd5e6a4556f8781cf5f1f4"
+    },
+    "scripts/formal/check_sora_parliament_source_contract.py": {
+      "after": "3ad7a9957125848d98d7a93be4d87e971795e85752a91ee92c3daefe26d3a4c3",
+      "before": "bd6f4743aba223b8e98715eda06e0183f9bf8d3afa50b437872454c7affbfa0c"
+    }
+  },
+  "queue_only_source_check_sha256": "a9b1278f46c73152cdea38595aea4ea573be6736e53824c1ccd66d00623b4b6b",
+  "queue_only_test_current_drift": {
+    "scripts/formal/check_sora_parliament_source_contract.py": {
+      "after": "3ad7a9957125848d98d7a93be4d87e971795e85752a91ee92c3daefe26d3a4c3",
+      "before": "bd6f4743aba223b8e98715eda06e0183f9bf8d3afa50b437872454c7affbfa0c"
+    },
+    "scripts/tests/check_sora_parliament_source_contract_test.py": {
+      "after": "2cf94054ce8522c07fe64d5e09ff0af513a65fad17674d99c1df3ce855d50e0c",
+      "before": "7648bbbb858104b52ae449a6caf86bbbe3aa07b1f9ee15567896b12a98cb28a0"
+    }
+  },
+  "sampler_executing_artifacts_checked": 3,
+  "sampler_source_excerpts_checked": 19,
+  "sampler_source_guards_checked": 61,
+  "schema": "parliament-decoder-profile-resource-coherence-v1",
+  "scope": "Historical compiled outer profile/decoder bounds, partial logical sampler accounting and scoped structural guard repairs only. Earlier failed source checks retain their identities; no independent qualification review or full runtime proof is supplied.",
+  "updated_live_entries": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": "1686859e29766cf609855a027fbbda064325029985a61e8b9e065c492f5501e5",
+      "before": "1147a1c2185a010993793f4556ceda18f5f8487aaf97036c8cb43bb3b0e64dfc"
+    },
+    "specs/parliament_ballot_arena_sufficiency.md": {
+      "after": "cb01e722491f509bb16a2fd366127b09550d966ed5ef1830dd5c4dab32359c89",
+      "before": "62c293887b2be04f3edee9bf2628b7dea10adad64373d0a60fc1346b2359c772"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": "da4deece6b2c6df3b847dab9be154fa19fdc2f73b52a9275a8a80f3247a99bc2",
+      "before": "b79570b2b95066579f835f946689671a175c42eb48dad1a47dfa2d8349c87b17"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": "b4e747b99a3da37481118f9fc58abfed5a224c00e034055dace2b917019c4ca2",
+      "before": "8d148eac6f33a0705c59a237ad08df1cc1b3254530ab8f92eefa0eca473a7ca2"
+    }
+  }
+}

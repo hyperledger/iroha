@@ -105,15 +105,15 @@ impl Fixture {
             let left = cell * 16 + half as u64 * 8;
             let mut borrow = 0_i64;
             for limb in 0..5 {
-                let difference = ((left >> (limb * 8)) & 255) as i64
-                    - ((end >> (limb * 8)) & 255) as i64
+                let difference = u64::cast_signed((left >> (limb * 8)) & 255)
+                    - u64::cast_signed((end >> (limb * 8)) & 255)
                     - borrow;
                 borrow = i64::from(difference < 0);
                 set_bits(
                     &mut bank[limb * 8..(limb + 1) * 8],
                     difference.rem_euclid(256) as u64,
                 );
-                bank[40 + limb] = F(borrow as u64);
+                bank[40 + limb] = F(i64::cast_unsigned(borrow));
             }
         }
         let mut packets = [[F::ZERO; packet::WIDTH]; 6];
@@ -731,7 +731,7 @@ fn copyback_witness_tail_uses_its_own_width_and_constrains_all_four_activity_bit
         let start = ivm::Memory::STACK_START + 8;
         let fixture = Fixture::new(start, start + 65536, 3, offset);
         assert_eq!(fixture.row.get(LOWER..WIDTH).unwrap().len(), 4);
-        assert!(LOWER > packet::WIDTH);
+        const { assert!(LOWER > packet::WIDTH) };
         assert_eq!(fixture.residues().len(), CONSTRAINTS);
         assert!(fixture.accepts());
         for index in LOWER..WIDTH {

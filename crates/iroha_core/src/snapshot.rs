@@ -1848,6 +1848,16 @@ impl<'a> SnapshotJsonBudgetScanner<'a> {
                 self.policy.max_decode_depth
             )));
         }
+        // Public API callers can construct this policy without config parsing.
+        // Their local allowance cannot relax the codec's fixed structural bound
+        // before this scanner recursively descends into another value.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC388")))]
+        if depth > norito::core::MAX_VALUE_NESTING_DEPTH {
+            return Err(TryReadError::SnapshotResourceLimit(format!(
+                "JSON nesting depth {depth} exceeds Norito structural limit {}",
+                norito::core::MAX_VALUE_NESTING_DEPTH
+            )));
+        }
         let token = self.peek();
         if (context == SnapshotJsonContext::ElectionPresentUndo
             && !matches!(token, Some(b'{' | b'n')))

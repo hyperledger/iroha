@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration tests validating multi-signature transaction flows.
 use eyre::{Result, WrapErr, eyre};
 use integration_tests::{
@@ -8,7 +7,9 @@ use integration_tests::{
 };
 use iroha::{
     blocking::Client,
-    client::{MultisigProposalEntry, MultisigProposalsQueryRequest},
+    client::{
+        MultisigProposalEntry, MultisigProposalsQueryRequest, MultisigProposalsResolveRequest,
+    },
     config::DEFAULT_TRANSACTION_TIME_TO_LIVE,
     crypto::{ExposedPrivateKey, KeyPair},
     data_model::{
@@ -44,6 +45,16 @@ const DOMAIN_REGISTRATION_RECOVERY_POLL: Duration = Duration::from_millis(250);
 const ACCOUNT_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(30);
 const ACCOUNT_VISIBILITY_POLL: Duration = Duration::from_millis(100);
 const CANONICAL_EXECUTOR: &[u8] = include_bytes!("../../defaults/executor.to");
+fn proposal_nonce(seed: u8) -> MultisigProposalNonce {
+    MultisigProposalNonce::new([seed; 32]).expect("nonzero fixture nonce")
+}
+fn occurrence(
+    client: &Client,
+    account: &AccountId,
+    nonce: MultisigProposalNonce,
+) -> MultisigProposalId {
+    MultisigProposalId::derive(client.client().network_id(), account, &nonce)
+}
 fn start_network(
     builder: NetworkBuilder,
     context: &'static str,
@@ -54,12 +65,6 @@ fn start_network(
         context,
     )
     .unwrap()
-}
-fn multisig_supported(_client: &Client) -> bool {
-    // Multisig instructions are carried via `CustomInstruction` envelope and are
-    // executed by the core runtime path; they are not guaranteed to appear as
-    // dedicated identifiers in `FindExecutorDataModel`.
-    true
 }
 fn upgrade_executor(client: &Client) -> Result<()> {
     let bytecode = iroha::data_model::transaction::executable::IvmBytecode::from_compiled(
@@ -87,12 +92,25 @@ fn is_inconclusive_domain_registration_error(err: &eyre::Report) -> bool {
     })
 }
 fn domain_visible(client: &Client, domain: &DomainId) -> Result<bool> {
-    Ok(client
-        .client()
-        .query(FindDomains::new())
-        .execute_all()?
-        .into_iter()
-        .any(|registered| registered.id() == domain))
+    use iroha::collections::{Collection, ListQuery, field};
+
+    let id = domain.to_string();
+    let page = client.list_page(
+        &Collection::Domains,
+        &ListQuery::new().filter(field("id").eq(id.clone())).limit(1),
+    )?;
+    if page.has_more()
+        || page.items.len() > 1
+        || page
+            .items
+            .iter()
+            .any(|row| row.get("id").and_then(JsonValue::as_str) != Some(id.as_str()))
+    {
+        return Err(eyre!(
+            "exact domain collection returned an unexpected row or continuation"
+        ));
+    }
+    Ok(!page.items.is_empty())
 }
 fn wait_for_domain_visibility(
     client: &Client,
@@ -121,12 +139,36 @@ fn wait_for_domain_visibility(
     }
 }
 fn find_account(client: &Client, account_id: &AccountId) -> Result<Option<Account>> {
-    Ok(client
+    use iroha::collections::{Collection, ListQuery, field};
+
+    let page = client.list_page(
+        &Collection::Accounts,
+        &ListQuery::new()
+            .filter(field("id").eq(account_id.to_string()))
+            .limit(1),
+    )?;
+    if page.has_more() || page.items.len() > 1 {
+        return Err(eyre!(
+            "exact account collection returned unexpected continuation or multiple rows"
+        ));
+    }
+    let Some(row) = page.items.first() else {
+        return Ok(None);
+    };
+    let returned_id = row
+        .get("id")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| eyre!("account collection row omitted its identity"))?;
+    if AccountId::parse_encoded(returned_id)? != *account_id {
+        return Err(eyre!("exact account collection returned another account"));
+    }
+    let account = client
         .client()
-        .query(FindAccounts::new())
-        .execute_all()?
-        .into_iter()
-        .find(|account| account.id() == account_id))
+        .query_single(FindAccountById::new(account_id.clone()))?;
+    if account.id() != account_id {
+        return Err(eyre!("exact account query returned another account"));
+    }
+    Ok(Some(account))
 }
 fn wait_for_account_visibility(
     client: &Client,
@@ -288,8 +330,7 @@ fn wait_for_multisig_proposal_status(
             &endpoint,
             &MultisigProposalsResolveRequestDto {
                 selector: selector.clone(),
-                proposal_id: Some(proposal_id.to_owned()),
-                instructions_hash: None,
+                proposal_id: proposal_id.parse()?,
             },
         ) {
             Ok(payload) => {
@@ -320,62 +361,6 @@ fn wait_for_multisig_proposal_status(
     } else {
         Err(eyre!(
             "timed out waiting for multisig proposal `{proposal_id}` status `{expected_status}`"
-        ))
-    }
-}
-fn wait_for_multisig_cancel_action(
-    rt: &Runtime,
-    torii_base: &str,
-    selector: &MultisigAccountSelectorDto,
-    signer_account_id: &AccountId,
-    proposal_id: &str,
-    expected_action: &str,
-) -> Result<JsonValue> {
-    let endpoint = format!("{torii_base}/v1/multisig/cancel");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut last_action = None;
-    let mut last_error = None;
-    while Instant::now() < deadline {
-        match post_torii_app_json(
-            rt,
-            &endpoint,
-            &MultisigCancelRequestDto {
-                selector: selector.clone(),
-                signer_account_id: signer_account_id.clone(),
-                public_key_hex: None,
-                signature_b64: None,
-                creation_time_ms: None,
-                fee_payment: FeePaymentIntent::authority(Vec::new(), None),
-                proposal_id: Some(proposal_id.to_owned()),
-                instructions_hash: None,
-            },
-        ) {
-            Ok(payload) => {
-                let action = payload
-                    .get("action")
-                    .and_then(JsonValue::as_str)
-                    .map(ToOwned::to_owned);
-                if action.as_deref() == Some(expected_action) {
-                    return Ok(payload);
-                }
-                last_action = action;
-                last_error = None;
-            }
-            Err(err) => last_error = Some(err),
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    }
-    if let Some(action) = last_action {
-        Err(eyre!(
-            "timed out waiting for multisig cancel action `{expected_action}`; last action `{action}`"
-        ))
-    } else if let Some(err) = last_error {
-        Err(err).wrap_err_with(|| {
-            format!("timed out waiting for multisig cancel action `{expected_action}`")
-        })
-    } else {
-        Err(eyre!(
-            "timed out waiting for multisig cancel action `{expected_action}`"
         ))
     }
 }
@@ -516,19 +501,8 @@ fn multisig_expires() -> Result<()> {
     multisig_base(TestSuite::expires(), stringify!(multisig_expires))
 }
 #[test]
-fn multisig_recursion_normal() -> Result<()> {
-    multisig_recursion_base(TestSuite::normal(), stringify!(multisig_recursion_normal))
-}
-#[test]
-fn multisig_recursion_unauthorized() -> Result<()> {
-    multisig_recursion_base(
-        TestSuite::unauthorized(),
-        stringify!(multisig_recursion_unauthorized),
-    )
-}
-#[test]
-fn multisig_recursion_expires() -> Result<()> {
-    multisig_recursion_base(TestSuite::expires(), stringify!(multisig_recursion_expires))
+fn nested_multisig_registration_is_rejected() -> Result<()> {
+    multisig_recursion_base(stringify!(nested_multisig_registration_is_rejected))
 }
 #[test]
 fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
@@ -538,10 +512,6 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig");
-        return Ok(());
-    }
     let domain: DomainId = DomainId::try_new("multisig-cancel-terminal", "universal").unwrap();
     register_runtime_domain(&network, &test_client, &domain)
         .wrap_err("register multisig cancel test domain")?;
@@ -568,9 +538,16 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
         .into(),
     ];
     let instructions_hash = HashOf::new(&instructions).to_string();
+    let target_id = occurrence(&test_client, &multisig_account_id, proposal_nonce(1));
     test_client
         .submit::<InstructionBox>(
-            MultisigPropose::new(multisig_account_id.clone(), instructions, None).into(),
+            MultisigPropose::new(
+                multisig_account_id.clone(),
+                proposal_nonce(1),
+                instructions,
+                None,
+            )
+            .into(),
             FeePaymentIntent::authority(Vec::new(), None),
         )
         .wrap_err("submit tarlookup multisig proposal")?;
@@ -594,19 +571,16 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
             signature_b64: None,
             creation_time_ms: None,
             fee_payment: FeePaymentIntent::authority(Vec::new(), None),
-            proposal_id: Some(instructions_hash.clone()),
-            instructions_hash: None,
+            proposal_nonce: proposal_nonce(2),
+            target_proposal_id: target_id.to_string(),
+            target_instructions_hash: instructions_hash.parse()?,
         },
     )?;
-    assert_eq!(
-        propose_cancel.get("action").and_then(JsonValue::as_str),
-        Some("PROPOSE")
-    );
     assert_eq!(
         propose_cancel
             .get("target_proposal_id")
             .and_then(JsonValue::as_str),
-        Some(instructions_hash.as_str())
+        Some(target_id.to_string().as_str())
     );
     let cancel_proposal_id = propose_cancel
         .get("cancel_proposal_id")
@@ -614,37 +588,40 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
         .expect("cancel proposal id should be returned")
         .to_owned();
     let target_instructions_hash = instructions_hash.parse().unwrap();
-    let cancel_instructions =
-        vec![MultisigCancel::new(multisig_account_id.clone(), target_instructions_hash).into()];
-    let expected_cancel_proposal_id = HashOf::new(&cancel_instructions).to_string();
+    let cancel_instructions = vec![
+        MultisigCancel::new(
+            multisig_account_id.clone(),
+            target_id,
+            target_instructions_hash,
+        )
+        .into(),
+    ];
+    let cancel_instructions_hash = HashOf::new(&cancel_instructions);
+    let expected_cancel_proposal_id =
+        occurrence(&test_client, &multisig_account_id, proposal_nonce(2));
     assert_eq!(
-        cancel_proposal_id, expected_cancel_proposal_id,
-        "cancel route should report the deterministic cancel proposal hash"
+        cancel_proposal_id,
+        expected_cancel_proposal_id.to_string(),
+        "cancel route must bind the original cancellation nonce"
     );
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client)
         .submit::<InstructionBox>(
-            MultisigPropose::new(multisig_account_id.clone(), cancel_instructions, None).into(),
+            MultisigPropose::new(
+                multisig_account_id.clone(),
+                proposal_nonce(2),
+                cancel_instructions,
+                None,
+            )
+            .into(),
             FeePaymentIntent::authority(Vec::new(), None),
         )
         .wrap_err("submit cancel wrapper proposal for cancel route test")?;
-    let approve_cancel = wait_for_multisig_cancel_action(
-        &rt,
-        &torii_base,
-        &selector,
-        &ALICE_ID,
-        &instructions_hash,
-        "APPROVE",
-    )
-    .wrap_err("wait for cancel route to expose approval mode")?;
-    assert_eq!(
-        approve_cancel.get("action").and_then(JsonValue::as_str),
-        Some("APPROVE")
-    );
     test_client
         .submit::<InstructionBox>(
             MultisigApprove::new(
                 multisig_account_id.clone(),
-                expected_cancel_proposal_id.parse().unwrap(),
+                expected_cancel_proposal_id,
+                cancel_instructions_hash,
             )
             .into(),
             FeePaymentIntent::authority(Vec::new(), None),
@@ -654,7 +631,7 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
         &rt,
         &torii_base,
         &selector,
-        &instructions_hash,
+        &target_id.to_string(),
         "CANCELED",
     )
     .wrap_err("wait for canceled terminal state")?;
@@ -686,7 +663,7 @@ fn multisig_cancel_route_persists_canceled_terminal_state() -> Result<()> {
     assert!(
         proposals.iter().any(|proposal| {
             proposal.get("proposal_id").and_then(JsonValue::as_str)
-                == Some(instructions_hash.as_str())
+                == Some(target_id.to_string().as_str())
                 && proposal.get("status").and_then(JsonValue::as_str) == Some("CANCELED")
         }),
         "canceled proposal should remain visible in terminal proposal queries"
@@ -703,14 +680,10 @@ fn multisig_cli_list_all_resolves_hashed_role_suffixes() -> Result<()> {
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig");
-        return Ok(());
-    }
     let domain: DomainId = DomainId::try_new("multisig-cli-hash-list", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)
         .wrap_err("register multisig CLI test domain")?;
-    let signatories = core::iter::repeat_with(|| gen_account_in(&domain))
+    let signatories = core::iter::repeat_with(|| gen_account_in(domain.name()))
         .take(8)
         .collect::<BTreeMap<AccountId, KeyPair>>();
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client)
@@ -779,10 +752,11 @@ fn multisig_cli_list_all_resolves_hashed_role_suffixes() -> Result<()> {
             )
             .into(),
         ];
-        let proposal_id = HashOf::new(&instructions).to_string();
+        let nonce = proposal_nonce(suffix.as_bytes()[0]);
+        let proposal_id = occurrence(&test_client, &multisig_account_id, nonce).to_string();
         proposer_client
             .submit::<InstructionBox>(
-                MultisigPropose::new(multisig_account_id.clone(), instructions, None).into(),
+                MultisigPropose::new(multisig_account_id.clone(), nonce, instructions, None).into(),
                 FeePaymentIntent::authority(Vec::new(), None),
             )
             .wrap_err_with(|| format!("submit multisig proposal `{proposal_id}` for CLI test"))?;
@@ -943,18 +917,14 @@ fn multisig_register_materializes_missing_signatory_account() -> Result<()> {
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig register");
-        return Ok(());
-    }
     let domain: DomainId = DomainId::try_new("multisig-register-materialize", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)?;
-    let existing_signer = gen_account_in(&domain);
+    let existing_signer = gen_account_in(domain.name());
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client).submit(
         Register::account(Account::new(existing_signer.0.clone())),
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     )?;
-    let missing_signer = gen_account_in(&domain);
+    let missing_signer = gen_account_in(domain.name());
     let spec = MultisigSpec::new(
         BTreeMap::from([
             (existing_signer.0.clone(), 1),
@@ -989,18 +959,14 @@ fn multisig_materialized_signatory_can_propose_and_approve() -> Result<()> {
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig register");
-        return Ok(());
-    }
     let domain: DomainId = DomainId::try_new("multisig-materialized-author", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)?;
-    let existing_signer = gen_account_in(&domain);
+    let existing_signer = gen_account_in(domain.name());
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client).submit(
         Register::account(Account::new(existing_signer.0.clone())),
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     )?;
-    let missing_signer = gen_account_in(&domain);
+    let missing_signer = gen_account_in(domain.name());
     assert!(
         find_account(&test_client, &missing_signer.0)?.is_none(),
         "precondition: missing signatory must not exist before multisig registration"
@@ -1047,8 +1013,15 @@ fn multisig_materialized_signatory_can_propose_and_approve() -> Result<()> {
         .into(),
     ];
     let instructions_hash = HashOf::new(&instructions);
+    let nonce = proposal_nonce(1);
+    let proposal_id = occurrence(&test_client, &multisig_account_id, nonce);
     let proposer_client = alt_client(missing_signer.clone(), &test_client);
-    let propose = MultisigPropose::new(multisig_account_id.clone(), instructions.clone(), None);
+    let propose = MultisigPropose::new(
+        multisig_account_id.clone(),
+        nonce,
+        instructions.clone(),
+        None,
+    );
     let proposal_tx = {
         let account = proposer_client.account_client();
         account
@@ -1085,7 +1058,7 @@ fn multisig_materialized_signatory_can_propose_and_approve() -> Result<()> {
     );
     let approver_client = alt_client(existing_signer.clone(), &test_client);
     let approve: InstructionBox =
-        MultisigApprove::new(multisig_account_id.clone(), instructions_hash).into();
+        MultisigApprove::new(multisig_account_id.clone(), proposal_id, instructions_hash).into();
     let approve_tx = {
         let account = approver_client.account_client();
         account
@@ -1135,15 +1108,11 @@ fn multisig_register_by_non_signatory_materializes_missing_signatory_account() -
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig register");
-        return Ok(());
-    }
     let domain: DomainId =
         DomainId::try_new("multisig-register-rejected-materialize", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)?;
-    let existing_signer = gen_account_in(&domain);
-    let non_signatory = gen_account_in(&domain);
+    let existing_signer = gen_account_in(domain.name());
+    let non_signatory = gen_account_in(domain.name());
     let register_accounts: [InstructionBox; 2] = [
         Register::account(Account::new(existing_signer.0.clone())).into(),
         Register::account(Account::new(non_signatory.0.clone())).into(),
@@ -1152,7 +1121,7 @@ fn multisig_register_by_non_signatory_materializes_missing_signatory_account() -
         register_accounts,
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     )?;
-    let missing_signer = gen_account_in(&domain);
+    let missing_signer = gen_account_in(domain.name());
     let spec = MultisigSpec::new(
         BTreeMap::from([
             (existing_signer.0.clone(), 1),
@@ -1191,10 +1160,6 @@ fn multisig_register_materializes_missing_signatory_account_after_executor_upgra
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig register");
-        return Ok(());
-    }
     let domain: DomainId =
         DomainId::try_new("multisig-register-materialize-upgraded", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)?;
@@ -1202,12 +1167,12 @@ fn multisig_register_materializes_missing_signatory_account_after_executor_upgra
     // upgrade. Keep the domain bootstrap on the pre-upgrade executor so the test
     // stays scoped to the multisig path rather than unrelated domain admission.
     upgrade_executor(&test_client)?;
-    let existing_signer = gen_account_in(&domain);
+    let existing_signer = gen_account_in(domain.name());
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client).submit(
         Register::account(Account::new(existing_signer.0.clone())),
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     )?;
-    let missing_signer = gen_account_in(&domain);
+    let missing_signer = gen_account_in(domain.name());
     let spec = MultisigSpec::new(
         BTreeMap::from([
             (existing_signer.0.clone(), 1),
@@ -1245,18 +1210,14 @@ fn multisig_register_by_non_signatory_materializes_missing_signatory_account_aft
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig register");
-        return Ok(());
-    }
     let domain: DomainId =
         DomainId::try_new("multisig-register-rejected-upgraded", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)?;
     // Keep domain bootstrap outside the upgraded executor so this test continues
     // to isolate the post-upgrade multisig register behavior it actually covers.
     upgrade_executor(&test_client)?;
-    let existing_signer = gen_account_in(&domain);
-    let non_signatory = gen_account_in(&domain);
+    let existing_signer = gen_account_in(domain.name());
+    let non_signatory = gen_account_in(domain.name());
     let register_accounts: [InstructionBox; 2] = [
         Register::account(Account::new(existing_signer.0.clone())).into(),
         Register::account(Account::new(non_signatory.0.clone())).into(),
@@ -1265,7 +1226,7 @@ fn multisig_register_by_non_signatory_materializes_missing_signatory_account_aft
         register_accounts,
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     )?;
-    let missing_signer = gen_account_in(&domain);
+    let missing_signer = gen_account_in(domain.name());
     let spec = MultisigSpec::new(
         BTreeMap::from([
             (existing_signer.0.clone(), 1),
@@ -1303,13 +1264,9 @@ fn multisig_add_signatory_materializes_missing_account() -> Result<()> {
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not advertise multisig instructions");
-        return Ok(());
-    }
     let domain: DomainId = DomainId::try_new("multisig-auto-materialize", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)?;
-    let existing_signer = gen_account_in(&domain);
+    let existing_signer = gen_account_in(domain.name());
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client).submit(
         Register::account(Account::new(existing_signer.0.clone())),
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
@@ -1325,7 +1282,7 @@ fn multisig_add_signatory_materializes_missing_account() -> Result<()> {
         FeePaymentIntent::authority(Vec::new(), None),
     )?;
     let multisig_account_id = canonical_multisig_account_id(&spec);
-    let missing_signer = gen_account_in(&domain);
+    let missing_signer = gen_account_in(domain.name());
     assert!(
         find_account(&test_client, &missing_signer.0)?.is_none(),
         "precondition: missing signatory must not exist"
@@ -1355,14 +1312,10 @@ fn multisig_add_signatory_rejected_does_not_materialize_missing_account() -> Res
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not support multisig register");
-        return Ok(());
-    }
     let domain: DomainId =
         DomainId::try_new("multisig-add-rejected-materialize", "universal").unwrap();
     register_runtime_domain_and_transfer_to_bob(&network, &test_client, &domain)?;
-    let existing_signer = gen_account_in(&domain);
+    let existing_signer = gen_account_in(domain.name());
     alt_client((BOB_ID.clone(), BOB_KEYPAIR.clone()), &test_client).submit(
         Register::account(Account::new(existing_signer.0.clone())),
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
@@ -1378,8 +1331,8 @@ fn multisig_add_signatory_rejected_does_not_materialize_missing_account() -> Res
         FeePaymentIntent::authority(Vec::new(), None),
     )?;
     let multisig_account_id = canonical_multisig_account_id(&spec);
-    let missing_signer = gen_account_in(&domain);
-    let ghost_authority = gen_account_in(&domain);
+    let missing_signer = gen_account_in(domain.name());
+    let ghost_authority = gen_account_in(domain.name());
     assert!(
         find_account(&test_client, &ghost_authority.0)?.is_none(),
         "precondition: authority account must not exist on ledger"
@@ -1419,7 +1372,7 @@ impl TestSuite {
         let domain = DomainId::try_new("kingdom", "universal").unwrap();
         // Make some changes to the multisig account itself
         let unauthorized_target_opt = None;
-        // Semi-permanently valid
+        // The normal scenario uses a finite one-hour proposal lifetime.
         let transaction_ttl_ms_opt = None;
         Self::new(domain, unauthorized_target_opt, transaction_ttl_ms_opt)
     }
@@ -1447,7 +1400,8 @@ impl TestSuite {
 ///     - Quorum reached: authenticated
 ///     - Transaction has not expired
 ///     - Every instruction validated against the multisig account: authorized
-/// 6. Either execution or expiration on approval deletes the transaction entry
+/// 6. Execution or expiration records a terminal occurrence and removes its active entry;
+///    a rejected approval rolls back and retains the active proposal.
 #[expect(clippy::cast_possible_truncation)]
 fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
     const N_SIGNATORIES: usize = 5;
@@ -1461,15 +1415,11 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not advertise multisig instructions");
-        return Ok(());
-    }
     // Assume some domain registered after genesis
     register_runtime_domain(&network, &test_client, &domain)
         .wrap_err("register multisig test domain")?;
     // Populate residents in the domain
-    let mut residents = core::iter::repeat_with(|| gen_account_in(&domain))
+    let mut residents = core::iter::repeat_with(|| gen_account_in(domain.name()))
         .take(1 + N_SIGNATORIES)
         .collect::<BTreeMap<AccountId, KeyPair>>();
     test_client
@@ -1483,6 +1433,18 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
         )
         .wrap_err("register multisig test residents")?;
     let non_signatory = residents.pop_first().unwrap();
+    let fee_asset_definition = iroha_config::parameters::defaults::nexus::fees::fee_asset_id()
+        .parse::<AssetDefinitionId>()?;
+    let funding_asset = AssetId::new(fee_asset_definition, ALICE_ID.clone());
+    test_client
+        .submit_all(
+            residents
+                .keys()
+                .cloned()
+                .map(|id| Transfer::asset_quantity(funding_asset.clone(), 100u32, id)),
+            FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .wrap_err("fund multisig signatories for transaction fees")?;
     let mut signatories = residents;
     let spec = MultisigSpec::new(
         signatories
@@ -1500,7 +1462,7 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
             .unwrap(),
         transaction_ttl_ms_opt
             .and_then(NonZeroU64::new)
-            .unwrap_or(NonZeroU64::MAX),
+            .unwrap_or_else(|| NonZeroU64::new(60 * 60 * 1_000).unwrap()),
     );
     let multisig_account_key = KeyPair::random();
     let multisig_seed_account_id = AccountId::new(multisig_account_key.public_key().clone());
@@ -1521,16 +1483,12 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
     let resident_ids: Vec<AccountId> = core::iter::once(non_signatory.0.clone())
         .chain(signatories.keys().cloned())
         .collect();
-    let accounts_after_register = test_client
-        .client()
-        .query(FindAccounts::new())
-        .execute_all()
-        .wrap_err("fetch accounts after multisig registration")?;
     for resident_id in resident_ids {
-        let account = accounts_after_register
-            .iter()
-            .find(|account| account.id() == &resident_id)
-            .expect("resident account should remain materialized after multisig registration");
+        let account = test_client
+            .client()
+            .query_single(FindAccountById::new(resident_id.clone()))
+            .wrap_err("fetch exact resident after multisig registration")?;
+        assert_eq!(account.id(), &resident_id);
         assert!(
             account.controller().single_signatory().is_some(),
             "resident account unexpectedly became multisig: {}",
@@ -1554,17 +1512,16 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
         .into(),
     ];
     let instructions_hash = HashOf::new(&instructions);
+    let nonce = proposal_nonce(1);
+    let proposal_id = occurrence(&test_client, &multisig_account_id, nonce);
     let proposer = signatories.pop_last().unwrap();
     let mut approvers = signatories.into_iter();
-    let propose = MultisigPropose::new(multisig_account_id.clone(), instructions, None);
+    let propose = MultisigPropose::new(multisig_account_id.clone(), nonce, instructions, None);
     let proposer_client = alt_client(proposer.clone(), &test_client);
     let proposer_account = test_client
         .client()
-        .query(FindAccounts::new())
-        .execute_all()?
-        .into_iter()
-        .find(|account| account.id() == &proposer.0)
-        .expect("proposer account must exist before multisig proposal");
+        .query_single(FindAccountById::new(proposer.0.clone()))?;
+    assert_eq!(proposer_account.id(), &proposer.0);
     assert!(
         proposer_account.controller().single_signatory().is_some(),
         "proposer account unexpectedly became multisig before proposal: {}",
@@ -1572,15 +1529,23 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
     );
     let proposal_tx = {
         let account = proposer_client.account_client();
-        account
-            .prepare_transaction(iroha::client::AccountTransactionDraft::new(
+        let mut payload =
+            account.prepare_transaction(iroha::client::AccountTransactionDraft::new(
                 core::iter::once::<InstructionBox>(propose.into()),
                 FeePaymentIntent::authority(Vec::new(), None),
                 Metadata::default(),
-            ))
-            .and_then(|payload| account.sign_transaction(payload))
-    }
-    .expect("build integration-test transaction");
+            ))?;
+        let quote = proposer_client
+            .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature { payload: &payload })?;
+        eyre::ensure!(
+            payload
+                .fee_payment
+                .has_same_payer_and_gas_bound(&quote.intent),
+            "multisig proposal fee quote changed the selected payer or gas bound"
+        );
+        payload.fee_payment = quote.intent;
+        account.sign_transaction(payload)?
+    };
     assert_eq!(
         proposal_tx.authority().subject_id(),
         proposer.0.subject_id(),
@@ -1609,7 +1574,7 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
         )
         .wrap_err("tick time after multisig proposal")?;
     let approve: InstructionBox =
-        MultisigApprove::new(multisig_account_id.clone(), instructions_hash).into();
+        MultisigApprove::new(multisig_account_id.clone(), proposal_id, instructions_hash).into();
     // Approve once to see if the proposal expires
     let approver = approvers.next().unwrap();
     alt_client(approver, &test_client)
@@ -1634,21 +1599,33 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
             }
         }
     }
-    let fetch_account = |id: &AccountId| {
-        test_client
-            .client()
-            .query(FindAccounts::new())
-            .execute_all()
-            .ok()
-            .and_then(|accounts| accounts.into_iter().find(|account| account.id() == id))
-    };
+    let fetch_account = |id: &AccountId| find_account(&test_client, id);
     // Check that the multisig transaction has not yet executed
+    let account_before_quorum = fetch_account(&transaction_target)?;
+    if unauthorized_target_opt.is_none() {
+        assert!(
+            account_before_quorum.is_some(),
+            "registered multisig target must remain visible before quorum"
+        );
+    }
     assert!(
-        fetch_account(&transaction_target)
+        account_before_quorum
             .and_then(|account| account.metadata().get(&key).cloned())
             .is_none(),
         "instructions shouldn't execute without enough approvals"
     );
+    let expected_proposal_id = proposal_id.to_string();
+    let expected_instructions_hash = hex::encode(instructions_hash.as_ref());
+    if transaction_ttl_ms_opt.is_none() {
+        let collecting = collect_multisig_proposals(&proposer_client, &multisig_account_id)?;
+        let pending = collecting
+            .iter()
+            .find(|entry| entry.proposal_id == expected_proposal_id)
+            .ok_or_else(|| eyre!("exact proposal occurrence missing before quorum"))?;
+        assert_eq!(pending.status, COLLECTING_SIGNATURES_STATUS);
+        assert_eq!(pending.instructions_hash, expected_instructions_hash);
+        assert_eq!(pending.proposal.proposal_nonce, nonce);
+    }
     // The last approve to proceed to validate and execute the instructions
     let approver = approvers.next().unwrap();
     let res = alt_client(approver, &test_client).submit::<InstructionBox>(
@@ -1664,32 +1641,67 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
         }
     }
     // Check if the multisig transaction has executed
-    let res = fetch_account(&transaction_target)
+    let res = fetch_account(&transaction_target)?
         .and_then(|account| account.metadata().get(&key).cloned());
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
         (None, None) => {
-            if res.is_none() {
-                wait_for_account_metadata_value(
+            let actual = match res {
+                Some(value) => value,
+                None => wait_for_account_metadata_value(
                     &test_client,
                     &transaction_target,
                     &key,
                     "multisig quorum execution",
-                )?;
-            }
+                )?,
+            };
+            assert_eq!(actual, Json::from("congratulations"));
         }
         _ => {
             assert!(res.is_none());
         }
     }
-    // Check if the transaction entry is deleted
-    let res = fetch_account(&multisig_account_id).and_then(|account| {
-        account
-            .metadata()
-            .get(format!("multisig/proposals/{instructions_hash}").as_str())
-            .cloned()
-    });
-    // Proposals are removed once quorum processing runs, including unauthorized execution failures.
-    assert!(res.is_none());
+    fetch_account(&multisig_account_id)?
+        .ok_or_else(|| eyre!("registered multisig account missing after quorum processing"))?;
+    let collecting = collect_multisig_proposals(&proposer_client, &multisig_account_id)?;
+    let still_collecting = collecting
+        .iter()
+        .any(|entry| entry.proposal_id == expected_proposal_id);
+    let resolved = proposer_client.client().post_multisig_proposals_resolve(
+        &MultisigProposalsResolveRequest {
+            multisig_account_id: Some(multisig_account_id.clone()),
+            multisig_account_alias: None,
+            proposal_id: expected_proposal_id.clone(),
+        },
+    )?;
+    assert_eq!(resolved.proposal_id, expected_proposal_id);
+    assert_eq!(resolved.instructions_hash, expected_instructions_hash);
+    assert_eq!(resolved.proposal.proposal_nonce, nonce);
+    match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
+        (None, None) => {
+            assert!(
+                !still_collecting,
+                "executed occurrence must leave the active set"
+            );
+            assert_eq!(resolved.status, "FINALIZED");
+            assert!(resolved.terminal_at_ms.is_some());
+            assert!(resolved.terminal_entrypoint_hash.is_some());
+        }
+        (Some(_), _) => {
+            assert!(
+                !still_collecting,
+                "expired occurrence must leave the active set"
+            );
+            assert_eq!(resolved.status, "EXPIRED");
+            assert!(resolved.terminal_at_ms.is_some());
+        }
+        (None, Some(_)) => {
+            // Failed execution rolls the approval transaction back, retaining the proposal.
+            assert!(still_collecting);
+            assert_eq!(resolved.status, COLLECTING_SIGNATURES_STATUS);
+            assert!(resolved.terminal_at_ms.is_none());
+            assert!(resolved.terminal_entrypoint_hash.is_none());
+        }
+    }
     Ok(())
 }
 /// # Scenario
@@ -1703,17 +1715,12 @@ fn multisig_base(suite: TestSuite, context: &'static str) -> Result<()> {
 ///    /       /  \     / | \
 ///   0       1    2   3  4  5 <--- personal signatories
 /// ```
-fn multisig_recursion_base(suite: TestSuite, context: &'static str) -> Result<()> {
-    let _ = suite;
+fn multisig_recursion_base(context: &'static str) -> Result<()> {
     let builder = NetworkBuilder::new();
     let Some((network, _rt)) = start_network(builder, context) else {
         return Ok(());
     };
     let test_client = network.client();
-    if !multisig_supported(&test_client) {
-        eprintln!("skipping {context}: executor does not advertise multisig instructions");
-        return Ok(());
-    }
     let wonderland = "wonderland";
     let signatories = core::iter::repeat_with(|| gen_account_in(wonderland))
         .take(6)
@@ -1814,18 +1821,6 @@ fn alt_client(signatory: (AccountId, KeyPair), base_client: &Client) -> Client {
         client.account = signatory.0;
         client.key_pair = signatory.1;
     })
-}
-#[expect(dead_code)]
-fn debug_account(account_id: &AccountId, client: &Client) {
-    let account = client
-        .client()
-        .query(FindAccounts)
-        .execute_all()
-        .unwrap()
-        .into_iter()
-        .find(|account| account.id() == account_id)
-        .unwrap();
-    eprintln!("{account:#?}");
 }
 #[test]
 fn inconclusive_domain_registration_error_matches_queue_timeout() {

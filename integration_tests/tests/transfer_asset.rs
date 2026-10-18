@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Tests for transferring assets between accounts.
 use integration_tests::{sandbox, sync::sync_after_submission};
 use iroha::{

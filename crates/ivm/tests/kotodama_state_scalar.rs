@@ -1,7 +1,7 @@
 //! Ensure scalar state loads from durable storage at function entry.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn kotodama_state_scalar_reads_durable() {
     let src = include_str!("../fixtures/koto_v1/kotodama_state_scalar/001.ko")

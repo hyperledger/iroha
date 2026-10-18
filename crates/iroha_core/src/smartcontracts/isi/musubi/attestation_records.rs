@@ -43,81 +43,169 @@ pub fn load_location_provider_attestations<'world>(
     location: &MusubiArchiveLocationV1,
     world: &'world impl MusubiSourceReadOnly,
 ) -> Result<LocationProviderAttestations<'world>, ParseError> {
-    archive.validate()?;
-    location.validate()?;
-    if location.archive_id != archive.archive_id {
-        return Err(ParseError::new(
-            "Musubi archive location does not match its archive directory",
-        ));
-    }
-    let receipt = &archive.staging_receipt.payload.binding;
-    let mut verification_lock_digest = None;
-    // The location validator has already admitted at most 64 providers. These
-    // fixed local arrays cannot grow, allocate, or outlive their World borrow.
-    let mut references = [MusubiProviderBundleAttestationRefV1 {
-        provider_id: ProviderId::new([0; 32]),
-        digest: MusubiProviderBundleAttestationDigestV1::new([0; 32]),
-    }; MUSUBI_MAX_LOCATION_PROVIDERS_V1];
+    try_load_location_provider_attestations::<_, ()>(archive, location, world)
+        .map_err(ReadFailure::into_predicate)
+}
+
+/// Run the same predicate while preserving an original physical read refusal.
+pub(crate) fn try_load_location_provider_attestations<
+    'world,
+    W: MusubiEvidenceRead<Q>,
+    Q: Default,
+>(
+    archive: &MusubiArchiveRecordV1,
+    location: &MusubiArchiveLocationV1,
+    world: &'world W,
+) -> Result<LocationProviderAttestations<'world>, ReadFailure<W::Error, ParseError>> {
     let mut records = LocationProviderAttestations {
         records: [None; MUSUBI_MAX_LOCATION_PROVIDERS_V1],
         len: location.providers.len(),
     };
-    for (index, provider) in location.providers.iter().enumerate() {
-        let key = MusubiProviderBundleAttestationKeyV1 {
-            archive_id: archive.archive_id,
-            replication_order: location.replication_order,
-            provider_id: *provider,
-        };
-        let record = world
-            .source_musubi_provider_bundle_attestations()
-            .get(&key)
-            .ok_or_else(|| {
-                ParseError::new("Musubi archive location provider attestation record was not found")
-            })?;
-        record.validate()?;
-        if record.key != key
-            || record.registered_at_height < archive.registered_at_height
-            || record.registered_at_height >= location.finalized_height
-        {
-            return Err(ParseError::new(
-                "Musubi archive location provider attestation record is not a finalized predecessor",
-            ));
-        }
-        let binding = &record.attestation.payload.binding;
-        if binding.network_id != receipt.network_id
-            || binding.provider_id != *provider
-            || binding.replication_order != location.replication_order
-            || binding.archive_id != archive.archive_id
-            || binding.bundle_digest != archive.commitment.bundle_digest
-            || binding.descriptor_digest != archive.commitment.descriptor_digest
-            || binding.semantic_release_manifest_digest != receipt.semantic_release_manifest_digest
-            || binding.source_tree_digest != archive.commitment.source_tree_digest
-        {
-            return Err(ParseError::new(
-                "Musubi archive location attestation does not match its immutable archive commitments",
-            ));
-        }
-        if verification_lock_digest
-            .replace(binding.verification_lock_digest)
-            .is_some_and(|digest| digest != binding.verification_lock_digest)
-        {
-            return Err(ParseError::new(
-                "Musubi archive location attestations disagree on the verification lock",
-            ));
-        }
-        record.attestation.verify(binding)?;
-        references[index] = record.attestation.reference();
-        records.records[index] = Some(record);
-    }
-    let set_digest = musubi_provider_bundle_attestation_set_digest_v1(
-        archive.archive_id,
-        location.replication_order,
-        &references[..records.len],
+    ProviderAttestationValidation::<Q>::new().advance(
+        archive,
+        location,
+        world,
+        |index, record| {
+            records.records[index] = Some(record);
+        },
     )?;
-    if set_digest != location.provider_attestation_set_digest {
-        return Err(ParseError::new(
-            "Musubi archive location provider attestation set digest is inconsistent",
-        ));
-    }
     Ok(records)
+}
+
+/// Original immutable-location verification cursor; verified signatures never repeat on retry.
+pub(crate) struct ProviderAttestationValidation<Q> {
+    queries: [Q; 1],
+    initialized: bool,
+    next: usize,
+    references: [MusubiProviderBundleAttestationRefV1; MUSUBI_MAX_LOCATION_PROVIDERS_V1],
+    verification_lock_digest: Option<iroha_data_model::musubi::MusubiVerificationLockDigestV1>,
+    complete: bool,
+    rejected: Option<ParseError>,
+}
+impl<Q: Default> ProviderAttestationValidation<Q> {
+    /// Begin without reading or allocating. The enclosing original owner pins the source.
+    pub(crate) fn new() -> Self {
+        Self {
+            initialized: false,
+            queries: [Q::default()],
+            next: 0,
+            references: [MusubiProviderBundleAttestationRefV1 {
+                provider_id: ProviderId::new([0; 32]),
+                digest: MusubiProviderBundleAttestationDigestV1::new([0; 32]),
+            }; MUSUBI_MAX_LOCATION_PROVIDERS_V1],
+            verification_lock_digest: None,
+            complete: false,
+            rejected: None,
+        }
+    }
+    /// Complete the same predicate, preserving each original source refusal.
+    /// The private source owner must use one unchanged archive/location on every retry.
+    pub(crate) fn advance<'world, W: MusubiEvidenceRead<Q>>(
+        &mut self,
+        archive: &MusubiArchiveRecordV1,
+        location: &MusubiArchiveLocationV1,
+        world: &'world W,
+        mut verified: impl FnMut(usize, &'world MusubiProviderBundleAttestationRecordV1),
+    ) -> Result<(), ReadFailure<W::Error, ParseError>> {
+        if let Some(original) = self.rejected {
+            return Err(original.into());
+        }
+        if self.complete {
+            return Ok(());
+        }
+        let result = self.advance_inner(archive, location, world, &mut verified);
+        if let Err(ReadFailure::Predicate(original)) = &result {
+            self.rejected = Some(*original);
+        }
+        result
+    }
+    fn advance_inner<'world, W: MusubiEvidenceRead<Q>>(
+        &mut self,
+        archive: &MusubiArchiveRecordV1,
+        location: &MusubiArchiveLocationV1,
+        world: &'world W,
+        verified: &mut impl FnMut(usize, &'world MusubiProviderBundleAttestationRecordV1),
+    ) -> Result<(), ReadFailure<W::Error, ParseError>> {
+        if !self.initialized {
+            archive.validate()?;
+            location.validate()?;
+            if location.archive_id != archive.archive_id {
+                return Err(ParseError::new(
+                    "Musubi archive location does not match its archive directory",
+                )
+                .into());
+            }
+            self.initialized = true;
+        }
+        let receipt = &archive.staging_receipt.payload.binding;
+        while self.next < location.providers.len() {
+            let index = self.next;
+            let provider = &location.providers[index];
+            let key = MusubiProviderBundleAttestationKeyV1 {
+                archive_id: archive.archive_id,
+                replication_order: location.replication_order,
+                provider_id: *provider,
+            };
+            let record = world
+                .musubi_provider_bundle_attestations_get_retained(&key, &mut self.queries[0])
+                .map_err(ReadFailure::Source)?
+                .ok_or_else(|| {
+                    ParseError::new(
+                        "Musubi archive location provider attestation record was not found",
+                    )
+                })?;
+            record.validate()?;
+            if record.key != key
+                || record.registered_at_height < archive.registered_at_height
+                || record.registered_at_height >= location.finalized_height
+            {
+                return Err(ParseError::new(
+                "Musubi archive location provider attestation record is not a finalized predecessor",
+            ).into());
+            }
+            let binding = &record.attestation.payload.binding;
+            if binding.network_id != receipt.network_id
+                || binding.provider_id != *provider
+                || binding.replication_order != location.replication_order
+                || binding.archive_id != archive.archive_id
+                || binding.bundle_digest != archive.commitment.bundle_digest
+                || binding.descriptor_digest != archive.commitment.descriptor_digest
+                || binding.semantic_release_manifest_digest
+                    != receipt.semantic_release_manifest_digest
+                || binding.source_tree_digest != archive.commitment.source_tree_digest
+            {
+                return Err(ParseError::new(
+                "Musubi archive location attestation does not match its immutable archive commitments",
+            ).into());
+            }
+            if self
+                .verification_lock_digest
+                .replace(binding.verification_lock_digest)
+                .is_some_and(|digest| digest != binding.verification_lock_digest)
+            {
+                return Err(ParseError::new(
+                    "Musubi archive location attestations disagree on the verification lock",
+                )
+                .into());
+            }
+            record.attestation.verify(binding)?;
+            self.references[index] = record.attestation.reference();
+            verified(index, record);
+            self.next += 1;
+            self.queries[0] = Q::default();
+        }
+        let set_digest = musubi_provider_bundle_attestation_set_digest_v1(
+            archive.archive_id,
+            location.replication_order,
+            &self.references[..location.providers.len()],
+        )?;
+        if set_digest != location.provider_attestation_set_digest {
+            return Err(ParseError::new(
+                "Musubi archive location provider attestation set digest is inconsistent",
+            )
+            .into());
+        }
+        self.complete = true;
+        Ok(())
+    }
 }

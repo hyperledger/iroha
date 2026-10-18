@@ -5,7 +5,7 @@ use iroha_primitives::bigint::BigInt;
 use ivm::{CoreHost, IVM, IVMHost, PointerType, VMError, numeric_tlv, syscalls};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
 
-mod common;
+use crate::common;
 
 struct CapturingHost {
     inner: CoreHost,

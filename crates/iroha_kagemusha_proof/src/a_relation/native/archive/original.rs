@@ -13,7 +13,7 @@ fn original_bounds(original: &[u8], rows: usize, config: ReadConfig) -> Result<(
 
 impl Prover {
     /// Import one original A PK using this fixed owner's unknown source.
-    /// The import drops its PK and returns only a compact source-admission seal.
+    /// Strict admission returns only a compact seal without constructing proving FFTs or masks.
     /// # Errors
     /// Wrong stage/cap, changed source/copy/selector tables or installed verifier.
     pub fn import_a(
@@ -34,6 +34,50 @@ impl Prover {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
+        self.import_a_with_admission_cancellable(
+            stage,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_a_builtin_cancellable(
+        &self,
+        stage: usize,
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
+        self.import_a_with_admission_cancellable(
+            stage,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn import_a_with_admission_cancellable(
+        &self,
+        stage: usize,
+        original: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Eq>, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         let artifact = self.a.get(stage).ok_or(Error::Artifact)?;
         original_bounds(original, artifact.binding().n(), config)?;
@@ -43,32 +87,28 @@ impl Prover {
                 .checked_sub(1)
                 .map(|previous| self.wrappers[previous].clone()),
         )?;
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original,
-            artifact.binding(),
-            &self.plan.vesta,
-            &source,
-            config,
-            cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Artifact
-            }
-        })?;
-        artifact.require_prover(&key).map_err(|_| Error::Artifact)?;
-        let metadata =
-            SourceAdmissionSealV2::from_proving_key(&key, cancellation).map_err(|error| {
+        let key = admission
+            .admit(
+                original,
+                artifact.binding(),
+                artifact.key(),
+                &self.plan.vesta,
+                &source,
+                config,
+                cancellation,
+            )
+            .map_err(|error| {
                 if error.is_cancelled() {
                     Error::Cancelled
                 } else {
                     Error::Artifact
                 }
             })?;
-        drop(key);
-        Ok(metadata)
+        artifact
+            .require_source_bound(&key.view())
+            .map_err(|_| Error::Artifact)?;
+        let (_, _, seal) = key.into_parts();
+        Ok(seal)
     }
 
     /// Import one original W PK bound to the exact preceding A verifier and stage.
@@ -93,37 +133,77 @@ impl Prover {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceAdmissionSealV2<Ep>, Error> {
+        self.import_w_with_admission_cancellable(
+            stage,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_w_builtin_cancellable(
+        &self,
+        stage: usize,
+        original: &[u8],
+        config: ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Ep>, Error> {
+        self.import_w_with_admission_cancellable(
+            stage,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn import_w_with_admission_cancellable(
+        &self,
+        stage: usize,
+        original: &[u8],
+        config: ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceAdmissionSealV2<Ep>, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         let artifact = self.w.get(stage).ok_or(Error::Artifact)?;
         original_bounds(original, artifact.binding().n(), config)?;
         let a = &self.a[stage];
         let circuit = self.plan.wrapper_source(stage, a.binding(), a.key())?;
-        let key = ProvingKey::from_artifact_v2_cancellable(
-            original,
-            artifact.binding(),
-            &self.plan.pallas,
-            &circuit,
-            config,
-            cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Artifact
-            }
-        })?;
-        artifact.require_prover(&key).map_err(|_| Error::Artifact)?;
-        let metadata =
-            SourceAdmissionSealV2::from_proving_key(&key, cancellation).map_err(|error| {
+        let key = admission
+            .admit(
+                original,
+                artifact.binding(),
+                artifact.key(),
+                &self.plan.pallas,
+                &circuit,
+                config,
+                cancellation,
+            )
+            .map_err(|error| {
                 if error.is_cancelled() {
                     Error::Cancelled
                 } else {
                     Error::Artifact
                 }
             })?;
-        drop(key);
-        Ok(metadata)
+        artifact
+            .require_source_bound(&key.view())
+            .map_err(|_| Error::Artifact)?;
+        let (_, _, seal) = key.into_parts();
+        Ok(seal)
     }
 }
 
@@ -138,7 +218,7 @@ impl Plan {
         binding: &DescriptorBinding,
         key: &VerifyingKey<Eq>,
     ) -> Result<WCircuit, Error> {
-        if stage >= A_STAGE_COUNT - 1
+        if stage >= self.context().stage_count().saturating_sub(1)
             || binding
                 != &crate::a_relation::native::artifact::source_descriptor::<StageCircuit>(
                     INTERNAL_RANGE_BUSES,
@@ -162,7 +242,7 @@ impl Plan {
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .map_err(|_| Error::Artifact)?
@@ -180,7 +260,7 @@ impl Plan {
         stage: usize,
         previous: Option<WKey>,
     ) -> Result<StageCircuit, Error> {
-        if stage >= A_STAGE_COUNT || (stage == 0) != previous.is_none() {
+        if stage >= self.context().stage_count() || (stage == 0) != previous.is_none() {
             return Err(Error::Artifact);
         }
         let source = Prepared::unknown_source(self)?;
@@ -207,7 +287,7 @@ impl Plan {
                 source,
                 continuation,
                 pallas: pallas.clone(),
-                fold: vec![0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
                 known: false,
             },
         })

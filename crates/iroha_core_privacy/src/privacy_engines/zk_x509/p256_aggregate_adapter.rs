@@ -116,11 +116,11 @@ use std::borrow::Cow;
 use thiserror::Error;
 /// Stable descriptor for the first-release heterogeneous-domain integration layer.
 #[cfg(test)]
-pub(crate) const ZK_X509_P256_AGGREGATE_ADAPTER_DESCRIPTOR_V1: &[u8] =
+pub const ZK_X509_P256_AGGREGATE_ADAPTER_DESCRIPTOR_V1: &[u8] =
     b"zk-x509-p256-aggregate-adapter-v1:heterogeneous-minimal-native-domains:value-log19-exact2-factor-packing:arithmetic-log19:window-log16:reduction-log5:wallet-low-s-log5:sink-log16:scalar-bit-log8:four-independent-domain-separated-permutation-lanes:source-attached-products:direct-committed-base-cell-projections:no-copied-bridge:no-unconstrained-host-lift:terminal-claims-proof-encoded-role-ordered-and-transcript-bound-after-aux-roots-before-composition-fri-grinding-and-queries:each-terminal-claim-constrained-at-its-source-verifier-fixed-terminal-row:cross-start-claims-constrained-at-source-native-first-row:claim-equalities-checked-verifier-side:value-execution-base34-aux116-fixed46-local-constraints210-claim-constraints12-degree3:value-sorted-base34-aux12-fixed22-local-constraints90-claim-constraints4-degree2:arithmetic-base211-aux72-fixed134-local-constraints455-claim-constraints8-degree4:all14828x16x3-arithmetic-operand-result-cells-bound-to-value-bus-by-unique-address:window-vertical128-base61-aux37-fixed47-local-constraints284-claim-constraints8-degree4:reduction-base56-aux19-fixed45-local-constraints148-claim-constraints4-degree4:wallet-low-s-base36-aux14-fixed42-local-constraints98-claim-constraints4-degree3:sink-base25-aux38-fixed36-local-constraints99-claim-constraints4-degree3:scalar-bit-base6-aux32-fixed16-local-constraints67-claim-constraints8-degree3:p256-worst-multiset-cardinality-below2pow20-per-signature:four-lane-local-collision-below2pow176:p256-25-argument-horizontal-five-signature-union-below2pow171:provider-sized-base-fixed-and-aux-column-replay:first-release";
 /// SHA-256 of [`ZK_X509_P256_AGGREGATE_ADAPTER_DESCRIPTOR_V1`].
 #[cfg(test)]
-pub(crate) const ZK_X509_P256_AGGREGATE_ADAPTER_DESCRIPTOR_SHA256_V1: [u8; 32] = [
+pub const ZK_X509_P256_AGGREGATE_ADAPTER_DESCRIPTOR_SHA256_V1: [u8; 32] = [
     0x2e, 0x47, 0x2f, 0x1d, 0x09, 0x5b, 0x82, 0xeb, 0x9f, 0x46, 0x2d, 0x06, 0xac, 0xbf, 0x2f, 0x01,
     0x1c, 0xfb, 0x7e, 0x49, 0xa3, 0xf4, 0x47, 0x07, 0xcf, 0x89, 0x23, 0x0a, 0xc4, 0xd5, 0x20, 0x34,
 ];
@@ -136,7 +136,7 @@ mod fixed_replay_batch_tests;
 mod native_boundary_sources;
 /// Aggregate adapter construction or algebraic failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum P256AggregateAdapterErrorV1 {
+pub enum P256AggregateAdapterErrorV1 {
     /// A base-only or challenge-bound capability was used in the wrong phase.
     #[cfg(any(test, feature = "privacy-release-evidence"))]
     #[error("zk-X509 P-256 aggregate adapter phase is invalid")]
@@ -201,11 +201,11 @@ fn validate_arithmetic_trace_topology_v1(
     Ok(())
 }
 /// Independent lanes in the value-bus/arithmetic copy permutation.
-pub(crate) const P256_ARITHMETIC_COPY_LANES_V1: usize = 4;
+pub const P256_ARITHMETIC_COPY_LANES_V1: usize = 4;
 /// `beta`, unique cell address, and committed limb value.
-pub(crate) const P256_ARITHMETIC_COPY_CHALLENGE_TERMS_V1: usize = 3;
+pub const P256_ARITHMETIC_COPY_CHALLENGE_TERMS_V1: usize = 3;
 /// Domain-separated labels for all twelve post-commitment coordinates.
-pub(crate) const P256_ARITHMETIC_COPY_CHALLENGE_LABELS_V1: [[&[u8];
+pub const P256_ARITHMETIC_COPY_CHALLENGE_LABELS_V1: [[&[u8];
     P256_ARITHMETIC_COPY_CHALLENGE_TERMS_V1];
     P256_ARITHMETIC_COPY_LANES_V1] = [
     [
@@ -231,13 +231,13 @@ pub(crate) const P256_ARITHMETIC_COPY_CHALLENGE_LABELS_V1: [[&[u8];
 ];
 /// One arithmetic-copy tuple-compression lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ArithmeticCopyLaneChallengesV1 {
+pub struct P256ArithmeticCopyLaneChallengesV1 {
     /// `beta`, address, and value coefficients.
     pub(crate) terms: [F; P256_ARITHMETIC_COPY_CHALLENGE_TERMS_V1],
 }
 /// Four independent post-base-commitment arithmetic-copy products.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ArithmeticCopyChallengesV1 {
+pub struct P256ArithmeticCopyChallengesV1 {
     /// Independently sampled tuple-compression lanes.
     pub(crate) lanes: [P256ArithmeticCopyLaneChallengesV1; P256_ARITHMETIC_COPY_LANES_V1],
 }
@@ -262,7 +262,7 @@ impl P256ArithmeticCopyChallengesV1 {
     }
 }
 /// Derive the arithmetic-copy challenges after both base commitments.
-pub(crate) fn derive_p256_arithmetic_copy_challenges_v1(
+pub fn derive_p256_arithmetic_copy_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<P256ArithmeticCopyChallengesV1, TransparentStarkErrorV1> {
     let mut lanes = [P256ArithmeticCopyLaneChallengesV1 {
@@ -883,7 +883,7 @@ fn arithmetic_copy_terminal_v1<A: PolynomialAirFieldV1>(
 /// Verifier-owned role of one external cross-product source segment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) enum P256CrossTraceTerminalRoleV1 {
+pub enum P256CrossTraceTerminalRoleV1 {
     /// Value-bus writer multiplicities.
     ValueWriter,
     /// All 128 vertically packed windows.
@@ -898,7 +898,7 @@ pub(crate) enum P256CrossTraceTerminalRoleV1 {
 /// One explicit, transcript-bound source-segment terminal claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256CrossTraceTerminalClaimV1 {
+pub struct P256CrossTraceTerminalClaimV1 {
     /// Registration-owned segment role.
     pub(crate) role: P256CrossTraceTerminalRoleV1,
     /// Claimed product entering this segment.
@@ -909,7 +909,7 @@ pub(crate) struct P256CrossTraceTerminalClaimV1 {
 /// Explicit transcript-bound claims for the three non-cross product buses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256BusTerminalClaimsV1 {
+pub struct P256BusTerminalClaimsV1 {
     /// Value-bus execution permutation terminal.
     pub(crate) value_execution: [F; P256_VALUE_BUS_LANES_V1],
     /// Value-bus sorted permutation terminal.
@@ -929,11 +929,10 @@ pub(crate) struct P256BusTerminalClaimsV1 {
 }
 /// Stable transcript label for all verifier-ordered P-256 terminal claims.
 #[cfg(test)]
-pub(crate) const P256_TERMINAL_CLAIMS_TRANSCRIPT_LABEL_V1: &[u8] =
-    b"zk-x509-p256-terminal-claims-v1";
+pub const P256_TERMINAL_CLAIMS_TRANSCRIPT_LABEL_V1: &[u8] = b"zk-x509-p256-terminal-claims-v1";
 /// Exact source role order for one ECDSA statement role.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_cross_trace_terminal_roles_v1(
+pub fn p256_cross_trace_terminal_roles_v1(
     role: P256EcdsaRoleV1,
 ) -> &'static [P256CrossTraceTerminalRoleV1] {
     const CERTIFICATE: [P256CrossTraceTerminalRoleV1; 4] = [
@@ -986,7 +985,7 @@ fn validate_p256_cross_trace_terminal_claims_v1(
 /// Private product validation checks this chain before constructing a bound native source.
 /// Registered private MAIN endpoint columns bind each product to its source trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_p256_cross_trace_terminal_claim_equalities_v1(
+pub fn evaluate_p256_cross_trace_terminal_claim_equalities_v1(
     role: P256EcdsaRoleV1,
     sources: &[P256CrossTraceTerminalClaimV1],
     sink: [F; P256_CROSS_TRACE_LANES_V1],
@@ -1015,7 +1014,7 @@ pub(crate) fn evaluate_p256_cross_trace_terminal_claim_equalities_v1(
 }
 /// Host-side equality residues for value, arithmetic-copy, and scalar buses.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_p256_bus_terminal_claim_equalities_v1(
+pub fn evaluate_p256_bus_terminal_claim_equalities_v1(
     claims: P256BusTerminalClaimsV1,
 ) -> Result<[F; 4 * P256_CROSS_TRACE_LANES_V1], P256AggregateAdapterErrorV1> {
     if !p256_claim_fields_are_canonical_v1(
@@ -1051,7 +1050,7 @@ pub(crate) fn evaluate_p256_bus_terminal_claim_equalities_v1(
 /// `last_selector` is verifier preprocessing for that source's own native final row, so this works
 /// across heterogeneous trace sizes without a host lift.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_terminal_claim_binding_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_p256_terminal_claim_binding_v1<A: PolynomialAirFieldV1>(
     last_selector: A,
     opened_terminal: [A; P256_CROSS_TRACE_LANES_V1],
     claimed_terminal: [F; P256_CROSS_TRACE_LANES_V1],
@@ -1065,7 +1064,7 @@ pub(crate) fn evaluate_p256_terminal_claim_binding_v1<A: PolynomialAirFieldV1>(
 /// Call this after auxiliary commitment roots and before any composition,
 /// FRI, grinding, or query challenge.
 #[cfg(test)]
-pub(crate) fn absorb_p256_terminal_claims_v1(
+pub fn absorb_p256_terminal_claims_v1(
     transcript: &mut TransparentTranscriptV1,
     role: P256EcdsaRoleV1,
     buses: P256BusTerminalClaimsV1,
@@ -1266,7 +1265,7 @@ fn decode_writer_fixed_v1<A: PolynomialAirFieldV1>(
 /// Constant-memory verifier preprocessing for the value execution adapter and
 /// its attached writer source product.
 #[derive(Clone, Debug)]
-pub(crate) struct P256ValueExecutionAggregateFixedProviderV1 {
+pub struct P256ValueExecutionAggregateFixedProviderV1 {
     value: P256ValueBusStarkFixedProviderV1,
     writer: P256CrossTraceWriterSourceFixedV1,
     arithmetic_operations: usize,
@@ -1336,7 +1335,7 @@ impl P256ValueExecutionAggregateFixedProviderV1 {
 }
 /// Constant-memory integrated value-execution base/aux stream.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ValueExecutionAggregateStreamV1<'a> {
+pub struct P256ValueExecutionAggregateStreamV1<'a> {
     base: P256ValueBusStarkBaseRowProviderV1<'a>,
     value_aux: Option<P256ValueBusStarkAuxSourceV1<'a>>,
     writer: Option<P256CrossTraceWriterSourceStreamV1<'a>>,
@@ -1539,7 +1538,7 @@ impl Drop for P256ValueExecutionAggregateStreamV1<'_> {
 }
 /// Post-commitment challenges consumed by the value-execution aggregate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueExecutionAggregateChallengesV1 {
+pub struct P256ValueExecutionAggregateChallengesV1 {
     /// Internal execution/sorted value-bus permutation.
     pub(crate) value: P256ValueBusChallengesV1,
     /// Writer/external tagged-product chain.
@@ -1548,9 +1547,7 @@ pub(crate) struct P256ValueExecutionAggregateChallengesV1 {
     pub(crate) arithmetic_copy: P256ArithmeticCopyChallengesV1,
 }
 /// Complete value execution, writer multiplicity and arithmetic-copy polynomials.
-pub(crate) fn evaluate_p256_value_execution_aggregate_residues_over_field_v1<
-    A: PolynomialAirFieldV1,
->(
+pub fn evaluate_p256_value_execution_aggregate_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_VALUE_BUS_STARK_BASE_WIDTH_V1],
     next: &[A; P256_VALUE_BUS_STARK_BASE_WIDTH_V1],
     current_aux: &[A; P256_VALUE_EXECUTION_AGGREGATE_AUX_WIDTH_V1],
@@ -1627,7 +1624,7 @@ pub(crate) fn evaluate_p256_value_execution_aggregate_residues_over_field_v1<
 }
 /// Construct the explicit writer claim from native first/final rows.
 #[cfg(test)]
-pub(crate) fn p256_value_execution_cross_terminal_claim_v1(
+pub fn p256_value_execution_cross_terminal_claim_v1(
     first_aux: &[F; P256_VALUE_EXECUTION_AGGREGATE_AUX_WIDTH_V1],
     terminal_aux: &[F; P256_VALUE_EXECUTION_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<P256CrossTraceTerminalClaimV1, P256AggregateAdapterErrorV1> {
@@ -1642,7 +1639,7 @@ pub(crate) fn p256_value_execution_cross_terminal_claim_v1(
 }
 /// Direct value-bus side arithmetic-copy terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_value_execution_arithmetic_copy_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_value_execution_arithmetic_copy_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_VALUE_EXECUTION_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_ARITHMETIC_COPY_LANES_V1], P256AggregateAdapterErrorV1> {
     arithmetic_copy_terminal_v1(
@@ -1652,14 +1649,14 @@ pub(crate) fn p256_value_execution_arithmetic_copy_terminal_v1<A: PolynomialAirF
 }
 /// Writer terminal carried by one value-execution auxiliary opening.
 #[cfg(test)]
-pub(crate) fn p256_value_execution_cross_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_value_execution_cross_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_VALUE_EXECUTION_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_CROSS_TRACE_LANES_V1], P256AggregateAdapterErrorV1> {
     Ok(decode_writer_aux_v1(&aux[VALUE_WRITER_AUX..VALUE_ARITHMETIC_COPY_AUX])?.terminal)
 }
 /// Final native-row selector in value-execution preprocessing.
 #[cfg(test)]
-pub(crate) fn p256_value_execution_last_selector_v1<A: PolynomialAirFieldV1>(
+pub fn p256_value_execution_last_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_VALUE_EXECUTION_AGGREGATE_FIXED_WIDTH_V1],
 ) -> A {
     decode_boundary_v1(&fixed[VALUE_ARITHMETIC_COPY_BOUNDARY_FIXED..]).last
@@ -1902,7 +1899,7 @@ impl P256ArithmeticRowsStorageV1<'_> {
 /// scalar-source and value-copy products.
 #[derive(Clone, Debug)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ArithmeticAggregateRowsV1<'a> {
+pub struct P256ArithmeticAggregateRowsV1<'a> {
     trace: P256ArithmeticRowsStorageV1<'a>,
     fixed: Cow<'a, P256ArithmeticStarkFixedProviderV1>,
 }
@@ -2045,7 +2042,7 @@ fn fill_compact_identity_aux_row_v1(
 }
 /// Constant-memory arithmetic auxiliary stream.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ArithmeticAggregateAuxStreamV1<'a> {
+pub struct P256ArithmeticAggregateAuxStreamV1<'a> {
     rows: P256ArithmeticAggregateRowsV1<'a>,
     scalar_challenges: P256ScalarBitBusChallengesV1,
     scalar_running: [F; P256_SCALAR_BIT_BUS_LANES_V1],
@@ -2340,7 +2337,7 @@ impl Drop for P256ArithmeticAggregateAuxStreamV1<'_> {
 }
 /// Integrated arithmetic residues with eight direct `c`-bit source events.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_arithmetic_aggregate_residues_v1(
+pub fn evaluate_p256_arithmetic_aggregate_residues_v1(
     current: &[F; P256_ARITHMETIC_BASE_WIDTH_V1],
     next: &[F; P256_ARITHMETIC_BASE_WIDTH_V1],
     current_aux: &[F; P256_ARITHMETIC_AGGREGATE_AUX_WIDTH_V1],
@@ -2360,7 +2357,7 @@ pub(crate) fn evaluate_p256_arithmetic_aggregate_residues_v1(
     )
 }
 /// Integrated arithmetic, scalar-source and value-copy polynomials over F or Fp4.
-pub(crate) fn evaluate_p256_arithmetic_aggregate_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_p256_arithmetic_aggregate_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_ARITHMETIC_BASE_WIDTH_V1],
     next: &[A; P256_ARITHMETIC_BASE_WIDTH_V1],
     current_aux: &[A; P256_ARITHMETIC_AGGREGATE_AUX_WIDTH_V1],
@@ -2425,21 +2422,21 @@ pub(crate) fn evaluate_p256_arithmetic_aggregate_residues_over_field_v1<A: Polyn
 }
 /// Arithmetic scalar-source terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_arithmetic_scalar_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_arithmetic_scalar_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_ARITHMETIC_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_SCALAR_BIT_BUS_LANES_V1], P256AggregateAdapterErrorV1> {
     compact_cross_terminal_v1(8, &aux[ARITHMETIC_SCALAR_AUX..ARITHMETIC_VALUE_COPY_AUX])
 }
 /// Direct arithmetic side value-copy terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_arithmetic_value_copy_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_arithmetic_value_copy_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_ARITHMETIC_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_ARITHMETIC_COPY_LANES_V1], P256AggregateAdapterErrorV1> {
     arithmetic_copy_terminal_v1(3, &aux[ARITHMETIC_VALUE_COPY_AUX..])
 }
 /// Final native-row selector in arithmetic preprocessing.
 #[cfg(test)]
-pub(crate) fn p256_arithmetic_last_selector_v1<A: PolynomialAirFieldV1>(
+pub fn p256_arithmetic_last_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_ARITHMETIC_AGGREGATE_FIXED_WIDTH_V1],
 ) -> A {
     decode_boundary_v1(&fixed[ARITHMETIC_VALUE_COPY_BOUNDARY_FIXED..]).last
@@ -2447,7 +2444,7 @@ pub(crate) fn p256_arithmetic_last_selector_v1<A: PolynomialAirFieldV1>(
 /// Bind the complete value-bus arithmetic-access product to every directly
 /// opened arithmetic `a`, `b`, and `c` limb.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_arithmetic_copy_terminal_openings_v1(
+pub fn evaluate_p256_arithmetic_copy_terminal_openings_v1(
     value_bus: [F; P256_ARITHMETIC_COPY_LANES_V1],
     arithmetic: [F; P256_ARITHMETIC_COPY_LANES_V1],
 ) -> [F; P256_ARITHMETIC_COPY_LANES_V1] {
@@ -2502,7 +2499,7 @@ fn window_scalar_event_v1(
 /// Constant-memory base/fixed provider for the vertically packed 128-window adapter.
 #[derive(Clone, Copy, Debug)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256WindowAggregateRowsV1<'a> {
+pub struct P256WindowAggregateRowsV1<'a> {
     trace: &'a P256WindowBatchStarkTraceV1,
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -2561,7 +2558,7 @@ impl<'a> P256WindowAggregateRowsV1<'a> {
 }
 /// Constant-memory integrated window auxiliary stream.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256WindowAggregateAuxStreamV1<'a> {
+pub struct P256WindowAggregateAuxStreamV1<'a> {
     rows: P256WindowAggregateRowsV1<'a>,
     cross_challenges: P256CrossTraceChallengesV1,
     scalar_challenges: P256ScalarBitBusChallengesV1,
@@ -2748,9 +2745,7 @@ impl Drop for P256WindowAggregateAuxStreamV1<'_> {
     }
 }
 /// Complete vertical window AIR and attached cross/scalar products over one field.
-pub(crate) fn evaluate_p256_window_aggregate_local_residues_over_field_v1<
-    A: PolynomialAirFieldV1,
->(
+pub fn evaluate_p256_window_aggregate_local_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_WINDOW_BASE_WIDTH_V1],
     next: &[A; P256_WINDOW_BASE_WIDTH_V1],
     current_aux: &[A; P256_WINDOW_AGGREGATE_AUX_WIDTH_V1],
@@ -2817,7 +2812,7 @@ pub(crate) fn evaluate_p256_window_aggregate_local_residues_over_field_v1<
 }
 /// Construct the explicit window claim from native first/final rows.
 #[cfg(test)]
-pub(crate) fn p256_window_cross_terminal_claim_v1(
+pub fn p256_window_cross_terminal_claim_v1(
     first_aux: &[F; P256_WINDOW_AGGREGATE_AUX_WIDTH_V1],
     terminal_aux: &[F; P256_WINDOW_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<P256CrossTraceTerminalClaimV1, P256AggregateAdapterErrorV1> {
@@ -2832,21 +2827,21 @@ pub(crate) fn p256_window_cross_terminal_claim_v1(
 }
 /// Window scalar-source terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_window_scalar_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_window_scalar_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_WINDOW_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_SCALAR_BIT_BUS_LANES_V1], P256AggregateAdapterErrorV1> {
     compact_cross_terminal_v1(1, &aux[WINDOW_SCALAR_AUX..])
 }
 /// Window external-chain terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_window_cross_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_window_cross_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_WINDOW_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_CROSS_TRACE_LANES_V1], P256AggregateAdapterErrorV1> {
     compact_cross_terminal_v1(3, &aux[WINDOW_CROSS_AUX..WINDOW_SCALAR_AUX])
 }
 /// Final native-row selector in window preprocessing.
 #[cfg(test)]
-pub(crate) fn p256_window_last_selector_v1<A: PolynomialAirFieldV1>(
+pub fn p256_window_last_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_WINDOW_AGGREGATE_FIXED_WIDTH_V1],
 ) -> A {
     decode_boundary_v1(
@@ -2856,7 +2851,7 @@ pub(crate) fn p256_window_last_selector_v1<A: PolynomialAirFieldV1>(
 }
 /// Verifier-owned reduction instance in the terminal chain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ReductionAggregateRoleV1 {
+pub enum P256ReductionAggregateRoleV1 {
     /// Digest word to scalar reduction.
     Digest,
     /// Affine result-X to scalar reduction.
@@ -2895,7 +2890,7 @@ fn reduction_cross_events_v1(
 /// Constant-memory base/fixed provider for one reduction instance.
 #[derive(Clone, Copy, Debug)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ReductionAggregateRowsV1<'a> {
+pub struct P256ReductionAggregateRowsV1<'a> {
     role: P256ReductionAggregateRoleV1,
     trace: &'a P256ReductionTraceV1,
     #[cfg(test)]
@@ -2971,7 +2966,7 @@ impl<'a> P256ReductionAggregateRowsV1<'a> {
 }
 /// Constant-memory reduction auxiliary stream.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ReductionAggregateAuxStreamV1<'a> {
+pub struct P256ReductionAggregateAuxStreamV1<'a> {
     rows: P256ReductionAggregateRowsV1<'a>,
     challenges: P256CrossTraceChallengesV1,
     start: [F; P256_CROSS_TRACE_LANES_V1],
@@ -3121,9 +3116,7 @@ impl Drop for P256ReductionAggregateAuxStreamV1<'_> {
     }
 }
 /// The same integrated comparison and cross-trace polynomials over either field.
-pub(crate) fn evaluate_p256_reduction_aggregate_local_residues_over_field_v1<
-    A: PolynomialAirFieldV1,
->(
+pub fn evaluate_p256_reduction_aggregate_local_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_REDUCTION_BASE_WIDTH_V1],
     next: &[A; P256_REDUCTION_BASE_WIDTH_V1],
     current_aux: &[A; P256_REDUCTION_AGGREGATE_AUX_WIDTH_V1],
@@ -3172,7 +3165,7 @@ pub(crate) fn evaluate_p256_reduction_aggregate_local_residues_over_field_v1<
 }
 /// Construct an explicit reduction claim from native first/final rows.
 #[cfg(test)]
-pub(crate) fn p256_reduction_cross_terminal_claim_v1(
+pub fn p256_reduction_cross_terminal_claim_v1(
     role: P256ReductionAggregateRoleV1,
     first_aux: &[F; P256_REDUCTION_AGGREGATE_AUX_WIDTH_V1],
     terminal_aux: &[F; P256_REDUCTION_AGGREGATE_AUX_WIDTH_V1],
@@ -3190,14 +3183,14 @@ pub(crate) fn p256_reduction_cross_terminal_claim_v1(
 }
 /// Reduction external-chain terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_reduction_cross_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_reduction_cross_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_REDUCTION_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_CROSS_TRACE_LANES_V1], P256AggregateAdapterErrorV1> {
     compact_cross_terminal_v1(2, &aux[REDUCTION_CROSS_AUX..])
 }
 /// Final native-row selector in reduction preprocessing.
 #[cfg(test)]
-pub(crate) fn p256_reduction_last_selector_v1<A: PolynomialAirFieldV1>(
+pub fn p256_reduction_last_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_REDUCTION_AGGREGATE_FIXED_WIDTH_V1],
 ) -> A {
     decode_boundary_v1(
@@ -3220,7 +3213,7 @@ fn low_s_cross_event_v1(
 /// Constant-memory wallet low-S base/fixed provider.
 #[derive(Clone, Copy, Debug)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256LowSAggregateRowsV1<'a> {
+pub struct P256LowSAggregateRowsV1<'a> {
     trace: &'a P256LowSTraceV1,
     #[cfg(test)]
     fixed: P256ComparisonStarkFixedProviderV1,
@@ -3290,7 +3283,7 @@ impl<'a> P256LowSAggregateRowsV1<'a> {
 }
 /// Constant-memory wallet low-S auxiliary stream.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256LowSAggregateAuxStreamV1<'a> {
+pub struct P256LowSAggregateAuxStreamV1<'a> {
     rows: P256LowSAggregateRowsV1<'a>,
     challenges: P256CrossTraceChallengesV1,
     start: [F; P256_CROSS_TRACE_LANES_V1],
@@ -3438,9 +3431,7 @@ impl Drop for P256LowSAggregateAuxStreamV1<'_> {
     }
 }
 /// The same integrated comparison and cross-trace polynomials over either field.
-pub(crate) fn evaluate_p256_low_s_aggregate_local_residues_over_field_v1<
-    A: PolynomialAirFieldV1,
->(
+pub fn evaluate_p256_low_s_aggregate_local_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_LOW_S_BASE_WIDTH_V1],
     next: &[A; P256_LOW_S_BASE_WIDTH_V1],
     current_aux: &[A; P256_LOW_S_AGGREGATE_AUX_WIDTH_V1],
@@ -3486,7 +3477,7 @@ pub(crate) fn evaluate_p256_low_s_aggregate_local_residues_over_field_v1<
 }
 /// Construct the explicit wallet low-S claim from native first/final rows.
 #[cfg(test)]
-pub(crate) fn p256_low_s_cross_terminal_claim_v1(
+pub fn p256_low_s_cross_terminal_claim_v1(
     first_aux: &[F; P256_LOW_S_AGGREGATE_AUX_WIDTH_V1],
     terminal_aux: &[F; P256_LOW_S_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<P256CrossTraceTerminalClaimV1, P256AggregateAdapterErrorV1> {
@@ -3500,14 +3491,14 @@ pub(crate) fn p256_low_s_cross_terminal_claim_v1(
 }
 /// Wallet low-S external-chain terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_low_s_cross_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_low_s_cross_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_LOW_S_AGGREGATE_AUX_WIDTH_V1],
 ) -> Result<[A; P256_CROSS_TRACE_LANES_V1], P256AggregateAdapterErrorV1> {
     compact_cross_terminal_v1(1, &aux[LOW_S_CROSS_AUX..])
 }
 /// Final native-row selector in low-S preprocessing.
 #[cfg(test)]
-pub(crate) fn p256_low_s_last_selector_v1<A: PolynomialAirFieldV1>(
+pub fn p256_low_s_last_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_LOW_S_AGGREGATE_FIXED_WIDTH_V1],
 ) -> A {
     decode_boundary_v1(
@@ -3535,7 +3526,7 @@ const _: () = assert!(SINK_SELECTION_SELECTED_BITS_BASE + 8 == P256_BINDING_SINK
 const _: () = assert!(SINK_SELECTION_CONTINUE_FIXED + 1 == P256_BINDING_SINK_FIXED_WIDTH_V1);
 /// Verifier-owned real key bytes and private activity column in the committed sink.
 /// Qx and Qy are the first 64 big-endian bytes, before optional-certificate selection.
-pub(crate) const fn p256_real_key_input_columns_v1() -> (usize, usize, usize) {
+pub const fn p256_real_key_input_columns_v1() -> (usize, usize, usize) {
     (
         SINK_SELECTION_REAL_BASE,
         SINK_SELECTION_ACTIVE_BASE,
@@ -3545,7 +3536,7 @@ pub(crate) const fn p256_real_key_input_columns_v1() -> (usize, usize, usize) {
 
 /// Verifier-owned unreduced SHA digest bytes in the same real-input column.
 /// The four preceding 32-byte words are Qx, Qy, r and s; no selected/dummy column is used.
-pub(crate) const fn p256_real_digest_input_columns_v1() -> (usize, usize) {
+pub const fn p256_real_digest_input_columns_v1() -> (usize, usize) {
     (
         SINK_SELECTION_REAL_BASE,
         P256_INPUT_SELECTION_ROW_START_V1 + 4 * 32,
@@ -3586,7 +3577,7 @@ fn flatten_regular_aux_v1(
 }
 /// Constant-memory verifier preprocessing for the external-binding sink.
 #[derive(Clone, Debug)]
-pub(crate) struct P256BindingSinkFixedProviderV1 {
+pub struct P256BindingSinkFixedProviderV1 {
     fixed: P256CrossTraceSinkFixedV1,
     optional_certificate: bool,
 }
@@ -3664,7 +3655,7 @@ impl P256BindingSinkFixedProviderV1 {
 /// Constant-memory committed sink base-row provider.
 #[derive(Clone, Copy, Debug)]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256BindingSinkRowsV1<'a> {
+pub struct P256BindingSinkRowsV1<'a> {
     trace: &'a P256ExternalBindingTraceV1,
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -3730,7 +3721,7 @@ impl<'a> P256BindingSinkRowsV1<'a> {
 }
 /// Integrated binding-sink base/aux stream.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256BindingSinkAggregateStreamV1<'a> {
+pub struct P256BindingSinkAggregateStreamV1<'a> {
     rows: P256BindingSinkRowsV1<'a>,
     fixed: P256BindingSinkFixedProviderV1,
     sink: Option<P256CrossTraceSinkStreamV1<'a>>,
@@ -3840,7 +3831,7 @@ fn sink_sources_from_opened_base_v1<A: PolynomialAirFieldV1>(
 }
 /// Pure numeric sink residues over directly opened writer/external cells.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_binding_sink_aggregate_residues_v1(
+pub fn evaluate_p256_binding_sink_aggregate_residues_v1(
     current: &[F; P256_BINDING_SINK_BASE_WIDTH_V1],
     next: &[F; P256_BINDING_SINK_BASE_WIDTH_V1],
     current_aux: &[F; P256_CROSS_TRACE_SINK_AUX_WIDTH_V1],
@@ -3858,9 +3849,7 @@ pub(crate) fn evaluate_p256_binding_sink_aggregate_residues_v1(
     )
 }
 /// Complete binding-sink relation over F or Fp4, including optional input selection.
-pub(crate) fn evaluate_p256_binding_sink_aggregate_residues_over_field_v1<
-    A: PolynomialAirFieldV1,
->(
+pub fn evaluate_p256_binding_sink_aggregate_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_BINDING_SINK_BASE_WIDTH_V1],
     next: &[A; P256_BINDING_SINK_BASE_WIDTH_V1],
     current_aux: &[A; P256_CROSS_TRACE_SINK_AUX_WIDTH_V1],
@@ -3953,14 +3942,14 @@ pub(crate) fn evaluate_p256_binding_sink_aggregate_residues_over_field_v1<
 }
 /// Independent sink terminal projection.
 #[cfg(test)]
-pub(crate) fn p256_binding_sink_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_binding_sink_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_CROSS_TRACE_SINK_AUX_WIDTH_V1],
 ) -> Result<[A; P256_CROSS_TRACE_LANES_V1], P256AggregateAdapterErrorV1> {
     compact_cross_terminal_v1(6, aux)
 }
 /// Final native-row selector in binding-sink preprocessing.
 #[cfg(test)]
-pub(crate) fn p256_binding_sink_last_selector_v1<A: PolynomialAirFieldV1>(
+pub fn p256_binding_sink_last_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_BINDING_SINK_FIXED_WIDTH_V1],
 ) -> A {
     decode_boundary_v1(
@@ -3970,7 +3959,7 @@ pub(crate) fn p256_binding_sink_last_selector_v1<A: PolynomialAirFieldV1>(
 }
 /// Native-domain scalar-bit bus residues.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_scalar_bit_bus_aggregate_residues_v1(
+pub fn evaluate_p256_scalar_bit_bus_aggregate_residues_v1(
     current: &[F; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     next: &[F; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     current_aux: &[F; P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1],
@@ -3988,9 +3977,7 @@ pub(crate) fn evaluate_p256_scalar_bit_bus_aggregate_residues_v1(
     )
 }
 /// Packed scalar-bit bus relation over the base or extension field.
-pub(crate) fn evaluate_p256_scalar_bit_bus_aggregate_residues_over_field_v1<
-    A: PolynomialAirFieldV1,
->(
+pub fn evaluate_p256_scalar_bit_bus_aggregate_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     next: &[A; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     current_aux: &[A; P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1],
@@ -4014,7 +4001,7 @@ pub(crate) fn evaluate_p256_scalar_bit_bus_aggregate_residues_over_field_v1<
 /// Bind both direct source terminals to the packed-bus terminal at the
 /// verifier-preprocessed final active bus row.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_scalar_source_terminal_openings_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_p256_scalar_source_terminal_openings_v1<A: PolynomialAirFieldV1>(
     bus_last_active_selector: A,
     arithmetic_source: [F; P256_SCALAR_BIT_BUS_LANES_V1],
     window_source: [F; P256_SCALAR_BIT_BUS_LANES_V1],
@@ -4031,7 +4018,7 @@ pub(crate) fn evaluate_p256_scalar_source_terminal_openings_v1<A: PolynomialAirF
 }
 /// Verifier-owned P-256 adapter family within one signature instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256MainAdapterV1 {
+pub enum P256MainAdapterV1 {
     /// Value memory: local zero is execution and local one is sorted.
     ValueBus,
     /// Wide P-256 arithmetic.
@@ -4049,7 +4036,7 @@ pub(crate) enum P256MainAdapterV1 {
 }
 /// Closed auxiliary column families used by private MAIN endpoint equations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256PrivateLinkFamilyV1 {
+pub enum P256PrivateLinkFamilyV1 {
     /// Value memory endpoint.
     Value,
     /// Value/arithmetic copy endpoint.
@@ -4065,7 +4052,7 @@ pub(crate) enum P256PrivateLinkFamilyV1 {
 }
 /// Resolve column indices from the same layout constants used to encode the trace.
 /// No witness, terminal value, native row or column index is accepted from a proof.
-pub(crate) fn p256_private_link_columns_v1(
+pub fn p256_private_link_columns_v1(
     registration: P256MainRegistrationV1,
     family: P256PrivateLinkFamilyV1,
 ) -> Result<[usize; 4], P256AggregateAdapterErrorV1> {
@@ -4135,7 +4122,7 @@ pub(crate) fn p256_private_link_columns_v1(
 }
 /// Exact verifier-owned identity of one P-256 MAIN registration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256MainRegistrationV1 {
+pub struct P256MainRegistrationV1 {
     signature: u8,
     adapter: P256MainAdapterV1,
     local_instance: u8,
@@ -4248,7 +4235,7 @@ impl P256MainRegistrationV1 {
 }
 /// Exact native shape selected by a verifier-owned P-256 registration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256MainAdapterShapeV1 {
+pub struct P256MainAdapterShapeV1 {
     /// Native power-of-two row count.
     pub(crate) trace_size: usize,
     /// Challenge-independent committed width.
@@ -4298,7 +4285,7 @@ fn canonical_p256_main_registrations_v1()
     Ok(registrations)
 }
 /// Reject any omitted, duplicated, or reordered P-256 MAIN registration.
-pub(crate) fn validate_p256_main_registration_order_v1(
+pub fn validate_p256_main_registration_order_v1(
     registrations: &[P256MainRegistrationV1],
 ) -> Result<(), P256AggregateAdapterErrorV1> {
     if registrations != canonical_p256_main_registrations_v1()? {
@@ -4517,7 +4504,7 @@ fn fill_public_arithmetic_fixed_matrix_with_v1(
 /// metadata, roles, optional-selection flags, or challenges. The global signature position derives
 /// both the role and the sole optional-certificate sink at signature two.
 #[derive(Clone, Debug)]
-pub(crate) struct P256MainVerifierFixedSourceV1 {
+pub struct P256MainVerifierFixedSourceV1 {
     certificate_execution: P256ValueExecutionAggregateFixedProviderV1,
     certificate_sorted: P256ValueBusStarkFixedProviderV1,
     certificate_arithmetic: P256MainArithmeticFixedSourceV1,
@@ -4855,7 +4842,7 @@ impl Drop for P256MainArithmeticGuardV1 {
 }
 /// Immutable checked raw capability, consumed after scalar-source construction.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256MainRawArithmeticV1 {
+pub struct P256MainRawArithmeticV1 {
     role: P256EcdsaRoleV1,
     trace: P256MainArithmeticGuardV1,
     fixed: P256ArithmeticStarkFixedProviderV1,
@@ -5190,7 +5177,7 @@ impl Drop for P256MainSignatureBaseV1 {
 }
 /// Pre-X5B1 capability for the exact five-signature P-256 MAIN set.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256MainBaseSourceV1 {
+pub struct P256MainBaseSourceV1 {
     // Keep the reserved exact-five owner on the heap across phase transitions.
     // An inline array duplicates the embedded reduction traces in debug frames.
     signatures: Option<ClearingVecV1<P256MainSignatureBaseV1>>,
@@ -6145,7 +6132,7 @@ impl<'a> P256MainBoundWriterReplayV1<'a> {
 /// families remain tied to the single retained opaque token; callers cannot
 /// pass a second raw challenge set into column replay.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256MainBoundSourceV1 {
+pub struct P256MainBoundSourceV1 {
     // Cardinality is checked before replay; transferring this owner never
     // materializes the five large signatures as a stack array.
     signatures: Option<ClearingVecV1<P256MainSignatureBoundV1>>,
@@ -6961,7 +6948,7 @@ fn p256_main_canonical_materials_for_test_v1()
 /// compiles and validates the full production certificate/CRL and wallet
 /// material through the ordinary native Rust trace compiler.
 #[cfg(test)]
-pub(crate) fn p256_main_base_source_fixture_for_test_v1()
+pub fn p256_main_base_source_fixture_for_test_v1()
 -> Result<P256MainBaseSourceV1, P256AggregateAdapterErrorV1> {
     let fixture = p256_main_canonical_materials_for_test_v1()?;
     P256MainBaseSourceV1::from_materials_v1(&fixture.materials, fixture.selection)
@@ -7068,7 +7055,7 @@ mod tests {
                 fixed: Some(P256MainVerifierFixedSourceV1::new_v1().unwrap()),
                 bind_attempted: false,
             };
-            let ((_, observed), allocations) =
+            let (((), observed), allocations) =
                 super::super::private_table::allocation_inspection::observe_v1(|| {
                     observe_v1(|| {
                         if unwind {
@@ -7111,7 +7098,7 @@ mod tests {
     fn p256_main_signature_allocation_clears_taken_slots_and_partial_bound_owners() {
         use super::super::private_table::{allocation_inspection, inspection};
         for failure in [0, 1, 2] {
-            let ((_, fields), allocations) = allocation_inspection::observe_v1(|| {
+            let (((), fields), allocations) = allocation_inspection::observe_v1(|| {
                 inspection::observe_v1(|| {
                     let operation = || -> Result<(), ()> {
                         let mut base = ClearingVecV1::from_vec_for_test_v1(Vec::with_capacity(9));
@@ -7258,7 +7245,7 @@ mod tests {
             * (2 * P256_ARITHMETIC_BASE_WIDTH_V1
                 + 3 * P256_WINDOW_BASE_WIDTH_V1
                 + 3 * P256_WINDOW_STARK_AUX_WIDTH_V1);
-        let (_, observed) = observe_v1(|| drop(source));
+        let ((), observed) = observe_v1(|| drop(source));
         assert_eq!(
             observed
                 .iter()
@@ -7942,7 +7929,7 @@ mod tests {
     }
     #[test]
     fn aggregate_column_destinations_are_transactional_and_fail_closed() {
-        let (_, observed) = super::super::private_table::inspection::observe_v1(
+        let ((), observed) = super::super::private_table::inspection::observe_v1(
             aggregate_column_destinations_are_transactional_and_fail_closed_body_v1,
         );
         assert!(observed.iter().any(|item| item.nonzero_before > 0));
@@ -8050,7 +8037,7 @@ mod tests {
     }
     #[test]
     fn aggregate_private_zeroization_is_idempotent_and_preserves_fixed_topology() {
-        let (_, observations) = super::super::private_table::inspection::observe_v1(
+        let ((), observations) = super::super::private_table::inspection::observe_v1(
             aggregate_private_zeroization_is_idempotent_and_preserves_fixed_topology_body_v1,
         );
         assert!(observations.iter().any(|item| item.nonzero_before > 0));

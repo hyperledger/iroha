@@ -125,7 +125,7 @@ fn spki_output_schedule_binds_all_five_channels_offsets_and_source_documents() {
         assert_eq!(spki_output_slot_v1(shape, u32::MAX), None);
     }
     assert_eq!(FIX_OUTPUT_SOURCE_SPKI + 1, variable_output::FIX_VARIABLE);
-    assert!(FIX_OUTPUT_SOURCE_SPKI > FIX_RANGE_HIGH_BITS_ZERO);
+    const { assert!(FIX_OUTPUT_SOURCE_SPKI > FIX_RANGE_HIGH_BITS_ZERO) };
 }
 
 #[test]
@@ -218,8 +218,8 @@ fn spki_output_node_length_role_and_address_cannot_redirect_source() {
     // Coherent local address shifts must still authenticate the original DER node.
     for lane in 0..4 {
         assert_ne!(
-            node_query_factor_v1(&redirected, &fixed, lane, challenges_v1()),
-            node_query_factor_v1(&row, &fixed, lane, challenges_v1())
+            node_query_factor_v1(&redirected, &fixed, lane, &challenges_v1()),
+            node_query_factor_v1(&row, &fixed, lane, &challenges_v1())
         );
         assert_ne!(
             serial_byte_lookup_factor_v1(
@@ -227,14 +227,14 @@ fn spki_output_node_length_role_and_address_cannot_redirect_source() {
                 redirected[BASE_ADDRESS],
                 redirected[BASE_VALUE],
                 lane,
-                challenges_v1()
+                &challenges_v1()
             ),
             serial_byte_lookup_factor_v1(
                 row[BASE_DOCUMENT],
                 row[BASE_ADDRESS],
                 row[BASE_VALUE],
                 lane,
-                challenges_v1()
+                &challenges_v1()
             )
         );
     }
@@ -335,7 +335,7 @@ fn spki_output_aux_fixture_v1(
     let mut next = neutral_aux_v1();
     for lane in 0..4 {
         next[output_role_aux_column_v1(output_role_index_v1(role), false, lane)] =
-            output_role_product_factor_v1(row, output_role_index_v1(role), false, lane, challenges);
+            output_role_product_factor_v1(row, output_role_index_v1(role), false, lane, &challenges);
         for (factor, zero, inverse, sum, zero_sum) in [
             (
                 serial_byte_lookup_factor_v1(
@@ -343,7 +343,7 @@ fn spki_output_aux_fixture_v1(
                     row[BASE_ADDRESS],
                     row[BASE_SERIAL_BYTE_QUERY_VALUE],
                     lane,
-                    challenges,
+                    &challenges,
                 ),
                 AUX_SERIAL_BYTE_QUERY_ZERO,
                 AUX_SERIAL_BYTE_QUERY_INVERSE,
@@ -351,7 +351,7 @@ fn spki_output_aux_fixture_v1(
                 AUX_SERIAL_BYTE_ZERO_ACCUMULATOR,
             ),
             (
-                node_query_factor_v1(row, fixed, lane, challenges),
+                node_query_factor_v1(row, fixed, lane, &challenges),
                 AUX_SERIAL_NODE_QUERY_ZERO,
                 AUX_SERIAL_NODE_QUERY_INVERSE,
                 AUX_SERIAL_NODE_LOOKUP_ACCUMULATOR,
@@ -407,7 +407,7 @@ fn assert_spki_coherent_shadow_v1(trace: ZkX509Rfc5280TraceV1) {
                 &after,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
             )
             .unwrap();
             assert!(
@@ -434,7 +434,7 @@ fn assert_spki_coherent_shadow_v1(trace: ZkX509Rfc5280TraceV1) {
                 &products_only,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
             )
             .unwrap();
             assert!(
@@ -451,7 +451,7 @@ fn assert_spki_coherent_shadow_v1(trace: ZkX509Rfc5280TraceV1) {
                 &repaired_after,
                 &fixed,
                 der_challenges_v1(),
-                challenges_v1(),
+                &challenges_v1(),
             )
             .unwrap();
             assert!(local.iter().all(|value| *value == F::ZERO));
@@ -488,14 +488,14 @@ fn assert_spki_coherent_shadow_v1(trace: ZkX509Rfc5280TraceV1) {
                         output_role_index_v1(entry.role),
                         false,
                         lane,
-                        challenges_v1()
+                        &challenges_v1()
                     ),
                     output_role_product_factor_v1(
                         &consumer,
                         output_role_index_v1(entry.role),
                         true,
                         lane,
-                        challenges_v1()
+                        &challenges_v1()
                     )
                 );
             }

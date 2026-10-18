@@ -1,5 +1,5 @@
 //! Admission-time deterministic batching tests for signature schemes.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::cast_possible_truncation)]
 //! Exercise the production stateless transaction-admission boundary directly.
 //! Consensus authentication and execution have separate block-level coverage; these

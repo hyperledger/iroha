@@ -22,10 +22,13 @@ fn expected(opcode: u8, left: u64, right: u64) -> u64 {
     match opcode {
         wide::arithmetic::MUL => (u128::from(left) * u128::from(right)) as u64,
         wide::arithmetic::MULH => {
-            ((i128::from(left as i64) * i128::from(right as i64)) >> 64) as u64
+            ((i128::from(u64::cast_signed(left)) * i128::from(u64::cast_signed(right))) >> 64)
+                as u64
         }
         wide::arithmetic::MULHU => ((u128::from(left) * u128::from(right)) >> 64) as u64,
-        wide::arithmetic::MULHSU => ((i128::from(left as i64) * i128::from(right)) >> 64) as u64,
+        wide::arithmetic::MULHSU => {
+            ((i128::from(u64::cast_signed(left)) * i128::from(right)) >> 64) as u64
+        }
         wide::arithmetic::POPCNT => u64::from(left.count_ones()),
         wide::arithmetic::CLZ => u64::from(left.leading_zeros()),
         wide::arithmetic::CTZ => u64::from(left.trailing_zeros()),
@@ -102,10 +105,10 @@ fn native_products_match_independent_full_width_signed_and_unsigned_arithmetic()
         (0, 0),
         (1, u64::MAX),
         (u64::MAX, u64::MAX),
-        (i64::MIN as u64, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), i64::cast_unsigned(i64::MIN)),
         (i64::MAX as u64, i64::MAX as u64),
-        (i64::MIN as u64, u64::MAX),
-        (u64::MAX, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), u64::MAX),
+        (u64::MAX, i64::cast_unsigned(i64::MIN)),
         (0xffff_ffff_0000_0001, 0x8000_ffff_0000_0001),
         (0x5555_5555_5555_5555, 0xaaaa_aaaa_aaaa_aaaa),
     ];
@@ -149,8 +152,16 @@ fn native_products_match_independent_full_width_signed_and_unsigned_arithmetic()
         }
     }
     assert_ne!(
-        expected(wide::arithmetic::MULHSU, i64::MIN as u64, u64::MAX),
-        expected(wide::arithmetic::MULHSU, u64::MAX, i64::MIN as u64),
+        expected(
+            wide::arithmetic::MULHSU,
+            i64::cast_unsigned(i64::MIN),
+            u64::MAX
+        ),
+        expected(
+            wide::arithmetic::MULHSU,
+            u64::MAX,
+            i64::cast_unsigned(i64::MIN)
+        ),
         "the signed operand is the original first source",
     );
 }
@@ -353,7 +364,7 @@ fn three_and_six_gas_operations_still_retire_exactly_one_cycle() {
             ExecutionMemoryLease::reserve(&budget, NativeInvocation::allocation_plan().unwrap())
                 .unwrap();
         let result = NativeInvocation::run_public_leaf_root(
-            artifact_with_literals(&body, 0, &[i64::MIN as u64, u64::MAX]),
+            artifact_with_literals(&body, 0, &[i64::cast_unsigned(i64::MIN), u64::MAX]),
             "main",
             gas,
             &mut parent,
@@ -406,7 +417,7 @@ fn maximum_product_count_profile_retains_fixed_workspace_on_small_stack() {
     let (native, budget) = native(artifact_with_literals(
         &body,
         0,
-        &[i64::MIN as u64, u64::MAX],
+        &[i64::cast_unsigned(i64::MIN), u64::MAX],
     ));
     assert_eq!(native.instructions(), 64);
     std::thread::Builder::new()

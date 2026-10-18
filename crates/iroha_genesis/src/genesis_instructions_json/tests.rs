@@ -914,21 +914,20 @@ fn dev_source_template_prefunds_exact_canonical_staking_plans() {
         for instruction in &transaction.instructions {
             if let Some(RegisterBox::AssetDefinition(register)) =
                 instruction.as_any().downcast_ref::<RegisterBox>()
+                && register.object().id() == &definition
             {
-                if register.object().id() == &definition {
-                    assert!(!registered, "canonical XOR must be registered once");
-                    registered = true;
-                }
+                assert!(!registered, "canonical XOR must be registered once");
+                registered = true;
             }
-            if let Some(MintBox::Asset(mint)) = instruction.as_any().downcast_ref::<MintBox>() {
-                if mint.destination().definition() == &definition {
-                    assert!(registered, "register canonical XOR before minting");
-                    assert!(
-                        prefunded
-                            .insert(mint.destination().clone(), mint.object().to_string())
-                            .is_none()
-                    );
-                }
+            if let Some(MintBox::Asset(mint)) = instruction.as_any().downcast_ref::<MintBox>()
+                && mint.destination().definition() == &definition
+            {
+                assert!(registered, "register canonical XOR before minting");
+                assert!(
+                    prefunded
+                        .insert(mint.destination().clone(), mint.object().to_string())
+                        .is_none()
+                );
             }
             if let Some(register) = instruction
                 .as_any()
@@ -998,8 +997,8 @@ fn parse_allows_null_executor_in_canonical_manifest() {
 
 #[test]
 fn supported_genesis_templates_fit_frozen_source_bootstrap() {
-    super::super::init_instruction_registry();
     use iroha_data_model::parameter::{ExecutionOutputPolicyV1, FastpqSourcePolicyV1};
+    super::super::init_instruction_registry();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let capacity = FastpqSourcePolicyV1::bootstrap()
         .maximum_network_inputs(ExecutionOutputPolicyV1::bootstrap())
@@ -1048,7 +1047,6 @@ fn supported_genesis_templates_fit_frozen_source_bootstrap() {
 
 #[test]
 fn generated_genesis_group_shapes_have_finite_source_capacity() {
-    super::super::init_instruction_registry();
     use iroha_data_model::{
         block::consensus::SumeragiGenesisContextParameters,
         parameter::{
@@ -1058,6 +1056,7 @@ fn generated_genesis_group_shapes_have_finite_source_capacity() {
         },
     };
     use iroha_model_base::chain::ChainId;
+    super::super::init_instruction_registry();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let capacity = FastpqSourcePolicyV1::bootstrap()
         .maximum_network_inputs(ExecutionOutputPolicyV1::bootstrap())

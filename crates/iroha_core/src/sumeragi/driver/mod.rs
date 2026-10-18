@@ -505,6 +505,9 @@ impl Kernel {
                 Action::BuildControlWitness { req, context } => {
                     self.exec.build_control(req, context)
                 }
+                Action::RecoverProposalAdmission { req, body } => {
+                    self.exec.recover_proposal_admission(req, body)
+                }
                 Action::DriveApplicationControl { context } => self.exec.drive_control(context),
                 Action::ReceiveApplicationControl { from, message } => {
                     self.exec.receive_control(from, message)
@@ -1471,23 +1474,41 @@ impl DriverJoiner {
         Ok(Self { workers, thread })
     }
 
-    fn finish(self, threads: Vec<JoinHandle<()>>, on_worker: bool) {
+    fn handoff(self, threads: Vec<JoinHandle<()>>) -> Result<JoinHandle<()>, FailedDriverHandoff> {
         let Self { workers, thread } = self;
-        if let Err(mpsc::SendError(threads)) = workers.send(threads) {
-            // The private receiver has no backend calls before this one handoff.
-            // If it nevertheless stopped, never panic or self-join during unwind.
-            iroha_logger::error!("sumeragi joining control stopped before receiving workers");
-            if !on_worker {
-                for thread in threads {
-                    let _ = thread.join();
-                }
-            }
-        }
+        let result = workers.send(threads);
         drop(workers);
+        match result {
+            Ok(()) => Ok(thread),
+            Err(mpsc::SendError(workers)) => Err(FailedDriverHandoff { workers, thread }),
+        }
+    }
+
+    fn finish(self, threads: Vec<JoinHandle<()>>, on_worker: bool) {
+        let thread = match self.handoff(threads) {
+            Ok(thread) => thread,
+            Err(FailedDriverHandoff { workers, thread }) => {
+                // Preserve the original final-shutdown fallback, including self-worker
+                // callback shutdown. Lifecycle polling retains a failed handoff instead.
+                iroha_logger::error!("sumeragi joining control stopped before receiving workers");
+                if !on_worker {
+                    for worker in workers {
+                        let _ = worker.join();
+                    }
+                }
+                thread
+            }
+        };
         if !on_worker {
             let _ = thread.join();
         }
     }
+}
+
+/// Original handles returned by a failed handoff; no replacement joiner is spawned.
+struct FailedDriverHandoff {
+    workers: Vec<JoinHandle<()>>,
+    thread: JoinHandle<()>,
 }
 
 /// A running driver instance: its handle and owned worker joins.
@@ -1500,6 +1521,10 @@ pub struct RunningDriver {
     handle: DriverHandle,
     threads: Vec<JoinHandle<()>>,
     joiner: Option<DriverJoiner>,
+    // Polling retains the prestarted joiner's handle until it has joined every worker.
+    joining: Option<JoinHandle<()>>,
+    shutdown_requested: bool,
+    handoff_failed: bool,
 }
 
 impl RunningDriver {
@@ -1516,17 +1541,80 @@ impl RunningDriver {
         self.stop_and_join();
     }
 
+    fn request_shutdown(&mut self) {
+        if !self.shutdown_requested {
+            self.shutdown_requested = true;
+            let _ = self.handle.inputs.send(Input::Stop);
+        }
+    }
+
+    /// Request stop and poll completion while the lifecycle coordinator retains this owner.
+    /// Worker-finished observations only authorize handoff: the original joiner must still
+    /// perform every physical join. A failed handoff stays pending until final shutdown.
+    pub(in crate::sumeragi) fn poll_shutdown(&mut self) -> bool {
+        #[cfg(all(test, sumeragi_core_mutation = "HC393"))]
+        self.stop_and_join();
+        self.request_shutdown();
+        let current = std::thread::current().id();
+        if self.handoff_failed
+            || self
+                .threads
+                .iter()
+                .any(|thread| thread.thread().id() == current || !thread.is_finished())
+        {
+            return false;
+        }
+        if let Some(joiner) = self.joiner.take() {
+            match joiner.handoff(std::mem::take(&mut self.threads)) {
+                Ok(thread) => self.joining = Some(thread),
+                Err(FailedDriverHandoff { workers, thread }) => {
+                    self.threads = workers;
+                    self.joining = Some(thread);
+                    self.handoff_failed = true;
+                    iroha_logger::error!(
+                        "sumeragi joining control stopped before receiving workers; original retirement remains owned until shutdown"
+                    );
+                    return false;
+                }
+            }
+        }
+        if self
+            .joining
+            .as_ref()
+            .is_some_and(|thread| !thread.is_finished())
+        {
+            return false;
+        }
+        if let Some(thread) = self.joining.take() {
+            let _ = thread.join();
+        }
+        true
+    }
+
     fn stop_and_join(&mut self) {
-        let Some(joiner) = self.joiner.take() else {
-            return;
-        };
-        let _ = self.handle.inputs.send(Input::Stop);
+        self.request_shutdown();
         let current = std::thread::current().id();
         let on_worker = self
             .threads
             .iter()
             .any(|thread| thread.thread().id() == current);
-        joiner.finish(std::mem::take(&mut self.threads), on_worker);
+        if let Some(joiner) = self.joiner.take() {
+            joiner.finish(std::mem::take(&mut self.threads), on_worker);
+        } else if self.handoff_failed {
+            // Only final shutdown handles this anomaly. Keep the original external
+            // join/self-worker behavior; never silently restart the failed handoff.
+            let workers = std::mem::take(&mut self.threads);
+            if !on_worker {
+                for worker in workers {
+                    let _ = worker.join();
+                }
+            }
+        }
+        if let Some(thread) = self.joining.take() {
+            if !on_worker {
+                let _ = thread.join();
+            }
+        }
     }
 }
 
@@ -1659,6 +1747,9 @@ where
             },
             threads: Vec::new(),
             joiner: Some(DriverJoiner::start()?),
+            joining: None,
+            shutdown_requested: false,
+            handoff_failed: false,
         };
         let (persist_tx, persist_rx) = mpsc::channel::<(u64, Write)>();
         {
@@ -1945,6 +2036,16 @@ fn run_exec<E: Executor, K: BlockStore + ?Sized>(
             }
             ExecDone::Committed(committed)
         }
+        ExecOp::RecoverProposalAdmission { body, .. } => ExecDone::ProposalAdmissionRecovered(
+            catch_unwind(AssertUnwindSafe(|| {
+                executor.recover_proposal_admission(&body)
+            }))
+            .unwrap_or_else(|_| {
+                Err(PublicationError::RecoveryRequired(failed(
+                    "recover proposal admission",
+                )))
+            }),
+        ),
         ExecOp::BuildControlWitness { context, .. } => ExecDone::ControlWitnessBuilt(
             catch_unwind(AssertUnwindSafe(|| {
                 executor.build_control_witness(&context)

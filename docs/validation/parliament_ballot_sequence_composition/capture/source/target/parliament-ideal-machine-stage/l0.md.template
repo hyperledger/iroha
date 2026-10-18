@@ -1,0 +1,128 @@
+# L0 full-message chronological lookup
+
+This component implements the previously proposed oracle-log lookup as a lazy
+instruction stream for the actual bounded lifetime. It changes no frozen game,
+source backend, primitive assumption or production gate. The actual factory
+sets N=T*(2^20+2), stored-key capacity215150 bytes and response2112 bits. T may
+be zero; the zero-record circuit still performs two base calls. The caller
+separately supplies a finite full-message capacity and byte-length bit width.
+The actual factory requires capacity at least the retained6882996-byte honest
+envelope; query count does not imply a message-length bound.
+
+`OverlayLookup` lays out a persistent array followed by query, enable, response
+and clean work. Each record is active1, length b, padded key8W, padded value v.
+The query carries length b and its entire message capacity. Layout and resource
+methods use constant-size dictionaries of integer intervals. Gate emission
+does not allocate an N-slot array, materialize a key-wide control tuple or use
+a data-dependent wire address. Actual lifetime layouts can therefore be
+described without executing an infeasibly large circuit.
+
+For every slot the circuit computes enable AND active AND equality of the
+length and first W bytes. It restores the temporarily modified key before any
+base call. Reverse suffix flags identify the highest matching slot. It copies
+only that stored value, or the base response on a miss, then clears every
+match, suffix, ladder, hit and response-work bit. Lookup accepts holes and
+duplicate keys; no canonical append-counter invariant is needed. Active keys
+must still be canonical encodings with declared length at most W.
+
+The full query is passed to the provided base interface, including the tail
+beyond W. A legal query has length within its supplied capacity and canonical
+zero padding. If its length exceeds W it cannot match an active stored key;
+matching the compared length and head is otherwise full-address equality.
+No additional promise bounds the contents or excludes repeated queries.
+
+## One fixed provided function
+
+The compact instruction is
+
+```text
+('F:variable', length_start, b, message_start, message_capacity_bytes,
+ response_start, response_bits)
+```
+
+Its arguments describe disjoint wire intervals, including the complete
+message. It calls a supplied response-XOR oracle on the canonical variable
+length encoding. Every fixed `F:length` adapter is a restriction of this same
+immutable F. There are no independent functions for distinct lengths or
+capacities. The finite experiment supplies one fixed total extension on
+noncanonical register encodings; this component interprets only legal query
+encodings as source messages and does not give a free validation adapter.
+
+For the actual source interface, F already has the domain-padded264-byte
+response required by frozen C-1. The native widths at extended L256 are:
+
+| Domain-last byte | Meaning | Native response bits |
+|---|---|---:|
+|0|Extended H0|1024|
+|1|H1|512|
+|3|H3|384|
+|4|H4|128|
+|5|H5 for the two frozen rows|10|
+|8|mu|512|
+|9|Challenge1|2112|
+|10|Challenge2|832|
+|11|Challenge3|256|
+
+The source H5 squeezes two bytes but masks the result to ten bits here; its
+second byte's high six bits are also zero. Source-domain response bits beyond
+these widths are zero. This is a property of the provided typed oracle, not a
+free operation converting an arbitrary raw-XOF response into the right one.
+Unrecognized/empty source addresses retain one explicit experiment-supplied
+fixed total completion. The earlier note does not define that completion;
+this component neither invents fresh extra output nor certifies a broader
+external-access experiment. Interface acceptance remains open.
+
+Generic `OverlayLookup(...,value_bits=v)` instances permit smaller synthetic
+v-bit oracle contracts for structural controls. These are not a free prefix
+adapter to the actual264-byte base oracle: they allocate only v response-work
+bits, whereas such an adapter must compute and clear the full2112 bits.
+The source factory always uses2112.
+General routing tests use arbitrary immutable responses, establishing a
+stronger local clean-map property; source-interface tests additionally impose
+the native padding and check equality with the fixed-length adapters.
+
+Two base calls are unconditional, even on a match or when enable is zero.
+The first computes F into clean work, the second clears it. F, full query and
+the log must stay unchanged between those calls. A stateful/logging oracle is
+not that contract; the negative control demonstrates residual work for one.
+
+## Exact local resource and state statement
+
+For N>0 and k=b+8W the emitted counts are:
+
+```text
+X =4kN+4N+2
+CNOT =4kN
+Toffoli =N*(4k+6+v)+v+2
+base calls =2
+clean work =2N+k+v+2 bits
+```
+
+For N=0 the circuit has v Toffolis, two base calls and v clean work bits.
+One Toffoli is charged as five elementary two-qubit gates, as in the reviewed
+prior construction. Persistent log, full query, enable and caller response
+are separately inventoried; append counter belongs to W0 and is not included
+again here. Base-oracle retained state and physical compilation are external.
+
+The explicit phase-free gates establish the clean XOR map for each basis
+state with legal canonical encodings and zero work. Linearity extends this
+map to superpositions correlated with the retained log, F and an external
+reference. The response may be arbitrary beforehand. This local identity
+does not assert that tracing away retained input/log/reference registers
+preserves their reduced state, or establish the full sampler/adversary
+projection. Honest source requests remain classical and atomic.
+
+Fifty focused tests passed on the current candidate. They exhaust three-slot
+one-bit key/value histories including holes, duplicates, query/enable/target
+choices; check long messages, empty messages and length separation; compare
+emitted counts against the independent retained formula; compare same-F fixed
+and variable interfaces and native padding; and detect missing uncompute,
+stateful base behavior, malformed factories and source drift. Full actual
+lifetime circuits are not executed. Five selected source/spec pins are checked
+before and after the actual factory; this is not a dependency closure.
+
+TODO: integrate authenticated W0 log and external query wire maps, resolve the
+finite experiment's exact total completion/accepted interface, and prove the
+whole simulator joint projection and complete resources. Every full-coverage,
+primitive-entry, physical-workspace and production qualification flag stays
+false.

@@ -8,7 +8,7 @@ const PRIVATE_PROGRAM_VERSION_V1: u16 = 1;
 const PRIVATE_PROGRAM_RESERVED_V1: u16 = 0;
 const PRIVATE_PROGRAM_HEADER_BYTES_V1: usize = 8;
 /// Exact byte length of the sole canonical first-release private program.
-pub(crate) const PRIVATE_PROGRAM_BYTES_V1: usize = PRIVATE_PROGRAM_HEADER_BYTES_V1
+pub const PRIVATE_PROGRAM_BYTES_V1: usize = PRIVATE_PROGRAM_HEADER_BYTES_V1
     + PRIVATE_PROGRAM_INSTRUCTION_COUNT_V1 * PRIVATE_PROGRAM_INSTRUCTION_BYTES_V1;
 /// Encode one validated private program into its only canonical byte form.
 ///
@@ -16,7 +16,7 @@ pub(crate) const PRIVATE_PROGRAM_BYTES_V1: usize = PRIVATE_PROGRAM_HEADER_BYTES_
 ///
 /// Rejects invalid opcodes, non-zero reserved operands, register indices outside the compiled bank,
 /// a missing halt, or non-zero instructions after the first halt.
-pub(crate) fn encode_private_program_v1(
+pub fn encode_private_program_v1(
     program: &PrivateProgramV1,
 ) -> Result<[u8; PRIVATE_PROGRAM_BYTES_V1], IvmPrivateNoteRelationErrorV1> {
     program.validate()?;
@@ -37,7 +37,7 @@ pub(crate) fn encode_private_program_v1(
 ///
 /// Rejects every truncation, suffix, alternate magic/version, non-zero
 /// reserved header, invalid instruction, or non-canonical post-halt encoding.
-pub(crate) fn decode_private_program_v1(
+pub fn decode_private_program_v1(
     encoded: &[u8],
 ) -> Result<PrivateProgramV1, IvmPrivateNoteRelationErrorV1> {
     if encoded.len() != PRIVATE_PROGRAM_BYTES_V1 {

@@ -79,11 +79,17 @@ use toml::Table;
 #[cfg(test)]
 thread_local! {
     static GENESIS_PREEXECUTION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static GENESIS_SIGNING_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
 pub(crate) fn genesis_preexecution_count() -> usize {
     GENESIS_PREEXECUTION_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn genesis_signing_count() -> usize {
+    GENESIS_SIGNING_COUNT.with(std::cell::Cell::get)
 }
 
 /// Exact policy commitments derived by isolated genesis pre-execution.
@@ -269,6 +275,7 @@ pub(crate) fn genesis_unexecuted_with_keypair_and_post_topology(
         None,
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+        None,
     )
     .0
 }
@@ -305,6 +312,7 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies(
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
+        None,
     )
     .0
 }
@@ -324,6 +332,7 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies_and_staged_ha
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
+    preview_cadence_ms: Option<std::num::NonZeroU64>,
 ) -> (
     GenesisBlock,
     StagedGenesisPolicyHashes,
@@ -346,6 +355,7 @@ pub(crate) fn genesis_with_keypair_and_post_topology_with_policies_and_staged_ha
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
+        preview_cadence_ms,
     )
 }
 fn strip_handshake_metadata_transactions(transactions: &mut [Vec<InstructionBox>]) {
@@ -471,6 +481,7 @@ fn build_minimal_genesis_with_post_topology(
         consensus_handshake_meta,
         consensus_mode_override,
         confidential_policy_hash,
+        None,
     )
     .0
 }
@@ -490,6 +501,7 @@ fn build_minimal_genesis_with_post_topology_and_staged_hash(
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
+    preview_cadence_ms: Option<std::num::NonZeroU64>,
 ) -> (
     GenesisBlock,
     StagedGenesisPolicyHashes,
@@ -522,6 +534,7 @@ fn build_minimal_genesis_with_post_topology_and_staged_hash(
             consensus_handshake_meta,
             consensus_mode_override,
             confidential_policy_hash,
+            preview_cadence_ms,
         );
     genesis_policy::execute_generated_genesis(
         block,
@@ -564,6 +577,7 @@ fn build_minimal_genesis_unexecuted(
         None,
         None,
         Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+        None,
     );
     (block, account, peers, key_pair)
 }
@@ -581,6 +595,7 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
     consensus_handshake_meta: Option<Parameter>,
     consensus_mode_override: Option<SumeragiConsensusMode>,
     confidential_policy_hash: Option<[u8; 32]>,
+    preview_cadence_ms: Option<std::num::NonZeroU64>,
 ) -> (
     GenesisBlock,
     AccountId,
@@ -673,7 +688,12 @@ fn build_minimal_genesis_unexecuted_with_post_topology(
         |metadata| metadata.mode,
     );
     let (block_cadence_ms, sumeragi_context) = consensus_handshake_metadata.map_or_else(
-        || (None, SumeragiGenesisContextParameters::recommended()),
+        || {
+            (
+                preview_cadence_ms,
+                SumeragiGenesisContextParameters::recommended(),
+            )
+        },
         |metadata| (Some(metadata.block_cadence_ms), metadata.sumeragi_context),
     );
     builder = builder.with_sumeragi_context_parameters(sumeragi_context);
@@ -1162,6 +1182,41 @@ pub(crate) fn preexecute_genesis_with_runtime_config(
     ),
     Report,
 > {
+    let discriminant = runtime_config.map_or_else(
+        iroha_data_model::account::address::chain_discriminant,
+        |config| *config.common.chain_discriminant.value(),
+    );
+    let _profile = iroha_data_model::account::address::ChainDiscriminantGuard::enter(discriminant);
+    let (validated, hashes) = validate_genesis_with_runtime_config(
+        block,
+        genesis_account,
+        topology,
+        pipeline_config,
+        nexus_config,
+        zk_config,
+        runtime_config,
+    )?;
+    Ok((resign_genesis(&validated, genesis_key_pair), hashes))
+}
+
+/// Execute the ordinary native genesis validator without possessing or using a signer.
+/// The returned validation result is for policy admission; retained owners keep their
+/// authenticated source bytes instead of publishing or signing this temporary value.
+pub(crate) fn validate_genesis_with_runtime_config(
+    block: &GenesisBlock,
+    genesis_account: &AccountId,
+    topology: &[PeerId],
+    pipeline_config: Option<&ActualPipeline>,
+    nexus_config: Option<&ActualNexus>,
+    zk_config: Option<&ActualZk>,
+    runtime_config: Option<&ActualRoot>,
+) -> Result<
+    (
+        iroha_data_model::block::SignedBlock,
+        StagedGenesisPolicyHashes,
+    ),
+    Report,
+> {
     if topology.is_empty() {
         return Err(eyre!("genesis topology is empty"));
     }
@@ -1175,11 +1230,10 @@ pub(crate) fn preexecute_genesis_with_runtime_config(
         |config| *config.common.chain_discriminant.value(),
     );
     let _profile = iroha_data_model::account::address::ChainDiscriminantGuard::enter(discriminant);
-    preexecute_genesis_on_current_thread(
+    validate_genesis_on_current_thread(
         block,
         genesis_account,
         topology,
-        genesis_key_pair,
         pipeline_config,
         nexus_config,
         zk_config,
@@ -1187,11 +1241,10 @@ pub(crate) fn preexecute_genesis_with_runtime_config(
     )
 }
 
-fn preexecute_genesis_on_current_thread(
+fn validate_genesis_on_current_thread(
     block: &GenesisBlock,
     genesis_account: &AccountId,
     topology: &[PeerId],
-    genesis_key_pair: &KeyPair,
     pipeline_config: Option<&ActualPipeline>,
     nexus_config: Option<&ActualNexus>,
     zk_config: Option<&ActualZk>,
@@ -1315,10 +1368,7 @@ fn preexecute_genesis_on_current_thread(
     };
     drop(state_block);
     let signed_block: iroha_data_model::block::SignedBlock = valid_block.into();
-    Ok((
-        resign_genesis(&signed_block, genesis_key_pair),
-        staged_hashes,
-    ))
+    Ok((signed_block, staged_hashes))
 }
 fn resolve_preexec_nexus_config(
     nexus_config: Option<&ActualNexus>,
@@ -1439,6 +1489,8 @@ fn resign_genesis(
     template: &iroha_data_model::block::SignedBlock,
     genesis_key_pair: &KeyPair,
 ) -> iroha_data_model::block::SignedBlock {
+    #[cfg(test)]
+    GENESIS_SIGNING_COUNT.with(|count| count.set(count.get() + 1));
     // Preserve the complete proposal or executed object, including internal
     // outputs, source context, AXT/FASTPQ data and fragment accounting. Signing never rebuilds
     // results or restores outputs invalidated by a proposal change.
@@ -1807,6 +1859,7 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+            None,
         );
         let grant_phases = raw
             .transactions()
@@ -1908,6 +1961,7 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+            None,
         );
         assert_eq!(
             block.0.external_transactions().count(),
@@ -1973,6 +2027,7 @@ mod tests {
                 None,
                 None,
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+                None,
             )
         }))
         .expect_err("the generator must refuse a twelfth caller-authored input");
@@ -2335,7 +2390,7 @@ mod tests {
                     entries.clone(),
                     SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone(),
                 );
-            let (executed, staged) = super::preexecute_genesis_on_current_thread(
+            let (executed, staged) = super::preexecute_genesis_with_runtime_config(
                 &block, &account, &peers, &key, None, None, None, None,
             )
             .unwrap();
@@ -2387,7 +2442,7 @@ mod tests {
         divergent_pipeline.stateless_cache_cap = 3;
         let preexecute = |pipeline: &iroha_config::parameters::actual::Pipeline,
                           zk: &iroha_config::parameters::actual::Zk| {
-            super::preexecute_genesis_on_current_thread(
+            super::preexecute_genesis_with_runtime_config(
                 &block,
                 &genesis_account,
                 &topology_vec,
@@ -2495,6 +2550,7 @@ mod tests {
                 None,
                 None,
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+                None,
             );
         let (block, _) = super::genesis_fixture_policy::bind_proposal(
             block,
@@ -2632,6 +2688,7 @@ mod tests {
                 None,
                 Some(SumeragiConsensusMode::Npos),
                 Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+                None,
             );
         let expected_rejection_index = block
             .0
@@ -3170,6 +3227,7 @@ mod tests {
             None,
             None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+            None,
         );
         let declared_hash = block
             .0

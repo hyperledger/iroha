@@ -256,7 +256,7 @@ fn actual_from_charge_failures_preserve_layout_and_original_charge_for_all_three
                 );
                 let retry = match ChargedShared::<[u64; 7]>::reserve_from_charge(charge) {
                     Ok(shell) => shell,
-                    Err(_) => panic!("same original charge retries"),
+                    Err((_charge, error)) => panic!("same original charge retries: {error:?}"),
                 };
                 drop(retry.initialize([71; 7]));
             } else {
@@ -270,7 +270,7 @@ fn actual_from_charge_failures_preserve_layout_and_original_charge_for_all_three
                 );
                 let retry = match ChargedBuffer::<u64>::try_from_charge(7, charge) {
                     Ok(buffer) => buffer,
-                    Err(_) => panic!("same original charge retries"),
+                    Err((_charge, error)) => panic!("same original charge retries: {error:?}"),
                 };
                 drop(retry);
             }

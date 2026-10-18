@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! PDP/PoTR simulation tests ensuring the shared harness remains deterministic.
 use integration_tests::da::pdp_potr::{DEFAULT_SEED, SimulationConfig, run_simulation};
 #[test]

@@ -45,7 +45,7 @@ impl RetainedFeeClaim {
             scheme,
             &digests.credit_id,
             &digests.payment,
-            payment.request.body.fee,
+            valid(payment.signed_request())?.body.fee,
         )?;
         let bytes = archive::encode(self)?;
         if bytes.len() > FEE_CLAIM_MAX_BYTES_V1 {
@@ -192,10 +192,10 @@ fn check_claim_original(
     valid(request.validate())?;
     let identity = valid(payment.digests())?;
     if request.body.scheme_id != *scheme
-        || request.signed() != payment.request
+        || request.signed() != valid(payment.signed_request())?
         || identity.payment != *expected
         || identity.credit_id != *credit
-        || payment.request.body.fee != fee
+        || valid(payment.signed_request())?.body.fee != fee
     {
         return Err(Error::WitnessLost("earned fee originals binding"));
     }
@@ -219,7 +219,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             || KagemushaWalletPaymentV1::decode_canonical(bytes, &self.scheme_id),
             Error::Invalid("G1 validation"),
         )?;
-        let fee = payment.request.body.fee;
+        let fee = valid(payment.signed_request())?.body.fee;
         if fee == 0 {
             return Ok(());
         }

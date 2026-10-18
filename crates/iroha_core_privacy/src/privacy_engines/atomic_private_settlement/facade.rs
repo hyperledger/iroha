@@ -303,7 +303,7 @@ pub(super) mod phase_test_support {
     }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub(crate) struct CapturedPhaseEventV1 {
+    pub struct CapturedPhaseEventV1 {
         target: String,
         level: tracing::Level,
         fields: BTreeMap<String, CapturedValueV1>,
@@ -370,7 +370,7 @@ pub(super) mod phase_test_support {
         fn exit(&self, _span: &Id) {}
     }
 
-    pub(crate) struct PhaseCaptureV1 {
+    pub struct PhaseCaptureV1 {
         enabled: bool,
         events: Arc<Mutex<Vec<CapturedPhaseEventV1>>>,
     }

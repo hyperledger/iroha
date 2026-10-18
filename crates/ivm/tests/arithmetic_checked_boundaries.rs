@@ -1,6 +1,6 @@
 //! Exhaustive signed-boundary checks for trapping IVM arithmetic opcodes.
+use crate::common;
 use ivm::{IVM, VMError, encoding, instruction};
-mod common;
 const HALT_WORD: u32 = encoding::wide::encode_halt();
 const DESTINATION_SENTINEL: u64 = 0xCAFE_BABE_DEAD_BEEF;
 const BOUNDARY_VALUES: [i64; 7] = [i64::MIN, i64::MIN + 1, -1, 0, 1, i64::MAX - 1, i64::MAX];

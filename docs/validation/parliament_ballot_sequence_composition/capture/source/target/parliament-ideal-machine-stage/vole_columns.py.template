@@ -1,0 +1,124 @@
+"""V0 clean all-vector reconstruction and source mask shares, at typed inputs."""
+from dataclasses import dataclass
+
+from bit_ir import Cost, integer, require
+from mask_fold import MaskFold
+from vole_machine import VectorFold
+
+
+@dataclass(frozen=True)
+class _Geometry:
+    """Owned immutable snapshot after canonical mixed-vector validation."""
+    tau: int
+    k: int
+    tau1: int
+    depths: tuple[int,...]
+    leaves: int
+
+
+@dataclass(frozen=True)
+class VoleColumns:
+    """Input IV, ordered seeds, typed u16 hidden indices, then c_1..c_(tau-1).
+
+    Output XOR columns in source column-major padded-byte order, then mask-major
+    word-padded shares. Internal zero columns are used for shares, so arbitrary
+    caller column-target contents never enter the mask map.
+    """
+    geometry: object
+    ell: int
+    moduli: tuple[int,...]
+    aes: object
+
+    def __post_init__(self):
+        integer(self.ell,8,65536,"ell")
+        require(self.ell % 8 == 0,"typed witness byte boundary")
+        g = self.geometry
+        tau,k,tau1,depths,leaves = g.tau,g.k,g.tau1,g.depths,g.leaves
+        integer(tau,1,64,"tau")
+        integer(k,2,12,"maximum depth")
+        integer(tau1,0,tau,"long vectors")
+        require(type(depths) is tuple and depths == tuple(k if i < tau1 else k-1 for i in range(tau)),
+                "mixed vector geometry")
+        integer(leaves,2,61440,"leaf count")
+        require(leaves == sum(1 << d for d in depths),"leaf geometry")
+        require(len(self.moduli) == tau,"modulus count")
+        MaskFold(depths,self.moduli,self.ell)
+        object.__setattr__(self,"geometry",_Geometry(tau,k,tau1,depths,leaves))
+
+    @property
+    def row_bits(self): return self.ell+10*max(self.geometry.depths)
+    @property
+    def width_bits(self): return 8*((self.row_bits+7)//8)
+    @property
+    def column_bits(self): return sum(self.geometry.depths)*self.width_bits
+    @property
+    def input_bits(self): return 128+256*self.geometry.leaves+16*self.geometry.tau+(self.geometry.tau-1)*self.ell
+    @property
+    def output_bits(self): return self.column_bits+10*64*((sum(self.geometry.depths)+63)//64)
+
+    def layout(self):
+        vectors = tuple(VectorFold(d,i,self.ell,self.row_bits,self.aes) for i,d in enumerate(self.geometry.depths))
+        plans = tuple(v.layout() for v in vectors)
+        columns_start = self.input_bits
+        scratch_start = columns_start+self.column_bits
+        scratch_bits = max(p["output_start"]-v.input_bits for v,p in zip(vectors,plans))
+        output_start = scratch_start+scratch_bits
+        return dict(vectors=vectors,plans=plans,columns_start=columns_start,scratch_start=scratch_start,
+                    scratch_bits=scratch_bits,output_start=output_start,size=output_start+self.output_bits)
+
+    def input_pieces(self, instance):
+        integer(instance,0,self.geometry.tau-1,"instance")
+        g = self.geometry
+        seed_start = 128+256*sum(1 << d for d in g.depths[:instance])
+        hidden_start = 128+256*g.leaves
+        pieces = [(seed_start,256*(1 << g.depths[instance])),(0,128),(hidden_start+16*instance,g.depths[instance])]
+        if instance:
+            pieces.append((hidden_start+16*g.tau+(instance-1)*self.ell,self.ell))
+        return tuple(pieces)
+
+    def emit_clean(self):
+        p = self.layout()
+        def vector(i):
+            v,plan = p["vectors"][i],p["plans"][i]
+            n,local_out = v.input_bits,plan["output_start"]
+            output_base = p["columns_start"]+sum(self.geometry.depths[:i])*self.width_bits
+            pieces, cursor = [],0
+            for start,width in self.input_pieces(i):
+                pieces.append((cursor+width,start-cursor));cursor += width
+            require(cursor == n,"vector input geometry")
+            def wire(w):
+                require(type(w) is int and 0 <= w < plan["size"],"vector wire")
+                if w < n:
+                    for end,delta in pieces:
+                        if w < end: return w+delta
+                    raise ValueError("unreachable vector wire")
+                if w < local_out: return p["scratch_start"]+w-n
+                return output_base+w-local_out
+            for gate in v.emit_clean():
+                yield (gate[0],*(wire(w) for w in gate[1:]))
+        for i in range(self.geometry.tau): yield from vector(i)
+        mask = MaskFold(self.geometry.depths,self.moduli,self.ell)
+        require(mask.input_bits == self.column_bits,"mask/column width")
+        for kind,control,target in mask.emit_clean():
+            yield (kind,p["columns_start"]+control,p["output_start"]+target)
+        for bit in range(self.column_bits):
+            yield ("cx",p["columns_start"]+bit,p["output_start"]+bit)
+        for i in reversed(range(self.geometry.tau)): yield from vector(i)
+
+    def resources(self):
+        p = self.layout()
+        mask = MaskFold(self.geometry.depths,self.moduli,self.ell)
+        vectors = [v.resources() for v in p["vectors"]]
+        cost = Cost(cx=mask.resources()["gates"]["cx"]+self.column_bits)
+        for vector in vectors:
+            value = vector["gates"]
+            cost += Cost(value["x"],value["cx"],value["ccx"],value["base_xor_oracle_calls"]).times(2)
+        return dict(gates=cost.as_dict(),input_bits=self.input_bits,output_bits=self.output_bits,
+                    retained_internal_column_bits=self.column_bits,shared_vector_work_bits=p["scratch_bits"],
+                    total_clean_work_bits=p["output_start"]-self.input_bits,
+                    concrete_clean_AES_calls=2*sum(v["concrete_clean_AES_calls"] for v in vectors),
+                    source_V0_algorithm_covered=True,typed_hidden_indices_and_bound_moduli_required=True,
+                    corrections_c1_through_c_tau_minus_1_order=True,mask_order_source_zero_through_nine=True,
+                    exact_for_defined_lazy_emitter=True,whole_request_composition_implemented=False,
+                    complete_simulator_coverage=False,complete_resource_vector=False,
+                    actual_input_entry_bridge=False,profile_qualified=False,production_gate_changed=False)

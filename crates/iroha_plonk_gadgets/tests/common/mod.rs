@@ -9,7 +9,7 @@
 
 #![allow(dead_code)]
 
-use std::{convert::Infallible, path::PathBuf};
+use std::path::PathBuf;
 
 use iroha_pasta::{PastaCurve, msm::MemoryBudget, poseidon::PoseidonField};
 use iroha_plonk::{
@@ -25,7 +25,6 @@ use iroha_plonk_gadgets::{
     GlueChip, GlueConfig, LimbBits, Pow5Columns, RoundConstantColumns, RunningSumChip,
     RunningSumConfig, SpongeChip, SpongeConfig, Word,
 };
-use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 
 /// The chips a program drives.
 pub struct Chips<F: PoseidonField> {
@@ -350,16 +349,9 @@ impl<C: PastaCurve> Keys<C>
 where
     C::ScalarExt: PoseidonField,
 {
-    /// Proves with a deterministic recovery stream seeded by `seed`.
-    pub fn prove(
-        &self,
-        circuit: &GadgetCircuit<C::ScalarExt>,
-        public: &[C::ScalarExt],
-        seed: u8,
-    ) -> Vec<u8> {
-        let randomness = ProverRandomness::recovery(move |_context: &[u8; 32]| {
-            Ok::<_, Infallible>(ChaCha20Rng::from_seed([seed; 32]))
-        });
+    /// Proves with fresh OS-backed hedged randomness.
+    pub fn prove(&self, circuit: &GadgetCircuit<C::ScalarExt>, public: &[C::ScalarExt]) -> Vec<u8> {
+        let randomness = ProverRandomness::hedged();
         prove_circuit(
             &self.params,
             &self.pk,

@@ -1,5 +1,5 @@
 //! Stress tests for the transaction queue to guard against Arc drain panics.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_config::parameters::actual::Queue as QueueConfig;
 use iroha_core::{
     queue::Queue,

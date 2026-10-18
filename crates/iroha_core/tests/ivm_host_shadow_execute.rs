@@ -1,5 +1,5 @@
-//! CoreHost shadow-execute parity tests (IVM syscalls vs native Execute).
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+//! `CoreHost` shadow-execute parity tests (IVM syscalls vs native Execute).
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,
@@ -195,8 +195,8 @@ fn ivm_host_shadow_execute_matches_native_execute() {
     let direct_acc = direct_view.world.accounts().get(&authority).unwrap();
     let host_acc = host_view.world.accounts().get(&authority).unwrap();
     assert_eq!(
-        direct_acc.metadata().get(&key).map(|v| v.as_ref()),
-        host_acc.metadata().get(&key).map(|v| v.as_ref())
+        direct_acc.metadata().get(&key).map(AsRef::as_ref),
+        host_acc.metadata().get(&key).map(AsRef::as_ref)
     );
     let direct_balance = direct_view
         .world

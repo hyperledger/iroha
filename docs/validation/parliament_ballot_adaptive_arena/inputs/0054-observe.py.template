@@ -1,0 +1,32 @@
+"""One explicit proposal arena and its true query-only zero-cap alternative."""
+import argparse
+import json
+import arena as a
+
+
+def observe():
+    source = a.Source(a.ROOT)
+    budget = a.Budget('candidate', 1 << 44, 3, 7, 6882996, 64, (1 << 64)-1,
+                      'conservative-total-calls', 'provided immutable F', 'agreed total completion')
+    proposal = a.Plan(source,budget).resources()
+    query = a.OnlineArena(a.Plan(source,a.Budget('candidate',0,0,1,6882996,64,0,
+        'conservative-total-calls','provided immutable F','agreed total completion')))
+    assert tuple(query.emit_preparation()) == ()
+    query.bind_lookup(query_contract=a.QUERY)
+    gates = tuple(query.emit_next())
+    inverse = tuple(query.emit_chosen_inverse())
+    assert gates == inverse and len(gates) == 2114
+    source.verify()
+    return dict(status='PASS',scope='explicit proposal parameters; conditional source-body arena',
+        proposal=proposal,query_only=query.resources(),query_only_emitted_gates=len(gates),
+        query_only_emitted_prefix=gates[:3],query_only_inverse_stream_identical=True,
+        stream_emission_is_not_physical_execution=True,full_request_stream_executed=False,
+        full_game_entry_or_controller_implemented=False,production_gate_changed=False)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--require-qualified',action='store_true')
+    args = parser.parse_args()
+    print(json.dumps(observe(),indent=2,sort_keys=True))
+    raise SystemExit(2 if args.require_qualified else 0)

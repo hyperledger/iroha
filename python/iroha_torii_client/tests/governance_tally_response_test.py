@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 import requests
-
 from iroha_torii_client.governance_tally import (
     GOVERNANCE_TALLY_RESPONSE_MAX_BYTES,
     GovernanceTally,

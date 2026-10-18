@@ -236,8 +236,9 @@ pub extern "C" fn connect_norito_kagemusha_wallet_activity_v1(
     .map_or(0, |error| error.status)
 }
 /// Typed lifecycle input. Unused original slots and amount limbs must be zero/empty.
-/// Selectors: Load0, Send1, Receive2, Credential3, SchemePolicy4, Blacklist5,
+/// Selectors: Load0, Send1, Receive2, Credential3, SchemePolicy4, BlacklistInstall5,
 /// TimeAnchor6, QuotaShare7, Unload8, Retire9, ReceiveFromOffer10. These never select proof keys.
+/// BlacklistInstall5(list, certificates) stores a signed list locally: no operation or proof.
 /// ReceiveFromOffer carries exact Payment and signed Offer originals; Native extracts payer custody.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -248,7 +249,7 @@ pub struct WalletOperationRequest {
     pub selector: u32,
     /// Requested Unload amount only; zero for all other operations.
     pub amount: WalletU128,
-    /// First original: receipt/Request/Payment/update/charge quote, depending on selector.
+    /// First original: receipt/Request/Payment/update/list/charge quote, depending on selector.
     pub first: *const u8,
     /// Exact first-original length.
     pub first_length: usize,
@@ -573,7 +574,7 @@ mod setup_boundary_tests {
         fn resume(&mut self) -> Result<Response> {
             panic!("not setup")
         }
-        fn fold(&mut self) -> Result<Response> {
+        fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
             panic!("not setup")
         }
         fn credit(&mut self, _: &[u8; 32], _: &[u8; 32]) -> Result<Response> {
@@ -1198,6 +1199,8 @@ pub struct WalletEnrollmentRequest {
 /// instruction (<=65536 bytes, same handle in sequence), or58 empty for the local form.
 /// Abandon10 returns 58 for the local no-marker form (nothing to submit) or 28 with the exact
 /// retained signed Abandonment frame for the marker form.
+/// Selector21 consumes one issuer-signed E1 expiry proof and returns 58 only after Native has
+/// authenticated the exact Accepted/no-Slot attempt and retained the immutable Expired marker.
 /// The same opaque runtime handle is returned in sequence. E6 does not imply ledger activation.
 /// # Safety
 /// Request and each bounded item/input must be readable; output writable and unallocated.

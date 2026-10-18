@@ -1,0 +1,352 @@
+//! Separately built in-memory ballot qualification entry, never a shipping API.
+//! The preparation receipt pins reused modules and the exact worker derivation.
+#![allow(unsafe_code)]
+
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs"]
+mod arena;
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs"]
+mod budget;
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+mod fatal;
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs"]
+mod native;
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+mod staging;
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+#[path = "generated_workspace.rs"]
+mod workspace;
+
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+mod application {
+    use super::{arena, budget, fatal, native, staging, workspace};
+    use iroha_parliament_ballot_proof::profile::{Role, Row};
+    use std::{ffi::OsString, path::Path};
+
+    const USAGE: &str = "memory_entry candidate|comparator registration|vote INPUT --fatal-fd FD [--heap-limit N] [--units N] [--input-bytes N]\nFD must be a fresh zeroed owner-only unlinked writable page file inherited from the supervisor.\nReplace INPUT with --borrowed-oversize to exercise admission of a caller slice one byte above the cap without file staging.\nRetrieval happens before charged verification; this diagnostic does not qualify production.";
+
+    enum Input<'a> {
+        Path(&'a Path),
+        BorrowedOversize,
+    }
+
+    struct Arguments<'a> {
+        row: Row,
+        role: Role,
+        input: Input<'a>,
+        heap_limit: usize,
+        units: u64,
+        input_bytes: u64,
+        fatal_fd: i32,
+    }
+
+    fn parse(args: &[OsString]) -> Result<Arguments<'_>, ()> {
+        if args.len() < 4 || !(args.len() - 4).is_multiple_of(2) {
+            return Err(());
+        }
+        let mut result = Arguments {
+            row: match args[1].to_str() {
+                Some("candidate") => Row::Candidate,
+                Some("comparator") => Row::Comparator,
+                _ => return Err(()),
+            },
+            role: match args[2].to_str() {
+                Some("registration") => Role::Registration,
+                Some("vote") => Role::Vote,
+                _ => return Err(()),
+            },
+            input: if args[3] == "--borrowed-oversize" {
+                Input::BorrowedOversize
+            } else {
+                Input::Path(Path::new(&args[3]))
+            },
+            heap_limit: arena::HEAP_BYTES,
+            units: budget::VERIFICATION_UNITS,
+            input_bytes: budget::MAX_INPUT_BYTES as u64,
+            fatal_fd: -1,
+        };
+        let mut seen = 0u8;
+        for pair in args[4..].chunks_exact(2) {
+            let value = pair[1]
+                .to_str()
+                .and_then(|s| s.parse::<u64>().ok())
+                .ok_or(())?;
+            let bit = match pair[0].to_str() {
+                Some("--heap-limit") => {
+                    result.heap_limit = usize::try_from(value).map_err(|_| ())?;
+                    1
+                }
+                Some("--units") => {
+                    result.units = value;
+                    2
+                }
+                Some("--input-bytes") => {
+                    result.input_bytes = value;
+                    4
+                }
+                Some("--fatal-fd") => {
+                    result.fatal_fd = i32::try_from(value).map_err(|_| ())?;
+                    if result.fatal_fd < 3 {
+                        return Err(());
+                    }
+                    8
+                }
+                _ => return Err(()),
+            };
+            if seen & bit != 0 {
+                return Err(());
+            }
+            seen |= bit;
+        }
+        if seen & 8 == 0 {
+            return Err(());
+        }
+        Ok(result)
+    }
+
+    #[derive(norito::json::JsonSerialize)]
+    struct StagingReport {
+        outcome: &'static str,
+        verifier_stage: &'static str,
+        charged_units: u64,
+        charged_bytes: u64,
+        arena_allocations: usize,
+        arena_enforced: bool,
+        complete_workspace_certificate: bool,
+        profile_qualified: bool,
+    }
+
+    /// Parse the standalone request, stage and close the file, then join exactly
+    /// one bounded worker before releasing its borrowed caller input.
+    pub fn run() -> i32 {
+        let args: Vec<_> = std::env::args_os().collect();
+        if args.len() == 2 && args[1] == "--help" {
+            println!("{USAGE}");
+            return 0;
+        }
+        let Ok(args) = parse(&args) else {
+            eprintln!("{USAGE}");
+            return 3;
+        };
+        // Setup consumes the inherited descriptor and retains its shared page
+        // through process exit. No verifier thread or arena is active yet.
+        if let Err(fatal::FatalError(operation, code)) = fatal::install(args.fatal_fd) {
+            eprintln!("fatal control setup failed: {operation} ({code})");
+            return 4;
+        }
+        let retrieval = match args.input {
+            Input::Path(path) => staging::from_path(path),
+            // Allocate only in the supervisor, before run/ACTIVE. The worker
+            // must independently reject this real borrow before copying it.
+            Input::BorrowedOversize => Ok(vec![0; budget::MAX_INPUT_BYTES + 1]),
+        };
+        let staged = match retrieval {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                let too_large = error == staging::StageError::TooLarge;
+                println!(
+                    "{}",
+                    norito::json::to_json(&StagingReport {
+                        outcome: if too_large {
+                            "admission_rejected"
+                        } else {
+                            "input_error"
+                        },
+                        verifier_stage: error.label(),
+                        charged_units: 0,
+                        charged_bytes: 0,
+                        arena_allocations: 0,
+                        arena_enforced: false,
+                        complete_workspace_certificate: false,
+                        profile_qualified: false,
+                    })
+                    .expect("fixed staging report")
+                );
+                return if too_large { 2 } else { 3 };
+            }
+        };
+        // File ownership ended in from_path. `staged` is immutable throughout
+        // synchronous run/join; only its bounded copy belongs to the arena.
+        let result = workspace::run(workspace::Options {
+            row: args.row,
+            role: args.role,
+            record: &staged,
+            heap_limit: args.heap_limit,
+            units: args.units,
+            input_bytes: args.input_bytes,
+        });
+        // Every returning run path has joined any started worker and cleared
+        // ACTIVE. Fatal worker exits do not promise Rust Drop cleanup.
+        drop(staged);
+        match result {
+            Ok((report, exit)) => {
+                println!(
+                    "{}",
+                    norito::json::to_json(&report).expect("fixed worker report")
+                );
+                exit
+            }
+            Err(native::NativeError(operation, code)) => {
+                eprintln!("memory worker setup failed: {operation} ({code})");
+                4
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        fn arguments(values: &[&str]) -> Vec<OsString> {
+            values.iter().map(OsString::from).collect()
+        }
+        #[test]
+        fn parser_uses_explicit_rows_roles_and_bounded_defaults() {
+            let args = arguments(&[
+                "memory_entry",
+                "candidate",
+                "vote",
+                "input",
+                "--fatal-fd",
+                "7",
+            ]);
+            let parsed = parse(&args).expect("valid request");
+            assert_eq!(parsed.row, Row::Candidate);
+            assert_eq!(parsed.role, Role::Vote);
+            assert!(matches!(parsed.input, Input::Path(path) if path == Path::new("input")));
+            assert_eq!(parsed.heap_limit, arena::HEAP_BYTES);
+            assert_eq!(parsed.units, 1);
+            assert_eq!(parsed.input_bytes, 425984);
+            assert_eq!(parsed.fatal_fd, 7);
+            let args = arguments(&[
+                "memory_entry",
+                "comparator",
+                "registration",
+                "input",
+                "--heap-limit",
+                "1",
+                "--units",
+                "0",
+                "--input-bytes",
+                "8",
+                "--fatal-fd",
+                "7",
+            ]);
+            let parsed = parse(&args).expect("explicit refusal controls");
+            assert_eq!(
+                (parsed.heap_limit, parsed.units, parsed.input_bytes),
+                (1, 0, 8)
+            );
+            let args = arguments(&[
+                "memory_entry",
+                "candidate",
+                "vote",
+                "--borrowed-oversize",
+                "--input-bytes",
+                "425985",
+                "--fatal-fd",
+                "7",
+            ]);
+            assert!(matches!(
+                parse(&args).expect("borrowed cap control").input,
+                Input::BorrowedOversize
+            ));
+        }
+        #[test]
+        fn parser_rejects_unknown_duplicate_and_malformed_options() {
+            for args in [
+                vec!["memory_entry"],
+                vec!["memory_entry", "candidate", "vote", "input"],
+                vec![
+                    "memory_entry",
+                    "candidate",
+                    "vote",
+                    "input",
+                    "--fatal-fd",
+                    "2",
+                ],
+                vec![
+                    "memory_entry",
+                    "candidate",
+                    "vote",
+                    "input",
+                    "--fatal-fd",
+                    "2147483648",
+                ],
+                vec![
+                    "memory_entry",
+                    "candidate",
+                    "vote",
+                    "input",
+                    "--fatal-fd",
+                    "7",
+                    "--fatal-fd",
+                    "8",
+                ],
+                vec!["memory_entry", "unknown", "vote", "input"],
+                vec!["memory_entry", "candidate", "unknown", "input"],
+                vec!["memory_entry", "candidate", "vote", "input", "--units"],
+                vec![
+                    "memory_entry",
+                    "candidate",
+                    "vote",
+                    "input",
+                    "--units",
+                    "-1",
+                ],
+                vec!["memory_entry", "candidate", "vote", "input", "--other", "1"],
+                vec![
+                    "memory_entry",
+                    "candidate",
+                    "vote",
+                    "input",
+                    "--units",
+                    "1",
+                    "--units",
+                    "2",
+                ],
+            ] {
+                assert!(parse(&arguments(&args)).is_err());
+            }
+        }
+    }
+}
+
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
+fn main() {
+    std::process::exit(application::run());
+}
+
+#[cfg(not(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+)))]
+fn main() {
+    eprintln!("memory_entry supports only 64-bit Linux or macOS; no unbounded fallback");
+    std::process::exit(4);
+}

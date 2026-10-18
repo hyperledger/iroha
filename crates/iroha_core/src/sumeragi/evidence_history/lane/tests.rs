@@ -497,9 +497,13 @@ fn lane_proof_rejects_valid_same_height_certificate_on_an_unmerged_branch() {
         &reader.budget,
     )
     .unwrap_or_else(|_| panic!("original source"));
-    let original = FundedLaneFrameRead::new(path.clone(), source, reader.budget.clone())
-        .poll(&reader.budget, &reader.crypto)
-        .unwrap();
+    let original = FundedLaneFrameRead::new(
+        iroha_fs::OwnerDirectory::open(path.parent().unwrap()).unwrap(),
+        source,
+        reader.budget.clone(),
+    )
+    .poll(&reader.budget, &reader.crypto)
+    .unwrap();
     let mut payload = PayloadBytes::from_untrusted(vec![4; 33]).unwrap();
     payload.admit(&reader.budget).unwrap();
     let mut header = original.body.header().clone();
@@ -730,6 +734,69 @@ fn state_admission_cache_retains_lane_jobs_until_retry_and_refunds_original_pool
     );
 }
 
+// Keep complete StateView temporaries and the typed original refusal off the enclosing
+// lifecycle test frame, preserving its default-stack execution boundary.
+#[inline(never)]
+fn assert_original_sccp_restore_capacity_refusal(
+    state: &crate::state::State,
+    key: iroha_crypto::Hash,
+    record: &crate::state::RetainedEvidenceRecord,
+) {
+    use crate::{
+        smartcontracts::isi::sccp::committee_storage::CommitteeStorage,
+        state::{
+            MergeLedgerCommitError, StateStorageAdmissionError,
+            sccp_forgery_custody::ForgeryStorageError,
+        },
+        sumeragi::evidence::{self, EvidenceAdmissionError},
+    };
+    use iroha_allocation::AllocationRefusal;
+    use mv::storage::AdmittedStorageError;
+
+    let budget = state.ivm_execution_budget();
+    let base = budget.reserved_bytes();
+    let generation = state.state_view_generation();
+    let tip = state.view().native_execution_tip();
+    // Complete Global restoration now admits the private SCCP facts before lane I/O.
+    // Its first original map must refuse the exact original pool's complete demand.
+    let demand = CommitteeStorage::initial_allocation_demand()
+        .unwrap()
+        .bytes();
+    assert!(demand > 0);
+    let capacity = budget.try_reserve_bytes(demand).unwrap_err();
+    assert!(matches!(
+        &capacity,
+        AllocationRefusal::Capacity { requested_bytes, reserved_bytes, limit_bytes, .. }
+        if *requested_bytes == demand && *reserved_bytes == base && *limit_bytes == base
+    ));
+    let expected = ForgeryStorageError::Storage(AdmittedStorageError::Allocation(capacity));
+    let error = evidence::validate_persisted_records(state)
+        .expect_err("original SCCP restore map cannot bypass occupied capacity");
+    let EvidenceAdmissionError::Storage(original) = error else {
+        panic!("restore must preserve the original SCCP map refusal: {error:?}");
+    };
+    assert_eq!(
+        original, expected,
+        "retain the exact original release observation"
+    );
+    let converted = evidence::restoration_failure(EvidenceAdmissionError::Storage(original));
+    let MergeLedgerCommitError::StateStorageAdmission(StateStorageAdmissionError::SccpForgery(
+        retained,
+    )) = converted
+    else {
+        panic!("startup must preserve original SCCP storage custody: {converted:?}");
+    };
+    assert_eq!(retained, expected);
+    assert_eq!(budget.reserved_bytes(), base);
+    assert_eq!(budget.limit_bytes(), base);
+    assert_eq!(state.state_view_generation(), generation);
+    assert_eq!(state.view().native_execution_tip(), tip);
+    assert_eq!(
+        state.view().world().consensus_evidence().get(&key),
+        Some(record)
+    );
+}
+
 #[test]
 fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty_finality() {
     use crate::sumeragi::{evidence, test_chain::Signers};
@@ -803,10 +870,7 @@ fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty
     let budget = chain.state().ivm_execution_budget();
     let base = budget.reserved_bytes();
     budget.set_limit_bytes(base);
-    assert!(
-        matches!(evidence::validate_persisted_records(chain.state()),
-        Err(evidence::EvidenceAdmissionError::Source(ref error)) if error.io_kind() == io::ErrorKind::WouldBlock)
-    );
+    assert_original_sccp_restore_capacity_refusal(chain.state(), key, &original_record);
     budget.set_limit_bytes(1 << 30);
     evidence::validate_persisted_records(chain.state()).unwrap();
     assert_eq!(
@@ -2143,6 +2207,171 @@ fn lane_verified_offender_graph_refuses_occupied_original_pool_and_retries() {
     assert_eq!(budget.reserved_bytes(), held);
     drop(attribution);
     assert_eq!(budget.reserved_bytes(), retained);
+    drop(reader);
+    assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+/// Copy genuine original bytes into a distinct inode namespace, leaving the original held.
+#[cfg(unix)]
+fn substitute_lane_namespace(path: &std::path::Path) -> std::path::PathBuf {
+    let retained = path.with_extension("original-custody");
+    std::fs::rename(path, &retained).unwrap();
+    std::fs::create_dir(path).unwrap();
+    for entry in std::fs::read_dir(&retained).unwrap() {
+        let entry = entry.unwrap();
+        assert!(entry.file_type().unwrap().is_file());
+        std::fs::copy(entry.path(), path.join(entry.file_name())).unwrap();
+    }
+    retained
+}
+
+#[cfg(unix)]
+fn restore_lane_namespace(path: &std::path::Path, retained: &std::path::Path) {
+    std::fs::remove_dir_all(path).unwrap();
+    std::fs::rename(retained, path).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn lane_proof_original_namespace_survives_funded_refusal_and_identical_replacement() {
+    let (chain, _guard) = anchored_chain(3);
+    let budget = chain.state().ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let limit = budget.limit_bytes();
+    let mut reader = LaneProofRead::new(capture(&chain), 3)
+        .unwrap_or_else(|_| panic!("genuine original lane ancestry"));
+    let path = reader
+        .kura
+        .store_root()
+        .join("lanes")
+        .join(hex::encode(reader.instance.0));
+    let expected = reader.cursor.next_frontier().unwrap();
+    let pointer = std::ptr::from_ref(reader.cursor.config().epoch.as_ref());
+    let held = budget.reserved_bytes();
+    budget.set_limit_bytes(held);
+    let error = reader.poll().unwrap_err();
+    assert_eq!(error.io_kind(), io::ErrorKind::WouldBlock);
+    assert!(matches!(error, Attempt::Deferred(_)));
+    assert_eq!(budget.reserved_bytes(), held);
+    let retained = substitute_lane_namespace(&path);
+    budget.set_limit_bytes(limit);
+    for _ in 0..2 {
+        let error = reader
+            .poll()
+            .expect_err("original native lane namespace must remain retained");
+        assert_eq!(error.io_kind(), io::ErrorKind::Other);
+        assert_eq!(reader.cursor.next_frontier().unwrap(), expected);
+        assert_eq!(
+            std::ptr::from_ref(reader.cursor.config().epoch.as_ref()),
+            pointer
+        );
+        assert_eq!(budget.reserved_bytes(), held);
+    }
+    restore_lane_namespace(&path, &retained);
+    reader.poll().unwrap();
+    let verified = reader.verify(&vote_pair(&reader, 3)).unwrap();
+    assert_eq!(verified.height(), 3);
+    assert_eq!(verified.offenders()[0].signer, 2);
+    assert!(
+        reader
+            .headers
+            .as_slice()
+            .iter()
+            .all(|body| body.body.admitted_to(&budget))
+    );
+    drop(verified);
+    drop(reader);
+    assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+#[test]
+#[cfg(unix)]
+fn completed_lane_proof_rejoins_original_namespace_before_attribution() {
+    let (chain, _guard) = anchored_chain(3);
+    let budget = chain.state().ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let mut reader = LaneProofRead::new(capture(&chain), 3)
+        .unwrap_or_else(|_| panic!("genuine original lane ancestry"));
+    reader.poll().unwrap();
+    let proof = vote_pair(&reader, 3);
+    let path = reader
+        .kura
+        .store_root()
+        .join("lanes")
+        .join(hex::encode(reader.instance.0));
+    let pointer = reader.headers.as_slice()[0]
+        .body
+        .payload()
+        .as_slice()
+        .as_ptr();
+    let held = budget.reserved_bytes();
+    let retained = substitute_lane_namespace(&path);
+    let error = reader
+        .verify(&proof)
+        .expect_err("original native lane namespace must remain retained");
+    assert!(
+        matches!(error, super::super::NativeEvidenceError::Source(ref error)
+        if error.io_kind() == io::ErrorKind::Other)
+    );
+    assert_eq!(reader.poll().unwrap_err().io_kind(), io::ErrorKind::Other);
+    assert_eq!(budget.reserved_bytes(), held);
+    assert_eq!(
+        reader.headers.as_slice()[0]
+            .body
+            .payload()
+            .as_slice()
+            .as_ptr(),
+        pointer
+    );
+    restore_lane_namespace(&path, &retained);
+    reader.poll().unwrap();
+    let verified = reader.verify(&proof).unwrap();
+    assert_eq!(verified.height(), 3);
+    assert_eq!(verified.offenders()[0].signer, 2);
+    assert_eq!(
+        reader.headers.as_slice()[0]
+            .body
+            .payload()
+            .as_slice()
+            .as_ptr(),
+        pointer
+    );
+    drop(verified);
+    drop(reader);
+    assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+#[test]
+#[cfg(unix)]
+fn lane_proof_absent_instance_retries_original_context_before_acquiring_frames() {
+    let (chain, _guard) = anchored_chain(3);
+    let budget = chain.state().ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let mut reader = LaneProofRead::new(capture(&chain), 3)
+        .unwrap_or_else(|_| panic!("genuine original lane ancestry"));
+    let path = reader
+        .kura
+        .store_root()
+        .join("lanes")
+        .join(hex::encode(reader.instance.0));
+    let retained = path.with_extension("original-held");
+    let expected = reader.cursor.next_frontier().unwrap();
+    let pointer = std::ptr::from_ref(reader.cursor.config().epoch.as_ref());
+    std::fs::rename(&path, &retained).unwrap();
+    assert_eq!(
+        reader.poll().unwrap_err().io_kind(),
+        io::ErrorKind::NotFound
+    );
+    assert_eq!(reader.cursor.next_frontier().unwrap(), expected);
+    assert_eq!(
+        std::ptr::from_ref(reader.cursor.config().epoch.as_ref()),
+        pointer
+    );
+    std::fs::rename(retained, path).unwrap();
+    reader
+        .poll()
+        .expect("missing whole native instance must retry after original namespace restoration");
+    assert!(reader.verify(&vote_pair(&reader, 3)).is_ok());
     drop(reader);
     assert_eq!(budget.reserved_bytes(), baseline);
 }

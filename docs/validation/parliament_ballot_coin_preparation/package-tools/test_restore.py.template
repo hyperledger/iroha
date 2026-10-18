@@ -1,0 +1,250 @@
+"""Independent packaging controls with tiny authenticated surrogate archives."""
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+import restore as module
+import replay
+
+
+def data(value):
+    return (json.dumps(value, indent=2, sort_keys=True)+'\n').encode()
+
+
+def seal(root):
+    entries = sorted(p for p in root.rglob('*') if p.is_file() and p.name != 'SHA256SUMS')
+    raw = ''.join(module.digest(p.read_bytes())+'  '+p.relative_to(root).as_posix()+'\n'
+                  for p in entries).encode()
+    (root/'SHA256SUMS').write_bytes(raw)
+    return module.digest(raw)
+
+
+def write(root, name, raw):
+    path = root/name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+
+
+@pytest.fixture
+def archives(tmp_path):
+    own, dep = tmp_path/'own', tmp_path/'dep'
+    own.mkdir()
+    dep.mkdir()
+    pins, entries, original = {}, [], {}
+    for i in range(169):
+        name = f'target/source/file{i:03d}.py'
+        raw = f'input {i}\n'.encode()
+        h = module.digest(raw)
+        provider = 'request-machine' if i < 152 else 'self'
+        source = f'snapshot{i:03d}.template'
+        write(dep if i < 152 else own, source, raw)
+        pins[name] = h
+        entries.append(dict(provider=provider, source=source, destination=name, sha256=h))
+        original['source/'+name+'.template'] = h
+    write(dep, 'capture/receipt.json', b'dependency receipt\n')
+    dep_hash = seal(dep)
+    receipt = dict(status='PASS', input_count=169, source_sha256_before=pins,
+                   captured_source_sha256_after=pins)
+    outputs = {'receipt.json': data(receipt), 'tests-report.json': b'test report',
+               'tests.stdout': b'tests', 'tests.stderr': b'', 'observation.stdout': b'observation',
+               'observation.stderr': b''}
+    for name, raw in outputs.items():
+        write(own, 'final-capture/'+name, raw)
+        original[name] = module.digest(raw)
+    original_bytes = ''.join(h+'  '+name+'\n' for name,h in sorted(original.items())).encode()
+    write(own, 'final-capture/SHA256SUMS.original', original_bytes)
+    additions, review_pins, archive_map, review_archive = [], dict(pins), {}, {}
+    for i in range(6):
+        name = f'target/review/input{i}.py'
+        source = f'review/source/input{i}.template'
+        raw = f'review input {i}\n'.encode()
+        write(own, source, raw)
+        h = module.digest(raw)
+        additions.append(dict(source=source, destination=name, sha256=h))
+        review_pins[name] = h
+        archive_name = f'capture/source/{name}.template'
+        archive_map[archive_name] = dict(provider='self', source=source)
+        review_archive[archive_name] = h
+    review_receipt = data(dict(status='PASS', selected_source_count=175,
+                              source_sha256_before=review_pins, source_sha256_after=review_pins))
+    write(own, 'review/final-capture/receipt.json', review_receipt)
+    write(own, 'review/archive-map.json', data(archive_map))
+    review_manifest = ''.join(h+'  '+n+'\n' for n,h in sorted(review_archive.items())).encode()
+    write(own, 'review/SHA256SUMS.original', review_manifest)
+    plan = dict(schema='parliament-coin-preparation-restore-v1',
+                dependency=dict(id='request-machine', manifest_sha256=dep_hash,
+                                receipt_sha256=module.digest(b'dependency receipt\n')),
+                final_receipt_sha256=module.digest(outputs['receipt.json']),
+                final_manifest_sha256=module.digest(original_bytes), entries=entries,
+                review=dict(manifest_sha256=module.digest(review_manifest),
+                            receipt_sha256=module.digest(review_receipt), entries=additions))
+    write(own, 'restore-plan.json', data(plan))
+    return own, dep, tmp_path/'restored', plan, seal(own)
+
+
+@pytest.mark.parametrize('review', [False, True])
+def test_exact_restoration_from_authenticated_buffers(archives, review):
+    own, dep, dest, plan, h = archives
+    result = module.restore(own, dep, dest, h, review)
+    assert result['input_count'] == (175 if review else 169)
+    assert result['owner_provider_counts'] == {'self': 17, 'request-machine': 152}
+    assert result['provider_counts'] == {'self': 23 if review else 17, 'request-machine': 152}
+    assert sum(result['provider_counts'].values()) == result['input_count']
+    assert result['independent_review_inputs_included'] is review
+    assert len(list(dest.rglob('*.py'))) == result['input_count']
+    assert all(module.digest((dest/n).read_bytes()) == v for n,v in result['source_sha256'].items())
+    assert all(result[k] is False for k in ('source_dependency_closure_authenticated',
+        'current_candidate_qualified', 'profile_qualified', 'production_gate_changed'))
+
+
+@pytest.mark.parametrize('path', ['', '.', '..', '/tmp/x', 'a/../b', './a', 'a//b', 'a/',
+                                 'a\\b', 'a\x00b', 'a\nb', 1, None])
+def test_noncanonical_paths_refused(path):
+    with pytest.raises(ValueError, match='canonical relative path'):
+        module.safe(path)
+
+
+@pytest.mark.parametrize('value', ['', '0'*63, 'g'*64, 'A'*64, 42, None])
+def test_hash_types_and_encoding_refused(value):
+    with pytest.raises(ValueError, match='SHA256 value'):
+        module.sha(value)
+
+
+def test_duplicate_and_empty_manifests_refused():
+    line = '0'*64+'  file\n'
+    with pytest.raises(ValueError, match='duplicate manifest path'):
+        module.manifest((line+line).encode())
+    with pytest.raises(ValueError, match='empty manifest'):
+        module.manifest(b'')
+    with pytest.raises(ValueError, match='manifest record'):
+        module.manifest(b'invalid')
+
+
+@pytest.mark.parametrize('target', ['outer-manifest', 'own-snapshot', 'dependency-snapshot',
+                                    'final-receipt', 'original-manifest', 'review-snapshot'])
+def test_corrupted_bytes_refused_before_first_write(archives, target):
+    own, dep, dest, plan, h = archives
+    paths = {'outer-manifest': own/'SHA256SUMS', 'own-snapshot': own/'snapshot168.template',
+             'dependency-snapshot': dep/'snapshot000.template', 'final-receipt': own/'final-capture/receipt.json',
+             'original-manifest': own/'final-capture/SHA256SUMS.original',
+             'review-snapshot': own/'review/source/input0.template'}
+    p = paths[target]
+    p.write_bytes(p.read_bytes()+b'corruption')
+    with pytest.raises(ValueError, match='input hash'):
+        module.restore(own, dep, dest, h, True)
+    assert not dest.exists()
+
+
+@pytest.mark.parametrize('mutation', ['traversal', 'duplicate', 'provider', 'source-hash',
+                                      'source-membership', 'review-duplicate', 'review-membership'])
+def test_invalid_authenticated_plan_refused_before_first_write(archives, mutation):
+    own, dep, dest, plan, h = archives
+    if mutation == 'traversal':
+        plan['entries'][0]['destination'] = '../escape'
+    elif mutation == 'duplicate':
+        plan['entries'][1] = dict(plan['entries'][0])
+    elif mutation == 'provider':
+        plan['entries'][0]['provider'] = 'other'
+    elif mutation == 'source-hash':
+        plan['entries'][0]['source'] = 'snapshot001.template'
+    elif mutation == 'source-membership':
+        plan['entries'].pop()
+    elif mutation == 'review-duplicate':
+        plan['review']['entries'][1] = dict(plan['review']['entries'][0])
+    else:
+        plan['review']['entries'][0]['destination'] = 'target/review/unrecorded.py'
+    write(own, 'restore-plan.json', data(plan))
+    h = seal(own)
+    with pytest.raises(ValueError):
+        module.restore(own, dep, dest, h, True)
+    assert not dest.exists()
+    assert not (dest.parent/'escape').exists()
+
+
+def test_existing_destination_and_missing_parent_refused(archives):
+    own, dep, dest, plan, h = archives
+    dest.mkdir()
+    sentinel = dest/'sentinel'
+    sentinel.write_bytes(b'preserve')
+    with pytest.raises(ValueError, match='destination already exists'):
+        module.restore(own, dep, dest, h)
+    assert sentinel.read_bytes() == b'preserve' and list(dest.iterdir()) == [sentinel]
+    with pytest.raises(ValueError, match='parent must exist'):
+        module.restore(own, dep, dest.parent/'missing'/'child', h)
+
+
+def test_symlink_input_and_destination_parent_refused(archives):
+    own, dep, dest, plan, h = archives
+    source = own/'snapshot168.template'
+    saved = source.read_bytes()
+    source.unlink()
+    other = own.parent/'outside'
+    other.write_bytes(saved)
+    source.symlink_to(other)
+    with pytest.raises(ValueError, match='symlink path'):
+        module.restore(own, dep, dest, h)
+    assert not dest.exists()
+    link = own.parent/'linked'
+    link.symlink_to(own, target_is_directory=True)
+    with pytest.raises(ValueError, match='symlink path'):
+        module.restore(own, dep, link/'child', h)
+
+
+def test_all_inputs_are_read_before_destination_is_created(archives, monkeypatch):
+    own, dep, dest, plan, h = archives
+    original = module.checked
+    def checked(*args):
+        assert not dest.exists()
+        return original(*args)
+    monkeypatch.setattr(module, 'checked', checked)
+    module.restore(own, dep, dest, h, True)
+
+
+def test_known_sha256_and_canonical_path():
+    assert module.digest(b'') == hashlib.sha256(b'').hexdigest()
+    assert module.safe('a/b.template').as_posix() == 'a/b.template'
+
+
+def test_altered_helper_never_executes_or_creates_output(archives, monkeypatch):
+    own, dep, dest, plan, h = archives
+    source = Path(module.__file__).read_bytes()
+    helper = own/'package-tools/restore.py.template'
+    write(own, 'package-tools/restore.py.template', source)
+    h = seal(own)
+    marker = own.parent/'executed-marker'
+    helper.write_text('from pathlib import Path\nPath('+repr(str(marker))+').write_text("executed")\n')
+    monkeypatch.setattr(replay.sys, 'argv', ['replay.py', '--package', str(own), '--request-machine', str(dep),
+        '--output', str(dest), '--manifest-sha256', h])
+    with pytest.raises(ValueError, match='authenticated restore helper identity'):
+        replay.main()
+    assert not marker.exists() and not dest.exists()
+
+
+def test_wrong_outer_hash_never_executes_helper(archives):
+    own, dep, dest, plan, h = archives
+    marker = own.parent/'executed-marker'
+    write(own, 'package-tools/restore.py.template',
+          ('from pathlib import Path\nPath('+repr(str(marker))+').write_text("executed")\n').encode())
+    seal(own)
+    with pytest.raises(ValueError, match='trusted outer manifest identity'):
+        replay.trusted_restore(own, h)
+    assert not marker.exists() and not dest.exists()
+
+
+def test_verified_helper_is_executed_from_checked_buffer(archives, monkeypatch):
+    own, dep, dest, plan, h = archives
+    write(own, 'package-tools/restore.py.template', Path(module.__file__).read_bytes())
+    h = seal(own)
+    original = Path.read_bytes
+    reads = []
+    def once(path):
+        if path.name == 'restore.py.template':
+            reads.append(path)
+            assert len(reads) == 1
+        return original(path)
+    monkeypatch.setattr(Path, 'read_bytes', once)
+    loaded = replay.trusted_restore(own, h)
+    assert loaded.digest(b'checked buffer') == module.digest(b'checked buffer')
+    assert len(reads) == 1

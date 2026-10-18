@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Startup and operation with subsets of peers offline.
 use eyre::{OptionExt, Result, eyre};
 use integration_tests::sandbox;

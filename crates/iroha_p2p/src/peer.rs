@@ -282,6 +282,19 @@ impl SoranetHandshakeSharedState {
         }
     }
 }
+/// Transcript-bound handshake policy inputs, separate from shared replay/work authority.
+pub(crate) struct SoranetHandshakeParams {
+    pub(crate) descriptor_commit: Vec<u8>,
+    pub(crate) client_capabilities: Vec<u8>,
+    pub(crate) relay_capabilities: Vec<u8>,
+    pub(crate) trust_gossip: bool,
+    pub(crate) kem_id: u8,
+    pub(crate) sig_id: u8,
+    pub(crate) resume_hash: Option<Vec<u8>>,
+    pub(crate) puzzle_params: PuzzleParameters,
+    pub(crate) ticket_ttl: Duration,
+}
+
 /// Runtime configuration shared across `SoraNet` handshake attempts.
 #[derive(Debug, Clone)]
 pub struct SoranetHandshakeConfig {
@@ -301,15 +314,7 @@ pub struct SoranetHandshakeConfig {
 impl SoranetHandshakeConfig {
     #[cfg(test)]
     pub(crate) fn new(
-        descriptor_commit: Vec<u8>,
-        client_capabilities: Vec<u8>,
-        relay_capabilities: Vec<u8>,
-        trust_gossip: bool,
-        kem_id: u8,
-        sig_id: u8,
-        resume_hash: Option<Vec<u8>>,
-        puzzle_params: PuzzleParameters,
-        ticket_ttl: Duration,
+        parameters: SoranetHandshakeParams,
         revocation_store: Arc<Mutex<TicketRevocationStore>>,
     ) -> Result<Self, Error> {
         let shared_state = SoranetHandshakeSharedState::new(
@@ -319,7 +324,10 @@ impl SoranetHandshakeConfig {
                 DEFAULT_INBOUND_VERIFY_CAPACITY,
             )),
         );
-        Self::new_with_shared_state(
+        Self::new_with_shared_state(parameters, shared_state)
+    }
+    pub(crate) fn new_with_shared_state(
+        SoranetHandshakeParams {
             descriptor_commit,
             client_capabilities,
             relay_capabilities,
@@ -329,20 +337,7 @@ impl SoranetHandshakeConfig {
             resume_hash,
             puzzle_params,
             ticket_ttl,
-            shared_state,
-        )
-    }
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_with_shared_state(
-        descriptor_commit: Vec<u8>,
-        client_capabilities: Vec<u8>,
-        relay_capabilities: Vec<u8>,
-        trust_gossip: bool,
-        kem_id: u8,
-        sig_id: u8,
-        resume_hash: Option<Vec<u8>>,
-        puzzle_params: PuzzleParameters,
-        ticket_ttl: Duration,
+        }: SoranetHandshakeParams,
         shared_state: SoranetHandshakeSharedState,
     ) -> Result<Self, Error> {
         if MlKemSuite::from_kem_id(kem_id).is_none() {
@@ -593,23 +588,28 @@ impl SoranetHandshakeConfig {
     #[cfg(test)]
     pub(crate) fn defaults() -> Self {
         Self::new(
-            iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT.to_vec(),
-            iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES.to_vec(),
-            iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES.to_vec(),
-            true,
-            1,
-            1,
-            None,
-            PuzzleParameters::try_new(
-                NonZeroU32::new(puzzle::MIN_MEMORY_KIB).unwrap(),
-                NonZeroU32::new(1).unwrap(),
-                NonZeroU32::new(1).unwrap(),
-                1,
-                Duration::from_secs(300),
-                Duration::from_secs(30),
-            )
-            .expect("built-in puzzle parameters must be valid"),
-            Duration::from_secs(60),
+            SoranetHandshakeParams {
+                descriptor_commit: iroha_crypto::soranet::handshake::DEFAULT_DESCRIPTOR_COMMIT
+                    .to_vec(),
+                client_capabilities: iroha_crypto::soranet::handshake::DEFAULT_CLIENT_CAPABILITIES
+                    .to_vec(),
+                relay_capabilities: iroha_crypto::soranet::handshake::DEFAULT_RELAY_CAPABILITIES
+                    .to_vec(),
+                trust_gossip: true,
+                kem_id: 1,
+                sig_id: 1,
+                resume_hash: None,
+                puzzle_params: PuzzleParameters::try_new(
+                    NonZeroU32::new(puzzle::MIN_MEMORY_KIB).unwrap(),
+                    NonZeroU32::new(1).unwrap(),
+                    NonZeroU32::new(1).unwrap(),
+                    1,
+                    Duration::from_secs(300),
+                    Duration::from_secs(30),
+                )
+                .expect("built-in puzzle parameters must be valid"),
+                ticket_ttl: Duration::from_secs(60),
+            },
             test_ticket_revocation_store(),
         )
         .expect("built-in SoraNet handshake defaults must be valid")
@@ -642,7 +642,7 @@ impl SoranetHandshakeConfig {
         })
     }
     /// Returns the number of active revocation fingerprints currently tracked.
-    #[must_use]
+    #[must_use = "check the active revocation count or its storage error"]
     #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn active_revocations(&self) -> Result<usize, ChallengeVerifyError> {
         let mut guard = self.lock_revocation_store()?;
@@ -1079,7 +1079,7 @@ pub(crate) fn create_soranet_transport_certificate_v5(
     }
     let certificate = SoranetTransportCertificateV5 {
         p2p_preface_version: PRE_VERSION,
-        network_id: network_id.clone(),
+        network_id: *network_id,
         node_id: PeerId::from(node_key_pair.public_key().clone()),
         transport_public_key: soranet_transport_key_pair.public_key().clone(),
         relay_authentication_mldsa65_public_key: relay_authentication_mldsa65_key_pair
@@ -1236,7 +1236,7 @@ fn verify_soranet_transport_delegation_v5(
     }
     if &signed.certificate.certificate.network_id != expected_network_id {
         return Err(DelegationError::NetworkMismatch {
-            expected: expected_network_id.clone(),
+            expected: *expected_network_id,
             found: signed.certificate.certificate.network_id,
         }
         .into());
@@ -4243,17 +4243,17 @@ mod run {
     enum MalformedPayloadFrameReason {
         #[cfg(test)]
         EmptyDecryptedPayload,
-        InnerHeaderTruncated,
-        InnerMagicMismatch,
-        InnerVersionMismatch,
-        InnerSchemaMismatch,
-        InnerCompressionUnsupported,
-        InnerLengthMissing,
-        InnerLengthTooLarge,
-        InnerLengthOverflow,
-        InnerFrameTruncated,
+        HeaderTruncated,
+        MagicMismatch,
+        VersionMismatch,
+        SchemaMismatch,
+        CompressionUnsupported,
+        LengthMissing,
+        LengthTooLarge,
+        LengthOverflow,
+        FrameTruncated,
         #[cfg(test)]
-        InnerDecodeFailed,
+        DecodeFailed,
         #[cfg(test)]
         TooManyInnerMessages,
         #[cfg(test)]
@@ -4370,10 +4370,10 @@ mod run {
         hi_consensus_payload_rx: &mut post_channel::Receiver<T>,
         hi_consensus_chunk_rx: &mut post_channel::Receiver<T>,
     ) -> Option<(HighTopic, T)> {
-        if payload_burst >= HI_PAYLOAD_BURST_MAX {
-            if let Some(m) = hi_consensus_chunk_rx.try_recv_now() {
-                return Some((HighTopic::ConsensusChunk, m));
-            }
+        if payload_burst >= HI_PAYLOAD_BURST_MAX
+            && let Some(m) = hi_consensus_chunk_rx.try_recv_now()
+        {
+            return Some((HighTopic::ConsensusChunk, m));
         }
         if let Some(m) = hi_consensus_payload_rx.try_recv_now() {
             return Some((HighTopic::ConsensusPayload, m));
@@ -4383,19 +4383,39 @@ mod run {
             .map(|m| (HighTopic::ConsensusChunk, m))
     }
     #[cfg(test)]
+    struct HighBurstCounters<'a> {
+        safety: &'a mut u8,
+        control: &'a mut u8,
+        consensus: &'a mut u8,
+        payload: &'a mut u8,
+        availability: &'a mut u8,
+    }
+    #[cfg(test)]
+    struct HighTopicReceivers<'a, T> {
+        safety: &'a mut post_channel::Receiver<T>,
+        control: &'a mut post_channel::Receiver<T>,
+        consensus: &'a mut post_channel::Receiver<T>,
+        payload: &'a mut post_channel::Receiver<T>,
+        chunk: &'a mut post_channel::Receiver<T>,
+    }
+    #[cfg(test)]
     fn try_recv_high_fair<T>(
-        safety_burst: &mut u8,
-        control_burst: &mut u8,
-        consensus_burst: &mut u8,
-        payload_burst: &mut u8,
-        availability_burst: &mut u8,
+        HighBurstCounters {
+            safety: safety_burst,
+            control: control_burst,
+            consensus: consensus_burst,
+            payload: payload_burst,
+            availability: availability_burst,
+        }: HighBurstCounters<'_>,
         safety_pool_open: bool,
         high_pool_open: bool,
-        hi_consensus_safety_rx: &mut post_channel::Receiver<T>,
-        hi_control_rx: &mut post_channel::Receiver<T>,
-        hi_consensus_rx: &mut post_channel::Receiver<T>,
-        hi_consensus_payload_rx: &mut post_channel::Receiver<T>,
-        hi_consensus_chunk_rx: &mut post_channel::Receiver<T>,
+        HighTopicReceivers {
+            safety: hi_consensus_safety_rx,
+            control: hi_control_rx,
+            consensus: hi_consensus_rx,
+            payload: hi_consensus_payload_rx,
+            chunk: hi_consensus_chunk_rx,
+        }: HighTopicReceivers<'_, T>,
     ) -> Option<(HighTopic, T)> {
         let non_safety_pending = high_pool_open
             && (!hi_control_rx.is_empty()
@@ -5020,27 +5040,26 @@ mod run {
                         topic_cap_violation: None,
                     });
                 }
-                let frame_len =
-                    match framed_message_len::<M>(remaining, framed_schema, framed_padding) {
-                        Ok(frame_len) => frame_len,
-                        Err(reason) => {
-                            return Err(MalformedParsedMessages {
-                                context: MalformedPayloadFrameContext::new(
-                                    reason,
-                                    encrypted_size,
-                                    Some(decrypted_len),
-                                    offset,
-                                    remaining.len(),
-                                    decoded_messages,
-                                ),
-                                topic_cap_violation: None,
-                            });
-                        }
-                    };
+                let frame_len = match framed_message_len(remaining, framed_schema, framed_padding) {
+                    Ok(frame_len) => frame_len,
+                    Err(reason) => {
+                        return Err(MalformedParsedMessages {
+                            context: MalformedPayloadFrameContext::new(
+                                reason,
+                                encrypted_size,
+                                Some(decrypted_len),
+                                offset,
+                                remaining.len(),
+                                decoded_messages,
+                            ),
+                            topic_cap_violation: None,
+                        });
+                    }
+                };
                 let Some(frame) = remaining.get(..frame_len) else {
                     return Err(MalformedParsedMessages {
                         context: MalformedPayloadFrameContext::new(
-                            MalformedPayloadFrameReason::InnerFrameTruncated,
+                            MalformedPayloadFrameReason::FrameTruncated,
                             encrypted_size,
                             Some(decrypted_len),
                             offset,
@@ -5066,7 +5085,7 @@ mod run {
                             );
                             return Err(MalformedParsedMessages {
                                 context: MalformedPayloadFrameContext::new(
-                                    MalformedPayloadFrameReason::InnerDecodeFailed,
+                                    MalformedPayloadFrameReason::DecodeFailed,
                                     encrypted_size,
                                     Some(decrypted_len),
                                     offset,
@@ -5079,7 +5098,7 @@ mod run {
                         Err(InboundDecodeError::TopicCap(violation)) => {
                             return Err(MalformedParsedMessages {
                                 context: MalformedPayloadFrameContext::new(
-                                    MalformedPayloadFrameReason::InnerDecodeFailed,
+                                    MalformedPayloadFrameReason::DecodeFailed,
                                     encrypted_size,
                                     Some(decrypted_len),
                                     offset,
@@ -5109,7 +5128,7 @@ mod run {
                         );
                         return Err(MalformedParsedMessages {
                             context: MalformedPayloadFrameContext::new(
-                                MalformedPayloadFrameReason::InnerDecodeFailed,
+                                MalformedPayloadFrameReason::DecodeFailed,
                                 encrypted_size,
                                 Some(decrypted_len),
                                 offset,
@@ -5223,10 +5242,10 @@ mod run {
                     self.reserve_for_frame().await?
                 };
                 // Try to get full message
-                if self.parse_next_encrypted_frame().await? {
-                    if let Some(msg) = self.pending.pop_front() {
-                        return Ok(Some(msg));
-                    }
+                if self.parse_next_encrypted_frame().await?
+                    && let Some(msg) = self.pending.pop_front()
+                {
+                    return Ok(Some(msg));
                 }
                 debug_assert_ne!(read_limit, 0);
                 let mut limited = (&mut *self.read).take(read_limit as u64);
@@ -6855,7 +6874,7 @@ mod run {
         }
         let padding = (alignment - ncore::Header::SIZE % alignment) % alignment;
         let length =
-            framed_message_len::<T>(frame, norito::schema::identity::frame_hash::<T>(), padding)
+            framed_message_len(frame, norito::schema::identity::frame_hash::<T>(), padding)
                 .map_err(|_| Error::Format)?;
         if length != frame.len() {
             return Err(Error::Format);
@@ -6931,52 +6950,52 @@ mod run {
         let limits = inbound_frame_decode_limits::<T>(frame, padding, topic_frame_caps)?;
         decode_inbound_frame_with_limits::<T>(frame, limits).map_err(InboundDecodeError::Codec)
     }
-    fn framed_message_len<M: Pload>(
+    fn framed_message_len(
         bytes: &[u8],
         expected_schema: [u8; 16],
         padding: usize,
     ) -> Result<usize, MalformedPayloadFrameReason> {
         const LEN_OFF: usize = 4 + 1 + 1 + 16 + 1;
         if bytes.len() < ncore::Header::SIZE {
-            return Err(MalformedPayloadFrameReason::InnerHeaderTruncated);
+            return Err(MalformedPayloadFrameReason::HeaderTruncated);
         }
         if bytes[..4] != ncore::MAGIC {
-            return Err(MalformedPayloadFrameReason::InnerMagicMismatch);
+            return Err(MalformedPayloadFrameReason::MagicMismatch);
         }
         if bytes.get(4) != Some(&ncore::VERSION_MAJOR)
             || bytes.get(5) != Some(&ncore::VERSION_MINOR)
         {
-            return Err(MalformedPayloadFrameReason::InnerVersionMismatch);
+            return Err(MalformedPayloadFrameReason::VersionMismatch);
         }
         // schema hash: bytes[6..22]
         let schema = bytes
             .get(6..22)
-            .ok_or(MalformedPayloadFrameReason::InnerHeaderTruncated)?;
+            .ok_or(MalformedPayloadFrameReason::HeaderTruncated)?;
         if schema != expected_schema.as_slice() {
-            return Err(MalformedPayloadFrameReason::InnerSchemaMismatch);
+            return Err(MalformedPayloadFrameReason::SchemaMismatch);
         }
         // compression: bytes[22]
         if bytes.get(22) != Some(&(ncore::Compression::None as u8)) {
-            return Err(MalformedPayloadFrameReason::InnerCompressionUnsupported);
+            return Err(MalformedPayloadFrameReason::CompressionUnsupported);
         }
         // payload length u64 LE: bytes[23..31]
         let len_bytes = bytes
             .get(LEN_OFF..LEN_OFF + 8)
-            .ok_or(MalformedPayloadFrameReason::InnerLengthMissing)?;
+            .ok_or(MalformedPayloadFrameReason::LengthMissing)?;
         let mut b = [0u8; 8];
         b.copy_from_slice(len_bytes);
         let payload_len_u64 = u64::from_le_bytes(b);
         if payload_len_u64 > ncore::max_archive_len() {
-            return Err(MalformedPayloadFrameReason::InnerLengthTooLarge);
+            return Err(MalformedPayloadFrameReason::LengthTooLarge);
         }
         let payload_len = usize::try_from(payload_len_u64)
-            .map_err(|_| MalformedPayloadFrameReason::InnerLengthTooLarge)?;
+            .map_err(|_| MalformedPayloadFrameReason::LengthTooLarge)?;
         let total = ncore::Header::SIZE
             .checked_add(padding)
             .and_then(|x| x.checked_add(payload_len))
-            .ok_or(MalformedPayloadFrameReason::InnerLengthOverflow)?;
+            .ok_or(MalformedPayloadFrameReason::LengthOverflow)?;
         if total > bytes.len() {
-            return Err(MalformedPayloadFrameReason::InnerFrameTruncated);
+            return Err(MalformedPayloadFrameReason::FrameTruncated);
         }
         Ok(total)
     }
@@ -10510,18 +10529,22 @@ mod run {
                 let mut drained = 0usize;
                 while drained < OUTBOUND_DRAIN_HI_MAX && hi_budget > 0 {
                     let (topic, message) = try_recv_high_fair(
-                        &mut safety_burst,
-                        &mut control_burst,
-                        &mut consensus_burst,
-                        &mut payload_burst,
-                        &mut availability_burst,
+                        HighBurstCounters {
+                            safety: &mut safety_burst,
+                            control: &mut control_burst,
+                            consensus: &mut consensus_burst,
+                            payload: &mut payload_burst,
+                            availability: &mut availability_burst,
+                        },
                         true,
                         true,
-                        &mut safety_rx,
-                        &mut control_rx,
-                        &mut consensus_rx,
-                        &mut payload_rx,
-                        &mut chunk_rx,
+                        HighTopicReceivers {
+                            safety: &mut safety_rx,
+                            control: &mut control_rx,
+                            consensus: &mut consensus_rx,
+                            payload: &mut payload_rx,
+                            chunk: &mut chunk_rx,
+                        },
                     )
                     .expect("safety backlog remains available");
                     assert_eq!(topic, HighTopic::ConsensusSafety);
@@ -10558,48 +10581,60 @@ mod run {
             let mut control_burst = 0u8;
             let mut safety_burst = 0u8;
             let first = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 true,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             )
             .expect("first high message");
             let second = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 true,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             )
             .expect("second high message");
             let third = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 true,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             )
             .expect("third high message");
             assert_eq!(first, (HighTopic::Consensus, "consensus"));
@@ -10635,18 +10670,22 @@ mod run {
             let mut safety_burst = 0u8;
             let mut served = Vec::new();
             while let Some(item) = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 true,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             ) {
                 served.push(item);
             }
@@ -10691,18 +10730,22 @@ mod run {
             let mut safety_burst = 0u8;
             let mut served = Vec::new();
             while let Some(item) = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 true,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             ) {
                 served.push(item);
             }
@@ -10743,18 +10786,22 @@ mod run {
             let mut control_burst = 0u8;
             let mut safety_burst = 0u8;
             let first = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 true,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             )
             .expect("first high message");
             assert_eq!(first, (HighTopic::Control, "control"));
@@ -10782,18 +10829,22 @@ mod run {
             let mut payload_burst = 0;
             let mut availability_burst = 0;
             let first = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 true,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             )
             .expect("one high message");
             assert_eq!(
@@ -10827,18 +10878,22 @@ mod run {
             let mut payload_burst = 0;
             let mut availability_burst = 0;
             let first = try_recv_high_fair(
-                &mut safety_burst,
-                &mut control_burst,
-                &mut consensus_burst,
-                &mut payload_burst,
-                &mut availability_burst,
+                HighBurstCounters {
+                    safety: &mut safety_burst,
+                    control: &mut control_burst,
+                    consensus: &mut consensus_burst,
+                    payload: &mut payload_burst,
+                    availability: &mut availability_burst,
+                },
                 true,
                 false,
-                &mut safety_rx,
-                &mut control_rx,
-                &mut consensus_rx,
-                &mut payload_rx,
-                &mut chunk_rx,
+                HighTopicReceivers {
+                    safety: &mut safety_rx,
+                    control: &mut control_rx,
+                    consensus: &mut consensus_rx,
+                    payload: &mut payload_rx,
+                    chunk: &mut chunk_rx,
+                },
             )
             .expect("open safety pool must remain serviceable");
             assert_eq!(first, (HighTopic::ConsensusSafety, String::from("safety")));
@@ -11185,10 +11240,7 @@ mod run {
             let context = reader
                 .take_malformed_payload_context()
                 .expect("malformed frame context");
-            assert_eq!(
-                context.reason,
-                MalformedPayloadFrameReason::InnerFrameTruncated
-            );
+            assert_eq!(context.reason, MalformedPayloadFrameReason::FrameTruncated);
             assert_eq!(context.encrypted_frame_bytes, expected_encrypted_len);
             assert_eq!(context.decrypted_payload_bytes, Some(malformed_plain.len()));
             assert_eq!(context.decoded_messages, 1);
@@ -12025,13 +12077,13 @@ mod state {
         const DOMAIN: &[u8] = b"iroha:p2p:identity-binding:v1|";
         let binding = HandshakeIdentityBindingV1 {
             session_binding: cryptographer.session_binding,
-            network_id: hello.network_id.clone(),
+            network_id: hello.network_id,
             soranet_transport_binding: *soranet_transport_binding,
             transport_binding: transport_binding.copied(),
             public_key: hello.public_key.clone(),
             advertised_addr: hello.addr.clone(),
             relay: hello.relay,
-            consensus: hello.consensus.clone(),
+            consensus: hello.consensus,
             confidential: hello.confidential.clone(),
             crypto: hello.crypto.clone(),
             trust: hello.trust.clone(),
@@ -12982,7 +13034,7 @@ mod state {
                 return Err(crate::Error::HandshakeNodeAlgorithmMismatch { found: alg });
             }
             let mut hello = HandshakeHello {
-                network_id: network_id.clone(),
+                network_id,
                 public_key: pk_bytes.to_vec(),
                 signature: Vec::new(),
                 addr: our_addr,

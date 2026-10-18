@@ -1,0 +1,156 @@
+"""Source-bound fixed-shape, accepted-request generator with named wire joins.
+
+This joins the concrete prepared public material, full bounded schedule,
+opening/VOLE reconstruction and both response equations. It still requires
+accepted typed public input; W/E and invalid-request dispatch are separate.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost, integer, require
+from stage_plan import CleanMap, Invocation, RetainedPlan
+from schedule import load_predicate, AdmissibilityKernel, Schedule, MAX_TRIALS
+from opening import Opening, GeometryKernel
+from reconstruction import Reconstruction
+from opening_reconstruction import OpeningReconstruction
+from vole_columns import VoleColumns
+from vole_reconstruction import VoleReconstruction
+from crt_machine import CrtReconstruction, load_matrices
+from mask_fold import load_moduli
+from aes_kernel import load_aes
+from field_kernel import load_field, FieldKernel
+from public_hash import load_public_keccak
+from public_machine import PublicShape, prepare_public
+from r0_machine import VoleResponse
+from r1_machine import QuickSilverResponse
+
+
+def gate_cost(value):
+    """Convert the exact component census without merging oracle/gate units."""
+    return Cost(value['x'], value['cx'], value['ccx'], value['base_xor_oracle_calls'])
+
+
+@dataclass(frozen=True)
+class Generator:
+    """Retained stage DAG plus its exact source transcript field references."""
+    plan: RetainedPlan
+    fields: tuple
+    shape: PublicShape
+    trials: int
+    original_private_coin_bits: int
+
+    def __post_init__(self):
+        require(type(self.fields) is tuple, 'generator fields')
+        registers = self.plan.layout()['registers']
+        seen = set()
+        for name, piece in self.fields:
+            require(type(name) is str and name not in seen, 'generator field name')
+            seen.add(name)
+            register, offset, width = piece
+            require(register in registers and type(offset) is int and type(width) is int
+                    and offset >= 0 and width > 0 and offset+width <= registers[register][1],
+                    'generator field extent')
+
+    def field_positions(self):
+        """Positions in the retained-plan layout; later adapters relocate intervals."""
+        registers = self.plan.layout()['registers']
+        return {name:(registers[r][0]+offset, width) for name,(r,offset,width) in self.fields}
+
+    def resources(self):
+        value = self.plan.resources()
+        value.update(role=self.shape.role, row=self.shape.row, trials=self.trials,
+                     private_original_coin_bits=self.original_private_coin_bits,
+                     public_request_bits=value['original_input_bits']-self.original_private_coin_bits,
+                     source_P1_S0_opening_VOLE_response_join_implemented=True,
+                     selected_and_opening_and_CRT_challenge_share_wires=True,
+                     ordinary_backend_domains=(0,1,4,5,8),
+                     prescribed_challenge1_challenge2_are_input_coins=True,
+                     requires_accepted_typed_public_request=True,
+                     full_source_trial_cap=self.trials == MAX_TRIALS,
+                     persistent_log_and_return_implemented=False,
+                     bounded_invalid_shape_controller_complete=False)
+        return value
+
+
+def build_generator(root, shape, trials=MAX_TRIALS):
+    """Instantiate authenticated components and every static source field map.
+
+    A smaller cap is a test model, explicitly not the source sampler. Original
+    randomness includes P1's iv_pre/salt, both S0 tapes, direct opening coins,
+    all correction/masked-witness coins and prescribed responses/challenges.
+    """
+    require(type(shape) is PublicShape, 'generator public shape')
+    integer(trials, 1, MAX_TRIALS, 'generator trial cap')
+    if shape.role == 'VOTE': require(3 <= shape.list_count <= 1000, 'accepted vote shape')
+    predicate = load_predicate(root)
+    geometry = predicate.row(shape.row)
+    schedule = Schedule(AdmissibilityKernel(predicate, geometry), trials)
+    sr = schedule.resources()
+    require(schedule.kernel.inputs == 256, 'full source challenge width')
+    aes, field_module = load_aes(root), load_field(root)
+    mul = FieldKernel(field_module, 'gf256_mul')
+    short = FieldKernel(field_module, 'gf256_mul_u64')
+    tripled = FieldKernel(field_module, 'gf256_mul_tripled')
+    ell = 35840 if shape.role == 'REG' else 53504
+    columns = VoleColumns(geometry, ell, load_moduli(root, shape.row), aes)
+    matrices = load_matrices(root, shape.row)
+    crt = CrtReconstruction(ell, columns.width_bits, matrices['G'], matrices['W_CRT'],
+                            matrices['W_TREE'], matrices['W_GATE'])
+    opening = OpeningReconstruction(Opening(GeometryKernel(predicate, geometry)),
+        Reconstruction(geometry, aes, tripled, mul), VoleReconstruction(columns, crt))
+    opening_resources = opening.resources()
+    public = prepare_public(shape, load_public_keccak(root), root)
+    public_outputs = {name:(start,end-start) for name,(start,end) in public.output_regions}
+    r0 = VoleResponse(ell, mul, short)
+    r0_counted = r0.build(record=False)
+    r1 = QuickSilverResponse('registration' if shape.role == 'REG' else 'vote', shape.list_count, mul, short)
+    r1_counted, r1_meta = r1.build(record=False)
+    require(r1_meta['error'] is None, 'actual relation has a malformed stream')
+
+    inputs = (('public_preparation', shape.inputs), ('schedule_tapes', 512*trials),
+              ('hidden_commitment_coins', 896*geometry.tau), ('frontier_key_coins', 256*geometry.opening_limit),
+              ('corrections', (geometry.tau-1)*ell), ('mult_corrections', 10*crt.gates),
+              ('challenge_1', 2112), ('u_tilde', 1024), ('masked_witness', ell),
+              ('challenge_2', 832), ('coefficients', 1536))
+    def original(name):
+        return (name, 0, dict(inputs)[name])
+    def pub(name):
+        offset,width = public_outputs[name]
+        return ('P1', offset, width)
+    opening_outputs = opening.output_regions()
+    def opened(name):
+        offset,width = opening_outputs[name]
+        return ('opening', offset, width)
+    def field_map(block, emitter):
+        r = block.resources()
+        return CleanMap(block.inputs, len(block.outputs), block.history+block.work,
+                        gate_cost(r['gates']), emitter)
+
+    stages = (
+        Invocation('P1', CleanMap.block(public.block), (original('public_preparation'),)),
+        Invocation('S0', CleanMap(512*trials, schedule.outputs, sr['total_clean_work_bits'],
+            gate_cost(sr['clean_gates']), schedule.emit_clean), (original('schedule_tapes'),)),
+        Invocation('opening', CleanMap(opening.input_bits, opening.output_bits,
+            opening_resources['total_clean_work_bits'], gate_cost(opening_resources['gates']), opening.emit_clean),
+            (pub('namespace'),pub('iv'),pub('salt'),('S0',0,256),
+             original('hidden_commitment_coins'),original('frontier_key_coins'),
+             original('corrections'),original('mult_corrections'))),
+        Invocation('R0', field_map(r0_counted, r0.emit_clean),
+            (opened('verifier_material'),original('challenge_1'),original('u_tilde'))),
+        Invocation('R1', field_map(r1_counted, r1.emit_clean),
+            (opened('verifier_material'),original('challenge_2'),original('coefficients'),
+             original('masked_witness'),pub('relation_public'))),
+    )
+    plan = RetainedPlan(inputs, stages)
+    fields = [('namespace',pub('namespace')),
+              ('namespace_digest',('P1',public_outputs['namespace'][0]+104,512)),
+              ('mu',pub('mu')),('iv',pub('iv')),('iv_pre',pub('iv_pre')),('salt',pub('salt')),
+              ('commitment',opened('commitment')),('decommitment',opened('opening')),
+              ('challenge',('S0',0,256)),('counter',('S0',256,32)),
+              ('exhausted',('S0',256+32+2*schedule.count_bits,1)),
+              ('primary_flags',('S0',256+32+2*schedule.count_bits+2,trials)),
+              ('primary_challenges',('schedule_tapes',0,256*trials)),
+              ('d_tilde',('R0',0,1024)),('a0',('R1',0,256)),('relation_error',('R1',256,66))]
+    fields += [(name,original(name)) for name in
+               ('corrections','mult_corrections','challenge_1','u_tilde','masked_witness','challenge_2','coefficients')]
+    coin_bits = 384+sum(n for name,n in inputs if name != 'public_preparation')
+    return Generator(plan,tuple(fields),shape,trials,coin_bits)

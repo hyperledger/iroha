@@ -61,10 +61,10 @@ fn fixture() -> Fixture {
                 spki_sha256: *Hash::new(b"component root key").as_ref(),
                 revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
             }],
-            patch_floor_yyyymm: 202608,
+            patch_floor_yyyymm: 202_608,
         },
         regulatory_policy: KagemushaWalletRegulatoryPolicyV1::default(),
-        challenge_lifetime_ms: 120000,
+        challenge_lifetime_ms: 120_000,
         attestation_lease_lifetime_ms: 0,
     };
     let challenge = KagemushaWalletEnrollmentChallengeV1 {
@@ -376,9 +376,9 @@ fn issuer_result(f: &Fixture, request: &RequestV1) -> ResultV1 {
         digest: evidence.digest(&request.body, kind).unwrap(),
         time_ms: 1000,
         facts: KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1,
-        os_patch_level: 202608,
-        vendor_patch_level: 202608,
-        boot_patch_level: 202608,
+        os_patch_level: 202_608,
+        vendor_patch_level: 202_608,
+        boot_patch_level: 202_608,
     };
     let body = KagemushaWalletCredentialBodyV1 {
         version: 1,
@@ -627,6 +627,173 @@ fn resign_permit(
     .unwrap()
 }
 #[test]
+fn prekey_cancellation_survives_restart_and_refuses_late_permit_without_key_effects() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 191);
+    let mut current = owner(&f, &d);
+    let first = dispatch(&f, &mut current);
+    let late = permit(&f, &first).encode_canonical().unwrap();
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert_eq!(current.abandonment_ledger_instruction().unwrap(), None);
+    assert!(current.accept_permit(&late).is_err());
+    assert!(current.authorize(&[1; 64]).is_err());
+    drop(current);
+    let mut current = owner(&f, &d);
+    let resumed = dispatch(&f, &mut current);
+    assert_eq!(
+        resumed.stable_selection().unwrap(),
+        first.stable_selection().unwrap()
+    );
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert!(
+        current
+            .accept_permit(&permit(&f, &resumed).encode_canonical().unwrap())
+            .is_err()
+    );
+    d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+    // A different request may start, while the cancelled identity remains terminal.
+    current
+        .begin(
+            &[12; 32],
+            &norito::encode_canonical(&f.account).unwrap(),
+            &norito::encode_canonical(&f.asset).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+}
+
+#[test]
+fn prekey_cancellation_loses_to_accepted_permit_under_exclusive_owner() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 199);
+    let mut current = owner(&f, &d);
+    let first = dispatch(&f, &mut current);
+    current
+        .accept_permit(&permit(&f, &first).encode_canonical().unwrap())
+        .unwrap();
+    assert!(current.abandon().is_err());
+    drop(current);
+    let mut current = owner(&f, &d);
+    let resumed = dispatch(&f, &mut current);
+    assert_eq!(resumed.purpose, KagemushaEnrollmentPermitPurposeV1::Resume);
+    assert!(current.abandonment_ledger_instruction().is_err());
+    assert!(
+        !d.fs
+            .visible_names(&KagemushaWalletCustodyDirV1::root())
+            .iter()
+            .any(|name| name.ends_with("-cancelled.norito"))
+    );
+    d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+}
+
+#[test]
+fn prekey_cancellation_uncertain_publication_is_adopted_before_terminal_retry() {
+    let f = fixture();
+    let baseline = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 197);
+    let mut current = owner(&f, &baseline);
+    dispatch(&f, &mut current);
+    let start = baseline.fs.steps();
+    current.abandon().unwrap();
+    let trace = baseline.fs.trace_since(start);
+    let rename = trace
+        .iter()
+        .rposition(|step| *step == KagemushaWalletSimStepV1::RenameNoReplace)
+        .unwrap();
+    let sync = rename
+        + trace[rename..]
+            .iter()
+            .position(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+            .unwrap();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 197);
+    let mut current = owner(&f, &d);
+    let first = dispatch(&f, &mut current);
+    d.fs.inject(
+        d.fs.steps() + u64::try_from(sync).unwrap(),
+        KagemushaWalletSimFaultV1::Error,
+    );
+    assert!(current.abandon().is_err());
+    d.fs.clear_faults();
+    let before = d.fs.steps();
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert!(
+        d.fs.trace_since(before)
+            .contains(&KagemushaWalletSimStepV1::SyncDir)
+    );
+    drop(current);
+    d.fs.restart();
+    let mut current = owner(&f, &d);
+    dispatch(&f, &mut current);
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert!(
+        current
+            .accept_permit(&permit(&f, &first).encode_canonical().unwrap())
+            .is_err()
+    );
+    d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+}
+
+#[test]
+fn prekey_cancellation_refuses_missing_client_corrupt_binding_and_uncertain_publication() {
+    let f = fixture();
+    for fault in 0..3 {
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 193 + fault);
+        let mut current = owner(&f, &d);
+        let first = dispatch(&f, &mut current);
+        let root = KagemushaWalletCustodyDirV1::root();
+        let client =
+            d.fs.visible_names(&root)
+                .into_iter()
+                .find(|name| name.ends_with("-client.norito"))
+                .unwrap();
+        match fault {
+            0 => {
+                d.fs.unlink(&root, &client).unwrap();
+            }
+            1 => {
+                d.fs.place_unsynced(&root, &client, b"changed client");
+            }
+            _ => {
+                d.fs.inject(d.fs.steps(), KagemushaWalletSimFaultV1::Error);
+            }
+        }
+        assert!(current.abandon().is_err());
+        d.fs.clear_faults();
+        d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+        if fault == 2 {
+            dispatch(&f, &mut current);
+            current.abandon().unwrap();
+            let cancelled =
+                d.fs.visible_names(&root)
+                    .into_iter()
+                    .find(|name| name.ends_with("-cancelled.norito"))
+                    .unwrap();
+            d.fs.place_unsynced(&root, &cancelled, &[0; 32]);
+            assert!(current.abandon().is_err());
+            assert!(
+                current
+                    .accept_permit(&permit(&f, &first).encode_canonical().unwrap())
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
 fn prekey_stable_selection_preserves_originals_and_excludes_only_dispatch_fields() {
     let f = fixture();
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 101);
@@ -707,6 +874,42 @@ fn prekey_permit_rejects_wrong_scope_nonce_attempt_and_consumes_failed_dispatch(
     d.platform.with(|state| assert_eq!(state.generate_calls, 0));
 }
 #[test]
+fn prekey_live_exchange_does_not_require_a_readable_custody_boot_identity() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 106);
+    d.platform.with(|state| {
+        state.boot = Err(KagemushaWalletUnavailableV1::Io(1));
+        state.monotonic = Err(KagemushaWalletUnavailableV1::Io(1));
+        state.live_enrollment_native_clock = true;
+    });
+    let mut current = owner(&f, &d);
+    let selected = dispatch(&f, &mut current);
+    let original = permit(&f, &selected).encode_canonical().unwrap();
+    let message = current.accept_permit(&original).unwrap();
+    assert!(matches!(
+        current.authorize(&sign(&f, &message)).unwrap(),
+        EnrollmentProgressV1::Evidence { .. }
+    ));
+    let provider = current.into_provider();
+    assert!(matches!(
+        provider.live_enrollment_reading().unwrap(),
+        LiveEnrollmentReadingV1::Native(_)
+    ));
+    assert_eq!(
+        provider.monotonic_reading(),
+        Err(KagemushaWalletProviderErrorV1::Unavailable(
+            KagemushaWalletUnavailableV1::Io(1)
+        ))
+    );
+    d.platform.with(|state| {
+        assert_eq!(state.boot, Err(KagemushaWalletUnavailableV1::Io(1)));
+        assert_eq!(state.generate_calls, 1);
+        assert_eq!(state.sign_calls, 0);
+        assert_eq!(state.delete_calls, 0);
+    });
+}
+
+#[test]
 fn prekey_clock_deadline_is_checked_again_after_account_authorization() {
     for (index, time) in [
         Ok(120_000),
@@ -731,7 +934,8 @@ fn prekey_clock_deadline_is_checked_again_after_account_authorization() {
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 113);
     let mut owner = owner(&f, &d);
     let message = begin(&f, &mut owner);
-    d.platform.with(|state| state.boot = Ok([99; 32]));
+    d.platform
+        .with(|state| state.live_enrollment_clock_domain = [99; 32]);
     assert!(owner.authorize(&sign(&f, &message)).is_err());
     d.platform.with(|state| assert_eq!(state.generate_calls, 0));
 }
@@ -746,7 +950,7 @@ fn prekey_elapsed_expiry_after_durable_intent_cannot_reach_hardware_generation()
     let message = begin(&f, &mut owner);
     // Owner authorization, grant check, begin check, pre-intent check, actual key dispatch.
     d.platform.with(|state| {
-        state.monotonic_script = [Ok(1000), Ok(1000), Ok(1000), Ok(1000), Ok(120000)].into()
+        state.monotonic_script = [Ok(1000), Ok(1000), Ok(1000), Ok(1000), Ok(120_000)].into()
     });
     assert!(owner.authorize(&sign(&f, &message)).is_err());
     d.platform.with(|state| assert_eq!(state.generate_calls, 0));
@@ -2470,7 +2674,7 @@ fn enrollment_e6_requires_issuance_and_evidence_inside_original_permit_dates() {
     let mut current = enrolled(&f, &d);
     let requested = RequestV1::decode(&request(&f, &mut current)).unwrap();
     let valid = issuer_result(&f, &requested);
-    for (issued, evidence) in [(999, 1000), (121000, 1000), (2000, 999), (2000, 121000)] {
+    for (issued, evidence) in [(999, 1000), (121_000, 1000), (2000, 999), (2000, 121_000)] {
         let mut altered = valid.clone();
         let mut body = KagemushaWalletCredentialV1::decode_canonical(
             &valid.credential,
@@ -2720,6 +2924,9 @@ fn accepted_permit_before_slot_can_report_request_absence_without_a_generation_g
     ));
     d.platform.with(|s| assert_eq!(s.generate_calls, 1));
 }
+
+#[path = "tests/expired_prekey.rs"]
+mod expired_prekey;
 
 #[test]
 fn lost_prekey_slot_with_actual_intent_never_becomes_optional_request_absence() {
@@ -3192,5 +3399,586 @@ fn session_renewal_preserves_exact_retained_e5_and_e6() {
     d.platform.with(|s| {
         assert_eq!(s.generate_calls, 1);
         assert_eq!(s.delete_calls, 0);
+    });
+}
+
+#[test]
+fn prekey_definitive_absence_rechecks_deadline_after_intent_phase_selection() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 164);
+    let mut owner = owner(&f, &d);
+    let message = begin(&f, &mut owner);
+    // Owner authorization, grant, begin, pre-intent and pre-phase checks all pass.
+    // Time expires during the phase's filesystem work, before the hardware dispatch.
+    d.platform.with(|state| {
+        state.monotonic_script = std::iter::repeat_n(Ok(1000), 5)
+            .chain([Ok(120_000)])
+            .collect();
+    });
+    let result = owner.authorize(&sign(&f, &message));
+    d.platform.with(|state| {
+        assert_eq!(
+            state.generate_calls, 0,
+            "expired phase must not generate a key"
+        );
+        assert_eq!(state.sign_calls, 0);
+        assert_eq!(state.delete_calls, 0);
+        assert!(
+            state.monotonic_script.is_empty(),
+            "final dispatch check must run"
+        );
+    });
+    assert!(result.is_err());
+    let mut provider = owner.into_provider();
+    let slots = provider.slots().unwrap();
+    assert_eq!(slots.len(), 1, "retain the already durable intent");
+    assert!(matches!(
+        provider.status(&slots[0]).unwrap(),
+        KagemushaWalletSlotStatusV1::IntentOnly
+    ));
+}
+
+#[test]
+fn enrollment_owner_fresh_apple_incarnation_preserves_old_orphan_custody() {
+    let f = apple_collection_fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 171);
+    let orphan = KagemushaWalletSlotIdV1([170; 32]);
+    d.platform.with(|s| {
+        s.keys.insert(orphan, signing_key(170));
+    });
+    let old_key = d.platform.key_of(&orphan).unwrap();
+    d.platform.with(|s| {
+        s.anchors.insert(orphan, b"old retained anchor".to_vec());
+    });
+    let old_anchor = d.platform.with(|s| s.anchors[&orphan].clone());
+    let lost = Err(KagemushaWalletProviderErrorV1::LostCustody(
+        KagemushaWalletLostCustodyV1::KeyWithoutMarker,
+    ));
+    let mut current = owner(&f, &d);
+    assert_eq!(current.test_provider().status(&orphan), lost);
+    let message = begin(&f, &mut current);
+    let EnrollmentProgressV1::Evidence { slot, marker, .. } = current
+        .authorize(&sign(&f, &message))
+        .expect("distinct fresh incarnation")
+    else {
+        panic!("fresh hardware-key enrollment")
+    };
+    let selected = KagemushaWalletSlotIdV1(slot);
+    assert_ne!(selected, orphan);
+    assert_ne!(marker.payment_key, old_key);
+    assert_eq!(current.test_provider().status(&orphan), lost);
+    assert!(
+        d.fs.visible_names(&super::layout::kagemusha_wallet_slot_dir_v1(&orphan))
+            .is_empty()
+    );
+    assert_eq!(d.platform.key_of(&orphan), Some(old_key));
+    assert!(
+        current
+            .test_provider()
+            .credential(&selected, 0)
+            .unwrap()
+            .is_none()
+    );
+    let selected_key = d.platform.key_of(&selected).unwrap();
+    drop(current);
+    d.fs.restart();
+    let mut resumed = owner(&f, &d);
+    let message = begin(&f, &mut resumed);
+    assert!(matches!(resumed.authorize(&sign(&f, &message)).unwrap(),
+        EnrollmentProgressV1::Evidence { slot: same, .. } if same == slot));
+    assert_eq!(resumed.test_provider().status(&orphan), lost);
+    assert_eq!(d.platform.key_of(&orphan), Some(old_key));
+    assert_eq!(d.platform.key_of(&selected), Some(selected_key));
+    d.platform.with(|s| {
+        assert_eq!(s.anchors[&orphan], old_anchor);
+        assert_eq!(s.generate_calls, 1);
+        assert_eq!(s.delete_calls, 0);
+        assert_eq!(s.sign_calls, 0);
+        assert_eq!(
+            s.last_generation.unwrap().profile,
+            KagemushaWalletKeyProfileV1::SecureElement
+        );
+        assert!(s.violations.is_empty());
+    });
+}
+
+#[test]
+fn enrollment_owner_fresh_apple_incarnation_preserves_unknown_inventory_and_key_answers() {
+    for enumeration in [false, true] {
+        let f = apple_collection_fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 172);
+        let orphan = KagemushaWalletSlotIdV1([170; 32]);
+        d.platform.with(|s| {
+            s.keys.insert(orphan, signing_key(170));
+        });
+        let mut current = owner(&f, &d);
+        let message = begin(&f, &mut current);
+        d.platform.with(|s| {
+            if enumeration {
+                s.enumerate_override = Some(Err(KagemushaWalletUnavailableV1::Locked));
+            } else {
+                s.probe_unavailable = true;
+            }
+        });
+        assert!(matches!(
+            current.authorize(&sign(&f, &message)),
+            Err(Error::Provider(
+                KagemushaWalletProviderErrorV1::Unavailable(_)
+            ))
+        ));
+        assert!(
+            d.fs.visible_names(&super::layout::kagemusha_wallet_slot_dir_v1(&orphan))
+                .is_empty()
+        );
+        d.platform.with(|s| {
+            assert_eq!(s.generate_calls, 0);
+            assert_eq!(s.delete_calls, 0);
+            assert_eq!(s.sign_calls, 0);
+            assert_eq!(s.keys.len(), 1);
+        });
+    }
+}
+
+#[test]
+fn enrollment_owner_lost_selected_apple_incarnation_never_becomes_fresh() {
+    let f = apple_collection_fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 173);
+    let mut current = enrolled(&f, &d);
+    let slot =
+        KagemushaWalletSlotIdV1(fixture_phase(current.test_provider()).unwrap().binding.slot);
+    let key = d.platform.key_of(&slot).unwrap();
+    drop(current);
+    // Keep only Client and Accepted for the selected request, and the surviving key.
+    // In particular, an absent Slot+Phase may not synthesize a new binding for this E1.
+    let root = KagemushaWalletCustodyDirV1::root();
+    for name in d.fs.visible_names(&root) {
+        if name.starts_with("prekey-")
+            && (name.ends_with("-slot.norito") || name.ends_with("-phase.norito"))
+        {
+            d.fs.unlink(&root, &name).unwrap();
+        }
+    }
+    let dir = super::layout::kagemusha_wallet_slot_dir_v1(&slot);
+    d.fs.unlink(&dir, "intent.norito").unwrap();
+    let markers = super::layout::kagemusha_wallet_markers_dir_v1(&slot);
+    for name in d.fs.visible_names(&markers) {
+        d.fs.unlink(&markers, &name).unwrap();
+    }
+    for name in d.fs.visible_names(&dir) {
+        d.fs.remove_dir(&dir, &name).unwrap();
+    }
+    d.fs.remove_dir(
+        &super::layout::kagemusha_wallet_slots_dir_v1(),
+        slot.dir_name().as_str(),
+    )
+    .unwrap();
+    assert!(!d.fs.visible_dir(&dir));
+    d.fs.sync_dir(&root).unwrap();
+    d.fs.sync_dir(&super::layout::kagemusha_wallet_slots_dir_v1())
+        .unwrap();
+    d.fs.restart();
+    assert!(!d.fs.visible_dir(&dir));
+    let mut resumed = owner(&f, &d);
+    let dispatch = dispatch(&f, &mut resumed);
+    assert!(resumed.retained_request().is_err());
+    let message = resumed
+        .accept_permit(&permit(&f, &dispatch).encode_canonical().unwrap())
+        .unwrap();
+    assert!(resumed.authorize(&sign(&f, &message)).is_err());
+    assert_eq!(d.platform.key_of(&slot), Some(key));
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 1);
+        assert_eq!(s.delete_calls, 0);
+        assert_eq!(s.sign_calls, 0);
+        assert_eq!(s.keys.len(), 1);
+    });
+}
+
+#[test]
+fn enrollment_owner_fresh_apple_incarnation_refuses_orphan_with_any_slot_directory() {
+    for journal in [false, true] {
+        let f = apple_collection_fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 174);
+        let orphan = KagemushaWalletSlotIdV1([170; 32]);
+        d.platform.with(|s| {
+            s.keys.insert(orphan, signing_key(170));
+        });
+        let mut current = owner(&f, &d);
+        super::layout::kagemusha_wallet_prepare_slot_dirs_v1(
+            current.test_provider().store(),
+            &orphan,
+        )
+        .unwrap();
+        if journal {
+            let dir = super::layout::kagemusha_wallet_slot_dir_v1(&orphan);
+            d.fs.place_unsynced(&dir, "intent.norito", b"lost original");
+        }
+        let before = slot_names(&d);
+        let message = begin(&f, &mut current);
+        assert!(current.authorize(&sign(&f, &message)).is_err());
+        assert_eq!(slot_names(&d), before);
+        d.platform.with(|s| {
+            assert_eq!(s.generate_calls, 0);
+            assert_eq!(s.delete_calls, 0);
+            assert_eq!(s.sign_calls, 0);
+            assert_eq!(s.keys.len(), 1);
+        });
+    }
+}
+
+#[test]
+fn enrollment_owner_fresh_apple_incarnation_refuses_selected_alias_collision() {
+    let f = apple_collection_fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 175);
+    let orphan = KagemushaWalletSlotIdV1([170; 32]);
+    d.platform.with(|s| {
+        s.keys.insert(orphan, signing_key(170));
+    });
+    let mut current = owner(&f, &d);
+    let message = begin(&f, &mut current);
+    let client = current
+        .test_provider()
+        .prekey_read(&[11; 32], PreKeyRecordV1::Client)
+        .unwrap()
+        .unwrap();
+    let client_digest = kagemusha_wallet_prekey_client_digest_v1(&client);
+    let client = PreKeyDispatchV1::decode(&client).unwrap();
+    let accepted = current
+        .test_provider()
+        .prekey_read(&[11; 32], PreKeyRecordV1::Accepted)
+        .unwrap()
+        .unwrap();
+    let initial = KagemushaEnrollmentPermitV1::decode_canonical(
+        &accepted,
+        &f.config.scheme,
+        &f.config.enrollment_certificate,
+    )
+    .unwrap();
+    current
+        .test_provider()
+        .select_enrollment_binding(&KagemushaWalletEnrollmentBindingV1::new(
+            [11; 32],
+            orphan.0,
+            client_digest,
+            client.client_nonce,
+            kagemusha_wallet_prekey_permit_digest_v1(&accepted),
+            initial.body.challenge,
+            KagemushaWalletEnrollmentDatesV1 {
+                issued_at_ms: initial.body.created_at_ms,
+                expires_at_ms: initial.body.expires_at_ms,
+            },
+            KagemushaWalletKeyProfileV1::SecureElement,
+            KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence,
+            KagemushaWalletAnchorPolicyV1::Keychain,
+        ))
+        .unwrap();
+    assert!(matches!(
+        current.authorize(&sign(&f, &message)),
+        Err(Error::Provider(
+            KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "selected pre-key slot"
+            }
+        ))
+    ));
+    assert!(
+        !d.fs
+            .visible_dir(&super::layout::kagemusha_wallet_slot_dir_v1(&orphan))
+    );
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 0);
+        assert_eq!(s.delete_calls, 0);
+        assert_eq!(s.sign_calls, 0);
+    });
+}
+
+#[test]
+fn enrollment_owner_accepted_before_slot_with_orphan_remains_ambiguous() {
+    let f = apple_collection_fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 176);
+    let orphan = KagemushaWalletSlotIdV1([170; 32]);
+    d.platform.with(|s| {
+        s.keys.insert(orphan, signing_key(170));
+    });
+    let mut current = owner(&f, &d);
+    begin(&f, &mut current);
+    drop(current);
+    d.fs.restart();
+    let mut resumed = owner(&f, &d);
+    let dispatch = dispatch(&f, &mut resumed);
+    assert!(resumed.retained_request().is_err());
+    let message = resumed
+        .accept_permit(&permit(&f, &dispatch).encode_canonical().unwrap())
+        .unwrap();
+    assert!(resumed.authorize(&sign(&f, &message)).is_err());
+    assert!(
+        resumed
+            .test_provider()
+            .enrollment_phase(&[11; 32])
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        resumed
+            .test_provider()
+            .prekey_read(&[11; 32], PreKeyRecordV1::Slot)
+            .unwrap()
+            .is_none()
+    );
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 0);
+        assert_eq!(s.delete_calls, 0);
+        assert_eq!(s.sign_calls, 0);
+    });
+}
+
+#[test]
+fn enrollment_owner_same_owner_erased_selection_never_rebinds_after_generation() {
+    let f = apple_collection_fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 177);
+    let mut current = owner(&f, &d);
+    let message = begin(&f, &mut current);
+    let signature = sign(&f, &message);
+    d.platform
+        .with(|s| s.generation_readback_unavailable = true);
+    assert!(current.authorize(&signature).is_err());
+    let slot =
+        KagemushaWalletSlotIdV1(fixture_phase(current.test_provider()).unwrap().binding.slot);
+    let old_key = d.platform.key_of(&slot).unwrap();
+    let root = KagemushaWalletCustodyDirV1::root();
+    for name in d.fs.visible_names(&root) {
+        if name.starts_with("prekey-")
+            && (name.ends_with("-slot.norito") || name.ends_with("-phase.norito"))
+        {
+            d.fs.unlink(&root, &name).unwrap();
+        }
+    }
+    let dir = super::layout::kagemusha_wallet_slot_dir_v1(&slot);
+    d.fs.unlink(&dir, "intent.norito").unwrap();
+    for name in d.fs.visible_names(&dir) {
+        d.fs.remove_dir(&dir, &name).unwrap();
+    }
+    d.fs.remove_dir(
+        &super::layout::kagemusha_wallet_slots_dir_v1(),
+        slot.dir_name().as_str(),
+    )
+    .unwrap();
+    d.platform
+        .with(|s| s.generation_readback_unavailable = false);
+    let before = d.fs.visible_names(&root);
+    assert!(current.authorize(&signature).is_err());
+    assert_eq!(
+        d.fs.visible_names(&root),
+        before,
+        "no replacement Phase or Slot"
+    );
+    assert!(!d.fs.visible_dir(&dir));
+    assert_eq!(d.platform.key_of(&slot), Some(old_key));
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 1);
+        assert_eq!(s.delete_calls, 0);
+        assert_eq!(s.keys.len(), 1);
+    });
+}
+
+#[test]
+fn enrollment_owner_orphan_does_not_block_authenticated_enrolled_source_opening() {
+    // Signed issuer originals and real provider custody exercise the exact intake selection
+    // path. This component fixture does not claim device attestation or a monetary proof.
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 178);
+    let mut current = enrolled(&f, &d);
+    let slot =
+        KagemushaWalletSlotIdV1(fixture_phase(current.test_provider()).unwrap().binding.slot);
+    let issued = issuer_result(&f, &RequestV1::decode(&request(&f, &mut current)).unwrap());
+    current
+        .accept_credential(&issued.encode().unwrap())
+        .unwrap();
+    let credential = KagemushaWalletCredentialV1::decode_canonical(
+        &issued.credential,
+        &f.config.scheme.scheme_id(),
+    )
+    .unwrap();
+    credential
+        .verify(&f.config.scheme, &f.config.enrollment_certificate)
+        .unwrap();
+    let mut provider = current.into_provider();
+    let before = crate::kagemusha_wallet_intake_v1::select_enrolled_source(
+        &mut provider,
+        &credential,
+        &issued.credential,
+        None,
+    )
+    .unwrap();
+    assert_eq!(before.0, slot);
+    let orphan = KagemushaWalletSlotIdV1([170; 32]);
+    d.platform.with(|s| {
+        s.keys.insert(orphan, signing_key(170));
+        s.anchors.insert(orphan, b"old anchor".to_vec());
+    });
+    let old_key = d.platform.key_of(&orphan).unwrap();
+    assert_eq!(
+        crate::kagemusha_wallet_intake_v1::select_enrolled_source(
+            &mut provider,
+            &credential,
+            &issued.credential,
+            None
+        )
+        .unwrap(),
+        before
+    );
+    assert_eq!(
+        crate::kagemusha_wallet_intake_v1::select_enrolled_source(
+            &mut provider,
+            &credential,
+            &issued.credential,
+            Some(before)
+        )
+        .unwrap(),
+        before
+    );
+    assert_eq!(
+        provider.status(&orphan),
+        Err(KagemushaWalletProviderErrorV1::LostCustody(
+            KagemushaWalletLostCustodyV1::KeyWithoutMarker
+        ))
+    );
+    assert_eq!(d.platform.key_of(&orphan), Some(old_key));
+    assert!(
+        !d.fs
+            .visible_dir(&super::layout::kagemusha_wallet_slot_dir_v1(&orphan))
+    );
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 1);
+        assert_eq!(s.delete_calls, 0);
+        assert_eq!(s.anchors[&orphan], b"old anchor");
+    });
+}
+
+#[test]
+fn enrollment_owner_opening_preserves_matching_pinned_owned_and_unknown_orphan_refusals() {
+    for case in [
+        "matching-key",
+        "pinned-slot",
+        "directory",
+        "unknown-key",
+        "unknown-inventory",
+    ] {
+        let f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 179);
+        let mut current = enrolled(&f, &d);
+        let selected =
+            KagemushaWalletSlotIdV1(fixture_phase(current.test_provider()).unwrap().binding.slot);
+        let issued = issuer_result(&f, &RequestV1::decode(&request(&f, &mut current)).unwrap());
+        current
+            .accept_credential(&issued.encode().unwrap())
+            .unwrap();
+        let credential = KagemushaWalletCredentialV1::decode_canonical(
+            &issued.credential,
+            &f.config.scheme.scheme_id(),
+        )
+        .unwrap();
+        credential
+            .verify(&f.config.scheme, &f.config.enrollment_certificate)
+            .unwrap();
+        let mut provider = current.into_provider();
+        let orphan = KagemushaWalletSlotIdV1([170; 32]);
+        d.platform.with(|s| {
+            let key = if case == "matching-key" {
+                s.keys[&selected].clone()
+            } else {
+                signing_key(170)
+            };
+            s.keys.insert(orphan, key);
+            if case == "unknown-key" {
+                s.probe_unavailable = true;
+            }
+            if case == "unknown-inventory" {
+                s.enumerate_override = Some(Err(KagemushaWalletUnavailableV1::Locked));
+            }
+        });
+        if case == "directory" {
+            super::layout::kagemusha_wallet_prepare_slot_dirs_v1(provider.store(), &orphan)
+                .unwrap();
+        }
+        let pinned = (case == "pinned-slot").then_some((orphan, [3; 32]));
+        let result = crate::kagemusha_wallet_intake_v1::select_enrolled_source(
+            &mut provider,
+            &credential,
+            &issued.credential,
+            pinned,
+        );
+        if case.starts_with("unknown-") {
+            assert!(
+                matches!(
+                    result,
+                    Err(crate::kagemusha_wallet_intake_v1::Error::Provider(
+                        KagemushaWalletProviderErrorV1::Unavailable(_)
+                    ))
+                ),
+                "{case}: {result:?}"
+            );
+        } else {
+            assert!(
+                matches!(
+                    result,
+                    Err(crate::kagemusha_wallet_intake_v1::Error::Provider(
+                        KagemushaWalletProviderErrorV1::LostCustody(
+                            KagemushaWalletLostCustodyV1::KeyWithoutMarker
+                        )
+                    ))
+                ),
+                "{case}: {result:?}"
+            );
+        }
+        d.platform.with(|s| {
+            assert_eq!(s.generate_calls, 1);
+            assert_eq!(s.delete_calls, 0);
+        });
+    }
+}
+
+#[test]
+fn enrollment_owner_same_owner_prekey_erasure_cannot_select_a_second_slot() {
+    let f = apple_collection_fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 180);
+    let orphan = KagemushaWalletSlotIdV1([170; 32]);
+    d.platform.with(|s| {
+        s.keys.insert(orphan, signing_key(170));
+    });
+    let mut current = owner(&f, &d);
+    let message = begin(&f, &mut current);
+    let signature = sign(&f, &message);
+    d.platform.with(|s| s.probe_unavailable = true);
+    assert!(current.authorize(&signature).is_err());
+    let selected =
+        KagemushaWalletSlotIdV1(fixture_phase(current.test_provider()).unwrap().binding.slot);
+    assert_ne!(selected, orphan);
+    assert!(!current.test_provider().has_retained_generation(&selected));
+    assert!(
+        !d.fs
+            .visible_dir(&super::layout::kagemusha_wallet_slot_dir_v1(&selected))
+    );
+    d.platform.with(|s| assert_eq!(s.generate_calls, 0));
+    let root = KagemushaWalletCustodyDirV1::root();
+    for name in d.fs.visible_names(&root) {
+        if name.starts_with("prekey-")
+            && (name.ends_with("-slot.norito") || name.ends_with("-phase.norito"))
+        {
+            d.fs.unlink(&root, &name).unwrap();
+        }
+    }
+    d.platform.with(|s| s.probe_unavailable = false);
+    let before = d.fs.visible_names(&root);
+    assert!(current.authorize(&signature).is_err());
+    assert_eq!(
+        d.fs.visible_names(&root),
+        before,
+        "no replacement Phase or Slot"
+    );
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 0);
+        assert_eq!(s.delete_calls, 0);
+        assert_eq!(s.sign_calls, 0);
+        assert_eq!(s.keys.len(), 1);
     });
 }

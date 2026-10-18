@@ -226,21 +226,6 @@ fn rebase_update(
             .to_canonical_bytes()
             .unwrap()
         }
-        Kind::Blacklist => {
-            let old: KagemushaWalletBlacklistV1 = norito::decode_canonical(original).unwrap();
-            let mut body = old.body;
-            body.scheme_id = scheme.scheme_id();
-            body.signer_certificate = cert.certificate_digest();
-            KagemushaWalletBlacklistV1::sign(
-                body,
-                old.entries,
-                cert,
-                sign(&source.signing, &body.signing_message()),
-            )
-            .unwrap()
-            .to_canonical_bytes()
-            .unwrap()
-        }
         Kind::QuotaShare => {
             let old: KagemushaWalletQuotaShareV1 = norito::decode_canonical(original).unwrap();
             let mut body = old.body;
@@ -274,19 +259,7 @@ fn rebase_update(
             .unwrap()
         }
     };
-    if kind == Kind::Blacklist {
-        *source.original() =
-            crate::kagemusha_wallet_state_v1::BlacklistOriginalReferenceV1::for_original(
-                &source.scheme.scheme_id(),
-                &bytes,
-            )
-            .unwrap()
-            .to_canonical_bytes()
-            .unwrap();
-        source.complete_blacklist = Some(bytes);
-    } else {
-        *source.original() = bytes;
-    }
+    *source.original() = bytes;
     source
         .capsule
         .retained_inputs
@@ -301,11 +274,11 @@ fn rebase_update(
 
 #[test]
 #[ignore = "actual installed sigma/receipt preparation; run optimized explicitly"]
-fn installed_public_refresh_proves_all_five_updates_and_rejects_resigned_bad_sigma() {
+fn installed_public_refresh_proves_all_four_updates_and_rejects_resigned_bad_sigma() {
     let params = PinnedParams::<Eq>::derive(12).unwrap();
     let blank = BootstrapWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
+        core: [Fp::ZERO; 29],
+        rest: [Fp::ZERO; 6],
         lineage: [Fp::ZERO; 18],
         statement: [Fp::ZERO; 26],
     };
@@ -446,7 +419,6 @@ fn installed_public_refresh_proves_all_five_updates_and_rejects_resigned_bad_sig
     for source in [
         Source::credential(),
         Source::policy(),
-        Source::blacklist(),
         Source::quota(),
         Source::anchor(),
     ] {
@@ -503,8 +475,8 @@ fn installed_public_refresh_proves_all_five_updates_and_rejects_resigned_bad_sig
             frozen.capsule.body().predecessor_capsule_digest,
             released.retained.capsule_digest
         );
-        assert_eq!(frozen.capsule.body().retained_inputs, step.originals().0);
-        assert_eq!(frozen.capsule.body().map_openings, step.originals().1);
+        assert_eq!(frozen.capsule.body().retained_inputs, step.originals());
+        assert!(frozen.capsule.body().map_openings.is_empty());
         assert_eq!(frozen.capsule.body().step_proof, proof);
         assert!(frozen.capsule.body().predecessor_lineage().is_none());
         let mut invalid = proof.clone();

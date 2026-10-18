@@ -665,11 +665,13 @@ GOOGLE_ADAPTER_PROFILE = AndroidAdapterProfile(
     provisioning_information=True,
     factory_validity_exemption=True,
 )
-# Huawei's own attestation root for EMUI and HarmonyOS 2–4 AndroidKeyStore phones. This is the
-# AOSP key description variant: Android admission steps 4–9 apply unchanged, every
-# certificate's validity is evaluated and Google's provisioning information extension is
-# not permitted. It is UNQUALIFIED until genuine post-2019 no-GMS chains fix its chain
-# shape, extension OIDs and positions and enrollment tests qualify it in a reviewed release.
+# Candidate Huawei profile; no Huawei-rooted AndroidKeyStore chain has established this
+# AOSP key description variant. Huawei HUKS device certificates are a separate evidence
+# source, including on Android/EMUI, and their roots alone do not establish this profile.
+# TODO: establish the chain shape, extension OIDs, positions and all E1 assertions from
+# genuine no-GMS evidence before qualifying this adapter. For this candidate, Android
+# admission steps 4–9 apply unchanged, every certificate's validity is evaluated and
+# Google's provisioning information extension is not permitted.
 HUAWEI_ADAPTER_PROFILE = AndroidAdapterProfile(
     adapter_id="huawei",
     qualified=False,
@@ -892,6 +894,27 @@ def _authorization_list(value: DerValue) -> dict[int, DerValue]:
 
 def _integer_set(value: DerValue) -> frozenset:
     return frozenset(positive_integer(member) for member in children(value, number=17))
+
+
+def recheck_retained_android_chain_revocation(chain_der, anchors, revocation) -> None:
+    """Refresh revocation only for originals already authenticated by the private owner.
+
+    This parses the retained chain with the existing certificate parser and selects its
+    configured root. It does not admit a key, re-run enrollment, or extend its lifetime.
+    """
+    chain = tuple(chain_der)
+    require(2 <= len(chain) <= MAX_CHAIN
+            and all(type(cert) is bytes and 0 < len(cert) <= MAX_CERT for cert in chain)
+            and sum(len(cert) for cert in chain) <= MAX_ANDROID_CHAIN_BYTES,
+            "retained Android chain outside shape")
+    certificates = tuple(_parse_android_certificate(cert) for cert in chain)
+    roots = tuple(anchors)
+    for anchor in roots:
+        anchor.validate()
+    matched = tuple(anchor for anchor in roots if anchor.spki_sha256 == certificates[-1].spki_sha256)
+    require(len(matched) == 1, "retained Android root differs from selected policy")
+    revocation(tuple(AndroidChainMember(cert.serial, cert.spki_sha256) for cert in certificates),
+               matched[0])
 
 
 def verify_android_key_attestation(
@@ -1239,12 +1262,13 @@ def _verify_apple_assertion_with_hash(
         validation_category: int | None = None
         bundle_version: str | None = None
         if len(auth) > 37:
+            # The attestation's map: an iOS 27.0.1 iPhone asserted exactly these two keys.
             extensions = cbor_exact(auth[37:])
             require(isinstance(extensions, dict)
-                    and set(extensions) == {"validationCategory", "bundleVersion"},
+                    and set(extensions) == {"apple_validation_category_01", "apple_bundle_version_01"},
                     "unsupported App Attest assertion extension")
-            raw_category = extensions["validationCategory"]
-            bundle_version = extensions["bundleVersion"]
+            raw_category = extensions["apple_validation_category_01"]
+            bundle_version = extensions["apple_bundle_version_01"]
             require(type(raw_category) is bytes and len(raw_category) == 4
                     and type(bundle_version) is str
                     and 0 < len(bundle_version.encode("utf-8")) <= 128,

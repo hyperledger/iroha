@@ -53,18 +53,14 @@ fn interpreter_statement(
     vm.load_program(&program).unwrap();
     vm.set_register(left_register.into(), left);
     vm.set_register(right_register.into(), right);
-    assert!(
-        match (&(vm.set_program_counter(2)), &(ivm::VMError::DecodeError)) {
-            (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError) => true,
-            _ => false,
-        }
-    );
-    assert!(
-        match (&(vm.set_program_counter(12)), &(ivm::VMError::DecodeError)) {
-            (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError) => true,
-            _ => false,
-        }
-    );
+    assert!(matches!(
+        (&(vm.set_program_counter(2)), &(ivm::VMError::DecodeError)),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
+    assert!(matches!(
+        (&(vm.set_program_counter(12)), &(ivm::VMError::DecodeError)),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
     vm.set_program_counter(branch_pc).unwrap();
     vm.run_with_host_diagnostic_steps(&mut DefaultHost::default(), &mut recorder)
         .unwrap();
@@ -134,10 +130,20 @@ fn all_six_branch_predicates_match_interpreter_pc_registers_and_gas() {
         (wide::control::BEQ, 7, 8, false),
         (wide::control::BNE, 7, 8, true),
         (wide::control::BNE, 7, 7, false),
-        (wide::control::BLT, i64::MIN as u64, 0, true),
-        (wide::control::BLT, i64::MAX as u64, i64::MIN as u64, false),
-        (wide::control::BGE, i64::MAX as u64, i64::MIN as u64, true),
-        (wide::control::BGE, i64::MIN as u64, 0, false),
+        (wide::control::BLT, i64::cast_unsigned(i64::MIN), 0, true),
+        (
+            wide::control::BLT,
+            i64::MAX as u64,
+            i64::cast_unsigned(i64::MIN),
+            false,
+        ),
+        (
+            wide::control::BGE,
+            i64::MAX as u64,
+            i64::cast_unsigned(i64::MIN),
+            true,
+        ),
+        (wide::control::BGE, i64::cast_unsigned(i64::MIN), 0, false),
         (wide::control::BLTU, 0, u64::MAX, true),
         (wide::control::BLTU, u64::MAX, 0, false),
         (wide::control::BGEU, u64::MAX, 0, true),
@@ -175,7 +181,7 @@ fn self_consistent_forged_branch_statements_and_rows_fail_air() {
         wide::control::BLT,
         1,
         2,
-        i64::MIN as u64,
+        i64::cast_unsigned(i64::MIN),
         i64::MAX as u64,
         2,
         false,
@@ -272,7 +278,7 @@ fn native_stark_proves_branch_comparison_and_rejects_changed_statement_or_row() 
         wide::control::BLT,
         1,
         2,
-        i64::MIN as u64,
+        i64::cast_unsigned(i64::MIN),
         i64::MAX as u64,
         2,
         false,
@@ -315,7 +321,11 @@ fn append_bank_preserves_the_original_residual_owner_and_exact_constraint_count(
     .into_iter()
     .enumerate()
     {
-        for (left, right) in [(0, 0), (u64::MAX, 1), (i64::MIN as u64, i64::MAX as u64)] {
+        for (left, right) in [
+            (0, 0),
+            (u64::MAX, 1),
+            (i64::cast_unsigned(i64::MIN), i64::MAX as u64),
+        ] {
             let source_bits = word::witness(left, right);
             let source = Sources::new(&source_bits);
             let bank = bank_witness(opcode, left, right);

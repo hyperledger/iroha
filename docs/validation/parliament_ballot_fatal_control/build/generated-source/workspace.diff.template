@@ -1,0 +1,252 @@
+--- frozen-workspace.rs
++++ memory-entry-workspace.rs
+@@ -3,13 +3,8 @@
+ 
+ use std::{
+     alloc::{GlobalAlloc, Layout, System},
+-    ffi::OsStr,
+-    fs::OpenOptions,
+-    io::Read,
+-    os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+-    path::Path,
+     ptr,
+-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
++    sync::atomic::{AtomicBool, AtomicPtr, Ordering},
+ };
+ 
+ use iroha_parliament_ballot_proof::{
+@@ -28,8 +23,6 @@
+ static ARENA: AtomicPtr<Arena> = AtomicPtr::new(ptr::null_mut());
+ static INVOKED: AtomicBool = AtomicBool::new(false);
+ static ACTIVE: AtomicBool = AtomicBool::new(false);
+-static CHARGED_UNITS: AtomicU64 = AtomicU64::new(0);
+-static CHARGED_BYTES: AtomicU64 = AtomicU64::new(0);
+ 
+ struct Routed;
+ 
+@@ -67,68 +60,15 @@
+ static ALLOCATOR: Routed = Routed;
+ 
+ fn exhausted() -> ! {
+-    // No allocator, formatting machinery, mutex, unwinding or error hook is
+-    // used on exhaustion. Values were stored immediately after reservation.
+-    let mut bytes = [0u8; 256];
+-    let mut length = 0;
+-    append(
+-        &mut bytes,
+-        &mut length,
+-        b"{\"outcome\":\"resource_exhausted\",\"charged_units\":",
+-    );
+-    decimal(
+-        &mut bytes,
+-        &mut length,
+-        CHARGED_UNITS.load(Ordering::Relaxed),
+-    );
+-    append(&mut bytes, &mut length, b",\"charged_bytes\":");
+-    decimal(
+-        &mut bytes,
+-        &mut length,
+-        CHARGED_BYTES.load(Ordering::Relaxed),
+-    );
+-    append(&mut bytes, &mut length, b",\"arena_enforced\":true,\"complete_workspace_certificate\":false,\"profile_qualified\":false}\n");
+-    let mut written = 0;
+-    while written < length {
+-        let count = unsafe {
+-            libc::write(
+-                libc::STDOUT_FILENO,
+-                bytes.as_ptr().add(written).cast(),
+-                length - written,
+-            )
+-        };
+-        if count <= 0 {
+-            break;
+-        }
+-        written += count.cast_unsigned();
+-    }
+-    unsafe { libc::_exit(73) }
+-}
+-
+-fn append(output: &mut [u8; 256], length: &mut usize, bytes: &[u8]) {
+-    output[*length..*length + bytes.len()].copy_from_slice(bytes);
+-    *length += bytes.len();
+-}
+-
+-fn decimal(output: &mut [u8; 256], length: &mut usize, mut value: u64) {
+-    let mut digits = [0u8; 20];
+-    let mut start = digits.len();
+-    loop {
+-        start -= 1;
+-        digits[start] = b'0' + (value % 10) as u8;
+-        value /= 10;
+-        if value == 0 {
+-            break;
+-        }
+-    }
+-    append(output, length, &digits[start..]);
++    super::fatal::exhausted()
+ }
+ 
+ #[derive(Clone, Copy)]
+ pub struct Options<'a> {
+     pub row: Row,
+     pub role: Role,
+-    pub path: &'a Path,
++    /// Immutable caller bytes retained until the synchronous worker join.
++    pub record: &'a [u8],
+     pub heap_limit: usize,
+     pub units: u64,
+     pub input_bytes: u64,
+@@ -156,8 +96,9 @@
+ }
+ 
+ struct Request {
+-    path: [u8; 4096],
+-    path_length: usize,
++    // Derived from the same borrowed slice in run; never supplied separately.
++    record: *const u8,
++    record_length: usize,
+     row: Row,
+     role: Role,
+     units: u64,
+@@ -182,6 +123,7 @@
+     pub guard_bytes: usize,
+     pub control_reserved_bytes: usize,
+     pub workspace_reserved_bytes: usize,
++    pub fatal_control_reserved_bytes: usize,
+     pub heap_limit_bytes: usize,
+     pub arena_peak_block_bytes: usize,
+     pub arena_peak_requested_bytes: usize,
+@@ -200,7 +142,7 @@
+     {
+         return Err(native::NativeError("repeated_invocation", 0));
+     }
+-    if options.path.as_os_str().as_bytes().len() > 4096 || options.heap_limit > HEAP_BYTES {
++    if options.heap_limit > HEAP_BYTES {
+         return Err(native::NativeError("options_bounds", 0));
+     }
+     if std::mem::size_of::<Arena>() > 4096
+@@ -208,19 +150,22 @@
+     {
+         return Err(native::NativeError("control_layout", 0));
+     }
++    let fatal_control_reserved_bytes = super::fatal::reserved_bytes()
++        .map_err(|error| native::NativeError(error.0, error.1))?;
+     let mapping = native::Mapping::new(options.heap_limit)?;
++    let workspace_reserved_bytes = mapping.length().checked_add(fatal_control_reserved_bytes)
++        .filter(|bytes| *bytes <= native::WORKSPACE_LIMIT)
++        .ok_or(native::NativeError("workspace_with_fatal_control", 0))?;
+     // mmap is page aligned and control starts at a 4096-byte aligned offset.
+     #[allow(clippy::cast_ptr_alignment)]
+     let request = mapping.control().cast::<Request>();
+-    let mut path = [0u8; 4096];
+-    let path_bytes = options.path.as_os_str().as_bytes();
+-    path[..path_bytes.len()].copy_from_slice(path_bytes);
+-    // SAFETY: the fixed control partition is aligned and large enough, and all
+-    // Request fields are fixed-size; no external caller input buffer is retained.
++    // SAFETY: the fixed control partition is aligned and large enough for
++    // Request. Its read-only pointer is derived from options.record; that
++    // borrow remains valid until run returns after joining any started worker.
+     unsafe {
+         request.write(Request {
+-            path,
+-            path_length: path_bytes.len(),
++            record: options.record.as_ptr(),
++            record_length: options.record.len(),
+             row: options.row,
+             role: options.role,
+             units: options.units,
+@@ -240,8 +185,6 @@
+     {
+         return Err(native::NativeError("concurrent_invocation", 0));
+     }
+-    CHARGED_UNITS.store(0, Ordering::Relaxed);
+-    CHARGED_BYTES.store(0, Ordering::Relaxed);
+     // SAFETY: callback cannot unwind (C ABI aborts); request and stack remain
+     // valid through join, and nothing returned owns an arena allocation.
+     let joined = unsafe { mapping.run(worker, request.cast()) };
+@@ -252,7 +195,6 @@
+         unsafe { libc::_exit(74) };
+     }
+     let guard_bytes = mapping.guard_bytes();
+-    let workspace_reserved_bytes = mapping.length();
+     // This is a one-invocation process. Retain the published mapping until the
+     // OS reclaims it at exit: a concurrent GlobalAlloc caller may already have
+     // loaded ARENA, so clearing it and unmapping would require hazard-pointer
+@@ -273,6 +215,7 @@
+             guard_bytes,
+             control_reserved_bytes: native::CONTROL_BYTES,
+             workspace_reserved_bytes,
++            fatal_control_reserved_bytes,
+             heap_limit_bytes: options.heap_limit,
+             arena_peak_block_bytes: stats.peak_blocks,
+             arena_peak_requested_bytes: stats.peak_requested,
+@@ -303,26 +246,7 @@
+ }
+ 
+ fn execute(request: &Request) -> ResultState {
+-    let path = Path::new(OsStr::from_bytes(&request.path[..request.path_length]));
+-    // File acquisition and metadata are supervisor setup, before reservation
+-    // and arena activation. O_NONBLOCK prevents a FIFO/device open from waiting
+-    // before the regular-file check; only regular files are admitted below.
+-    let Ok(mut file) = OpenOptions::new()
+-        .read(true)
+-        .custom_flags(libc::O_NONBLOCK)
+-        .open(path)
+-    else {
+-        return ResultState::failure("input_error", "open", 3);
+-    };
+-    let Ok(metadata) = file.metadata() else {
+-        return ResultState::failure("input_error", "metadata", 3);
+-    };
+-    if !metadata.is_file() {
+-        return ResultState::failure("input_error", "not_regular_file", 3);
+-    }
+-    let Ok(length) = usize::try_from(metadata.len()) else {
+-        return ResultState::failure("admission_rejected", "length_overflow", 2);
+-    };
++    let length = request.record_length;
+     let mut budget = Budget::new(request.units, request.input_bytes);
+     let Ok(reservation) = budget.reserve(length) else {
+         return ResultState::failure("admission_rejected", "reserve", 2);
+@@ -336,16 +260,18 @@
+         budget.remaining_input_bytes(),
+         request.input_bytes - charge.input_bytes
+     );
+-    CHARGED_UNITS.store(charge.verification_units, Ordering::Relaxed);
+-    CHARGED_BYTES.store(charge.input_bytes, Ordering::Relaxed);
++    super::fatal::admit(charge.verification_units, charge.input_bytes);
+     ACTIVE.store(true, Ordering::Release);
+-    let mut result = ResultState::failure("input_error", "read", 3);
++    let mut result = ResultState::failure("worker_error", "not_verified", 4);
+     result.charged_units = charge.verification_units;
+     result.charged_bytes = charge.input_bytes;
+     let mut record = vec![0u8; length];
+-    if file.read_exact(&mut record).is_err() || !matches!(file.read(&mut [0u8; 1]), Ok(0)) {
+-        return result;
+-    }
++    // SAFETY: run derived pointer and length from one live immutable slice;
++    // it cannot return before this worker joins. reserve checked the actual
++    // length before ACTIVE and before this owned arena copy. The borrowed
++    // caller capacity is never adopted by the arena.
++    let staged = unsafe { std::slice::from_raw_parts(request.record, length) };
++    record.copy_from_slice(staged);
+     let receipt = reservation.verify(request.row, request.role, &record);
+     result.charged_units = receipt.charge.verification_units;
+     result.charged_bytes = receipt.charge.input_bytes;
+@@ -379,16 +305,6 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-
+-    #[test]
+-    fn exhaustion_decimal_writer_is_bounded_and_exact() {
+-        for value in [0, 1, 9, 10, 999, u64::MAX] {
+-            let mut output = [0; 256];
+-            let mut length = 0;
+-            decimal(&mut output, &mut length, value);
+-            assert_eq!(&output[..length], value.to_string().as_bytes());
+-        }
+-    }
+ 
+     #[test]
+     fn operational_failures_are_never_invalid_proofs() {

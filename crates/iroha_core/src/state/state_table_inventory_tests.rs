@@ -19,7 +19,8 @@
 //!   another registry field with its handles and reader traits, or a table or cell
 //!   handle; a method belongs to a reader when the whole header of its `impl` or `trait`
 //!   block names one. A record of the peer handshake or of a lane block that the carrier
-//!   walk reads is matched as a return type whatever its name;
+//!   walk reads is matched as a return type whatever its name. Explicit digest-derived
+//!   record identities are matched separately from roots over State content;
 //! - the declarations of the consensus-carried types and their nested records: the block
 //!   header, the block payload and block result, the signed genesis consensus parameters,
 //!   the execution result, every Sumeragi wire message (`crates/iroha_sumeragi`), the lane
@@ -979,6 +980,33 @@ const ROOTS: &[Root] = &[
         )],
     },
     Root {
+        id: "retail_native_receipt_binding",
+        class: RootClass::LocalBindingDigest,
+        carrier: "none: held privately by the original RetailNativeMaintenancePermit until it is consumed or dropped",
+        keyed: false,
+        scope: "the ordered original receipt bytes read from world.smart_contract_state for one bounded retail maintenance batch",
+        construction: "undomained Hash(empty) followed by Hash(previous digest || Hash(receipt bytes)) for each original transcript in order",
+        witnesses: "none",
+        owner: "Original native retail maintenance preparation",
+        disposition: "kept as a node-local comparison fence against receipt-byte substitution between original preparation and consumption; it authenticates no State read, is never returned, persisted, certified or served, and cannot replace original source identity or receipt/policy validation",
+        defect: None,
+        domains: &[],
+        evidence: &[
+            (
+                "crates/iroha_core/src/retail_fee/native_maintenance.rs",
+                "receipt_commitment: Hash,",
+            ),
+            (
+                "crates/iroha_core/src/retail_fee/native_maintenance.rs",
+                "if receipt_commitment != self.receipt_commitment {",
+            ),
+            (
+                "crates/iroha_core/src/retail_fee/native_maintenance.rs",
+                "fn append_receipt_commitment(prefix: Hash, bytes: &[u8]) -> Hash {",
+            ),
+        ],
+    },
+    Root {
         id: "world_net_delta_fold",
         class: RootClass::LocalBindingDigest,
         carrier: "none: held in memory by the execution-output owner and the publication comparison surface of one block",
@@ -1511,10 +1539,16 @@ const ROOTS: &[Root] = &[
 /// of the recognized form, no counted construction, no listed carrier or witness value
 /// type, and no function with a State or World reader in its signature returns it. A
 /// review found them; a new digest of this kind is not detected.
-const REVIEW_ONLY_ROOTS: &[(&str, &str)] = &[(
-    "tiered_backend_row_hashes",
-    "undomained SHA-256 of row bytes inside the tiered backend, which reads storage rows and takes no State or World reader",
-)];
+const REVIEW_ONLY_ROOTS: &[(&str, &str)] = &[
+    (
+        "retail_native_receipt_binding",
+        "undomained ordered receipt-byte fold held privately by the original retail permit; into_entries returns existing receipt identifiers and transfer deltas, not this digest, and its byte-fold helper takes no State reader",
+    ),
+    (
+        "tiered_backend_row_hashes",
+        "undomained SHA-256 of row bytes inside the tiered backend, which reads storage rows and takes no State or World reader",
+    ),
+];
 
 /// Sources that the scan reads: every Rust source of the two crates. Test sources
 /// ([`is_test_source`]) are skipped: they define no production commitment.
@@ -2568,6 +2602,11 @@ const HASH_TYPE_ENDINGS: &[&str] = &[
     "Root",
 ];
 
+/// Exact record-identity types whose bytes are derived from a cryptographic digest.
+/// These identities bind one record, not complete State content; retain their reviewed
+/// function classifications instead of treating every `Id` or nonce as a hash.
+const RECORD_DIGEST_TYPES: &[&str] = &["MultisigProposalId"];
+
 /// Records that carry a root or digest of State content under another name.
 const ROOT_BEARING_RECORDS: &[&str] = &[
     "AxtPolicySnapshot",
@@ -2613,7 +2652,7 @@ fn carried_records() -> Vec<&'static str> {
 const STATE_READER_RULE: &str = "a function or method of a non-test iroha_core source, outside items under #[cfg(test)] or #[test], whose generics, parameters or where clause name a State reader type, or that has a self receiver inside an impl or trait block whose header names one anywhere between the keyword and the opening brace: in the generics, the implemented trait, the implementing type, the supertraits or the where clause. A blanket implementation for all readers, an extension trait of a reader trait, an implementation of a reader trait for a type with another name and an impl block in a macro body are therefore matched. The State reader types (state_reader_types) are the owners of the registry fields (State, World, the transaction storage, the block-hash journal, the trigger set and the canonical runtime) with their reader traits and their block, transaction, view, prepared, detached and published handles, every other type that implements a reader trait in a literal impl block, and the table and cell handles that State is built from";
 
 /// The rule that decides which return types are hash-bearing.
-const HASH_RETURN_RULE: &str = "a return type is hash-bearing when it names Hash, HashOf or Hash32; or a raw digest array [u8; 32], [u8; Hash::LENGTH] or [u8; blake3::OUT_LEN]; or a type whose name, before an optional V<digits> version, ends in Commitment, Digest, Fingerprint, Hash, Proof, ProofBundle, Proofs or Root (wrappers, aliases and records named for what they carry); or one of the listed records that carry a root or digest of State content under another name (root_bearing_records); or one of the records of the peer handshake and of a lane block that the carrier walk reads (carried_records), whatever its name; Self in a return type stands for the implementing type of the enclosing impl block (an associated type Self::Name does not)";
+const HASH_RETURN_RULE: &str = "a return type is hash-bearing when it names Hash, HashOf or Hash32; or one of the explicitly listed digest-derived record identity types (record_digest_types); or a raw digest array [u8; 32], [u8; Hash::LENGTH] or [u8; blake3::OUT_LEN]; or a type whose name, before an optional V<digits> version, ends in Commitment, Digest, Fingerprint, Hash, Proof, ProofBundle, Proofs or Root (wrappers, aliases and records named for what they carry); or one of the listed records that carry a root or digest of State content under another name (root_bearing_records); or one of the records of the peer handshake and of a lane block that the carrier walk reads (carried_records), whatever its name; Self in a return type stands for the implementing type of the enclosing impl block (an associated type Self::Name does not)";
 
 /// The identifiers of a code text.
 fn identifiers(code: &str) -> impl Iterator<Item = &str> {
@@ -2647,6 +2686,7 @@ fn returns_hash(output: &str) -> bool {
         || compact.contains("OUT_LEN]")
         || identifiers(output).any(|name| {
             matches!(name, "Hash" | "HashOf" | "Hash32")
+                || RECORD_DIGEST_TYPES.contains(&name)
                 || ROOT_BEARING_RECORDS.contains(&name)
                 || is_hash_named(name)
                 || CARRIERS.iter().any(|carrier| {
@@ -3667,36 +3707,173 @@ fn witness_key_tags() -> Vec<String> {
         .collect()
 }
 
-/// The registry fields that the SCCP write-set encoder covers, read from its source.
-fn sccp_write_set_fields() -> Vec<String> {
-    let text = source("crates/iroha_core/src/state.rs");
-    let (_, body) = text
-        .split_once("pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(")
-        .expect("State has the SCCP write-set encoder");
-    let (body, _) = body
-        .split_once("\n        Ok(())\n    }")
-        .expect("the SCCP write-set encoder completes its exact stream");
-    let fields: Vec<String> = ["cell!(", "storage!("]
-        .into_iter()
-        .flat_map(|invocation| {
-            let (_, fields) = body
-                .split_once(invocation)
-                .expect("the SCCP encoder names its cell and storage fields");
-            let (fields, _) = fields
-                .split_once(");")
-                .expect("the SCCP field invocation is complete");
-            fields
-                .split(',')
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
-        })
-        .map(|name| {
-            assert!(name.starts_with("sccp_"), "unexpected SCCP field: {name}");
-            format!("world.{name}")
-        })
-        .collect();
-    assert!(!fields.is_empty(), "the SCCP write set names no field");
+/// Read every local SCCP field invocation in lexical order, without comments/literals.
+fn sccp_write_set_fields_from(body: &str) -> Vec<String> {
+    let (_, code) = split_source(body);
+    let mut at = 0;
+    let mut fields = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut kinds = BTreeSet::new();
+    while at < code.len() {
+        let Some(kind) = ["cell", "storage"]
+            .into_iter()
+            .find(|kind| keyword_at(code.as_bytes(), at, kind.as_bytes()))
+        else {
+            at += 1;
+            continue;
+        };
+        let tail = code[at + kind.len()..].trim_start();
+        let Some(tail) = tail.strip_prefix('!') else {
+            at += kind.len();
+            continue;
+        };
+        assert!(
+            !code[..at].trim_end().ends_with(':'),
+            "the SCCP encoder must invoke its local {kind} macro"
+        );
+        let (arguments, tail) = tail
+            .trim_start()
+            .strip_prefix('(')
+            .and_then(|tail| tail.split_once(')'))
+            .expect("the SCCP field invocation has complete parentheses");
+        let tail = tail
+            .trim_start()
+            .strip_prefix(';')
+            .expect("the SCCP field invocation ends with a semicolon");
+        let arguments = arguments.trim();
+        let arguments = arguments.strip_suffix(',').unwrap_or(arguments);
+        for field in arguments.split(',').map(str::trim) {
+            assert!(
+                field.strip_prefix("sccp_").is_some_and(|suffix| {
+                    !suffix.is_empty()
+                        && suffix.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        })
+                }),
+                "unexpected SCCP field: {field}"
+            );
+            assert!(seen.insert(field), "the SCCP write set names {field} twice");
+            fields.push(format!("world.{field}"));
+        }
+        kinds.insert(kind);
+        at = code.len() - tail.len();
+    }
+    assert_eq!(
+        kinds,
+        BTreeSet::from(["cell", "storage"]),
+        "the SCCP encoder names its cell and storage fields"
+    );
     fields
+}
+
+/// The complete registry fields covered by the actual ordered SCCP write-set stream.
+fn sccp_write_set_fields() -> Vec<String> {
+    let body = item_body(
+        "crates/iroha_core/src/state.rs",
+        "pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(",
+    );
+    let fields = sccp_write_set_fields_from(&body);
+    let mut registry = Vec::new();
+    flatten(STATE_FIELDS, &mut registry);
+    let expected: BTreeSet<_> = registry
+        .iter()
+        .filter(|field| field.id.starts_with("world.sccp_"))
+        .map(|field| field.id)
+        .collect();
+    assert_eq!(
+        fields.iter().map(String::as_str).collect::<BTreeSet<_>>(),
+        expected,
+        "the SCCP write set must cover every original registry field"
+    );
+    fields
+}
+
+#[test]
+fn sccp_write_set_scan_preserves_every_call_and_original_field_order() {
+    let body = r##"
+        macro_rules! cell { ($($field:ident),* $(,)?) => {}; }
+        macro_rules! storage { ($($field:ident),* $(,)?) => {}; }
+        // storage!(sccp_comment);
+        let ignored = "cell!(sccp_string);";
+        let raw = r#"storage!(sccp_raw);"#;
+        other_storage!(sccp_other_macro);
+        cell!(sccp_z, sccp_a,);
+        storage!(sccp_first);
+        #[cfg(not(all(test, mutation = "omitted")))]
+        storage ! (sccp_second,);
+        /* cell!(sccp_block_comment); */
+        cell!(sccp_last_cell);
+        storage!(sccp_last);
+    "##;
+    assert_eq!(
+        sccp_write_set_fields_from(body),
+        [
+            "world.sccp_z",
+            "world.sccp_a",
+            "world.sccp_first",
+            "world.sccp_second",
+            "world.sccp_last_cell",
+            "world.sccp_last",
+        ]
+    );
+}
+
+#[test]
+fn sccp_write_set_scan_rejects_malformed_and_duplicate_invocations() {
+    for invalid in [
+        "storage!();",
+        "storage!(sccp_);",
+        "storage!(foreign);",
+        "storage!(sccp_first,,sccp_second);",
+        "storage!(sccp_first sccp_second);",
+        "storage!(sccp_first::nested);",
+        "storage!((sccp_first));",
+        "storage!(sccp_first); storage!(sccp_first);",
+        "storage!(sccp_cell);",
+        "storage!(sccp_first)",
+        "storage!(sccp_first;",
+        "storage![sccp_first];",
+        "foreign::storage!(sccp_first);",
+        "// storage!(sccp_first);",
+    ] {
+        let body = format!("cell!(sccp_cell); {invalid}");
+        assert!(
+            std::panic::catch_unwind(|| sccp_write_set_fields_from(&body)).is_err(),
+            "accepted malformed SCCP field invocation: {invalid}"
+        );
+    }
+    assert!(
+        std::panic::catch_unwind(|| sccp_write_set_fields_from("storage!(sccp_only);")).is_err()
+    );
+}
+
+#[test]
+fn sccp_write_set_scan_covers_the_independent_complete_registry() {
+    let fields = sccp_write_set_fields();
+    // The exhaustive World registry/pass owns this expectation, not the encoder parser
+    // or the previously generated JSON. New or omitted fields therefore cannot vanish.
+    let expected: BTreeSet<_> = rows()
+        .into_iter()
+        .filter(|row| row.field.id.starts_with("world.sccp_"))
+        .map(|row| row.field.id)
+        .collect();
+    assert_eq!(
+        fields.iter().map(String::as_str).collect::<BTreeSet<_>>(),
+        expected
+    );
+    for id in [
+        "world.sccp_destination_pending_generations",
+        "world.sccp_reconciliation_due",
+    ] {
+        assert!(
+            expected.contains(id),
+            "the derived index retains its registry identity"
+        );
+        assert!(
+            fields.iter().any(|field| field == id),
+            "the actual delta binds {id}"
+        );
+    }
 }
 
 /// Whether the item whose signature line contains `signature` carries `#[cfg(test)]`.
@@ -6632,10 +6809,7 @@ fn generate() -> String {
         let row = by_id
             .get(field.as_str())
             .unwrap_or_else(|| panic!("witness families {families:?} name unknown {field}"));
-        assert!(
-            matches!(row.field.role, Role::Canonical(_)) && row.commitment != Commitment::Owner,
-            "witness families {families:?} name {field}, which is not a canonical table or cell"
-        );
+        require_witnessed_commitment(row.field, row.commitment, families);
     }
     let count = |commitment| {
         rows.iter()
@@ -6863,6 +7037,13 @@ fn generate() -> String {
     put(
         &mut out,
         &format!("    \"hash_return_rule\": {},", string(HASH_RETURN_RULE)),
+    );
+    put(
+        &mut out,
+        &format!(
+            "    \"record_digest_types\": {},",
+            list(RECORD_DIGEST_TYPES.iter().copied())
+        ),
     );
     put(
         &mut out,
@@ -8776,6 +8957,86 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
     assert!(names_state_reader("x: &crate::state::State") && !names_state_reader("LaneState"));
 }
 
+/// Typed occurrence identities remain record digests after the native multisig migration.
+#[test]
+fn state_hash_scan_preserves_typed_multisig_record_identity() {
+    assert_eq!(RECORD_DIGEST_TYPES, ["MultisigProposalId"]);
+    assert!(!ROOT_BEARING_RECORDS.contains(&"MultisigProposalId"));
+    let probe = "crates/iroha_core/src/pipeline/probe.rs";
+    for output in [
+        "MultisigProposalId",
+        "Vec<MultisigProposalId>",
+        "Result<Option<iroha_executor_data_model::isi::multisig::MultisigProposalId>, Error>",
+    ] {
+        assert!(returns_hash(output), "{output}");
+        let text = format!("fn typed_record(world: &World) -> {output} {{ todo!() }}");
+        assert_eq!(
+            scan_sources([(probe, text.as_str())])
+                .unlisted_functions
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [format!("{probe}: typed_record: found 1")],
+            "{output}"
+        );
+    }
+    for output in [
+        "MultisigProposalNonce",
+        "AccountId",
+        "MultisigProposalIdentifier",
+    ] {
+        assert!(!returns_hash(output), "{output}");
+    }
+    let own =
+        fn_signatures("impl MultisigProposalId { fn retained(world: &World) -> Self { todo!() } }");
+    assert_eq!(
+        own,
+        [FnSignature {
+            name: "retained".to_owned(),
+            reads_state: true,
+            returns_hash: true,
+        }]
+    );
+
+    let path = "crates/iroha_core/src/smartcontracts/isi/multisig.rs";
+    let name = "invalidate_outstanding_proposals";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert_eq!(
+        scan.state_hash_functions
+            .get(&(path.to_owned(), name.to_owned())),
+        Some(&1),
+        "the actual StateTransaction reader returning Vec<MultisigProposalId> stays inventoried"
+    );
+    let listed = STATE_HASH_FUNCTIONS
+        .iter()
+        .find(|listed| listed.path == path && listed.name == name)
+        .expect("the native occurrence reader retains its reviewed record classification");
+    assert_eq!(listed.count, 1);
+    assert!(matches!(
+        listed.owner,
+        UseOwner::Other(Use::Record, reason) if !reason.is_empty()
+    ));
+}
+
+/// The native exchange fixture checks a schema identifier, not a State hash domain.
+#[test]
+fn state_inventory_native_abc_result_tag_is_a_schema_name() {
+    let path = "crates/iroha_core/src/sumeragi/test_chain/kagemusha_setup/funding/settlement.rs";
+    let tag = "iroha.kagemusha.native-abc-result.v1";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert_eq!(
+        scan.literal_uses.get(tag).and_then(|uses| uses.get(path)),
+        Some(&1),
+        "the retained native result schema is discovered at its actual source"
+    );
+    assert!(matches!(
+        domain_owners().get(tag),
+        Some(DomainOwner::Other(Use::Name))
+    ));
+    assert!(!scan.unlisted_domains.contains(&format!("{tag} in {path}")));
+}
+
 /// A test-only argument cannot hide the next original AMX State-reader method.
 #[test]
 fn state_hash_scan_cfg_arguments_preserve_original_amx_complete() {
@@ -8915,6 +9176,80 @@ fn state_hash_scan_cfg_boundary_helpers_preserve_existing_rules() {
             returns_hash: true
         }]
     );
+}
+
+/// Expiry-proof schema names and the issuer statement preimage retain exact record roles.
+#[test]
+fn enrollment_expiry_domains_bind_records_without_state_authority() {
+    let path = "crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert!(scan.unlisted_domains.is_empty());
+    let owners = domain_owners();
+    for (literal, usage) in [
+        ("iroha.kagemusha.enrollment.expiry-proof.body.v1", Use::Name),
+        ("iroha.kagemusha.enrollment.expiry-proof.v1", Use::Name),
+        (r"iroha:kagemusha:pre-key-expired:v1\0", Use::Record),
+    ] {
+        assert_eq!(owners.get(literal), Some(&DomainOwner::Other(usage)));
+        assert_eq!(
+            scan.literal_uses.get(literal),
+            Some(&BTreeMap::from([(path.to_owned(), 1)])),
+            "the original proof domain must retain its exact source and occurrence"
+        );
+    }
+    let shadow = "iroha.kagemusha.enrollment.expiry-proof.shadow.v1";
+    let changed = format!("{text}\nconst SHADOW: &str = \"{shadow}\";\n");
+    assert_eq!(
+        scan_sources([(path, changed.as_str())])
+            .unlisted_domains
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [format!("{shadow} in {path}")],
+        "the reviewed expiry-proof names cannot exempt another name under their prefix"
+    );
+}
+
+/// Receipt identifiers remain records; the private State-byte comparison is a local digest.
+#[test]
+fn retail_native_entries_keep_record_and_local_binding_classifications() {
+    let path = "crates/iroha_core/src/retail_fee/native_maintenance.rs";
+    let text = source(path);
+    let scan = scan_sources([(path, text.as_str())]);
+    assert!(scan.unlisted_functions.is_empty());
+    assert_eq!(
+        scan.state_hash_functions,
+        BTreeMap::from([((path.to_owned(), "into_entries".to_owned()), 1)]),
+        "only the original record-returning State reader is signature-detected"
+    );
+    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+        .iter()
+        .filter(|listed| listed.path == path && listed.name == "into_entries")
+        .collect();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].count, 1);
+    assert!(matches!(listed[0].owner, UseOwner::Other(Use::Record, _)));
+    let changed =
+        format!("{text}\nmod shadow {{ fn into_entries(state: &State) -> Hash {{ todo!() }} }}\n");
+    assert_eq!(
+        scan_sources([(path, changed.as_str())])
+            .unlisted_functions
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [format!("{path}: into_entries: found 2, listed 1")],
+        "an additional reader must not inherit the original entry's classification"
+    );
+    let root = ROOTS
+        .iter()
+        .find(|root| root.id == "retail_native_receipt_binding")
+        .expect("the private comparison digest is separately inventoried");
+    assert_eq!(root.class, RootClass::LocalBindingDigest);
+    assert!(!root.class.certified() && !root.keyed);
+    assert_eq!(root.witnesses, "none");
+    assert_eq!(root_anchors(root), ["review"]);
+    for (path, marker) in root.evidence {
+        let _ = evidence(path, marker);
+    }
 }
 
 /// The actual AMX source still supplies its exact listed production State-hash method.
@@ -9368,7 +9703,7 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
             .iter()
             .map(|(id, _)| *id)
             .collect::<Vec<_>>(),
-        ["tiered_backend_row_hashes"]
+        ["retail_native_receipt_binding", "tiered_backend_row_hashes"]
     );
     // The protocol fingerprints and the consensus binding, with the plan author's
     // dispositions.
@@ -9601,6 +9936,84 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
     }
 }
 
+/// A direct per-block witness may include these two derived indexes without turning
+/// them into independent State authority. Every other witnessed field remains canonical.
+fn require_witnessed_commitment(field: &Field, commitment: Commitment, families: &[&str]) {
+    let derived = match field.id {
+        "world.sccp_destination_pending_generations" => Some((
+            "world.sccp_committee_generations",
+            "state::sccp_snapshot_state::destination_pending_index",
+        )),
+        "world.sccp_reconciliation_due" => Some((
+            "world.sccp_reconciliations",
+            "sccp::reconciliation_store::rebuild_due; snapshot current and exact undo",
+        )),
+        _ => None,
+    };
+    if let Some((source, reconstruction)) = derived {
+        assert_eq!(commitment, Commitment::Derived, "{}", field.id);
+        assert_eq!(families, [SCCP_FAMILY], "{}", field.id);
+        assert!(
+            matches!(field.role, Role::Derived { sources, check: DerivationCheck::Rebuild(check) }
+                if sources == [source] && check == reconstruction),
+            "{} must retain its exact canonical reconstruction owner",
+            field.id
+        );
+    } else {
+        assert!(matches!(field.role, Role::Canonical(_)), "{}", field.id);
+        assert_eq!(commitment, Commitment::Certified, "{}", field.id);
+    }
+}
+
+#[test]
+fn witness_derived_indexes_preserve_exact_sources_and_refuse_other_families() {
+    let rows = rows();
+    for id in [
+        "world.sccp_destination_pending_generations",
+        "world.sccp_reconciliation_due",
+    ] {
+        let row = rows.iter().find(|row| row.field.id == id).unwrap();
+        require_witnessed_commitment(row.field, row.commitment, &[SCCP_FAMILY]);
+        for families in [&["other_family"][..], &[SCCP_FAMILY, "other_family"][..]] {
+            assert!(
+                std::panic::catch_unwind(|| {
+                    require_witnessed_commitment(row.field, row.commitment, families);
+                })
+                .is_err()
+            );
+        }
+        let mut substituted = *row.field;
+        substituted.role = Role::Derived {
+            sources: &["world.sccp_routes"],
+            check: DerivationCheck::Rebuild("another reconstruction"),
+        };
+        assert!(
+            std::panic::catch_unwind(|| {
+                require_witnessed_commitment(&substituted, row.commitment, &[SCCP_FAMILY]);
+            })
+            .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| {
+                require_witnessed_commitment(row.field, Commitment::Certified, &[SCCP_FAMILY]);
+            })
+            .is_err()
+        );
+    }
+    let other = rows
+        .iter()
+        .find(|row| {
+            row.commitment == Commitment::Derived && !row.field.id.starts_with("world.sccp_")
+        })
+        .expect("the inventory includes another derived owner");
+    assert!(
+        std::panic::catch_unwind(|| {
+            require_witnessed_commitment(other.field, other.commitment, &[SCCP_FAMILY]);
+        })
+        .is_err()
+    );
+}
+
 /// The witnessed roots commit the listed reserved families and nothing else: every
 /// witness key tag of the data model is owned by a production family or is written by
 /// test recorders only, the registry fields of each family exist, and every hash-typed
@@ -9623,7 +10036,7 @@ fn witness_families_cover_every_witness_key_tag() {
             .iter()
             .find(|row| row.field.id == field)
             .unwrap_or_else(|| panic!("{families:?} name unknown {field}"));
-        assert_eq!(row.commitment, Commitment::Certified, "{field}");
+        require_witnessed_commitment(row.field, row.commitment, families);
     }
     assert_eq!(witnessed["world.sumeragi_lanes"], ["sumeragi_lane_state"]);
     assert_eq!(witnessed["world.sccp_parameters"], [SCCP_FAMILY]);

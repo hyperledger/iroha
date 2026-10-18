@@ -72,7 +72,7 @@ impl JindoSignedMonomialChallengeV1 {
 }
 /// Append-only Jindo transcript state.
 #[derive(Clone, Debug)]
-pub(crate) struct JindoTranscriptV1 {
+pub struct JindoTranscriptV1 {
     state: Vec<u8>,
 }
 impl JindoTranscriptV1 {
@@ -119,7 +119,7 @@ impl JindoTranscriptV1 {
         Ok(())
     }
     /// Derive the paper's uniform coefficient-field challenge
-    /// `x* <- F_p^x` for ΠSplit.
+    /// `x* <- F_p^x` for `ΠSplit`.
     pub(crate) fn field_challenge(
         &mut self,
         label: &[u8],

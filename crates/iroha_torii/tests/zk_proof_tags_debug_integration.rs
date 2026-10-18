@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Integration test for /v1/zk/proof-tags/{backend}/{hash} (feature `zk-proof-tags`).
 #![cfg(all(feature = "app_api", feature = "zk-proof-tags"))]
 use axum::{Router, routing::get};

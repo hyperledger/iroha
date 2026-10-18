@@ -814,7 +814,10 @@ fn actual_completed_tail_allocator_refusal_retains_same_rows_and_retries_shell_o
     assert!(pending.budget.same_pool(&budget));
     let shared = match pending.try_share() {
         Ok(shared) => shared,
-        Err(_) => panic!("unchanged completed original retries its shell"),
+        Err(error) => panic!(
+            "unchanged completed original retries its shell: {:?}",
+            error.1
+        ),
     };
     assert_eq!(
         shared.identity_for_test(),
@@ -871,7 +874,7 @@ fn actual_from_charge_failures_keep_layout_and_separate_funding_through_vm() {
     assert_eq!(budget.reserved_bytes(), layout.size());
     let retry = match ChargedBuffer::<u64>::try_from_charge(19, charge) {
         Ok(buffer) => buffer,
-        Err(_) => panic!("same charge retries"),
+        Err(error) => panic!("same charge retries: {:?}", error.1),
     };
     drop(retry);
     assert_eq!(budget.reserved_bytes(), 0);
@@ -906,7 +909,7 @@ fn actual_from_charge_failures_keep_layout_and_separate_funding_through_vm() {
     assert_eq!(budget.reserved_bytes(), layout.size());
     let retry = match ChargedShared::<[u8; 19]>::reserve_from_charge(charge) {
         Ok(shell) => shell,
-        Err(_) => panic!("same charge retries"),
+        Err(error) => panic!("same charge retries: {:?}", error.1),
     };
     drop(retry.initialize([7; 19]));
     assert_eq!(budget.reserved_bytes(), 0);

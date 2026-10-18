@@ -1,10 +1,11 @@
 //! Receive's same-tape incoming object result and split-context ownership.
 //!
-//! Typed owners derive all five result groups, own hard authorization, map
-//! effects and the terminal iff rule. The native producer composes ten fixed A
-//! stages and nine W continuations. TODO: qualify both variants, acceptance and
-//! corrected claims under the authenticated final catalog before admitting a
-//! Receive key; component chains alone do not establish catalog execution.
+//! Typed owners derive all four result groups, own hard authorization, the
+//! inline step relation, map effects and the terminal iff rule. The native
+//! producer composes nine fixed A stages and eight W continuations. TODO: qualify
+//! both variants, acceptance and corrected claims under the authenticated final
+//! catalog before admitting a Receive key; component chains alone do not
+//! establish catalog execution.
 
 use iroha_pasta::{Ep, Fp};
 use iroha_plonk::frontend::{Error, Region, Value};
@@ -18,16 +19,19 @@ use super::{
     own::OwnPolicy,
     results::ReceiveResultTag,
 };
-use crate::operation_relation::{
-    incoming_statement::StatementView,
-    objects::{
-        ObjectKind, SignedObjectCells,
-        credential::CredentialCells,
-        payment::{IncomingPaymentCells, PaymentCells, PaymentInputs},
-        predicates::{all, equal},
-        request::RequestCells,
+use crate::{
+    operation_relation::{
+        incoming_statement::StatementView,
+        objects::{
+            ObjectKind, SignedObjectCells,
+            credential::CredentialCells,
+            payment::{IncomingPaymentCells, PaymentCells, PaymentInputs},
+            predicates::{all, equal},
+            request::RequestCells,
+        },
+        statement::StatementCells,
     },
-    statement::StatementCells,
+    q_sigma::QSigmaPlan,
 };
 
 pub mod authorization;
@@ -55,20 +59,25 @@ pub(super) fn joint_length_valid(
 ) -> Result<Bit<Fp>, Error> {
     let length = uint.glue().add(region, omega.word(), sigma.word())?;
     let length = uint.range_check::<33>(region, &length)?;
-    let limit = uint.constant::<33>(region, (MAX_OMEGA_RAW_BYTES + 1) as u128)?;
+    let limit = uint.constant::<33>(region, (PAYMENT_RAW_PROOF_BUDGET + 1) as u128)?;
     uint.lt(region, &length, &limit)
 }
 
-/// Wire section4 joint raw Omega-transport and sigma budget: `10,000 - 1,723`.
+/// Wire section4 joint raw Omega-transport and sigma budget: `10,000 - 1,394`.
 ///
 /// This is an envelope bound, not an admitted proof length. Exact lengths still
 /// come from the frozen verifier descriptors and participate in the soft check.
-pub const PAYMENT_PROOF_BUDGET: usize = 8_277;
-/// Largest incoming Omega raw tape, including its 320-byte public transcript.
-/// The other proof may be empty on the total malformed-input path.
-pub const MAX_OMEGA_RAW_BYTES: usize = PAYMENT_PROOF_BUDGET + 320;
-/// Largest incoming sigma raw tape when the other proof is empty.
-pub const MAX_SIGMA_RAW_BYTES: usize = PAYMENT_PROOF_BUDGET;
+pub const PAYMENT_PROOF_BUDGET: usize = 8_606;
+/// Independent joint budget including the exact320-byte public Omega prefix.
+pub const PAYMENT_RAW_PROOF_BUDGET: usize = PAYMENT_PROOF_BUDGET + 320;
+/// Largest Send sigma in the source-derived selector-budget-seven catalog.
+pub const MAX_SEND_PROOF_BYTES: usize = 3_520;
+/// Uniform Omega proof plus both claims, after the largest admitted Send sigma.
+pub const OMEGA_TRANSPORT_CAP: usize = PAYMENT_PROOF_BUDGET - MAX_SEND_PROOF_BYTES;
+/// Individual incoming Omega tape cap, including its public320-byte transcript.
+pub const MAX_OMEGA_RAW_BYTES: usize = OMEGA_TRANSPORT_CAP + 320;
+/// Individual incoming Send/Receive sigma tape cap from the admitted source catalog.
+pub const MAX_SIGMA_RAW_BYTES: usize = MAX_SEND_PROOF_BYTES;
 
 /// Fixed signed Request, retained payer credential, Send receipt and Payment tape.
 #[derive(Clone, Copy)]
@@ -118,7 +127,7 @@ pub struct ReceiveObjects {
 impl ReceiveObjects {
     /// Fixed prefix of the full Receive context's object schema.
     /// Tags1..6 are Request, payer credential, Send receipt, Payment, raw Omega,
-    /// raw sigma. Additional own/quoted-credential authorization objects follow.
+    /// raw sigma. The own receipt and the quoted credential pair follow.
     /// # Errors
     /// Zero/overflowing active capacities or impossible fixed schema lengths.
     pub fn context_specs(
@@ -218,7 +227,7 @@ impl ReceiveObjects {
         GlueChip::assert_equal(region, input.sigma.key_index(), payment.sigma_index())?;
         let own = input.own.fields();
         let mut checks = vec![payment.payment().valid().clone()];
-        // Wire section4: |Omega transport| + |sigma| <= 10,000 - 1,723.
+        // Wire section4: |Omega transport| + |sigma| <= 10,000 - 1,394.
         // The active Omega source additionally contains its 320-byte public
         // transcript. UInt32 sources make the sum an exact 33-bit integer.
         checks.push(joint_length_valid(
@@ -397,9 +406,11 @@ impl ReceiveObjects {
             }
         }
         let instances = input.q_instances.first().ok_or(Error::Synthesis)?;
-        let sigma_plan = &plan.operation().sigma;
-        if sigma_plan.slot_count() != 2
-            || instances.len() != 5
+        let sigma_plan = plan.operation().sigma_plan()?;
+        let row = sigma_plan
+            .position(QSigmaPlan::INCOMING)
+            .ok_or(Error::Synthesis)?;
+        if instances.len() != 5
             || instances
                 .iter()
                 .zip(sigma_plan.instance_lengths())
@@ -408,13 +419,15 @@ impl ReceiveObjects {
             return Err(Error::Synthesis);
         }
         for (actual, expected) in [
-            (&instances[0][1], self.sigma.statement().digest()),
-            (&instances[2][1], self.sigma.key_index()),
+            (&instances[0][row], self.sigma.statement().digest()),
+            (&instances[2][row], self.sigma.key_index()),
         ] {
             let actual = bounded_word(chip, region, actual)?;
             GlueChip::assert_equal(region, &actual, expected)?;
         }
-        let chunks = sigma_plan.chunk_range(1).ok_or(Error::Synthesis)?;
+        let chunks = sigma_plan
+            .chunk_range(QSigmaPlan::INCOMING)
+            .ok_or(Error::Synthesis)?;
         if chunks.len() != self.sigma.proof_chunks().len() {
             return Err(Error::Synthesis);
         }

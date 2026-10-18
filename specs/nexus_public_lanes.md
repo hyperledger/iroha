@@ -140,7 +140,9 @@ Validators and treasury operators do not supply nominator payout lists.
 For every authenticated service height `H`, exposure is the eligible bonded stake
 in the committed state at the end of `H`, sampled from the pre-block state of
 `H + 1`. Consecutive equal stake maps coalesce into chronological cohorts with
-service counts, held in bounded historical pages. A validator's gross reward
+service counts, held in bounded historical pages. Capture seeks the serviced
+validator prefixes in both current and undo storage; unrelated staking positions
+do not increase the number of rows visited. A validator's gross reward
 `G` and total service `T` assign a cohort spanning prior cumulative service `P`
 through cumulative service `C` exactly `floor(G*C/T) - floor(G*P/T)` XOR minor
 units. Within that cohort, self-stake and nominations use complete exact
@@ -184,6 +186,17 @@ watermark rejects later credits and wallet state referring to closed earning
 history. Missing archive data defers processing atomically without expiring
 entitlements. Original archived receipts remain available for restart
 reconciliation and independent verification.
+
+History maintenance examines a fixed number of month candidates with a persistent
+round-robin cursor. A month awaiting funding does not prevent retirement of later
+completed months. Superseded recovery revisions leave hot state only after the
+original recovery block authenticates both predecessor and successor, alongside
+compaction of its claims. Current owners and aliases remain available for delayed
+entitlements. Signed policy prefixes similarly retire behind an authenticated
+registry checkpoint, preserving every schedule still needed by unsettled wallets.
+Admission checks the binary evidence budget and canonical JSON parameter limit
+independently. Parameter encoding is fallible: an oversized append is rejected
+atomically, while a local resource refusal retains its original deferral.
 
 The sole reward claim ledger uses authenticated beneficiary history and signed
 receipt sequences. No public instruction accepts arbitrary-recipient reward

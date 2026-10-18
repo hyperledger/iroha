@@ -1,9 +1,15 @@
-//! Archive's hard own authorization and evidence-owner boundary.
+//! Archive's hard own authorization and evidence-owner boundary (lean lineage).
 //!
-//! Invalid incoming evidence may select the adjusted-lineage no-op branch.
-//! It never excuses a malformed own object, missing C4 verification, changed
-//! retained Payment or a different own sigma. TODO: execute all fixed
-//! owners and qualify genuine Q/A/W chains before admitting an Archive key.
+//! A proves the own step inline: `ArchiveLineagePending` runs the administrative
+//! archive rule on the authenticated predecessor and successor, and every stage
+//! constrains both openings and the statement, so no own sigma is re-verified.
+//! The own receipt is hard-verified under the predecessor payment key in slot 0
+//! of the merged signature leaf, whose soft slot 1 is the incoming receipt; the
+//! credential and its certificate are carried by continuity. Invalid incoming
+//! evidence may select the adjusted-lineage no-op branch. It never excuses a
+//! malformed own receipt, a changed retained Payment or a changed statement.
+//! TODO: execute all fixed owners and qualify genuine Q/A/W chains before
+//! admitting an Archive key.
 
 use iroha_plonk::frontend::Error;
 use iroha_plonk_recursion::obligation::ledger::Variant;
@@ -38,6 +44,14 @@ pub(super) fn require_variant(variant: Variant) -> Result<(), Error> {
     } else {
         Err(Error::Synthesis)
     }
+}
+
+/// Index of the merged signature leaf (own receipt hard, incoming receipt soft).
+/// `ArchiveReceive`'s Q0 is its incoming-only `Q_sigma`; `ArchiveStatus` has no
+/// `Q_sigma`, so the leaf is its only Q.
+pub(super) fn signature_q(variant: Variant) -> Result<usize, Error> {
+    require_variant(variant)?;
+    Ok(usize::from(variant == Variant::ArchiveReceive))
 }
 
 pub(super) fn require_task(

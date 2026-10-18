@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Public contract preparation and strict admission failure, plus exact-payload Core execution.
 //! A certified genesis and deployment anchor contract state; isolated call overlays exercise
 //! contract semantics without publishing an execution receipt.

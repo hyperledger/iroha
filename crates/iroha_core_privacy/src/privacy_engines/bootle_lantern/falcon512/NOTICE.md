@@ -22,11 +22,27 @@ Intentional semantic deltas from upstream:
   legacy Falcon modes, and verification orchestration are not compiled;
 - key generation returns raw `(f, g, F, G, h)` material and has explicit
   candidate and parity-sampling exhaustion limits;
+- reduced-degree keygen sampling (`logn` 1 through 5) rejects an entire
+  polynomial candidate when a coefficient exceeds `[-127, 127]`, consuming
+  one existing attempt instead of retrying that coefficient without a bound;
+  degree-512 and degree-1024 draw streams are unchanged because their
+  coefficients cannot reach this refusal;
 - signing is specialized to an externally supplied canonical polynomial target
   and returns both short preimage halves for `s1 + h*s2 = target mod 12289`;
 - the signing PRNG retains the pinned eight-block, word-major ChaCha20 stream
   layout, while secret state and working words are explicitly zeroized;
 - Gaussian sampling has explicit per-coefficient and total proposal caps;
+- conditional big-integer negation propagates addition carry through zero limbs;
+- the integer Bezout solver preserves its exact relation when the second
+  operand is one, where modular reduction alone erases the required coefficient;
+- depth-one keygen subtraction retains the Montgomery factor when restoring
+  its multiplier between prime passes at scales divisible by 32; the fixed
+  Falcon-512 reduction schedule already avoids those two-prime scale cases;
+- the emulated exponential helper handles its documented unit scale exactly
+  at the polynomial endpoint, without signed-conversion or fixed-point
+  overflow; factors below one retain the original rounding;
+- the sampler preserves a zero probability threshold instead of wrapping it
+  to the maximum threshold; positive thresholds retain their original bytes;
 - every returned preimage is rejected unless the exact ring equation and the
   Falcon-512 squared-norm bound both hold;
 - secret-bearing buffers are wrapped in zeroizing storage, and no `unsafe`

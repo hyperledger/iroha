@@ -64,7 +64,7 @@ fn check_linked(
     );
     ensure!(receipt.link().original_settlement_id == *receipt.original().settlement_id());
     ensure!(receipt.link().original_transaction == receipt.original().transaction_hash());
-    ensure!(receipt.link().original_network == receipt.original().network());
+    ensure!(receipt.link().network == receipt.original().network());
     let SettlementDetails::Atomic(original_terms) = &original.details else {
         return Err(eyre!("original verified payment lost its atomic details"));
     };
@@ -177,6 +177,7 @@ fn paid_full_return_preserves_original_and_recovers_both_at_final_tip_without_ne
                     quantity: 250_000_u32.into(),
                 }])
                 .map_err(|error| eyre!(error))?,
+                AtomicSettlementEscrows::empty(),
                 NonZeroU64::new(101).unwrap(),
                 Metadata::default(),
             ),

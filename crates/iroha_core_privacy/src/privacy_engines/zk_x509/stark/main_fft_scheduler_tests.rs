@@ -134,11 +134,11 @@ fn coarse_batch_fft_matches_independent_integer_dft_and_inverse() {
         let original = actual[0].clone();
         coarse_fft(&mut actual[0], root).unwrap();
         for (index, value) in actual[0].iter().enumerate() {
-            let point = root.pow(index as u128).0 as u128;
+            let point = u128::from(root.pow(index as u128).0);
             let expected = original.iter().rev().fold(0u128, |sum, coefficient| {
                 (sum * point + u128::from(coefficient.0)) % modulus
             });
-            assert_eq!(value.0 as u128, expected);
+            assert_eq!(u128::from(value.0), expected);
         }
         coarse_ifft(&mut actual[0], root).unwrap();
         assert_eq!(actual[0], original);

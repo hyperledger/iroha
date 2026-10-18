@@ -30,8 +30,8 @@ const METADATA: [usize; 10] = [
     LENGTH,
 ];
 
-/// Verifier-owned transition function: mode 0 country, 1 PrintableString,
-/// 2 UTF8String; state zero alone accepts a complete sequence.
+/// Verifier-owned transition function: mode 0 country, 1 `PrintableString`,
+/// 2 `UTF8String`; state zero alone accepts a complete sequence.
 pub(super) fn transition(mode: u16, state: u16, byte: u8) -> Option<u16> {
     if mode == 0 {
         return (state == 0 && byte.is_ascii_uppercase()).then_some(0);
@@ -108,7 +108,7 @@ pub(super) fn residues<A: PolynomialAirFieldV1>(
         count += 1;
     };
     for (column, expected) in [
-        (BASE_ROLE, PURPOSE as u64),
+        (BASE_ROLE, u64::from(PURPOSE)),
         (
             BASE_PARENT,
             ZkX509Rfc5280GrammarRoleV1::NameAttributeValue as u64,
@@ -231,12 +231,13 @@ fn oid_index(
     trace: &ZkX509Rfc5280TraceV1,
     value: ZkX509Rfc5280NodeProvenanceV1,
 ) -> Result<usize, ZkX509Rfc5280StarkErrorV1> {
+    let value_tlv_start = value.start;
     let mut nodes =
         role_nodes_v1(trace, ZkX509Rfc5280GrammarRoleV1::NameAttributeOid).filter(|node| {
             node.document == value.document
                 && node.role_instance == value.role_instance
                 && node.parent_node == value.parent_node
-                && node.content_end == value.start
+                && node.content_end == value_tlv_start
         });
     let oid = nodes.next().ok_or(ZkX509Rfc5280StarkErrorV1::Semantic)?;
     if nodes.next().is_some() {

@@ -46,7 +46,7 @@ fn canonical_image_bounds_rows_before_storage_and_defers_later_child_decoding() 
     );
     assert_eq!(
         image
-            .read::<Retirement>(Some(MAX_ATTEMPTS as u8), 3)
+            .read::<Retirement>(Some(u8::try_from(MAX_ATTEMPTS).unwrap()), 3)
             .err()
             .unwrap()
             .to_string(),
@@ -119,7 +119,7 @@ fn aggregate_frame_admission_preserves_narrow_inherited_field_and_allocation_ref
                 let image = Image::decode(encoded.clone(), 0)?;
                 assert_eq!(image.row_count(), MAX_ATTEMPTS);
                 child_entered.set(true);
-                image.read::<Vec<u8>>(Some(MAX_ATTEMPTS as u8), 0)
+                image.read::<Vec<u8>>(Some(u8::try_from(MAX_ATTEMPTS).unwrap()), 0)
             });
         (result, usage, child_entered.get())
     };

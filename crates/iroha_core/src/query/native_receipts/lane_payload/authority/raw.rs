@@ -73,21 +73,37 @@ impl<'a> RawAuthority<'a> {
             max_chunk_count: u32::from_le_bytes(number(chunks)?),
         };
         layout.validate().map_err(|_| LanePayloadError::Source)?;
-        let parameters = fields::<12>(values[4])?;
+        // Match the complete current SumeragiParameters layout, including the
+        // committed due-work clock policy before the key and chain parameters.
+        let [
+            block_cadence,
+            _max_clock_drift,
+            _due_work_max_lag,
+            _key_activation_lead,
+            _key_overlap_grace,
+            _key_expiry_grace,
+            _key_allowed_algorithms,
+            payload_retry_interval,
+            exec_budget,
+            apply_budget,
+            max_block_bytes,
+            epoch_length,
+            demotion_window,
+        ] = fields::<13>(values[4])?;
         let params = ChainParamsRecord {
-            block_time_ms: uint(parameters[0])?,
-            payload_retry_interval_ms: uint(parameters[6])?,
-            exec_budget_ms: uint(parameters[7])?,
-            apply_budget_ms: uint(parameters[8])?,
-            max_block_bytes: u32::from_le_bytes(number(parameters[9])?),
-            epoch_length_blocks: uint(parameters[10])?,
+            block_time_ms: uint(block_cadence)?,
+            payload_retry_interval_ms: uint(payload_retry_interval)?,
+            exec_budget_ms: uint(exec_budget)?,
+            apply_budget_ms: uint(apply_budget)?,
+            max_block_bytes: u32::from_le_bytes(number(max_block_bytes)?),
+            epoch_length_blocks: uint(epoch_length)?,
         };
         params.validate().map_err(|_| LanePayloadError::Source)?;
-        let window = uint(parameters[11])?;
+        let window = uint(demotion_window)?;
         if window == 0 || u64::from(params.max_block_bytes) > layout.max_payload_size_bytes {
             return Err(LanePayloadError::Source);
         }
-        // Unused key-policy fields remain authenticated original bytes; no allocation is
+        // Clock- and key-policy fields remain authenticated original bytes; no allocation is
         // necessary to hash their exact canonical representation into the pinned context.
         let (count, members) = sequence(values[5])?;
         if !iroha_data_model::block::consensus::is_valid_committee_size(count)

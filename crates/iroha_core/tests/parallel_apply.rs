@@ -1,5 +1,5 @@
 //! Differential test for the `parallel_apply` pipeline knob.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Ensures that enabling the skeleton parallel-apply path yields identical
 //! outcomes to the sequential apply path.
 use crate::synthetic_state_snapshots as snapshots;

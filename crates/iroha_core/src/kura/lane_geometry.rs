@@ -2440,10 +2440,33 @@ impl Kura {
             return Ok(());
         }
         self.ensure_nonzero_lineage_root(lineage_root)?;
+        // Each original release source outlives every acquired physical guard,
+        // including partial acquisition, returned storage errors and unwind.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let (mut prune_releases, mut canonical_releases, mut geometry_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+            self.lane_geometry_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _canonical_chain_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _canonical_chain_guard = self.canonical_chain_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(2);
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _geometry_guard = geometry_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _geometry_guard = self.lane_geometry_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(3);
         let bindings = self.geometry_bindings(authoritative, incarnations, activation_heights)?;
         let fingerprint = geometry_catalog_fingerprint(&bindings);
         let journal = self.read_lane_geometry_journal()?;
@@ -2489,16 +2512,50 @@ impl Kura {
             return Ok(());
         }
         self.ensure_nonzero_lineage_root(lineage_root)?;
+        // Each original release source outlives every acquired physical guard,
+        // including partial acquisition, returned storage errors and unwind.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let (
+            mut prune_releases,
+            mut canonical_releases,
+            mut geometry_releases,
+            mut sidecar_releases,
+        ) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+            self.lane_geometry_lock.defer_notifications(),
+            self.sidecar_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _canonical_chain_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _canonical_chain_guard = self.canonical_chain_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(2);
         self.resolve_canonical_storage_before_mutation()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _geometry_guard = geometry_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _geometry_guard = self.lane_geometry_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(3);
         self.raw_geometry_claim.ensure_unclaimed()?;
         let bindings = self.geometry_bindings(authoritative, incarnations, activation_heights)?;
         let fingerprint = geometry_catalog_fingerprint(&bindings);
         let mut journal = self.read_lane_geometry_journal()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC354")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC354"))]
         let _sidecar_guard = self.sidecar_lock.lock();
+        #[cfg(test)]
+        tests::original_recovery_release_tests::fence_boundary(4);
         match cursor {
             #[cfg(test)]
             LaneGeometryRecoveryCursor::Catalog => {
@@ -4181,6 +4238,7 @@ mod tests {
     include!("lane_geometry_tests/05_prepared_journal.rs");
     include!("lane_geometry_tests/08_raw_attempt.rs");
     include!("lane_geometry_tests/07_guarded_publication.rs");
+    include!("lane_geometry_tests/09_recovery_releases.rs");
 }
 
 include!("geometry_request.rs");

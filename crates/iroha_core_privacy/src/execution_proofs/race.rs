@@ -1,4 +1,4 @@
-//! Exact integer RaceV1 reference simulation shared by trace generation and replay tools.
+//! Exact integer `RaceV1` reference simulation shared by trace generation and replay tools.
 
 use iroha_data_model::execution_proofs::{
     RACE_CONTROL_MASK_V1, RACE_LAPS_V1, RACE_MAX_PLAYERS_V1, RACE_MAX_TICKS_V1, RaceCarStateV1,

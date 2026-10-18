@@ -237,6 +237,11 @@ pub enum SingularQueryJson {
         /// Stable policy identifier.
         policy_id: String,
     },
+    /// Looks up the authoritative record of one native bond.
+    FindBondById {
+        /// Bond asset definition address.
+        bond: String,
+    },
 }
 impl SingularQueryJson {
     fn parse_account_by_id(payload: &Map) -> Result<Self, QueryJsonError> {
@@ -301,6 +306,14 @@ impl SingularQueryJson {
         let id = json::from_value::<crate::isi::SettlementId>(payload["id"].clone())
             .map_err(|_| QueryJsonError::InvalidField("payload", "id"))?;
         Ok(Self::FindSettlementReceiptById { id })
+    }
+    fn parse_bond_by_id(payload: &Map) -> Result<Self, QueryJsonError> {
+        if payload.len() != 1 {
+            return Err(QueryJsonError::InvalidField("payload", "bond"));
+        }
+        Ok(Self::FindBondById {
+            bond: payload_required_string(payload, "bond")?.to_owned(),
+        })
     }
     fn parse_fx_corridor_policy_by_id(payload: &Map) -> Result<Self, QueryJsonError> {
         Ok(Self::FindFxCorridorPolicyById {
@@ -475,6 +488,11 @@ impl SingularQueryJson {
                 payload.insert("policy_id".to_owned(), Value::String(policy_id.clone()));
                 map.insert("payload".to_owned(), Value::Object(payload));
             }
+            Self::FindBondById { bond } => {
+                let mut payload = Map::new();
+                payload.insert("bond".to_owned(), Value::String(bond.clone()));
+                map.insert("payload".to_owned(), Value::Object(payload));
+            }
             Self::FindAliasesByAccountId {
                 account_id,
                 dataspace,
@@ -551,6 +569,7 @@ impl SingularQueryJson {
             "FindFxCorridorPolicyById" => {
                 Self::parse_fx_corridor_policy_by_id(singular_payload(map)?)
             }
+            "FindBondById" => Self::parse_bond_by_id(singular_payload(map)?),
             other => Err(QueryJsonError::UnknownSingularType(other.to_owned())),
         }
     }
@@ -585,6 +604,7 @@ impl SingularQueryJson {
             SingularQueryJson::FindSettlementReceiptById { .. } => "FindSettlementReceiptById",
             SingularQueryJson::FindFxCorridorPolicyRegistry => "FindFxCorridorPolicyRegistry",
             SingularQueryJson::FindFxCorridorPolicyById { .. } => "FindFxCorridorPolicyById",
+            SingularQueryJson::FindBondById { .. } => "FindBondById",
         }
     }
     #[allow(clippy::too_many_lines)]
@@ -721,6 +741,13 @@ impl SingularQueryJson {
                     .map_err(|_| QueryJsonError::InvalidField("payload", "policy_id"))?;
                 Ok(SingularQueryBox::FindFxCorridorPolicyById(
                     crate::query::settlement::prelude::FindFxCorridorPolicyById::new(policy_id),
+                ))
+            }
+            SingularQueryJson::FindBondById { bond } => {
+                let bond = crate::asset::AssetDefinitionId::parse_address_literal(&bond)
+                    .map_err(|_| QueryJsonError::InvalidField("payload", "bond"))?;
+                Ok(SingularQueryBox::FindBondById(
+                    crate::query::bond::prelude::FindBondById::new(bond),
                 ))
             }
         }
@@ -883,6 +910,12 @@ impl IterableQueryJson {
                     crate::query::repo::prelude::FindRepoAgreements
                 })
             }
+            IterableQueryKind::FindBonds => {
+                type Item = crate::bond::BondRecord;
+                self.build_for_kind::<Item, _, _>(params.clone(), || {
+                    crate::query::bond::prelude::FindBonds
+                })
+            }
             IterableQueryKind::FindNfts => {
                 type Item = crate::nft::Nft;
                 self.build_for_kind::<Item, _, _>(params.clone(), || {
@@ -955,6 +988,8 @@ pub enum IterableQueryKind {
     FindFeeSponsorPrograms,
     /// Enumerate fee sponsor program identifiers.
     FindFeeSponsorProgramIds,
+    /// Enumerate native bond records.
+    FindBonds,
 }
 impl IterableQueryKind {
     fn as_str(self) -> &'static str {
@@ -974,6 +1009,7 @@ impl IterableQueryKind {
             IterableQueryKind::FindRepoAgreements => "FindRepoAgreements",
             IterableQueryKind::FindFeeSponsorPrograms => "FindFeeSponsorPrograms",
             IterableQueryKind::FindFeeSponsorProgramIds => "FindFeeSponsorProgramIds",
+            IterableQueryKind::FindBonds => "FindBonds",
         }
     }
 }
@@ -996,6 +1032,7 @@ impl FromStr for IterableQueryKind {
             "FindRepoAgreements" => Ok(IterableQueryKind::FindRepoAgreements),
             "FindFeeSponsorPrograms" => Ok(IterableQueryKind::FindFeeSponsorPrograms),
             "FindFeeSponsorProgramIds" => Ok(IterableQueryKind::FindFeeSponsorProgramIds),
+            "FindBonds" => Ok(IterableQueryKind::FindBonds),
             _ => Err(()),
         }
     }
@@ -1919,5 +1956,61 @@ mod settlement_receipt_query_tests {
             assert!(SingularQueryJson::from_value(&value).is_err());
         }
         assert!(SingularQueryJson::from_value(&norito::json!({"type": "FindSettlementReceipt", "payload": {"id": "business_receipt"}})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod bond_query_tests {
+    use super::*;
+    use crate::query::QueryItemKind;
+
+    fn bond() -> crate::asset::AssetDefinitionId {
+        crate::asset::AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::try_new("bonds", "universal").expect("domain"),
+            "slo_bond".parse().expect("asset name"),
+        )
+    }
+
+    #[test]
+    fn bond_singular_query_json_is_exact_and_roundtrips() {
+        let source = SingularQueryJson::FindBondById {
+            bond: bond().to_string(),
+        };
+        let value = source.to_value();
+        assert_eq!(
+            value,
+            norito::json!({"type": "FindBondById", "payload": {"bond": (bond().to_string())}})
+        );
+        assert_eq!(
+            SingularQueryJson::from_value(&value).expect("exact query"),
+            source
+        );
+        let SingularQueryBox::FindBondById(query) = source.into_box().expect("typed query") else {
+            panic!("exact variant");
+        };
+        assert_eq!(query.bond(), &bond());
+        let extra = norito::json!({
+            "type": "FindBondById",
+            "payload": {"bond": (bond().to_string()), "index": 0}
+        });
+        assert!(SingularQueryJson::from_value(&extra).is_err());
+        let malformed = SingularQueryJson::FindBondById {
+            bond: "not-a-bond".to_owned(),
+        };
+        assert!(malformed.into_box().is_err());
+    }
+
+    #[test]
+    fn bond_iterable_query_json_selects_bond_records() {
+        let json = norito::json!({"type": "FindBonds"});
+        let start = IterableQueryJson::from_value(&json)
+            .expect("parse")
+            .into_query_with_params()
+            .expect("build");
+        assert_eq!(start.parts().0, QueryItemKind::BondRecord);
+        assert_eq!(
+            IterableQueryKind::from_str("FindBonds"),
+            Ok(IterableQueryKind::FindBonds)
+        );
     }
 }

@@ -8,7 +8,7 @@ use std::{
 
 /// Filesystem paths used only by CLI commands.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct FilesystemConfig {
+pub struct FilesystemConfig {
     /// SCCP preferences parsed from this same original client source.
     pub(crate) sccp: Option<iroha_sccp_wallet::config::SccpClientConfig>,
     /// Root directory containing Connect queue state.

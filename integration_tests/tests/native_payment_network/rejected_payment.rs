@@ -308,6 +308,7 @@ fn included_rejected_payment_never_credits_customer_across_restart_and_explicit_
                     quantity: 1_000_001_u32.into(),
                 }])
                 .map_err(|e| eyre!(e))?,
+                AtomicSettlementEscrows::empty(),
                 NonZeroU64::new(101).unwrap(),
                 Metadata::default(),
             ),

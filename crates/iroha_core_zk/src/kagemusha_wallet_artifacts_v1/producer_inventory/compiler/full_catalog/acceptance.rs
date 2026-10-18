@@ -9,6 +9,10 @@ use p256::ecdsa::{Signature, signature::Signer};
 
 #[path = "acquisition_tests.rs"]
 mod acquisition_tests;
+#[path = "builtin_batch_tests.rs"]
+mod builtin_batch_tests;
+#[path = "builtin_wrapper_tests.rs"]
+mod builtin_wrapper_tests;
 
 struct Counted<'a> {
     source: &'a mut dyn OriginalSourceV1,
@@ -74,11 +78,28 @@ fn active_imports(
     for selector in 0..inventory.sigma.len() {
         // Every owner is dropped before the next original is read. The first
         // success is also an exact retry after a withheld reinstallable PK.
-        drop(
-            qualified
-                .import_sigma(u8::try_from(selector).unwrap(), originals, config)
-                .unwrap(),
+        // Each use rereads all three signed originals and rebuilds the key from
+        // its qualified seal; the result is exactly the signed original.
+        let before = originals.reads;
+        let owner = qualified
+            .import_sigma(u8::try_from(selector).unwrap(), originals, config)
+            .unwrap();
+        assert_eq!(
+            originals.reads - before,
+            3,
+            "each sigma use revalidates its descriptor, VK and PK"
         );
+        let original = qualified
+            .authenticated_inventory()
+            .read_original(inventory.sigma[selector], originals, config.maximum_bytes)
+            .unwrap();
+        assert_eq!(
+            owner.proving_key().artifact_bytes_v2().unwrap(),
+            original.proving_key,
+            "sigma {selector} rebuilds exactly its signed original"
+        );
+        drop(original);
+        drop(owner);
     }
     let mut programs = std::collections::BTreeSet::new();
     let mut q_imports = 0;
@@ -237,6 +258,20 @@ fn qualify_authenticated(
     let qualified = authenticated
         .qualify_wallet(&installed, native, &mut originals, config)
         .unwrap();
+    // The observation-only stage split counts exactly the opens this independent wrapper saw.
+    let stages = qualified.qualification_metrics();
+    let stage_opens = [
+        stages.binding,
+        stages.sigma,
+        stages.q,
+        stages.routes,
+        stages.omega,
+    ]
+    .iter()
+    .map(|stage| stage.work.originals_opened)
+    .sum::<u64>();
+    assert_eq!(stage_opens, u64::try_from(originals.reads).unwrap());
+    assert!(stages.sigma.work.descriptor_decodes > 0 && stages.routes.work.originals_opened > 0);
     assert_eq!(
         qualified.installation(),
         (installation.scheme_id, installation.manifest_digest)
@@ -252,6 +287,10 @@ fn qualify_authenticated(
     }
     let (sigma_imports, q_imports) = active_imports(&qualified, &mut originals, config);
     let acquisition_cases = acquisition_tests::run(&qualified, &mut originals, config);
+    let receive_alias_cases =
+        operation::assert_receive_alias_controls(&qualified, &installed, &mut originals, config);
+    let signature_reuse_cases =
+        q::assert_signature_reuse_controls(&qualified, &installed, &mut originals, config);
     let inventory = qualified.inventory();
     publish(
         &output.join("qualified-source-membership.json"),
@@ -274,12 +313,14 @@ fn qualify_authenticated(
     )
     .unwrap();
     eprintln!(
-        "WALLET_SOURCE_ACCEPTED engineering=true deployment_authority=false complete_routes={} strict_original_reads={} active_sigma_imports={} active_q_imports={} cancelled_import_opens=0 unavailable_retry=true active_seal_acquisition_cases={} scheme={} manifest={} genuine_receipt=false native_wallet_open=false",
+        "WALLET_SOURCE_ACCEPTED engineering=true deployment_authority=false complete_routes={} strict_original_reads={} active_sigma_imports={} active_q_imports={} cancelled_import_opens=0 unavailable_retry=true active_seal_acquisition_cases={} receive_alias_cases={} signature_reuse_cases={} scheme={} manifest={} genuine_receipt=false native_wallet_open=false",
         inventory.routes.len(),
         originals.reads,
         sigma_imports,
         q_imports,
         acquisition_cases,
+        receive_alias_cases,
+        signature_reuse_cases,
         hex::encode(installation.scheme_id),
         hex::encode(installation.manifest_digest),
     );
@@ -287,7 +328,7 @@ fn qualify_authenticated(
 }
 
 #[test]
-#[ignore = "strict complete52 engineering acceptance from independently pinned persisted originals; no key regeneration or deployment authority"]
+#[ignore = "strict complete22 engineering acceptance from independently pinned persisted originals; no key regeneration or deployment authority"]
 fn qualify_signed_wallet_catalog_from_pinned_originals() {
     let output = PathBuf::from(std::env::var_os("KAGEMUSHA_WALLET_ACCEPTANCE_OUTPUT").unwrap());
     let (_installed, _qualified, _native, _originals) =

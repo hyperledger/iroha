@@ -47,6 +47,75 @@ contains the verifier pack, producer inventory, transport and financial-original
 metadata, and the closed `wallet-originals` directory. Provisional compiler
 originals are excluded from the carrier.
 
+To reuse current-format compact originals, pass
+`--reuse-candidates /absolute/private/inputs/candidates.json`. The closed JSON
+has `schema: "iroha.kagemusha.wallet-artifact-candidates.v1"`,
+`originals_directory` and `originals`. Each entry in `originals` contains exactly
+`descriptor`, `verifying_key` and `proving_key`; each is an object with `bytes`
+and a nonzero lowercase 64-digit `sha256`. The private directory holds these
+immutable content-addressed files. The manifest is at most 4 MiB and selects
+1–4,096 unique triples; shared blobs must have consistent lengths. Its paths and
+file protections follow the same rules as the production request.
+
+The command checks every named original's length and digest, and indexes
+each exact protected original through the shared compiler. Candidates remain
+read-only in their existing directory. A matching source fingerprint still
+requires complete current-source import; a changed fingerprint generates a new
+key in this run's cache. A missing or changed named candidate is an error, never
+a reason to fall back to another copy. Only the final selected roster is copied
+to the new carrier. The output retains the candidate request. The request is
+untrusted lookup data, not a signed catalogue or a source-admission capability.
+Candidate input grants no installation or finality authority. A new network
+still requires its genuine signed genesis and newly signed scheme metadata.
+
+For read-only compatibility diagnosis, run
+`kagemusha_wallet_artifacts --inspect-sources /absolute/carrier SCHEME_HEX MANIFEST_HEX`.
+It authenticates the selected pack and catalog, imports every sigma, Q program
+and operation route, and checks the complete Omega closure. It does not admit
+genesis, a wallet runtime or financial execution.
+
+The explicit finite-profile build path uses
+`--export-builtin-profile /absolute/private/profile-request.json`. Its closed
+request has schema `iroha.kagemusha.builtin-source-profile.v1`,
+`carrier_directory`, `verifier_pack_name`, `originals_name`, `encoded`,
+`scheme_id`, `manifest_digest`, `chain_id`, `network_id_hex`,
+`genesis_public_key`, `signed_genesis` (the path/hash object above), and an
+existing private `output_directory`. Encoded carriers use `wallet-originals`.
+No role signing key is needed. The output `builtin-profile-entry.rs` is created
+only after independent signed-genesis authentication, unconditional complete
+strict source qualification and another bounded read of every selected original.
+It cannot be loaded as runtime authority: selected entries must be compiled into
+the engine's closed `keys/keygen/builtin/generated.rs` table.
+
+`--inspect-builtin-profile` takes the same public request and exercises the
+explicit compiled-profile path. It checks the independent native genesis,
+complete ordered graph and every original, and fails if the compiled profile is
+unknown or stale. The build computes its own current source-input identity;
+export never accepts an identity supplied by the request. Existing strict APIs
+remain unconditional and are the generator's independent reference. This changes
+neither signed circuit identities nor proof bytes. Native phone latency must be
+measured using the resulting build; export success is not a timing result.
+
+After every final custody check passes, inspection prints one `OPENING_METRICS`
+line holding an `iroha.kagemusha.opening-metrics.v1` record. Its ordered phases
+are `selection` (request and native genesis), `verifier_pack`, `catalog_intake`,
+`snapshot_capture`, the qualified graph's own `binding`, `sigma`, `q`, `routes`
+and `omega` split, `closing` and `total`. Each phase has whole microseconds and
+the work its thread started: signed originals opened, encoded files opened,
+stored and raw bytes hashed, zstd decodes, descriptor decodes, ancestry walks
+and the ancestor links those walks reopened. Native installation records the
+same phases on its attempt, with `selection` covering the signed base, a
+`catalog_metadata` phase after it for the carrier root, layout and metadata-file
+checks that run on every attempt (its `catalog_intake` then covers inventory
+authentication and the reader opening), and an added `runtime` phase for
+custody-root and provider opening. An attempt that reuses the process's admitted
+graph for byte-identical originals under the same carrier root records only
+`selection`, `catalog_metadata`, `admitted_intake`, `admitted_graph`, `runtime`
+and `total`; an attempt whose reuse is refused continues with the complete
+phases. The record is observation only: no admission, readiness, error, retry or
+cancellation decision reads it, and it is never persisted, signed, matched
+against a profile or written to the carrier or custody root.
+
 ## Native Load Finality
 
 `GET /v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality` requires

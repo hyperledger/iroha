@@ -5,6 +5,7 @@ use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
     account::AccountId, isi::InstructionBox, sumeragi_finality::WorldStateSnapshotV1,
 };
+use iroha_executor_data_model::isi::multisig::MultisigProposalId;
 use norito::derive::{JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize};
 
 mod path;
@@ -40,14 +41,18 @@ pub struct MultisigExecutionEvidenceV1 {
     pub multisig_account_id: AccountId,
     /// Exact external entrypoint identity that executed the proposal.
     pub entrypoint_hash: [u8; 32],
+    /// Exact proposal occurrence carried by the signed approval.
+    pub proposal_id: MultisigProposalId,
     /// Exact inner instruction vector hash carried by that approval.
     pub instructions_hash: HashOf<Vec<InstructionBox>>,
     /// Complete canonical World hash preimages at the certified cut.
     pub world_snapshot: WorldStateSnapshotV1,
-    /// Original stored Vec bytes of `MultisigApprovalOutcomeV1`, not a projection.
-    pub approval_outcome: Vec<u8>,
+    /// Original approval outcome when present. Absence never proves financial execution; controller invalidation has only the exact terminal original.
+    pub approval_outcome: Option<Vec<u8>>,
     /// Original stored Vec bytes of `MultisigProposalTerminalExecutionStateV1`.
     pub terminal_execution: Vec<u8>,
+    /// Exact canceled target terminal original at the same entrypoint, only for cancellation wrappers.
+    pub canceled_target_terminal_execution: Option<Vec<u8>>,
 }
 /// Exact bounded decoding. No authority follows from successful decoding.
 /// # Errors
@@ -65,14 +70,25 @@ pub fn decode_unverified_multisig_execution_evidence_v1(
         norito::canonical_decode_limits(MULTISIG_EXECUTION_EVIDENCE_MAX_BYTES_V1),
     )?;
     if value.height < 2
-        || [&value.approval_outcome, &value.terminal_execution]
-            .iter()
+        || std::iter::once(&value.terminal_execution)
+            .chain(value.approval_outcome.as_ref())
             .any(|record| {
                 record.is_empty() || record.len() > MULTISIG_EXECUTION_RECORD_MAX_BYTES_V1
             })
     {
         return Err(norito::Error::Message(
             "multisig execution record exceeds reader bound".into(),
+        ));
+    }
+    if value
+        .canceled_target_terminal_execution
+        .as_ref()
+        .is_some_and(|record| {
+            record.is_empty() || record.len() > MULTISIG_EXECUTION_RECORD_MAX_BYTES_V1
+        })
+    {
+        return Err(norito::Error::Message(
+            "canceled target record exceeds reader bound".into(),
         ));
     }
     Ok(value)
@@ -85,10 +101,12 @@ pub struct MultisigExecutionEvidenceRefV1<'a> {
     multisig_account_id: FieldRef<'a, AccountId>,
     // Keep the literal array type so Norito derives the sole raw-byte field layout.
     entrypoint_hash: [u8; 32],
+    proposal_id: FieldRef<'a, MultisigProposalId>,
     instructions_hash: FieldRef<'a, HashOf<Vec<InstructionBox>>>,
     world_snapshot: FieldRef<'a, WorldStateSnapshotV1>,
-    approval_outcome: FieldRef<'a, Vec<u8>>,
+    approval_outcome: Option<FieldRef<'a, Vec<u8>>>,
     terminal_execution: FieldRef<'a, Vec<u8>>,
+    canceled_target_terminal_execution: Option<FieldRef<'a, Vec<u8>>>,
 }
 impl<'a> MultisigExecutionEvidenceRefV1<'a> {
     /// Borrow exact admitted originals for bounded serialization; no authority is granted.
@@ -102,20 +120,24 @@ impl<'a> MultisigExecutionEvidenceRefV1<'a> {
         context_id: &'a Hash,
         multisig_account_id: &'a AccountId,
         entrypoint_hash: &'a [u8; 32],
+        proposal_id: &'a MultisigProposalId,
         instructions_hash: &'a HashOf<Vec<InstructionBox>>,
         world_snapshot: &'a WorldStateSnapshotV1,
-        approval_outcome: &'a Vec<u8>,
+        approval_outcome: Option<&'a Vec<u8>>,
         terminal_execution: &'a Vec<u8>,
+        canceled_target_terminal_execution: Option<&'a Vec<u8>>,
     ) -> Self {
         Self {
             height: FieldRef(height),
             context_id: FieldRef(context_id),
             multisig_account_id: FieldRef(multisig_account_id),
             entrypoint_hash: *entrypoint_hash,
+            proposal_id: FieldRef(proposal_id),
             instructions_hash: FieldRef(instructions_hash),
             world_snapshot: FieldRef(world_snapshot),
-            approval_outcome: FieldRef(approval_outcome),
+            approval_outcome: approval_outcome.map(FieldRef),
             terminal_execution: FieldRef(terminal_execution),
+            canceled_target_terminal_execution: canceled_target_terminal_execution.map(FieldRef),
         }
     }
 }
@@ -168,13 +190,15 @@ mod tests {
                     .clone(),
             ),
             entrypoint_hash: *Hash::new(b"format-only input specimen").as_ref(),
+            proposal_id: "11".repeat(32).parse().unwrap(),
             instructions_hash: HashOf::new(&Vec::<InstructionBox>::new()),
             world_snapshot: WorldStateSnapshotV1 {
                 schema_hash: Hash::new(b"format-only registry specimen"),
                 entries: Vec::new(),
             },
-            approval_outcome: vec![1, 2, 3],
+            approval_outcome: Some(vec![1, 2, 3]),
             terminal_execution: vec![4, 5, 6],
+            canceled_target_terminal_execution: None,
         }
     }
     #[test]
@@ -185,10 +209,12 @@ mod tests {
             &data.context_id,
             &data.multisig_account_id,
             &data.entrypoint_hash,
+            &data.proposal_id,
             &data.instructions_hash,
             &data.world_snapshot,
-            &data.approval_outcome,
+            data.approval_outcome.as_ref(),
             &data.terminal_execution,
+            data.canceled_target_terminal_execution.as_ref(),
         );
         let bytes = norito::encode_canonical(&data).unwrap();
         assert_eq!(norito::encode_canonical(&borrowed).unwrap(), bytes);
@@ -213,15 +239,18 @@ mod tests {
         ] {
             let mut data = unverified_data();
             data.entrypoint_hash = entrypoint_hash;
+            data.canceled_target_terminal_execution = Some(vec![0, 255, 7]);
             let borrowed = MultisigExecutionEvidenceRefV1::new(
                 &data.height,
                 &data.context_id,
                 &data.multisig_account_id,
                 &data.entrypoint_hash,
+                &data.proposal_id,
                 &data.instructions_hash,
                 &data.world_snapshot,
-                &data.approval_outcome,
+                data.approval_outcome.as_ref(),
                 &data.terminal_execution,
+                data.canceled_target_terminal_execution.as_ref(),
             );
             let bytes = norito::encode_canonical(&borrowed).unwrap();
             assert_eq!(bytes, norito::encode_canonical(&data).unwrap());
@@ -236,6 +265,33 @@ mod tests {
         }
     }
     #[test]
+    fn canceled_subject_layout_preserves_explicit_absent_approval() {
+        let mut data = unverified_data();
+        data.approval_outcome = None;
+        let borrowed = MultisigExecutionEvidenceRefV1::new(
+            &data.height,
+            &data.context_id,
+            &data.multisig_account_id,
+            &data.entrypoint_hash,
+            &data.proposal_id,
+            &data.instructions_hash,
+            &data.world_snapshot,
+            None,
+            &data.terminal_execution,
+            None,
+        );
+        let bytes = norito::encode_canonical(&borrowed).unwrap();
+        assert_eq!(bytes, norito::encode_canonical(&data).unwrap());
+        assert_eq!(
+            decode_unverified_multisig_execution_evidence_v1(&bytes).unwrap(),
+            data
+        );
+        assert_eq!(
+            norito::json::to_json(&borrowed).unwrap(),
+            norito::json::to_json(&data).unwrap()
+        );
+    }
+    #[test]
     fn native_reader_refuses_empty_genesis_and_oversized_original_records() {
         assert!(decode_unverified_multisig_execution_evidence_v1(&[]).is_err());
         let mut data = unverified_data();
@@ -247,14 +303,14 @@ mod tests {
             .is_err()
         );
         data.height = 2;
-        data.approval_outcome.clear();
+        data.approval_outcome = Some(Vec::new());
         assert!(
             decode_unverified_multisig_execution_evidence_v1(
                 &norito::encode_canonical(&data).unwrap()
             )
             .is_err()
         );
-        data.approval_outcome = vec![0; MULTISIG_EXECUTION_RECORD_MAX_BYTES_V1 + 1];
+        data.approval_outcome = Some(vec![0; MULTISIG_EXECUTION_RECORD_MAX_BYTES_V1 + 1]);
         assert!(
             decode_unverified_multisig_execution_evidence_v1(
                 &norito::encode_canonical(&data).unwrap()

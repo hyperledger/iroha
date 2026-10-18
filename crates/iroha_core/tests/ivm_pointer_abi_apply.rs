@@ -1,5 +1,5 @@
 //! Verify IVM pointer ABI applies queued instructions correctly.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::too_many_lines)]
 use iroha_core::{
     kura::Kura,
@@ -390,7 +390,6 @@ fn apply_queued_isis_from_compiled_json_driven_double_transfer() {
         dst = dst_raw,
         reserve = reserve_raw,
         cbdc = cbdc_asset_raw,
-        ratio = ratio,
     );
     let program = compiler.compile_source(&src).expect("compile");
     let mut vm = IVM::new(500_000);

@@ -81,8 +81,14 @@ fn fixed_rows_at_point_v1<R: AsRef<[F]>>(
 fn log19_public_at_point_v1(
     schedule: &MainLog19PublicFixedAffineScheduleV1,
     point: E,
-) -> Result<[MainLog19VerifierGeneratedFixedOpeningV1<E>; 2], ZkX509StarkErrorV1> {
+) -> Result<Box<[MainLog19VerifierGeneratedFixedOpeningV1<E>; 2]>, ZkX509StarkErrorV1> {
     schedule.validate_v1()?;
+    // Keep the exact current/next pair heap-owned across this return and the
+    // prepared verifier context; reserve before doing any interpolation work.
+    let mut openings = Vec::new();
+    openings
+        .try_reserve_exact(2)
+        .map_err(|_| ZkX509StarkErrorV1::AllocationFailure)?;
     let weights = lagrange_weights_v1(ZK_X509_MAX_NATIVE_TRACE_LOG2_V1, point)?;
     let (prefix, linear) = main_log19_weight_prefixes_v1(&weights)?;
     let mut combined = [[E::ZERO; MAIN_LOG19_PUBLIC_FIXED_WIDTH_V1]; 2];
@@ -96,15 +102,16 @@ fn log19_public_at_point_v1(
             *target = target.add(value);
         }
     }
-    let current = main_log19_generated_fixed_opening_v1(
-        main_log19_der_fixed_opening_from_prefix_v1(&weights, &prefix, 0)?,
-        combined[0],
-    );
-    let next = main_log19_generated_fixed_opening_v1(
-        main_log19_der_fixed_opening_from_prefix_v1(&weights, &prefix, 1)?,
-        combined[1],
-    );
-    Ok([current, next])
+    for (shift, row) in combined.iter().enumerate() {
+        openings.push(main_log19_generated_fixed_opening_v1(
+            main_log19_der_fixed_opening_from_prefix_v1(&weights, &prefix, shift)?,
+            *row,
+        ));
+    }
+    openings
+        .into_boxed_slice()
+        .try_into()
+        .map_err(|_| ZkX509StarkErrorV1::InternalInvariant)
 }
 
 fn opened_rows_v1<'a>(
@@ -204,7 +211,7 @@ fn verify_composition_v1(
 /// This private owner cannot be supplied by a proof or external caller.
 struct MainDeepFixedV1 {
     point: E,
-    public: [MainLog19VerifierGeneratedFixedOpeningV1<E>; 2],
+    public: Box<[MainLog19VerifierGeneratedFixedOpeningV1<E>; 2]>,
     sha_current: [[E; ZK_X509_SHA_BATCH_FIXED_WIDTH_V1]; ZK_X509_SHA_SEGMENT_COUNT_V1],
     sha_next: [[E; ZK_X509_SHA_BATCH_FIXED_WIDTH_V1]; ZK_X509_SHA_SEGMENT_COUNT_V1],
     rows: Vec<Vec<E>>,
@@ -382,7 +389,7 @@ fn main_deep_composition_v1(
                 &prepared.public[0].rfc,
                 RfcMainFp4AirContextV1 {
                     der: log19.post_base.der(),
-                    rfc: log19.post_base.rfc5280(),
+                    rfc: *log19.post_base.rfc5280(),
                 },
             )?,
             MainFp4AirEvaluatorV1::Sha(evaluator) => {
@@ -421,7 +428,7 @@ fn main_deep_composition_v1(
                     ShaMainFp4AirContextV1 {
                         word: log19.post_base.sha_word(),
                         call: log19.post_base.sha(),
-                        rfc: log19.post_base.rfc5280(),
+                        rfc: *log19.post_base.rfc5280(),
                         segment: segment as u8,
                     },
                 )?

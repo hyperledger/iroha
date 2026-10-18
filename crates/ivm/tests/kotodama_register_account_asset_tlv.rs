@@ -1,7 +1,7 @@
 //! End-to-end canonical entity registration calls through the pointer ABI.
+use crate::common;
 use ivm::{IVM, MockWorldStateView, PermissionToken, mock_wsv::WsvHost};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn kotodama_register_account_and_unregister_asset() {
     // Program: register domain, then register an account, then register asset and unregister it

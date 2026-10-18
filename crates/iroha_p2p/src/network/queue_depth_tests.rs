@@ -16,7 +16,7 @@ fn subscriber_unrouted_counts_increment_by_topic() {
         "increment helper should increase subscriber unrouted count"
     );
     assert!(
-        after_safety >= before_safety + 1,
+        after_safety > before_safety,
         "unrouted safety traffic must have a distinct counter"
     );
     assert!(
@@ -24,7 +24,7 @@ fn subscriber_unrouted_counts_increment_by_topic() {
         "trust-gossip should be grouped under peer gossip counters"
     );
     assert!(
-        after_chunks >= before_chunks + 1,
+        after_chunks > before_chunks,
         "consensus chunk drops should be tracked separately"
     );
 }

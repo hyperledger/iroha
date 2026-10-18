@@ -1,5 +1,4 @@
 //! `SoraFS` helper commands for interacting with Torii REST endpoints.
-#![allow(clippy::size_of_ref)]
 use super::{
     da::{normalize_ticket_hex, persist_manifest_bundle},
     da_common::DaManifestFetcher,

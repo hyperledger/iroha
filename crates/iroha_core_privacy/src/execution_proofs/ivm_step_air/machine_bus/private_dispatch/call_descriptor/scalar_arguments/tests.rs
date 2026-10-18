@@ -236,7 +236,7 @@ fn scalar_roles_and_both_original_halves_are_exact() {
         (vec![boolean(); 2], vec![0, 1]),
         (
             vec![CallTypeNodeV1::Unit, boolean(), error()],
-            vec![0, 1, u32::MAX as u64],
+            vec![0, 1, u64::from(u32::MAX)],
         ),
     ] {
         let p = simple(&roles);
@@ -262,21 +262,30 @@ fn scalar_roles_and_both_original_halves_are_exact() {
         let p = simple(&[role]);
         assert!(!Fixture::new(&p, 0, &[value]).accepts(&p));
     }
-    for nodes in [
-        vec![CallTypeNodeV1::Option, boolean()],
-        vec![CallTypeNodeV1::List { capacity: 2 }, boolean()],
-        vec![CallTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
-        vec![CallTypeNodeV1::Tuple(2), CallTypeNodeV1::Unit, boolean()],
-        vec![CallTypeNodeV1::Struct {
-            name: "Empty".into(),
-            fields: vec![],
-        }],
+    for (nodes, words) in [
+        (vec![CallTypeNodeV1::Option, boolean()], 1),
+        (vec![CallTypeNodeV1::List { capacity: 2 }, boolean()], 1),
+        (vec![CallTypeNodeV1::Leaf(EntrypointValueKindV1::Int)], 1),
+        (
+            vec![CallTypeNodeV1::Tuple(2), CallTypeNodeV1::Unit, boolean()],
+            2,
+        ),
+        (
+            vec![CallTypeNodeV1::Struct {
+                name: "ScalarArguments::Empty".into(),
+                fields: vec![],
+            }],
+            1,
+        ),
     ] {
-        let words = ivm::call::CallSchemaV1 {
-            nodes: nodes.clone(),
-        }
-        .word_count()
-        .unwrap();
+        assert_eq!(
+            ivm::call::CallSchemaV1 {
+                nodes: nodes.clone(),
+            }
+            .word_count(),
+            Some(words),
+            "each flat-bank refusal control must first pass native schema admission"
+        );
         let p = simple(&nodes);
         assert!(
             !Fixture::new(&p, 0, &vec![0; words]).accepts(&p),
@@ -286,9 +295,21 @@ fn scalar_roles_and_both_original_halves_are_exact() {
 }
 
 #[test]
+fn unqualified_nominal_schema_is_refused_before_flat_bank_witness_construction() {
+    let schema = ivm::call::CallSchemaV1 {
+        nodes: vec![CallTypeNodeV1::Struct {
+            name: "Empty".into(),
+            fields: vec![],
+        }],
+    };
+    assert!(schema.analyze().is_none());
+    assert!(schema.word_count().is_none());
+}
+
+#[test]
 fn initialization_privacy_value_and_padding_have_closed_original_owners() {
     let p = simple(&[CallTypeNodeV1::Unit, boolean(), error()]);
-    let f = Fixture::new(&p, 0, &[0, 1, u32::MAX as u64]);
+    let f = Fixture::new(&p, 0, &[0, 1, u64::from(u32::MAX)]);
     assert!(f.accepts(&p));
     for index in 0..3 {
         for column in 0..WORD_WIDTH {
@@ -477,7 +498,7 @@ fn all_original_and_scalar_packets_share_every_typed_history_stage() {
         E, NOTE_COPY_WIDTH_V1, ORDERED, PREVIOUS, PublicPacketBus, ROW_WIDTH, SORTED,
     };
     let program = simple(&[CallTypeNodeV1::Unit, boolean(), error()]);
-    let fixture = Fixture::new(&program, 0, &[0, 1, u32::MAX as u64]);
+    let fixture = Fixture::new(&program, 0, &[0, 1, u64::from(u32::MAX)]);
     let shape = &fixture.schedule.shape;
     let ports = shape.ports();
     assert!(fixture.accepts(&program));
@@ -718,7 +739,7 @@ fn native_case(jals: bool, roles: &[CallTypeNodeV1], values: &[u64], gas: u64) -
     let (descriptor, ports) = frame_descriptor::tests::child_for_original_tables(
         (
             c.entry_pc,
-            c.frame_bytes as u64,
+            u64::from(c.frame_bytes),
             c.argument_word_count().unwrap() as u64,
             c.result_word_count().unwrap() as u64,
         ),
@@ -862,11 +883,16 @@ fn genuine_prepared_scalar_call_binds_native_final_gas_and_complete_access_order
         native_case(jals, &[], &[], 10000);
         native_case(jals, &[CallTypeNodeV1::Unit], &[0], 10000);
         native_case(jals, &[boolean()], &[1], 44);
-        native_case(jals, &[boolean(), error()], &[1, u32::MAX as u64], 10000);
+        native_case(
+            jals,
+            &[boolean(), error()],
+            &[1, u64::from(u32::MAX)],
+            10000,
+        );
         native_case(
             jals,
             &[CallTypeNodeV1::Unit, boolean(), error()],
-            &[0, 1, u32::MAX as u64],
+            &[0, 1, u64::from(u32::MAX)],
             10000,
         );
     }
@@ -925,7 +951,7 @@ fn original_public_capacity_is_complete_or_explicitly_unqualified() {
     let shape = Shape::new(&p).unwrap();
     assert_eq!(
         (shape.ports(), shape.history_rows(), shape.width()),
-        (16383, 131064, 1409637)
+        (16383, 131_064, 1_409_637)
     );
     for count in [3268, 8192] {
         let p = simple(&vec![CallTypeNodeV1::Unit; count]);
@@ -1173,7 +1199,7 @@ fn original_nominal_error_catalog_rejects_detached_codes_ordinals_and_padding() 
         changed.errors[i] = F::ONE;
         assert!(!changed.accepts(&a));
     }
-    for value in [0, 8, u32::MAX as u64, 1 << 32] {
+    for value in [0, 8, u64::from(u32::MAX), 1 << 32] {
         assert!(!Fixture::new(&a, 0, &[value]).accepts(&a));
     }
 }
@@ -1397,7 +1423,7 @@ fn same_program_error_callables_bind_distinct_ordinals_to_original_fetch() {
 // Empty root result reservation8, root frame9, four ADDI4, two STORE64 six,
 // then CALL opcode2 and child frame9 precede the first argument NODE.
 fn two_word_initial_gas(post_frame: u64) -> u64 {
-    assert_eq!(ivm::call_gas::frame(64, 1), Ok(9));
+    assert_eq!(ivm::call_gas::frame(64, 1).unwrap(), 9);
     assert_eq!((ivm::call_gas::NODE, ivm::call_gas::WORD), (1, 8));
     post_frame.checked_add(8 + 9 + 4 + 6 + 2 + 9).unwrap()
 }
@@ -1430,13 +1456,16 @@ fn native_second_word_gas_failure(jals: bool, post_frame: u64) {
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
     let mut recorder =
         ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(7, &budget).unwrap();
-    assert!(match (
-        &(vm.run_with_host_diagnostic_steps(&mut ivm::host::DefaultHost::default(), &mut recorder)),
-        &(ivm::VMError::OutOfGas)
-    ) {
-        (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        (
+            &(vm.run_with_host_diagnostic_steps(
+                &mut ivm::host::DefaultHost::default(),
+                &mut recorder
+            )),
+            &(ivm::VMError::OutOfGas)
+        ),
+        (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas)
+    ));
     assert_eq!(recorder.records().len(), 7);
     let before_setup = initial - 8 - 9;
     for (index, step) in recorder.records()[..6].iter().enumerate() {

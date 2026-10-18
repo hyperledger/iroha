@@ -779,7 +779,7 @@ fn da_ingest_json_requires_current_fields_and_rejects_unknown_fields() {
         value
             .as_object()
             .and_then(|object| object.get("norito_manifest"))
-            .is_some_and(|value| value.is_null()),
+            .is_some_and(norito::json::Value::is_null),
         "V1 must serialize the absent manifest as an explicit null slot"
     );
     assert_eq!(
@@ -839,7 +839,7 @@ fn da_ingest_json_requires_current_fields_and_rejects_unknown_fields() {
         value
             .as_object()
             .and_then(|object| object.get("pdp_commitment"))
-            .is_some_and(|value| value.is_null()),
+            .is_some_and(norito::json::Value::is_null),
         "V1 must serialize the absent PDP commitment as an explicit null slot"
     );
     assert_eq!(

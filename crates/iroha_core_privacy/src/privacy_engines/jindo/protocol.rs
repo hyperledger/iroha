@@ -1,4 +1,4 @@
-//! Revised Jindo ΠSplit → ΠAgg → ΠQuad implementation.
+//! Revised Jindo `ΠSplit` → `ΠAgg` → `ΠQuad` implementation.
 //!
 //! This is a clean-room native-Rust implementation of the current paper's
 //! univariate coefficient-encoding specialization. The transcript and wire
@@ -249,19 +249,19 @@ pub enum JindoErrorV1 {
     /// Exact coefficient evaluation exceeded the reviewed integer bound.
     #[error("Jindo exact coefficient evaluation exceeded its reviewed integer bound")]
     ExactEvaluationArithmeticOverflow,
-    /// The ΠSplit augmented-evaluation relation is not satisfied.
+    /// The `ΠSplit` augmented-evaluation relation is not satisfied.
     #[error("Jindo ΠSplit augmented-evaluation relation failed")]
     SplitRelation,
-    /// The ΠAgg outer commitment relation is not satisfied.
+    /// The `ΠAgg` outer commitment relation is not satisfied.
     #[error("Jindo ΠAgg outer commitment relation failed")]
     OuterCommitmentRelation,
-    /// The ΠQuad inner commitment relation is not satisfied.
+    /// The `ΠQuad` inner commitment relation is not satisfied.
     #[error("Jindo ΠQuad inner commitment relation failed")]
     InnerCommitmentRelation,
-    /// The ΠQuad response-consistency relation is not satisfied.
+    /// The `ΠQuad` response-consistency relation is not satisfied.
     #[error("Jindo ΠQuad response consistency relation failed")]
     EvaluationConsistency,
-    /// The ΠAgg partial-evaluation relation is not satisfied.
+    /// The `ΠAgg` partial-evaluation relation is not satisfied.
     #[error("Jindo ΠAgg partial-evaluation relation failed")]
     EvaluationRelation,
     /// The aggregation rejection/no-wrap loop exhausted its fixed budget.
@@ -1440,17 +1440,19 @@ mod tests {
             JINDO_EXACT_PARTIAL_ACCUMULATOR_ABS_BOUND_V1,
             5_000_445_822_007_837_186_721_192_448
         );
-        assert!(JINDO_FINAL_RESPONSE_COEFFICIENT_ABS_BOUND_V1 < JINDO_INNER_BALANCED_MAX_V1);
+        const { assert!(JINDO_FINAL_RESPONSE_COEFFICIENT_ABS_BOUND_V1 < JINDO_INNER_BALANCED_MAX_V1) };
         assert!(JINDO_EXACT_PARTIAL_ACCUMULATOR_ABS_BOUND_V1 < i128::MAX as u128);
-        assert!(
-            JINDO_EXACT_PARTIAL_ACCUMULATOR_ABS_BOUND_V1 > JINDO_INNER_BALANCED_MAX_V1,
-            "the exact partial needs the explicit balanced-lift admission check"
-        );
+        const {
+            assert!(
+                JINDO_EXACT_PARTIAL_ACCUMULATOR_ABS_BOUND_V1 > JINDO_INNER_BALANCED_MAX_V1,
+                "the exact partial needs the explicit balanced-lift admission check"
+            )
+        };
         let mut coefficients = [0_i128; JINDO_RING_DEGREE_V1];
-        coefficients[0] = JINDO_INNER_BALANCED_MAX_V1 as i128;
-        coefficients[1] = -(JINDO_INNER_BALANCED_MAX_V1 as i128);
+        coefficients[0] = u128::cast_signed(JINDO_INNER_BALANCED_MAX_V1);
+        coefficients[1] = -u128::cast_signed(JINDO_INNER_BALANCED_MAX_V1);
         assert!(coefficients_have_unique_inner_balanced_lift(&coefficients));
-        coefficients[2] = (JINDO_INNER_BALANCED_MAX_V1 + 1) as i128;
+        coefficients[2] = u128::cast_signed(JINDO_INNER_BALANCED_MAX_V1 + 1);
         assert!(!coefficients_have_unique_inner_balanced_lift(&coefficients));
     }
     #[test]

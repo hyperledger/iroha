@@ -1,0 +1,39 @@
+{
+  "documents": {
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": {
+        "sha256": "81448980dd2f3bef8b03d3949a39de3e8455803c16ca658e2ffbe3bf473ead4e",
+        "snapshot": "central-documents/after/docs/validation/parliament_ballot_b6.md.template"
+      },
+      "before": {
+        "sha256": "80d5e54fcc4bd1fefa612231cea300065a52d3fdbf611f31706a6111cdd62ba0",
+        "snapshot": "central-documents/before/docs/validation/parliament_ballot_b6.md.template"
+      },
+      "prior_gf_snapshot": "central-documents/after/docs/validation/parliament_ballot_b6.md.template"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": {
+        "sha256": "d3b6dc9f2adf06c894e664ea38a78cc766f429f85cf44a3a0655f3f3358e366a",
+        "snapshot": "central-documents/after/specs/parliament_ballot_b6_requirement_audit.md.template"
+      },
+      "before": {
+        "sha256": "2ca791c7ab763898c80f7e5ceed8e78247fc43b43253bda2669bf558267e9814",
+        "snapshot": "central-documents/before/specs/parliament_ballot_b6_requirement_audit.md.template"
+      },
+      "prior_gf_snapshot": "central-documents/after/specs/parliament_ballot_b6_requirement_audit.md.template"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": {
+        "sha256": "a782e17c78d8f4f14f433fde281fa75f55f3eaa036142edf30d08d1f2e643d1a",
+        "snapshot": "central-documents/after/specs/parliament_ballot_implementation_goals.md.template"
+      },
+      "before": {
+        "sha256": "d221330eeae7bd3590828e128abd64c4cdf8899db54bb08f252bcf25bf1c4278",
+        "snapshot": "central-documents/before/specs/parliament_ballot_implementation_goals.md.template"
+      },
+      "prior_gf_snapshot": "central-documents/after/specs/parliament_ballot_implementation_goals.md.template"
+    }
+  },
+  "prior_manifest_sha256": "e87a08678171b147719e55ff76a3f929409b4d992883c6d41269d1bf11dc3f19",
+  "proposal_sha256": "a7d4836abbd381bca6fec1ab6b68ffd6857d20675b911c83a65782e2d8a7d902"
+}

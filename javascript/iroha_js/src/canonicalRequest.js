@@ -18,10 +18,12 @@ import {
 } from "./canonicalLimits.js";
 import { preparedTransportQuery } from "./canonicalTransport.js";
 import { randomBytes } from "./cryptoHash.js";
+import { requireToriiNativeIdentity } from "./nativeAccountInspection.js";
 import { signEd25519 } from "./crypto.js";
 import { NetworkId, networkIdBytes } from "./networkId.js";
 
 export { NetworkId };
+export { withCanonicalReadRetry } from "./canonicalReadRetry.js";
 export {
   canonicalRequestMessage,
   CANONICAL_REQUEST_MAX_METHOD_BYTES_V1,
@@ -291,6 +293,7 @@ function canonicalTargetFromPath({ path, query, baseUrl }) {
  */
 export async function buildCanonicalJsonRequest({
   accountId,
+  nativeIdentity,
   networkId,
   method = "POST",
   path,
@@ -304,10 +307,10 @@ export async function buildCanonicalJsonRequest({
   timestampMs = Date.now(),
   nonce = randomBytes(16).toString("hex"),
 }) {
-  const checkedAccount = requireCanonicalAuthAccount(
-    accountId,
-    "accountId",
+  const inspected = nativeIdentity === undefined ? null : requireToriiNativeIdentity(
+    nativeIdentity, { accountId, networkId, baseUrl },
   );
+  const checkedAccount = inspected?.accountId ?? requireCanonicalAuthAccount(accountId, "accountId");
   if (!path) {
     throw new Error("path is required for canonical JSON requests");
   }
@@ -355,7 +358,7 @@ export async function buildCanonicalJsonRequest({
     headers: {
       ...DEFAULT_JSON_HEADERS,
       ...normalizeHeadersInit(headers),
-      "X-Iroha-Account": canonicalAuthAccountHeaderValue(checkedAccount),
+      "X-Iroha-Account": inspected?.canonicalHex ?? canonicalAuthAccountHeaderValue(checkedAccount),
       "X-Iroha-Signature": signatureBase64,
       "X-Iroha-Timestamp-Ms": String(timestampMs),
       "X-Iroha-Nonce": checkedNonce,

@@ -69,15 +69,24 @@ class RepoCollateralLeg:
 
 @dataclass(frozen=True)
 class RepoGovernance:
-    """Governance parameters controlling haircuts and margin cadence."""
+    """Governance parameters controlling haircuts, margin cadence and early repayment.
+
+    ``allow_early_repayment`` is part of both consent hashes. When set, only the
+    initiator (cash borrower) may settle before maturity, paying interest accrued
+    to the committed block time.
+    """
 
     haircut_bps: int
     margin_frequency_secs: int
+    allow_early_repayment: bool
 
     def to_payload(self) -> Mapping[str, Any]:
+        if type(self.allow_early_repayment) is not bool:
+            raise TypeError("repo governance.allow_early_repayment must be a boolean")
         return {
             "haircut_bps": int(self.haircut_bps),
             "margin_frequency_secs": int(self.margin_frequency_secs),
+            "allow_early_repayment": self.allow_early_repayment,
         }
 
     def margin_frequency_millis(self) -> Optional[int]:
@@ -148,11 +157,15 @@ class RepoAgreementRecord:
             ),
             metadata=_normalize_metadata(collateral_meta),
         )
+        allow_early_repayment = governance_payload.get("allow_early_repayment")
+        if type(allow_early_repayment) is not bool:
+            raise TypeError("repo governance.allow_early_repayment must be a boolean")
         governance = RepoGovernance(
             haircut_bps=_coerce_int_field(governance_payload.get("haircut_bps"), "repo governance.haircut_bps"),
             margin_frequency_secs=_coerce_int_field(
                 governance_payload.get("margin_frequency_secs"), "repo governance.margin_frequency_secs", allow_zero=True
             ),
+            allow_early_repayment=allow_early_repayment,
         )
         custodian = payload.get("custodian")
         if custodian is not None:

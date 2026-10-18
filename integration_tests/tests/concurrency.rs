@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Concurrency integration tests: verify that configured scheduler limits are applied.
 use integration_tests::sandbox;
 use iroha_test_network::{NetworkBuilder, init_instruction_registry};

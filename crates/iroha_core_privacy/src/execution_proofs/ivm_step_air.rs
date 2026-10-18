@@ -73,7 +73,7 @@ fn immediate_operand(word: u32) -> Option<u64> {
             | wide::arithmetic::ORI
             | wide::arithmetic::XORI
     )
-    .then(|| wide::imm8(word) as i64 as u64)
+    .then(|| i64::cast_unsigned(i64::from(wide::imm8(word))))
 }
 
 const TRACE_LOG2: u8 = 13;
@@ -404,7 +404,7 @@ impl ProofManagedNoteStarkAdapterV1 for AluStepAdapter {
         _: &[Vec<F>],
         _: &[Vec<F>],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<Vec<F>>, ProofManagedNoteStarkErrorV1> {
         Ok(Vec::new())
     }
@@ -417,7 +417,7 @@ impl ProofManagedNoteStarkAdapterV1 for AluStepAdapter {
         _: &[F],
         fixed: &[F],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<F>, ProofManagedNoteStarkErrorV1> {
         residues(
             current

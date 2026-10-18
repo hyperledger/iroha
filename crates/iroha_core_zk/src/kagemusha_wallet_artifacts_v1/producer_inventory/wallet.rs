@@ -1,7 +1,7 @@
 //! One complete authenticated source grant for native wallet proving.
 //!
 //! Metadata, compact source-admission seals and installed public generators remain
-//! resident; each Q/A/W/Omega acquisition streams all three exact signed originals.
+//! resident; each sigma/Q/A/W/Omega acquisition streams all three exact signed originals.
 //! There is no constructor from an Omega-only grant, readiness flag or subset.
 
 use iroha_data_model::sumeragi_finality::SumeragiFinalityVerifier;
@@ -17,10 +17,13 @@ use super::*;
 /// A complete wallet source graph or one bounded active import was rejected.
 #[derive(Debug, thiserror::Error)]
 pub enum WalletSourcesErrorV1 {
+    /// The exact complete profile is absent, stale or inconsistent with this build.
+    #[error(transparent)]
+    Builtin(#[from] iroha_plonk::keys::BuiltinSourceErrorV1),
     /// Wrong installation, route, member or original content address.
     #[error(transparent)]
     Original(#[from] Error),
-    /// One of the sixteen compiled sigma sources did not qualify.
+    /// One of the eleven compiled sigma sources did not qualify.
     #[error(transparent)]
     Sigma(#[from] SigmaQualificationErrorV1),
     /// The native signed genesis does not authorize this wallet installation.
@@ -42,6 +45,7 @@ impl WalletSourcesErrorV1 {
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
         match self {
+            Self::Builtin(error) => error.is_cancelled(),
             Self::Original(error) => error.is_cancelled(),
             Self::Sigma(error) => match error {
                 SigmaQualificationErrorV1::Original(error) => error.is_cancelled(),
@@ -86,10 +90,12 @@ impl WalletSourcesErrorV1 {
             Self::Original(Error::Unavailable)
                 | Self::Sigma(SigmaQualificationErrorV1::Original(Error::Unavailable))
                 | Self::Q(QQualificationErrorV1::Original(Error::Unavailable))
-                | Self::Operation(OperationQualificationErrorV1::Original(Error::Unavailable))
-                | Self::Operation(OperationQualificationErrorV1::Bootstrap(
-                    BootstrapQualificationErrorV1::Original(Error::Unavailable)
-                ))
+                | Self::Operation(
+                    OperationQualificationErrorV1::Original(Error::Unavailable)
+                        | OperationQualificationErrorV1::Bootstrap(
+                            BootstrapQualificationErrorV1::Original(Error::Unavailable)
+                        )
+                )
                 | Self::Omega(OmegaQualificationErrorV1::Original(Error::Unavailable))
         )
     }
@@ -109,6 +115,8 @@ pub struct QualifiedWalletSourcesV1 {
     omega: QualifiedOmegaProgramV1,
     sigma_parameters: [Arc<PinnedParams<Eq>>; 2],
     q_parameters: Arc<PinnedParams<Ep>>,
+    // Observation only: no capability, check or returned verdict reads this split.
+    qualification: QualificationMetricsV1,
 }
 
 fn route_index(route: OperationRoute) -> Result<usize, Error> {
@@ -129,11 +137,113 @@ fn require_installation(
 }
 
 impl AuthenticatedProducerInventoryV1 {
+    /// Qualify the exact finite graph checked by this build's strict generator.
+    ///
+    /// Every original, native plan, route and terminal closure is checked before
+    /// a complete owner returns. Unknown or stale profiles fail explicitly; this
+    /// method never starts an implicit strict reconstruction of another graph.
+    /// Independent signed installation and native-genesis checks remain required.
+    /// When `originals` is an immutable snapshot, routes qualify on bounded workers
+    /// with the result, error and counted work of the one-worker index order.
+    ///
+    /// # Errors
+    /// Unsupported/stale compiled profile, wrong installation/genesis, or any
+    /// bounded original, current plan, complete graph or cancellation failure.
+    pub fn qualify_wallet_builtin(
+        self,
+        installed: &InstalledVerifierPackV1,
+        native_finality: &SumeragiFinalityVerifier,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+    ) -> Result<QualifiedWalletSourcesV1, WalletSourcesErrorV1> {
+        let mut clock = OpeningClockV1::start();
+        require_installation(
+            self.installation(),
+            (
+                installed.verifier().scheme().scheme_id(),
+                installed.verifier().manifest_digest(),
+            ),
+        )?;
+        let finality = self.qualify_finality(installed, native_finality)?;
+        let profile = iroha_plonk::keys::BuiltinSourceProfileV1::match_actual(
+            &super::builtin::profile_bytes(self.inventory(), installed.verifier().scheme())?,
+            None,
+        )?;
+        let admission = super::builtin::Admission::Builtin(&profile);
+        let scope = SourceScopeV1::from_scheme(installed.verifier().scheme())?;
+        let sigma_parameters = [
+            Arc::clone(installed.verifier().vesta_parameters(12)?),
+            Arc::clone(installed.verifier().vesta_parameters(14)?),
+        ];
+        let q_parameters = Arc::clone(installed.verifier().pallas_parameters());
+        let binding = clock.lap();
+        let sigmas = self.qualify_sigmas_with_admission(
+            originals,
+            config,
+            &sigma_parameters[0],
+            &sigma_parameters[1],
+            admission,
+        )?;
+        let sigma = clock.lap();
+        let q = self.qualify_q_programs_with_admission(
+            installed,
+            &sigmas,
+            originals,
+            config,
+            |_| {},
+            admission,
+        )?;
+        let q_stage = clock.lap();
+        // Batch-local: dropped when this qualification returns, never retained.
+        let descriptors = DescriptorMemo::default();
+        let routes = self.qualify_operation_routes_with_admission(
+            installed,
+            &q,
+            originals,
+            config,
+            |_| {},
+            admission,
+            &descriptors,
+        )?;
+        let routes_stage = clock.lap();
+        let omega = self.qualify_omega_with_admission(
+            installed,
+            &routes,
+            originals,
+            config,
+            admission,
+            &descriptors,
+        )?;
+        let qualification = QualificationMetricsV1 {
+            binding,
+            sigma,
+            q: q_stage,
+            routes: routes_stage,
+            omega: clock.lap(),
+        };
+        Ok(QualifiedWalletSourcesV1 {
+            authenticated: self,
+            scope,
+            sigmas,
+            finality,
+            q,
+            routes,
+            omega,
+            sigma_parameters,
+            q_parameters,
+            qualification,
+        })
+    }
+
     /// Consume this authenticated inventory only after every compiled source has
     /// been reconstructed and every selected wallet PK strictly imported.
     /// Ordinary finality uses native BLS commit certificates and needs no circuit artifacts.
     /// The native finality verifier must be independently selected from signed genesis.
     /// All imports are sequential; only exact descriptor/VK metadata survives each.
+    /// Repeated signature-Q members share strict metadata within one Q batch only
+    /// after matching every ordered slot and rereading all exact signed originals.
+    /// Same-program Receive aliases share a strict source owner within the route
+    /// batch, with every alias rereading all exact signed originals.
     /// # Errors
     /// Another installation/native genesis, any incomplete route or source graph,
     /// changed source/context/key, unavailable original, or a resource bound failure.
@@ -144,6 +254,7 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
     ) -> Result<QualifiedWalletSourcesV1, WalletSourcesErrorV1> {
+        let mut clock = OpeningClockV1::start();
         require_installation(
             self.installation(),
             (
@@ -161,31 +272,21 @@ impl AuthenticatedProducerInventoryV1 {
         let q_parameters = Arc::clone(installed.verifier().pallas_parameters());
         // Native genesis binding happens before any source-original read.
         let finality = self.qualify_finality(installed, native_finality)?;
-        let sigmas = self.qualify_sigmas(originals, config)?;
-        let mut q = Vec::with_capacity(self.inventory.operations.len());
-        for program in 0..self.inventory.operations.len() {
-            q.push(self.qualify_q_program(
-                installed,
-                &sigmas,
-                u32::try_from(program).map_err(|_| Error::Inventory)?,
-                originals,
-                config,
-            )?);
-        }
-        let mut routes = Vec::with_capacity(self.inventory.routes.len());
-        for (index, program) in self.inventory.routes.iter().enumerate() {
-            routes.push(
-                self.qualify_operation_route(
-                    installed,
-                    q.get(usize::try_from(*program).map_err(|_| Error::Inventory)?)
-                        .ok_or(Error::Inventory)?,
-                    u32::try_from(index).map_err(|_| Error::Inventory)?,
-                    originals,
-                    config,
-                )?,
-            );
-        }
+        let binding = clock.lap();
+        let sigmas = self.qualify_sigmas_for_installation(installed, originals, config)?;
+        let sigma = clock.lap();
+        let q = self.qualify_q_programs(installed, &sigmas, originals, config, |_| {})?;
+        let q_stage = clock.lap();
+        let routes = self.qualify_operation_routes(installed, &q, originals, config, |_| {})?;
+        let routes_stage = clock.lap();
         let omega = self.qualify_omega(installed, &routes, originals, config)?;
+        let qualification = QualificationMetricsV1 {
+            binding,
+            sigma,
+            q: q_stage,
+            routes: routes_stage,
+            omega: clock.lap(),
+        };
         Ok(QualifiedWalletSourcesV1 {
             authenticated: self,
             scope,
@@ -196,11 +297,15 @@ impl AuthenticatedProducerInventoryV1 {
             omega,
             sigma_parameters,
             q_parameters,
+            qualification,
         })
     }
 }
 
 impl QualifiedWalletSourcesV1 {
+    pub(super) const fn authenticated_inventory(&self) -> &AuthenticatedProducerInventoryV1 {
+        &self.authenticated
+    }
     /// Exact scheme and manifest identities of this complete graph.
     pub const fn installation(&self) -> ([u8; 32], [u8; 32]) {
         self.authenticated.installation()
@@ -224,6 +329,11 @@ impl QualifiedWalletSourcesV1 {
     /// Complete sole Omega source; partial owners cannot construct this grant.
     pub const fn omega(&self) -> &QualifiedOmegaProgramV1 {
         &self.omega
+    }
+    /// Observation-only stage durations and work of the qualification that built this
+    /// graph. Public counts only; it grants nothing and nothing may branch on it.
+    pub const fn qualification_metrics(&self) -> &QualificationMetricsV1 {
+        &self.qualification
     }
     /// Design §5.3: the largest peak proving memory over every installed relation the wallet
     /// proves, namely each σ, every Q key, every route's A and W stages, and Ω. One prover
@@ -263,10 +373,12 @@ impl QualifiedWalletSourcesV1 {
             .get(usize::try_from(program).map_err(|_| Error::Inventory)?)
             .ok_or(Error::Inventory)
     }
-    /// Import exactly one selected sigma's original tables into its compiled native owner.
+    /// Rebuild exactly one selected sigma's proving key from its qualified admission seal
+    /// and compiled native source, after revalidating its exact signed originals.
     /// Drop the returned prover before importing the next stage to bound resident tables.
     /// # Errors
-    /// Undefined selector, bounded read or strict original-source/key mismatch.
+    /// Undefined selector, changed seal/source identity, bounded original failure or a
+    /// rebuilt source that differs from the sealed source.
     pub fn import_sigma(
         &self,
         selector: u8,
@@ -276,9 +388,9 @@ impl QualifiedWalletSourcesV1 {
         self.import_sigma_cancellable(selector, originals, config, None)
     }
 
-    /// Import the same exact source with a caller-owned cancellation signal.
+    /// Rebuild the same sealed source with a caller-owned cancellation signal.
     /// # Errors
-    /// The ordinary source errors, or cancellation without an imported key.
+    /// The ordinary source errors, or cancellation without a rebuilt key.
     pub fn import_sigma_cancellable(
         &self,
         selector: u8,
@@ -292,28 +404,25 @@ impl QualifiedWalletSourcesV1 {
             .sigma
             .get(usize::from(selector))
             .ok_or(Error::Inventory)?;
-        let original = self.authenticated.read_original_cancellable(
+        // Bind the exact retained seal before any source I/O. A seal is authority
+        // only inside this already-qualified immutable installation and selector.
+        let view = self.sigmas.bind(selector, index, cancellation)?;
+        let view = revalidate_stage(
+            &self.authenticated,
             index,
+            view,
             originals,
-            config.maximum_bytes,
-            cancellation,
-        )?;
-        let owner = sigma::import_prover(
-            usize::from(selector),
-            &original,
-            &self.sigma_parameters[0],
-            &self.sigma_parameters[1],
             config,
             cancellation,
         )?;
-        let actual = owner.metadata()?;
-        let expected = self.sigmas.key(selector).ok_or(Error::Inventory)?;
-        if actual.binding() != expected.binding()
-            || actual.key().to_bytes() != expected.key().to_bytes()
-        {
-            return Err(Error::Inventory.into());
-        }
-        Ok(owner)
+        Ok(sigma::rebuild_prover(
+            usize::from(selector),
+            view,
+            &self.sigma_parameters[0],
+            &self.sigma_parameters[1],
+            config.coset_cache,
+            cancellation,
+        )?)
     }
     /// Revalidate one sealed Q source and borrow its installed signature policy and metadata.
     /// # Errors
@@ -339,6 +448,27 @@ impl QualifiedWalletSourcesV1 {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<ImportedQV1<'_>, WalletSourcesErrorV1> {
+        let owner = self.bind_q_cancellable(route, stage, config, cancellation)?;
+        self.authenticated.revalidate_original_cancellable(
+            *self.record(route)?.q.get(stage).ok_or(Error::Inventory)?,
+            originals,
+            config.maximum_bytes,
+            cancellation,
+        )?;
+        Ok(owner)
+    }
+    /// The already-admitted source of [`Self::import_q_cancellable`] without reading any
+    /// original. A wallet fold binds it to prove without the wallet owner, after that import
+    /// revalidated the same stage's originals in the same locked turn; it grants nothing more.
+    /// # Errors
+    /// Undefined route/stage, a changed source identity, the local row cap or cancellation.
+    pub(crate) fn bind_q_cancellable(
+        &self,
+        route: OperationRoute,
+        stage: usize,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<ImportedQV1<'_>, WalletSourcesErrorV1> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         let record = self.record(route)?;
         let index = *record.q.get(stage).ok_or(Error::Inventory)?;
@@ -348,12 +478,6 @@ impl QualifiedWalletSourcesV1 {
         if owner.binding().n() > config.maximum_rows {
             return Err(Error::Inventory.into());
         }
-        self.authenticated.revalidate_original_cancellable(
-            index,
-            originals,
-            config.maximum_bytes,
-            cancellation,
-        )?;
         Ok(owner)
     }
     /// Revalidate the selected A originals and borrow their already-admitted source view.
@@ -380,19 +504,37 @@ impl QualifiedWalletSourcesV1 {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceBoundViewV2<'_, Eq>, WalletSourcesErrorV1> {
-        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        let index = *self.record(route)?.a.get(stage).ok_or(Error::Inventory)?;
         // Bind the exact retained role before any source I/O. A seal is authority
         // only inside this already-qualified immutable installation and stage.
-        let view = self.route(route)?.bind_a(stage, index, cancellation)?;
+        let view = self.bind_a_cancellable(route, stage, config, cancellation)?;
         revalidate_stage(
             &self.authenticated,
-            index,
+            *self.record(route)?.a.get(stage).ok_or(Error::Inventory)?,
             view,
             originals,
             config,
             cancellation,
         )
+    }
+    /// The already-admitted source of [`Self::import_a_cancellable`] without reading any
+    /// original. A wallet fold binds it to prove without the wallet owner, after that import
+    /// revalidated the same stage's originals in the same locked turn; it grants nothing more.
+    /// # Errors
+    /// Undefined route/stage, a changed source identity, the local row cap or cancellation.
+    pub(crate) fn bind_a_cancellable(
+        &self,
+        route: OperationRoute,
+        stage: usize,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceBoundViewV2<'_, Eq>, WalletSourcesErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        let index = *self.record(route)?.a.get(stage).ok_or(Error::Inventory)?;
+        let view = self.route(route)?.bind_a(stage, index, cancellation)?;
+        if view.binding().n() > config.maximum_rows {
+            return Err(Error::Inventory.into());
+        }
+        Ok(view)
     }
     /// Revalidate selected W originals and borrow their already-admitted source view.
     /// # Errors
@@ -418,19 +560,37 @@ impl QualifiedWalletSourcesV1 {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<SourceBoundViewV2<'_, Ep>, WalletSourcesErrorV1> {
-        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        let index = *self.record(route)?.w.get(stage).ok_or(Error::Inventory)?;
         // Bind the exact retained role before any source I/O. A seal is authority
         // only inside this already-qualified immutable installation and stage.
-        let view = self.route(route)?.bind_w(stage, index, cancellation)?;
+        let view = self.bind_w_cancellable(route, stage, config, cancellation)?;
         revalidate_stage(
             &self.authenticated,
-            index,
+            *self.record(route)?.w.get(stage).ok_or(Error::Inventory)?,
             view,
             originals,
             config,
             cancellation,
         )
+    }
+    /// The already-admitted source of [`Self::import_w_cancellable`] without reading any
+    /// original. A wallet fold binds it to prove without the wallet owner, after that import
+    /// revalidated the same stage's originals in the same locked turn; it grants nothing more.
+    /// # Errors
+    /// Undefined route/stage, a changed source identity, the local row cap or cancellation.
+    pub(crate) fn bind_w_cancellable(
+        &self,
+        route: OperationRoute,
+        stage: usize,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<SourceBoundViewV2<'_, Ep>, WalletSourcesErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        let index = *self.record(route)?.w.get(stage).ok_or(Error::Inventory)?;
+        let view = self.route(route)?.bind_w(stage, index, cancellation)?;
+        if view.binding().n() > config.maximum_rows {
+            return Err(Error::Inventory.into());
+        }
+        Ok(view)
     }
     /// Revalidate the sole final Omega originals and borrow its exact installed metadata.
     /// # Errors
@@ -459,6 +619,21 @@ impl QualifiedWalletSourcesV1 {
             config,
             cancellation,
         )?)
+    }
+    /// The strict Omega source of [`Self::import_omega_cancellable`] without reading any
+    /// original. A wallet fold binds it to prove without the wallet owner, after that import
+    /// revalidated the same originals in the same locked turn; it grants nothing more.
+    /// # Errors
+    /// A changed source identity, the local row cap or cancellation.
+    pub(crate) fn bind_omega_cancellable(
+        &self,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<iroha_kagemusha_proof::omega::native::ProverView<'_>, WalletSourcesErrorV1> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        Ok(self
+            .omega
+            .bind_prover_cancellable(&self.authenticated, config, cancellation)?)
     }
 }
 
@@ -546,14 +721,23 @@ impl crate::kagemusha_wallet_proofs_v1::NativeProofError for WalletSourcesErrorV
 #[cfg(test)]
 mod cancellation_tests {
     use super::*;
+    use iroha_kagemusha_proof::{SigmaError, admin_sigma::native::AdminSigmaError};
+    use iroha_plonk::{KeyError, keys::RebuildError};
     #[test]
     fn source_cancellation_never_becomes_invalid_or_unavailable_material() {
+        let rebuild = || RebuildError::Key(KeyError::Cancelled);
         let cases = [
             WalletSourcesErrorV1::Original(Error::Cancelled),
             WalletSourcesErrorV1::Operation(OperationQualificationErrorV1::Cancelled),
             WalletSourcesErrorV1::Q(QQualificationErrorV1::Original(Error::Cancelled)),
             WalletSourcesErrorV1::Omega(OmegaQualificationErrorV1::Original(Error::Cancelled)),
             WalletSourcesErrorV1::Sigma(SigmaQualificationErrorV1::Original(Error::Cancelled)),
+            WalletSourcesErrorV1::Sigma(SigmaQualificationErrorV1::Monetary(SigmaError::Rebuild(
+                rebuild(),
+            ))),
+            WalletSourcesErrorV1::Sigma(SigmaQualificationErrorV1::Administrative(
+                AdminSigmaError::Rebuild(rebuild()),
+            )),
         ];
         for error in cases {
             assert!(error.is_cancelled());
@@ -561,6 +745,13 @@ mod cancellation_tests {
         }
         assert!(!WalletSourcesErrorV1::Original(Error::Unavailable).is_cancelled());
         assert!(!WalletSourcesErrorV1::Original(Error::Proof).is_cancelled());
+        // A rebuilt source that differs from its seal is a hard proof failure.
+        assert!(
+            !WalletSourcesErrorV1::Sigma(SigmaQualificationErrorV1::Monetary(SigmaError::Rebuild(
+                RebuildError::Source
+            )))
+            .is_cancelled()
+        );
     }
 }
 

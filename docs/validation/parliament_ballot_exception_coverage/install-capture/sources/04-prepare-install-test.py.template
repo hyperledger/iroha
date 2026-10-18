@@ -1,0 +1,46 @@
+"""Derive only the synthetic test partition; retain exact original source custody."""
+import ast
+import difflib
+import hashlib
+import json
+from pathlib import Path
+import shutil
+
+ROOT = Path.cwd().resolve()
+STAGE = ROOT / 'target/parliament-exception-coverage-stage'
+OUT = STAGE / 'install-candidate'
+ORIGINAL = STAGE / 'scripts/tests/parliament_ballot_exception_coverage_independent_test.py'
+HELPER = STAGE / 'scripts/parliament_ballot_exception_coverage.py'
+REMOVE = {
+ 'test_actual_image_table_totals_match_independent_raw_byte_census': 2,
+ 'test_personality_reference_is_exact_independently_reviewed_rust_1931': 2,
+ 'test_actual_fde_header_counts_match_independent_byte_census': 2,
+}
+sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+if sha(ORIGINAL) != '5a742bef80148d0d4c3c52016e22cab578d85919da1e366f7fae456fb26a386d':
+ raise RuntimeError('frozen original changed')
+if sha(HELPER) != '3693abdecf793fc2d1aac32679cf394c9843c5c3dcbc0befb74510a61db94c4d':
+ raise RuntimeError('frozen helper changed')
+source = ORIGINAL.read_text(); lines = source.splitlines(keepends=True)
+ranges = []
+for node in ast.parse(source).body:
+ if isinstance(node, ast.FunctionDef) and node.name in REMOVE:
+  start = min([node.lineno] + [d.lineno for d in node.decorator_list]) - 1
+  end = node.end_lineno
+  while end < len(lines) and not lines[end].strip(): end += 1
+  ranges.append(dict(name=node.name, start_line=start+1, end_line=end, test_cases=REMOVE[node.name]))
+if {r['name'] for r in ranges} != set(REMOVE): raise RuntimeError('extraction membership')
+removed = {i for r in ranges for i in range(r['start_line']-1, r['end_line'])}
+derived = ''.join(line for i,line in enumerate(lines) if i not in removed)
+original_nodes = {n.name:ast.dump(n) for n in ast.parse(source).body if isinstance(n,ast.FunctionDef)}
+derived_nodes = {n.name:ast.dump(n) for n in ast.parse(derived).body if isinstance(n,ast.FunctionDef)}
+if derived_nodes != {k:v for k,v in original_nodes.items() if k not in REMOVE}: raise RuntimeError('retained function AST changed')
+OUT.mkdir()
+(OUT/'scripts/tests').mkdir(parents=True)
+shutil.copyfile(HELPER,OUT/'scripts/parliament_ballot_exception_coverage.py')
+(OUT/'scripts/tests/parliament_ballot_exception_coverage_independent_test.py').write_text(derived)
+shutil.copyfile(ROOT/'pytest.ini',OUT/'pytest.ini')
+(STAGE/'install-extraction.diff').write_text(''.join(difflib.unified_diff(lines,derived.splitlines(keepends=True),fromfile='frozen-independent-119.py',tofile='installable-synthetic-113.py')))
+receipt=dict(schema='exception-synthetic-partition-extraction-v1',original_sha256=sha(ORIGINAL),derived_sha256=sha(OUT/'scripts/tests/parliament_ballot_exception_coverage_independent_test.py'),helper_sha256=sha(HELPER),removed_functions=ranges,original_tests=119,expected_remaining_tests=113,retained_function_ast_identical=True,retained_lines_byte_identical=True,source_configuration_sha256=sha(ROOT/'pytest.ini'),extraction_recipe_sha256=sha(Path(__file__).resolve()),diff_sha256=sha(STAGE/'install-extraction.diff'))
+(STAGE/'install-extraction.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+print(json.dumps(receipt,indent=2))

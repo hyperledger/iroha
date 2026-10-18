@@ -135,7 +135,7 @@ impl Wallet for Script {
     fn resume(&mut self) -> Result<Response> {
         self.base.resume()
     }
-    fn fold(&mut self) -> Result<Response> {
+    fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
         self.require_custody_operations()?;
         self.base.fold()
     }

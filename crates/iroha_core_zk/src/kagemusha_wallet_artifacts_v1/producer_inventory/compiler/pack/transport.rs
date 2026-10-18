@@ -1,16 +1,15 @@
 //! Bounded transport DATA exported only from the genuine completed wallet pack.
 
-use std::{fmt::Write as _, io, io::Read as _, io::Write as _, path::Path};
+use std::{fmt::Write as _, io, path::Path};
 
 use iroha_fs::PrivateDirectory;
-use rand::rand_core::TryRngCore as _;
-use sha2::{Digest as _, Sha256};
 
 use super::{BlobV1, WalletArtifactOriginalsV1};
-use crate::kagemusha_wallet_artifacts_v1::producer_inventory::DirectoryOriginalsV1;
+use crate::kagemusha_wallet_artifacts_v1::producer_inventory::{
+    DirectoryOriginalsV1, encoded::financial_json, transport_metadata::publish_metadata,
+};
 
 const TRANSPORT_MAX_BYTES: usize = 32 * 1024 * 1024;
-const FINANCIAL_MAX_BYTES: usize = 2048;
 const PACK_MAX_BYTES: usize = 16 * 1024 * 1024 + 64 * 1024;
 const CATALOG_MAX_BYTES: usize = 16 * 1024 * 1024;
 const ORIGINAL_MAX_BYTES: u64 = 1024 * 1024 * 1024;
@@ -55,82 +54,9 @@ fn rows(output: &mut String, originals: &[BlobV1], maximum: usize) -> io::Result
     Ok(())
 }
 
-fn verify_metadata(
-    directory: &PrivateDirectory,
-    name: &str,
-    bytes: &[u8],
-) -> io::Result<Option<()>> {
-    directory.revalidate()?;
-    // Only the first native child open can establish absence. A later NotFound
-    // from retained-file or directory validation must never authorize publication.
-    let Some(mut original) = directory.open_retained_read_only_optional(name, bytes.len())? else {
-        return Ok(None);
-    };
-    if original.len()? != bytes.len() as u64 {
-        return Err(invalid("existing metadata extent differs"));
-    }
-    let snapshot = original.snapshot()?;
-    let expected: [u8; 32] = Sha256::digest(bytes).into();
-    let mut hash = Sha256::new();
-    let mut total = 0_usize;
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        original.revalidate()?;
-        if original.snapshot()? != snapshot {
-            return Err(invalid("metadata changed before streaming"));
-        }
-        let count = original.read(&mut buffer)?;
-        original.revalidate()?;
-        if original.snapshot()? != snapshot {
-            return Err(invalid("metadata changed during streaming"));
-        }
-        if count == 0 {
-            break;
-        }
-        total = total
-            .checked_add(count)
-            .ok_or_else(|| invalid("metadata extent overflow"))?;
-        if total > bytes.len() {
-            return Err(invalid("metadata extended during streaming"));
-        }
-        hash.update(&buffer[..count]);
-    }
-    let actual: [u8; 32] = hash.finalize().into();
-    if total != bytes.len() || actual != expected {
-        return Err(invalid("existing metadata original differs"));
-    }
-    directory.sync()?;
-    directory.revalidate()?;
-    Ok(Some(()))
-}
-
-fn publish_metadata(directory: &PrivateDirectory, name: &str, bytes: &[u8]) -> io::Result<()> {
-    if bytes.is_empty() {
-        return Err(invalid("empty metadata original"));
-    }
-    if verify_metadata(directory, name, bytes)?.is_some() {
-        return Ok(());
-    }
-    let mut nonce = [0_u8; 16];
-    rand::rngs::OsRng
-        .try_fill_bytes(&mut nonce)
-        .map_err(io::Error::other)?;
-    let staging = format!("wallet-metadata-{}.partial", hex::encode(nonce));
-    let mut writer = directory.create_retained_private(staging, bytes.len())?;
-    writer.write_all(bytes)?;
-    let sealed = writer.seal_read_only()?;
-    match sealed.publish_new_name(name) {
-        Ok(original) => original.revalidate()?,
-        // A competing identical writer may win. Its whole original must still pass
-        // all checks; neither the winning file nor our partial evidence is replaced.
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error),
-    }
-    verify_metadata(directory, name, bytes)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-}
-
 impl WalletArtifactOriginalsV1 {
-    /// Deterministic bounded transport identities from the completed original graph.
+    /// Raw compiler/candidate transport identities from the completed original graph.
+    /// Mobile delivery uses the separately encoded carrier; it never accepts this form.
     /// No path, key, installed identity, authority flag or wallet-open grant is encoded.
     ///
     /// # Errors
@@ -166,19 +92,11 @@ impl WalletArtifactOriginalsV1 {
         {
             return Err(invalid("completed financial originals are inconsistent"));
         }
-        let transport = self.transport_json()?;
-        let pack = BlobV1::of(&self.verifier_pack);
-        let catalog = BlobV1::of(&self.producer_inventory);
-        let transport = BlobV1::of(&transport);
-        let mut output = String::new();
-        write!(&mut output, "{{\"producerCatalogDigest\":\"{}\",\"producerInventory\":{{\"bytes\":{},\"sha256\":\"{}\"}},\"schema\":\"iroha.kagemusha.wallet-financial-originals.v1\",\"transport\":{{\"bytes\":{},\"sha256\":\"{}\"}},\"verifierPack\":{{\"bytes\":{},\"sha256\":\"{}\"}}}}\n",
-            hex::encode(self.producer_catalog_digest), catalog.bytes, hex::encode(catalog.sha256),
-            transport.bytes, hex::encode(transport.sha256), pack.bytes, hex::encode(pack.sha256))
-            .map_err(|_| invalid("financial original encoding failed"))?;
-        if output.len() > FINANCIAL_MAX_BYTES {
-            return Err(invalid("financial original byte ceiling exceeded"));
-        }
-        Ok(output.into_bytes())
+        financial_json(
+            &self.verifier_pack,
+            &self.producer_inventory,
+            &self.transport_json()?,
+        )
     }
 
     /// Export the four whole metadata originals into an existing private bundle root.
@@ -232,6 +150,8 @@ impl WalletArtifactOriginalsV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kagemusha_wallet_artifacts_v1::producer_inventory::transport_metadata::verify_metadata;
+    use std::io::Write as _;
 
     // Explicit DATA fixtures exercise custody/export only, never compile or install
     // a production wallet. Production fields remain private and finish-only.

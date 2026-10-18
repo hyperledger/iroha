@@ -106,6 +106,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 
     /// Move exclusive custody into authenticated enrollment without rebuilding installed sources.
     /// Refusal returns the same runtime, including every provider and original-source owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns the unchanged runtime if custody is not exclusive, or if enrollment
+    /// configuration, authenticated session dates, platform roots or deployment
+    /// identities fail validation.
     pub fn start_enrollment(
         self,
         config: enrollment::EnrollmentConfigV1,
@@ -138,6 +144,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     }
 
     /// Borrow only the actual retained enrollment phase; no handle or DATA creates this owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns a phase error unless this runtime currently owns enrollment custody.
     pub fn enrollment(
         &mut self,
     ) -> Result<&mut enrollment::EnrollmentOwnerV1<F, P>, enrollment::Error> {
@@ -149,6 +159,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 
     /// Preserve an actual returned enrollment effect before releasing this provider.
     /// Cleanup refusal retains the same runtime and pending original bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if selected Apple custody or its dispatch record is invalid
+    /// or unavailable, or if pending returned bytes cannot be durably retained.
     pub fn prepare_close(&mut self) -> Result<(), enrollment::Error> {
         if let RuntimeCustodyV1::Enrollment(owner) = &mut self.custody {
             owner.flush_apple_returned()?;
@@ -157,6 +172,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     }
     /// Complete a genuine retained E6 and restore the same installed runtime for account open.
     /// Missing or unavailable originals retain the entire enrollment phase for an exact retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same runtime if enrollment custody or retained request/result
+    /// originals are unavailable, fail authentication or binding checks, cannot be
+    /// durably stored, or the selected account or asset cannot be encoded.
     pub fn finish_enrollment(mut self) -> Result<(Self, [Vec<u8>; 4]), (Self, enrollment::Error)> {
         let selected = match self.enrollment().and_then(|owner| owner.open_originals()) {
             Ok(originals) => originals,
@@ -328,6 +349,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     /// Recover only an ACTUAL retained Pending after ordinary finish refusal.
     /// This owns the same original challenge and provider; no DATA or identifier creates it.
     /// A runtime in another phase is returned unchanged without sampling or side effects.
+    ///
+    /// # Errors
+    ///
+    /// Returns the unchanged runtime unless it owns the retained pending phase.
     pub fn recover_pending(self) -> Result<PendingNativeWalletOpenV1<F, P, S>, Self> {
         let Self {
             custody,
@@ -490,7 +515,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     ///
     /// The embedding app calls this from trusted native initialization, using independently
     /// deployed pins and authenticated genesis. It authenticates the complete signed verifier
-    /// pack, inventory, all 52 source routes and every original proving key before retaining
+    /// pack, inventory, all 22 source routes and every original proving key before retaining
     /// a runtime. Missing deployment material is unavailable, never a default trust root.
     /// # Errors
     /// Invalid signatures, mismatched native configuration, incomplete source graphs or I/O.

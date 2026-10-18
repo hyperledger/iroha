@@ -1,4 +1,3 @@
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Four-validator activation, adversarial intent/governance, replay, and
 //! restart coverage for the canonical native ZK-AMS and Vega action APIs.
 //!

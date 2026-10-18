@@ -368,19 +368,21 @@ fn require_names_read_authority(
         .map_err(|_| "World names read authority is not registered")?;
     let permission: iroha_data_model::permission::Permission =
         iroha_executor_data_model::permission::query::CanReadAllLedgerData.into();
+    let originals: iroha_data_model::permission::Permission =
+        iroha_executor_data_model::permission::query::CanReadCertifiedOriginals.into();
     let direct = world
         .account_permissions_iter(authority)
         .map_err(|error| error.to_string())?
         .into_iter()
-        .any(|stored| stored == &permission);
+        .any(|stored| stored == &permission || stored == &originals);
     let assigned = world.account_roles_iter(authority).any(|id| {
-        world
-            .roles()
-            .get(id)
-            .is_some_and(|role| role.permissions().any(|stored| stored == &permission))
+        world.roles().get(id).is_some_and(|role| {
+            role.permissions()
+                .any(|stored| stored == &permission || stored == &originals)
+        })
     });
     if !direct && !assigned {
-        return Err("World names originals require existing native CanReadAllLedgerData".into());
+        return Err("World names originals require existing native CanReadCertifiedOriginals or CanReadAllLedgerData".into());
     }
     Ok(())
 }
@@ -657,13 +659,104 @@ impl State {
         })
     }
 
+    /// Borrow wrapper execution originals and, for a cancellation, its exact target original
+    /// from the same certified cut. All originals remain untrusted publication data.
+    ///
+    /// # Errors
+    /// Returns an error for identical wrapper keys, absent required records,
+    /// empty, oversized or uncertified originals, malformed or noncanonical terminal records, or a
+    /// cancellation target that aliases a wrapper key. Also propagates cut,
+    /// State acquisition, allocation, snapshot bounds and consumer errors.
+    pub fn with_native_multisig_execution_snapshot_v1<T>(
+        &self,
+        tip: &CommittedBlock,
+        keys: &[iroha_model_base::state_path::StatePath; 2],
+        budget: &AllocationBudget,
+        consume: impl FnOnce(
+            &WorldStateSnapshotV1,
+            Option<&Vec<u8>>,
+            &Vec<u8>,
+            Option<&Vec<u8>>,
+        ) -> Result<T, String>,
+    ) -> Result<T, WorldStateSnapshotError> {
+        use crate::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key;
+        use iroha_executor_data_model::isi::multisig::{
+            MultisigInstructionBox, MultisigProposalTerminalExecutionStateV1,
+            MultisigProposalTerminalStatus,
+        };
+        if keys[0] == keys[1] {
+            return Err("World snapshot target keys must differ".into());
+        }
+        self.with_native_world_state_snapshot_cut_v1(tip, None, budget, |snapshot, world| {
+            let _decode_scratch = budget
+                .try_reserve_bytes(512 * 1024)
+                .map_err(|error| error.to_string())?;
+            let original =
+                |key: &iroha_model_base::state_path::StatePath| -> Result<&Vec<u8>, String> {
+                    let bytes = world
+                        .smart_contract_state
+                        .get(key)
+                        .ok_or("immutable multisig execution record is absent")?;
+                    if bytes.is_empty() || bytes.len() > 64 * 1024 {
+                        return Err("multisig execution original exceeds bound".into());
+                    }
+                    require_target(
+                        snapshot,
+                        "world.smart_contract_state",
+                        WorldStateElementKindV1::Table,
+                        Some(hash_value(key)?),
+                        hash_value(bytes)?,
+                    )?;
+                    Ok(bytes)
+                };
+            let outcome = world
+                .smart_contract_state
+                .get(&keys[0])
+                .map(|_| original(&keys[0]))
+                .transpose()?;
+            let terminal = original(&keys[1])?;
+            let execution: MultisigProposalTerminalExecutionStateV1 =
+                norito::with_decode_limits_scope(
+                    norito::canonical_decode_limits(terminal.len()),
+                    || norito::decode_from_bytes(terminal),
+                )
+                .map_err(|e| e.to_string())?;
+            if norito::to_bytes(&execution).map_err(|e| e.to_string())? != *terminal {
+                return Err("multisig terminal is not canonical".into());
+            }
+            let target = if execution.terminal.status == MultisigProposalTerminalStatus::Finalized {
+                match execution.terminal.proposal.instructions.as_slice() {
+                    [inner] => match MultisigInstructionBox::try_from(inner) {
+                        Ok(MultisigInstructionBox::Cancel(cancel)) => {
+                            let key = multisig_proposal_terminal_execution_state_key(
+                                execution.terminal_entrypoint_hash,
+                                &cancel.account,
+                                &cancel.proposal_id,
+                            );
+                            if keys.contains(&key) {
+                                return Err("cancellation target equals wrapper record".into());
+                            }
+                            Some(original(&key)?)
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            consume(snapshot, outcome, terminal, target)
+        })
+    }
+
     /// Publish complete canonical alias bindings and smart-contract key originals
     /// to a currently registered native ledger-wide reader at one certified cut.
     ///
     /// The signed HTTP corridor must authenticate `authority` independently.
-    /// This method requires its exact existing `CanReadAllLedgerData` token under
+    /// This method requires its exact existing `CanReadCertifiedOriginals` or
+    /// `CanReadAllLedgerData` token under
     /// the same locked World overlay, including directly held or assigned-role
-    /// permissions. It never grants or delegates that genesis-only capability.
+    /// permissions. It never grants or delegates either capability.
     /// All canonical binding values and all smart-contract keys must match the
     /// reconstructed certified snapshot. Only dataspace SNS values are exposed;
     /// unrelated smart-contract values remain withheld. Callback storage and all
@@ -754,6 +847,57 @@ impl State {
                 .map_err(WorldStateSnapshotError::from)
             },
         )
+    }
+
+    /// Capture a real executed fee row at its complete certified cut for component tests.
+    /// The production surface remains unchanged: this owner never fabricates a row, root,
+    /// read permission or finality decision, and the callback must retain its finite charges.
+    #[cfg(test)]
+    pub(crate) fn with_native_kagemusha_fee_snapshot_for_testing<T>(
+        &self,
+        tip: &CommittedBlock,
+        scheme: [u8; 32],
+        payout: &iroha_data_model::kagemusha::KagemushaWalletPayoutRecordV1,
+        budget: &AllocationBudget,
+        consume: impl FnOnce(&WorldStateSnapshotV1) -> Result<T, String>,
+    ) -> Result<T, WorldStateSnapshotError> {
+        use iroha_data_model::{
+            block::consensus::SumeragiRootScope, kagemusha::KagemushaWalletPayoutKeyV1,
+        };
+        if tip.height() < 2
+            || tip.root_scope() != SumeragiRootScope::Global
+            || !matches!(payout.key, KagemushaWalletPayoutKeyV1::Fee(_))
+            || payout.amount == 0
+            || payout.source == [0; 32]
+            || payout.transaction == [0; 32]
+        {
+            return Err("Fee snapshot requires an actual successor Global payout".into());
+        }
+        self.with_native_world_state_snapshot_cut_v1(tip, None, budget, |snapshot, world| {
+            let key = payout.key.ledger_key(scheme);
+            let bytes = world
+                .kagemusha_wallet_ledger()
+                .get(&key)
+                .ok_or("Fee snapshot payout row is absent")?;
+            let _row_charge = budget
+                .try_reserve_bytes(4096)
+                .map_err(|error| error.to_string())?;
+            let expected = norito::to_bytes(payout).map_err(|error| error.to_string())?;
+            if expected.len() > 4096 {
+                return Err("Fee snapshot payout frame exceeds test bound".into());
+            }
+            if bytes != &expected {
+                return Err("Fee snapshot differs from exact executed payout".into());
+            }
+            require_target(
+                snapshot,
+                "world.kagemusha_wallet_ledger",
+                WorldStateElementKindV1::Table,
+                Some(hash_value(&key)?),
+                hash_value(bytes)?,
+            )?;
+            consume(snapshot)
+        })
     }
 
     fn with_native_world_state_snapshot_cut_v1<T>(

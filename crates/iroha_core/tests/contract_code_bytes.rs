@@ -1,5 +1,5 @@
 //! Tests for registering on-chain contract code bytes.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::{
     kura::Kura,
     query::store::LiveQueryStore,
@@ -679,7 +679,7 @@ fn native_contract_upload_enforces_shape_quota_and_owner_cancellation() {
         UploadSmartContractCodeChunk {
             artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
                 iroha_model_base::topology::DataSpaceId::UNIVERSAL,
-                iroha_crypto::Hash::new(&[index]),
+                iroha_crypto::Hash::new([index]),
             ),
             total_size: 1,
             chunk_index: 0,

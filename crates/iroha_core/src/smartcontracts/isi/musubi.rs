@@ -43,7 +43,10 @@ use attestation_records::load_location_provider_attestations;
 mod current_providers;
 mod pin_outbox;
 mod replication_binding;
-pub(crate) use current_providers::current_location_providers;
+use crate::state::deserialize::musubi_source_read::{
+    LookupCursor, MusubiEvidenceRead, MusubiRead, ReadFailure,
+};
+pub(crate) use current_providers::{CurrentProviderValidation, current_location_providers};
 pub(crate) use pin_outbox::{PinOutboxOperationOrigin, capture_pin_outbox_operation_origin};
 pub(crate) use replication_binding::validate_replication_order_archive_binding;
 impl Execute for RegisterMusubiNamespaceBindingV1 {
@@ -4281,6 +4284,9 @@ fn emit_musubi_event(event: MusubiEvent, state_transaction: &mut StateTransactio
         .world
         .emit_events(Some(DataEvent::Musubi(event)));
 }
+#[cfg(test)]
+mod rejection_allocation_tests;
+
 #[cfg(test)]
 mod tests {
     use iroha_model_base::topology::DataSpaceId;

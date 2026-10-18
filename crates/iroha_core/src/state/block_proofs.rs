@@ -4,15 +4,22 @@ use std::{num::NonZeroU64, num::NonZeroUsize};
 
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
+    account::AccountId,
     block::{
-        BlockHeader,
+        BlockHeader, SignedBlock,
         proofs::{
             AUTHENTICATED_BLOCK_PROOFS_MAX_BLOCK_WIRE_BYTES_V1, BlockProofs, BlockReceiptProof,
             ExecutionReceiptProof,
         },
     },
+    isi::kagemusha_wallet::{KagemushaWalletLedgerActionV1, KagemushaWalletLedgerV1},
+    kagemusha::{
+        KAGEMUSHA_WALLET_ACTIVATION_MAX_BYTES_V1, KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
+        KagemushaWalletActivationV1, KagemushaWalletUnloadClaimV1,
+    },
     query::error::QueryExecutionFail,
-    transaction::TransactionEntrypoint,
+    sumeragi_finality::CertifiedTransactionInclusionV1,
+    transaction::{SignedTransaction, TransactionEntrypoint},
 };
 
 use super::BlockProofError;
@@ -33,9 +40,10 @@ use crate::{
 /// These ceilings do not reserve the Norito decoder's complete resident graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BlockProofLimits {
-    /// Maximum source heights authenticated from genesis, including H2 for a genesis request.
+    /// Maximum source heights authenticated from genesis, including H2 for a genesis request;
+    /// for a checkpoint-resumed read, the frames walked down from its starting checkpoint.
     pub max_source_blocks: u64,
-    /// Aggregate bytes of the native source prefix, admitted before each frame read.
+    /// Aggregate bytes of the native source frames, admitted before each frame read.
     pub max_source_wire_bytes: u64,
     /// Maximum exact executed block wire bytes, also capped by the proof protocol.
     pub max_block_wire_bytes: u64,
@@ -124,53 +132,7 @@ fn read_finalized_body(
     BlockProofError,
 > {
     let kura = source.kura;
-    let height = usize::try_from(block_height.get())
-        .ok()
-        .and_then(NonZeroUsize::new)
-        .ok_or(BlockProofError::HeightOutOfRange(block_height))?;
-    // A zero resource allowance is a refusal, never an unlimited sentinel.
-    for resource in [
-        BlockProofResource::SourceBlocks,
-        BlockProofResource::SourceWireBytes,
-        BlockProofResource::BlockWireBytes,
-        BlockProofResource::WorkItems,
-        BlockProofResource::ResponseBytes,
-    ] {
-        limits.admit(block_height, resource, 1)?;
-    }
-    if let Some(actual) = kura.get_block_hash(height)
-        && actual != expected_hash
-    {
-        return Err(BlockProofError::BlockHashMismatch {
-            block_height,
-            expected: expected_hash,
-            actual,
-        });
-    }
-    let storage_error =
-        |error| match crate::execution_attempt::kura_read_attempt_error(error, |error| {
-            BlockProofError::Storage {
-                block_height,
-                reason: error.to_string(),
-            }
-        }) {
-            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
-            crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
-                BlockProofError::Deferred(original)
-            }
-        };
-    let target = kura
-        .native_frame_read(block_height.get(), expected_hash)
-        .map_err(storage_error)?
-        .ok_or_else(|| BlockProofError::Storage {
-            block_height,
-            reason: "committed native body is unavailable".into(),
-        })?;
-    let wire_len = target.wire_len();
-    limits.admit(block_height, BlockProofResource::BlockWireBytes, wire_len)?;
-    if wire_response {
-        limits.admit(block_height, BlockProofResource::ResponseBytes, wire_len)?;
-    }
+    let wire_len = admit_target(kura, block_height, expected_hash, limits, wire_response)?;
     // Native prefix authority reads every source under its own finite allowance. The original
     // hash cut is retained, not a full World view; an unsigned result-only H1 is never enough.
     let verified = read_authenticated_execution(
@@ -226,6 +188,77 @@ fn read_finalized_body(
         .executed_block_wire_hash;
     let block = verified.authority.block().clone();
     let wire = verified.wire;
+    admit_body(&block, block_height, expected_hash, limits)?;
+    Ok((block, wire, executed_block_wire_hash))
+}
+
+/// Refuse a zero allowance, a Kura hash that contradicts the journal and an oversized target
+/// before any body I/O. Returns the target's admitted wire length.
+fn admit_target(
+    kura: &Kura,
+    block_height: NonZeroU64,
+    expected_hash: HashOf<BlockHeader>,
+    limits: BlockProofLimits,
+    wire_response: bool,
+) -> Result<u64, BlockProofError> {
+    let height = usize::try_from(block_height.get())
+        .ok()
+        .and_then(NonZeroUsize::new)
+        .ok_or(BlockProofError::HeightOutOfRange(block_height))?;
+    // A zero resource allowance is a refusal, never an unlimited sentinel.
+    for resource in [
+        BlockProofResource::SourceBlocks,
+        BlockProofResource::SourceWireBytes,
+        BlockProofResource::BlockWireBytes,
+        BlockProofResource::WorkItems,
+        BlockProofResource::ResponseBytes,
+    ] {
+        limits.admit(block_height, resource, 1)?;
+    }
+    if let Some(actual) = kura.get_block_hash(height)
+        && actual != expected_hash
+    {
+        return Err(BlockProofError::BlockHashMismatch {
+            block_height,
+            expected: expected_hash,
+            actual,
+        });
+    }
+    let storage_error =
+        |error| match crate::execution_attempt::kura_read_attempt_error(error, |error| {
+            BlockProofError::Storage {
+                block_height,
+                reason: error.to_string(),
+            }
+        }) {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
+            crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+                BlockProofError::Deferred(original)
+            }
+        };
+    let target = kura
+        .native_frame_read(block_height.get(), expected_hash)
+        .map_err(storage_error)?
+        .ok_or_else(|| BlockProofError::Storage {
+            block_height,
+            reason: "committed native body is unavailable".into(),
+        })?;
+    let wire_len = target.wire_len();
+    limits.admit(block_height, BlockProofResource::BlockWireBytes, wire_len)?;
+    if wire_response {
+        limits.admit(block_height, BlockProofResource::ResponseBytes, wire_len)?;
+    }
+    Ok(wire_len)
+}
+
+/// Height, hash, attached results, rows, carrier version and output cache of one authenticated
+/// body, checked before any path or proof structure is built.
+fn admit_body(
+    block: &SignedBlock,
+    block_height: NonZeroU64,
+    expected_hash: HashOf<BlockHeader>,
+    limits: BlockProofLimits,
+) -> Result<(), BlockProofError> {
     if block.header().height() != block_height {
         return Err(BlockProofError::BlockHeightMismatch {
             requested: block_height,
@@ -271,8 +304,104 @@ fn read_finalized_body(
     }
     block
         .validate_output_merkle_cache()
-        .map_err(|error| invalid_outputs(block_height, error))?;
-    Ok((block, wire, executed_block_wire_hash))
+        .map_err(|error| invalid_outputs(block_height, error))
+}
+
+/// Read one committed body for an off-chain, account-scoped read through the
+/// checkpoint-resumed native authenticator.
+///
+/// The walk starts at the nearest verified history checkpoint at or above `block_height`, or
+/// at the captured native tip, and binds every frame to its successor's Iroha parent hash,
+/// native core parent and parent result down to the target. It therefore reads at most
+/// `HISTORY_CHECKPOINT_INTERVAL + 1` frames while that checkpoint is retained, and never more
+/// than `max_source_blocks`. The five [`BlockProofLimits`] keep their meaning: the target's
+/// wire length is admitted before any body I/O, every frame count and aggregate source length
+/// before that frame is read, and rows before validation; each frame keeps Kura's own length
+/// ceiling, as in the genesis-rooted reader. Source work depends on node-local checkpoints, so
+/// this reader never feeds on-chain metering.
+pub(super) fn read_checkpointed_body(
+    kura: &Kura,
+    history: super::CanonicalHistorySource<'_>,
+    block_height: NonZeroU64,
+    expected_hash: HashOf<BlockHeader>,
+    limits: BlockProofLimits,
+    read_budget: &super::CanonicalHistoryReadBudget,
+) -> Result<iroha_data_model::block::SharedSignedBlock, BlockProofError> {
+    let wire_len = admit_target(kura, block_height, expected_hash, limits, false)?;
+    let height = usize::try_from(block_height.get())
+        .ok()
+        .and_then(NonZeroUsize::new)
+        .ok_or(BlockProofError::HeightOutOfRange(block_height))?;
+    let (mut source_blocks, mut source_bytes) = (0_u64, 0_u64);
+    // The walk visits only the target, right after reading it, so this is the target's length.
+    let last_frame = std::cell::Cell::new(0_u64);
+    // The walk reports only a budget error; keep the exact typed refusal for the caller.
+    let mut refusal = None;
+    let mut carrier = None;
+    let walked = read_budget.with(|| {
+        history
+            .with_read_budget(read_budget)
+            .visit_executed_backwards_from_checkpoints(
+                height,
+                height,
+                |blocks, bytes| {
+                    source_blocks = source_blocks.saturating_add(blocks);
+                    source_bytes = source_bytes.saturating_add(bytes);
+                    last_frame.set(bytes);
+                    limits
+                        .admit(
+                            block_height,
+                            BlockProofResource::SourceBlocks,
+                            source_blocks,
+                        )
+                        .and_then(|()| {
+                            limits.admit(
+                                block_height,
+                                BlockProofResource::SourceWireBytes,
+                                source_bytes,
+                            )
+                        })
+                        .map_err(|error| {
+                            refusal = Some(error);
+                            crate::execution_attempt::ExecutionAttemptError::Rejected(
+                                QueryExecutionFail::GasBudgetExceeded,
+                            )
+                        })
+                },
+                |receipt| {
+                    carrier = Some(receipt.block().clone());
+                    Ok(std::ops::ControlFlow::Break(()))
+                },
+            )
+    });
+    if let Some(refusal) = refusal {
+        return Err(refusal);
+    }
+    walked.map_err(|error| match error {
+        crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+            BlockProofError::Storage {
+                block_height,
+                reason: error.to_string(),
+            }
+        }
+        crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+            BlockProofError::Deferred(original)
+        }
+    })?;
+    let block = carrier.ok_or_else(|| BlockProofError::Storage {
+        block_height,
+        reason: "requested execution was absent from its authenticated interval".into(),
+    })?;
+    // Target metadata was admitted before the walk's first body read. Refuse a changed
+    // length rather than silently extending its admitted allowance.
+    if last_frame.get() != wire_len {
+        return Err(BlockProofError::Storage {
+            block_height,
+            reason: "native target length changed after admission".into(),
+        });
+    }
+    admit_body(&block, block_height, expected_hash, limits)?;
+    Ok(block)
 }
 
 pub(super) fn executed_block_wire_from_kura(
@@ -378,6 +507,292 @@ pub(super) fn block_proofs_for_entry_from_kura(
         ));
     }
     Ok(proofs)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static KAGEMUSHA_LEDGER_PATHS_BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Merkle paths built by KAGEMUSHA ledger inclusion reads on this thread.
+#[cfg(test)]
+pub(super) fn kagemusha_ledger_paths_built_for_test() -> u64 {
+    KAGEMUSHA_LEDGER_PATHS_BUILT.with(std::cell::Cell::get)
+}
+
+/// KAGEMUSHA ledger attempt with a direct-finality route.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KagemushaLedgerAttemptKindV1 {
+    /// An explicit `Activate` frame. Only the input's signer owns it.
+    Activate,
+    /// An explicit `Unload` claim frame. Any signer may relay a claim, so the account the
+    /// claim pays owns the attempt as well as the input's signer.
+    Unload {
+        /// Paid account named by the claim frame (`KagemushaWalletUnloadClaimV1::account`).
+        account: AccountId,
+    },
+}
+
+/// One explicit KAGEMUSHA Activate or Unload instruction, the wallet its frame names and, for
+/// an Unload, the account its claim pays.
+///
+/// Both come from a bounded canonical shape decode of the frame only. No signature,
+/// credential, account digest or proof is checked: this is DATA for an account-scoped route
+/// filter. The phone binds the paid account through the exact claim bytes it retained.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KagemushaLedgerAttemptV1 {
+    /// Instruction scheme; the frame's credential names the same scheme.
+    pub scheme: [u8; 32],
+    /// Activate, or Unload with the account its claim pays.
+    pub kind: KagemushaLedgerAttemptKindV1,
+    /// Wallet incarnation named by the frame's credential.
+    pub wallet: [u8; 32],
+}
+
+impl KagemushaLedgerAttemptV1 {
+    /// Any other action, a frame that does not decode within its bound, or a credential
+    /// under another scheme names no attempt.
+    ///
+    /// # Errors
+    /// A local decoder refusal stays [`BlockProofError::Deferred`]; it is never an absence.
+    fn from_instruction(
+        instruction: &KagemushaWalletLedgerV1,
+    ) -> Result<Option<Self>, BlockProofError> {
+        let decoded = match &instruction.action {
+            KagemushaWalletLedgerActionV1::Activate(frame) => {
+                shape_decode::<KagemushaWalletActivationV1>(
+                    frame,
+                    KAGEMUSHA_WALLET_ACTIVATION_MAX_BYTES_V1,
+                )?
+                .map(|activation| {
+                    (
+                        KagemushaLedgerAttemptKindV1::Activate,
+                        activation.credential,
+                    )
+                })
+            }
+            // The paid account comes from the same bounded shape decode as the wallet.
+            KagemushaWalletLedgerActionV1::Unload(frame) => {
+                shape_decode::<KagemushaWalletUnloadClaimV1>(
+                    frame,
+                    KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
+                )?
+                .map(|claim| {
+                    (
+                        KagemushaLedgerAttemptKindV1::Unload {
+                            account: claim.account,
+                        },
+                        claim.credential,
+                    )
+                })
+            }
+            _ => return Ok(None),
+        };
+        Ok(decoded
+            .filter(|(_, credential)| credential.body.scheme_id == instruction.scheme)
+            .map(|(kind, credential)| Self {
+                scheme: instruction.scheme,
+                kind,
+                wallet: credential.body.wallet_id,
+            }))
+    }
+
+    /// Whether `caller` owns this attempt of an input that `signer` signed: the signer owns
+    /// every attempt, and the account an Unload claim pays owns that Unload.
+    fn is_owned_by(&self, signer: &AccountId, caller: &AccountId) -> bool {
+        signer == caller
+            || matches!(&self.kind,
+                KagemushaLedgerAttemptKindV1::Unload { account } if account == caller)
+    }
+}
+
+/// Decode one canonical frame within its bound for its shape only; the ledger validates it.
+///
+/// # Errors
+/// A refusal by the caller's active decode limits or the allocator is local and deferred.
+fn shape_decode<T>(frame: &[u8], max: usize) -> Result<Option<T>, BlockProofError>
+where
+    T: norito::NoritoSerialize,
+    for<'de> T: norito::NoritoDeserialize<'de>,
+{
+    if frame.len() > max {
+        return Ok(None);
+    }
+    let limits = norito::canonical_decode_limits(frame.len());
+    match norito::decode_canonical_with_limits::<T>(frame, limits) {
+        Ok(value) => Ok(Some(value)),
+        Err(error) => match crate::execution_attempt::norito_decode_attempt_error(error, |_| ()) {
+            crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+                Err(BlockProofError::Deferred(original))
+            }
+            crate::execution_attempt::ExecutionAttemptError::Rejected(()) => Ok(None),
+        },
+    }
+}
+
+/// Signer and explicit KAGEMUSHA Activate/Unload attempts of one committed External input.
+///
+/// DATA for the account-scoped ledger-finality routes, never finality authority: the phone
+/// verifies the certificate, both memberships and its outcome predicate itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KagemushaLedgerEntryOwnerV1 {
+    /// Account that signed the External input.
+    pub authority: AccountId,
+    /// Explicit Activate/Unload instructions in instruction order.
+    pub attempts: Vec<KagemushaLedgerAttemptV1>,
+}
+
+impl KagemushaLedgerEntryOwnerV1 {
+    /// Contract calls and IVM overlays carry no explicit instruction and name no attempt.
+    ///
+    /// # Errors
+    /// A local decoder refusal of an Activate or Unload frame stays deferred.
+    pub(super) fn from_signed(signed: &SignedTransaction) -> Result<Self, BlockProofError> {
+        let attempts = signed
+            .instructions()
+            .explicit_instructions()
+            .filter_map(|instruction| {
+                instruction
+                    .as_any()
+                    .downcast_ref::<KagemushaWalletLedgerV1>()
+            })
+            .filter_map(|instruction| {
+                KagemushaLedgerAttemptV1::from_instruction(instruction).transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            authority: signed.authority().clone(),
+            attempts,
+        })
+    }
+
+    /// Whether this input carries an Activate or Unload whose frame names `wallet` under
+    /// `scheme` and that `caller` owns. The signer owns each attempt; the account an Unload
+    /// claim pays also owns that Unload, so a relayed Unload belongs to its relayer and to its
+    /// claim account, and the claim account owns no other attempt of the input. Every other
+    /// input and caller answers `false` alike.
+    pub fn is_attempt_of(&self, caller: &AccountId, scheme: &[u8; 32], wallet: &[u8; 32]) -> bool {
+        self.attempts.iter().any(|attempt| {
+            attempt.scheme == *scheme
+                && attempt.wallet == *wallet
+                && attempt.is_owned_by(&self.authority, caller)
+        })
+    }
+}
+
+/// Owner projection and selective inclusion read from one finalized body.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KagemushaLedgerEntryInclusionV1 {
+    /// Signer and attempts of the External input.
+    pub owner: KagemushaLedgerEntryOwnerV1,
+    /// Entry path, joined complete Network output and output path.
+    pub inclusion: CertifiedTransactionInclusionV1,
+}
+
+/// Locate one External Network input by hash, require its explicit output join and project
+/// its owner. Returns the input index, the joined output index and the owner.
+///
+/// Only input hashes are compared and the one input and its row are borrowed: no tree, path
+/// or output copy. A sealed input has no External signer and is refused like an absent input.
+fn kagemusha_ledger_entry(
+    block: &SignedBlock,
+    block_height: NonZeroU64,
+    entry_hash: HashOf<TransactionEntrypoint>,
+) -> Result<(u32, u32, KagemushaLedgerEntryOwnerV1), BlockProofError> {
+    let not_found = || BlockProofError::EntrypointNotFound {
+        entry_hash,
+        block_height,
+    };
+    let index = block
+        .network_input_hashes()
+        .position(|hash| hash == entry_hash)
+        .ok_or_else(not_found)?;
+    let Some(TransactionEntrypoint::External(signed)) = block.network_entrypoint_at(index) else {
+        return Err(not_found());
+    };
+    let input_index = u32::try_from(index)
+        .map_err(|_| invalid_outputs(block_height, "Network input index exceeds proof width"))?;
+    // The Network row sits at the output position equal to its input index, so both leaf
+    // indices equal `input_index`. The join is explicit, never inferred from a result index.
+    let (output_index, _) = block
+        .network_output_at(input_index)
+        .ok_or_else(|| invalid_outputs(block_height, "Network input has no exact output join"))?;
+    let owner = KagemushaLedgerEntryOwnerV1::from_signed(signed)?;
+    Ok((input_index, output_index, owner))
+}
+
+/// Owner projection of one External input in an authenticated body: no path, no output copy.
+pub(super) fn kagemusha_ledger_entry_owner_from_body(
+    block: &SignedBlock,
+    block_height: NonZeroU64,
+    entry_hash: HashOf<TransactionEntrypoint>,
+) -> Result<KagemushaLedgerEntryOwnerV1, BlockProofError> {
+    kagemusha_ledger_entry(block, block_height, entry_hash).map(|(_, _, owner)| owner)
+}
+
+/// Selective inclusion of one External input in an authenticated body, built only for an
+/// owner that `admit` accepts. A refused owner answers `None` before any path is built or
+/// any output is copied.
+pub(super) fn kagemusha_ledger_inclusion_for_entry_from_body(
+    block: &SignedBlock,
+    block_height: NonZeroU64,
+    entry_hash: HashOf<TransactionEntrypoint>,
+    limits: BlockProofLimits,
+    admit: impl FnOnce(&KagemushaLedgerEntryOwnerV1) -> bool,
+) -> Result<Option<KagemushaLedgerEntryInclusionV1>, BlockProofError> {
+    let (input_index, output_index, owner) =
+        kagemusha_ledger_entry(block, block_height, entry_hash)?;
+    if !admit(&owner) {
+        return Ok(None);
+    }
+    let output = block
+        .execution_outputs()
+        .get(output_index as usize)
+        .ok_or_else(|| invalid_outputs(block_height, "joined output is absent"))?;
+    let entry_proof = block
+        .network_input_proof(input_index)
+        .ok_or_else(|| invalid_outputs(block_height, "Network input proof is absent"))?;
+    let output_proof = block
+        .output_proof(output_index)
+        .ok_or_else(|| invalid_outputs(block_height, "output proof is absent"))?;
+    #[cfg(test)]
+    KAGEMUSHA_LEDGER_PATHS_BUILT.with(|built| built.set(built.get() + 2));
+    // Measure the complete inclusion frame before copying its output row, which may reach
+    // the genesis-fixed `max_output_bytes`.
+    let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+    let fields: [&dyn norito::core::SerializePayload; 3] = [&entry_proof, output, &output_proof];
+    let borrowed = BorrowedSingularStruct::new(fields);
+    let align = norito::core::archived_payload_align::<CertifiedTransactionInclusionV1>().max(1);
+    let padding = (align - norito::core::Header::SIZE % align) % align;
+    let overhead = (norito::core::Header::SIZE + padding) as u64;
+    limits.admit(block_height, BlockProofResource::ResponseBytes, overhead)?;
+    let payload_limit = limits.max_response_bytes - overhead;
+    let payload_len = bounded_bare_encoded_len(&borrowed, payload_limit).map_err(|error| {
+        if matches!(error, QueryExecutionFail::GasBudgetExceeded) {
+            BlockProofError::CapacityExceeded {
+                block_height,
+                resource: BlockProofResource::ResponseBytes,
+                actual: limits.max_response_bytes.saturating_add(1),
+                limit: limits.max_response_bytes,
+            }
+        } else {
+            invalid_outputs(block_height, error)
+        }
+    })?;
+    let inclusion = CertifiedTransactionInclusionV1 {
+        entry_proof,
+        output: output.clone(),
+        output_proof,
+    };
+    let actual = norito::canonical_frame_len(&inclusion)
+        .map_err(|error| invalid_outputs(block_height, error))? as u64;
+    if actual != overhead + payload_len {
+        return Err(invalid_outputs(
+            block_height,
+            "borrowed and owned inclusion lengths differ",
+        ));
+    }
+    Ok(Some(KagemushaLedgerEntryInclusionV1 { owner, inclusion }))
 }
 
 #[cfg(test)]

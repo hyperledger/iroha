@@ -169,9 +169,26 @@ impl NativeFrameBinding {
                 return Err(Error::CanonicalBlockWireMismatch { height });
             }
             let position = height - 1;
+            // Physical notifications are separate from allocation refunds. Their
+            // original sources outlive every acquired Kura and block-store guard.
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC355")))]
+            let (mut prune_releases, mut canonical_releases) = (
+                kura.prune_lock.defer_notifications(),
+                kura.canonical_chain_lock.defer_notifications(),
+            );
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC355")))]
+            let _prune = prune_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC355"))]
             let _prune = kura.prune_lock.lock();
+            #[cfg(test)]
+            native_frame_release_tests::fence_boundary(1);
             kura.ensure_prune_recovery_not_required()?;
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC355")))]
+            let _canonical = canonical_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC355"))]
             let _canonical = kura.canonical_chain_lock.lock();
+            #[cfg(test)]
+            native_frame_release_tests::fence_boundary(2);
             kura.ensure_canonical_storage_not_poisoned()?;
             let mut store = kura.block_store.lock();
             let before = kura.native_frame_journal_binding(&mut store)?;
@@ -318,9 +335,26 @@ impl Kura {
         let position = height
             .checked_sub(1)
             .ok_or(Error::CanonicalBlockWireMismatch { height })?;
+        // Physical notifications are separate from allocation refunds. Their
+        // original sources outlive every acquired Kura and block-store guard.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC355")))]
+        let (mut prune_releases, mut canonical_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC355")))]
+        let _prune = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC355"))]
         let _prune = self.prune_lock.lock();
+        #[cfg(test)]
+        native_frame_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC355")))]
+        let _canonical = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC355"))]
         let _canonical = self.canonical_chain_lock.lock();
+        #[cfg(test)]
+        native_frame_release_tests::fence_boundary(2);
         self.ensure_canonical_storage_not_poisoned()?;
         let mut store = self.block_store.lock();
         if store.path_to_blockchain.as_os_str().is_empty() {
@@ -1048,4 +1082,10 @@ impl Kura {
         );
         store.write_block_data(slot.start, &replacement).unwrap();
     }
+}
+
+/// Original physical notification custody for native metadata and body reads.
+#[cfg(test)]
+mod native_frame_release_tests {
+    include!("native_frame_release_tests.rs");
 }

@@ -89,6 +89,7 @@
           "block_cadence_ms": 100,
           "due_work_max_lag_ms": 60000,
           "max_clock_drift_ms": 1000,
+          "due_work_max_lag_ms": 60000,
           "key_activation_lead_blocks": 1,
           "key_overlap_grace_blocks": 8,
           "key_expiry_grace_blocks": 0,

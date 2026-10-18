@@ -1,0 +1,157 @@
+"""Direct canonical opening phase with explicit padding gates and geometry.
+
+The selected challenge must be admissible (established by the preceding bounded
+schedule and source zero-fallback certificate). This constructs the one public
+opening; BAVC/VOLE reconstruction and placement into heap key slots follow later.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from bit_ir import Builder, Cost, integer, require, bits, unpack
+
+
+@dataclass(frozen=True)
+class GeometryKernel:
+    """Clean XOR output of source marks, frontier count and ordered flags."""
+    module: object = field(repr=False, compare=False)
+    geometry: object
+    name: str = field(init=False)
+    inputs: int = field(init=False)
+    outputs: int = field(init=False)
+    work: int = field(init=False)
+    cost: Cost = field(init=False)
+
+    def __post_init__(self):
+        g = self.geometry
+        n, d = g.leaves, (g.leaves - 1).bit_length()
+        layout = self.module.layout(g)
+        leaf_and = sum((1 << depth) * (2 * depth - 3) for depth in g.depths)
+        leaf_x = sum((1 << depth) * depth for depth in g.depths)
+        # Compute marks/count, copy outputs, and reverse that complete computation.
+        object.__setattr__(self, "name", "geometry:" + ":".join(str(getattr(g, key))
+                            for key in ("tau", "k", "tau1", "grinding_bits", "opening_limit")))
+        object.__setattr__(self, "inputs", g.challenge_bits)
+        object.__setattr__(self, "outputs", (2 * n - 1) + d + (n - 1))
+        object.__setattr__(self, "work", layout["clean_work_wires"])
+        object.__setattr__(self, "cost", Cost(x=2 * leaf_x,
+                            cx=14 * (n - 1) + (2 * n - 1) + d + 2 * (n - 1),
+                            ccx=2 * leaf_and + 2 * (n - 1) * (1 + (d - 1)**2)))
+
+    def evaluate(self, inputs):
+        """Full geometry on any challenge bits; admissibility is a stage premise."""
+        require(type(inputs) is tuple and len(inputs) == self.inputs
+                and all(type(b) is int and b in (0, 1) for b in inputs), "geometry input")
+        g = self.geometry
+        marks, offset = [0] * (2 * g.leaves - 1), 0
+        for vector, depth in enumerate(g.depths):
+            index = unpack(inputs[offset:offset + depth])
+            marks[self.module.position(g, vector, index)] = 1
+            offset += depth
+        flags = []
+        for parent in reversed(range(g.leaves - 1)):
+            left, right = marks[2 * parent + 1:2 * parent + 3]
+            marks[parent] = left | right
+            flags.append(left ^ right)
+        return tuple(marks) + bits(sum(flags), (g.leaves - 1).bit_length()) + tuple(flags)
+
+    def emit(self, inputs, outputs, work):
+        """Compose the pinned forward/inverse heap computation and exact copying."""
+        require(type(inputs) is tuple and type(outputs) is tuple and type(work) is tuple,
+                "geometry wire containers")
+        require(len(inputs) == self.inputs and len(outputs) == self.outputs and len(work) == self.work,
+                "geometry wire widths")
+        all_wires = inputs + outputs + work
+        require(all(type(w) is int and w >= 0 for w in all_wires)
+                and len(set(all_wires)) == len(all_wires), "geometry wire aliases")
+        p = self.module.layout(self.geometry)
+        unused_target = p["target"]
+        mapping = dict(enumerate(inputs))
+        mapping.update(zip(range(unused_target + 1, p["size"]), work))
+        require(len(mapping) == self.inputs + self.work, "geometry scratch mapping")
+
+        def emit_compute(inverse):
+            for gate in self.module.compute_gates(p, inverse=inverse):
+                require(unused_target not in gate[1:], "unexpected predicate-target use")
+                yield (gate[0], *(mapping[i] for i in gate[1:]))
+
+        yield from emit_compute(False)
+        cursor = 0
+        for wire in p["marks"] + p["count"]:
+            yield ("cx", mapping[wire], outputs[cursor])
+            cursor += 1
+        for parent in reversed(range(self.geometry.leaves - 1)):
+            yield ("cx", mapping[p["marks"][2 * parent + 1]], outputs[cursor])
+            yield ("cx", mapping[p["marks"][2 * parent + 2]], outputs[cursor])
+            cursor += 1
+        require(cursor == self.outputs, "geometry output count")
+        yield from emit_compute(True)
+
+
+def greater_constant(builder, word, value):
+    """Explicit unsigned word > public constant, with no data-addressed access."""
+    integer(value, 0, (1 << len(word)) - 1, "comparison constant")
+    greater, equal = builder.bit("zero"), builder.bit("one")
+    for bit in reversed(range(len(word))):
+        if (value >> bit) & 1:
+            equal = builder.bit("and", equal, word[bit])
+        else:
+            term = builder.bit("and", equal, word[bit])
+            # OR(a,b) = a XOR b XOR (a AND b), including on invalid input states.
+            greater = builder.bit("xor", builder.bit("xor", greater, term),
+                                  builder.bit("and", greater, term))
+            equal = builder.bit("and", equal, builder.bit("not", word[bit]))
+    return greater
+
+
+@dataclass(frozen=True)
+class Opening:
+    """One source-shaped opening from fixed fresh commitment/frontier tapes."""
+    kernel: GeometryKernel
+
+    def __post_init__(self):
+        require(type(self.kernel) is GeometryKernel, "opening kernel")
+
+    def block(self):
+        """Generate all padding selectors and copy exactly the admitted prefix.
+
+        Source-order frontier flags are returned in descending parent order.
+        This phase does not put keys into data-selected heap slots. That routing
+        is an explicit required B1 operation, not implicit free address lookup.
+        """
+        k, g = self.kernel, self.kernel.geometry
+        commitment_bits = 112 * 8 * g.tau
+        key_bits = 32 * 8 * g.opening_limit
+        b = Builder(k.inputs + commitment_bits + key_bits, (k,))
+        geometry = b.node("kernel", *range(k.inputs), kernel=k.name, width=k.outputs)
+        marks_bits = 2 * g.leaves - 1
+        count_bits = (g.leaves - 1).bit_length()
+        count = geometry[marks_bits:marks_bits + count_bits]
+        opening = list(range(k.inputs, k.inputs + commitment_bits))
+        for index in range(g.opening_limit):
+            active = greater_constant(b, count, index)
+            start = k.inputs + commitment_bits + index * 256
+            opening.extend(b.bit("and", active, source) for source in range(start, start + 256))
+        zero, hidden, offset = b.bit("zero"), [], 0
+        for depth in g.depths:
+            hidden.extend(range(offset, offset + depth))
+            hidden.extend([zero] * (16 - depth))
+            offset += depth
+        return b.finish((*opening, *hidden, *geometry))
+
+    def resources(self):
+        """Full phase counts, while retaining the reconstruction and entry gaps."""
+        g = self.kernel.geometry
+        block = self.block()
+        return dict(gates=block.clean_resources()["gates"],
+                    supplied_challenge_bits=self.kernel.inputs,
+                    independent_material_random_bits=8 * (112 * g.tau + 32 * g.opening_limit),
+                    canonical_opening_bytes=112 * g.tau + 32 * g.opening_limit,
+                    returned_hidden_index_bits=16 * g.tau,
+                    returned_geometry_bits=self.kernel.outputs,
+                    history_bits=block.derived, clean_kernel_work_bits=block.work,
+                    total_clean_work_bits=block.derived + block.work,
+                    output_bits=len(block.outputs), requires_admissible_challenge=True,
+                    heap_key_routing_implemented=False, complete_simulator_coverage=False,
+                    complete_resource_vector=False, profile_qualified=False,
+                    production_gate_changed=False)

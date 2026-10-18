@@ -13,6 +13,10 @@ public extension KagemushaWalletErrorV1 {
   /// Design §5.3: available memory does not cover the installed relations' peak proving memory.
   /// Refused before commit; nothing debited or credited. Never a device verdict.
   static let notEnoughMemoryStatus: Int32 = -14
+  /// The wallet's locally installed blacklist lists the counterparty: a payer refusing to pay a
+  /// listed receiver, or a receiver refusing to request or accept money from a listed payer.
+  /// Refused before any mutation; nothing debited, issued or credited.
+  static let blockedStatus: Int32 = -15
 }
 
 /// Explicit custody result with original canonical bytes.
@@ -65,7 +69,7 @@ public struct KagemushaWalletCallV1: Sendable {
 
 import NoritoBridge
 
-/// Exclusive native owner. Use worker threads for proving. Activity/payment calls can preempt
+/// Exclusive native owner. Synchronous native calls use SDK-owned stacks. Activity/payment calls can preempt
 /// folding because no Swift lock is held across native calls. Closing preserves committed bytes.
 /// Created only after original account admission through a native-provisioned runtime.
 public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @unchecked Sendable {
@@ -95,7 +99,11 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   }
   func setup(_ input: KagemushaWalletSetupInputV1) throws -> KagemushaWalletCallV1 {
     let value = try handle()
-    return try driver.result { out in input.withRequest { driver.setup(value, $0, out) } }
+    // CollectRetained shares native's fold scheduler and does not reserve payment priority.
+    // Keep it out of the foreground capacity needed to cancel/join that work.
+    return try driver.result(workClass: input.selector == 47 ? .folding : .foreground) {
+      out in input.withRequest { driver.setup(value, $0, out) }
+    }
   }
   /// Obtain native-selected display DATA for explicit destructive confirmation.
   public func reviewCustodyDeletion() throws -> KagemushaWalletDeletionReviewV1 {
@@ -294,6 +302,14 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   public func refresh(requestId: Data, kind: KagemushaWalletRefreshKindV1, update: Data, certificates: Data) throws -> KagemushaWalletCallV1 {
     try execute(KagemushaWalletOperationInputV1(requestId: requestId, selector: kind.rawValue, first: update, second: certificates))
   }
+  /// Install a signed blacklist locally; a replacement's list version must increase and
+  /// reinstalling the held list is idempotent. The wallet then refuses to pay a listed receiver
+  /// and to request or accept money from a listed payer (`blockedStatus`). Nothing is sent to
+  /// peers or proved; this is no wallet operation and has no retry identity. Complete carries the
+  /// held list's 32-byte object digest.
+  public func installBlacklist(list: Data, certificates: Data) throws -> KagemushaWalletCallV1 {
+    try execute(KagemushaWalletOperationInputV1(requestId: Data(count: 32), selector: 5, first: list, second: certificates))
+  }
   /// Authenticate exact Unload gross debit and optional signed charge before fresh confirmation.
   public func reviewUnload(amount: KagemushaWalletUInt128V1, quote: Data? = nil, certificates: Data? = nil,
     chargeBeneficiary: Data? = nil) throws -> KagemushaWalletReviewV1 {
@@ -402,14 +418,17 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   /// Compute/persist at most one checkpoint or final Ω.
   public func foldOnce() throws -> KagemushaWalletCallV1 {
     let value = try handle()
-    return try driver.result { driver.fold(value, $0) }.completion()
+    return try driver.result(workClass: .folding) { driver.fold(value, $0) }.completion()
   }
   /// Source-selected ownership and proof backlog. Call on a worker; this grants no operation readiness.
   public func snapshot() throws -> KagemushaWalletSnapshotV1 {
-    var output = connect_norito_kagemusha_wallet_snapshot_v1_t()
-    let status = driver.snapshot(try handle(), &output)
-    try KagemushaWalletNativeDriverV1.check(status, reason: output.reason, platform: output.platform_code)
-    return try KagemushaWalletSnapshotV1(output)
+    let owner = try handle()
+    return try KagemushaWalletNativeWorkerV1.perform(workClass: .folding) {
+      var output = connect_norito_kagemusha_wallet_snapshot_v1_t()
+      let status = driver.snapshot(owner, &output)
+      try KagemushaWalletNativeDriverV1.check(status, reason: output.reason, platform: output.platform_code)
+      return try KagemushaWalletSnapshotV1(output)
+    }
   }
   /// Canonical CreditStatus from the permanent first-credit index.
   public func creditStatus(creditId: Data, paymentDigest: Data) throws -> KagemushaWalletCallV1 {
@@ -431,7 +450,7 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
 
 /// Existing signed update classes; these values never select proof keys or state roots.
 public enum KagemushaWalletRefreshKindV1: UInt32, Sendable {
-  case credential = 3, schemePolicy = 4, blacklist = 5, timeAnchor = 6, quotaShare = 7
+  case credential = 3, schemePolicy = 4, timeAnchor = 6, quotaShare = 7
 }
 
 /// Fixed foreign intake only; Native performs canonical decoding and all monetary admission.
@@ -457,7 +476,8 @@ struct KagemushaWalletOperationInputV1 {
     default: throw KagemushaWalletErrorV1.invalidInput
     }
     let nonzero = amount.low != 0 || amount.high != 0
-    guard requestId.count == 32, requestId.contains(where: { $0 != 0 }),
+    // Only the local list install (selector 5) has no retry identity: its field is all zero.
+    guard requestId.count == 32, requestId.contains(where: { $0 != 0 }) != (selector == 5),
       !nonzero else { throw KagemushaWalletErrorV1.invalidInput }
     for (bytes, limit) in zip([first, second, third], limits) {
       guard bytes.count <= limit, !((selector < 8 || selector == 10) && limit != 0 && bytes.isEmpty)
@@ -572,45 +592,52 @@ final class KagemushaWalletNativeDriverV1: @unchecked Sendable {
     throw KagemushaWalletErrorV1.native(status: status, reason: reason, platformCode: platform)
   }
   func reviewResult(_ action: (UnsafeMutablePointer<Output>) -> Int32) throws -> KagemushaWalletReviewReplyV1 {
-    var value = Output()
-    let status = action(&value)
-    defer { if let bytes = value.bytes { free(bytes) } }
-    try Self.check(status, reason: value.reason, platform: value.platform_code)
-    guard value.status == 18,
-      value.length >= KagemushaWalletReviewProjectionV1.fixedByteCount,
-      value.length <= KagemushaWalletReviewProjectionV1.maximumByteCount,
-      let bytes = value.bytes else { throw KagemushaWalletErrorV1.invalidNativeOutput }
-    return .init(status: value.status, reason: value.reason, platformCode: value.platform_code,
-      sequenceLow: value.sequence_low, sequenceHigh: value.sequence_high, detail: value.detail, bytes: Data(bytes: bytes, count: value.length))
+    return try KagemushaWalletNativeWorkerV1.perform {
+      var value = Output()
+      let status = action(&value)
+      defer { if let bytes = value.bytes { free(bytes) } }
+      try Self.check(status, reason: value.reason, platform: value.platform_code)
+      guard value.status == 18,
+        value.length >= KagemushaWalletReviewProjectionV1.fixedByteCount,
+        value.length <= KagemushaWalletReviewProjectionV1.maximumByteCount,
+        let bytes = value.bytes else { throw KagemushaWalletErrorV1.invalidNativeOutput }
+      return .init(status: value.status, reason: value.reason, platformCode: value.platform_code,
+        sequenceLow: value.sequence_low, sequenceHigh: value.sequence_high, detail: value.detail, bytes: Data(bytes: bytes, count: value.length))
+    }
   }
   /// Observation has a separate, selector-bound DATA geometry. No financial result kind
   /// or global setup output bound is reinterpreted to carry these larger public originals.
   func observation(selector: UInt32, _ action: (UnsafeMutablePointer<Output>) -> Int32) throws -> Data {
-    let caps = [5_268, 20_066, 20_066, 65_756]
-    guard Int(selector) < caps.count else { throw KagemushaWalletErrorV1.invalidInput }
-    var value = Output()
-    let status = action(&value)
-    defer { if let bytes = value.bytes { free(bytes) } }
-    try Self.check(status, reason: value.reason, platform: value.platform_code)
-    guard value.status == 12, value.reason == -1, value.platform_code == 0,
-      value.sequence_low == 0, value.sequence_high == 0, value.detail == 0,
-      value.length > 0, value.length <= caps[Int(selector)], let bytes = value.bytes
-    else { throw KagemushaWalletErrorV1.invalidNativeOutput }
-    return Data(bytes: bytes, count: value.length)
+    return try KagemushaWalletNativeWorkerV1.perform {
+      let caps = [5_268, 20_066, 20_066, 65_756]
+      guard Int(selector) < caps.count else { throw KagemushaWalletErrorV1.invalidInput }
+      var value = Output()
+      let status = action(&value)
+      defer { if let bytes = value.bytes { free(bytes) } }
+      try Self.check(status, reason: value.reason, platform: value.platform_code)
+      guard value.status == 12, value.reason == -1, value.platform_code == 0,
+        value.sequence_low == 0, value.sequence_high == 0, value.detail == 0,
+        value.length > 0, value.length <= caps[Int(selector)], let bytes = value.bytes
+      else { throw KagemushaWalletErrorV1.invalidNativeOutput }
+      return Data(bytes: bytes, count: value.length)
+    }
   }
-  func result(_ action: (UnsafeMutablePointer<Output>) -> Int32) throws -> KagemushaWalletCallV1 {
-    var value = Output()
-    let status = action(&value)
-    defer { if let bytes = value.bytes { free(bytes) } }
-    try Self.check(status, reason: value.reason, platform: value.platform_code)
-    guard value.reason == -1, value.platform_code == 0,
-      KagemushaWalletCallV1.statusRange.contains(value.status), value.length >= 0,
-      value.length <= kagemushaWalletOutputBoundV1(value.status), value.length == 0 || value.bytes != nil
-    else { throw KagemushaWalletErrorV1.invalidNativeOutput }
-    return try KagemushaWalletCallV1(
-      status: value.status, sequenceLow: value.sequence_low, sequenceHigh: value.sequence_high,
-      detail: value.detail,
-      bytes: value.bytes.map { Data(bytes: $0, count: value.length) } ?? Data())
+  func result(workClass: KagemushaWalletNativeWorkClassV1 = .foreground,
+    _ action: (UnsafeMutablePointer<Output>) -> Int32) throws -> KagemushaWalletCallV1 {
+    return try KagemushaWalletNativeWorkerV1.perform(workClass: workClass) {
+      var value = Output()
+      let status = action(&value)
+      defer { if let bytes = value.bytes { free(bytes) } }
+      try Self.check(status, reason: value.reason, platform: value.platform_code)
+      guard value.reason == -1, value.platform_code == 0,
+        KagemushaWalletCallV1.statusRange.contains(value.status), value.length >= 0,
+        value.length <= kagemushaWalletOutputBoundV1(value.status), value.length == 0 || value.bytes != nil
+      else { throw KagemushaWalletErrorV1.invalidNativeOutput }
+      return try KagemushaWalletCallV1(
+        status: value.status, sequenceLow: value.sequence_low, sequenceHigh: value.sequence_high,
+        detail: value.detail,
+        bytes: value.bytes.map { Data(bytes: $0, count: value.length) } ?? Data())
+    }
   }
 }
 

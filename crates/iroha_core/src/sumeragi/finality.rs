@@ -4,6 +4,7 @@ mod compact_source;
 mod cursor;
 pub(crate) use cursor::NativeGenesisExecutionV1;
 mod interval;
+mod interval_budget;
 mod proof_destination;
 pub use compact_source::{
     NativeCommitCertificateDataV1, NativeCommitCertificateReadErrorV1, read_commit_certificate,
@@ -14,8 +15,11 @@ pub use cursor::{
 };
 pub use interval::{
     NativeFinalityProofInterval, NativeFinalityProofIntervalError,
-    NativeFinalityProofIntervalLimits, NativeFinalityProofSource, build_proof_interval,
+    NativeFinalityProofIntervalLimits, NativeFinalityProofRefusal, NativeFinalityProofSource,
+    build_proof_interval,
 };
+pub(crate) use interval_budget::FinalityDecodeWorkspace;
+pub use interval_budget::NativeFinalityProofBudget;
 pub use proof_destination::ProofDestinationError;
 
 use iroha_crypto::{Algorithm, Hash, KeyPair, SignatureOf};

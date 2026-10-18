@@ -1,10 +1,9 @@
 //! Determinism tests for signature preverification batching under input permutations.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #![allow(clippy::items_after_statements)]
 //! Ensures that, for a block containing one bad signature among valid ones, the offending
 //! transaction identified by batch verification is stable across different input orders.
-#[path = "common/native_validation.rs"]
-mod native_validation;
+use crate::native_validation;
 use iroha_core::{
     block::BlockValidationError as BErr,
     prelude::*,

@@ -85,7 +85,7 @@ impl Cursor {
         let verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             &genesis.initial_epoch().network_id,
-            &genesis.chain_id(),
+            genesis.chain_id(),
         )
         .map_err(|error| {
             finality_read_error(
@@ -324,7 +324,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         &mut self,
         signed_wire: &[u8],
     ) -> Result<ActivationFinalityProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         let (root, manifest) = self.sync_manifest()?;
         let address = manifest
             .activation
@@ -383,7 +382,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         signed_wire: &[u8],
         original: &[u8],
     ) -> Result<ActivationFinalityProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         let candidate = ledger::proof_original(original)?;
         self.clean_activation_cursor(signed_wire)?;
         let (root, manifest) = self.sync_manifest()?;
@@ -429,9 +427,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         } else if candidate.height() != 1 {
             return Err(Error::Invalid("activation cursor starts at genesis"));
         }
-        let verified = if previous.is_none() {
+        let decision = if previous.is_none() {
             match verifier.verify_retained_decision(&candidate) {
-                Ok(verified) => verified,
+                Ok(decision) => decision,
                 Err(iroha_data_model::sumeragi_finality::FinalityReadError::Invalid(_)) => {
                     verifier.verify(&candidate).map_err(|error| {
                         finality_read_error(error, Error::Proof("activation cursor genesis"))
@@ -450,7 +448,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             })?
         };
         let expected = TransactionEntrypoint::External(signed.clone());
-        let included = verified
+        let included = decision
             .block()
             .network_entrypoints()
             .any(|entry| entry.hash() == expected.hash());
@@ -458,7 +456,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         // membership, substituted input and failed finality remain errors, never Rejected.
         let inclusion = if included {
             Some(authenticated_inclusion(
-                &verified,
+                &decision,
                 &self.proofs.genesis.initial_epoch().network_id,
                 signed,
             )?)

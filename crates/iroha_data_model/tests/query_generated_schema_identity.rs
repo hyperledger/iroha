@@ -179,6 +179,8 @@ fn generated_queries() -> Vec<Value> {
     rows.push(record([query::asset::FindAssetDefinitions]));
     rows.push(record([query::block::FindBlockHeaders]));
     rows.push(record([query::block::FindBlocks]));
+    rows.push(record([query::bond::FindBondById::new(asset_definition())]));
+    rows.push(record([query::bond::FindBonds]));
     rows.push(record([query::da::FindDaPinIntentByAlias::new(
         "merchant@market.universal".to_owned(),
     )]));
@@ -367,7 +369,7 @@ fn generated_queries() -> Vec<Value> {
                 height: 42,
                 block_hash: [0x43; 32],
             },
-            (sample != 0).then(|| ModerationFinalizedEventCursorV1 {
+            (sample != 0).then_some(ModerationFinalizedEventCursorV1 {
                 sequence: 7,
                 block_height: 41,
                 block_hash: [0x44; 32],
@@ -410,7 +412,7 @@ fn generated_queries() -> Vec<Value> {
     ]));
     rows.push(record((0..4).map(|sample| {
         query::sorafs::FindSorafsOrderbookChannels::new(
-            (sample != 0).then(|| OrderbookFinalizedCursorV1 {
+            (sample != 0).then_some(OrderbookFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
@@ -421,17 +423,17 @@ fn generated_queries() -> Vec<Value> {
                     OrderbookSettlementChannelStatusV1::Expired,
                 ][(sample - 1) % 3]
             }),
-            (sample != 0).then(|| [0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
             16,
         )
     })));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsOrderbookEvents::new(
-            (sample != 0).then(|| OrderbookFinalizedCursorV1 {
+            (sample != 0).then_some(OrderbookFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| OrderbookFinalizedEventCursorV1 {
+            (sample != 0).then_some(OrderbookFinalizedEventCursorV1 {
                 sequence: 7,
                 block_height: 41,
                 block_hash: [0x44; 32],
@@ -445,7 +447,7 @@ fn generated_queries() -> Vec<Value> {
     )]));
     rows.push(record((0..7).map(|sample| {
         query::sorafs::FindSorafsOrderbookOrders::new(
-            (sample != 0).then(|| OrderbookFinalizedCursorV1 {
+            (sample != 0).then_some(OrderbookFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
@@ -459,7 +461,7 @@ fn generated_queries() -> Vec<Value> {
                     OrderbookOrderStatusV1::ProviderRevoked,
                 ][(sample - 1) % 6]
             }),
-            (sample != 0).then(|| [0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
             16,
         )
     })));
@@ -469,12 +471,12 @@ fn generated_queries() -> Vec<Value> {
     ]));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsOrderbookReceipts::new(
-            (sample != 0).then(|| OrderbookFinalizedCursorV1 {
+            (sample != 0).then_some(OrderbookFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| [0x42; 32]),
-            (sample != 0).then(|| [0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
             16,
         )
     })));
@@ -484,18 +486,18 @@ fn generated_queries() -> Vec<Value> {
     )]));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsOrderbookTrades::new(
-            (sample != 0).then(|| OrderbookFinalizedCursorV1 {
+            (sample != 0).then_some(OrderbookFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| [0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
             16,
         )
     })));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsPinManifest::new(
             ManifestDigest::new([0x29; 32]),
-            (sample != 0).then(|| PinManifestFinalizedCursorV1 {
+            (sample != 0).then_some(PinManifestFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
@@ -503,7 +505,7 @@ fn generated_queries() -> Vec<Value> {
     })));
     rows.push(record((0..4).map(|sample| {
         query::sorafs::FindSorafsPinManifests::new(
-            (sample != 0).then(|| PinManifestFinalizedCursorV1 {
+            (sample != 0).then_some(PinManifestFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
@@ -540,7 +542,7 @@ fn generated_queries() -> Vec<Value> {
         query::sorafs::FindSorafsProofOutcome::new(
             [ProofOutcomeKindV1::Pdp, ProofOutcomeKindV1::Potr][(sample) % 2],
             [0x42; 32],
-            (sample != 0).then(|| ProofOutcomeFinalizedCursorV1 {
+            (sample != 0).then_some(ProofOutcomeFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
@@ -548,11 +550,11 @@ fn generated_queries() -> Vec<Value> {
     })));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsProofOutcomeEvents::new(
-            (sample != 0).then(|| ProofOutcomeFinalizedCursorV1 {
+            (sample != 0).then_some(ProofOutcomeFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| ProofOutcomeFinalizedEventCursorV1 {
+            (sample != 0).then_some(ProofOutcomeFinalizedEventCursorV1 {
                 sequence: 7,
                 block_height: 41,
                 block_hash: [0x44; 32],
@@ -566,11 +568,11 @@ fn generated_queries() -> Vec<Value> {
     )]));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsRepairEvents::new(
-            (sample != 0).then(|| RepairFinalizedCursorV1 {
+            (sample != 0).then_some(RepairFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| RepairFinalizedEventCursorV1 {
+            (sample != 0).then_some(RepairFinalizedEventCursorV1 {
                 sequence: 7,
                 block_height: 41,
                 block_hash: [0x44; 32],
@@ -580,15 +582,17 @@ fn generated_queries() -> Vec<Value> {
         )
     })));
     rows.push(record((0..2).map(|sample| {
-        query::sorafs::FindSorafsRepairStatus::new((sample != 0).then(|| RepairFinalizedCursorV1 {
-            height: 42,
-            block_hash: [0x43; 32],
-        }))
+        query::sorafs::FindSorafsRepairStatus::new((sample != 0).then_some(
+            RepairFinalizedCursorV1 {
+                height: 42,
+                block_hash: [0x43; 32],
+            },
+        ))
     })));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsRepairTask::new(
             "repair-ticket-1".to_owned(),
-            (sample != 0).then(|| RepairFinalizedCursorV1 {
+            (sample != 0).then_some(RepairFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
@@ -596,11 +600,11 @@ fn generated_queries() -> Vec<Value> {
     })));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsRepairTasks::new(
-            (sample != 0).then(|| RepairFinalizedCursorV1 {
+            (sample != 0).then_some(RepairFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| [0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
             16,
         )
     })));
@@ -610,7 +614,7 @@ fn generated_queries() -> Vec<Value> {
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsReputationJournalEventBySourceId::new(
             ReputationJournalSourceIdV1([0x2b; 32]),
-            (sample != 0).then(|| ReputationJournalFinalizedCursorV1 {
+            (sample != 0).then_some(ReputationJournalFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
                 finalized_at_unix_ms: 1_700_000_000_000,
@@ -619,12 +623,12 @@ fn generated_queries() -> Vec<Value> {
     })));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsReputationJournalEvents::new(
-            (sample != 0).then(|| ReputationJournalFinalizedCursorV1 {
+            (sample != 0).then_some(ReputationJournalFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
                 finalized_at_unix_ms: 1_700_000_000_000,
             }),
-            (sample != 0).then(|| ReputationJournalFinalizedEventCursorV1 {
+            (sample != 0).then_some(ReputationJournalFinalizedEventCursorV1 {
                 sequence: 7,
                 block_height: 41,
                 block_hash: [0x44; 32],
@@ -638,21 +642,21 @@ fn generated_queries() -> Vec<Value> {
     )]));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsReserveAppeals::new(
-            (sample != 0).then(|| ReserveFinalizedCursorV1 {
+            (sample != 0).then_some(ReserveFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| [0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
             16,
         )
     })));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsReserveEvents::new(
-            (sample != 0).then(|| ReserveFinalizedCursorV1 {
+            (sample != 0).then_some(ReserveFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| ReserveFinalizedEventCursorV1 {
+            (sample != 0).then_some(ReserveFinalizedEventCursorV1 {
                 sequence: 7,
                 block_height: 41,
                 block_hash: [0x44; 32],
@@ -666,11 +670,11 @@ fn generated_queries() -> Vec<Value> {
     )]));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsReserveMovements::new(
-            (sample != 0).then(|| ReserveFinalizedCursorV1 {
+            (sample != 0).then_some(ReserveFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| [0x42; 32]),
+            (sample != 0).then_some([0x42; 32]),
             16,
         )
     })));
@@ -680,11 +684,11 @@ fn generated_queries() -> Vec<Value> {
     )]));
     rows.push(record((0..2).map(|sample| {
         query::sorafs::FindSorafsReserveProviders::new(
-            (sample != 0).then(|| ReserveFinalizedCursorV1 {
+            (sample != 0).then_some(ReserveFinalizedCursorV1 {
                 height: 42,
                 block_hash: [0x43; 32],
             }),
-            (sample != 0).then(|| ProviderId([0x2a; 32])),
+            (sample != 0).then_some(ProviderId([0x2a; 32])),
             16,
         )
     })));
@@ -700,12 +704,12 @@ fn generated_queries() -> Vec<Value> {
 #[test]
 fn generated_queries_preserve_captured_frames() {
     let rows = generated_queries();
-    assert_eq!(rows.len(), 127);
+    assert_eq!(rows.len(), 129);
     assert_eq!(
         rows.iter()
             .map(|row| row.get("cases").unwrap().as_array().unwrap().len())
             .sum::<usize>(),
-        171,
+        173,
     );
     let captured: Value = json::from_str(include_str!(
         "fixtures/query_generated_identity_frames.json"

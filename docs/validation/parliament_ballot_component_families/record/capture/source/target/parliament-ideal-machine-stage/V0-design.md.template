@@ -1,0 +1,108 @@
+# V0/V1 supplied-material machine derivation
+
+These modules are included in the scratch machine's selected executing-artifact
+scope. They implement conditional local stage maps, not the complete request
+or any production qualification. Earlier progress reports retain their original
+source scope; only a fresh report covers this integration.
+
+For one source small-VOLE vector, define `r_k=PRG(seed_k,iv,2^31+i)` with the
+actual `ell_hat` bit truncation and zero byte padding. The source folds the
+reordered list `r'_0=0`, `r'_j=r_(j xor hidden)` for j>0. Its level c output is
+the XOR over odd positions at that level, hence exactly the XOR of r'_j whose
+bit c is one. Changing variables k=j xor hidden gives
+
+```
+q_c = XOR_k (bit_c(k) XOR hidden_c) * r_k.
+```
+
+The omitted source seed k=hidden has coefficient zero in every column. It may
+therefore be expanded by a charged concrete public AES circuit without changing
+any output; no source seed is chosen by a secret address. This is not valid as
+an uncharged or repeatable classical PRP challenge interaction.
+
+`RowPRG` explicitly adds the tweak to IV's final little-endian32-bit word, and
+the block counter to its first32-bit word, independently modulo2^32. It emits
+all required AES blocks, selects the low `ell_hat` bits and zeroes byte padding.
+Its clean response-XOR kernel uses the same supplied concrete AES construction.
+
+`VectorFold` traverses every original seed, computes one clean row into shared
+work, prepares each `bit_c(k) XOR hidden_c` flag, applies `ell_hat` controlled
+XORs to each output column, clears all flags, and repeats RowPRG to clear the
+row. After the scan it applies the source correction to the first ell bits of
+each column selected by hidden_c. Vector0 has no correction input; c_0=0.
+Tweak constants are prepared and cleared explicitly. Output columns are an
+arbitrary XOR target, including padding bits that remain untouched.
+
+For N=2^d and B=ceil(ell_hat/128), the per-vector clean cost is
+`2N*cost(RowPRG)` plus `Nd*ell_hat + [i>0]*d*ell` Toffoli,
+`2Nd` CNOT, and `Nd+2popcount(2^31+i)` X. The RowPRG clean cost already has2B
+clean AES calls, so this vector has4NB concrete clean AES calls. It makes no
+base-oracle calls. Work contains the padded row, RowPRG clean workspace, d flags
+and32 tweak bits; every such bit returns to zero.
+
+Four draft tests passed: independent source reordered-list/level-by-level fold
+for all hidden indices at depths1..4, actual row truncation/word-wrap cases,
+hidden-seed independence, and complete emitted-map counts/inverse/cleanup with
+arbitrary output targets. These finite tests do not qualify the full V0 stage.
+
+`mask_fold.py` now binds the exact two TREE_MODULI source arrays. Each source
+bit j in column p contributes `x^(j+p) mod M_i` through explicit CNOTs. Only
+the first d_i bits of each d0-bit mask window are read; output has source
+64-bit word padding and source mask order0..9. Every actual selected basis wire
+and image is checked independently for both tables.
+
+`vole_columns.py` now composes every source vector, c_1..c_(tau-1) offsets and
+typed u16 hidden-index slices. It computes the columns into retained zero
+internal registers, computes shares into the caller target, copies columns,
+then reverses every vector. Caller arbitrary column-target contents therefore
+never contaminate shares. Exact clean cost is twice the sum of VectorFold
+circuits plus the residue CNOT map plus one CNOT per output column bit. Work
+is the retained full column matrix plus the maximum vector workspace.
+
+The VoleColumns tests cover: every actual-table selected basis image/count,
+refusal geometry, and full mixed-depth V0 emitted joint map/count/cleanup with
+nonzero caller targets, compared with a mutable byte/polynomial source model.
+Canonical mixed geometry is checked and copied into an owned immutable value;
+mutating the original caller object cannot alter the subsequently emitted map.
+B1-to-V0/full-request wiring remains outside this component.
+
+## V1 and the clean joined map
+
+Each selector/row lift is W_CRT. Each mask starts with W_TREE times its source
+word-padded low share. Gate e has gamma_e=G[e] dot selector and label_e the XOR
+of the first256 bits of the G[e]-selected columns. The H5 address is exactly
+namespace77||IV16||salt32||e_u32_le||label32||domain5. The low ten response bits
+are XORed with gamma_e*c_mult[m,e] before W_GATE is applied. Gate counts must
+be byte aligned, as in both production rows (704 and696), so the correction
+row stride is exactly the source ceil(g/8) bytes. No generic packed-bit stride
+is silently equated with a different source byte layout.
+
+The streamed circuit stores one label, gate counter, full query, full response,
+ten-bit value and gamma. It reads the same immutable F twice to implement the
+prefix-XOR call, applies correction and contribution, undoes correction, and
+uses the same two-query prefix call to clear the value. It then clears frame,
+label, gamma and counter. Total clean workspace is256+32+1296+2112+10+1=3707bits.
+For matrix Hamming weights |W| its exact census is
+
+```
+X = 4g + 2*sum_e popcount(e)
+CNOT = (ell+1)|W_CRT| + 10|W_TREE| + 514|G| + 2596g + 10|W_GATE|
+Toffoli = 20g
+F calls = 4g.
+```
+
+This includes both frame scatters and both prefix copies. It is a clean XOR
+map for arbitrary caller Delta/Q/q_masks targets and does not retain a hidden
+ordinary-oracle cache after return. Recomputing fixed F values preserves their
+actual address correlations; it does not resample them. Source basis labels are
+preserved, but their reduced state need not be unchanged when entangled with
+the caller output. The circuit equality is on the joint registers.
+
+The joined map retains V0's columns/shares, applies V1, then clears V0. It costs
+2*V0+V1 and retains V0.output_bits+max(V0.work,3707) clean work bits. All other
+input and output bits are separately inventoried. This uses a supplied valid
+cross-stage relation: decoded hidden indices agree with the same selector;
+the grinding tail is zero; seeds and corrections are matching source material.
+B1-to-V0 wiring, public input validation, response/relation/log/return stages
+and the whole-request public projection remain outstanding. No sum here is
+claimed to be the complete simulator/reduction resource vector.

@@ -5,7 +5,7 @@ mod common;
 
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{Mutation, SigmaRelation, sample_witness};
-use iroha_pasta::{Eq, Fp, Fq, PastaAffine, PastaField, msm::MemoryBudget};
+use iroha_pasta::{Eq, Fp, Fq, PastaField, msm::MemoryBudget};
 use iroha_plonk::{
     Protocol, VerifyingKey,
     check::{CheckMode, check},
@@ -147,7 +147,7 @@ fn inventory(relation: SigmaRelation, source_k: u32) {
     let prover = common::vesta_prover(shape);
     let witness = sample_witness::<Fp>(common::CHECK_SEED + 1, relation, Mutation::None);
     let proof = prover
-        .prove(&witness, common::recovery(7))
+        .prove(&witness, common::fresh_randomness())
         .expect("real sigma proof");
     let verifier = prover.verifier();
     verifier
@@ -171,7 +171,7 @@ fn inventory(relation: SigmaRelation, source_k: u32) {
         statement: proof.public.statement,
         known: true,
     };
-    let (x, y) = claim.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(claim.g());
     let key_digest = Fq::from_repr(verifier.verifying_key_digest().expect("digest")).unwrap();
     let mut instances = vec![Fq::ONE, key_digest, x, y];
     instances.extend(

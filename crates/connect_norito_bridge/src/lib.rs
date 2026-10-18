@@ -14496,3 +14496,34 @@ include!("sorafs_tests.rs");
 
 #[cfg(test)]
 mod native_execution_capture_tests;
+
+fn multisig_proposal_id_from_json(input: &[u8]) -> BridgeResult<Vec<u8>> {
+    let text = std::str::from_utf8(input).map_err(|_| BridgeError::Utf8)?;
+    iroha_js_codec::derive_multisig_proposal_id_json(text)
+        .map(String::into_bytes)
+        .map_err(|_| BridgeError::CanonicalJson)
+}
+/// Derive the exact proposal occurrence ID; free output with `connect_norito_free`.
+///
+/// # Safety
+/// Input must reference `input_len` readable bytes; output pointers must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn connect_norito_multisig_proposal_id(
+    input_ptr: *const c_uchar,
+    input_len: c_ulong,
+    out_ptr: *mut *mut c_uchar,
+    out_len: *mut c_ulong,
+) -> c_int {
+    clear_bridge_output(out_ptr, out_len);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        clear_bridge_output_or_null(out_ptr, out_len)?;
+        let length = usize::try_from(input_len).map_err(|_| BridgeError::CanonicalJson)?;
+        if input_ptr.is_null() || length == 0 || length > 4096 {
+            return Err(BridgeError::CanonicalJson);
+        }
+        let input = unsafe { slice::from_raw_parts(input_ptr, length) };
+        let bytes = multisig_proposal_id_from_json(input)?;
+        unsafe { write_bytes_bridge(out_ptr, out_len, &bytes) }
+    }));
+    result.map_or_else(|_| BridgeError::CanonicalJson.code(), bridge_result_to_code)
+}

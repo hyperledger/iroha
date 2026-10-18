@@ -1316,9 +1316,11 @@ impl BootleLanternFileHolderStoreV1 {
                 self.cleanup_superseded_object_v1(predecessor_envelope_digest, &state.manifest);
                 Ok(())
             }
-            Err(error @ BootleLanternHolderStoreErrorV1::DurabilityUncertain)
-            | Err(error @ BootleLanternHolderStoreErrorV1::ProviderDrift)
-            | Err(error @ BootleLanternHolderStoreErrorV1::RollbackDetected) => {
+            Err(
+                error @ (BootleLanternHolderStoreErrorV1::DurabilityUncertain
+                | BootleLanternHolderStoreErrorV1::ProviderDrift
+                | BootleLanternHolderStoreErrorV1::RollbackDetected),
+            ) => {
                 state.poisoned = true;
                 Err(error)
             }
@@ -3069,7 +3071,7 @@ fn read_regular_bounded_v1(
         }
         let file = OpenOptions::new()
             .read(true)
-            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+            .custom_flags(u32::cast_signed(rustix::fs::OFlags::NOFOLLOW.bits()))
             .open(path)
             .map_err(|_| BootleLanternHolderStoreErrorV1::Corrupt)?;
         let opened = file
@@ -3180,7 +3182,7 @@ fn acquire_holder_writer_lock_v1(root: &Path) -> Result<File, BootleLanternHolde
         .write(true)
         .create(true)
         .truncate(false)
-        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .custom_flags(u32::cast_signed(rustix::fs::OFlags::NOFOLLOW.bits()))
         .mode(0o600)
         .open(&path)
         .map_err(|_| BootleLanternHolderStoreErrorV1::Corrupt)?;

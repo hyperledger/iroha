@@ -1,0 +1,1 @@
+error: crates/iroha_torii/src/parliament_tle_release.rs: missing modeled source binding(s): 'pub(crate) async fn request_local_partial_release_v1('

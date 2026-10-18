@@ -76,6 +76,10 @@ impl PlatformEvidenceV1 {
         }
     }
     /// Decode canonical bounded originals. This makes no hardware or freshness claim.
+    ///
+    /// # Errors
+    /// Returns an error for empty, oversized or noncanonical evidence, a platform that
+    /// differs from the policy, or invalid certificate/key/attestation frame bounds.
     pub fn decode(
         bytes: &[u8],
         policy: &KagemushaWalletEnrollmentPolicyV1,
@@ -116,6 +120,11 @@ pub struct RequestBodyV1 {
 }
 impl RequestBodyV1 {
     /// Check structure and bindings only; the issuer still decides policy, challenge and evidence.
+    ///
+    /// # Errors
+    /// Returns an error for invalid challenge/policy, asset or marker bindings, a
+    /// non-Ed25519 account, a different version or account/asset identity, or malformed
+    /// platform evidence. This does not authenticate the platform attestation.
     pub fn validate(&self) -> Result<(), &'static str> {
         self.policy
             .verify_challenge(&self.app, &self.challenge)
@@ -144,6 +153,10 @@ impl RequestBodyV1 {
         Ok(())
     }
     /// Exact domain-separated account message over all originals including generated payment key.
+    ///
+    /// # Errors
+    /// Returns a validation error from [`Self::validate`], or an error if canonical
+    /// encoding fails or the body exceeds the request bound reserved for the signature.
     pub fn account_challenge(&self) -> Result<[u8; 32], &'static str> {
         self.validate()?;
         let bytes = norito::encode_canonical(self).map_err(|_| "enrollment encoding")?;
@@ -170,6 +183,10 @@ pub struct RequestV1 {
 }
 impl RequestV1 {
     /// Verify the existing account's exact-key/evidence binding, not issuer enrollment approval.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid or oversized request body, failed body encoding,
+    /// or an account signature that does not authenticate the exact account challenge.
     pub fn validate(&self) -> Result<(), &'static str> {
         let message = self.body.account_challenge()?;
         let key = self
@@ -182,6 +199,10 @@ impl RequestV1 {
             .map_err(|_| "enrollment account signature")
     }
     /// Canonical request with the provider's E5 bound.
+    ///
+    /// # Errors
+    /// Returns an error if request validation or canonical encoding fails, or if the
+    /// encoded request exceeds [`REQUEST_MAX_BYTES`].
     pub fn encode(&self) -> Result<Vec<u8>, &'static str> {
         self.validate()?;
         let bytes = norito::encode_canonical(self).map_err(|_| "request encoding")?;
@@ -191,6 +212,10 @@ impl RequestV1 {
         Ok(bytes)
     }
     /// Decode and verify the exact retained E5 originals.
+    ///
+    /// # Errors
+    /// Returns an error for empty, oversized or noncanonical input, or when the decoded
+    /// request fails its original-binding or account-signature checks.
     pub fn decode(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.is_empty() || bytes.len() > REQUEST_MAX_BYTES {
             return Err("request bound");
@@ -228,6 +253,11 @@ pub enum IssuerEvidenceV1 {
 impl IssuerEvidenceV1 {
     /// Reconstruct the signed credential digest while requiring unchanged mobile originals.
     /// The Android digest items are the chain only. This checks bytes, not attestation validity.
+    ///
+    /// # Errors
+    /// Returns an error if mobile evidence is malformed or differs from the issuer
+    /// originals, the evidence kind does not match the platform, or evidence-digest
+    /// construction rejects the supplied items. This does not verify attestation validity.
     pub fn digest(
         &self,
         request: &RequestBodyV1,
@@ -363,6 +393,10 @@ impl ResultV1 {
         Ok(())
     }
     /// Encode bounded originals, without asserting issuer or hardware acceptance.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid version or empty/oversized credential or
+    /// certificate frames, failed canonical encoding, or an oversized encoded result.
     pub fn encode(&self) -> Result<Vec<u8>, &'static str> {
         self.shape()?;
         let bytes = norito::encode_canonical(self).map_err(|_| "issuer result encoding")?;
@@ -372,6 +406,10 @@ impl ResultV1 {
         Ok(bytes)
     }
     /// Decode exact bounded issuer originals, without substituting an admission verdict.
+    ///
+    /// # Errors
+    /// Returns an error for empty, oversized or noncanonical input, or invalid result
+    /// version and credential/certificate frame bounds. Signatures are not checked here.
     pub fn decode(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.is_empty() || bytes.len() > RESULT_MAX_BYTES {
             return Err("issuer result bound");

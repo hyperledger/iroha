@@ -278,6 +278,8 @@ mod model {
         ExecutionProofVerification(iroha_crypto::Hash),
         /// Native settlement receipt `{0}` not found
         SettlementReceipt(crate::isi::SettlementId),
+        /// Failed to find native bond: `{0}`
+        Bond(AssetDefinitionId),
     }
 }
 

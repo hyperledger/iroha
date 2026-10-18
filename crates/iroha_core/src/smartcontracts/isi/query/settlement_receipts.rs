@@ -66,6 +66,7 @@ mod tests {
                 movements: ResolvedSettlementMovements::try_from(movements)
                     .expect("canonical movements"),
                 intent_hash: Hash::new(b"settlement-query-intent"),
+                escrow_ids: Vec::new(),
             }),
         }
     }

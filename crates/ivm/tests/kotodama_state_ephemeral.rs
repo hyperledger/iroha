@@ -1,11 +1,11 @@
 //! Durable `StateMap` lowering tests, including struct-valued entries.
+use crate::common;
 use iroha_primitives::{
     bigint::BigInt,
     numeric::{Numeric, Quantity},
 };
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 fn execute_int_result(source: &str) -> i64 {
     let program = KotodamaCompiler::new()
         .compile_source(source)

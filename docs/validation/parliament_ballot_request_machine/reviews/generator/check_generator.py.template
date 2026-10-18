@@ -1,0 +1,95 @@
+"""Independent source-join metadata audit; no full-size elementary circuit run."""
+from pathlib import Path
+import hashlib
+import json
+import sys
+import time
+
+ROOT=Path(__file__).resolve().parents[2]
+STAGE=ROOT/'target/parliament-ideal-machine-stage'
+sys.path.insert(0,str(STAGE))
+import request_generator as rg
+from public_machine import PublicShape
+
+
+def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+
+def require(ok,note):
+    if not ok:raise ValueError(note)
+
+# Before import/load runtime dependency closure is not claimed: these are selected
+# local circuit definitions plus exact semantic source inventory for this review.
+selected={str(p.relative_to(ROOT)):digest(p) for p in sorted(STAGE.glob('*.py')) if not p.name.startswith('test_')}
+source=json.loads((STAGE/'coverage.json').read_text())['source_sha256']
+require(all(digest(ROOT/p)==h for p,h in source.items()),'semantic source drift before')
+start=time.monotonic()
+shape=PublicShape('REG','candidate',17,(0,1,3,7,9,16),0)
+generator=rg.build_generator(ROOT,shape,1)
+elapsed=time.monotonic()-start
+plan=generator.plan;p=plan.layout();fields=dict(generator.fields);stages={s.name:s for s in plan.stages}
+require(tuple(stages)==('P1','S0','opening','R0','R1'),'stage order')
+inputs=dict(plan.inputs)
+require(tuple(inputs)==('public_preparation','schedule_tapes','hidden_commitment_coins','frontier_key_coins',
+                         'corrections','mult_corrections','challenge_1','u_tilde','masked_witness','challenge_2','coefficients'),
+        'input register inventory')
+ell,tau,g,slots=35840,33,704,229
+require(inputs==dict(public_preparation=(17+0+1+3+7+9+16+128+64+16+32)*8,
+                     schedule_tapes=512,hidden_commitment_coins=896*tau,frontier_key_coins=256*slots,
+                     corrections=(tau-1)*ell,mult_corrections=10*g,challenge_1=2112,u_tilde=1024,
+                     masked_witness=ell,challenge_2=832,coefficients=1536),'exact input widths')
+expected_coin_bits=512+896*tau+256*slots+tau*ell+10*g+5888
+require(generator.original_private_coin_bits==expected_coin_bits,'private coin inventory')
+require(plan.resources()['original_input_bits']-expected_coin_bits==8*(17+0+1+3+7+9+16+128+64),
+        'public/private input partition')
+# P1 output layout independently derived from its documented source field widths.
+relation=3200+1024+512
+pub={};cursor=0
+for name,width in (('relation_public',relation),('mu',512),('iv',128),('namespace',616),('iv_pre',128),('salt',256)):
+    pub[name]=('P1',cursor,width);cursor+=width
+require(stages['P1'].circuit.outputs==cursor,'P1 output geometry')
+opening_bits=896*tau+256*slots;hidden_bits=16*tau
+material=('opening',opening_bits+hidden_bits+512,256+256*ell+2560)
+expected_stage_inputs={
+ 'P1':(('public_preparation',0,inputs['public_preparation']),),
+ 'S0':(('schedule_tapes',0,512),),
+ 'opening':(pub['namespace'],pub['iv'],pub['salt'],('S0',0,256),
+            ('hidden_commitment_coins',0,896*tau),('frontier_key_coins',0,256*slots),
+            ('corrections',0,(tau-1)*ell),('mult_corrections',0,10*g)),
+ 'R0':(material,('challenge_1',0,2112),('u_tilde',0,1024)),
+ 'R1':(material,('challenge_2',0,832),('coefficients',0,1536),('masked_witness',0,ell),pub['relation_public'])}
+require({name:s.pieces for name,s in stages.items()}==expected_stage_inputs,'actual source field join')
+require(stages['R0'].circuit.outputs==1024 and stages['R1'].circuit.outputs==322,'response outputs')
+expected_fields={name:pub[name] for name in ('namespace','mu','iv','iv_pre','salt')}
+expected_fields.update(namespace_digest=('P1',pub['namespace'][1]+104,512),
+ commitment=('opening',opening_bits+hidden_bits,512),decommitment=('opening',0,opening_bits),
+ challenge=('S0',0,256),counter=('S0',256,32),exhausted=('S0',290,1),primary_flags=('S0',292,1),
+ primary_challenges=('schedule_tapes',0,256),d_tilde=('R0',0,1024),a0=('R1',0,256),relation_error=('R1',256,66))
+for name in ('corrections','mult_corrections','challenge_1','u_tilde','masked_witness','challenge_2','coefficients'):
+    expected_fields[name]=(name,0,inputs[name])
+require(fields==expected_fields,'all downstream named field references')
+# Check every source interval, complete extent and intra-call disjointness directly.
+for stage,pieces,out in p['plans']:
+    require(sum(width for _,width in pieces)==stage.circuit.inputs,'component input count')
+    intervals=sorted((a,a+w) for a,w in pieces)
+    require(all(b<=c for (_,b),(c,_) in zip(intervals,intervals[1:])),'input wire alias')
+    require(all(a>=0 and b<=out for a,b in intervals),'future input or output alias')
+    require(out+stage.circuit.outputs<=p['scratch'],'output scratch alias')
+    require(stage.circuit.work<=p['scratch_bits'],'workspace exceeds shared bound')
+resource=generator.resources()
+require(resource['forward_gates']['base_xor_oracle_calls']==8*tau+20+4*g,'whole forward F count')
+require(resource['forward_and_inverse_gates']['base_xor_oracle_calls']==2*(8*tau+20+4*g),'outer inverse F count')
+require(not resource['full_source_trial_cap'] and resource['requires_accepted_typed_public_request'],'bounded test scope')
+for name in ('complete_simulator_coverage','complete_resource_vector','profile_qualified','production_gate_changed'):
+    require(resource[name] is False,'premature qualification')
+require(all(digest(ROOT/p)==h for p,h in selected.items()),'selected implementation changed during review')
+require(all(digest(ROOT/p)==h for p,h in source.items()),'semantic source drift after')
+summary=dict(scope='REG candidate trials=1 metadata join audit only; no elementary full circuit execution',
+    elapsed_seconds=elapsed,source_sha256=source,selected_implementation_sha256=selected,
+    checker_sha256=digest(Path(__file__)),fields=fields,inputs=inputs,
+    stage_pieces={name:s.pieces for name,s in stages.items()},resources=resource,
+    independent_local_review=True,independent_external_cryptographic_review=False,
+    no_full_workspace_or_physical_qualification=True)
+(ROOT/'target/parliament-request-generator-review/report.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n')
+print(json.dumps(dict(passed=True,elapsed_seconds=elapsed,forward_gates=resource['forward_gates'],
+                     original_bits=resource['original_input_bits'],retained_bits=resource['retained_derived_bits'],
+                     shared_work_bits=resource['shared_clean_work_bits'],selected_pins=len(selected),source_pins=len(source)),indent=2))

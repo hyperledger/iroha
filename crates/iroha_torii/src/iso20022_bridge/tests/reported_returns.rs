@@ -153,8 +153,9 @@ fn reported_return_codec_rejects_native_refund_claims_and_invalid_terms() {
         reason_code: Some("AC01".to_owned()),
     };
     let canonical = reported_return_value(Some(&report));
-    assert_eq!(reported_return_from_value(&canonical), Some(Some(report)));
-    assert_eq!(reported_return_from_value(&JsonValue::Null), Some(None));
+    assert_eq!(reported_return_from_value(&canonical), Ok(Some(report)));
+    assert_eq!(reported_return_from_value(&JsonValue::Null), Ok(None));
+    assert!(reported_return_from_value(&JsonValue::from(false)).is_err());
     for (field, value) in [
         ("disposition", "refunded"),
         ("original_transaction_hash", "not-a-canonical-hash"),
@@ -169,7 +170,7 @@ fn reported_return_codec_rejects_native_refund_claims_and_invalid_terms() {
             .unwrap()
             .insert(field.to_owned(), JsonValue::from(value));
         assert!(
-            reported_return_from_value(&changed).is_none(),
+            reported_return_from_value(&changed).is_err(),
             "accepted {field}={value}"
         );
     }
@@ -179,7 +180,7 @@ fn reported_return_codec_rejects_native_refund_claims_and_invalid_terms() {
         JsonValue::from("original_not_submitted"),
     );
     assert!(
-        reported_return_from_value(&local).is_none(),
+        reported_return_from_value(&local).is_err(),
         "a local observation cannot retain a native carrier claim"
     );
     local
@@ -187,20 +188,20 @@ fn reported_return_codec_rejects_native_refund_claims_and_invalid_terms() {
         .unwrap()
         .insert("original_transaction_hash".to_owned(), JsonValue::Null);
     assert!(
-        reported_return_from_value(&local).is_none(),
+        reported_return_from_value(&local).is_err(),
         "an immutable source anchor is mandatory"
     );
     local.as_object_mut().unwrap().insert(
         "original_payload_hash".to_owned(),
         JsonValue::from("25".repeat(32)),
     );
-    assert!(reported_return_from_value(&local).is_some());
+    assert!(reported_return_from_value(&local).is_ok());
     let mut extra = canonical;
     extra.as_object_mut().unwrap().insert(
         "reverse_transaction_hash".to_owned(),
         JsonValue::from("16".repeat(32)),
     );
-    assert!(reported_return_from_value(&extra).is_none());
+    assert!(reported_return_from_value(&extra).is_err());
 }
 
 #[test]
@@ -748,7 +749,6 @@ async fn reported_return_repeated_original_rejection_does_not_republish() {
         ))
         .await
     );
-    drop(wakeup);
     let pending = runtime.pending_return_transactions();
     assert_eq!(pending[&hash], vec!["waiting-report"]);
     runtime

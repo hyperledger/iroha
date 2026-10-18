@@ -1,5 +1,4 @@
 #![doc = "Backend tag acceptance tests for ZK attachments (pre-verify path)."]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![cfg(feature = "zk-tests")]
 #![cfg(feature = "zk-preverify")]
 //! Backend tag acceptance tests for ZK attachments (pre-verify path).

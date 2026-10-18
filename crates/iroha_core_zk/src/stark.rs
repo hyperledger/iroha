@@ -53,7 +53,7 @@ impl From<crate::VerificationAttemptError<String>> for StarkProofProductionError
 
 /// Goldilocks prime modulus p = 2^64 - 2^32 + 1
 const MOD_P: u128 = (1u128 << 64) - (1u128 << 32) + 1;
-const MOD_P_U64: u64 = MOD_P as u64;
+const MOD_P_U64: u64 = 0xffff_ffff_0000_0001;
 const GOLDILOCKS_GENERATOR: u64 = 7;
 /// Sole first-release native STARK/FRI profile identifier.
 pub const STARK_FRI_PROFILE_ID_V1: &str = "stark/fri/poseidon-x7-goldilocks-6x64-v1";
@@ -301,18 +301,29 @@ impl Fq {
     fn one() -> Self {
         Self(1)
     }
+    /// Extract the low word of an already canonical arithmetic result.
+    /// Every caller first establishes `value < MOD_P < 2^64`: addition subtracts
+    /// at most one modulus, subtraction borrows one modulus, and reduction uses
+    /// the modulus remainder. Fixed byte positions preserve that exact value
+    /// without adding a value-dependent conversion branch to field arithmetic.
+    fn from_reduced(value: u128) -> Self {
+        let bytes = value.to_le_bytes();
+        Self(u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]))
+    }
     fn add(self, rhs: Self) -> Self {
         let mut x = (self.0 as u128) + (rhs.0 as u128);
         if x >= MOD_P {
             x -= MOD_P;
         }
-        Self(x as u64)
+        Self::from_reduced(x)
     }
     fn sub(self, rhs: Self) -> Self {
         let a = self.0 as u128;
         let b = rhs.0 as u128;
         let x = if a >= b { a - b } else { (a + MOD_P) - b };
-        Self(x as u64)
+        Self::from_reduced(x)
     }
     fn mul(self, rhs: Self) -> Self {
         let x = (self.0 as u128) * (rhs.0 as u128);
@@ -335,18 +346,18 @@ impl Fq {
             return None;
         }
         // Fermat's little theorem: a^(p-2) mod p
-        Some(self.pow((MOD_P - 2) as u128))
+        Some(self.pow(MOD_P - 2))
     }
     fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
     }
     fn reduce(v: u128) -> Self {
-        Self((v % MOD_P) as u64)
+        Self::from_reduced(v % MOD_P)
     }
 }
 fn two_inv() -> Fq {
     // (p + 1) / 2 for the odd Goldilocks prime.
-    Fq(((MOD_P + 1) / 2) as u64)
+    Fq(MOD_P_U64.div_ceil(2))
 }
 /// Canonical coefficient representation of one Goldilocks quartic-extension element.
 ///
@@ -822,11 +833,11 @@ fn merkle_path_depth_ok(
     {
         return false;
     }
-    let required_dir_bytes = (expected_depth + 7) / 8;
+    let required_dir_bytes = expected_depth.div_ceil(8);
     if path.dirs.len() != required_dir_bytes {
         return false;
     }
-    if expected_depth % 8 != 0 {
+    if !expected_depth.is_multiple_of(8) {
         let used_bits = expected_depth % 8;
         if let Some(&last) = path.dirs.last() {
             let mask = !((1u8 << used_bits) - 1);
@@ -841,6 +852,12 @@ fn merkle_path_depth_ok(
 }
 #[cfg(any(test, feature = "test-utils"))]
 /// Verify a STARK FRI envelope under `zk-stark` with default limits.
+///
+/// # Errors
+///
+/// Returns the original local verification refusal if canonical decoding
+/// cannot complete. Malformed envelopes, limit violations and completed
+/// cryptographic rejection return `Ok(false)`.
 pub fn verify_stark_fri_envelope(bytes: &[u8]) -> Result<bool, crate::VerificationRefusal> {
     verify_stark_fri_envelope_with_limits(bytes, &StarkVerifierLimits::default())
 }
@@ -1131,8 +1148,7 @@ pub fn decode_stark_fri_verifying_key_v1(
 ) -> Result<StarkFriVerifyingKeyV1, crate::VerificationAttemptError<String>> {
     if bytes.len() > STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES {
         return Err((format!(
-            "STARK/FRI verifier key exceeds the {}-byte limit",
-            STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES
+            "STARK/FRI verifier key exceeds the {STARK_FRI_VERIFYING_KEY_V1_MAX_BYTES}-byte limit"
         ))
         .into());
     }
@@ -1154,6 +1170,12 @@ pub fn decode_stark_fri_verifying_key_v1(
 /// This is a control-plane floor for proof-system admission. It rejects historical
 /// PoC-sized STARK/FRI parameters while leaving circuit-specific algebraic validation to the
 /// verifier for each proof. The only commitment construction is fixed by the V1 schema.
+///
+/// # Errors
+///
+/// Returns an error for an invalid or mismatched circuit identifier, an
+/// unsupported version or IVM execution relation, nonbinary folding or Merkle
+/// arity, or parameters outside the consensus floors and native limits.
 pub fn validate_stark_fri_canonical_verifying_key_payload(
     payload: &StarkFriVerifyingKeyV1,
     circuit_id: &str,
@@ -1596,7 +1618,7 @@ fn merkle_path_from_levels(
     if depth > usize::BITS as usize {
         return None;
     }
-    let mut dirs = vec![0u8; (depth + 7) / 8];
+    let mut dirs = vec![0u8; depth.div_ceil(8)];
     let mut siblings = Vec::with_capacity(depth);
     let mut current_index = index;
     for (level_idx, level) in levels.iter().take(depth).enumerate() {
@@ -2829,6 +2851,12 @@ fn validate_stark_composition_terms(
     Ok(())
 }
 /// Build the canonical six-lane V1 public AIR digest for composition terms.
+///
+/// # Errors
+///
+/// Returns an error for too many auxiliary terms, noncanonical field values,
+/// unordered or duplicate wire indices, an unrepresentable term count, or
+/// failure to derive the six-lane public digest.
 pub fn stark_air_public_digest_from_composition(
     constant: u64,
     z_coeff: u64,
@@ -3093,8 +3121,10 @@ fn prove_stark_fri_air_envelope_from_rows_and_composition_values_fq_bytes(
         openings,
     });
     let bytes = norito::core::classify_decode_attempt(|| norito::encode_canonical(&envelope))?;
-    let mut limits = StarkVerifierLimits::default();
-    limits.max_envelope_bytes = usize::MAX;
+    let limits = StarkVerifierLimits {
+        max_envelope_bytes: usize::MAX,
+        ..StarkVerifierLimits::default()
+    };
     let self_verified = if let Some(base_indices) = base_indices {
         verify_stark_fri_air_envelope_from_rows_and_composition_values_with_base_indices_with_limits(
             &bytes,
@@ -3121,6 +3151,13 @@ fn prove_stark_fri_air_envelope_from_rows_and_composition_values_fq_bytes(
     Ok(bytes)
 }
 /// Build a deterministic V1 STARK/FRI envelope with an explicit verifier-owned AIR section.
+///
+/// # Errors
+///
+/// Returns an input error for an unsupported circuit, invalid parameters or
+/// transcript, or inconsistent AIR/FRI construction or self-verification.
+/// Canonical encoding failures and unfinished verification attempts retain
+/// their original typed causes in the production error.
 pub fn prove_stark_fri_air_envelope_bytes(
     params: StarkFriParamsV1,
     transcript_label: String,
@@ -3282,8 +3319,10 @@ pub fn prove_stark_fri_bfv_full_bootstrap_air_envelope_bytes(
             composition_values,
             &expected_base_indices,
         )?;
-    let mut limits = StarkVerifierLimits::default();
-    limits.max_envelope_bytes = usize::MAX;
+    let limits = StarkVerifierLimits {
+        max_envelope_bytes: usize::MAX,
+        ..StarkVerifierLimits::default()
+    };
     if verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(&bytes, &limits, material)? {
         Ok(bytes)
     } else {
@@ -3486,7 +3525,6 @@ fn bfv_full_bootstrap_air_openings_match_public_opening_material_v1(
 /// The standalone full-material verifier checks the proof against the material it receives.
 /// This wrapper first reconstructs that material from the caller's public key, bootstrap key,
 /// artifact bundle, and Galois keys, including every coefficient of the execution trace.
-#[must_use]
 #[allow(clippy::too_many_arguments)]
 #[doc(hidden)]
 pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_for_artifacts_with_limits(
@@ -3499,7 +3537,7 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_for_artifacts_with_limit
     galois_keys: &[iroha_crypto::BfvGaloisKey],
     material: &iroha_crypto::BfvFullBootstrapExecutionProverInputMaterialV1,
 ) -> Result<bool, crate::VerificationRefusal> {
-    if !(iroha_crypto::validate_bfv_full_bootstrap_execution_prover_input_material_for_public_key_and_artifacts_v1(
+    if iroha_crypto::validate_bfv_full_bootstrap_execution_prover_input_material_for_public_key_and_artifacts_v1(
         params,
         public_key,
         bootstrap_key,
@@ -3507,7 +3545,9 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_for_artifacts_with_limit
         galois_keys,
         material,
     )
-    .is_ok()) { return Ok(false); }
+    .is_err() {
+        return Ok(false);
+    }
     verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(bytes, limits, material)
 }
 /// Verify a BFV full-bootstrap native STARK/FRI AIR proof envelope with limits.
@@ -3519,7 +3559,12 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_for_artifacts_with_limit
 /// execution prover-input package. This self-contained check does not replay external governed
 /// artifacts; use [`verify_stark_fri_bfv_full_bootstrap_air_envelope_for_artifacts_with_limits`]
 /// when those artifacts are the source of authority.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns the original local refusal if canonical decoding in a required
+/// STARK verification step cannot complete. Invalid BFV material, mismatched
+/// public openings and completed proof rejection return `Ok(false)`.
 pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
     bytes: &[u8],
     limits: &StarkVerifierLimits,
@@ -3635,6 +3680,13 @@ pub fn verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
 }
 #[cfg(any(test, feature = "test-utils"))]
 /// Build a deterministic V1 STARK/FRI envelope with verifier-owned composition terms.
+///
+/// # Errors
+///
+/// Returns an input error for invalid or unordered composition terms, invalid
+/// AIR/FRI parameters, a nonzero terminal polynomial, or failed commitment
+/// construction. Canonical encoding/decoding failures and unfinished
+/// self-verification retain their original typed causes.
 pub fn prove_stark_fri_composition_envelope_bytes(
     params: StarkFriParamsV1,
     transcript_label: String,
@@ -3796,6 +3848,12 @@ fn verify_stark_air_opening(
     true
 }
 /// Verify a STARK FRI envelope under `zk-stark` with caller-provided limits.
+///
+/// # Errors
+///
+/// Returns the original local verification refusal if canonical decoding
+/// cannot complete. Malformed envelopes, limit violations and completed
+/// cryptographic rejection return `Ok(false)`.
 pub fn verify_stark_fri_envelope_with_limits(
     bytes: &[u8],
     limits: &StarkVerifierLimits,

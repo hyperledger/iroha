@@ -6,16 +6,15 @@ import json
 
 import pytest
 import requests
-
-from iroha_torii_client.election_tally import (
-    ELECTION_TALLY_RESPONSE_MAX_BYTES,
-    ElectionTally,
-    read_election_tally_response,
-)
 from iroha_torii_client.client import (
     ToriiCanonicalRequestAuth,
     ToriiClient,
     canonical_network_request_signature_message,
+)
+from iroha_torii_client.election_tally import (
+    ELECTION_TALLY_RESPONSE_MAX_BYTES,
+    ElectionTally,
+    read_election_tally_response,
 )
 
 _NETWORK_ID = "hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"

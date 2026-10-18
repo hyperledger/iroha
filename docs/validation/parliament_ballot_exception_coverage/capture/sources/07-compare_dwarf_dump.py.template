@@ -1,0 +1,72 @@
+"""Compare draft parser metadata with separately captured LLVM decoding.
+
+This compares metadata only; neither decoder authenticates loaded unwinder or
+personality behavior, restores registers, or establishes a stack certificate.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+
+HERE = Path(__file__).resolve().parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--report", type=Path, default=HERE.parent / "parliament-exception-coverage-stage/attempt-5-fde.json")
+parser.add_argument("--out", type=Path, default=HERE / "dwarf-decoder-comparison.json")
+args = parser.parse_args()
+INPUT = args.report
+raw_report = INPUT.read_bytes()
+report = json.loads(raw_report)
+summaries = []
+for mode in ("portable", "accel"):
+    text_bytes = (HERE / "dwarf-tool-reference" / (mode + ".stdout.txt")).read_bytes()
+    text = text_bytes.decode()
+    headers = list(re.finditer(
+        r"(?m)^([0-9a-f]+) ([0-9a-f]+) ([0-9a-f]+) (CIE|FDE)(?: cie=([0-9a-f]+) pc=([0-9a-f]+)\.\.\.([0-9a-f]+))?$", text))
+    actual = report["modes"][mode]["eh_frame"]
+    seen = {"cies": set(), "fdes": set()}
+    cies, fdes = {}, []
+    for index, header in enumerate(headers):
+        chunk = text[header.end():headers[index + 1].start() if index + 1 < len(headers) else len(text)]
+        offset, length = int(header[1], 16), int(header[2], 16) + 4
+        assert header[4] in ("CIE", "FDE")
+        if header[4] == "CIE":
+            assert int(header[3], 16) == 0
+            personality = re.search(r"Personality Address:\s+([0-9a-f]+)", chunk)
+            row = dict(offset=offset, length=length,
+                       version=int(re.search(r"Version:\s+(\d+)", chunk)[1]),
+                       augmentation=re.search(r'Augmentation:\s+"([^"]+)"', chunk)[1],
+                       code_alignment=int(re.search(r"Code alignment factor:\s+(-?\d+)", chunk)[1]),
+                       data_alignment=int(re.search(r"Data alignment factor:\s+(-?\d+)", chunk)[1]),
+                       return_register=int(re.search(r"Return address column:\s+(\d+)", chunk)[1]),
+                       personality_slot=int(personality[1], 16) if personality else None)
+            cies[offset] = row
+            category = "cies"
+        else:
+            cie = int(header[5], 16)
+            assert offset + 4 - int(header[3], 16) == cie
+            lsda = re.search(r"LSDA Address:\s+([0-9a-f]+)", chunk)
+            row = dict(offset=offset, length=length, cie_offset=cie,
+                       start=int(header[6], 16), end=int(header[7], 16),
+                       lsda=int(lsda[1], 16) if lsda else None,
+                       personality_slot=cies[cie]["personality_slot"])
+            fdes.append(row)
+            category = "fdes"
+        assert offset not in seen[category]
+        seen[category].add(offset)
+        parsed = actual[category][str(offset)]
+        assert all(parsed[key] == value for key, value in row.items()), (mode, category, row, parsed)
+    for category, offsets in seen.items():
+        assert offsets == {int(key) for key in actual[category]}, (mode, category, "record membership differs")
+    summaries.append(dict(mode=mode, checked_cies=len(cies), checked_fdes=len(fdes),
+                          checked_nonzero_lsda=sum(row["lsda"] is not None for row in fdes),
+                          tool_stdout_sha256=hashlib.sha256(text_bytes).hexdigest(),
+                          matching_fields=["offset", "total record length", "CIE linkage", "function start/end", "LSDA address", "personality pointer slot", "CIE version/augmentation/code-data alignment/return register"]))
+assert INPUT.read_bytes() == raw_report
+result = dict(status="PASS", draft_report_sha256=hashlib.sha256(raw_report).hexdigest(), modes=summaries,
+              complete_exception_semantics=False, native_stack_certificate=False,
+              scope="Selected draft parser metadata agrees row-by-row with independent LLVM text decode; no loaded-runtime or CFI interpretation claim")
+output = args.out
+with output.open("x") as stream:
+    stream.write(json.dumps(result, indent=2) + "\n")
+print(json.dumps(result, indent=2))

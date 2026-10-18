@@ -50,6 +50,7 @@ enum Operation {
     Neg([Cell; 3]),
     Mul([Cell; 3], [Cell; 3]),
     Proper([Cell; 3]),
+    Norm([Cell; 3]),
 }
 
 #[cfg(test)]
@@ -388,6 +389,25 @@ impl<C: PastaCurve> Arithmetic<C> {
         let result = self.ff.reduce(region, value)?;
         self.operations.insert(key, result.clone());
         Ok(result)
+    }
+
+    pub fn norm(
+        &mut self,
+        uint: &mut UintChip<'_, C::Base>,
+        region: &mut Region<'_, C::Base>,
+        value: &Scalar<C>,
+    ) -> Result<Scalar<C>, Error> {
+        Self::admitted(&[value])?;
+        if let Some(c) = self.constant_value(value) {
+            return self.constant(uint, region, c.square() - C::ScalarExt::from(5));
+        }
+        let key = Operation::Norm(Self::cells(value));
+        if let Some(v) = self.operations.get(&key) {
+            return Ok(v.clone());
+        }
+        let value = self.ff.norm(uint.glue(), region, value)?;
+        self.operations.insert(key, value.clone());
+        Ok(value)
     }
 
     pub fn square(

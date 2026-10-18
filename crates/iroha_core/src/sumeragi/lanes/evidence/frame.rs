@@ -5,7 +5,7 @@
 //! metadata and BLS caches remain separate resource-accounting obligations.
 
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
-use std::{borrow::Borrow, io, path::PathBuf};
+use std::{borrow::Borrow, io};
 
 use iroha_allocation::{AllocationBudget, RetainedPayload};
 use iroha_sumeragi::{
@@ -76,25 +76,28 @@ enum Stage {
     Reading(ReadRecord),
     Decoded(LaneRecord),
     Restoring(BodyRestoration<FundedLaneSource>, Qc),
+    Ready(FundedLaneBody),
     Consumed,
 }
-/// A read never substitutes its path, source, configuration, or original finite pool on retry.
+/// A read never substitutes its directory, source, configuration, or original finite pool on retry.
 pub(in crate::sumeragi) struct FundedLaneFrameRead {
-    path: PathBuf,
+    directory: iroha_fs::OwnerDirectory,
+    height: u64,
     budget: AllocationBudget,
     source: Option<FundedLaneSource>,
     stage: Stage,
 }
 impl FundedLaneFrameRead {
     pub(in crate::sumeragi) fn new(
-        path: PathBuf,
+        directory: iroha_fs::OwnerDirectory,
         source: FundedLaneSource,
         budget: AllocationBudget,
     ) -> Self {
         Self {
-            path,
-            source: Some(source),
+            directory,
+            height: source.0.get().height(),
             budget,
+            source: Some(source),
             stage: Stage::Unopened,
         }
     }
@@ -111,13 +114,19 @@ impl FundedLaneFrameRead {
         {
             return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).into());
         }
+        #[cfg(not(sumeragi_core_mutation = "HC363"))]
+        self.directory.revalidate()?;
         // A stricter caller-owned Norito scope is not a fact about the durable frame.
         // Keep the same read owner for retry after that scope ends; intrinsic canonical
         // limits without an outer scope still report invalid storage material.
 
         loop {
             match std::mem::replace(&mut self.stage, Stage::Consumed) {
-                Stage::Unopened => match ReadRecord::open(&self.path, budget.clone()) {
+                Stage::Unopened => match ReadRecord::open_owned(
+                    &self.directory,
+                    &format!("{:020}.frame", self.height),
+                    budget.clone(),
+                ) {
                     Ok(read) => self.stage = Stage::Reading(read),
                     Err(error) => {
                         self.stage = Stage::Unopened;
@@ -168,12 +177,22 @@ impl FundedLaneFrameRead {
                     self.stage = Stage::Restoring(restoration, qc);
                 }
                 Stage::Restoring(restoration, qc) => match restoration.complete(budget, crypto) {
-                    Ok(body) => return Ok(FundedLaneBody { body, qc }),
+                    Ok(body) => self.stage = Stage::Ready(FundedLaneBody { body, qc }),
                     Err((restoration, error)) => {
                         self.stage = Stage::Restoring(restoration, qc);
                         return Err(crate::sumeragi::storage_attempt::restoration(error));
                     }
                 },
+                Stage::Ready(original) => {
+                    // Authentication can invoke external crypto code. A late namespace
+                    // refusal keeps the exact completed body, source and QC for retry.
+                    #[cfg(not(sumeragi_core_mutation = "HC363"))]
+                    if let Err(error) = self.directory.revalidate() {
+                        self.stage = Stage::Ready(original);
+                        return Err(error.into());
+                    }
+                    return Ok(original);
+                }
                 Stage::Consumed => {
                     return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).into());
                 }

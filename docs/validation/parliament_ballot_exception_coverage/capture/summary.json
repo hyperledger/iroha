@@ -1,0 +1,52 @@
+{
+  "applies_to_current_checkout": false,
+  "complete_exception_semantics": false,
+  "complete_native_cost_certificate": false,
+  "complete_stack_certificate": false,
+  "complete_workspace_certificate": false,
+  "dwarf_fde_cfi_verified": false,
+  "focused_tests_passed": 182,
+  "modes": {
+    "accel": {
+      "cies": 71,
+      "fdes": 598,
+      "frontier_counts": {
+        "function_fallthrough": 167,
+        "indirect_branch": 4,
+        "indirect_call": 41,
+        "native_edge": 244,
+        "trap_or_system_control": 39
+      },
+      "lsda_tables": 228,
+      "new_functions": 10,
+      "new_instructions": 1479
+    },
+    "portable": {
+      "cies": 71,
+      "fdes": 606,
+      "frontier_counts": {
+        "function_fallthrough": 167,
+        "indirect_branch": 4,
+        "indirect_call": 41,
+        "native_edge": 248,
+        "trap_or_system_control": 39
+      },
+      "lsda_tables": 228,
+      "new_functions": 9,
+      "new_instructions": 1544
+    }
+  },
+  "physical_cost_calibrated": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "raw_report_sha256": "9460da92323a358a6bdf13cb27ad286bb6ee5799ab88189b1db05bcd3c1dce70",
+  "selected_input_count": 21,
+  "status": "PASS",
+  "test_module_counts": {
+    "target/parliament-exception-coverage-stage/scripts/tests/parliament_ballot_exception_coverage_independent_test.py": 119,
+    "target/parliament-exception-coverage-stage/scripts/tests/parliament_ballot_exception_coverage_test.py": 46,
+    "target/parliament-exception-graph-review/all_body_reference_test.py": 2,
+    "target/parliament-exception-graph-review/graph_review_test.py": 15
+  },
+  "worker_executed": false
+}

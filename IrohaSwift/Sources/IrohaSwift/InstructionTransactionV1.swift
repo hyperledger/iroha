@@ -40,9 +40,15 @@ public enum InstructionTransactionV1 {
     }
 
     /// The Native ABI-bound decoder's JSON form of the envelope's unsigned payload, in the
-    /// exact shape `ToriiClient.quoteFees(unsignedPayload:)` accepts. Nil when unavailable.
-    public static func unsignedPayloadJSON(_ envelope: SignedTransactionEnvelope) -> [String: ToriiJSONValue]? {
-        guard let json = NoritoNativeBridge.shared.decodeSignedTransaction(envelope.norito),
+    /// exact shape `ToriiClient.quoteFees(unsignedPayload:)` accepts. The selected chain
+    /// discriminant controls every account literal; transaction wire itself carries no display prefix.
+    /// Nil when strict native decoding or its thread-local chain scope is unavailable.
+    public static func unsignedPayloadJSON(
+        _ envelope: SignedTransactionEnvelope, chainDiscriminant: UInt16
+    ) -> [String: ToriiJSONValue]? {
+        guard let json = try? NoritoNativeBridge.shared.withChainDiscriminant(chainDiscriminant, {
+            NoritoNativeBridge.shared.decodeSignedTransaction(envelope.norito)
+        }),
               let data = json.data(using: .utf8),
               case let .object(root)? = try? JSONDecoder().decode(ToriiJSONValue.self, from: data),
               case let .object(payload)? = root["payload"] else { return nil }
@@ -55,15 +61,25 @@ public enum InstructionTransactionV1 {
         draftFeePayment: FeePaymentIntent,
         client: ToriiClient,
         canonicalAuth: ToriiCanonicalRequestAuth,
+        chainDiscriminant: UInt16,
         build: (FeePaymentIntent) throws -> Data
     ) async throws -> (payload: Data, feePayment: FeePaymentIntent) {
+        // Canonical signed-wire decoding rejects an absent/all-zero signature. Use the
+        // same account credential that authenticates the quote to sign a local draft;
+        // neither draft envelope is dispatched. The caller still confirms the final payload.
+        let key = try SigningKey.ed25519(privateKey: canonicalAuth.privateKey)
+        func decodeUnsigned(_ payload: Data) throws -> [String: ToriiJSONValue]? {
+            let signature = try key.sign(signingMessage(payload: payload))
+            return unsignedPayloadJSON(try envelope(payload: payload, signature: signature),
+                chainDiscriminant: chainDiscriminant)
+        }
         let draft = try build(draftFeePayment)
-        guard let unsigned = unsignedPayloadJSON(try envelope(payload: draft, signature: Data(count: 64))) else {
+        guard let unsigned = try decodeUnsigned(draft) else {
             throw SwiftTransactionEncoderError.nativeBridgeUnavailable
         }
         let quoted = try await client.quoteAndApplyFees(unsignedPayload: unsigned, canonicalAuth: canonicalAuth)
         let payload = try build(quoted.quote.intent)
-        guard unsignedPayloadJSON(try envelope(payload: payload, signature: Data(count: 64))) == quoted.payload else {
+        guard try decodeUnsigned(payload) == quoted.payload else {
             throw ToriiClientError.invalidPayload("The rebuilt transaction differs from the quoted payload.")
         }
         return (payload, quoted.quote.intent)

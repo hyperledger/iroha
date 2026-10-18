@@ -1,8 +1,8 @@
 //! End-to-end test: Kotodama pointer constructors lower to Norito TLVs and
 //! CoreHost validates TLVs for SetAccountDetail.
+use crate::common;
 use ivm::{CoreHost, IVM};
 use kotodama_lang::compiler::Compiler as KotodamaCompiler;
-mod common;
 #[test]
 fn kotodama_set_account_detail_with_constructors() {
     // Kotodama program uses typed pointer constructors for the host call.

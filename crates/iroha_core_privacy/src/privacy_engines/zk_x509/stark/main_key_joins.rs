@@ -1,4 +1,4 @@
-//! Verifier-owned RFC key bytes joined to real P256 and ByteMemory columns.
+//! Verifier-owned RFC key bytes joined to real P256 and `ByteMemory` columns.
 //!
 //! A native-root power map joins a complete consecutive byte block with one
 //! quotient. Derived target evaluations are separately bound to the original
@@ -127,17 +127,17 @@ mod tests {
         assert_eq!(
             plan.blocks.map(|b| b.scale.0),
             [
-                7017390190810289357,
-                17503853696544898926,
-                9865662462788700761,
-                9722880242497423035,
-                2494635378086535074,
-                9417717310630869886,
-                9606226123056290305,
-                16567939589808255578,
-                2572097256420412601,
-                3184775124554532950,
-                12196860509838602653,
+                7_017_390_190_810_289_357,
+                17_503_853_696_544_898_926,
+                9_865_662_462_788_700_761,
+                9_722_880_242_497_423_035,
+                2_494_635_378_086_535_074,
+                9_417_717_310_630_869_886,
+                9_606_226_123_056_290_305,
+                16_567_939_589_808_255_578,
+                2_572_097_256_420_412_601,
+                3_184_775_124_554_532_950,
+                12_196_860_509_838_602_653,
                 1
             ]
         );
@@ -297,7 +297,7 @@ mod tests {
             let points = (0..count)
                 .map(|j| {
                     b.scale
-                        .mul(b.start.mul(b.step.pow(j as u128)).pow(power as u128))
+                        .mul(b.start.mul(b.step.pow(j as u128)).pow(u128::from(power)))
                 })
                 .collect::<Vec<_>>();
             for changed in 0..count {
@@ -404,7 +404,7 @@ mod tests {
         }
         assert_eq!((2 + 5) * (QUERY_COUNT + 4), 980);
         assert_eq!((2 + 6) * (QUERY_COUNT + 4), 1120);
-        assert!((2 + 6) * (QUERY_COUNT + 4) <= MASK_DEGREE + 1);
+        const { assert!((2 + 6) * (QUERY_COUNT + 4) <= MASK_DEGREE + 1) };
         let old_admitted = E::from_base(goldilocks_primitive_root_v1(24).unwrap());
         assert!(
             aggregate::deep_point_is_admissible_v1(old_admitted, AGGREGATE_PARAMETERS_V1, &shared)
@@ -452,7 +452,7 @@ mod tests {
         for block in &mut plan.blocks[..KEY_OPENINGS_V1] {
             block.target = concentrated;
         }
-        assert!((2 + KEY_OPENINGS_V1) * (QUERY_COUNT + 4) > MASK_DEGREE + 1);
+        const { assert!((2 + KEY_OPENINGS_V1) * (QUERY_COUNT + 4) > MASK_DEGREE + 1) };
         assert!(plan.check_mask_query_closure_v1().is_err());
     }
 
@@ -525,12 +525,12 @@ mod tests {
 
     #[test]
     fn full_degree_and_additional_owner_payload_are_bounded() {
-        assert_eq!(8 * ((1 << 16) + MASK_DEGREE) - 64, 538744);
-        assert_eq!(2 * ((1 << 18) + MASK_DEGREE) - 65, 527853);
-        assert_eq!(2 * ((1 << 18) + MASK_DEGREE) - 1, 527917);
-        assert!(8 * ((1 << 16) + MASK_DEGREE) + 1 < 589687);
+        assert_eq!(8 * ((1 << 16) + MASK_DEGREE) - 64, 538_744);
+        assert_eq!(2 * ((1 << 18) + MASK_DEGREE) - 65, 527_853);
+        assert_eq!(2 * ((1 << 18) + MASK_DEGREE) - 1, 527_917);
+        const { assert!(8 * ((1 << 16) + MASK_DEGREE) + 1 < 589_687) };
         assert_eq!(MainKeyJoinPlanV1::PRIVATE_BYTES_V1, 99_391_016);
-        assert_eq!(MainKeyJoinPlanV1::public_owner_charge_v1(), 8388608);
+        assert_eq!(MainKeyJoinPlanV1::public_owner_charge_v1(), 8_388_608);
         assert_eq!(KEY_OPENINGS_V1 * core::mem::size_of::<E>(), 352);
         assert_eq!(OPENINGS_V1 * core::mem::size_of::<E>(), 992);
     }

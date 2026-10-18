@@ -608,7 +608,7 @@ mod tests {
         assert_eq!(projection.root(), prefix_roots[commitments.len() - 1]);
         let append = super::append_confidential_tree_frontier_v2(
             0,
-            [None; super::CONFIDENTIAL_TREE_DEPTH_V2],
+            &[None; super::CONFIDENTIAL_TREE_DEPTH_V2],
             super::poseidon_empty_root_v2(),
             &commitments,
         )
@@ -641,7 +641,7 @@ mod tests {
         for (index, commitment) in commitments.iter().enumerate() {
             let append = super::append_confidential_tree_frontier_v2(
                 index,
-                frontier,
+                &frontier,
                 current_root,
                 core::slice::from_ref(commitment),
             )
@@ -682,7 +682,7 @@ mod tests {
         let expected_full_root = super::scalar_to_repr_bytes(expected_full_root);
         let full = super::append_confidential_tree_frontier_v2(
             super::CONFIDENTIAL_TREE_CAPACITY_V2 - 1,
-            full_frontier,
+            &full_frontier,
             super::scalar_to_repr_bytes(prior_root),
             &[final_commitment],
         )
@@ -731,7 +731,7 @@ mod tests {
         super::reset_confidential_frontier_append_parent_hash_calls_v2();
         let append = super::append_confidential_tree_frontier_v2(
             0,
-            [None; super::CONFIDENTIAL_TREE_DEPTH_V2],
+            &[None; super::CONFIDENTIAL_TREE_DEPTH_V2],
             super::poseidon_empty_root_v2(),
             &commitments,
         )

@@ -1,4 +1,4 @@
-//! Original Time-phase SNS source admission into its disjoint disposable quota.
+//! Original retail and Time-phase SNS owners share one finite disposable quota.
 
 use super::{Hash, StateBlock, StateTransaction, output_capacity::ExecutionOutputPlanState};
 
@@ -6,9 +6,15 @@ use super::{Hash, StateBlock, StateTransaction, output_capacity::ExecutionOutput
 pub(crate) struct NativeMaintenanceTimeScope {
     network: iroha_data_model::NetworkId,
     proposal: iroha_crypto::HashOf<iroha_data_model::block::BlockHeader>,
+    remaining_entries: usize,
 }
 
 impl NativeMaintenanceTimeScope {
+    /// Remaining original native E at this sole Time-owner issuance.
+    pub(crate) fn invocation_limit(&self) -> usize {
+        self.remaining_entries
+    }
+
     pub(crate) fn authenticate(
         &self,
         transaction: &StateTransaction<'_, '_>,
@@ -32,15 +38,32 @@ impl StateBlock<'_> {
         ) {
             return Err("native maintenance requires its original Time output owner".into());
         }
+        let quota = self
+            .fastpq_source_quota
+            .as_ref()
+            .ok_or("native Time source quota was not captured")?
+            .as_ref()
+            .map_err(Clone::clone)?;
+        let total = u64::from(
+            self.fastpq_source_policy_at_block_start()
+                .0
+                .max_native_maintenance_invocations,
+        );
+        let remaining = total
+            .checked_sub(quota.native_usage().executed_entries)
+            .ok_or("native Time source usage exceeds its frozen reservation")?;
         Ok(NativeMaintenanceTimeScope {
             network: self.network_id,
             proposal: self._curr_block.hash(),
+            remaining_entries: usize::try_from(
+                if cfg!(all(test, sumeragi_core_mutation = "HC367")) {
+                    total
+                } else {
+                    remaining
+                },
+            )
+            .map_err(|_| "native Time source count exceeds host width")?,
         })
-    }
-    pub(crate) fn native_maintenance_invocation_limit(&self) -> usize {
-        self.fastpq_source_policy_at_block_start()
-            .0
-            .max_native_maintenance_invocations as usize
     }
 
     #[cfg(test)]
@@ -141,5 +164,117 @@ impl StateTransaction<'_, '_> {
             *self.block_execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
         }
         result
+    }
+}
+
+/// Original block-start identity retained across a single retail batch preparation.
+/// Public proposal coordinates alone cannot recreate this source-context allocation.
+pub(crate) struct RetailMaintenanceSource {
+    transaction: crate::fastpq::source_reservation::SourceTransactionIdentity,
+    context: std::sync::Arc<crate::fastpq::FastpqBlockStartSourceContext>,
+    fragment: usize,
+    proposal: iroha_crypto::HashOf<iroha_data_model::block::BlockHeader>,
+}
+
+impl RetailMaintenanceSource {
+    pub(crate) fn authenticate(
+        &self,
+        transaction: &StateTransaction<'_, '_>,
+    ) -> Result<(), String> {
+        transaction.validate_retail_maintenance_scope()?;
+        if !transaction
+            .fastpq_source_quota
+            .matches_native_identity(&self.transaction)
+            || !std::sync::Arc::ptr_eq(&self.context, &transaction.fastpq_source_context)
+            || self.fragment != *transaction.committed_fragments
+            || self.proposal != transaction._curr_block.hash()
+        {
+            return Err("retail maintenance belongs to a foreign original State source".into());
+        }
+        Ok(())
+    }
+}
+
+impl StateTransaction<'_, '_> {
+    /// Require original block-start maintenance before the ordinary output owner exists.
+    fn validate_retail_maintenance_scope(&self) -> Result<(), String> {
+        if self.block_execution_output_plan.is_some()
+            || self.tx_call_hash.is_some()
+            || self.current_entrypoint_index.is_some()
+            || self.current_lane_id.is_some()
+            || self.current_dataspace_id.is_some()
+            || self.original_fastpq_invocation_source.is_some()
+            || self.fastpq_source_context.source.network_id != self.network_id
+            || self.fastpq_source_context.source.height != self._curr_block.height().get()
+        {
+            return Err("retail maintenance requires its original block-start State owner".into());
+        }
+        Ok(())
+    }
+
+    /// Retain the actual source allocation; this identity grants no source entry by itself.
+    pub(crate) fn retain_retail_maintenance_source(
+        &self,
+    ) -> Result<RetailMaintenanceSource, String> {
+        self.validate_retail_maintenance_scope()?;
+        Ok(RetailMaintenanceSource {
+            transaction: self.fastpq_source_quota.retain_native_identity()?,
+            context: std::sync::Arc::clone(&self.fastpq_source_context),
+            fragment: *self.committed_fragments,
+            proposal: self._curr_block.hash(),
+        })
+    }
+
+    /// Fair retail share of the unchanged finite native pool, less already retained E.
+    /// The odd slot alternates by certified height; a one-entry policy serves both owners.
+    pub(crate) fn retail_maintenance_entry_allowance(&self) -> Result<u64, String> {
+        let total = u64::from(
+            self.fastpq_source_policy
+                .0
+                .max_native_maintenance_invocations,
+        );
+        let share = total / 2
+            + if self.block_height().is_multiple_of(2) {
+                total % 2
+            } else {
+                0
+            };
+        let used = self.fastpq_source_quota.native_entries_in_use()?;
+        let remaining = total
+            .checked_sub(used)
+            .ok_or("native source usage exceeds its frozen reservation")?;
+        Ok(share.saturating_sub(used).min(remaining))
+    }
+}
+
+impl StateTransaction<'_, '_> {
+    /// Publish the selected retail State, source quota and witness as one checked attempt.
+    /// The existing witness overlay drops on every preflight failure or unwind.
+    pub(crate) fn apply_retail_maintenance(
+        mut self,
+        witness: crate::exec_witness::ExecWitnessOverlay,
+    ) -> Result<(), String> {
+        self.validate_retail_maintenance_scope()?;
+        self.prepare_apply().map_err(str::to_owned)?;
+        self.apply_prepared();
+        witness.commit();
+        Ok(())
+    }
+}
+
+impl StateTransaction<'_, '_> {
+    /// Commit one genuine SNS renewal and its source/witness together after all checks.
+    pub(crate) fn apply_sns_maintenance(
+        mut self,
+        witness: crate::exec_witness::ExecWitnessOverlay,
+    ) -> Result<(), String> {
+        if let Err(error) = self.validate_native_maintenance_scope() {
+            *self.block_execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            return Err(error);
+        }
+        self.prepare_apply().map_err(str::to_owned)?;
+        self.apply_prepared();
+        witness.commit();
+        Ok(())
     }
 }

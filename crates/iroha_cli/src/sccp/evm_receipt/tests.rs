@@ -14,7 +14,7 @@ use iroha_sccp::{
     light_client::profile::GENESIS_PROFILES,
     v1::hashes::keccak256,
 };
-use iroha_sccp_rpc::evm::{EvmAccountProof, EvmReceipt, EvmStorageProof, U256};
+use iroha_sccp_rpc::evm::{EvmAccountProof, EvmLog, EvmReceipt, EvmStorageProof, U256};
 use iroha_sccp_wallet::pure::evm::{Eip1559TransactionV1, EvmSigningKey};
 
 fn target() -> ReceiptTarget {
@@ -267,12 +267,17 @@ struct InclusionFixture {
 
 impl InclusionFixture {
     fn new(success: bool, state_root: [u8; 32]) -> Self {
+        Self::with_logs(success, state_root, Vec::new())
+    }
+
+    fn with_logs(success: bool, state_root: [u8; 32], logs: Vec<EvmLog>) -> Self {
         let raw = signed_raw(target(), 1);
         let transactions = vec![
             (rlp_encode_u64(0), signed_raw(target(), 0)),
             (rlp_encode_u64(1), raw.clone()),
         ];
-        let receipt = rpc_receipt(keccak256(&[&raw]), 1, success);
+        let mut receipt = rpc_receipt(keccak256(&[&raw]), 1, success);
+        receipt.logs = logs;
         let first_receipt = rpc_receipt(keccak256(&[&transactions[0].1]), 0, true);
         let receipts = vec![
             (
@@ -325,6 +330,55 @@ fn original_transaction_and_same_index_receipt_prove_success_and_failure() {
         assert_eq!(verified.status, Some(u8::from(success)));
         assert_eq!(verified.transaction_hash, keccak256(&[&fixture.raw]));
         assert_eq!(verified.header, fixture.header);
+    }
+}
+
+#[test]
+fn authenticated_receipt_logs_reject_rpc_metadata_and_payload_substitution() {
+    let mut fixture = InclusionFixture::with_logs(
+        true,
+        [0x42; 32],
+        vec![EvmLog {
+            address: target().contract,
+            topics: vec![[9; 32]],
+            data: vec![10],
+            log_index: Some(0),
+            transaction_index: Some(1),
+            transaction_hash: None,
+            block_hash: None,
+            block_number: Some(10),
+            removed: false,
+        }],
+    );
+    fixture.verify().unwrap();
+    fixture.receipt.logs[0].block_hash = Some(fixture.header.hash);
+    fixture.receipt.logs[0].transaction_hash = Some(fixture.receipt.transaction_hash);
+    fixture.verify().unwrap();
+    for change in 0..8 {
+        let mut forged = fixture.receipt.clone();
+        let log = &mut forged.logs[0];
+        match change {
+            0 => log.removed = true,
+            1 => log.block_hash = Some([0; 32]),
+            2 => log.block_number = Some(11),
+            3 => log.transaction_hash = Some([0; 32]),
+            4 => log.transaction_index = Some(0),
+            5 => log.address[0] ^= 1,
+            6 => log.data.push(0),
+            _ => log.topics[0][0] ^= 1,
+        }
+        assert!(
+            verify_receipt_inclusion(
+                target(),
+                &fixture.raw,
+                forged,
+                fixture.header,
+                &fixture.transactions,
+                &fixture.receipts,
+            )
+            .is_err(),
+            "change {change}"
+        );
     }
 }
 
@@ -482,6 +536,31 @@ fn consumed_storage_opens_exact_bitmap_across_word_boundaries() {
     }
     assert_ne!(consumed_slot(255), consumed_slot(256));
     assert_eq!(consumed_slot(0), consumed_slot(255));
+}
+
+#[test]
+fn call_target_proof_requires_the_locked_runtime_account_and_state() {
+    let (root, proof) = storage_proof(7, 7);
+    let opening = EthereumNativeMptProofV1 {
+        nodes: proof.account_proof,
+    };
+    assert_eq!(
+        account_storage_root(target(), root, &opening).unwrap(),
+        proof.storage_hash
+    );
+    assert!(account_storage_root(target(), [9; 32], &opening).is_err());
+    for changed in [
+        ReceiptTarget {
+            contract: [9; 20],
+            ..target()
+        },
+        ReceiptTarget {
+            code_hash: [9; 32],
+            ..target()
+        },
+    ] {
+        assert!(account_storage_root(changed, root, &opening).is_err());
+    }
 }
 
 #[test]

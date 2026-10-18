@@ -136,7 +136,11 @@ fn funded_lane_frame_retains_config_and_exact_source_through_original_pool_refus
     let charged = context.budget.reserved_bytes();
     let source = FundedLaneSource::new(config, context.instance, 1, hash, &context.budget)
         .unwrap_or_else(|_| panic!("original source"));
-    let mut read = FundedLaneFrameRead::new(path, source, context.budget.clone());
+    let mut read = FundedLaneFrameRead::new(
+        iroha_fs::OwnerDirectory::open(path.parent().unwrap()).unwrap(),
+        source,
+        context.budget.clone(),
+    );
     let foreign = AllocationBudget::new(context.budget.limit_bytes());
     assert_eq!(
         read.poll(&foreign, &crypto).err().unwrap().io_kind(),
@@ -213,7 +217,11 @@ fn funded_lane_frame_retains_original_invalid_certificate_after_file_replacement
     let pointer = std::ptr::from_ref(config.get().epoch.as_ref());
     let source = FundedLaneSource::new(config, context.instance, 1, hash, &context.budget)
         .unwrap_or_else(|_| panic!("original independent source"));
-    let mut read = FundedLaneFrameRead::new(path.clone(), source, context.budget.clone());
+    let mut read = FundedLaneFrameRead::new(
+        iroha_fs::OwnerDirectory::open(path.parent().unwrap()).unwrap(),
+        source,
+        context.budget.clone(),
+    );
     assert_eq!(
         read.poll(&context.budget, &crypto).err().unwrap().io_kind(),
         io::ErrorKind::InvalidData
@@ -253,7 +261,11 @@ fn funded_lane_frame_outer_decode_refusal_retries_the_same_original_bytes() {
     let pointer = std::ptr::from_ref(config.get().epoch.as_ref());
     let source = FundedLaneSource::new(config, context.instance, 1, hash, &context.budget)
         .unwrap_or_else(|_| panic!("original selected configuration"));
-    let mut read = FundedLaneFrameRead::new(path.clone(), source, context.budget.clone());
+    let mut read = FundedLaneFrameRead::new(
+        iroha_fs::OwnerDirectory::open(path.parent().unwrap()).unwrap(),
+        source,
+        context.budget.clone(),
+    );
     let error = norito::core::with_decode_limits_scope(
         norito::core::DecodeLimits::new(1, 1, 1, 1, 1),
         || read.poll(&context.budget, &crypto),
@@ -273,6 +285,133 @@ fn funded_lane_frame_outer_decode_refusal_retries_the_same_original_bytes() {
         pointer
     );
     assert!(original.body.admitted_to(&context.budget));
+    drop(original);
+    drop(read);
+    assert_eq!(context.budget.reserved_bytes(), baseline);
+}
+
+#[cfg(unix)]
+struct ReplaceNativeDirectoryAfterAuthentication {
+    inner: BlsCrypto,
+    selected: std::path::PathBuf,
+    retained: std::path::PathBuf,
+    armed: std::sync::atomic::AtomicBool,
+    verified: std::sync::atomic::AtomicUsize,
+}
+#[cfg(unix)]
+impl Crypto for ReplaceNativeDirectoryAfterAuthentication {
+    fn hash_chunks(&self, chunks: &[&[u8]]) -> Hash32 {
+        self.inner.hash_chunks(chunks)
+    }
+    fn verify(
+        &self,
+        pk: &iroha_sumeragi::types::PublicKey,
+        msg: &[u8],
+        sig: &iroha_sumeragi::types::Signature,
+    ) -> bool {
+        use std::sync::atomic::Ordering;
+        let valid = self.inner.verify(pk, msg, sig);
+        assert!(valid, "actual original availability signature");
+        self.verified.fetch_add(1, Ordering::SeqCst);
+        if self.armed.swap(false, Ordering::SeqCst) {
+            std::fs::rename(&self.selected, &self.retained).unwrap();
+            std::fs::create_dir(&self.selected).unwrap();
+        }
+        valid
+    }
+    fn aggregate(
+        &self,
+        sigs: &[iroha_sumeragi::types::Signature],
+    ) -> Result<AggregateSignature, iroha_sumeragi::crypto::AggregationError> {
+        self.inner.aggregate(sigs)
+    }
+    fn verify_aggregate(
+        &self,
+        pks: &[&iroha_sumeragi::types::PublicKey],
+        msg: &[u8],
+        agg: &AggregateSignature,
+    ) -> bool {
+        self.inner.verify_aggregate(pks, msg, agg)
+    }
+    fn verify_aggregate_multi(
+        &self,
+        groups: &[(Vec<&iroha_sumeragi::types::PublicKey>, Vec<u8>)],
+        agg: &AggregateSignature,
+    ) -> bool {
+        self.inner.verify_aggregate_multi(groups, agg)
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn funded_lane_frame_late_namespace_refusal_retains_completed_original_body() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let (_chain, context, _epoch) = context();
+    let root = tempfile::tempdir().unwrap();
+    let selected = root.path().join("original-instance");
+    std::fs::create_dir(&selected).unwrap();
+    let path = selected.join("00000000000000000001.frame");
+    let (hash, inner) = frame(&context, &path, false);
+    let baseline = context.budget.reserved_bytes();
+    let limit = context.budget.limit_bytes();
+    let config = context.authority.copy_config(&context.budget).unwrap();
+    let pointer = std::ptr::from_ref(config.get().epoch.as_ref());
+    let source = FundedLaneSource::new(config, context.instance, 1, hash, &context.budget)
+        .unwrap_or_else(|_| panic!("original independent source"));
+    let mut read = FundedLaneFrameRead::new(
+        iroha_fs::OwnerDirectory::open(path.parent().unwrap()).unwrap(),
+        source,
+        context.budget.clone(),
+    );
+    let crypto = ReplaceNativeDirectoryAfterAuthentication {
+        inner,
+        selected,
+        retained: root.path().join("retained-instance"),
+        armed: AtomicBool::new(true),
+        verified: AtomicUsize::new(0),
+    };
+    let error = read
+        .poll(&context.budget, &crypto)
+        .err()
+        .expect("original native lane namespace must remain retained");
+    assert_eq!(error.io_kind(), io::ErrorKind::Other);
+    assert!(!crypto.armed.load(Ordering::SeqCst));
+    let verified = crypto.verified.load(Ordering::SeqCst);
+    assert!(
+        verified > 1,
+        "actual manifest and row authentication completed"
+    );
+    let Stage::Ready(complete) = &read.stage else {
+        panic!("late refusal retains the completed original body");
+    };
+    let body_pointer = complete.body.payload().as_slice().as_ptr();
+    let held = context.budget.reserved_bytes();
+    assert!(held > baseline);
+    context.budget.set_limit_bytes(held);
+    assert_eq!(
+        read.poll(&context.budget, &crypto).err().unwrap().io_kind(),
+        io::ErrorKind::Other
+    );
+    assert_eq!(crypto.verified.load(Ordering::SeqCst), verified);
+    assert_eq!(context.budget.reserved_bytes(), held);
+    std::fs::remove_dir(&crypto.selected).unwrap();
+    std::fs::rename(&crypto.retained, &crypto.selected).unwrap();
+    let original = read.poll(&context.budget, &crypto).unwrap();
+    assert_eq!(
+        std::ptr::from_ref(original.body.source().config().epoch.as_ref()),
+        pointer
+    );
+    assert_eq!(original.body.source().block_hash(), hash);
+    assert_eq!(original.body.payload().as_slice().as_ptr(), body_pointer);
+    assert_eq!(original.qc.block_hash, hash);
+    assert!(original.body.admitted_to(&context.budget));
+    assert_eq!(crypto.verified.load(Ordering::SeqCst), verified);
+    assert_eq!(context.budget.reserved_bytes(), held);
+    assert_eq!(
+        read.poll(&context.budget, &crypto).err().unwrap().io_kind(),
+        io::ErrorKind::InvalidInput
+    );
+    context.budget.set_limit_bytes(limit);
     drop(original);
     drop(read);
     assert_eq!(context.budget.reserved_bytes(), baseline);

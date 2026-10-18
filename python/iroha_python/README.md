@@ -1532,7 +1532,9 @@ collateral = RepoCollateralLeg(
     quantity="1050",
     metadata={"isin": "ABC123"},
 )
-governance = RepoGovernance(haircut_bps=1500, margin_frequency_secs=86_400)
+governance = RepoGovernance(
+    haircut_bps=1500, margin_frequency_secs=86_400, allow_early_repayment=True
+)
 
 draft.repo_initiate(
     agreement_id="daily_repo",
@@ -1552,9 +1554,12 @@ initiator an exact `CanExecuteSettlement` permission for its cash balance and
 the collateral holder must grant the phase-separated maturity permission for
 its collateral balance. Both permissions bind the complete initiation terms,
 including the agreement identifier, parties, asset definitions, quantities,
-rate, maturity, governance, and custodian. The unwind is accepted only at the
-recorded maturity; every economic term and exact balance scope is loaded from
-the immutable on-chain agreement.
+rate, maturity, governance (including `allow_early_repayment`), and custodian.
+At or after the recorded maturity any participant may submit the unwind. Before
+maturity it is accepted only when the agreement opted into early repayment and
+the initiator (cash borrower) submits it; interest then accrues to the committed
+block time. Every economic term and exact balance scope is loaded from the
+immutable on-chain agreement.
 
 Load repo agreements from a Torii response and compute the next margin checkpoint:
 

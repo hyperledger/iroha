@@ -21,14 +21,17 @@ use iroha_data_model::kagemusha::{
 use super::{
     KagemushaWalletLostCustodyV1, KagemushaWalletProviderErrorV1,
     capsule::{
-        KagemushaWalletFrozenFrameV1, KagemushaWalletLoadedPairV1, kagemusha_wallet_repair_pair_v1,
-        kagemusha_wallet_settle_pair_v1, pair_write_published, read_pair, remove_pair, write_pair,
+        KagemushaWalletCopyStateV1, KagemushaWalletFrozenFrameV1, KagemushaWalletLoadedPairV1,
+        KagemushaWalletPairReadV1, kagemusha_wallet_repair_pair_v1,
+        kagemusha_wallet_settle_pair_v1, pair_write_published, read_pair, read_pair_states,
+        write_pair,
     },
     layout::{
         KagemushaWalletCompletionNameV1, KagemushaWalletCopyV1, KagemushaWalletEntryNameV1,
         KagemushaWalletSlotIdV1, kagemusha_wallet_completion_dir_v1,
         kagemusha_wallet_completion_name_v1, kagemusha_wallet_is_staging_name_v1,
         kagemusha_wallet_list_dir_v1, kagemusha_wallet_parse_completion_name_v1,
+        kagemusha_wallet_require_removed_v1,
     },
     marker::{
         KagemushaWalletMarkerPhaseV1, KagemushaWalletMarkerRecordV1,
@@ -222,7 +225,7 @@ pub struct KagemushaWalletStagedCompletionV1<R> {
 /// A valid existing record for the operation and capsule is adopted (repaired and rewritten to
 /// a fresh inode) and the caller's record is discarded, so one Selected head never yields two
 /// released results. Otherwise invalid copies, which were never released, are removed and both
-/// copies of `record` are written create-new.
+/// copies of `record` are written create-new; a definitively absent copy is not removed again.
 ///
 /// `record` is encoded and decoded back under the marker's `binding` before any copy is
 /// touched: a record that a later load would classify as invalid (for example one bound to
@@ -266,33 +269,44 @@ where
     }
     // Only a still-current Selected marker proves that nothing was released for this head.
     capability.require_current(store)?;
-    let expectation = KagemushaWalletCompletionExpectationV1::Selected {
-        selected_generation: capability.generation(),
-        operation_id,
-        capsule_digest,
-    };
     let dir = kagemusha_wallet_completion_dir_v1(capability.slot());
     let names = kagemusha_wallet_completion_names_v1(&operation_id);
-    if let Some(mut pair) = kagemusha_wallet_load_completion_v1::<F, R>(
+    // The Selected expectation of `kagemusha_wallet_load_completion_v1`, keeping the per-copy
+    // states of this read (after `require_current`) when no copy is valid.
+    let states = match read_pair_states::<F, R>(
         store,
-        capability.slot(),
-        &expectation,
+        &dir,
+        names.clone(),
+        capability.generation(),
         binding,
+        |record, _| {
+            record.operation_id() == operation_id && record.capsule_digest() == capsule_digest
+        },
     )? {
-        kagemusha_wallet_repair_pair_v1(store, &mut pair, current_boot)?;
-        kagemusha_wallet_settle_pair_v1(store, &pair, true)?;
-        let frame = pair.frame().to_vec();
-        let completion_digest = *pair.frame_digest();
-        return Ok(KagemushaWalletStagedCompletionV1 {
-            record: pair.into_value(),
-            frame,
-            completion_digest,
-            adopted: true,
-        });
+        KagemushaWalletPairReadV1::Loaded(mut pair) => {
+            kagemusha_wallet_repair_pair_v1(store, &mut pair, current_boot)?;
+            kagemusha_wallet_settle_pair_v1(store, &pair, true)?;
+            let frame = pair.frame().to_vec();
+            let completion_digest = *pair.frame_digest();
+            return Ok(KagemushaWalletStagedCompletionV1 {
+                record: pair.into_value(),
+                frame,
+                completion_digest,
+                adopted: true,
+            });
+        }
+        KagemushaWalletPairReadV1::Missing(states) => states,
+    };
+    // No valid record exists under this Selected marker: a present copy is invalid and was
+    // never released, so it is removed (and its removal synced) before the fresh pair is
+    // written. A definitively absent copy needs no removal: the pair's create-new renames
+    // land in the same directory, whose sync precedes the Released marker and also covers
+    // any earlier unsynced removal there.
+    for (name, state) in names.iter().zip(states) {
+        if state == KagemushaWalletCopyStateV1::Invalid {
+            kagemusha_wallet_require_removed_v1(store.remove_file(&dir, name))?;
+        }
     }
-    // No valid record exists under this Selected marker: any copy present is invalid and was
-    // never released, so it is removed before the fresh pair is written.
-    remove_pair(store, &dir, &names)?;
     for outcome in write_pair::<F, R>(
         store,
         &dir,

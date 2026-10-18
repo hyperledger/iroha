@@ -75,6 +75,46 @@ framing checks still apply. The [resource contract](zk_resource_contract.json)
 records the owners and boundary tests; these arithmetic and codec checks do not
 qualify maximum native proofs or four-validator execution.
 
+## Durable proof-managed accumulator layout
+
+`PrivacyStateItemRecordV1::ProofManagedPoolBootstrap` owns its complete native
+frontier in `Box<PrivacyProofManagedPoolAccumulatorStateV1>`. The V1 binary
+variant retains tag 10 and the same five ordered fields. The accumulator field
+contains one owned-value length prefix around the complete FCMP++ or private-note
+enum payload, in addition to the enclosing field prefix. There is one accepted
+layout; the earlier unboxed field is not a fallback decoder input. The tagged JSON
+object and complete inner bootstrap/frontier values retain their existing shapes.
+
+The enclosing nominal schema remains
+`iroha_core::privacy_state::PrivacyStateItemRecordV1`. Nominal identity alone does
+not attest field-byte equivalence: canonical World value hashes, publication
+journals and certified State roots bind the new bytes. Fresh persisted-state,
+restart and qualification evidence must use this source. Decoding charges the
+owned allocation and enforces existing allocation and nesting limits; no limits
+are enlarged by the ownership change. Constructors allocate the box only after
+all existing bootstrap, digest, root, frontier and height checks pass.
+
+## Durable X.509 CA-root ownership
+
+`PrivacyRootProvenanceV1::ZkX509CaGovernance` owns its complete self-digested
+trust-anchor revision in `Box<PrivacyZkX509TrustAnchorRecordV1>`. V1 retains tag 1
+and its six ordered fields: publication digest, namespace, epoch, root,
+trust-anchor record and admission height. The trust-anchor field now contains one
+owned-value length prefix inside its enclosing field prefix. This is the sole
+accepted binary layout; unboxed provenance is rejected without a fallback.
+`PrivacyRootHeadRecordV1` retains this same provenance layout. Tagged provenance
+JSON and head JSON retain their existing object shapes and all inner values.
+
+The nominal root-provenance and root-head schema names remain unchanged. Canonical
+World value hashes, publication journals and certified State roots bind the new
+bytes, so persisted-state and restart qualification must use the current source.
+Constructors allocate only after the existing validation sequence succeeds;
+restored validation borrows the retained owner. Each history row and head clone
+owns a distinct trust-anchor allocation. Hot-tier accounting charges each exactly
+once, in addition to its inline owner; the trust-anchor record has no nested heap
+capacity. Binary and JSON decoding enforce the existing allocation and nesting
+limits without increasing them.
+
 ## Exact12 implementation map
 
 An implemented engine or available compiled profile in this table is not a

@@ -1,0 +1,269 @@
+"""Independent mixed-trace arithmetic; no factory or gate-stream execution."""
+from dataclasses import replace
+import hashlib
+import itertools
+import json
+from pathlib import Path
+import sys
+import types
+
+import pytest
+
+ROOT=Path(__file__).resolve().parents[2]
+SOURCE=ROOT/'target/parliament-ledger-content-extension-stage/content_ledger.py'
+raw=SOURCE.read_bytes()
+l=types.ModuleType('independent_content_ledger_review')
+l.__file__=str(SOURCE);sys.modules[l.__name__]=l
+exec(compile(raw,str(SOURCE),'exec'),l.__dict__)
+OBS=ROOT/l.OBS_PATH
+observation_bytes=OBS.read_bytes()
+assert hashlib.sha256(observation_bytes).hexdigest()==l.OBS_SHA
+OBSERVED=json.loads(observation_bytes)
+
+
+@pytest.fixture(scope='module')
+def catalog():return l.Catalog(ROOT)
+
+
+def experiment(t=3,q=1,b=64,coins='classical-retained'):
+    return l.Experiment(t,q,b,l.base.MIN_MESSAGE+100,'one-F','one-completion',coins)
+
+
+def source_case(row,n):
+    return next(c for c in OBSERVED['cases'] if (c['row'],c['list_count'])==(row,n))
+
+
+def census(x,cx,ccx,f=0):
+    return dict(x=x,cx=cx,ccx=ccx,base_xor_oracle_calls=f,elementary_gates=x+cx+5*ccx)
+
+
+def add(*terms):return {k:sum(v[k] for v in terms) for k in census(0,0,0)}
+
+
+def independent_population(n):
+    # Per-bit complete periods, unlike the ledger's highest-bit recursive split.
+    return sum((n//(1<<(j+1)))*(1<<j)+max(0,n%(1<<(j+1))-(1<<j))
+               for j in range(n.bit_length()))
+
+
+def independent_validated_w(t,b,row):
+    m=1<<20;n=t*(m+2);d=max(2,n.bit_length());k=b+8*215150;q=k+2112
+    tau,g=(33,704) if row=='candidate' else (22,696)
+    key=(254+(tau-1)*6688+10*(g//8),598+6688,410)
+    prefix=sum(x.bit_count() for x in b'PARL/FAEST/v1')
+    sx=[x.bit_count()+prefix+domain.bit_count() for x,domain in zip(key,(9,10,11))]
+    copy=[8*(x-14+size) for x,size in zip(key,(264,104,32))]
+    append_x=4*(d*n-independent_population(n))
+    append_cx=n+1
+    append_ccx=n*(4*d-2+q)+(d-1)**2
+    x=append_x*(m+2)+2*(sx[0]+sx[1]+m*sx[2])+2*independent_population(m)
+    cx=append_cx*(m+2)+2*(copy[0]+copy[1]+m*copy[2])+4
+    ccx=append_ccx*(m+2)+2*m
+    return census(x,cx,ccx),1+q+d+32
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('count',[3,1000])
+@pytest.mark.parametrize('t,b',[(1,23),(7,64),(1<<44,4096)])
+def test_rebased_content_from_independent_append_formula(catalog,row,count,t,b):
+    ex=experiment(t=t,b=b);event=l.ContentRequest('content',ex.interface,row,count)
+    result=l.account(catalog,ex,(event,));item=result['events'][0]
+    captured=source_case(row,count)['family_resources']
+    write,work=independent_validated_w(t,b,row)
+    generator=captured['components']['generator'];returned=captured['components']['returns']
+    assert item['rebased_writes']['gates']==write
+    assert result['body_gates']==add(generator['forward_and_inverse_gates'],write,returned['gates'])
+    assert item['shared_work_bits']==max(generator['shared_clean_work_bits'],work,returned['clean_work_bits'])
+    assert item['content_validity'] is None and item['actual_appends'] is None
+    assert item['reserved_append_slots']==(1<<20)+2
+    assert result['capacity']['actual_occupancy'] is None
+
+
+def sequence(ex):
+    return (l.ContentRequest('content',ex.interface,'comparator',3),
+            l.AcceptedRequest('accepted',ex.interface,'candidate','REG',4096,(256,)*6,0),
+            l.RejectedVote('reject',ex.interface,'candidate',1001),
+            l.Query('query',ex.interface,l.base.MIN_MESSAGE+10))
+
+
+@pytest.mark.parametrize('order',list(itertools.permutations(range(4))))
+def test_original_event_order_not_filtered_legacy_order(catalog,order):
+    ex=experiment();events=sequence(ex);ordered=tuple(events[i] for i in order)
+    report=l.account(catalog,ex,ordered)
+    assert [r['event_id'] for r in report['events']]==[e.event_id for e in ordered]
+    reserve=0
+    for e,r in zip(ordered,report['events']):
+        if type(e) in (l.ContentRequest,l.AcceptedRequest):reserve+=(1<<20)+2
+        assert r['conservative_log_occupancy_upper']==reserve
+    assert report['event_counts']==dict(requests=3,queries=1,generating=2,content_family=1)
+    assert report['capacity']['reserved_upper']==2*((1<<20)+2)
+    assert report['body_gates']['base_xor_oracle_calls']==5960+6200+2
+    assert report['capacity']['actual_occupancy'] is None
+
+
+@pytest.mark.parametrize('coins',['classical-retained','purified-retained'])
+def test_one_log_one_reused_workspace_all_interfaces_retained(catalog,coins):
+    ex=experiment(coins=coins);report=l.account(catalog,ex,sequence(ex))
+    allocated={a['name']:a['bits'] for a in report['ownership']['allocations']}
+    assert allocated['persistent.log']==ex.interface.log_bits
+    assert allocated['persistent.counter']==ex.interface.counter_bits
+    total_coins=0
+    for item in report['events']:
+        prefix='event.'+item['event_id']+'.'
+        if item['type']=='query':
+            assert allocated[prefix+'query']==64+8*(l.base.MIN_MESSAGE+10)
+            assert allocated[prefix+'enable']==1
+            assert allocated[prefix+'response']==2112
+        else:
+            assert allocated[prefix+'public']==item['public_input_bits']
+            assert allocated[prefix+'output']==item['caller_output_bits']
+            if item['original_coin_bits']:
+                total_coins+=item['original_coin_bits']
+                assert allocated[prefix+'coins']==item['original_coin_bits']
+                assert (prefix+'coin_purifier' in allocated)==(coins=='purified-retained')
+                if coins=='purified-retained':assert allocated[prefix+'coin_purifier']==item['original_coin_bits']
+            else:assert prefix+'coins' not in allocated and prefix+'coin_purifier' not in allocated
+    assert allocated['reusable.clean']==max(item['reusable_work_bits'] for item in report['events'])
+    assert report['ownership']['known_allocated_bits']==sum(allocated.values())
+    if coins=='purified-retained':
+        assert report['coin_preparation']['hadamard']==report['coin_preparation']['cx']==total_coins
+        assert report['coin_preparation']['additional_to_body'] is True
+    else:assert report['coin_preparation']['cost'] is None
+    # Caller permutation and holes are legal, but retain exact individual widths.
+    moved=[];cursor=101
+    for name,width in reversed(tuple(allocated.items())):
+        moved.append(l.Allocation(name,cursor,width));cursor+=width+7
+    placed=l.account(catalog,ex,sequence(ex),tuple(moved))
+    assert placed['ownership']['known_allocated_bits']==sum(allocated.values())
+    assert placed['ownership']['address_span_bits']==cursor-7
+
+
+@pytest.mark.parametrize('extra',['content','accepted','rejected','query'])
+def test_global_caps_include_both_new_and_legacy_events(catalog,extra):
+    ex=experiment(t=1,q=0)
+    content=l.ContentRequest('content',ex.interface,'candidate',3)
+    event={'content':l.ContentRequest('extra',ex.interface,'candidate',1000),
+           'accepted':l.AcceptedRequest('extra',ex.interface,'candidate','REG',4096,(256,)*6,0),
+           'rejected':l.RejectedVote('extra',ex.interface,'candidate',0),
+           'query':l.Query('extra',ex.interface,l.base.MIN_MESSAGE)}[extra]
+    with pytest.raises(ValueError,match='cap'):l.account(catalog,ex,(content,event))
+
+
+def test_combined_query_message_envelope_still_enforced(catalog):
+    ex=experiment()
+    events=(l.ContentRequest('content',ex.interface,'candidate',3),
+            l.Query('query',ex.interface,ex.message_bytes+1))
+    with pytest.raises(ValueError,match='length envelope'):l.account(catalog,ex,events)
+
+
+def test_validity_hint_cannot_refund_slot_or_coin_cost():
+    ex=experiment()
+    document=dict(experiment=l.asdict(ex),events=[dict(kind='content',event_id='content',
+        interface=l.asdict(ex.interface),row='candidate',list_count=3,content_validity=False)])
+    with pytest.raises(TypeError):l.parse_document(document)
+
+
+def test_zero_budget_empty_and_query_only(catalog):
+    ex=experiment(t=0)
+    empty=l.account(catalog,ex,())
+    assert empty['body_gates']==census(0,0,0)
+    assert empty['ownership']['known_allocated_bits']==2
+    query=l.account(catalog,ex,(l.Query('q',ex.interface,l.base.MIN_MESSAGE),))
+    assert query['body_gates']==census(0,0,2112,2)
+    assert query['capacity']['reserved_upper']==0
+
+
+def test_unsupported_legal_families_and_all_qualification_flags(catalog):
+    ex=experiment()
+    for n in (4,255,999):
+        with pytest.raises(ValueError,match='unsupported ContentFamily'):
+            l.account(catalog,ex,(l.ContentRequest('c',ex.interface,'candidate',n),))
+    for body,contexts in [(0,(0,)*6),(4095,(256,)*6),(4096,(255,)*6)]:
+        with pytest.raises(ValueError,match='unsupported accepted shape'):
+            l.account(catalog,ex,(l.AcceptedRequest('a',ex.interface,'candidate','REG',body,contexts,0),))
+    report=l.account(catalog,ex,(l.ContentRequest('c',ex.interface,'candidate',3),))
+    for name in ('full_quantum_joint_state_theorem_proved','full_adaptive_driver_executed',
+        'family_wide_resource_maximum_proved','complete_resource_vector','actual_input_primitive_bridge',
+        'independent_cryptographic_review','physical_workspace_bound','current_candidate_qualified',
+        'profile_qualified','production_gate_changed','actual_content_validity_evaluated'):
+        assert report[name] is False
+    assert all(value is None for value in report['unknown_external_terms'].values())
+
+
+def test_all_typed_event_cap_is_not_a_valid_request_theorem(catalog):
+    ex=experiment()
+    report=l.account(catalog,ex,sequence(ex))
+    assert report['all_event_cap_is_additional_premise'] is True
+    assert report['source_theorem_valid_request_bound'] is None
+    assert report['generating_count_is_not_valid_request_count'] is True
+    assert 'typed' in report['request_cap_scope']
+    assert report['event_counts']['requests']==3
+    assert report['event_counts']['generating']==2
+    assert report['events'][0]['content_validity'] is None
+
+
+@pytest.mark.parametrize('count',[0,1,2,1001,1024,1 << 63,(1 << 64)-1])
+@pytest.mark.parametrize('row',['candidate','comparator'])
+def test_size_rejection_keeps_full_borrowed_storage_and_no_slot_refund_problem(catalog,count,row):
+    ex=experiment(t=2,q=0)
+    content=l.ContentRequest('content',ex.interface,row,3)
+    rejected=l.RejectedVote('size',ex.interface,row,count)
+    result=l.account(catalog,ex,(content,rejected));item=result['events'][1]
+    proof=233012 if row=='candidate' else 158074
+    assert item['gates']==census(569+2*count.bit_count(),872,888)
+    assert item['public_input_bits']==3608+1024*count
+    assert item['caller_output_bits']==253+8*proof
+    assert item['borrowed_list_bits']==1024*count and item['list_bits_read']==0
+    assert item['original_coin_bits']==item['reserved_append_slots']==item['actual_appends']==0
+    assert item['reusable_work_bits']==519
+    assert result['event_counts']['requests']==2
+    assert result['capacity']['reserved_upper']==(1 << 20)+2
+    with pytest.raises(ValueError,match='request cap'):
+        l.account(catalog,replace(ex,requests=1),(
+            replace(content,interface=replace(ex,requests=1).interface),
+            replace(rejected,interface=replace(ex,requests=1).interface)))
+
+
+@pytest.mark.parametrize('t,b',[(0,23),(1,23),(3,64),(1 << 64,4096)])
+def test_l0_resource_coordinates_are_separate_from_full_query_storage(catalog,t,b):
+    ex=experiment(t=t,b=b);query=l.Query('q',ex.interface,l.base.MIN_MESSAGE+37)
+    report=l.account(catalog,ex,(query,));n=t*((1 << 20)+2);k=b+8*215150;v=2112
+    expected=census(4*k*n+4*n+2,4*k*n,n*(4*k+6+v)+v+2,2) if n else census(0,0,v,2)
+    assert report['body_gates']==expected
+    assert report['ownership']['reusable_clean_bits']==(2*n+k+v+2 if n else v)
+    widths={x['name']:x['bits'] for x in report['ownership']['allocations']}
+    assert widths['event.q.query']==b+8*query.message_bytes
+    assert widths['event.q.response']==v and widths['event.q.enable']==1
+    assert report['event_counts']['requests']==0
+    assert report['unknown_external_terms']['base_oracle_implementation_and_state'] is None
+
+
+@pytest.mark.parametrize('changes',[
+    dict(capacity=0),dict(length_bits=23),dict(oracle='other-F'),dict(completion='other-completion')])
+def test_interface_identity_refused_across_new_and_legacy_boundary(catalog,changes):
+    ex=experiment();event=l.ContentRequest('c',replace(ex.interface,**changes),'candidate',3)
+    with pytest.raises(ValueError,match='N/b/F/completion'):
+        l.account(catalog,ex,(event,l.Query('q',ex.interface,l.base.MIN_MESSAGE)))
+
+
+def test_catalog_shape_metadata_is_immutable_and_no_validity_override_exists(catalog):
+    from dataclasses import FrozenInstanceError
+    with pytest.raises(FrozenInstanceError):catalog.cases[0].coins=0
+    with pytest.raises(FrozenInstanceError):catalog.pins=()
+    ex=experiment()
+    with pytest.raises(TypeError):l.ContentRequest('c',ex.interface,'candidate',3,valid=False)
+    with pytest.raises(TypeError):l.ContentRequest('c',ex.interface,'candidate',3,actual_appends=0)
+
+
+def test_unsupported_content_api_types_do_not_enter_accounting(catalog):
+    ex=experiment()
+    class Forged(l.ContentRequest):pass
+    with pytest.raises(ValueError,match='unsupported event type'):
+        l.account(catalog,ex,(Forged('c',ex.interface,'candidate',3),))
+    with pytest.raises(ValueError,match='immutable event sequence'):
+        l.account(catalog,ex,[l.ContentRequest('c',ex.interface,'candidate',3)])
+
+
+def test_independent_population_matches_small_exhaustive_sums():
+    for n in range(1000):
+        assert independent_population(n)==sum(i.bit_count() for i in range(n))

@@ -1,8 +1,8 @@
 //! Iroha-native PIPA-v1 PLONKish/IPA proof system (`specs/plonk_ipa_v1.md`).
 //!
 //! `iroha_plonk` reimplements the halo2-axiom arithmetization natively on
-//! [`iroha_pasta`]. Independent captured vectors and native reference tests
-//! pin the arithmetic and protocol behavior without a second proof engine.
+//! [`iroha_pasta`]. Arithmetic references and current native regression captures
+//! exercise its norm products, total challenge maps and scoped generator claims.
 //!
 //! # Contents
 //!
@@ -11,7 +11,7 @@
 //! - [`cs`]: the constraint-system IR. [`cs::Expression`] trees over fixed,
 //!   advice and instance queries, gates, halo2 permuted lookups, the chunked
 //!   permutation argument and its copy assembly, an exact port of halo2
-//!   selector compression, and [`cs::CircuitDescriptorV1`], the canonical
+//!   selector compression with a canonical packing budget, and [`cs::CircuitDescriptorV1`], the canonical
 //!   Norito statement of everything a verifier evaluates, with its digest.
 //! - [`frontend`]: the circuit API. [`frontend::Circuit`], [`frontend::Layouter`],
 //!   [`frontend::Region`], [`frontend::Value`] and [`frontend::Assigned`], a
@@ -48,9 +48,8 @@
 //!   declarative constraint-term and transcript-schedule tables every
 //!   verifier walks (S11).
 //! - [`prover`]: [`prover::create_proof`] with the `BlindingScheduleV1` draw
-//!   order from an opaque [`prover::ProverRandomness`] (OS, hedged, or a
-//!   recovery stream this crate keys with the witness and statement digests),
-//!   the advice, lookup,
+//!   order from an opaque [`prover::ProverRandomness`] selecting fresh OS entropy
+//!   directly or hedged with the witness and statement digests, the advice, lookup,
 //!   permutation and vanishing commitments, the quotient on exactly `d - 1`
 //!   cosets evaluated by a compiled, hash-consed expression DAG, and the
 //!   multiopen; [`prover::Witness`] checks a circuit against its key.
@@ -59,22 +58,24 @@
 //!   [`verifier::batch_verify`] with typed [`verifier::VerifyError`]
 //!   rejections: canonical decoding, the exact proof length, exact instance
 //!   shapes in both modes, pinned parameters, the descriptor-bound
-//!   `transcript_repr`, degenerate-challenge rejection and static opening
+//!   `transcript_repr`, total role-specific challenge maps and static opening
 //!   groups.
+//! - [`verification_counters`]: always-on, in-memory, observation-only
+//!   per-thread counts of full verifications, decides and their `<s(u), g>`
+//!   MSMs. No verifier reads them.
 //!
 //! The unit-only `captured_goldens` suite freshly proves native circuits and
-//! compares descriptors, keys and proof bytes with the corpus captured before
-//! the vendored halo2-axiom prover and external oracle crate were deleted
-//! (Committed and Direct instances, both curves, with and without selector
-//! compression).
+//! compares descriptors, keys and proof bytes with the current native-generated
+//! corpus. Its capture provenance is recorded with the fixtures. This is
+//! deterministic regression evidence, not an independent implementation oracle.
 //!
 //! # Determinism
 //!
 //! Every output is a pure function of its inputs: exact field and group
 //! arithmetic, ordered maps only, no behaviour sourced from environment
 //! variables. Kernels run on the caller's Rayon pool and their results do not
-//! depend on the thread count. Prover randomness comes only from the
-//! caller's RNG, drawn in the `BlindingScheduleV1` order. Arithmetic on sizes
+//! depend on the thread count. Prover randomness comes only from a consumed
+//! fresh-randomness owner, drawn in the `BlindingScheduleV1` order. Arithmetic on sizes
 //! is checked; an overflow is an error, never a wrap.
 //!
 //! # Soundness rules enforced here
@@ -92,7 +93,7 @@
 //!   query budget (S7).
 //! - Every proof message decodes canonically, the identity point is never
 //!   absorbed, the proof length is exact (trailing bytes are rejected),
-//!   `x = 0` and `x^n = 1` are rejected, and only `verify_full`,
+//!   mapped `x` is nonzero and outside the evaluation domain, and only `verify_full`,
 //!   `batch_verify`, `decide` and `batch_decide` accept (S9, spec section
 //!   11). [`accumulate_succinct`] is satisfiable for false statements until
 //!   its accumulator is decided, so its `Ok` is never a verdict.
@@ -103,23 +104,19 @@
 //!
 //! # Independent reference tests
 //!
-//! Captured golden proofs remain checked by `captured_goldens`; quotient
+//! Current native captures remain checked by `captured_goldens`; quotient
 //! evaluation is compared with the serial `row_wise_reference` in
 //! `prover/quotient/streamed_tests.rs`. The separate standard-library Python
-//! verifier under `fixtures/native_prover/reference_verifier` checks its
-//! documented frozen proof corpus without importing a second Rust prover.
+//! verifier under `fixtures/native_prover/reference_verifier` implements the
+//! current norm equations and total challenge maps without a second Rust prover.
+//! It rejects ancestor fixture formats. Genuine current-source captures and their
+//! independent verification remain required before numerical qualification.
 //!
-//! Historical transcript framing and caller-seeded randomness exist only in
-//! this crate's unit tests. Shipping builds expose only the production proof
-//! and verifier API; there is no external configuration that enables a second
-//! transcript or fixed-seed proving API.
+//! Proof construction and verification use only descriptor-bound native framing.
+//! Historical Poseidon primitive vectors retain test-only reference absorption;
+//! they cannot select a proof protocol. Caller-seeded randomness is also confined
+//! to unit tests; shipping builds expose no fixed-seed proving API.
 //!
-//! ```compile_fail
-//! use iroha_plonk::prover::create_proof_oracle;
-//! ```
-//! ```compile_fail
-//! use iroha_plonk::verifier::verify_full_oracle;
-//! ```
 //! ```compile_fail
 //! let _ = iroha_plonk::ProverRandomness::fixed_seed_for_tests([0; 32]);
 //! ```
@@ -136,6 +133,7 @@ pub mod prover;
 mod test_circuits;
 pub mod transcript;
 pub mod verification_attempt;
+pub mod verification_counters;
 pub mod verifier;
 
 pub use check::{CheckFailure, CheckMode, CheckReport};
@@ -159,6 +157,7 @@ pub use prover::{
     create_proof_owned_with_workspace, prove_circuit,
 };
 pub use transcript::{Transcript, TranscriptError, TranscriptRead, TranscriptWrite};
+pub use verification_counters::VerificationCounts;
 pub use verifier::{
     BatchItem, VerifyError, accumulate_generator, accumulate_succinct, batch_verify, verify_full,
     verify_full_from_bytes, verify_full_from_bytes_v2,
@@ -179,3 +178,9 @@ mod captured_goldens;
 pub use verification_attempt::{
     NativeVerifierInitError, VerificationAttemptError, VerificationRefusal, VerificationRefusalKind,
 };
+
+mod norm;
+pub(crate) use norm::norm_factor;
+
+#[cfg(test)]
+mod native_reference_capture;

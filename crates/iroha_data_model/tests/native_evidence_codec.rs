@@ -28,7 +28,7 @@ fn native() -> NativeEvidence {
         signer: 2,
         sig: Signature([5; SIGNATURE_LEN]),
     };
-    let mut second = first.clone();
+    let mut second = first;
     second.block_hash = Hash32([6; 32]);
     NativeEvidence::VoteEquivocation(first, second)
 }

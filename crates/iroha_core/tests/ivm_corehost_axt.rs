@@ -1,4 +1,4 @@
-//! First-release CoreHost AXT ABI and fail-closed envelope controls.
+//! First-release `CoreHost` AXT ABI and fail-closed envelope controls.
 //!
 //! Remote spends are signed anchored-spend records admitted by Core after
 //! finalized-source verification. The retired raw-handle syscall is absent.

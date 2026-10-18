@@ -6,12 +6,12 @@
 //! refund scope; its last clone retires after every physical child of this owner.
 //! The immutable source iterator borrows an existing validated native cut and is
 //! never replaced or restarted. No source, map, row or pool is cloned to retry.
-//! TODO: connect the reference-free fourteen-map publication source and its
-//! retained semantic verifier plan to these materializers. These scoped nodes
-//! do not authenticate complete State, certified history or restoration.
-//! TODO: retain constructor planning-prefix refusals at the publication owner and
-//! account generic schema/codec scratch; only completed ordered stages survive
-//! here, not an unfinished ordered constructor or a consumed once-call failure.
+//! The original fourteen-map publication group uses the reference-free ordinal
+//! facade below and retains successful setup geometry and table prefixes.
+//! TODO: account generic schema/codec scratch and unfinished ordered-constructor
+//! workspaces under their actual original owner. Completed ordered stages survive,
+//! but a consumed convenience call retains no unfinished constructor. These scoped
+//! nodes do not authenticate complete State, certified history or restoration.
 
 use super::*;
 use iroha_allocation::{AllocationBudget, OwnedAllocationScope};
@@ -213,6 +213,7 @@ pub(super) struct RetainedSemanticTable {
     work: usize,
     rows_sealed: bool,
     sorted: bool,
+    sort_plan: Option<usize>,
     scope: Option<OwnedAllocationScope>,
 }
 impl RetainedSemanticTable {
@@ -266,6 +267,7 @@ impl RetainedSemanticTable {
             work: 0,
             rows_sealed: false,
             sorted: false,
+            sort_plan: None,
             scope: scope.cloned(),
         })
     }
@@ -368,6 +370,12 @@ impl RetainedSemanticTable {
                 lookup_value_digest,
             });
         }
+        self.resume_pending(limit)
+    }
+    fn resume_pending(&mut self, limit: usize) -> Result<(), RetainedSemanticError> {
+        if self.rows_sealed || self.pending_row.is_none() {
+            return Err(RetainedSemanticError::Phase);
+        }
         // Growth must be admitted while the exact pending canonical row and every
         // prior key remain owned. A refusal never consumes that pending row.
         let required = self
@@ -407,9 +415,19 @@ impl RetainedSemanticTable {
             return Err(LeafError::OrderedRange(NoritoKeyRangeError::Capacity).into());
         }
         if !self.sorted {
-            self.admit(SORT_BOUND_STEP, limit)?;
-            let bound = sort_bound(self.encoded.len()).ok_or(RetainedSemanticError::Overflow)?;
-            self.admit(mul(bound, add(mul(2, self.maximum_key)?, 8)?)?, limit)?;
+            #[cfg(all(test, sumeragi_core_mutation = "HC369"))]
+            {
+                self.sort_plan = None;
+            }
+            if self.sort_plan.is_none() {
+                self.admit(SORT_BOUND_STEP, limit)?;
+                let bound =
+                    sort_bound(self.encoded.len()).ok_or(RetainedSemanticError::Overflow)?;
+                self.sort_plan = Some(mul(bound, add(mul(2, self.maximum_key)?, 8)?)?);
+            }
+            // Keep the completed geometry step while a finite grant cannot yet
+            // cover the actual sort; repeating that prefix can starve small quanta.
+            self.admit(self.sort_plan.ok_or(RetainedSemanticError::Phase)?, limit)?;
             heap_sort(self.encoded.as_mut_slice());
             self.sorted = true;
         }
@@ -507,6 +525,169 @@ impl RetainedSemanticTable {
     }
 }
 
+/// Reference-free encoder of a closed, already validated ordinal source.
+///
+/// The publisher retains the actual source and its ordinal descriptors. This
+/// owner retains only canonical key/digest/node backing and the original scope.
+/// A completed row is never fetched again. If row storage refuses after digest
+/// construction, `resume_pending` needs no further source access at all.
+/// This uses the same encoding/finalization kernel as borrowed semantic rows.
+pub(in crate::state) struct RetainedSemanticOrdinalRows {
+    builder: Option<RetainedSemanticTable>,
+    table: &'static str,
+    identity: &'static str,
+    limits: LeafLimits,
+    original_count: usize,
+    setup_work: usize,
+    setup_names: Option<(&'static str, &'static str)>,
+    budget: AllocationBudget,
+    // All physical children retire before the final original refund scope.
+    scope: OwnedAllocationScope,
+}
+impl RetainedSemanticOrdinalRows {
+    /// Admit exact source cardinality before any canonical backing allocation.
+    pub(in crate::state) fn new(
+        table: &'static str,
+        identity: &'static str,
+        limits: LeafLimits,
+        original_count: usize,
+        scope: &OwnedAllocationScope,
+    ) -> Result<Self, RetainedSemanticError> {
+        if limits.max_tables == 0 {
+            return Err(LeafError::TableLimit.into());
+        }
+        if u64::try_from(original_count).map_err(|_| RetainedSemanticError::Overflow)?
+            > limits.max_rows.min(MAX_NORITO_TREE_ENTRIES as u64)
+        {
+            return Err(LeafError::RowLimit.into());
+        }
+        Ok(Self {
+            builder: None,
+            table,
+            identity,
+            limits,
+            original_count,
+            setup_work: 0,
+            setup_names: None,
+            budget: scope.allocation_budget().clone(),
+            scope: scope.clone(),
+        })
+    }
+
+    /// Prepare the existing canonical kernel under cumulative attempted work.
+    /// A refused constructor releases only its unfinished physical children;
+    /// its actual attempted planning work and original source/scope survive.
+    pub(in crate::state) fn prepare(&mut self, limit: usize) -> Result<(), RetainedSemanticError> {
+        if self.builder.is_some() {
+            return Ok(());
+        }
+        #[cfg(all(test, sumeragi_core_mutation = "HC368"))]
+        {
+            self.setup_names = None;
+        }
+        if self.setup_names.is_none() {
+            admit_work(
+                &mut self.setup_work,
+                setup_selector_work(self.table)?,
+                limit,
+            )?;
+            self.setup_names = Some(closed_setup_literal(self.table)?);
+        }
+        let (key, value) = self.setup_names.ok_or(RetainedSemanticError::Phase)?;
+        admit_work(
+            &mut self.setup_work,
+            setup_registry_work(key, value)?,
+            limit,
+        )?;
+        let mut builder = RetainedSemanticTable::new(
+            self.table,
+            self.identity,
+            self.limits,
+            &self.budget,
+            Some(&self.scope),
+        )?;
+        builder.work = self.setup_work;
+        self.builder = Some(builder);
+        Ok(())
+    }
+
+    /// Exact original ordinal still requiring canonical insertion.
+    pub(in crate::state) fn next_row(&self) -> usize {
+        self.progress().rows
+    }
+
+    /// Whether the retained digest can be inserted without resolving its source again.
+    pub(in crate::state) fn pending_digest(&self) -> bool {
+        self.builder
+            .as_ref()
+            .is_some_and(|builder| builder.pending_row.is_some())
+    }
+
+    /// Continue the same canonical pending digest without rereading key or value.
+    pub(in crate::state) fn resume_pending(
+        &mut self,
+        limit: usize,
+    ) -> Result<(), RetainedSemanticError> {
+        self.builder
+            .as_mut()
+            .ok_or(RetainedSemanticError::Phase)?
+            .resume_pending(limit)
+    }
+
+    /// Stream a checked original row; retain any successful key/digest prefix on refusal.
+    pub(in crate::state) fn push<K: Encode + NoritoSchema, S: Encode>(
+        &mut self,
+        key: &K,
+        project: impl FnOnce() -> S,
+        limit: usize,
+    ) -> Result<(), RetainedSemanticError> {
+        if self.next_row() >= self.original_count {
+            return Err(RetainedSemanticError::Phase);
+        }
+        self.builder
+            .as_mut()
+            .ok_or(RetainedSemanticError::Phase)?
+            .push(key, project, limit)
+    }
+
+    /// Seal exactly the original cardinality and retain every completed tree stage.
+    pub(in crate::state) fn finish(
+        &mut self,
+        limit: usize,
+    ) -> Result<RetainedSemanticProgress, RetainedSemanticError> {
+        if self.next_row() != self.original_count {
+            return Err(RetainedSemanticError::Phase);
+        }
+        let builder = self.builder.as_mut().ok_or(RetainedSemanticError::Phase)?;
+        builder.seal_rows();
+        builder.advance_finalizer(limit)?;
+        Ok(builder.observe())
+    }
+
+    /// Monotonic actual encoding work, also available after preparation refusal.
+    pub(in crate::state) fn progress(&self) -> RetainedSemanticProgress {
+        self.builder.as_ref().map_or(
+            RetainedSemanticProgress {
+                rows: 0,
+                pending_key: false,
+                pending_digest: false,
+                rows_sealed: false,
+                sorted: false,
+                ordered: false,
+                lookup_rows: 0,
+                work: self.setup_work,
+                complete: false,
+            },
+            RetainedSemanticTable::observe,
+        )
+    }
+
+    /// Borrow completed nodes together with their retained original scope.
+    pub(in crate::state) fn snapshot(&self) -> Option<&CanonicalTablePairedSnapshot> {
+        self.builder.as_ref()?.completed.as_ref()
+    }
+}
+
 /// Source-borrowed operation on one exact already validated native table iterator.
 /// It keeps that iterator and pending original row across refusal without rescans.
 /// Completed nodes are borrowed together with this owner; delivery cannot detach
@@ -599,8 +780,9 @@ where
         let selector = setup_selector_work(table).map_err(RetainedSemanticError::into_leaf)?;
         // This convenience has no caller-supplied work limit. Its closed literal
         // selector is included in the finite derived cold-build ceiling.
-        // TODO: publication must retain and pre-admit this planning prefix; this
-        // consuming entry does not claim the retained constructor's setup rule.
+        // This consuming entry does not claim resumable constructor admission.
+        // Frozen publication instead uses the ordinal facade, which retains the
+        // successful selector and its explicitly admitted setup-work ceiling.
         let (key_literal, value_literal) =
             closed_setup_literal(table).map_err(RetainedSemanticError::into_leaf)?;
         let setup = selector

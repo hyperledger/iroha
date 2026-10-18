@@ -124,7 +124,7 @@ pub(in super::super) fn fill(
     let cycles = word(CYCLE_WRITE, BEFORE);
     let base = if memory { word(MEMORY_BASE, BEFORE) } else { 0 };
     let immediate = if memory {
-        i64::from(wide::imm8(instruction)) as u64
+        i64::cast_unsigned(i64::from(wide::imm8(instruction)))
     } else {
         0
     };

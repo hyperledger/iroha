@@ -1,5 +1,5 @@
 //! Fraud monitoring admission tests consume the committed parameter projection.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use iroha_config::parameters::actual::FraudMonitoring;
 use iroha_core::{

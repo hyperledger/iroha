@@ -140,7 +140,8 @@ fn full_catalog_rejects_missing_extra_reordered_and_undefined_selectors() {
     mask.steps[0].enabled_controls = 1;
     assert_eq!(mask.inventory_bounds(), Err(Error::Inventory));
     let mut receive = pack.clone();
-    receive.steps[11].enabled_controls = 2;
+    // Receive has one selector: its retired mask-1 key is no catalog member.
+    receive.steps[6].enabled_controls = 1;
     assert_eq!(receive.inventory_bounds(), Err(Error::Inventory));
     assert!(
         KagemushaWalletOperationKindV1::ALL
@@ -149,7 +150,7 @@ fn full_catalog_rejects_missing_extra_reordered_and_undefined_selectors() {
     );
     assert_eq!(
         SIGMA_CATALOG_V1.iter().filter(|(tag, _)| *tag == 3).count(),
-        8
+        4
     );
 }
 
@@ -248,8 +249,8 @@ fn native_protocol_preimages_bind_actual_curve_tables_and_params() {
 
 #[test]
 fn native_profile_contains_fixed_typed_policies_and_all_decision_codes() {
-    let sigma = policy(false);
-    let omega = policy(true);
+    let sigma = policy(false).expect("fixed sigma policy");
+    let omega = policy(true).expect("fixed omega policy");
     assert_eq!(sigma.curve, CurveV1::Vesta);
     assert_eq!(sigma.instance_lengths, vec![1]);
     assert_eq!(sigma.instance_types, vec![InstanceType::Bounded]);
@@ -265,14 +266,14 @@ fn native_profile_contains_fixed_typed_policies_and_all_decision_codes() {
         ]
     );
     let profile = native_profile_transcript_v1().unwrap();
-    assert_eq!(&profile[..6], &[1, 0, 16, 0, 0, 0]);
+    assert_eq!(&profile[..6], &[1, 0, 11, 0, 0, 0]);
     let marker = b"kgwomg_1\x01\x02\x03\x04";
     let offset = profile
         .windows(marker.len())
         .position(|bytes| bytes == marker)
         .unwrap();
     let counts = &profile[offset - 32..offset];
-    let expected: Vec<_> = [33_u32, 8, 26, 18, 52, 16, 544, 1088]
+    let expected: Vec<_> = [29_u32, 6, 26, 18, 52, 16, 544, 1120]
         .into_iter()
         .flat_map(u32::to_le_bytes)
         .collect();
@@ -366,7 +367,7 @@ fn native_profile_matches_complete_compiled_encoder_preimage() {
         "000000040100000004010000000d010000000000000004010000000d01000000000000000401000000730000004e5254",
         "3000001c14315baa201047a077821817683104004b000000000000000dea5f0df63cb40b020201000400000000011001",
         "100402000000040100000004010000001703000000000000000401000000040200000004100000001703000000000000",
-        "0004010000000400000000040100000021000000080000001a0000001200000034000000100000002002000040040000",
+        "0004010000000400000000040100000021000000080000001a0000001200000034000000100000002002000060040000",
         "6b67776f6d675f3101020304",
     )).unwrap();
     for policy in [
@@ -390,10 +391,10 @@ fn native_profile_matches_complete_compiled_encoder_preimage() {
     // Native BLS authenticates ledger finality; Load retains four A and three W stages.
     assert_eq!(
         hex::encode(Sha256::digest(&body)),
-        "af923b87514d6f53742fd1951fa423626c497f26245b98b8c73a9beabd5342b5"
+        "e1d18b5c2f06821f9f62c0c59d0628b272849a1cc5f94127aa0479cb703b4e8e"
     );
     assert_eq!(
         hex::encode(artifact_digest(b"native-profile", &body)),
-        "f7321a8be5ad7c861a9f0d1f7230c343ed9c4acdc8c7bea6721af94befbe6be6"
+        "9b8b5362c5d31fd040fac8c8684d3e3dd29043fac79042e0b6702546e78db71c"
     );
 }

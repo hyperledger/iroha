@@ -1,0 +1,133 @@
+"""Lazy enabled append for W0's fixed primary-tape scan.
+
+This extends the reviewed unconditional append with an explicit enable bit;
+it does not inherit that construction's cheaper unconditional gate counts.
+The persistent array and incoming data are caller-owned retained registers.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost, integer, require
+
+
+def and_xor(controls, target, scratch):
+    """Emit the exact clean multi-control AND ladder, with no relative phases."""
+    require(type(controls) is tuple and type(scratch) is tuple, "AND wire containers")
+    wires = controls + (target,) + scratch
+    require(all(type(w) is int and w >= 0 for w in wires)
+            and len(set(wires)) == len(wires), "AND wire aliases")
+    require(len(scratch) >= max(0, len(controls)-2), "AND scratch width")
+    if not controls:
+        yield ("x", target)
+    elif len(controls) == 1:
+        yield ("cx", controls[0], target)
+    elif len(controls) == 2:
+        yield ("ccx", *controls, target)
+    else:
+        first = ("ccx", controls[0], controls[1], scratch[0])
+        yield first
+        for i in range(2, len(controls)-1):
+            yield ("ccx", scratch[i-2], controls[i], scratch[i-1])
+        yield ("ccx", scratch[len(controls)-3], controls[-1], target)
+        for i in range(len(controls)-2, 1, -1):
+            yield ("ccx", scratch[i-2], controls[i], scratch[i-1])
+        yield first
+
+
+def population_sum(count):
+    """Sum popcount(i), 0<=i<count, in logarithmic public metadata work."""
+    integer(count, 0, (1 << 64)*((1 << 20)+2), "slot count")
+    out = 0
+    for j in range(count.bit_length()):
+        half = 1 << j
+        out += (count // (2*half))*half + max(0, count % (2*half)-half)
+    return out
+
+
+@dataclass(frozen=True)
+class EnabledAppend:
+    """Append one canonical record iff enabled, preserving all clean work.
+
+    The semantic invariant is an active prefix of c records, zero slots at/after
+    c, and 0<=c<=N. Enabled calls require c<N. Disabled calls at c=N are identity.
+    Neither checking that invariant nor preparing the incoming frame is free;
+    W0's bounded schedule and framing must supply and establish them.
+    """
+    capacity: int
+    key_bits: int
+    value_bits: int
+
+    def __post_init__(self):
+        integer(self.capacity, 1, (1 << 64)*((1 << 20)+2), "log capacity")
+        integer(self.key_bits, 1, 1 << 32, "key bits")
+        integer(self.value_bits, 1, 1 << 16, "value bits")
+
+    @property
+    def counter_bits(self):
+        """Represent the full capacity, not only the last legal slot index."""
+        return max(2, self.capacity.bit_length())
+
+    @property
+    def record_bits(self):
+        """Incoming key plus padded value, excluding the active flag."""
+        return self.key_bits + self.value_bits
+
+    def layout(self):
+        """Constant-size interval description, even for lifetime-sized arrays."""
+        log_bits = self.capacity*(1+self.record_bits)
+        counter = log_bits
+        enable = counter+self.counter_bits
+        incoming = enable+1
+        work = incoming+self.record_bits
+        return dict(log=0, log_bits=log_bits, counter=counter, enable=enable,
+                    incoming=incoming, work=work, clean_work_bits=self.counter_bits,
+                    size=work+self.counter_bits)
+
+    def emit(self, *, inverse=False):
+        """Emit a fixed scan with enabled increment/decrement; never allocate N slots."""
+        require(type(inverse) is bool, "inverse flag")
+        p = self.layout()
+        counter = tuple(range(p['counter'], p['counter']+self.counter_bits))
+        enable, selector = p['enable'], p['work']
+        scratch = tuple(range(selector+1, selector+self.counter_bits))
+
+        def increment():
+            for j in range(len(counter)-1, 0, -1):
+                yield from and_xor((enable,)+counter[:j], counter[j], scratch[:max(0, j-1)])
+            yield ('cx', enable, counter[0])
+
+        def equality(slot):
+            for j, wire in enumerate(counter):
+                if not (slot >> j) & 1:
+                    yield ('x', wire)
+            yield from and_xor((enable,)+counter, selector, scratch)
+            for j in range(len(counter)-1, -1, -1):
+                if not (slot >> j) & 1:
+                    yield ('x', counter[j])
+
+        if inverse:
+            # Only O(d^2) public gate metadata, independent of N and key width.
+            yield from reversed(tuple(increment()))
+        slots = range(self.capacity-1, -1, -1) if inverse else range(self.capacity)
+        for slot in slots:
+            base = slot*(1+self.record_bits)
+            yield from equality(slot)
+            # These distinct-target copies commute; the whole slot map is its
+            # own inverse with the counter fixed and selector initially zero.
+            for bit in range(self.record_bits):
+                yield ('ccx', selector, p['incoming']+bit, base+1+bit)
+            yield ('cx', selector, base)
+            yield from equality(slot)
+        if not inverse:
+            yield from increment()
+
+    def resources(self):
+        """Exact enabled append counts; charge scans even for enable=0."""
+        n, d, q = self.capacity, self.counter_bits, self.record_bits
+        cost = Cost(x=4*(d*n-population_sum(n)), cx=n+1,
+                    ccx=n*(4*d-2+q)+(d-1)**2)
+        return dict(gates=cost.as_dict(), persistent_log_bits=n*(q+1),
+                    counter_bits=d, incoming_record_bits=q, enable_bits=1,
+                    clean_work_bits=d, conditional_on_canonical_prefix_and_capacity=True,
+                    schedule_and_framing_implemented=False, full_W0_implemented=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    profile_qualified=False, production_gate_changed=False)

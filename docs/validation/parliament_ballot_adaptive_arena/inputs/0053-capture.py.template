@@ -1,0 +1,98 @@
+"""Seal a historical-source arena replay without touching any prior capture."""
+from pathlib import Path
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+OUT = HERE/'capture'
+SOURCE = OUT/'source'
+FROZEN = ROOT/'target/parliament-request-family-envelope-stage/capture'
+OWN = ('arena.py','test_arena.py','README.md','observe.py','capture.py')
+ADDED = {
+    'target/parliament-sequential-composition-stage/sequence.py':
+        '02eaf6145033344d2c06cdf05faaf97a5e32e64b4c86cb7ecb6b46d068633131',
+    'target/parliament-coin-preparation-stage/purification.py':
+        'af3de761b621bd98e79e31ab20b3449e4f96eb0dba9d36180e40d7b08034d56f'}
+
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(ok,why):
+    if not ok:raise RuntimeError(why)
+
+
+require(not OUT.exists(),'fresh capture directory required')
+OUT.mkdir();SOURCE.mkdir()
+receipt_data = (FROZEN/'receipt.json').read_bytes()
+require(sha(receipt_data) == '45aa1b03470958707588f5e09af9ec4047e385813144297b29840add64191293',
+        'frozen family receipt identity')
+old = json.loads(receipt_data)
+inputs = dict(old['source_sha256_before'])
+require(inputs == old['source_sha256_after'],'frozen source stability')
+for path,expected in inputs.items():
+    raw = (FROZEN/'source'/path).read_bytes()
+    require(sha(raw) == expected,'frozen input '+path)
+    dest = SOURCE/path;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(raw)
+for path,expected in ADDED.items():
+    raw = (ROOT/path).read_bytes();require(sha(raw) == expected,'added source identity')
+    dest = SOURCE/path;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(raw)
+    inputs[path] = expected
+own = {}
+for name in OWN:
+    path = (HERE/name).relative_to(ROOT).as_posix();raw = (HERE/name).read_bytes();own[path] = sha(raw)
+    dest = SOURCE/path;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(raw)
+watched = {**inputs,**own}
+env = dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+           PYTEST_ADDOPTS='',PYTEST_PLUGINS='',PYTHONPATH='')
+commands = []
+
+
+def run(name,args,expected,cwd=SOURCE):
+    result = subprocess.run(args,cwd=cwd,env=env,capture_output=True)
+    (OUT/(name+'.stdout')).write_bytes(result.stdout)
+    (OUT/(name+'.stderr')).write_bytes(result.stderr)
+    commands.append(dict(name=name,args=args,exit_code=result.returncode,expected_exit=expected))
+    require(result.returncode == expected,'command failed: '+name)
+    return result
+
+
+selected = SOURCE/HERE.relative_to(ROOT)
+test = ['/opt/homebrew/bin/pytest','-q','-c','/dev/null','--noconftest','-p','no:cacheprovider',
+        '-k','','-m','','--maxfail=0',str(selected/'test_arena.py')]
+collected = run('collection',test+['--collect-only'],0)
+run('tests',test+['--junitxml',str(OUT/'junit.xml')],0)
+xml = ET.parse(OUT/'junit.xml').getroot();cases = xml.findall('.//testcase')
+require(len(cases) == 58 and not any(x.tag in ('failure','error','skipped') for x in xml.iter()),
+        '58 passing controls')
+names = [c.attrib['name'] for c in cases]
+collected_names = [line.rsplit('::',1)[1] for line in collected.stdout.decode().splitlines() if '::' in line]
+require(names == collected_names and len(set(names)) == 58,'exact collection/execution membership')
+cli = [sys.executable,'-B',str(selected/'observe.py')]
+normal = run('observation',cli,0)
+refused = run('require-qualified',cli+['--require-qualified'],2)
+require(normal.stdout == refused.stdout,'qualification refusal same observation')
+live = run('live-refusal',[sys.executable,'-B',str(HERE/'observe.py')],1,ROOT)
+require(not live.stdout and b'source drift' in live.stderr,'live root source drift refusal')
+after = {p:sha((SOURCE/p).read_bytes()) for p in watched}
+require(after == watched,'isolated inputs stable')
+require({p:sha((ROOT/p).read_bytes()) for p in own} == own,'owned source stable')
+live_pins = {p:sha((ROOT/p).read_bytes()) for p in inputs}
+record = dict(status='PASS',scope='conditional typed-body online arena on historical frozen sources',
+    source_sha256_before=watched,source_sha256_after=after,commands=commands,tests=58,
+    test_membership=names,exact_collection_execution_membership=True,failures=0,errors=0,skips=0,
+    frozen_family_receipt_sha256=sha(receipt_data),python_executable=sys.executable,python_version=sys.version,
+    selected_inputs=len(watched),live_source_differences={p:dict(expected=h,actual=live_pins[p])
+        for p,h in inputs.items() if live_pins[p] != h},
+    qualification_refusal_identical=True,full_request_gate_stream_executed=False,
+    complete_resource_vector=False,physical_workspace_bound=False,current_candidate_qualified=False,
+    independent_cryptographic_review=False,production_gate_changed=False,runtime_dependency_closure=False,
+    outputs={p.name:sha(p.read_bytes()) for p in OUT.iterdir() if p.is_file()})
+(OUT/'receipt.json').write_text(json.dumps(record,indent=2,sort_keys=True)+'\n')
+files = sorted(p for p in OUT.rglob('*') if p.is_file())
+(OUT/'SHA256SUMS').write_text(''.join(sha(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+print(json.dumps(dict(tests=58,selected_inputs=len(watched),receipt_sha256=sha((OUT/'receipt.json').read_bytes()),
+    manifest_sha256=sha((OUT/'SHA256SUMS').read_bytes()))))

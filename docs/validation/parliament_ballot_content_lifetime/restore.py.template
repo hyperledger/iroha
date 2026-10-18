@@ -1,0 +1,68 @@
+"""Restore the historical conditional-ledger replay without repinning live sources."""
+from pathlib import Path, PurePosixPath
+import argparse
+import hashlib
+import json
+import sys
+
+def digest(data):return hashlib.sha256(data).hexdigest()
+def require(ok,why):
+    if not ok:raise ValueError(why)
+def safe_path(value):
+    path=PurePosixPath(value)
+    require(type(value) is str and bool(value) and not path.is_absolute() and
+        '..' not in path.parts and path.as_posix()==value,'unsafe relative path')
+    return path
+def manifest(folder,expected):
+    raw=(folder/'SHA256SUMS').read_bytes()
+    require(digest(raw)==expected,'manifest identity: '+str(folder))
+    entries={}
+    for line in raw.decode().splitlines():
+        expected,relative=line.split('  ',1);safe_path(relative)
+        require(relative not in entries,'duplicate manifest member')
+        data=(folder/relative).read_bytes()
+        require(digest(data)==expected,'member identity: '+str(folder/relative))
+        entries[relative]=data
+    return entries
+def restore(package,repository,destination,expected):
+    require(not destination.exists(),'destination must be absent')
+    own=manifest(package,expected)
+    mapping=json.loads(own['replay-inputs.json'])
+    dependencies=json.loads(own['dependencies.json'])
+    loaded={name:manifest(repository/'docs/validation'/name,identity)
+        for name,identity in dependencies['published_manifest_sha256'].items()}
+    buffers={}
+    for relative,item in mapping.items():
+        safe_path(relative)
+        data=(own[item['member']] if item['origin']=='this-package'
+            else loaded[item['package']][item['member']])
+        require(digest(data)==item['sha256'],'replay input identity: '+relative)
+        buffers[relative]=data
+    require(len(buffers)==161,'154 catalog sources and seven execution inputs')
+    # Retain the original capture manifest's logical membership without making
+    # duplicate source copies inside this publication package.
+    for line in own['capture/SHA256SUMS'].decode().splitlines():
+        identity,relative=line.split('  ',1);safe_path(relative)
+        data=buffers[relative.removeprefix('replay/')] if relative.startswith('replay/') else own['capture/'+relative]
+        require(digest(data)==identity,'original capture member identity: '+relative)
+    destination.mkdir(parents=True,exist_ok=False)
+    for relative,data in buffers.items():
+        output=destination/relative;output.parent.mkdir(parents=True,exist_ok=True)
+        with output.open('xb') as handle:handle.write(data)
+    after={p:digest((destination/p).read_bytes()) for p in buffers}
+    require(after=={p:digest(v) for p,v in buffers.items()},'restored source stability')
+    return dict(restored_files=len(buffers),source_sha256=after,complete_resource_vector=False,
+                current_candidate_qualified=False,production_gate_changed=False)
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--package',type=Path,required=True)
+    parser.add_argument('--repository',type=Path,required=True)
+    parser.add_argument('--destination',type=Path,required=True)
+    parser.add_argument('--manifest-sha256',required=True)
+    args=parser.parse_args()
+    try:
+        result=restore(args.package.resolve(),args.repository.resolve(),args.destination.resolve(),args.manifest_sha256)
+        print(json.dumps(result,sort_keys=True));return 0
+    except (ValueError,KeyError,TypeError,OSError) as error:
+        print(str(error),file=sys.stderr);return 1
+if __name__=='__main__':sys.exit(main())

@@ -1,5 +1,5 @@
 #![cfg(feature = "privacy-release-evidence")]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 //! Enforced four-peer DA/RBC, activation, adversarial-proof, state-replay, exact-finality, and
 //! restart gate for five available retained exact-12 native engines, plus fail-closed ZK-ACE
 //! capability and production-builder coverage.

@@ -10,23 +10,34 @@ Only standard Sessions/adapters are supported. There is no transport fallback.
 """
 from __future__ import annotations
 
-from collections import OrderedDict
 import functools
 import io
 import logging
-import threading
 import math
 import os
 import selectors
 import subprocess
 import sys
+import threading
 import time
 import types
+from collections import OrderedDict
 
 import requests
 from norito import (
-    SchemaDescriptor, StructAdapter, StructField, bool_, bytes_, decode, encode,
-    seq, string, tuple_adapter, u8, u16, u64,
+    SchemaDescriptor,
+    StructAdapter,
+    StructField,
+    bool_,
+    bytes_,
+    decode,
+    encode,
+    seq,
+    string,
+    tuple_adapter,
+    u8,
+    u16,
+    u64,
 )
 from norito.header import COMPACT_LEN, NoritoHeader
 
@@ -166,7 +177,7 @@ def _same_default(actual, expected, object_types, lock_type, depth=0):
                 _text_size(item, "Session configuration item", 256)
             equal = actual == expected
         else:
-            for item, reference in zip(actual, expected):
+            for item, reference in zip(actual, expected, strict=True):
                 _same_default(item, reference, object_types, lock_type, depth + 1)
             return
     elif kind is functools.partial:
@@ -259,7 +270,7 @@ def check_alias_state(metrics, previous):
 
 def check_bounded_client(client):
     """Reject parent callbacks before any bounded-route client field is consumed."""
-    from iroha_python.client import ToriiClient, LocalSigningContext
+    from iroha_python.client import LocalSigningContext, ToriiClient
     from iroha_python.crypto import NetworkId
     if type(client) is not ToriiClient:
         raise TypeError("bounded staking preparation requires the canonical ToriiClient")
@@ -469,7 +480,9 @@ def _standard_logging(logger):
     disable = _unsigned(manager_state["_disable"], "logging disable level", (1 << 31) - 1)
     if manager_state["loggerClass"] is not None or manager_state["logRecordFactory"] is not None:
         raise TypeError("bounded alias logging rejects custom manager factories")
-    nodes = []; seen = set(); current = logger
+    nodes = []
+    seen = set()
+    current = logger
     while current is not None:
         if len(nodes) >= 16 or id(current) in seen or type(current) not in (logging.Logger, logging.RootLogger):
             raise TypeError("bounded alias logging requires a finite standard logger chain")
@@ -493,14 +506,16 @@ def _standard_logging(logger):
             _unsigned(level, "logging cached level", (1 << 31) - 1)
             if type(enabled) is not bool:
                 raise TypeError("bounded alias logging rejects altered logger cache values")
-        nodes.append(state); current = state["parent"]
+        nodes.append(state)
+        current = state["parent"]
     if not nodes:
         raise TypeError("bounded alias logging requires a standard logger")
     effective = next((state["level"] for state in nodes if state["level"]), 0)
     enabled = not nodes[0]["disabled"] and disable < logging.WARNING and logging.WARNING >= effective
     if logging.WARNING in nodes[0]["_cache"] and nodes[0]["_cache"][logging.WARNING] != enabled:
         raise TypeError("bounded alias logging rejects inconsistent logger cache")
-    sinks = []; found = 0
+    sinks = []
+    found = 0
     for state in nodes:
         for handler in state["handlers"]:
             found += 1
@@ -533,7 +548,7 @@ def _alias_snapshot(policy, warning_hook, logger):
     state = _closed_fields(policy, SorafsAliasPolicy, _POLICY_FIELDS, "alias policy")
     values = [_unsigned(state[field], "alias policy") for field in _POLICY_FIELDS]
     # Re-run the canonical policy constructor, never methods on supplied objects.
-    SorafsAliasPolicy(**dict(zip(_POLICY_FIELDS, values)))
+    SorafsAliasPolicy(**dict(zip(_POLICY_FIELDS, values, strict=True)))
     name, enabled, sinks = _standard_logging(logger)
     return values, name, enabled, sinks
 
@@ -606,7 +621,7 @@ def _enforce_worker_alias(response, request):
         if not logger.handlers:
             logger.addHandler(logging.NullHandler())
         evaluation = enforce_alias_policy(response,
-            policy=SorafsAliasPolicy(**dict(zip(_POLICY_FIELDS, request["alias_policy"]))),
+            policy=SorafsAliasPolicy(**dict(zip(_POLICY_FIELDS, request["alias_policy"], strict=True))),
             logger=logger)
         if evaluation is None:
             return []
@@ -854,7 +869,8 @@ def send_bounded_request(*, session, method, url, headers, body, timeout, deadli
     try:
         sinks = []
         for sink in alias[3]:
-            fd = os.dup(sink[0]); inherited.append(fd)
+            fd = os.dup(sink[0])
+            inherited.append(fd)
             sinks.append((fd,) + sink[1:])
         if sinks:
             request = _unframe(frame, _REQUEST, _REQUEST_SCHEMA)
@@ -903,7 +919,7 @@ def send_bounded_request(*, session, method, url, headers, body, timeout, deadli
         from iroha_python.sorafs import SorafsAliasEvaluation
         values = list(result["alias_evaluation"][0])
         values[6] = values[6][0] if values[6] else None
-        response._iroha_alias_evaluation = SorafsAliasEvaluation(**dict(zip(_EVALUATION_FIELDS, values)))
+        response._iroha_alias_evaluation = SorafsAliasEvaluation(**dict(zip(_EVALUATION_FIELDS, values, strict=True)))
     return response
 
 
@@ -978,9 +994,11 @@ def _worker():
                     try:
                         result["alias_evaluation"] = _enforce_worker_alias(response, request)
                     except SorafsAliasError as error:
-                        result = _empty_result(4); result["error_message"] = str(error)
+                        result = _empty_result(4)
+                        result["error_message"] = str(error)
                     except (ValueError, TypeError) as error:
-                        result = _empty_result(5); result["error_message"] = str(error)
+                        result = _empty_result(5)
+                        result["error_message"] = str(error)
     except requests.Timeout:
         result = _empty_result(1)
     except requests.RequestException:

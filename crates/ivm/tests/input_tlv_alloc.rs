@@ -1,6 +1,6 @@
+use crate::common;
 use iroha_crypto::Hash;
 use ivm::{IVM, Memory, PointerType};
-mod common;
 fn make_tlv(type_id: u16, payload: &[u8]) -> Vec<u8> {
     let payload = PointerType::from_u16(type_id)
         .map(|pty| common::payload_for_type(pty, payload))

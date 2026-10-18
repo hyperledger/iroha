@@ -542,7 +542,9 @@ impl MainTracePolynomialSetV1 {
             if native.is_none() {
                 let batch =
                     sources.native_columns_v1(layout, kind, group_index, columns.clone())?;
-                if batch.len() != columns.len() || batch.capacity() != columns.len() {
+                let actual_columns = batch.len();
+                let requested_columns = columns.len();
+                if actual_columns != requested_columns || batch.capacity() != requested_columns {
                     return Err(ZkX509StarkErrorV1::ProofTooLarge);
                 }
                 native = Some(batch.into_iter());
@@ -697,7 +699,11 @@ impl MainTracePolynomialSetV1 {
                                     group,
                                     range.clone(),
                                 )?;
-                                if batch.len() != range.len() || batch.capacity() != range.len() {
+                                let actual_columns = batch.len();
+                                let requested_columns = range.len();
+                                if actual_columns != requested_columns
+                                    || batch.capacity() != requested_columns
+                                {
                                     return Err(ZkX509StarkErrorV1::ProofTooLarge);
                                 }
                                 pending = batch.into_iter();
@@ -759,7 +765,7 @@ impl MainTracePolynomialSetV1 {
         let mut evaluator =
             main_transform::MainTraceCosetEvaluatorV1::new_v1(layout, assembly_payload)?;
         let result = plan.commit_retained_replayed_v1(
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             indices,
             cut,
             |group, column| {
@@ -1768,7 +1774,10 @@ mod native_mask_borrow_tests {
                 .unwrap();
             assert_eq!(borrowed.len(), end);
             for (column, mask) in borrowed.iter().enumerate() {
-                assert!(core::ptr::eq(mask, &set.groups[index].masks[column]));
+                assert!(core::ptr::eq(
+                    mask,
+                    &raw const set.groups[index].masks[column]
+                ));
                 assert_eq!(
                     mask.coefficients(),
                     set.groups[index].masks[column].coefficients()

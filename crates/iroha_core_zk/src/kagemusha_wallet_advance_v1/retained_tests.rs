@@ -172,9 +172,13 @@ fn wallet_advance_v1_retained_highest_generation_scan() {
         highest_retained_generation::<_, KagemushaWalletCompletionRecordV1>(&store, &slot),
         Ok(Some(3))
     );
-    provider
+    let tombstone = provider
         .prune_completion(&slot, &bootstrap_op, 1)
         .expect("prune");
+    assert_eq!(
+        read_tombstone(&store, &slot, &bootstrap_op),
+        Ok(TombstoneReadV1::Found(tombstone))
+    );
     assert_eq!(
         kagemusha_wallet_list_tombstones_v1(&store, &slot),
         Ok(vec![bootstrap_op])
@@ -193,8 +197,32 @@ fn wallet_advance_v1_retained_highest_generation_scan() {
         highest_retained_generation::<_, KagemushaWalletCompletionRecordV1>(&store, &slot),
         Ok(Some(3))
     );
-    assert_eq!(read_tombstone(&store, &slot, &[7; 32]), Ok(Some(None)));
-    assert_eq!(read_tombstone(&store, &slot, &[8; 32]), Ok(None));
+    assert_eq!(
+        read_tombstone(&store, &slot, &[7; 32]),
+        Ok(TombstoneReadV1::Invalid)
+    );
+    assert_eq!(
+        read_tombstone(&store, &slot, &[8; 32]),
+        Ok(TombstoneReadV1::Absent)
+    );
+    device.fs.place_unsynced(
+        &kagemusha_wallet_ops_dir_v1(&slot),
+        kagemusha_wallet_tombstone_name_v1(&[9; 32]).as_str(),
+        &[0; KAGEMUSHA_WALLET_TOMBSTONE_MAX_BYTES_V1 + 1],
+    );
+    assert_eq!(
+        read_tombstone(&store, &slot, &[9; 32]),
+        Ok(TombstoneReadV1::Invalid)
+    );
+    device.fs.place_unsynced(
+        &kagemusha_wallet_ops_dir_v1(&slot),
+        kagemusha_wallet_tombstone_name_v1(&[10; 32]).as_str(),
+        &tombstone.encode().expect("canonical tombstone"),
+    );
+    assert_eq!(
+        read_tombstone(&store, &slot, &[10; 32]),
+        Ok(TombstoneReadV1::Invalid)
+    );
     device
         .fs
         .place_unsynced(&kagemusha_wallet_ops_dir_v1(&slot), "foreign", b"x");
@@ -343,4 +371,118 @@ fn wallet_advance_v1_exact_capsule_collection_keeps_head_and_is_idempotent() {
         provider.collect_capsule(&slot, old.selected_generation, &old.capsule_digest),
         Err(KagemushaWalletProviderErrorV1::Unavailable(_))
     ));
+}
+
+#[test]
+fn wallet_advance_v1_retained_successful_prune_dominates_resurfaced_copy() {
+    use super::super::test_support::BOOT_B;
+    use KagemushaWalletSimFaultV1 as Fault;
+    use KagemushaWalletSimPowerLossV1 as PowerLoss;
+    use KagemushaWalletSimStepV1 as Step;
+
+    let (device, fixture, slot, [operation_id, current_op]) = two_heads(0x78);
+    let trace = {
+        let trial = device.fork();
+        let mut provider = trial.open();
+        let start = trial.fs.steps();
+        provider
+            .prune_completion(&slot, &operation_id, 1)
+            .expect("unfaulted prune");
+        trial.fs.trace_since(start)
+    };
+    let last_unlink = trace
+        .iter()
+        .rposition(|step| *step == Step::Unlink)
+        .expect("second copy unlink");
+    let first_unlink = trace[..last_unlink]
+        .iter()
+        .rposition(|step| *step == Step::Unlink)
+        .expect("first copy unlink");
+    let first_sync = first_unlink
+        + trace[first_unlink..last_unlink]
+            .iter()
+            .position(|step| *step == Step::SyncDir)
+            .expect("first copy parent sync");
+    let mut provider = device.open();
+    device
+        .fs
+        .inject(device.fs.steps() + first_sync as u64, Fault::LostWriteback);
+    assert!(matches!(
+        provider.prune_completion(&slot, &operation_id, 1),
+        Err(KagemushaWalletProviderErrorV1::Uncertain(_))
+    ));
+    let tombstone = provider
+        .prune_completion(&slot, &operation_id, 1)
+        .expect("actual successful prune retry");
+    let directory = kagemusha_wallet_completion_dir_v1(&slot);
+    let copies = kagemusha_wallet_completion_names_v1(&operation_id);
+    assert!(
+        copies
+            .iter()
+            .all(|name| device.fs.visible_file(&directory, name.as_str()).is_none())
+    );
+    drop(provider);
+    device.power_loss(PowerLoss::DropUnsynced, BOOT_B);
+    assert!(
+        copies
+            .iter()
+            .any(|name| device.fs.visible_file(&directory, name.as_str()).is_some()),
+        "a genuinely resurfaced durable completion is required; no direct file injection"
+    );
+    let mut provider = device.open();
+    assert_eq!(
+        provider.lookup(&slot, &operation_id),
+        Ok(KagemushaWalletLookupV1::Archived(Box::new(tombstone)))
+    );
+    assert!(matches!(
+        provider.lookup(&slot, &current_op),
+        Ok(KagemushaWalletLookupV1::Retained(_))
+    ));
+    let bootstrap = super::super::test_support::bootstrap_capsule(&fixture);
+    let enrollment = fixture.enrollment_record(super::super::test_support::BOOT_A);
+    let request = advance_request(&enrollment, &bootstrap);
+    assert_eq!(
+        provider.advance(&slot, &TestOwnerV1, &request),
+        Ok(KagemushaWalletAdvanceOutcomeV1::Archived(Box::new(
+            tombstone
+        )))
+    );
+    let mut changed = request;
+    changed.capsule = super::super::test_support::bootstrap_capsule_variant(&fixture, 1);
+    assert_eq!(
+        provider.advance(&slot, &TestOwnerV1, &changed),
+        Err(KagemushaWalletProviderErrorV1::OperationIdConflict {
+            retained: tombstone.status()
+        })
+    );
+}
+
+#[test]
+fn wallet_advance_v1_retained_invalid_tombstone_never_revives_retained_result() {
+    let (base, _, slot, [operation_id, _]) = two_heads(0x79);
+    let mut wrong_operation = tombstone();
+    wrong_operation.operation_id = [0xf1; 32];
+    for invalid in [
+        b"malformed tombstone".to_vec(),
+        wrong_operation.encode().expect("wrong operation encodes"),
+    ] {
+        let device = base.fork();
+        let mut provider = device.open();
+        assert!(matches!(
+            provider.lookup(&slot, &operation_id),
+            Ok(KagemushaWalletLookupV1::Retained(_))
+        ));
+        assert_eq!(
+            provider.store().write_new(
+                &kagemusha_wallet_ops_dir_v1(&slot),
+                &kagemusha_wallet_tombstone_name_v1(&operation_id),
+                &invalid
+            ),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        assert_eq!(
+            provider.lookup(&slot, &operation_id),
+            Ok(KagemushaWalletLookupV1::DeliveryDataLoss)
+        );
+    }
 }

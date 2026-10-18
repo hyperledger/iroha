@@ -2,13 +2,13 @@
 
 use ff::{Field, PrimeField};
 use group::prime::PrimeCurveAffine;
-use iroha_pasta::{Ep, Eq, PastaAffine, PastaCurve, PastaField, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, PastaCurve, PastaField, msm::MemoryBudget};
 use iroha_plonk::{
     check::{CheckMode, check_circuit},
     cs::{Column, ConstraintSystem, Instance},
     frontend::{Circuit, Error, Layouter, SimpleFloorPlanner, Value, synthesize},
     pcs::ipa::PinnedParams,
-    transcript::{decode_point, decode_scalar, encode_point},
+    transcript::{decode_generator, decode_scalar, encode_point, generator_coordinates},
 };
 use iroha_plonk_gadgets::{
     bytes::{
@@ -57,7 +57,7 @@ impl<C: PastaCurve> Decode<C> {
             C::Base::from(u64::from(self.length)),
             C::Base::from(u64::from(valid)),
         ]);
-        let (x, y) = Option::from(input.g().coordinates()).unwrap();
+        let (x, y) = generator_coordinates::<C>(input.g());
         out.extend([x, y]);
         for value in input.challenges() {
             out.extend(foreign_limbs(value).map(C::Base::from_u128));
@@ -156,7 +156,7 @@ fn encode<C: PastaCurve>(input: &FoldInput<C>) -> [u8; ACCUMULATOR_BYTES] {
 }
 
 fn native<C: PastaCurve>(bytes: &[u8; ACCUMULATOR_BYTES], k: u32) -> Option<FoldInput<C>> {
-    let g = decode_point::<C>(&bytes[..32].try_into().ok()?).ok()?;
+    let g = decode_generator::<C>(&bytes[..32].try_into().ok()?).ok()?;
     let mut challenges = [C::ScalarExt::ZERO; K];
     for (chunk, value) in bytes[32..].chunks_exact(32).zip(&mut challenges) {
         *value = decode_scalar(&chunk.try_into().ok()?).ok()?;
@@ -298,4 +298,36 @@ fn run<C: PastaCurve>() {
 fn malformed_incoming_accumulators_soft_fail_and_select_deciding_dummies() {
     run::<Ep>();
     run::<Eq>();
+}
+
+#[test]
+fn normalized_native_decoder_preserves_scoped_identity_and_actual_nonzero_rounds() {
+    fn cases<C: PastaCurve>() {
+        for k in [1, 12, 14, 16] {
+            let mut bytes = [0; ACCUMULATOR_BYTES];
+            for scalar in bytes[32 * (K - k as usize + 1)..].chunks_exact_mut(32) {
+                scalar.copy_from_slice(&C::ScalarExt::ONE.to_repr());
+            }
+            let claim = native::<C>(&bytes, k).expect("canonical scoped identity");
+            assert_eq!(
+                generator_coordinates::<C>(claim.g()),
+                (C::Base::ZERO, C::Base::ZERO)
+            );
+            let mut signed_zero = bytes;
+            signed_zero[31] = 128;
+            assert!(native::<C>(&signed_zero, k).is_none());
+            let mut zero_actual = bytes;
+            zero_actual[32 * K..].fill(0);
+            assert!(native::<C>(&zero_actual, k).is_none());
+            if k < 16 {
+                bytes[32..64].copy_from_slice(&C::ScalarExt::ONE.to_repr());
+                assert!(
+                    native::<C>(&bytes, k).is_none(),
+                    "padding remains exactly zero"
+                );
+            }
+        }
+    }
+    cases::<Ep>();
+    cases::<Eq>();
 }

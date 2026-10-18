@@ -1,0 +1,23 @@
+{
+  "independent_controls_reported": {
+    "deselected": 1558,
+    "evidence_kind": "Reviewer-reported tool result via agent message; not run by capture recipe; raw tool log not separately retained",
+    "passed": 43,
+    "scope": "daemon_boxed_startup controls",
+    "seconds": 8.42
+  },
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "remaining_findings_under_stated_premises": [],
+  "review_kind": "Independent local agent source review; not external cryptographic or unsafe implementation review",
+  "review_scope": "Delta versus archived Torii checker only changes startup entry locator/body/hash. Subsequent preflight assertions remain byte-identical. Actual source has exact two Box::pin wrappers, original ordered args, preparation .await? and returned activation .await.",
+  "reviewed_checker_sha256": "3c6117dd0ce007ba988fe18840a8463a42a3b355a80a80b73920d743eb0d0e6c",
+  "reviewed_tests_sha256": "1e5a07771d064e3a7fca1d2a4d2aac9fc7cd84334150b7c93c6f4e821aa6f4a5",
+  "reviewer": "/root/security_obligations",
+  "runtime_qualification": false,
+  "schema": "parliament-daemon-startup-peer-review-v1",
+  "upstream_premises": [
+    "Surrounding Box and name resolution",
+    "Allocator, compiler and runtime behavior"
+  ]
+}

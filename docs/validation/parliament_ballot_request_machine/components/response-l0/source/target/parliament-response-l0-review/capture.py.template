@@ -1,0 +1,96 @@
+"""Freeze scoped Python checks and selected inputs without promoting qualification."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[2]
+STAGE = ROOT/'target/parliament-ideal-machine-stage'
+OUT = Path(__file__).resolve().parent/'capture'
+SOURCES = [
+    'bit_ir.py','field_kernel.py','hash_machine.py','r0_machine.py','r1_machine.py',
+    'test_responses.py','responses.md','response_count_capture.py','response-accepted-shapes.json',
+    'l0_machine.py','test_l0_machine.py','l0.md',
+]
+
+
+def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def runtime_identity():
+    paths = [Path(sys.executable).resolve(),Path('/opt/homebrew/bin/pytest').resolve()]
+    return dict(python_version=sys.version,python_executable=sys.executable,
+                selected_runtime_sha256={str(p):digest(p) for p in paths},
+                dependency_closure_claimed=False)
+
+
+def run(command,name,env):
+    start = time.monotonic()
+    completed = subprocess.run(command,cwd=ROOT,env=env,text=True,capture_output=True)
+    (OUT/(name+'.stdout.txt')).write_text(completed.stdout)
+    (OUT/(name+'.stderr.txt')).write_text(completed.stderr)
+    return dict(command=command,exit_code=completed.returncode,elapsed_seconds=time.monotonic()-start)
+
+
+def main():
+    OUT.mkdir(exist_ok=False)
+    sys.path.insert(0,str(STAGE))
+    import l0_machine
+    import response_count_capture
+    from field_kernel import load_field
+    field = load_field(ROOT)
+    paths = [STAGE/name for name in SOURCES]
+    paths += [ROOT/p for p in l0_machine.PINS]
+    paths += [ROOT/p for p in field.PINS]
+    paths += [ROOT/p for p in response_count_capture.RUST]
+    paths += [ROOT/'pytest.ini',Path(__file__).resolve()]
+    paths = sorted(set(paths))
+    before = {str(p.relative_to(ROOT)):digest(p) for p in paths}
+    runtime_before = runtime_identity()
+    for path in paths:
+        destination = OUT/'source'/path.relative_to(ROOT)
+        destination.parent.mkdir(parents=True,exist_ok=True)
+        destination.write_bytes(path.read_bytes())
+        if digest(destination) != before[str(path.relative_to(ROOT))]: raise ValueError('snapshot drift')
+    env = dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+               PYTEST_ADDOPTS='',PYTEST_PLUGINS='',PYTHONPATH=str(STAGE))
+    base = ['/opt/homebrew/bin/pytest','-o','addopts=','-p','no:cacheprovider','--noconftest',
+            '--basetemp='+str(ROOT/'target/parliament-response-l0-review/pytest-temp')]
+    modules = [str(STAGE/'test_responses.py'),str(STAGE/'test_l0_machine.py')]
+    collect = run(base+['--collect-only','-q']+modules,'collection',env)
+    tests = run(base+['--maxfail=0','--junitxml='+str(OUT/'junit.xml')]+modules,'tests',env)
+    nodes = [line for line in (OUT/'collection.stdout.txt').read_text().splitlines()
+             if line.startswith('target/') and '::' in line]
+    xml = ET.parse(OUT/'junit.xml')
+    cases = xml.findall('.//testcase')
+    identities = [case.attrib['classname'].replace('.','/')+'.py::'+case.attrib['name'] for case in cases]
+    if (collect['exit_code'] or tests['exit_code'] or len(cases)!=85 or len(nodes)!=85
+            or sorted(nodes)!=sorted(identities)
+            or any(case.find(tag) is not None for case in cases for tag in ('failure','error','skipped'))):
+        raise ValueError('scoped full membership or result differs')
+    observations = {str(t):l0_machine.actual_lookup(ROOT,t,6882996).resources() for t in (0,1,1 << 64)}
+    (OUT/'l0-actual-resources.json').write_text(json.dumps(observations,indent=2,sort_keys=True)+'\n')
+    after = {str(p.relative_to(ROOT)):digest(p) for p in paths}
+    if before != after: raise ValueError('source drift')
+    runtime_after = runtime_identity()
+    if runtime_before != runtime_after: raise ValueError('selected runtime changed')
+    receipt = dict(schema='response-l0-scoped-capture-v1',collection=collect,tests=tests,
+        test_count=len(cases),test_membership=nodes,source_before=before,source_after=after,
+        runtime_before=runtime_before,runtime_after=runtime_after,
+        source_membership_complete=False,full_actual_gate_stream_executed=False,
+        full_simulator_or_native_runtime_executed=False,source_domain_F_is_provided_premise=True,
+        whole_simulator_projection_proved=False,complete_resource_vector=False,
+        profile_qualified=False,production_gate_changed=False)
+    (OUT/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+    entries = [p for p in OUT.rglob('*') if p.is_file()]
+    manifest=''.join(digest(p)+'  '+str(p.relative_to(OUT))+'\n' for p in sorted(entries))
+    (OUT/'manifest.sha256').write_text(manifest)
+    print(json.dumps(dict(tests=len(cases),sources=len(before),entries=len(entries),
+                         receipt=digest(OUT/'receipt.json'),manifest=digest(OUT/'manifest.sha256'))))
+
+
+if __name__=='__main__': main()

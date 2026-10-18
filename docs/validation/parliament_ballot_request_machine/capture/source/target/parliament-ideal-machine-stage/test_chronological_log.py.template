@@ -1,0 +1,103 @@
+"""Enabled append invariant, exact lazy census and inverse controls."""
+from collections import Counter
+from itertools import product
+
+import pytest
+
+from bit_ir import apply_gates, bits, unpack
+from chronological_log import EnabledAppend, and_xor, population_sum
+
+
+@pytest.mark.parametrize('n', [0, 1, 2, 3, 4, 7, 8, 31, 32, 63, 255, 1025])
+def test_public_population_sum(n):
+    assert population_sum(n) == sum(i.bit_count() for i in range(n))
+
+
+@pytest.mark.parametrize('n', [1, 2, 3, 4])
+def test_exhaustive_valid_prefix_append_disabled_full_and_inverse(n):
+    append = EnabledAppend(n, 1, 1)
+    p = append.layout()
+    gates, reverse = tuple(append.emit()), tuple(append.emit(inverse=True))
+    for count in range(n+1):
+        for previous in product(range(4), repeat=count):
+            for enabled in (0, 1):
+                if enabled and count == n:
+                    continue
+                for incoming in range(4):
+                    state = [0]*p['size']
+                    for slot, value in enumerate(previous):
+                        state[3*slot:3*slot+3] = [1, *bits(value, 2)]
+                    state[p['counter']:p['enable']] = bits(count, append.counter_bits)
+                    state[p['enable']] = enabled
+                    state[p['incoming']:p['work']] = bits(incoming, 2)
+                    before = state[:]
+                    apply_gates(state, gates)
+                    wanted = before[:]
+                    if enabled:
+                        wanted[3*count:3*count+3] = [1, *bits(incoming, 2)]
+                        wanted[p['counter']:p['enable']] = bits(count+1, append.counter_bits)
+                    assert state == wanted
+                    apply_gates(state, reverse)
+                    assert state == before
+
+
+@pytest.mark.parametrize('n', [1, 3, 4, 7, 8, 16])
+def test_actual_emitted_census_in_both_directions(n):
+    append = EnabledAppend(n, 5, 3)
+    expected = append.resources()['gates']
+    for inverse in (False, True):
+        count = Counter(g[0] for g in append.emit(inverse=inverse))
+        assert count == {k: expected[k] for k in ('x', 'cx', 'ccx')}
+    assert expected['base_xor_oracle_calls'] == 0
+
+
+def test_old_duplicate_keys_preserved_by_later_append():
+    append = EnabledAppend(4, 2, 2)
+    p = append.layout()
+    state = [0]*p['size']
+    state[p['enable']] = 1
+    records = [(1, 3), (2, 2), (1, 0)]
+    for key, value in records:
+        state[p['incoming']:p['work']] = bits(key, 2)+bits(value, 2)
+        apply_gates(state, append.emit())
+    for i, (key, value) in enumerate(records):
+        assert state[i*5:i*5+5] == [1, *bits(key, 2), *bits(value, 2)]
+    assert unpack(state[p['counter']:p['enable']]) == 3
+    assert all(v == 0 for v in state[p['work']:])
+
+
+def test_full_lifetime_shape_is_lazy_not_a_materialized_log():
+    n = (1 << 44)*((1 << 20)+2)
+    append = EnabledAppend(n, 64+8*215150, 2112)
+    p = append.layout()
+    assert append.counter_bits == 65
+    assert p['size'] == n*(1+64+8*215150+2112)+65+1+64+8*215150+2112+65
+    stream = append.emit()
+    assert next(stream)[0] == 'x'
+    row = append.resources()
+    assert row['gates']['elementary_gates'] > 0
+    assert row['clean_work_bits'] == 65 and row['full_W0_implemented'] is False
+
+
+@pytest.mark.parametrize('controls', [(), (0,), (0, 1), (0, 1, 2), (0, 1, 2, 3)])
+def test_and_ladder_all_basis_inputs(controls):
+    target, scratch = len(controls), tuple(range(len(controls)+1, 2*len(controls)+1))
+    for values in product((0, 1), repeat=len(controls)):
+        for old in (0, 1):
+            state = [*values, old]+[0]*len(scratch)
+            apply_gates(state, and_xor(controls, target, scratch))
+            assert state == [*values, old ^ int(all(values))]+[0]*len(scratch)
+
+
+def test_bad_dimensions_flags_and_wires_refused():
+    for args in ((0, 1, 1), (True, 1, 1), (1, 0, 1), (1, 1.0, 1), (1, 1, True)):
+        with pytest.raises(ValueError):
+            EnabledAppend(*args)
+    for bad in (True, -1, 1.0):
+        with pytest.raises(ValueError):
+            population_sum(bad)
+    with pytest.raises(ValueError):
+        list(EnabledAppend(2, 1, 1).emit(inverse=1))
+    for controls, target, scratch in [((0, 0), 1, ()), ((0, 1), True, ()), ((0, 1, 2), 3, ())]:
+        with pytest.raises(ValueError):
+            list(and_xor(controls, target, scratch))

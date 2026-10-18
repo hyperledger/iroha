@@ -901,14 +901,24 @@ fn alias_registry_routing_nested_walkers_use_universal_registry() {
     }
     let payload: Vec<InstructionBox> = vec![lease.into()];
     let instructions_hash = HashOf::new(&payload);
+    let proposal_nonce =
+        iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x51; 32]).unwrap();
+    let proposal_id = iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+        fixture.state.network_id_ref(),
+        &fixture.owner,
+        &proposal_nonce,
+    );
     let stored = MultisigProposalState {
+        network_id: *fixture.state.network_id_ref(),
+        proposal_nonce,
+        proposal_id,
+        transaction_ttl_ms: None,
         multisig_account_id: fixture.owner.clone(),
         instructions_hash,
         instructions: payload.clone(),
         proposed_at_ms: 0,
         expires_at_ms: 1_000,
         approvals: BTreeSet::new(),
-        is_relayed: None,
     };
     {
         let mut block = fixture.state.block(header(&fixture, 2));
@@ -920,7 +930,7 @@ fn alias_registry_routing_nested_walkers_use_universal_registry() {
                 format!(
                     "multisig/proposal/{}/{}",
                     HashOf::new(&fixture.owner),
-                    instructions_hash
+                    proposal_id
                 )
                 .parse()
                 .expect("proposal key"),
@@ -965,10 +975,17 @@ fn alias_registry_routing_nested_walkers_use_universal_registry() {
                 .collect(),
         ),
         Executable::Instructions(
-            vec![MultisigPropose::new(fixture.owner.clone(), payload.clone(), None).into()].into(),
+            vec![
+                MultisigPropose::new(fixture.owner.clone(), proposal_nonce, payload.clone(), None)
+                    .into(),
+            ]
+            .into(),
         ),
         Executable::Instructions(
-            vec![MultisigApprove::new(fixture.owner.clone(), instructions_hash).into()].into(),
+            vec![
+                MultisigApprove::new(fixture.owner.clone(), proposal_id, instructions_hash).into(),
+            ]
+            .into(),
         ),
         Executable::Instructions(vec![trigger.into()].into()),
         Executable::IvmProved(IvmProved {

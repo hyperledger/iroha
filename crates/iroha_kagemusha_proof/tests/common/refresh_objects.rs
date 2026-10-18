@@ -8,10 +8,8 @@ use iroha_kagemusha_proof::{
     admin_sigma::{
         BootstrapWitness, RefreshKind, RefreshUpdateWitness, RefreshWitness, StateWitness,
     },
-    operation_relation::{map_effects::BLACKLIST_HISTORY_DOMAIN, objects::ObjectKind},
-    tree::{
-        BlacklistTree, IndexedInsert, IndexedTree, QuotaUsageTree, QuotaWindow, QuotaWindowTree,
-    },
+    operation_relation::objects::ObjectKind,
+    tree::{QuotaUsageTree, QuotaWindow, QuotaWindowTree},
     witness::core_index as core,
 };
 use iroha_pasta::{Fp, poseidon::hash_with_domain};
@@ -19,10 +17,9 @@ use iroha_plonk_gadgets::{bytes::p_bytes_native, statement::STATEMENT_DOMAIN};
 use iroha_plonk_recursion::obligation::ledger::Variant;
 
 /// Fixed variants, in the tag7 effect-kind order.
-pub const VARIANTS: [Variant; 5] = [
+pub const VARIANTS: [Variant; 4] = [
     Variant::RefreshCredential,
     Variant::RefreshSchemePolicy,
-    Variant::RefreshBlacklist,
     Variant::RefreshQuotaShare,
     Variant::RefreshTimeAnchor,
 ];
@@ -67,7 +64,6 @@ pub struct RefreshFixture {
     pub update: Signed,
     pub current_certificate: Signed,
     pub current_credential: Signed,
-    pub blacklist: Option<IndexedInsert<Fp>>,
     pub quota: Option<QuotaFixture>,
 }
 
@@ -83,7 +79,7 @@ pub fn fixture(variant: Variant) -> RefreshFixture {
 }
 
 /// Build from an actual Bootstrap predecessor and its original enrollment tapes.
-/// Blacklist/quota cases start with that predecessor's empty history/usage arrays.
+/// Quota cases start with that predecessor's empty usage array.
 pub fn authorized(
     before: &BootstrapWitness,
     current_certificate: &Signed,
@@ -112,7 +108,6 @@ pub fn authorized(
         Fp::from(201)
     };
     after.core[core::TIME_FLOOR] = issued;
-    let mut blacklist = None;
     let mut quota = None;
     let mut body = 1u16.to_le_bytes().to_vec();
     body.extend(id(before.core[1], before.core[2]));
@@ -128,36 +123,13 @@ pub fn authorized(
         Variant::RefreshSchemePolicy => {
             body.extend(id(before.core[3], before.core[4]));
             body.extend(1u64.to_le_bytes());
-            body.extend(7u32.to_le_bytes());
+            body.extend(3u32.to_le_bytes());
             body.extend(Fp::ZERO.to_repr());
             body.extend(certificate.digest().to_repr());
             after.core[core::POLICY_EPOCH] = Fp::ONE;
             // The genuine initial credential permits none of these controls.
             after.core[core::ENABLED_CONTROLS] = Fp::ZERO;
             ObjectKind::SchemePolicy
-        }
-        Variant::RefreshBlacklist => {
-            let root = BlacklistTree::new(vec![]).unwrap().root::<Fp>();
-            body.extend(1u64.to_le_bytes());
-            body.extend(201u64.to_le_bytes());
-            body.extend(0u32.to_le_bytes());
-            body.extend(root.to_repr());
-            body.extend(certificate.digest().to_repr());
-            after.core[core::BLACKLIST_VERSION] = Fp::ONE;
-            after.core[core::BLACKLIST_ROOT] = root;
-            after.core[core::BLACKLIST_ISSUED_AT] = issued;
-            let mut history = IndexedTree::new();
-            assert_eq!(history.root(), before.rest[7]);
-            blacklist = Some(
-                history
-                    .insert(
-                        Fp::ONE,
-                        hash_with_domain(BLACKLIST_HISTORY_DOMAIN, &[Fp::ONE, root]),
-                    )
-                    .unwrap(),
-            );
-            after.rest[7] = history.root();
-            ObjectKind::Blacklist
         }
         Variant::RefreshQuotaShare => {
             let windows = QuotaWindowTree::new(&[QuotaWindow {
@@ -178,7 +150,7 @@ pub fn authorized(
             body.extend(windows.root::<Fp>().to_repr());
             body.extend(1u32.to_le_bytes());
             body.extend(certificate.digest().to_repr());
-            after.rest[5] = Fp::ONE;
+            after.rest[4] = Fp::ONE;
             after.core[core::QUOTA_WINDOWS_ROOT] = windows.root();
             after.core[core::QUOTA_SHARE_EXPIRY] = Fp::from(500);
             after.core[core::QUOTA_USAGE_ROOT] = usage.root();
@@ -212,9 +184,8 @@ pub fn authorized(
     match variant {
         Variant::RefreshCredential => after.core[core::CREDENTIAL] = update.digest(),
         Variant::RefreshSchemePolicy => after.rest[1] = update.digest(),
-        Variant::RefreshBlacklist => after.rest[3] = update.digest(),
-        Variant::RefreshQuotaShare => after.rest[4] = update.digest(),
-        Variant::RefreshTimeAnchor => after.rest[6] = update.digest(),
+        Variant::RefreshQuotaShare => after.rest[3] = update.digest(),
+        Variant::RefreshTimeAnchor => after.rest[5] = update.digest(),
         _ => unreachable!(),
     }
     after.statement[12..].fill(Fp::ZERO);
@@ -235,7 +206,6 @@ pub fn authorized(
                 kind: match variant {
                     Variant::RefreshCredential => RefreshKind::Credential,
                     Variant::RefreshSchemePolicy => RefreshKind::SchemePolicy,
-                    Variant::RefreshBlacklist => RefreshKind::Blacklist,
                     Variant::RefreshQuotaShare => RefreshKind::QuotaShare,
                     Variant::RefreshTimeAnchor => RefreshKind::TimeAnchor,
                     _ => unreachable!(),
@@ -264,8 +234,7 @@ pub fn authorized(
                 },
                 counter: match variant {
                     Variant::RefreshSchemePolicy => after.core[core::POLICY_EPOCH],
-                    Variant::RefreshBlacklist => after.core[core::BLACKLIST_VERSION],
-                    Variant::RefreshQuotaShare => after.rest[5],
+                    Variant::RefreshQuotaShare => after.rest[4],
                     _ => Fp::ZERO,
                 },
                 issued_at_ms: if variant == Variant::RefreshSchemePolicy {
@@ -284,12 +253,11 @@ pub fn authorized(
                     _ => Fp::ZERO,
                 },
                 root: match variant {
-                    Variant::RefreshBlacklist => after.core[core::BLACKLIST_ROOT],
                     Variant::RefreshQuotaShare => after.core[core::QUOTA_WINDOWS_ROOT],
                     _ => Fp::ZERO,
                 },
                 controls: Fp::from(if variant == Variant::RefreshSchemePolicy {
-                    7
+                    3
                 } else {
                     0
                 }),
@@ -300,7 +268,6 @@ pub fn authorized(
         update,
         current_certificate: current_certificate.clone(),
         current_credential: current_credential.clone(),
-        blacklist,
         quota,
     }
 }

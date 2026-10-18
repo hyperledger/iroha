@@ -1,5 +1,5 @@
 //! Grouped Torii Nexus, SoraFS, contract, and app surface integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 #[path = "../contracts_call_integration.rs"]
 mod contracts_call_integration;
 #[path = "../kaigi_endpoints.rs"]

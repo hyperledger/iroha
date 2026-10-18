@@ -1,9 +1,9 @@
 #[cfg(feature = "cuda")]
-use ivm::{IVM, Memory, encoding, instruction};
-#[cfg(feature = "cuda")]
-mod common;
+use crate::common;
 #[cfg(feature = "cuda")]
 use common::{MODE_VECTOR, assemble_with_mode};
+#[cfg(feature = "cuda")]
+use ivm::{IVM, Memory, encoding, instruction};
 #[cfg(feature = "cuda")]
 fn sha256_compress_ref(mut state: [u32; 8], block: &[u8; 64]) -> [u32; 8] {
     const K: [u32; 64] = [

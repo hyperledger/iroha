@@ -90,7 +90,7 @@ fn retained_ca_coefficients_preserve_native_values_and_replay_the_same_mask() {
     assert_eq!(local[116], *first);
     assert!(local.iter().all(|column| column.len() == 65_536));
     drop(local);
-    let (_, observations) = inspection::observe_v1(|| drop(owner));
+    let ((), observations) = inspection::observe_v1(|| drop(owner));
     assert!(observations.iter().all(|item| item.nonzero_after == 0));
     assert_eq!(
         observations

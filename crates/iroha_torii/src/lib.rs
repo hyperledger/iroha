@@ -10,51 +10,6 @@
     )
 )]
 #![allow(unexpected_cfgs)]
-// Temporarily relax a curated set of clippy lints while the Torii refactor is in flight.
-// Trim this list further as the remaining call sites are cleaned up.
-#![allow(
-    clippy::too_many_lines,
-    clippy::type_complexity,
-    clippy::doc_markdown,
-    clippy::explicit_iter_loop,
-    clippy::explicit_into_iter_loop,
-    clippy::uninlined_format_args,
-    clippy::used_underscore_binding,
-    clippy::ptr_arg,
-    clippy::match_same_arms,
-    clippy::single_match_else,
-    clippy::manual_midpoint,
-    clippy::manual_map,
-    clippy::needless_borrows_for_generic_args,
-    clippy::io_other_error,
-    clippy::default_trait_access,
-    clippy::return_self_not_must_use,
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_wrap,
-    clippy::cast_lossless,
-    clippy::items_after_statements,
-    clippy::unnecessary_map_or,
-    clippy::map_unwrap_or,
-    clippy::redundant_locals,
-    clippy::clone_on_copy,
-    clippy::unreadable_literal,
-    clippy::if_not_else,
-    clippy::nonminimal_bool,
-    clippy::let_unit_value,
-    clippy::ignored_unit_patterns,
-    clippy::useless_format,
-    clippy::to_string_in_format_args,
-    clippy::bool_to_int_with_if,
-    clippy::redundant_as_str,
-    clippy::collapsible_if,
-    clippy::drain_collect,
-    clippy::iter_with_drain,
-    clippy::len_zero,
-    clippy::suboptimal_flops,
-    clippy::needless_pass_by_value
-)]
-#![allow(clippy::unused_async)]
 //!
 //! Crate features:
 //! - `telemetry` (on by default): Status and Metrics endpoints
@@ -72,6 +27,7 @@ mod app_api;
 mod authority_originals;
 mod bridge_attestation;
 mod canonical_history;
+mod certified_originals_auth;
 mod finality_interval;
 mod game;
 mod history_producer;
@@ -1197,6 +1153,8 @@ pub use utils::{
         JsonOnly, Norito, NoritoJson, NoritoJsonWithBytes, NoritoQuery, NoritoStringQuery,
     },
 };
+#[cfg(feature = "app_api")]
+mod account_inspection;
 #[cfg(feature = "app_api")]
 mod account_literal;
 #[cfg(feature = "app_api")]
@@ -3563,7 +3521,7 @@ fn start_iso_bridge_projection_worker(
                     }
                     continue;
                 }
-                received = receiver.recv() => received,
+                outcome = receiver.recv() => outcome,
             };
             match event_result {
                 Ok(EventBox::Pipeline(event)) => {
@@ -6522,6 +6480,13 @@ async fn record_http_metrics(
     }
     use axum::body::HttpBody as _;
     let method = req.method().clone();
+    // Copy the validated/generated ID before the request is consumed. The
+    // failure event must remain attributable when the DEBUG span is disabled.
+    let request_id = req
+        .extensions()
+        .get::<RequestCorrelationId>()
+        .map(|id| id.0.clone())
+        .unwrap_or_else(|| "missing".to_owned());
     let route_metadata = req
         .extensions()
         .get::<MatchedRouteMetadata>()
@@ -6576,6 +6541,29 @@ async fn record_http_metrics(
             },
             utils::HttpErrorCode::as_str,
         );
+    if status.is_server_error() {
+        #[cfg(feature = "telemetry")]
+        let status_busy_cause = response
+            .extensions()
+            .get::<utils::HttpStatusBusyCause>()
+            .map_or("none", utils::HttpStatusBusyCause::as_str);
+        #[cfg(not(feature = "telemetry"))]
+        let status_busy_cause = "none";
+        // Use catalog templates and bounded internal diagnostic extensions only.
+        // Never emit the raw URI, headers, body, or human-readable error detail.
+        iroha_logger::error!(
+            event = "torii.http.response_failure",
+            request_id = request_id.as_str(),
+            method = method.as_str(),
+            route_id = route_metadata.stable_route_id(),
+            route_template = route_metadata.path_template(),
+            error_code,
+            status_busy_cause,
+            status = status.as_u16(),
+            duration_ms = duration.as_secs_f64() * 1000.0,
+            "Torii HTTP response failed"
+        );
+    }
     let gateway_response = gateway_request.map(|request| {
         let result = if status.is_success() || status.is_redirection() {
             "success"
@@ -11525,6 +11513,39 @@ async fn handler_explorer_transaction_detail(
     .await
     {
         Ok(response) => Ok(response),
+        Err(error) => Ok(explorer_json_error_response(error)),
+    }
+}
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
+async fn handler_explorer_transaction_proof(
+    State(app): State<SharedAppState>,
+    headers: HeaderMap,
+    method: Method,
+    uri: Uri,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(hash): AxPath<String>,
+) -> Result<AxResponse, Error> {
+    const ENDPOINT: &str = "v1/explorer/transactions/{hash}/proof";
+    let visibility = torii_dataspace_context_from_headers(&app, &headers, &method, &uri, ENDPOINT)?;
+    if !limits::is_allowed_by_cidr(&headers, Some(remote.ip()), &app.api_rate_limit_bypass_nets) {
+        check_access(&app, &headers, Some(remote.ip()), ENDPOINT).await?;
+    }
+    match routing::explorer_transaction_proof::admitted(
+        Arc::clone(&app.state),
+        app.telemetry.clone(),
+        visibility.admitted_visibility.clone(),
+        hash,
+        acquire_query_admission(&app, true).await?,
+    )
+    .await
+    {
+        Ok(response) if visibility.authorization_is_current() => Ok(response),
+        Ok(_) => Ok(explorer_json_error_response(Error::Query(
+            iroha_data_model::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::NotFound,
+            ),
+        ))),
         Err(error) => Ok(explorer_json_error_response(error)),
     }
 }
@@ -16763,6 +16784,10 @@ fn target_scope_singular_query(
         SingularQueryBox::FindAssetDefinitionById(query) => {
             target_asset_definition_scope(&query.id)
         }
+        SingularQueryBox::FindAssetDefinitionDirectHome(query) => {
+            target_asset_definition_scope(query.asset_definition_id())
+        }
+        SingularQueryBox::FindParameters(_) => Some(SignedQueryScope::PublicControlPlane),
         SingularQueryBox::FindAccountById(query) => {
             Some(SignedQueryScope::TargetAccount(query.account_id().clone()))
         }
@@ -16918,6 +16943,9 @@ fn target_scope_singular_query_for_app(
         }
         SingularQueryBox::FindAssetDefinitionById(query) => {
             resolve_asset_definition_scope(app, &query.id)
+        }
+        SingularQueryBox::FindAssetDefinitionDirectHome(query) => {
+            resolve_asset_definition_scope(app, query.asset_definition_id())
         }
         _ => target_scope_singular_query(query),
     }
@@ -24629,6 +24657,7 @@ fn canonical_stream_is_sse(route: iroha_torii_shared::route_catalog::RouteDescri
         route.stable_route_id(),
         id if id == route_catalog::streaming::EVENTS_SSE.stable_route_id()
             || id == route_catalog::streaming::CONTRACT_EVENTS_SSE.stable_route_id()
+            || id == route_catalog::streaming::ACCOUNT_HISTORY_SSE.stable_route_id()
     )
 }
 #[cfg(feature = "app_api")]
@@ -24781,6 +24810,37 @@ async fn handler_contracts_events_sse(
         app.state.clone(),
         visibility,
         AxQuery(params),
+    )
+    .into_response())
+}
+#[cfg(feature = "app_api")]
+async fn handler_account_history_sse(
+    State(app): State<SharedAppState>,
+    headers: axum::http::HeaderMap,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    AxPath(account_id): AxPath<String>,
+) -> Result<Response, Error> {
+    let visibility = torii_dataspace_context_from_headers(
+        &app,
+        &headers,
+        &method,
+        &uri,
+        "v1/accounts/{account_id}/history/sse",
+    )?;
+    let telemetry = app.telemetry_handle();
+    let request = routing::AccountHistorySseRequest::new(
+        app.state.as_ref(),
+        &account_id,
+        list_query_from_query_string(uri.query())?,
+        resolve_tx_history_allowed_asset_definition_id(&app)?,
+        &telemetry,
+    )?;
+    Ok(routing::handle_v1_account_history_sse(
+        app.state.clone(),
+        visibility,
+        request,
+        Arc::clone(&app),
     )
     .into_response())
 }
@@ -26008,11 +26068,12 @@ async fn finite_finality_response(
     );
     rate_limit_requests_with_cost(&app, &key, FINALITY_HEAVY_QUERY_RATE_COST).await?;
     let mut admission = acquire_query_admission(app.as_ref(), true).await?;
-    // Both bodyless local routes acquire the existing complete query owner when
-    // no admitted outer collection supplies it. Response custody alone cannot
-    // grant producer authority, and a present invalid owner is never replaced.
+    history_producer::HistoryProducerOwner::validate_finality_inheritance(&admission)?;
+    // These local GETs have no signed-query body. Account for that only when
+    // acquiring their original reservation; an existing outer request keeps its
+    // complete original geometry and is never replaced or enlarged.
     if admission._fanout_memory.is_none() {
-        admission._fanout_memory = Some(match try_acquire_new_query_fanout_memory(&app) {
+        admission._fanout_memory = Some(match try_acquire_bodyless_finality_memory(&app) {
             Ok(reservation) => reservation,
             Err(response) => return Ok(response),
         });
@@ -33814,6 +33875,94 @@ async fn handler_identifier_receipt_lookup(
     };
     json_ok(identifier_claim_lookup_response(&claim))
 }
+/// Parse a bond path parameter as the canonical address literal of its asset definition.
+#[cfg(feature = "app_api")]
+fn parse_bond_id(raw: &str) -> Result<iroha_data_model::bond::BondId, Error> {
+    iroha_data_model::asset::AssetDefinitionId::parse_address_literal(raw.trim())
+        .map_err(|err| identifier_conversion_error(format!("invalid bond identifier: {err}")))
+}
+/// Apply the public read-route admission used by the collection routes.
+#[cfg(feature = "app_api")]
+async fn check_bond_read_access(
+    app: &SharedAppState,
+    headers: &axum::http::HeaderMap,
+    remote_ip: std::net::IpAddr,
+    endpoint: &str,
+) -> Result<(), Error> {
+    if !limits::is_allowed_by_cidr(headers, Some(remote_ip), &app.api_rate_limit_bypass_nets) {
+        let enforce =
+            app.fee_policy.is_enabled() || app.queue.active_len() >= app.high_load_tx_threshold;
+        check_access_enforced(app, headers, Some(remote_ip), endpoint, enforce).await?;
+    }
+    Ok(())
+}
+/// Page native bond records with the collection query language (`specs/finance/bond_ops.md`).
+///
+/// Records carry terms, the effective schedule and per-cash-flow totals; holder
+/// entitlements are paged separately by [`handler_bond_entitlements`].
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
+async fn handler_bonds(
+    State(app): State<SharedAppState>,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+) -> Result<Response, Error> {
+    check_bond_read_access(&app, &headers, remote.ip(), "v1/bonds").await?;
+    let query = list_query_from_query_string(uri.query())?;
+    execute_direct_collection_read(
+        &app,
+        routing::collection_sources::CollectionTarget::Bonds,
+        query,
+    )
+    .await
+}
+/// Return the authoritative record of one native bond, or 404 when it is not registered.
+#[cfg(feature = "app_api")]
+async fn handler_bond_get(
+    State(app): State<SharedAppState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(bond_literal): AxPath<String>,
+) -> Result<AxResponse, Error> {
+    check_bond_read_access(&app, &headers, remote.ip(), "v1/bonds/{bond_id}").await?;
+    let bond = parse_bond_id(&bond_literal)?;
+    let world = app.state.world_view();
+    let Some(record) = world.bonds().get(&bond).cloned() else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
+    json_ok(record)
+}
+/// Page the record-date entitlements of one bond with the collection query language,
+/// in cash-flow then holder order; 404 when the bond is not registered.
+#[cfg(feature = "app_api")]
+#[axum::debug_handler]
+async fn handler_bond_entitlements(
+    State(app): State<SharedAppState>,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(bond_literal): AxPath<String>,
+) -> Result<Response, Error> {
+    check_bond_read_access(
+        &app,
+        &headers,
+        remote.ip(),
+        "v1/bonds/{bond_id}/entitlements",
+    )
+    .await?;
+    let bond = parse_bond_id(&bond_literal)?;
+    if app.state.world_view().bonds().get(&bond).is_none() {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    let query = list_query_from_query_string(uri.query())?;
+    execute_direct_collection_read(
+        &app,
+        routing::collection_sources::CollectionTarget::BondEntitlements(bond.to_string()),
+        query,
+    )
+    .await
+}
 #[cfg(test)]
 fn normalise_alias(input: &str) -> String {
     input
@@ -38046,6 +38195,8 @@ impl Torii {
             KAGEMUSHA_ENROLLMENT_POST => limited_canonical_signature_post(kagemusha_enrollment::handler, iroha_torii_shared::kagemusha_enrollment::ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1);
             KAGEMUSHA_LOAD_FINALITY_GET => limited_canonical_account_get(kagemusha_wallet::finality_handler, app_state, 0, 0);
             KAGEMUSHA_LOAD_EPOCH_GET => limited_canonical_account_get(kagemusha_wallet::epoch_handler, app_state, 0, 0);
+            KAGEMUSHA_LEDGER_FINALITY_GET => limited_canonical_account_get(kagemusha_wallet::ledger_finality_handler, app_state, 0, 0);
+            KAGEMUSHA_LEDGER_EPOCH_GET => limited_canonical_account_get(kagemusha_wallet::ledger_epoch_handler, app_state, 0, 0);
             SORAFS_RESERVE_PROVIDERS_GET => canonical_signature_get(sorafs::reserve_api::handle_get_sorafs_reserve_providers);
             SORAFS_RESERVE_PROVIDERS_BY_PROVIDER_ID_HEX_GET => canonical_signature_get(sorafs::reserve_api::handle_get_sorafs_reserve_provider);
             SORAFS_RESERVE_TOP_UP_POST => layered_canonical_signed_post(sorafs::reserve_api::handle_post_sorafs_reserve_top_up, contracts_body_limit);
@@ -38183,6 +38334,20 @@ impl Torii {
                         CanonicalStreamAdmission {
                             app: Arc::clone(&app),
                             route: route_catalog::streaming::CONTRACT_EVENTS_SSE,
+                        },
+                        enforce_canonical_stream_admission,
+                    ))
+                    .authenticated_in_handler(
+                        HandlerAuthentication::OptionalCanonicalAccountSignature,
+                    ),
+            );
+            builder.route(
+                &route_catalog::streaming::ACCOUNT_HISTORY_SSE,
+                catalog_get(handler_account_history_sse)
+                    .layer(axum::middleware::from_fn_with_state(
+                        CanonicalStreamAdmission {
+                            app: Arc::clone(&app),
+                            route: route_catalog::streaming::ACCOUNT_HISTORY_SSE,
                         },
                         enforce_canonical_stream_admission,
                     ))
@@ -38383,6 +38548,7 @@ impl Torii {
             builder, application_api;
             ACCOUNTS_GET => optional_canonical_signature_get(handler_accounts_list);
             ACCOUNTS_CAPABILITIES_GET => limited_public_get(handler_accounts_capabilities, 0);
+            ACCOUNTS_INSPECT_POST => limited_public_post(account_inspection::handler, account_inspection::MAX_REQUEST_BYTES);
         );
         mount_accounts_query(builder, app_state.clone(), transaction_max_content_len);
         mount_transactions_query(builder, app_state.clone(), transaction_max_content_len);
@@ -38417,6 +38583,9 @@ impl Torii {
             IDENTIFIER_POLICIES_GET => public_get(handler_identifier_policies);
             IDENTIFIERS_RECEIPTS_BY_RECEIPT_HASH_GET => public_get(handler_identifier_receipt_lookup);
             REPO_AGREEMENTS_GET => public_get(handler_repo_agreements);
+            BONDS_GET => public_get(handler_bonds);
+            BONDS_BY_BOND_ID_GET => public_get(handler_bond_get);
+            BONDS_BY_BOND_ID_ENTITLEMENTS_GET => public_get(handler_bond_entitlements);
         );
         mount_repo_agreements_query(builder, app_state.clone(), transaction_max_content_len);
         #[cfg(feature = "push")]
@@ -38716,6 +38885,7 @@ impl Torii {
             EXPLORER_RWAS_BY_RWA_ID_GET => optional_canonical_signature_get(handler_explorer_rwa_detail);
             EXPLORER_BLOCKS_BY_IDENTIFIER_GET => optional_canonical_signature_get(handler_explorer_block_detail);
             EXPLORER_TRANSACTIONS_BY_HASH_GET => optional_canonical_signature_get(handler_explorer_transaction_detail);
+            EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET => optional_canonical_signature_get(handler_explorer_transaction_proof);
             EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET => optional_canonical_signature_get(handler_explorer_instruction_detail);
             EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_CONTRACT_VIEW_GET => optional_canonical_signature_get(handler_explorer_instruction_contract_view);
             KAIGI_CALLS_BY_CALL_ID_GET => public_get(handler_kaigi_call);

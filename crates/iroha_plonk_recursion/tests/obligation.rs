@@ -219,11 +219,19 @@ fn every_unsplit_obligation_is_consumed_exactly_once() {
             _ => (vec![], true, None),
         };
         for q_count in [1_u16, 2, 3] {
-            for own_k in [12, 14] {
+            // `None` is the lean inline own step: no own sigma verifier. An
+            // incoming sigma then keeps an incoming-only sigma fold.
+            for own_k in [Some(12), Some(14), None] {
                 let ledger =
                     Ledger::new(variant, q_count.try_into().unwrap(), own_k, incoming_sigma)
                         .unwrap();
-                let mut expected = vec![OwnSigma, SigmaPart, AggregatorOpening];
+                let mut expected = vec![AggregatorOpening];
+                if own_k.is_some() {
+                    expected.push(OwnSigma);
+                }
+                if own_k.is_some() || incoming_sigma.is_some() {
+                    expected.push(SigmaPart);
+                }
                 expected.extend((0..q_count).map(QOpening));
                 if predecessor {
                     expected.extend([PredecessorOpening, PredecessorPallas, PredecessorVesta]);
@@ -273,12 +281,20 @@ fn every_unsplit_obligation_is_consumed_exactly_once() {
                 assert_eq!(gated, incoming);
                 let sigma_inputs: Vec<_> = ledger.inputs(Destination::SigmaFold).collect();
                 if incoming_sigma.is_some() {
-                    assert_eq!(sigma_inputs.len(), 3);
-                    assert_eq!(sigma_inputs[2].source, Source::VestaTrivial);
-                    assert_eq!(sigma_inputs[2].source_k, 16);
+                    // The own claim (when present), the gated incoming claim, then
+                    // the pinned trivial input.
+                    let own = usize::from(own_k.is_some());
+                    assert_eq!(sigma_inputs.len(), 2 + own);
+                    assert_eq!(sigma_inputs[own].source, Source::Claim(IncomingSigma));
+                    assert!(sigma_inputs[own].gated);
+                    assert_eq!(sigma_inputs[1 + own].source, Source::VestaTrivial);
+                    assert_eq!(sigma_inputs[1 + own].source_k, 16);
                 } else {
                     assert!(sigma_inputs.is_empty());
-                    assert_eq!(ledger.inputs(Destination::SigmaForward).count(), 1);
+                    assert_eq!(
+                        ledger.inputs(Destination::SigmaForward).count(),
+                        usize::from(own_k.is_some())
+                    );
                 }
                 let vesta: Vec<_> = ledger.inputs(Destination::VestaFold).collect();
                 assert_eq!(vesta.len(), 4, "one Omega descriptor for every variant");
@@ -303,11 +319,23 @@ fn every_unsplit_obligation_is_consumed_exactly_once() {
                     assert_eq!(slot.source_k, 16);
                 }
                 let part = vesta[0];
-                assert_eq!(part.source, Source::Claim(SigmaPart));
-                assert_eq!(
-                    part.source_k,
-                    if incoming_sigma.is_some() { 16 } else { own_k }
-                );
+                match (own_k, incoming_sigma.is_some()) {
+                    // A sigma fold always yields a k16 part.
+                    (_, true) => {
+                        assert_eq!(part.source, Source::Claim(SigmaPart));
+                        assert_eq!(part.source_k, 16);
+                    }
+                    (Some(own_k), false) => {
+                        assert_eq!(part.source, Source::Claim(SigmaPart));
+                        assert_eq!(part.source_k, own_k);
+                    }
+                    (None, false) => {
+                        // Explicit pinned filler, like an absent predecessor.
+                        assert_eq!(part.source, Source::VestaTrivial);
+                        assert_eq!(part.source_k, 16);
+                        assert!(!part.gated);
+                    }
+                }
                 assert_eq!(ledger.check_bindings(ledger.slots()), Ok(()));
                 for index in 0..ledger.slots().len() {
                     let mut missing = ledger.slots().to_vec();
@@ -336,20 +364,45 @@ fn obligation_plan_rejects_variant_descriptor_mismatches() {
     let one = 1_u16.try_into().unwrap();
     for k in [0, 1, 13, 15, 16, u8::MAX] {
         assert_eq!(
-            Ledger::new(Variant::Send, one, k, None),
+            Ledger::new(Variant::Send, one, Some(k), None),
             Err(LedgerError::SigmaShape)
         );
         assert_eq!(
-            Ledger::new(Variant::Receive, one, 12, Some(k)),
+            Ledger::new(Variant::Receive, one, Some(12), Some(k)),
             Err(LedgerError::SigmaShape)
         );
     }
     assert_eq!(
-        Ledger::new(Variant::Receive, one, 12, None),
+        Ledger::new(Variant::Receive, one, Some(12), None),
         Err(LedgerError::IncomingShape)
     );
     assert_eq!(
-        Ledger::new(Variant::ArchiveStatus, one, 12, Some(12)),
+        Ledger::new(Variant::ArchiveStatus, one, Some(12), Some(12)),
         Err(LedgerError::IncomingShape)
     );
+    // An inline own step never drops the sigma fold of an incoming payment: the
+    // incoming-only fold keeps the gated incoming claim and the trivial input, and
+    // the incoming sigma itself is still mandatory.
+    for variant in [
+        Variant::Receive,
+        Variant::ReceiveRenewed,
+        Variant::ArchiveReceive,
+    ] {
+        let ledger = Ledger::new(variant, one, None, Some(12)).unwrap();
+        let fold: Vec<_> = ledger.inputs(Destination::SigmaFold).collect();
+        assert_eq!(fold.len(), 2, "{variant:?}");
+        assert_eq!(fold[0].source, Source::Claim(Obligation::IncomingSigma));
+        assert_eq!(fold[0].source_k, 12);
+        assert!(fold[0].gated);
+        assert_eq!(fold[1].source, Source::VestaTrivial);
+        assert_eq!(ledger.inputs(Destination::SigmaForward).count(), 0);
+        assert_eq!(
+            Ledger::new(variant, one, None, None),
+            Err(LedgerError::IncomingShape)
+        );
+        assert_eq!(
+            Ledger::new(variant, one, None, Some(13)),
+            Err(LedgerError::SigmaShape)
+        );
+    }
 }

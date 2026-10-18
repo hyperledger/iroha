@@ -17,8 +17,6 @@ pub enum PreparationOriginalV1 {
     EnrollmentCertificates,
     /// Held scheme policy, or absence when the state commits zero.
     SchemePolicy,
-    /// Held signed blacklist, or absence when the state commits zero.
-    Blacklist,
     /// Held signed quota share, or absence when the state commits zero.
     QuotaShare,
     /// Held signed time response; this alone does not establish a direct exchange.
@@ -26,11 +24,10 @@ pub enum PreparationOriginalV1 {
 }
 
 impl PreparationOriginalV1 {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 5] = [
         Self::CurrentCredential,
         Self::EnrollmentCertificates,
         Self::SchemePolicy,
-        Self::Blacklist,
         Self::QuotaShare,
         Self::TimeAnchor,
     ];
@@ -39,15 +36,13 @@ impl PreparationOriginalV1 {
             Self::CurrentCredential => 0,
             Self::EnrollmentCertificates => 1,
             Self::SchemePolicy => 2,
-            Self::Blacklist => 3,
-            Self::QuotaShare => 4,
-            Self::TimeAnchor => 5,
+            Self::QuotaShare => 3,
+            Self::TimeAnchor => 4,
         }
     }
     const fn maximum(self) -> usize {
         match self {
             Self::CurrentCredential => KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1,
-            Self::Blacklist => KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1,
             Self::EnrollmentCertificates => KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
             Self::SchemePolicy => KAGEMUSHA_WALLET_SCHEME_POLICY_MAX_BYTES_V1,
             Self::QuotaShare => KAGEMUSHA_WALLET_QUOTA_SHARE_MAX_BYTES_V1,
@@ -59,7 +54,6 @@ impl PreparationOriginalV1 {
             Self::CurrentCredential => Some(state.core.credential_digest),
             Self::EnrollmentCertificates => None,
             Self::SchemePolicy => Some(state.rest.scheme_policy),
-            Self::Blacklist => Some(state.rest.blacklist),
             Self::QuotaShare => Some(state.rest.quota_share),
             Self::TimeAnchor => Some(state.rest.time_anchor),
         }
@@ -87,11 +81,6 @@ impl PreparationOriginalV1 {
                 Error::Invalid("G1 validation"),
             )?
             .scheme_policy_digest(),
-            Self::Blacklist => read_model_original(
-                || KagemushaWalletBlacklistV1::decode_canonical(bytes, scheme),
-                Error::Invalid("G1 validation"),
-            )?
-            .blacklist_digest(),
             Self::QuotaShare => read_model_original(
                 || KagemushaWalletQuotaShareV1::decode_canonical(bytes, scheme),
                 Error::Invalid("G1 validation"),
@@ -111,14 +100,13 @@ impl PreparationOriginalV1 {
 pub(super) struct SourceCustodyV1 {
     version: u16,
     pub(super) maps: SourceMapsV1,
-    originals: [Option<[u8; 32]>; 6],
-    blacklist_reference: Option<BlacklistOriginalReferenceV1>,
+    originals: [Option<[u8; 32]>; 5],
 }
 
 impl SourceCustodyV1 {
     /// Called only by the native enrollment owner after issuer admission.
     pub(super) fn bootstrap(
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
         credential: &[u8],
         certificates: &[u8],
@@ -126,8 +114,7 @@ impl SourceCustodyV1 {
         let mut value = Self {
             version: 1,
             maps: SourceMapsV1::default(),
-            originals: [None; 6],
-            blacklist_reference: None,
+            originals: [None; 5],
         };
         value.maps.require(state)?;
         for (role, bytes) in [
@@ -135,7 +122,7 @@ impl SourceCustodyV1 {
             (PreparationOriginalV1::EnrollmentCertificates, certificates),
         ] {
             role.digest(bytes, &state.core.scheme_id)?;
-            value.originals[role.index()] = Some(store.write_object(bytes, role.maximum())?);
+            value.originals[role.index()] = Some(store.stage_object(bytes, role.maximum())?);
         }
         value.require(store, state)?;
         Ok(value)
@@ -146,7 +133,7 @@ impl SourceCustodyV1 {
     // binds the credential digest; no caller-selected state or map snapshot is introduced.
     pub(super) fn unload_identity(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         package: &KagemushaWalletPackageV1,
         scheme: &[u8; 32],
         wallet: &[u8; 32],
@@ -159,7 +146,7 @@ impl SourceCustodyV1 {
         let mut read = |role: PreparationOriginalV1| {
             let address = self.originals[role.index()]
                 .ok_or(Error::WitnessLost("Unload identity original"))?;
-            store.read_object(&address, role.maximum())
+            store.read_staged_object(&address, role.maximum())
         };
         let original = read(PreparationOriginalV1::CurrentCredential)?;
         let credential = read_model_original(
@@ -191,49 +178,21 @@ impl SourceCustodyV1 {
 
     pub(super) fn original(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
         role: PreparationOriginalV1,
     ) -> Result<Option<Vec<u8>>, Error> {
         let expected = role.expected(state);
         let address = self.originals[role.index()];
         if expected == Some([0; 32]) {
-            return if address.is_none()
-                && (role != PreparationOriginalV1::Blacklist || self.blacklist_reference.is_none())
-            {
+            return if address.is_none() {
                 Ok(None)
             } else {
                 Err(Error::WitnessLost("unheld original is populated"))
             };
         }
         let address = address.ok_or(Error::WitnessLost("required original address"))?;
-        let bytes = if role == PreparationOriginalV1::Blacklist {
-            let reference = self
-                .blacklist_reference
-                .as_ref()
-                .ok_or(Error::WitnessLost("selected blacklist reference"))?;
-            if reference.object_key() != address {
-                return Err(Error::WitnessLost("selected blacklist CAS address"));
-            }
-            let bytes = super::policy_custody::read_blacklist_original(
-                store,
-                reference,
-                &state.core.scheme_id,
-            )?;
-            let list = read_model_original(
-                || KagemushaWalletBlacklistV1::decode_canonical(&bytes, &state.core.scheme_id),
-                Error::WitnessLost("selected blacklist encoding"),
-            )?;
-            if list.body.list_version != state.core.blacklist_version
-                || list.body.entries_root != state.core.blacklist_root
-                || list.body.issued_at_ms != state.core.blacklist_issued_at_ms
-            {
-                return Err(Error::WitnessLost("selected blacklist state header"));
-            }
-            bytes
-        } else {
-            store.read_object(&address, role.maximum())?
-        };
+        let bytes = store.read_staged_object(&address, role.maximum())?;
         if role
             .digest(&bytes, &state.core.scheme_id)
             .map_err(|error| match error {
@@ -251,7 +210,7 @@ impl SourceCustodyV1 {
 
     pub(super) fn require(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
     ) -> Result<(), Error> {
         if self.version != 1 {
@@ -263,7 +222,7 @@ impl SourceCustodyV1 {
 
     fn require_originals(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         state: &KagemushaWalletStateV1,
     ) -> Result<(), Error> {
         for role in PreparationOriginalV1::ALL {
@@ -297,18 +256,18 @@ impl SourceCustodyV1 {
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::IssuedRequestCustodyV1")]
 pub(super) struct IssuedRequestCustodyV1 {
     pub(super) request: [u8; 32],
-    pub(super) gap: Option<[u8; 32]>,
 }
 
 impl IssuedRequestCustodyV1 {
     pub(super) fn read(
         &self,
-        store: &mut dyn ObjectStore,
+        store: &mut dyn ObjectWorkspace,
         scheme: &[u8; 32],
         wallet: &[u8; 32],
         digest: &[u8; 32],
     ) -> Result<(KagemushaWalletRequestV1, Vec<u8>), Error> {
-        let bytes = store.read_object(&self.request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
+        let bytes =
+            store.read_staged_object(&self.request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
         let request: KagemushaWalletRequestV1 = archive::decode(&bytes)?;
         request
             .validate()
@@ -319,46 +278,19 @@ impl IssuedRequestCustodyV1 {
         {
             return Err(Error::WitnessLost("issued Request binding"));
         }
-        if (request.body.receiver_blacklist_version != 0) != self.gap.is_some() {
-            return Err(Error::WitnessLost("issued Request gap presence"));
-        }
         Ok((request, bytes))
-    }
-
-    pub(super) fn gap(
-        &self,
-        store: &mut dyn ObjectStore,
-        request: &KagemushaWalletRequestV1,
-    ) -> Result<Option<KagemushaWalletBlacklistGapOpeningV1>, Error> {
-        self.gap
-            .map(|address| {
-                let bytes = store.read_object(
-                    &address,
-                    KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1,
-                )?;
-                let opening = KagemushaWalletBlacklistGapOpeningV1::from_transcript(&bytes)
-                    .map_err(|_| Error::WitnessLost("issued Request gap encoding"))?;
-                opening
-                    .verify(
-                        &request.body.receiver_blacklist_root,
-                        &request.body.payer_account_digest,
-                    )
-                    .map_err(|_| Error::WitnessLost("issued Request gap binding"))?;
-                Ok(opening)
-            })
-            .transpose()
     }
 }
 
 // The object-store adapter avoids exposing a second archive or changing IndexRoot's
 // bounded generic implementation merely to accept this internally erased store.
-struct Store<'a>(&'a mut dyn ObjectStore);
-impl ObjectStore for Store<'_> {
-    fn read_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
-        self.0.read_object(key, maximum)
+struct Store<'a>(&'a mut dyn ObjectWorkspace);
+impl ObjectWorkspace for Store<'_> {
+    fn read_staged_object(&mut self, key: &[u8; 32], maximum: usize) -> Result<Vec<u8>, Error> {
+        self.0.read_staged_object(key, maximum)
     }
-    fn write_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
-        self.0.write_object(bytes, maximum)
+    fn stage_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
+        self.0.stage_object(bytes, maximum)
     }
 }
 
@@ -368,12 +300,12 @@ pub struct PreparationCustodyV1<'a> {
     maps: PreparationMapsV1<'a>,
     source: SourceCustodyV1,
     state: KagemushaWalletStateV1,
-    originals: [Option<[u8; 32]>; 6],
-    blacklist_reference: Option<BlacklistOriginalReferenceV1>,
-    updated: [bool; 6],
+    originals: [Option<[u8; 32]>; 5],
+    updated: [bool; 5],
     issued: IndexRoot,
     anchors: IndexRoot,
     epochs: IndexRoot,
+    blacklist: Option<manifest::LocalBlacklistV1>,
     refresh: Option<KagemushaWalletPolicyUpdateKindV1>,
 }
 
@@ -383,11 +315,13 @@ impl<'a> PreparationCustodyV1<'a> {
             version: 1,
             maps: self.maps.snapshot(),
             originals: self.originals,
-            blacklist_reference: self.blacklist_reference.clone(),
         }
     }
+    /// `blacklist` is the manifest's local list for a derivation that may still refuse before
+    /// any mutation, and `None` for a replay of a committed step: a list installed later never
+    /// refuses an operation that already happened.
     pub(super) fn new(
-        store: &'a mut dyn ObjectStore,
+        store: &'a mut dyn ObjectWorkspace,
         selected: &SourceCustodyV1,
         state: &KagemushaWalletStateV1,
         kind: KagemushaWalletOperationKindV1,
@@ -395,6 +329,7 @@ impl<'a> PreparationCustodyV1<'a> {
         issued: IndexRoot,
         anchors: IndexRoot,
         epochs: IndexRoot,
+        blacklist: Option<manifest::LocalBlacklistV1>,
     ) -> Result<Self, Error> {
         selected.require(store, state)?;
         let maps = PreparationMapsV1::new(store, &selected.maps, state, kind, refresh)?;
@@ -403,11 +338,11 @@ impl<'a> PreparationCustodyV1<'a> {
             source: selected.clone(),
             state: *state,
             originals: selected.originals,
-            blacklist_reference: selected.blacklist_reference.clone(),
-            updated: [false; 6],
+            updated: [false; 5],
             issued,
             anchors,
             epochs,
+            blacklist,
             refresh,
         })
     }
@@ -440,7 +375,7 @@ impl<'a> PreparationCustodyV1<'a> {
             let bytes = self
                 .maps
                 .store()
-                .read_object(&entry.checkpoint, MAX_COMMIT_CHECKPOINT_BYTES)?;
+                .read_staged_object(&entry.checkpoint, MAX_COMMIT_CHECKPOINT_BYTES)?;
             SumeragiCommitCheckpointV1::decode_canonical(&bytes).map_err(|error| {
                 super::finality_read_error(
                     error,
@@ -484,7 +419,6 @@ impl<'a> PreparationCustodyV1<'a> {
                 Some(K::Credential),
                 R::CurrentCredential | R::EnrollmentCertificates
             ) | (Some(K::SchemePolicy), R::SchemePolicy)
-                | (Some(K::Blacklist), R::Blacklist)
                 | (Some(K::QuotaShare), R::QuotaShare)
                 | (Some(K::TimeAnchor), R::TimeAnchor)
         );
@@ -492,52 +426,13 @@ impl<'a> PreparationCustodyV1<'a> {
             return Err(Error::Invalid("successor original role"));
         }
         role.digest(bytes, &self.state.core.scheme_id)?;
-        let reference = if role == R::Blacklist {
-            // The fixed full-list reference and existing CAS key are selected together.
-            // Publish and authenticate exact readback before changing this unpublished draft.
-            Some(publish_blacklist_original(
-                self.maps.store(),
-                &self.state.core.scheme_id,
-                bytes,
-            )?)
-        } else {
-            None
-        };
-        let address = if let Some(reference) = reference.as_ref() {
-            reference.object_key()
-        } else {
-            self.maps.store().write_object(bytes, role.maximum())?
-        };
-        if self.updated[role.index()]
-            && (self.originals[role.index()] != Some(address)
-                || (role == R::Blacklist && self.blacklist_reference != reference))
-        {
+        let address = self.maps.store().stage_object(bytes, role.maximum())?;
+        if self.updated[role.index()] && self.originals[role.index()] != Some(address) {
             return Err(Error::Invalid("conflicting successor original"));
-        }
-        if role == R::Blacklist {
-            self.blacklist_reference = reference;
         }
         self.originals[role.index()] = Some(address);
         self.updated[role.index()] = true;
         Ok(())
-    }
-
-    fn request_record(
-        &mut self,
-        digest: &[u8; 32],
-    ) -> Result<(KagemushaWalletRequestV1, Vec<u8>, IssuedRequestCustodyV1), Error> {
-        let value = self
-            .issued
-            .get(&mut Store(self.maps.store()), digest)?
-            .ok_or(Error::WitnessLost("issued Request custody"))?;
-        let record: IssuedRequestCustodyV1 = archive::decode(&value)?;
-        let (request, bytes) = record.read(
-            self.maps.store(),
-            &self.state.core.scheme_id,
-            &self.state.core.wallet_id,
-            digest,
-        )?;
-        Ok((request, bytes, record))
     }
 
     /// Recover the exact locally issued Request, never a peer substitute.
@@ -545,19 +440,31 @@ impl<'a> PreparationCustodyV1<'a> {
     /// # Errors
     /// Missing/corrupt original or index, foreign identity or storage unavailability.
     pub fn issued_request(&mut self, digest: &[u8; 32]) -> Result<Vec<u8>, Error> {
-        Ok(self.request_record(digest)?.1)
+        let value = self
+            .issued
+            .get(&mut Store(self.maps.store()), digest)?
+            .ok_or(Error::WitnessLost("issued Request custody"))?;
+        let record: IssuedRequestCustodyV1 = archive::decode(&value)?;
+        let (_, bytes) = record.read(
+            self.maps.store(),
+            &self.state.core.scheme_id,
+            &self.state.core.wallet_id,
+            digest,
+        )?;
+        Ok(bytes)
     }
 
-    /// Authenticate the saved gap under the Request's recorded root and payer identity.
+    /// The wallet's locally installed blacklist, if any. It is wallet custody only, never a
+    /// state, proof or peer input; without one nothing is refused.
     ///
     /// # Errors
-    /// Required gap absent, malformed transcript, mismatching historical root or unavailable storage.
-    pub fn issued_request_gap(
-        &mut self,
-        digest: &[u8; 32],
-    ) -> Result<Option<KagemushaWalletBlacklistGapOpeningV1>, Error> {
-        let (request, _, record) = self.request_record(digest)?;
-        record.gap(self.maps.store(), &request)
+    /// A selected list whose exact original is missing, corrupt or unavailable.
+    pub fn local_blacklist(&mut self) -> Result<Option<KagemushaWalletBlacklistV1>, Error> {
+        let scheme_id = self.state.core.scheme_id;
+        self.blacklist
+            .as_ref()
+            .map(|list| list.read(self.maps.store(), &scheme_id))
+            .transpose()
     }
 
     /// Recover native direct-exchange observations for the exact committed anchor.
@@ -579,7 +486,7 @@ impl<'a> PreparationCustodyV1<'a> {
         let bytes = self
             .maps
             .store()
-            .read_object(&address, KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1 + 1024)?;
+            .read_staged_object(&address, KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1 + 1024)?;
         let anchored: KagemushaWalletAnchoredTimeV1 = archive::decode(&bytes)?;
         anchored
             .validate(self.state.core.time_anchor_max_response_ms)
@@ -599,7 +506,6 @@ impl<'a> PreparationCustodyV1<'a> {
         // Authenticate originals while the one archive borrow is still available.
         let mut value = self.source;
         value.originals = self.originals;
-        value.blacklist_reference = self.blacklist_reference;
         // Maps are checked after consuming the draft; original checks use their own roots.
         value.require_originals(self.maps.store(), successor)?;
         value.maps = self.maps.finish(successor)?;

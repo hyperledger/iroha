@@ -1,5 +1,6 @@
 //! Canonical pre-key dispatch DATA. Only native and issuer owners supply admission authority.
 
+use crate::kagemusha_wallet_advance_v1::LiveEnrollmentReadingV1;
 use iroha_crypto::Algorithm;
 use iroha_data_model::{account::AccountId, kagemusha::*};
 
@@ -69,6 +70,11 @@ struct StableSelectionV1 {
 
 impl PreKeyDispatchV1 {
     /// Validate canonical DATA and self-consistency, without choosing trust or freshness.
+    ///
+    /// # Errors
+    /// Returns an error for invalid identities, scheme, app policy, Enrollment
+    /// certificate, account or asset selection, or an inconsistent fresh/resume purpose.
+    /// A resumed dispatch also rejects an invalid or differently bound retained permit.
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.version != 1
             || [
@@ -132,6 +138,10 @@ impl PreKeyDispatchV1 {
 
     /// Canonical stable DATA shared with the issuer journal. It excludes exactly purpose,
     /// native dispatch nonce and previous permit; it is never a signature or trust selection.
+    ///
+    /// # Errors
+    /// Returns an error if [`Self::validate`] rejects the dispatch or canonical
+    /// encoding of its stable selection fails.
     pub fn stable_selection(&self) -> Result<Vec<u8>, &'static str> {
         self.validate()?;
         norito::encode_canonical(&StableSelectionV1 {
@@ -157,6 +167,11 @@ impl PreKeyDispatchV1 {
     }
 
     /// Exact seven-frame commitment using the sole data-model grammar, including issuer E1.
+    ///
+    /// # Errors
+    /// Returns an error for a challenge with different policy/account/asset bindings,
+    /// failed canonical encoding of any of the seven originals, or a rejected
+    /// originals-commitment frame.
     pub fn originals_digest(
         &self,
         challenge: &KagemushaWalletEnrollmentChallengeV1,
@@ -190,6 +205,11 @@ impl PreKeyDispatchV1 {
 
     /// Check signed permit selection against these DATA originals. Actual native nonce and
     /// clock checks and independent server configuration remain the respective owners' duty.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid permit signature, different platform or scope
+    /// identities, a different originals commitment, or a zero, overflowing or
+    /// policy-exceeding permit interval. Native nonce and live-clock checks are separate.
     pub fn require_permit_selection(
         &self,
         permit: &KagemushaEnrollmentPermitV1,
@@ -220,6 +240,10 @@ impl PreKeyDispatchV1 {
     }
 
     /// Encode bounded canonical DATA for issuer transport; this creates no capability.
+    ///
+    /// # Errors
+    /// Returns an error if dispatch validation or canonical encoding fails, or if the
+    /// encoded dispatch exceeds [`PREKEY_DISPATCH_MAX_BYTES`].
     pub fn encode(&self) -> Result<Vec<u8>, &'static str> {
         self.validate()?;
         let bytes = norito::encode_canonical(self).map_err(|_| "pre-key dispatch encoding")?;
@@ -229,6 +253,10 @@ impl PreKeyDispatchV1 {
         Ok(bytes)
     }
     /// Decode bounded canonical DATA. Independent scope and current eligibility checks follow.
+    ///
+    /// # Errors
+    /// Returns an error for empty, oversized or noncanonical input, or if the decoded
+    /// dispatch fails [`Self::validate`].
     pub fn decode(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.is_empty() || bytes.len() > PREKEY_DISPATCH_MAX_BYTES {
             return Err("pre-key dispatch bound");
@@ -253,7 +281,7 @@ pub(crate) struct GenerationAuthorizationV1 {
     generation_policy: crate::kagemusha_wallet_advance_v1::KagemushaWalletKeyGenerationPolicyV1,
     fresh: bool,
     dates: crate::kagemusha_wallet_advance_v1::KagemushaWalletEnrollmentDatesV1,
-    started: KagemushaWalletMonotonicReadingV1,
+    started: LiveEnrollmentReadingV1,
     observed_at_ms: u64,
     expires_at_ms: u64,
 }
@@ -293,7 +321,7 @@ impl GenerationAuthorizationV1 {
         slot: crate::kagemusha_wallet_advance_v1::KagemushaWalletSlotIdV1,
         generation_policy: crate::kagemusha_wallet_advance_v1::KagemushaWalletKeyGenerationPolicyV1,
         fresh: bool,
-        started: KagemushaWalletMonotonicReadingV1,
+        started: LiveEnrollmentReadingV1,
         session_expires_at_ms: u64,
     ) -> Self {
         Self {
@@ -333,7 +361,7 @@ impl GenerationAuthorizationV1 {
         }
         require_elapsed(
             &self.started,
-            &provider.monotonic_reading()?,
+            &provider.live_enrollment_reading()?,
             self.observed_at_ms,
             self.expires_at_ms,
         )
@@ -344,22 +372,20 @@ impl GenerationAuthorizationV1 {
 }
 
 pub(super) fn require_elapsed(
-    started: &KagemushaWalletMonotonicReadingV1,
-    now: &KagemushaWalletMonotonicReadingV1,
+    started: &LiveEnrollmentReadingV1,
+    now: &LiveEnrollmentReadingV1,
     observed: u64,
     expires: u64,
 ) -> Result<(), &'static str> {
-    if started.boot_id == [0; 32] || now.boot_id != started.boot_id {
-        return Err("pre-key boot changed");
-    }
     let elapsed = now
-        .monotonic_ms
-        .checked_sub(started.monotonic_ms)
-        .ok_or("pre-key clock decreased")?;
+        .elapsed_since(started)
+        .map_err(|_| "pre-key live clock unavailable or changed")?;
+    let elapsed_ms =
+        u64::try_from(elapsed.as_millis()).map_err(|_| "pre-key elapsed duration overflow")?;
     if observed
-        .checked_add(elapsed)
-        // Both monotonic readings are floor-quantized milliseconds: round their
-        // difference upward before comparing a strict exclusive deadline.
+        .checked_add(elapsed_ms)
+        // Strictly round the suspend-inclusive duration upward, including a whole
+        // millisecond boundary, before comparing the exclusive signed deadline.
         .and_then(|upper| upper.checked_add(1))
         .is_none_or(|upper| upper >= expires)
     {
@@ -371,27 +397,41 @@ pub(super) fn require_elapsed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn reading(domain: [u8; 32], nanos: u128) -> LiveEnrollmentReadingV1 {
+        LiveEnrollmentReadingV1::Simulated { domain, nanos }
+    }
     #[test]
-    fn elapsed_bound_is_strict_and_rejects_overflow_reboot_and_clock_rollback() {
-        let start = KagemushaWalletMonotonicReadingV1 {
-            boot_id: [1; 32],
-            monotonic_ms: 100,
-        };
-        let mut now = start;
-        now.monotonic_ms = 108;
-        assert!(require_elapsed(&start, &now, 10, 20).is_ok());
-        now.monotonic_ms = 109;
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
-        now.monotonic_ms = 101;
-        assert!(require_elapsed(&start, &now, u64::MAX, u64::MAX).is_err());
-        now.monotonic_ms = 99;
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
-        now.monotonic_ms = 100;
-        now.boot_id = [2; 32];
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
-        now.boot_id = [0; 32];
-        let mut start = start;
-        start.boot_id = [0; 32];
-        assert!(require_elapsed(&start, &now, 10, 20).is_err());
+    fn elapsed_bound_is_strict_and_rejects_overflow_domain_change_and_clock_rollback() {
+        let start = reading([1; 32], 100_000_000);
+        assert!(require_elapsed(&start, &reading([1; 32], 108_999_999), 10, 20).is_ok());
+        assert!(require_elapsed(&start, &reading([1; 32], 109_000_000), 10, 20).is_err());
+        assert!(
+            require_elapsed(&start, &reading([1; 32], 101_000_000), u64::MAX, u64::MAX).is_err()
+        );
+        assert!(require_elapsed(&start, &reading([1; 32], 99_999_999), 10, 20).is_err());
+        assert!(require_elapsed(&start, &reading([2; 32], 100_000_000), 10, 20).is_err());
+        assert!(require_elapsed(&reading([0; 32], 0), &reading([0; 32], 0), 10, 20).is_err());
+        assert!(
+            require_elapsed(
+                &start,
+                &reading([1; 32], u128::from(u64::MAX) * 1_000_000 + 100_000_000),
+                1,
+                u64::MAX
+            )
+            .is_err()
+        );
+        assert!(
+            require_elapsed(
+                &start,
+                &reading(
+                    [1; 32],
+                    (u128::from(u64::MAX) + 1) * 1_000_000 + 100_000_000
+                ),
+                0,
+                u64::MAX
+            )
+            .is_err()
+        );
+        assert!(require_elapsed(&start, &start, 19, 20).is_err());
     }
 }

@@ -36,7 +36,7 @@ class StubResponse(requests.Response):
     def __init__(self, payload: Optional[Dict[str, Any]] = None) -> None:
         super().__init__()
         self.status_code = 200
-        self._payload = payload or {"items": [], "total": 0}
+        self._payload = {"items": [], "next_cursor": None} if payload is None else payload
         self.headers = CaseInsensitiveDict({"Content-Type": "application/json"})
         self._content = json.dumps(self._payload).encode("utf-8")
         self._content_consumed = True

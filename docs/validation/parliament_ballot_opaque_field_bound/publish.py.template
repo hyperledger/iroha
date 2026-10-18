@@ -1,0 +1,143 @@
+"""Apply exactly the reviewed opaque-field publication batch after write release."""
+import argparse
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import tempfile
+
+ROOT = Path.cwd().resolve()
+STAGE = ROOT / "target/parliament-opaque-field-bound-stage"
+PAYLOAD = STAGE / "publication/bundle"
+DEST = ROOT / "docs/validation/parliament_ballot_opaque_field_bound"
+INVENTORY_SHA = "e6c4e3432e6309d7691170d2a81e9459457dd52e2b9427a1e944acf4f789a550"
+PROPOSAL_SHA = "c3241f4b5b1a73f953241a85cb1510f738c0082917f0a1c4e8b2261a5988e503"
+CAPTURE_MANIFEST_SHA = "b20cfe088046e2afb786e4f2ab60123626592dd5ebcf6042c27110c990d602ad"
+ADMISSIBILITY_MANIFEST_SHA = "1772e568fef9164a8e3bb8df2001abdc9720575369628b3fc61221efb5f8cd8d"
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def need(condition, reason):
+    if not condition:
+        raise RuntimeError(reason)
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--apply", action="store_true")
+args = parser.parse_args()
+if not args.apply:
+    parser.error("--apply is required after the tracked-write window is released")
+script = Path(__file__).resolve()
+need(script == STAGE / "publish.py", "unexpected publication script location")
+script_hash = sha(script)
+inventory_path = STAGE / "publication/inventory.json"
+need(sha(inventory_path) == INVENTORY_SHA, "publication inventory changed")
+inventory = json.loads(inventory_path.read_text())
+need(not any(p.is_symlink() for p in PAYLOAD.rglob("*")), "refuse payload symlinks")
+actual = {str(p.relative_to(PAYLOAD)): sha(p) for p in PAYLOAD.rglob("*") if p.is_file()}
+need(actual == inventory["bundle_files"], "payload membership or bytes changed")
+need(not DEST.exists(), "refuse existing publication bundle")
+proposal_path = STAGE / "central-document-proposal.json"
+need(sha(proposal_path) == PROPOSAL_SHA == inventory["proposal_sha256"], "central proposal changed")
+proposal = json.loads(proposal_path.read_text())
+need(sha(STAGE / "capture/SHA256SUMS") == CAPTURE_MANIFEST_SHA == inventory["capture_manifest_sha256"], "staged capture manifest changed")
+capture_lines = (STAGE / "capture/SHA256SUMS").read_text().splitlines()
+need(len(capture_lines) == 20 and len({line.split("  ", 1)[1] for line in capture_lines}) == 20, "staged capture membership differs")
+for line in capture_lines:
+    value, name = line.split("  ", 1)
+    need(sha(ROOT / name) == value, "original capture changed: " + name)
+capture = json.loads((STAGE / "capture/receipt.json").read_text())
+need(capture["status"] == "PASS" and capture["source_before"] == capture["source_after"], "capture did not pass stably")
+for name, expected in capture["source_after"].items():
+    need(sha(Path(name)) == expected, "tested staged source changed: " + name)
+need(all(not Path(name).exists() for name in capture["absent_conftests"]), "pytest configuration changed")
+analysis = json.loads((STAGE / "capture/analysis.json").read_text())
+need(analysis["verdict"] == "PASS_UNDER_STATED_PREMISES" and not analysis["applies_to_current_checkout"], "analysis scope changed")
+need((STAGE / "capture/analysis.json").read_bytes() == (STAGE / "capture/refusal.json").read_bytes(), "qualification refusal report changed")
+for name, expected in analysis["input_sha256"].items():
+    need(sha(Path(name)) == expected, "retained evidence changed: " + name)
+admissibility = ROOT / "docs/validation/parliament_ballot_admissibility_circuit/SHA256SUMS"
+need(sha(admissibility) == ADMISSIBILITY_MANIFEST_SHA, "prior admissibility manifest changed")
+prior_entries = {name: value for value, name in (line.split("  ", 1) for line in admissibility.read_text().splitlines())}
+custody = json.loads((PAYLOAD / "document-custody.json").read_text())
+need(custody["prior_manifest_sha256"] == ADMISSIBILITY_MANIFEST_SHA and custody["proposal_sha256"] == PROPOSAL_SHA, "document custody changed")
+for name, row in proposal.items():
+    archived = custody["documents"][name]
+    original = archived["prior_admissibility_snapshot"]
+    need(sha(ROOT / name) == sha(ROOT / original) == prior_entries[original] == row["before_sha256"], "central preimage changed: " + name)
+    need(sha(PAYLOAD / archived["before"]["snapshot"]) == row["before_sha256"], "original document archive changed")
+    need(sha(STAGE / "central-documents" / name) == sha(PAYLOAD / archived["after"]["snapshot"]) == row["staged_sha256"], "document proposal bytes changed")
+installs = {
+    "scripts/parliament_ballot_opaque_field_bound.py": inventory["helper_sha256"],
+    "scripts/tests/parliament_ballot_opaque_field_bound_test.py": inventory["test_sha256"],
+}
+for name, expected in installs.items():
+    need(not (ROOT / name).exists(), "refuse existing source target: " + name)
+    need(sha(STAGE / name) == expected, "reviewed install source changed: " + name)
+
+# All guards above precede every tracked write. A failure afterward leaves a
+# diagnostic and the actual partial state, without pretending publication passed.
+completed = []
+try:
+    shutil.copytree(PAYLOAD, DEST)
+    completed.append("bundle payload copied")
+    for name, expected in installs.items():
+        with (ROOT / name).open("xb") as stream:
+            stream.write((STAGE / name).read_bytes())
+        need(sha(ROOT / name) == expected, "installed source differs")
+        completed.append(name)
+    for name, row in proposal.items():
+        target = ROOT / name
+        need(sha(target) == row["before_sha256"], "central document changed immediately before replacement")
+        data = (STAGE / "central-documents" / name).read_bytes()
+        need(hashlib.sha256(data).hexdigest() == row["staged_sha256"], "proposal changed immediately before replacement")
+        with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".opaque-publication-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+        os.chmod(temporary, target.stat().st_mode & 0o777)
+        os.replace(temporary, target)
+        completed.append(name)
+    for name, expected in inventory["bundle_files"].items():
+        need(sha(DEST / name) == expected, "copied payload changed")
+    need(sha(script) == script_hash, "executing publication recipe changed")
+    shutil.copyfile(script, DEST / "publish.py.template")
+    shutil.copyfile(inventory_path, DEST / "publication-inventory.json")
+    need(sha(DEST / "publish.py.template") == script_hash and sha(DEST / "publication-inventory.json") == INVENTORY_SHA, "publication recipe/inventory copy changed")
+    installed = {name: sha(ROOT / name) for name in installs}
+    documents = {name: sha(ROOT / name) for name in proposal}
+    need(installed == installs and documents == {name: row["staged_sha256"] for name, row in proposal.items()}, "published source/document drift")
+    for name, expected in analysis["input_sha256"].items():
+        need(sha(Path(name)) == expected, "retained evidence changed during publication: " + name)
+    receipt = dict(schema="parliament-opaque-field-publication-v1", status="PASS",
+                   published_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                   payload_inventory_sha256=INVENTORY_SHA, publication_recipe_sha256=script_hash,
+                   staged_capture_manifest_sha256=CAPTURE_MANIFEST_SHA,
+                   staged_capture_receipt_sha256=sha(STAGE / "capture/receipt.json"),
+                   source_install_sha256=installed, central_document_before_after=proposal,
+                   central_document_after_sha256=documents,
+                   prior_admissibility_manifest_sha256=ADMISSIBILITY_MANIFEST_SHA,
+                   original_analysis_guards_checked= len(analysis["input_sha256"]),
+                   tests_rerun_during_publication=False, byte_identical_tested_helper_and_tests=True,
+                   applies_to_current_checkout=False, complete_workspace_certificate=False,
+                   complete_native_cost_certificate=False, complete_constructor_cost_certificate=False,
+                   physical_cost_calibrated=False, profile_qualified=False, production_gate_changed=False)
+    with (DEST / "publication-receipt.json").open("x") as stream:
+        stream.write(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    paths = sorted(p for p in DEST.rglob("*") if p.is_file())
+    need({str(p.relative_to(DEST)) for p in paths} == set(inventory["bundle_files"]) | {"publish.py.template", "publication-inventory.json", "publication-receipt.json"}, "unexpected final membership")
+    with (DEST / "SHA256SUMS").open("x") as stream:
+        for path in paths:
+            stream.write(sha(path) + "  " + str(path.relative_to(DEST)) + "\n")
+    print(json.dumps({"status": "PASS", "entries": len(paths), "manifest_sha256": sha(DEST / "SHA256SUMS"),
+                      "publication_receipt_sha256": sha(DEST / "publication-receipt.json")}))
+except Exception as exc:
+    if DEST.exists():
+        with (DEST / "publication-failure.json").open("x") as stream:
+            json.dump({"status": "FAIL", "error": str(exc), "completed_writes": completed}, stream, indent=2)
+            stream.write("\n")
+    raise

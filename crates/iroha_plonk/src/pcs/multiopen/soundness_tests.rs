@@ -543,10 +543,12 @@ impl TranscriptRead<Ep> for Scripted {
 
 #[test]
 fn x3_on_an_opening_point_is_rejected() {
-    let case = build_case::<Ep>(3, 23, &standard_queries());
-    // x_1, x_2, then x_3 equal to the second opening point.
+    let mut case = build_case::<Ep>(3, 23, &standard_queries());
+    // A generic caller may supply the mapped x3 itself; structured PLONK rotations cannot.
+    let raw_x3 = Fq::from(7);
+    case.points[1] = crate::transcript::pipa_r::multiopening_challenge(raw_x3);
     let mut transcript = Scripted {
-        challenges: vec![Fq::from(2), Fq::from(5), case.points[1]],
+        challenges: vec![Fq::from(2), Fq::from(5), raw_x3],
     };
     assert_eq!(
         verify(

@@ -57,11 +57,13 @@ class KagemushaWalletLoadOriginalV1 private constructor(
             }
             val height = LongArray(1)
             val status = try {
-                if (KagemushaWalletNativeV1.revision() != 1) {
+                if (KagemushaWalletNativeCallsV1.revision() != 1) {
                     throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE)
                 }
-                KagemushaWalletLoadOriginalNativeV1.validate(input.schemeId(), input.walletId(),
-                    input.requestId(), input.payer(), input.receipt(), input.finality(), height)
+                KagemushaWalletNativeWorkerV1.shared.run {
+                    KagemushaWalletLoadOriginalNativeV1.validate(input.schemeId(), input.walletId(),
+                        input.requestId(), input.payer(), input.receipt(), input.finality(), height)
+                }
             } catch (_: LinkageError) {
                 throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE)
             }

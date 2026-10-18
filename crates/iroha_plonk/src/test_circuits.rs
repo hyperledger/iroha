@@ -5,7 +5,7 @@
 //!   output (copy constraints between advice, fixed and instance columns);
 //! - [`Lookups`]: a squaring gate, a two-column lookup of `(x, x^2)` and a
 //!   `lookup_any` range check of `x + 1`, with no equality columns;
-//! - [`Permutations`]: eight equality columns at degree 3, so every set holds
+//! - [`Permutations`]: eight equality columns at degree 4, so every set holds
 //!   one column and consecutive sets are linked at `omega^{-(b+1)}`;
 //! - [`Forgeable`]: two advice columns under `s (a - b - 1)`, used by the
 //!   malicious-prover case of soundness invariant S1.

@@ -63,8 +63,7 @@ fn canonical_source_shape_forecasts_fit_the_preconstruction_allowances() {
     let serial_scratch = small_scratch.max(sha_scratch).max(p256_scratch);
     assert!(serial_scratch <= main_resources::MAIN_SOURCE_SCRATCH_ALLOWANCE_BYTES_V1);
     eprintln!(
-        "MAIN source shape forecasts: retained={retained}, small={small}, p256={p256}, sha_fixed={sha_fixed}, sha_aux={sha_aux}, retained_rfc={rfc_coefficients}, serial_scratch={}",
-        serial_scratch
+        "MAIN source shape forecasts: retained={retained}, small={small}, p256={p256}, sha_fixed={sha_fixed}, sha_aux={sha_aux}, retained_rfc={rfc_coefficients}, serial_scratch={serial_scratch}"
     );
     // These construction bounds do not materialize or qualify the separately
     // borrowed maximum-profile assembly, nor measure allocator/process RSS.
@@ -372,10 +371,7 @@ fn maximum_profile_assembly_payload_and_source_admission_diagnostic() {
     };
     use std::time::Instant;
 
-    assert!(
-        !cfg!(debug_assertions),
-        "run this diagnostic with --release"
-    );
+    crate::test_support::require_no_debug_assertions("run this diagnostic with --release");
     let fixture_start = Instant::now();
     let fixture = build_zk_x509_release_fixture_v1(reference_statement_context_v1(), true)
         .expect("maximum structural release fixture");
@@ -461,10 +457,7 @@ fn maximum_profile_assembly_payload_and_source_admission_diagnostic() {
 fn maximum_profile_streaming_hash_cost_diagnostic() {
     use std::time::Instant;
 
-    assert!(
-        !cfg!(debug_assertions),
-        "run this diagnostic with --release"
-    );
+    crate::test_support::require_no_debug_assertions("run this diagnostic with --release");
     const SAMPLE_ROWS: usize = 128;
     let layout = AggregateProofLayoutV1::for_full_profile_v1().unwrap();
     let widths = [
@@ -545,10 +538,7 @@ fn maximum_profile_replay_fft_cost_diagnostic() {
     use rayon::prelude::*;
     use std::time::Instant;
 
-    assert!(
-        !cfg!(debug_assertions),
-        "run this diagnostic with --release"
-    );
+    crate::test_support::require_no_debug_assertions("run this diagnostic with --release");
     let layout = AggregateProofLayoutV1::for_full_profile_v1().unwrap();
     let native_log = layout.trace_groups.last().unwrap().native_trace_log2;
     let common_log = layout.common_lde_log2;

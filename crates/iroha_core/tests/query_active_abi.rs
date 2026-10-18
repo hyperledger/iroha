@@ -1,5 +1,5 @@
 //! Tests for `FindAbiVersion` singular query.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
 use iroha_core::state::State;
 #[test]
 fn find_abi_version_default_is_v1() {

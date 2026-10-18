@@ -1,5 +1,7 @@
 //! Grouped IVM integration tests.
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
+
+#[path = "../common.rs"]
+mod common;
 #[path = "../ivm_cache.rs"]
 mod ivm_cache;
 #[path = "../ivm_cache_artifact.rs"]

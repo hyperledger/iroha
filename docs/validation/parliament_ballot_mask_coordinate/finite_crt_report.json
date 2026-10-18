@@ -1,0 +1,127 @@
+{
+  "compiled_source_execution_proved": false,
+  "field_polynomial": "x^256+x^10+x^5+x^2+1",
+  "ideal_entry_proved": false,
+  "identity": "W_TREE*tree_residues(a*beta) XOR W_GATE*((F*a)&(G*beta)) == a*(W_CRT*beta)",
+  "identity_scope": "Both sides bilinear over GF(2); all 256*n_delta standard-basis pairs checked per profile.",
+  "independent_cryptographic_review": false,
+  "profile_qualified": false,
+  "root": "/Users/mtakemiya/dev/iroha",
+  "rows": [
+    {
+      "CRT_unit_residue_checks": 8184,
+      "M_TREE_degree": 248,
+      "bilinear_basis_pairs": 63488,
+      "high_rank": 8,
+      "joint_rank": 256,
+      "low_rank": 248,
+      "max_high_degree": 255,
+      "n_delta": 248,
+      "n_mult": 704,
+      "profile": "256f",
+      "single_actual_table_bit_mutations_rejected": [
+        {
+          "failing_input_basis": [
+            0,
+            0
+          ],
+          "flipped_bit": 0,
+          "matrix": "W_CRT",
+          "source_column": 0,
+          "source_row": 0
+        },
+        {
+          "failing_input_basis": [
+            0,
+            0
+          ],
+          "flipped_bit": 0,
+          "matrix": "W_TREE",
+          "source_column": 0,
+          "source_row": 0
+        },
+        {
+          "failing_input_basis": [
+            254,
+            0
+          ],
+          "flipped_bit": 0,
+          "matrix": "W_GATE",
+          "source_column": 0,
+          "source_row": 0
+        }
+      ],
+      "source_sha256": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+      "w_grind": 8
+    },
+    {
+      "CRT_unit_residue_checks": 5500,
+      "M_TREE_degree": 250,
+      "bilinear_basis_pairs": 64000,
+      "high_rank": 6,
+      "joint_rank": 256,
+      "low_rank": 250,
+      "max_high_degree": 255,
+      "n_delta": 250,
+      "n_mult": 696,
+      "profile": "256s",
+      "single_actual_table_bit_mutations_rejected": [
+        {
+          "failing_input_basis": [
+            0,
+            0
+          ],
+          "flipped_bit": 0,
+          "matrix": "W_CRT",
+          "source_column": 0,
+          "source_row": 0
+        },
+        {
+          "failing_input_basis": [
+            0,
+            0
+          ],
+          "flipped_bit": 0,
+          "matrix": "W_TREE",
+          "source_column": 0,
+          "source_row": 0
+        },
+        {
+          "failing_input_basis": [
+            254,
+            0
+          ],
+          "flipped_bit": 0,
+          "matrix": "W_GATE",
+          "source_column": 0,
+          "source_row": 0
+        }
+      ],
+      "source_sha256": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+      "w_grind": 6
+    }
+  ],
+  "schema": "parliament-crt-mask-independent-finite-review-v1",
+  "self_validation": [
+    "asymmetric two-by-three matrix orientation",
+    "65-bit little-endian word boundary",
+    "independent and dependent rank controls",
+    "GF(2) product and remainder examples",
+    "source GF(2^256) reduction taps"
+  ],
+  "self_validation_scope": "Finite selected sanity and real-table mutation controls, not formal verification of this Python checker.",
+  "source_sha256": {
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_zkp_vole/src/crt/generated.rs": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+    "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+    "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+    "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+    "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b"
+  },
+  "source_stable": true
+}

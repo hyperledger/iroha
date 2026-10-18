@@ -1,0 +1,30 @@
+[package]
+name = "iroha_zkp_vole"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "State-free experimental FAEST v3.0-derived VOLE-in-the-head proof backend"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Hardware AES through the patched `aes` crate's positive `hardware` feature.
+# Outputs are byte-identical with and without this feature.
+# TODO: add carry-less-multiply field arithmetic behind this feature.
+accel = ["aes/hardware"]
+
+[dependencies]
+aes = { version = "0.8.4", default-features = false, features = ["zeroize"] }
+# Only the safe Keccak-f[1600] permutation: the sponge is in `src/hash.rs` so that its
+# whole state is erased on drop.
+keccak = { version = "0.1.6", default-features = false }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+# Independent SHAKE implementation the in-crate sponge is cross-checked against.
+sha3 = { version = "0.10.8", default-features = false, features = ["std"] }

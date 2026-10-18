@@ -23,6 +23,7 @@ from typing import (
 )
 
 from iroha_native import load_crypto_extension
+
 from .numeric_v1 import NumericV1Codec
 
 try:

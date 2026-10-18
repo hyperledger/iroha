@@ -407,33 +407,66 @@ pub fn is_confidential_unshield_v2_circuit_id(raw: &str) -> bool {
     raw == CONFIDENTIAL_UNSHIELD_V2_CIRCUIT_ID
 }
 /// Return the exact compiled native transfer key carrier.
+///
+/// # Errors
+///
+/// Returns the original native initializer error if the compiled transfer
+/// verifier material cannot be prepared.
 pub fn confidential_transfer_v2_vk_box()
 -> Result<VerifyingKeyBox, iroha_plonk::verification_attempt::NativeVerifierInitError> {
     native::verifying_key(native::Kind::Transfer)
 }
 /// Authenticate the exact compiled native transfer key carrier.
+///
+/// # Errors
+///
+/// Returns `Rejected` for an invalid backend or key length, or bytes that do
+/// not equal the compiled transfer key. Returns `Deferred` with the
+/// original refusal if that trusted key cannot be initialized.
 pub fn ensure_confidential_transfer_v2_canonical_vk_box(
     key: &VerifyingKeyBox,
 ) -> Result<(), super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>> {
     native::validate_key(native::Kind::Transfer, key)
 }
 /// Return the exact compiled native full-redemption key carrier.
+///
+/// # Errors
+///
+/// Returns the original native initializer error if the compiled full-redemption
+/// verifier material cannot be prepared.
 pub fn confidential_unshield_v2_vk_box()
 -> Result<VerifyingKeyBox, iroha_plonk::verification_attempt::NativeVerifierInitError> {
     native::verifying_key(native::Kind::Full)
 }
 /// Authenticate the exact compiled native full-redemption key carrier.
+///
+/// # Errors
+///
+/// Returns `Rejected` for an invalid backend or key length, or bytes that do
+/// not equal the compiled full-redemption key. Returns `Deferred` with the
+/// original refusal if that trusted key cannot be initialized.
 pub fn ensure_confidential_unshield_v2_canonical_vk_box(
     key: &VerifyingKeyBox,
 ) -> Result<(), super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>> {
     native::validate_key(native::Kind::Full, key)
 }
 /// Return the exact compiled native redemption-with-change key carrier.
+///
+/// # Errors
+///
+/// Returns the original native initializer error if the compiled redemption-with-change
+/// verifier material cannot be prepared.
 pub fn confidential_unshield_v3_vk_box()
 -> Result<VerifyingKeyBox, iroha_plonk::verification_attempt::NativeVerifierInitError> {
     native::verifying_key(native::Kind::Change)
 }
 /// Authenticate the exact compiled native redemption-with-change key carrier.
+///
+/// # Errors
+///
+/// Returns `Rejected` for an invalid backend or key length, or bytes that do
+/// not equal the compiled redemption-with-change key. Returns `Deferred` with the
+/// original refusal if that trusted key cannot be initialized.
 pub fn ensure_confidential_unshield_v3_canonical_vk_box(
     key: &VerifyingKeyBox,
 ) -> Result<(), super::VerificationAttemptError<super::native_pipa_r::NativeVerificationError>> {
@@ -460,10 +493,16 @@ fn confidential_v2_vk_record(
     record.gas_schedule_id = Some("native_pipa_r_default".to_owned());
     record.key = Some(vk_box);
     record.status = ConfidentialStatus::Active;
-    record.namespace = name.to_owned();
+    name.clone_into(&mut record.namespace);
     Ok(record)
 }
 /// Build an active verifier record for confidential transfer V2.
+///
+/// # Errors
+///
+/// Returns the original initialization failure if the compiled transfer
+/// key cannot be prepared, or an input error if its encoded length does not
+/// fit the record's `u32` length field.
 pub fn confidential_transfer_v2_vk_record(
     name: &str,
     version: u32,
@@ -478,6 +517,12 @@ pub fn confidential_transfer_v2_vk_record(
     .map_err(Into::into)
 }
 /// Build an active verifier record for confidential unshield V2.
+///
+/// # Errors
+///
+/// Returns the original initialization failure if the compiled full-redemption
+/// key cannot be prepared, or an input error if its encoded length does not
+/// fit the record's `u32` length field.
 pub fn confidential_unshield_v2_vk_record(
     name: &str,
     version: u32,
@@ -492,6 +537,12 @@ pub fn confidential_unshield_v2_vk_record(
     .map_err(Into::into)
 }
 /// Build an active verifier record for confidential unshield V3.
+///
+/// # Errors
+///
+/// Returns the original initialization failure if the compiled redemption-with-change
+/// key cannot be prepared, or an input error if its encoded length does not
+/// fit the record's `u32` length field.
 pub fn confidential_unshield_v3_vk_record(
     name: &str,
     version: u32,
@@ -673,6 +724,12 @@ impl ConfidentialProofProductionError {
     /// On mismatch, returns this entire original error unchanged. In particular, `Err` is
     /// not a completed proof rejection: native proving errors have their own typed boundary.
     /// No numerical cause, private backend enum, allocated wrapper or release signal is invented.
+    ///
+    /// # Errors
+    ///
+    /// Returns the complete original error unchanged when its cause is not an
+    /// unfinished verification or initialization attempt. Completed rejection,
+    /// input-validation and proving failures retain their original owners.
     pub fn into_verification_refusal(self) -> Result<super::VerificationRefusal, Self> {
         use ConfidentialProofProductionCause as Cause;
         use iroha_plonk::verification_attempt::{
@@ -830,6 +887,11 @@ pub(crate) fn confidential_poseidon_hash_v3<F: iroha_pasta::poseidon::PoseidonFi
 mod witness_validation;
 
 /// Derive the default-diversifier owner tag for a confidential spend key.
+///
+/// # Errors
+///
+/// Returns an error if the spend key is not exactly 32 bytes, is all zero, or
+/// the derived owner tag is zero.
 pub fn derive_confidential_owner_tag_v2(spend_key: &[u8]) -> Result<[u8; 32], String> {
     derive_confidential_owner_tag_v2_with_diversifier(
         spend_key,
@@ -848,6 +910,11 @@ pub fn derive_confidential_diversifier_v2(seed: &[u8]) -> [u8; 32] {
     ))
 }
 /// Derive an owner tag for a spend key and explicit diversifier.
+///
+/// # Errors
+///
+/// Returns an error if the spend key is not exactly 32 bytes or is all zero,
+/// the diversifier is zero or noncanonical, or the derived owner tag is zero.
 pub fn derive_confidential_owner_tag_v2_with_diversifier(
     spend_key: &[u8],
     diversifier: [u8; 32],
@@ -867,6 +934,12 @@ pub fn derive_confidential_network_tag_v2(network_id: &NetworkId) -> [u8; 32] {
         .expect("exact network identities derive non-zero V3 tags")
 }
 /// Derive a confidential note commitment from its opening and context.
+///
+/// # Errors
+///
+/// Returns an error for an empty or whitespace-padded asset identifier, a
+/// zero derived asset tag, zero amount or nonce, a zero or noncanonical owner
+/// tag, or a zero resulting commitment.
 pub fn derive_confidential_note_v2(
     asset_definition_id: &str,
     amount: u128,
@@ -909,16 +982,33 @@ pub fn confidential_tree_node_is_canonical_v2(node: [u8; 32]) -> bool {
     scalar_from_repr(node).is_some()
 }
 /// Compute the fixed-tree root for canonical commitment leaves.
+///
+/// # Errors
+///
+/// Returns an error if the commitment prefix exceeds the fixed tree capacity,
+/// contains a zero or noncanonical commitment, or its incremental frontier
+/// cannot be constructed.
 pub fn compute_confidential_root_v2(commitments: &[[u8; 32]]) -> Result<[u8; 32], String> {
     compute_confidential_root_v3(commitments)
 }
 /// Compute the canonical root after every non-empty commitment prefix.
+///
+/// # Errors
+///
+/// Returns an error if the commitment prefix exceeds the fixed tree capacity,
+/// contains a zero or noncanonical commitment, or its incremental frontier
+/// cannot be constructed.
 pub fn compute_confidential_prefix_roots_v2(
     commitments: &[[u8; 32]],
 ) -> Result<Vec<[u8; 32]>, String> {
     compute_confidential_prefix_roots_v3(commitments)
 }
 /// Compute a canonical fixed-tree authentication path for one leaf index.
+///
+/// # Errors
+///
+/// Returns an error if the leaf index is outside the fixed tree capacity, the commitment count
+/// exceeds capacity, or any supplied commitment is zero or noncanonical.
 pub fn compute_confidential_merkle_path_v2(
     commitments: &[[u8; 32]],
     leaf_index: usize,
@@ -999,6 +1089,11 @@ fn strict_v3_identifier<'a>(value: &'a str, label: &str) -> Result<&'a str, Stri
     }
 }
 /// Derive a domain-separated V3 owner tag from a spend key and diversifier.
+///
+/// # Errors
+///
+/// Returns an error if the spend key is not exactly 32 bytes or is all zero,
+/// the diversifier is zero or noncanonical, or the derived owner tag is zero.
 pub fn derive_confidential_owner_tag_v3_with_diversifier(
     spend_key: &[u8],
     diversifier: [u8; 32],
@@ -1018,6 +1113,11 @@ pub fn derive_confidential_owner_tag_v3_with_diversifier(
     Ok(scalar_to_repr_bytes(owner))
 }
 /// Derive the domain-separated V3 asset tag.
+///
+/// # Errors
+///
+/// Returns an error if the identifier is empty or has surrounding whitespace,
+/// or if its derived asset tag is zero.
 pub fn derive_confidential_asset_tag_v3(asset_definition_id: &str) -> Result<[u8; 32], String> {
     let canonical = strict_v3_identifier(asset_definition_id, "asset definition identifier")?;
     Ok(scalar_to_repr_bytes(poseidon_tag_v3(
@@ -1027,6 +1127,10 @@ pub fn derive_confidential_asset_tag_v3(asset_definition_id: &str) -> Result<[u8
     )?))
 }
 /// Derive the domain-separated V3 tag for an exact genesis-derived network.
+///
+/// # Errors
+///
+/// Returns an error if the domain-separated network tag is zero.
 pub fn derive_confidential_network_tag_v3(network_id: &NetworkId) -> Result<[u8; 32], String> {
     Ok(scalar_to_repr_bytes(poseidon_tag_v3(
         CONFIDENTIAL_POSEIDON_NETWORK_DOMAIN_V3,
@@ -1035,6 +1139,11 @@ pub fn derive_confidential_network_tag_v3(network_id: &NetworkId) -> Result<[u8;
     )?))
 }
 /// Derive a V3 note commitment with the full secure permutation.
+///
+/// # Errors
+///
+/// Returns an error for a zero amount or nonce, zero or noncanonical asset or
+/// owner tags, or a zero resulting commitment.
 pub fn derive_confidential_note_v3(
     asset_tag: [u8; 32],
     amount: u128,
@@ -1061,6 +1170,12 @@ pub fn derive_confidential_note_v3(
     Ok(scalar_to_repr_bytes(commitment))
 }
 /// Derive a V3 spend nullifier with the full secure permutation.
+///
+/// # Errors
+///
+/// Returns an error if the spend key is not exactly 32 bytes or is all zero,
+/// the nonce is zero, either context tag is zero or noncanonical, or the
+/// resulting nullifier is zero.
 pub fn derive_confidential_nullifier_v3(
     spend_key: &[u8],
     rho: [u8; 32],
@@ -1090,8 +1205,7 @@ pub fn derive_confidential_nullifier_v3(
 fn validate_confidential_tree_len_v3(commitments: &[[u8; 32]]) -> Result<(), String> {
     if commitments.len() > CONFIDENTIAL_TREE_CAPACITY_V2 {
         return Err(format!(
-            "confidential V3 tree supports at most {} leaves",
-            CONFIDENTIAL_TREE_CAPACITY_V2
+            "confidential V3 tree supports at most {CONFIDENTIAL_TREE_CAPACITY_V2} leaves"
         ));
     }
     Ok(())
@@ -1176,6 +1290,12 @@ fn confidential_subtree_root_v3(
     Ok(merkle_parent_v3(left, right))
 }
 /// Compute the fixed-tree root using V3 leaf and internal-node domains.
+///
+/// # Errors
+///
+/// Returns an error if the commitment prefix exceeds the fixed tree capacity,
+/// contains a zero or noncanonical commitment, or its incremental frontier
+/// cannot be constructed.
 pub fn compute_confidential_root_v3(commitments: &[[u8; 32]]) -> Result<[u8; 32], String> {
     let roots = compute_confidential_prefix_roots_v3(commitments)?;
     Ok(roots.last().copied().unwrap_or_else(poseidon_empty_root_v2))
@@ -1233,6 +1353,11 @@ pub struct ConfidentialTreeProjectionV2 {
 }
 impl ConfidentialTreeProjectionV2 {
     /// Build one compact authenticated projection for an ordered commitment prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the commitment prefix exceeds the fixed tree capacity
+    /// or contains a zero or noncanonical commitment.
     pub fn build(commitments: &[[u8; 32]]) -> Result<Self, String> {
         validate_confidential_tree_len_v3(commitments)?;
         let empty_roots = confidential_empty_subtree_roots_v3();
@@ -1243,11 +1368,11 @@ impl ConfidentialTreeProjectionV2 {
             .map(|(index, commitment)| confidential_commitment_leaf_v3(commitment, index))
             .collect::<Result<Vec<_>, _>>()?;
         let mut layers = Vec::with_capacity(CONFIDENTIAL_TREE_DEPTH_V2);
-        for level in 0..CONFIDENTIAL_TREE_DEPTH_V2 {
+        for &empty_root in empty_roots.iter().take(CONFIDENTIAL_TREE_DEPTH_V2) {
             let mut parents = Vec::with_capacity(nodes.len().div_ceil(2));
             for pair in nodes.chunks(2) {
                 let left = pair[0];
-                let right = pair.get(1).copied().unwrap_or(empty_roots[level]);
+                let right = pair.get(1).copied().unwrap_or(empty_root);
                 parents.push(merkle_parent_v3(left, right));
             }
             layers.push(nodes);
@@ -1270,6 +1395,11 @@ impl ConfidentialTreeProjectionV2 {
         self.root
     }
     /// Reconstruct the fixed-size incremental frontier authenticated by this projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a populated commitment-count bit refers to a missing
+    /// node in the retained projection layers.
     pub fn frontier(&self) -> Result<ConfidentialTreeFrontierV2, String> {
         let mut frontier = [None; CONFIDENTIAL_TREE_DEPTH_V2];
         for (level, slot) in frontier.iter_mut().enumerate() {
@@ -1285,11 +1415,15 @@ impl ConfidentialTreeProjectionV2 {
         Ok(frontier)
     }
     /// Compute one membership or zero-leaf path without rescanning commitments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the leaf index is outside the fixed tree capacity or the
+    /// computed path does not authenticate this projection's root.
     pub fn compute_path(&self, leaf_index: usize) -> Result<ConfidentialMerklePathV2, String> {
         if leaf_index >= CONFIDENTIAL_TREE_CAPACITY_V2 {
             return Err(format!(
-                "leaf_index must be < {} for confidential V3 proofs",
-                CONFIDENTIAL_TREE_CAPACITY_V2
+                "leaf_index must be < {CONFIDENTIAL_TREE_CAPACITY_V2} for confidential V3 proofs"
             ));
         }
         let mut node = self.layers[0]
@@ -1301,7 +1435,7 @@ impl ConfidentialTreeProjectionV2 {
         let mut witness_nodes = Vec::with_capacity(CONFIDENTIAL_TREE_DEPTH_V2);
         for level in 0..CONFIDENTIAL_TREE_DEPTH_V2 {
             let position = leaf_index >> level;
-            let direction = (position & 1) as u8;
+            let direction = u8::from(!position.is_multiple_of(2));
             let sibling = self.layers[level]
                 .get(position ^ 1)
                 .copied()
@@ -1337,6 +1471,12 @@ pub struct ConfidentialTreeAppendV2 {
     pub appended_roots: Vec<[u8; 32]>,
 }
 /// Validate the fixed-size frontier and its separately persisted current root.
+///
+/// # Errors
+///
+/// Returns an error if the count exceeds capacity, the root or a populated
+/// slot is noncanonical, the slots disagree with the count bits, or a nonfull
+/// frontier reconstructs a different root.
 pub fn validate_confidential_tree_frontier_v2(
     commitment_count: usize,
     frontier: &ConfidentialTreeFrontierV2,
@@ -1344,8 +1484,7 @@ pub fn validate_confidential_tree_frontier_v2(
 ) -> Result<(), String> {
     if commitment_count > CONFIDENTIAL_TREE_CAPACITY_V2 {
         return Err(format!(
-            "confidential tree capacity {} exceeded by {commitment_count} commitments",
-            CONFIDENTIAL_TREE_CAPACITY_V2
+            "confidential tree capacity {CONFIDENTIAL_TREE_CAPACITY_V2} exceeded by {commitment_count} commitments"
         ));
     }
     if !confidential_tree_node_is_canonical_v2(persisted_root) {
@@ -1391,9 +1530,16 @@ pub fn validate_confidential_tree_frontier_v2(
     Ok(())
 }
 /// Simulate an ordered append in `O(batch * depth)` without mutating persisted state.
+///
+/// # Errors
+///
+/// Returns an error if the resulting count overflows or exceeds capacity,
+/// the supplied frontier or persisted root is inconsistent, a new commitment
+/// is zero or noncanonical, or a required append frontier node is missing.
+/// The borrowed frontier and persisted state are never modified.
 pub fn append_confidential_tree_frontier_v2(
     commitment_count: usize,
-    frontier: ConfidentialTreeFrontierV2,
+    frontier: &ConfidentialTreeFrontierV2,
     persisted_root: [u8; 32],
     commitments: &[[u8; 32]],
 ) -> Result<ConfidentialTreeAppendV2, String> {
@@ -1402,11 +1548,10 @@ pub fn append_confidential_tree_frontier_v2(
         .ok_or_else(|| "confidential commitment count overflow".to_owned())?;
     if next_count > CONFIDENTIAL_TREE_CAPACITY_V2 {
         return Err(format!(
-            "confidential tree capacity {} exceeded by {next_count} commitments",
-            CONFIDENTIAL_TREE_CAPACITY_V2
+            "confidential tree capacity {CONFIDENTIAL_TREE_CAPACITY_V2} exceeded by {next_count} commitments"
         ));
     }
-    validate_confidential_tree_frontier_v2(commitment_count, &frontier, persisted_root)?;
+    validate_confidential_tree_frontier_v2(commitment_count, frontier, persisted_root)?;
     let leaves = commitments
         .iter()
         .copied()
@@ -1417,7 +1562,7 @@ pub fn append_confidential_tree_frontier_v2(
         .collect::<Result<Vec<_>, _>>()?;
     if leaves.is_empty() {
         return Ok(ConfidentialTreeAppendV2 {
-            frontier,
+            frontier: *frontier,
             current_root: persisted_root,
             appended_roots: Vec::new(),
         });
@@ -1445,14 +1590,18 @@ pub fn append_confidential_tree_frontier_v2(
     })
 }
 /// Compute an exact V3 authentication path, including redundant checked nodes.
+///
+/// # Errors
+///
+/// Returns an error if the leaf index is outside the fixed tree capacity, the commitment count
+/// exceeds capacity, or any supplied commitment is zero or noncanonical.
 pub fn compute_confidential_merkle_path_v3(
     commitments: &[[u8; 32]],
     leaf_index: usize,
 ) -> Result<ConfidentialMerklePathV2, String> {
     if leaf_index >= CONFIDENTIAL_TREE_CAPACITY_V2 {
         return Err(format!(
-            "leaf_index must be < {} for confidential V3 proofs",
-            CONFIDENTIAL_TREE_CAPACITY_V2
+            "leaf_index must be < {CONFIDENTIAL_TREE_CAPACITY_V2} for confidential V3 proofs"
         ));
     }
     validate_confidential_tree_len_v3(commitments)?;
@@ -1493,6 +1642,13 @@ pub fn compute_confidential_merkle_path_v3(
     })
 }
 /// Derive the next empty-leaf path from a supplied current root and path.
+///
+/// # Errors
+///
+/// Returns an error if the next index overflows or is outside capacity, the
+/// previous commitment is zero or noncanonical, its supplied path has invalid
+/// shape, scalars, directions, witness nodes or root binding, or the derived
+/// empty-leaf path does not authenticate `root_hint`.
 pub fn derive_confidential_next_zero_path_v2(
     previous_leaf_commitment: [u8; 32],
     previous_leaf_index: usize,
@@ -1526,14 +1682,14 @@ pub fn derive_confidential_next_zero_path_v2(
     let mut siblings = Vec::with_capacity(CONFIDENTIAL_TREE_DEPTH_V2);
     let mut directions = Vec::with_capacity(CONFIDENTIAL_TREE_DEPTH_V2);
     let mut witness_nodes = Vec::with_capacity(CONFIDENTIAL_TREE_DEPTH_V2);
-    for level in 0..CONFIDENTIAL_TREE_DEPTH_V2 {
+    for (level, &zero_subtree) in zero_subtrees
+        .iter()
+        .take(CONFIDENTIAL_TREE_DEPTH_V2)
+        .enumerate()
+    {
         let previous_subtree_index = previous_leaf_index >> level;
         let next_subtree_index = next_leaf_index >> level;
-        let direction = if next_subtree_index.is_multiple_of(2) {
-            0
-        } else {
-            1
-        };
+        let direction = u8::from(!next_subtree_index.is_multiple_of(2));
         let sibling = if next_subtree_index == previous_subtree_index {
             scalar_from_repr(previous_path.siblings[level]).ok_or_else(|| {
                 format!(
@@ -1543,7 +1699,7 @@ pub fn derive_confidential_next_zero_path_v2(
         } else if direction == 1 && next_subtree_index == previous_subtree_index + 1 {
             previous_node
         } else {
-            zero_subtrees[level]
+            zero_subtree
         };
         node = if direction == 0 {
             merkle_parent_v3(node, sibling)
@@ -1595,6 +1751,12 @@ pub struct ConfidentialSequentialAppendPathsV3 {
     pub next_zero_path: ConfidentialMerklePathV2,
 }
 /// Recompute and validate one canonical empty-leaf frontier against its supplied root.
+///
+/// # Errors
+///
+/// Returns an error for an out-of-capacity index, invalid path dimensions,
+/// noncanonical siblings, nonboolean or index-inconsistent directions,
+/// inconsistent witness nodes, or a path that does not prove its supplied root.
 pub fn validate_confidential_next_zero_path_v3(
     next_zero_leaf_index: usize,
     next_zero_path: &ConfidentialMerklePathV2,
@@ -1608,6 +1770,12 @@ pub fn validate_confidential_next_zero_path_v3(
     )
 }
 /// Recompute and validate one non-empty commitment membership path against its supplied root.
+///
+/// # Errors
+///
+/// Returns an error for a zero or noncanonical commitment, an out-of-capacity
+/// index, invalid path dimensions or scalar encodings, inconsistent directions
+/// or witness nodes, or a path that does not prove its supplied root.
 pub fn validate_confidential_membership_path_v3(
     commitment: [u8; 32],
     leaf_index: usize,
@@ -1679,6 +1847,13 @@ fn replace_confidential_path_leaf_v3(
 /// The supplied path must prove the canonical empty leaf at `next_zero_leaf_index`. Outputs are
 /// inserted consecutively, and every returned membership path is rebound to the final root. This
 /// is the only supported local derivation for ABI-21 output-membership witnesses.
+///
+/// # Errors
+///
+/// Returns an error unless there are one or two canonical nonzero outputs
+/// and a valid empty-leaf frontier. Also rejects index overflow, exhausted
+/// capacity, discontinuous derived frontiers, invalid derived path nodes, or
+/// output paths that do not converge on the same final root.
 pub fn derive_confidential_sequential_append_paths_v3(
     next_zero_leaf_index: usize,
     next_zero_path: &ConfidentialMerklePathV2,
@@ -1812,7 +1987,7 @@ pub(super) fn normalize_supplied_confidential_merkle_path_v2(
             return Err(format!("{context} direction[{level}] must be 0 or 1"));
         }
         if let Some(index) = current_index.as_mut() {
-            let expected = if index.is_multiple_of(2) { 0 } else { 1 };
+            let expected = u8::from(!index.is_multiple_of(2));
             if direction != expected {
                 return Err(format!(
                     "{context} direction[{level}] does not match leaf_index"

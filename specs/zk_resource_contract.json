@@ -7582,7 +7582,7 @@
     {
       "id": "work_budget.fastpq_native_maintenance_invocations",
       "group": "work_budget",
-      "what": "Separately reserved native-maintenance entries of one block (the bounded SNS auto-renew sweep); they cannot borrow trigger or governance capacity.",
+      "what": "Separately reserved native-maintenance entries shared by the bounded SNS auto-renew and retail idle sweeps. Retail admits at most half, alternating the odd slot by block height; unused capacity remains available to SNS. Exact original receipt purposes cannot borrow trigger or governance capacity.",
       "unit": "count",
       "value": 64,
       "source": "committed",
@@ -15067,7 +15067,7 @@
         ]
       },
       {
-        "reason": "Per-instruction shape limits of product instructions (Parliament sortition batch, MUSUBI pin outbox frames, atomic settlement movements, SoraFS release manifest, election options, pin-allocation fees and frame). Each bounds one instruction of its product; that instruction travels in a transaction bounded by transaction.max_tx_bytes and transaction.max_instructions. The delivery plan assigns these bounds to their product owners.",
+        "reason": "Per-instruction shape limits of product instructions (Parliament sortition batch, MUSUBI pin outbox frames, atomic settlement movements and escrow legs, SoraFS release manifest, election options, pin-allocation fees and frame). Each bounds one instruction of its product; that instruction travels in a transaction bounded by transaction.max_tx_bytes and transaction.max_instructions. The delivery plan assigns these bounds to their product owners.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/isi/governance/parliament.rs",
@@ -15092,9 +15092,11 @@
           {
             "path": "crates/iroha_data_model/src/isi/settlement/atomic.rs",
             "symbols": [
+              "ATOMIC_SETTLEMENT_MAX_ESCROWS",
               "ATOMIC_SETTLEMENT_MAX_MOVEMENTS"
             ],
             "exprs": {
+              "ATOMIC_SETTLEMENT_MAX_ESCROWS": "16",
               "ATOMIC_SETTLEMENT_MAX_MOVEMENTS": "255"
             }
           },
@@ -20624,10 +20626,10 @@
           {
             "path": "crates/iroha_data_model/src/isi/settlement/atomic.rs",
             "symbols": [
-              "ATOMIC_SETTLEMENT_MIN_MOVEMENTS"
+              "ATOMIC_SETTLEMENT_MIN_LEGS"
             ],
             "exprs": {
-              "ATOMIC_SETTLEMENT_MIN_MOVEMENTS": "1"
+              "ATOMIC_SETTLEMENT_MIN_LEGS": "1"
             }
           },
           {
@@ -23034,6 +23036,24 @@
             }
           },
           {
+            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs",
+            "symbols": [
+              "KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1": "ExecutionOutputPolicyV1::bootstrap().max_output_bytes as usize",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": "16 * 1024",
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1": "MAX_COMMIT_CERTIFICATE_BYTES_V1 + KAGEMUSHA_WALLET_LEDGER_OUTPUT_MAX_BYTES_V1 + KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1"
+            },
+            "term_of": {
+              "KAGEMUSHA_WALLET_LEDGER_FINALITY_FRAMING_BYTES_V1": [
+                "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs: KAGEMUSHA_WALLET_LEDGER_FINALITY_MAX_BYTES_V1"
+              ]
+            }
+          },
+          {
             "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
             "symbols": [
               "KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1"
@@ -23512,6 +23532,26 @@
             }
           }
         ]
+      },
+      {
+        "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs",
+        "reason": "Capacity of the descriptor memo of one KAGEMUSHA producer-inventory qualification: a process-local cache, created empty by that qualification and dropped when it returns, of canonical circuit-descriptor decodes keyed by the content address and the exact bytes of an original that has just passed its bounded read, length, SHA-256 and custody checks. A miss or a full memo decodes afresh; it never changes a verdict, is never persisted and grants no authority. It bounds producer memory, not bytes that travel.",
+        "symbols": [
+          "DESCRIPTOR_MEMO_MAX_ENTRIES"
+        ],
+        "exprs": {
+          "DESCRIPTOR_MEMO_MAX_ENTRIES": "64"
+        }
+      },
+      {
+        "path": "crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/operation/session.rs",
+        "reason": "Memory budget that sizes the worker count of one KAGEMUSHA producer-inventory route stage. Route workers start only while the signed, declared extents of every original their routes read (the Omega and terminal metadata, and each A and W member's metadata and complete original, each read refused unless it has exactly that extent) fit under it together; there is never more than one worker per route or rayon pool thread and always at least one, so a route above it still qualifies alone, as with one worker. It schedules process-local work only: the qualified routes, the reported lowest-index error, the progress events and the counted opening work equal those of the one-worker index order, so it never changes a verdict, is never persisted and grants no authority. It bounds producer memory, not bytes that travel.",
+        "symbols": [
+          "ROUTE_WORKERS_MEMORY_BUDGET_BYTES"
+        ],
+        "exprs": {
+          "ROUTE_WORKERS_MEMORY_BUDGET_BYTES": "32 << 20"
+        }
       },
       {
         "reason": "Nexus/AMX context projection: the 1 MiB cap bounds the canonical policy-context preimage, while the other limit-named constants are string field tags, not numeric limits. The committed policy fields have their own listed owners and this context does not enlarge any carrier allowance.",
@@ -24320,6 +24360,33 @@
           "PRODUCER_MAX_SOURCE_ENTRIES": "nonzero!(65_536_u32)",
           "PRODUCER_MAX_SOURCE_STATEMENTS": "nonzero!(16_384_u32)"
         }
+      },
+      {
+        "reason": "Field ceilings of registered bond terms, checked by `BondTerms::validate` when `RegisterBond` is admitted (specs/finance/bond_ops.md, section 1): the number of scheduled cash flows of one bond, the ISO 6166 ISIN, ISO 10962 CFI and ISO 17442 LEI identifier lengths, the BDT version label length, and the longest payment grace period (366 days, with its day length as a term). They bound one record of the bond product, which travels in one instruction bounded by transaction.max_tx_bytes and transaction.max_instructions; recording is paged by the separately named page size, so none of them sizes a quantity on the path.",
+        "path": "crates/iroha_data_model/src/bond.rs",
+        "symbols": [
+          "BOND_MAX_CASHFLOWS",
+          "BOND_MAX_PAYMENT_GRACE_MS",
+          "BOND_ISIN_MAX_LEN",
+          "BOND_CFI_MAX_LEN",
+          "BOND_LEI_MAX_LEN",
+          "BOND_BDT_VERSION_MAX_LEN",
+          "MS_PER_DAY"
+        ],
+        "exprs": {
+          "BOND_MAX_CASHFLOWS": "400",
+          "BOND_MAX_PAYMENT_GRACE_MS": "366 * MS_PER_DAY",
+          "BOND_ISIN_MAX_LEN": "12",
+          "BOND_CFI_MAX_LEN": "6",
+          "BOND_LEI_MAX_LEN": "20",
+          "BOND_BDT_VERSION_MAX_LEN": "32",
+          "MS_PER_DAY": "86_400_000"
+        },
+        "term_of": {
+          "MS_PER_DAY": [
+            "crates/iroha_data_model/src/bond.rs: BOND_MAX_PAYMENT_GRACE_MS"
+          ]
+        }
       }
     ],
     "literals": {
@@ -24621,7 +24688,8 @@
             {
               "path": "crates/iroha_torii/src/kagemusha_wallet.rs",
               "sites": {
-                "height < 2": 1
+                "height < 2": 1,
+                "height.get() >= 2": 1
               }
             },
             {
@@ -26344,6 +26412,13 @@
               }
             },
             {
+              "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/ledger_finality.rs",
+              "sites": {
+                "self.inclusion.entry_proof.audit_path().len() > 32": 1,
+                "self.inclusion.output_proof.audit_path().len() > 32": 1
+              }
+            },
+            {
               "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
               "sites": {
                 "self.event_proof.audit_path().len() > 32": 1
@@ -26390,7 +26465,8 @@
               "path": "crates/iroha_torii/src/kagemusha_wallet.rs",
               "sites": {
                 "app.torii_proxy_max_response_bytes.min(bytes / 16)": 1,
-                "maximum.min(512)": 1
+                "maximum.min(512)": 1,
+                ".torii_proxy_max_response_bytes .min(bytes / 16)": 1
               }
             },
             {
@@ -27416,6 +27492,20 @@
               "path": "crates/iroha_core/src/fastpq/lane/producer.rs",
               "sites": {
                 "self.height.max(2)": 2
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Civil-calendar arithmetic of the bond schedule (`days_from_civil` and its inverse): months are shifted so that the computational year starts in March, and the shift selects the year of January and February. They compute dates and bound no size, count or work.",
+          "files": [
+            {
+              "path": "crates/iroha_data_model/src/bond.rs",
+              "sites": {
+                "mp < 10": 1,
+                "m <= 2": 1,
+                "month <= 2": 1,
+                "month > 2": 1
               }
             }
           ]

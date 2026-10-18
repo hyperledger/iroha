@@ -321,9 +321,68 @@ class ParliamentApiV1Test {
         listOf(
             subject("parameters", null),
             subject("light_client", bscMainnet()),
-            subject("bridge_key_fault", "ea0130" + "AB".repeat(48)),
+            subject("forgery_hold", bscMainnet()),
         ).forEach { replacement ->
             ParliamentApiV1.Proposal.fromJson(sccpProposal { it.putAll(replacement) })
+        }
+
+        // Native typed bodies and exact action-to-subject coverage remain separate.
+        // Every current tag must survive the canonical SDK's closed envelope decoder.
+        for (action in listOf(
+            "register_route", "activate_revision", "switch_revision", "deactivate_outbound",
+            "retire_revision", "remove_staged", "release_stranded", "set_taira_paused",
+            "set_destination_paused", "initialize_light_client", "install_trusted_checkpoint",
+            "freeze_light_client", "set_parameters", "activate_light_client_profile",
+            "attest_deployment_progress", "quarantine_revision", "open_reconciliation",
+            "set_fast_pause_suspended",
+        )) {
+            ParliamentApiV1.Proposal.fromJson(sccpProposal {
+                it["actions"] = listOf(linkedMapOf("action" to action, "payload" to linkedMapOf<String, Any?>()))
+            })
+            for (payload in listOf(null, emptyList<Any?>(), "object", true, 0)) {
+                assertFailsWith<IllegalArgumentException>("accepted $action with payload $payload") {
+                    ParliamentApiV1.Proposal.fromJson(sccpProposal {
+                        it["actions"] = listOf(linkedMapOf("action" to action, "payload" to payload))
+                    })
+                }
+            }
+            for (entry in listOf(
+                linkedMapOf("action" to action),
+                linkedMapOf("action" to action, "payload" to linkedMapOf<String, Any?>(), "extra" to 0),
+            )) {
+                assertFailsWith<IllegalArgumentException>("accepted action envelope $entry") {
+                    ParliamentApiV1.Proposal.fromJson(sccpProposal { it["actions"] = listOf(entry) })
+                }
+            }
+        }
+        for (kind in listOf("route", "route_control", "light_client", "forgery_hold", "fast_hold", "fast_pause_control")) {
+            for (network in listOf("ethereum_mainnet", "bsc_mainnet", "ton_mainnet")) {
+                ParliamentApiV1.Proposal.fromJson(sccpProposal {
+                    it.putAll(subject(kind, linkedMapOf("network" to network, "profile" to null)))
+                })
+            }
+            for (key in listOf(
+                null, "ea0130", emptyMap<String, Any?>(),
+                linkedMapOf("network" to "sora_taira", "profile" to null),
+                linkedMapOf("network" to "tron_mainnet", "profile" to null),
+                linkedMapOf("network" to "bsc_mainnet", "profile" to "default"),
+                linkedMapOf("network" to "bsc_mainnet"),
+                linkedMapOf("network" to "bsc_mainnet", "profile" to null, "extra" to 0),
+            )) {
+                assertFailsWith<IllegalArgumentException>("accepted $kind coordinate $key") {
+                    ParliamentApiV1.Proposal.fromJson(sccpProposal { it.putAll(subject(kind, key)) })
+                }
+            }
+            for (coordinate in listOf(
+                linkedMapOf("subject" to kind),
+                linkedMapOf("subject" to kind, "key" to bscMainnet(), "extra" to 0),
+            )) {
+                assertFailsWith<IllegalArgumentException>("accepted subject envelope $coordinate") {
+                    ParliamentApiV1.Proposal.fromJson(sccpProposal {
+                        it["base_revisions"] = listOf(linkedMapOf("subject" to coordinate, "revision" to 0))
+                    })
+                }
+            }
         }
 
         val rejected = listOf<(MutableMap<String, Any?>) -> Unit>(
@@ -346,6 +405,7 @@ class ParliamentApiV1Test {
                 )
             },
             { it.putAll(subject("bridge_key_fault", "ea0130" + "ab".repeat(48))) },
+            { it.putAll(subject("bridge_key_fault", "ea0130" + "AB".repeat(48))) },
             {
                 it.putAll(
                     subject(
@@ -357,6 +417,11 @@ class ParliamentApiV1Test {
             {
                 it["actions"] = listOf(
                     linkedMapOf("action" to "Remove", "payload" to linkedMapOf<String, Any?>()),
+                )
+            },
+            {
+                it["actions"] = listOf(
+                    linkedMapOf("action" to "clear_bridge_key_fault", "payload" to linkedMapOf<String, Any?>()),
                 )
             },
             {

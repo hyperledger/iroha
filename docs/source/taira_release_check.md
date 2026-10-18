@@ -133,8 +133,13 @@ provide no release qualification or independent-checkpoint credit. Authenticated
 The source census includes charged Concread notification custody and the current
 native State source, recorded-execution and allocation owners. Archive refusal,
 retained dispatch and publication controls remain selected under their owning
-modules. Exact selector checks also bind staking's atomic failed-payout control
-and Kagami's permissioned-genesis prohibition on additional XOR minting.
+modules. The reviewed native inventory also requires original proof-admission
+refusal and retry, nonmutating quota preflight, exact Queue admission identity,
+execution-result binding and publication refusal, and the current SCCP beacon
+and due-work policy controls. Missing declarations, extra unreviewed declarations
+and same-count selector replacements fail before native execution.
+Exact selector checks also bind staking's atomic failed-payout control and
+Kagami's permissioned-genesis prohibition on additional XOR minting.
 Before peers start, both scopes verify that only the original fixture launch may
 assert fresh consensus signing keys; restart cannot repeat that assertion.
 The generic test-network harness also rejects this assertion after history loss.

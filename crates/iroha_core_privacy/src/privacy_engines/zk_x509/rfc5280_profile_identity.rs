@@ -1,7 +1,7 @@
 //! Bind closed-profile choices to authenticated extension ordinals and documents.
 //!
 //! Byte-table membership alone does not select the OID appropriate to an
-//! original extension ordinal, or the KeyUsage appropriate to a leaf or CA.
+//! original extension ordinal, or the `KeyUsage` appropriate to a leaf or CA.
 //! These equations use the original grammar/node identity, with exact zero-safe
 //! classifications and no new public witness metadata.
 use super::*;

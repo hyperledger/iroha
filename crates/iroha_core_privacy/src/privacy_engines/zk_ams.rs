@@ -984,7 +984,7 @@ fn finalize_zk_ams_prepared_action_v1(
         encoded_proof_envelope_bytes,
     };
     validate_zk_ams_payload_integrity_v1(&prepared.payload, prepared.integrity())
-        .map_err(|_| ZkAmsPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+        .map_err(|()| ZkAmsPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     Ok(prepared)
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -1137,7 +1137,7 @@ pub fn sign_prepared_zk_ams_privacy_action_v1(
     validate_zk_ams_signing_authority_v1(prepared.payload.authority(), private_key)?;
     let integrity = prepared.integrity();
     validate_zk_ams_payload_integrity_v1(&prepared.payload, integrity)
-        .map_err(|_| ZkAmsPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
+        .map_err(|()| ZkAmsPrivacyActionBuildErrorV1::PreparedPayloadDrift)?;
     let signed_transaction = TransactionBuilder::from_payload(prepared.payload)
         .map_err(|_| ZkAmsPrivacyActionIntentErrorV1::InvalidTransactionContext)?
         .try_sign(private_key)
@@ -1154,7 +1154,7 @@ pub fn sign_prepared_zk_ams_privacy_action_v1(
             _ => ZkAmsPrivacyActionBuildErrorV1::TransactionSigning,
         })?;
     validate_zk_ams_payload_integrity_v1(signed_transaction.payload(), integrity)
-        .map_err(|_| ZkAmsPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
+        .map_err(|()| ZkAmsPrivacyActionBuildErrorV1::SignedIntentMismatch)?;
     let transaction_hash = *signed_transaction.hash().as_ref();
     let adaptive_signed_transaction_bytes =
         u32::try_from(norito::codec::encode_adaptive(&signed_transaction).len())

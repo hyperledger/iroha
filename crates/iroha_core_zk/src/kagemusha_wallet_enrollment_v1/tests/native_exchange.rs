@@ -36,14 +36,28 @@ use std::{
 
 #[path = "native_exchange/archive.rs"]
 mod archive;
+#[path = "native_exchange/controls.rs"]
+mod controls;
+#[path = "native_exchange/fee.rs"]
+mod fee;
+#[path = "native_exchange/fee_confirmation.rs"]
+mod fee_confirmation;
 #[path = "native_exchange/load.rs"]
 mod load;
 #[path = "native_exchange/load_seam.rs"]
 mod load_seam;
+#[path = "native_exchange/message_census.rs"]
+mod message_census;
 #[path = "native_exchange/network_settlement.rs"]
 mod network_settlement;
+#[path = "native_exchange/omega_replay.rs"]
+mod omega_replay;
+#[path = "native_exchange/online_charge.rs"]
+mod online_charge;
 #[path = "native_exchange/proof_negative.rs"]
 mod proof_negative;
+#[path = "native_exchange/send_recovery.rs"]
+mod send_recovery;
 #[path = "native_exchange/settlement.rs"]
 mod settlement;
 #[path = "native_exchange/setup.rs"]
@@ -323,6 +337,13 @@ fn complete(result: Completion) -> Vec<u8> {
     };
     bytes
 }
+/// Run one coordinator call; return its result and the native derivations it started
+/// before Advance (B13: two for a fresh operation, none once Advance has selected it).
+fn derived<T>(call: impl FnOnce() -> T) -> (T, u64) {
+    let (result, counts) =
+        crate::kagemusha_wallet_preparation_v1::KagemushaWalletDerivationCountsV1::observe(call);
+    (result, counts.before_advance)
+}
 fn action(id: u8, action: OperationActionV1) -> OperationRequestV1 {
     OperationRequestV1 {
         request_id: [id; 32],
@@ -331,19 +352,135 @@ fn action(id: u8, action: OperationActionV1) -> OperationRequestV1 {
 }
 fn fold(wallet: &mut Wallet) {
     wallet.scheduler().set_activity(true, false);
+    // D6b on every genuine fold of these flows (deploy-pipeline §7.4 tests 1 and 10, reviews
+    // G4, G9 and K6). A sub-proof that derives its step's inputs cold restores the whole
+    // durable list; every later sub-proof of that step in this loop resumes warm: it restores
+    // only the checkpoint its predecessor published, draws no σ coins, prepares σ again only
+    // after a predecessor whose σ came from fresh coins (from durable checkpoint 0), and
+    // verifies no Ω, except that the warm Ω turn verifies the new Ω exactly once, as the
+    // coordinator's check. For a step folded from its first sub-proof here, that is k
+    // restores and one derivation. No turn may reach a prove-time refusal of an admitted
+    // state, which the locked prepare makes unreachable (DEC-18 review r1). Per step: whether
+    // its last sub-proof drew fresh σ coins.
+    let mut warm = std::collections::BTreeMap::<u128, bool>::new();
     // Fixed operation schedules are bounded; a broken scheduler must fail, not spin forever.
     for _ in 0..1024 {
-        let result = wallet.fold_once().unwrap();
-        eprintln!("NATIVE_EXCHANGE_FOLD {result:?}");
+        let ((result, retention), verified) =
+            crate::kagemusha_wallet_proofs_v1::KagemushaWalletVerificationCountsV1::observe(|| {
+                state::FoldRetentionCountsV1::observe(|| wallet.fold_once())
+            });
+        assert_eq!(
+            retention.refusals, 0,
+            "an admitted retained state was refused at prove time: {result:?} {retention:?}"
+        );
+        let result = result.unwrap();
+        eprintln!("NATIVE_EXCHANGE_FOLD {result:?} {retention:?}");
         if result == FoldStatus::CaughtUp {
             let snapshot = wallet.snapshot().unwrap();
             assert_eq!(snapshot.fold_backlog, 0);
             assert_eq!(snapshot.folded_balance, Some(snapshot.owned_balance));
             return;
         }
-        assert_ne!(result, FoldStatus::Idle);
+        let (sequence, durable) = match result {
+            FoldStatus::Checkpoint { sequence, ordinal } => (sequence, Some(ordinal)),
+            FoldStatus::Folded(sequence) => (sequence, None),
+            FoldStatus::Idle | FoldStatus::CaughtUp => panic!("unexpected fold status {result:?}"),
+        };
+        if retention.derivations + retention.warm == 0 {
+            // An adopted interrupted publication prepares and restores nothing.
+            assert_eq!(retention.restores, 0);
+            continue;
+        }
+        if retention.derivations == 1 {
+            assert_eq!((retention.warm, retention.resumes), (0, 0), "{retention:?}");
+            assert!(
+                !warm.contains_key(&sequence),
+                "a warm chain derives its step's inputs once: {retention:?}"
+            );
+            if let Some(durable) = durable {
+                assert_eq!(
+                    retention.restores,
+                    u64::from(durable),
+                    "a cold sub-proof restores its whole durable list"
+                );
+            }
+        } else {
+            assert_eq!(
+                (retention.derivations, retention.warm),
+                (0, 1),
+                "{retention:?}"
+            );
+            assert!(retention.resumes <= 1, "{retention:?}");
+            assert_eq!(
+                retention.restores, 1,
+                "a warm sub-proof restores only its predecessor's checkpoint"
+            );
+            assert_eq!(
+                retention.fresh_sigmas, 0,
+                "a warm sub-proof draws no σ coins"
+            );
+            if let Some(&fresh) = warm.get(&sequence) {
+                assert_eq!(
+                    retention.sigmas,
+                    u64::from(fresh),
+                    "σ from fresh coins is never retained; any other σ is"
+                );
+            }
+            assert_eq!(
+                verified.verify_lineage,
+                u64::from(durable.is_none()),
+                "a warm sub-proof verifies no Ω but its new one, exactly once"
+            );
+        }
+        warm.insert(sequence, retention.fresh_sigmas == 1);
     }
     panic!("bounded native fold schedule did not complete");
+}
+/// Deploy-pipeline §7.4 tests 4 and 11 and reviews T2/K14 through the genuine worker: after a
+/// step's first sub-proof, one bit of the retained preparation identity in the ready value's
+/// key is flipped (the test hook of §7.4 test 11), so the next sub-proof must take the same
+/// call's cold path: one derivation, its whole durable list restored, no resume and no
+/// refusal. `fold` then completes the step warm from the cold turn's retention, and its Ω turn
+/// verifies the new Ω once. Used for C's Bootstrap in the A to B to C flow; A's Bootstrap in
+/// the target export and B's in that flow fold unchanged.
+fn fold_after_a_changed_key(wallet: &mut Wallet) {
+    wallet.scheduler().set_activity(true, false);
+    let (first, retention) = state::FoldRetentionCountsV1::observe(|| wallet.fold_once());
+    eprintln!("NATIVE_EXCHANGE_FOLD {first:?} {retention:?}");
+    assert_eq!(retention.refusals, 0, "{retention:?}");
+    let first = first.unwrap();
+    let FoldStatus::Checkpoint { sequence, .. } = first else {
+        panic!("a step starts with a durable sub-proof: {first:?}");
+    };
+    assert!(
+        wallet
+            .scheduler()
+            .change_ready_for_test(state::perturb_retained_key_for_test),
+        "a checkpoint publication leaves a ready retained state"
+    );
+    let (result, retention) = state::FoldRetentionCountsV1::observe(|| wallet.fold_once());
+    eprintln!("NATIVE_EXCHANGE_FOLD changed-key {result:?} {retention:?}");
+    assert_eq!(retention.refusals, 0, "{retention:?}");
+    let result = result.unwrap();
+    let FoldStatus::Checkpoint {
+        sequence: next,
+        ordinal,
+    } = result
+    else {
+        panic!("the step continues with a durable sub-proof: {result:?}");
+    };
+    assert_eq!(next, sequence);
+    assert_eq!(
+        (retention.derivations, retention.warm, retention.resumes),
+        (1, 0, 0),
+        "a changed key takes the same call's cold path: {retention:?}"
+    );
+    assert_eq!(
+        retention.restores,
+        u64::from(ordinal),
+        "the cold path restores the whole durable list"
+    );
+    fold(wallet);
 }
 
 const SOURCE_PINS: [&str; 7] = [
@@ -380,7 +517,7 @@ fn executable_hash() -> String {
 }
 
 #[test]
-#[ignore = "requires the genuine complete52 source grant; exports a target, never a finalized receipt"]
+#[ignore = "requires the genuine complete22 source grant; exports a target, never a finalized receipt"]
 fn export_actual_a_load_target_with_retained_native_custody() {
     let output = fresh_output("KAGEMUSHA_NATIVE_LOAD_TARGET_OUTPUT");
     let sources = Sources::admit(&output.join("source-admission"));
@@ -573,7 +710,7 @@ fn require_payment_bound(bytes: &[u8], scheme: &[u8; 32]) {
 }
 
 #[test]
-#[ignore = "requires exported SAME A custody, genuine full52 grant and an independently pinned finalized Load for its exact target"]
+#[ignore = "requires exported SAME A custody, genuine full22 grant and an independently pinned finalized Load for its exact target"]
 fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let output = fresh_output("KAGEMUSHA_NATIVE_EXCHANGE_OUTPUT");
     let sources = Sources::requalify(&output.join("source-admission"));
@@ -683,14 +820,19 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let f_c = sources.fixture(&setup, 2);
     let device_b = HostDevice::create(&output.join("wallet-b"), 89);
     let frames_b = device_b.enroll(&f_b);
+    device_b.save_simulator();
+    retain_frames(&device_b, &frames_b);
     let mut b = sources.open(&device_b, &f_b, &frames_b);
     complete(b.bootstrap().unwrap());
     fold(&mut b);
     let device_c = HostDevice::create(&output.join("wallet-c"), 97);
     let frames_c = device_c.enroll(&f_c);
+    device_c.save_simulator();
+    retain_frames(&device_c, &frames_c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
     complete(c.bootstrap().unwrap());
-    fold(&mut c);
+    // B's Bootstrap above folds unchanged; C's runs one sub-proof through a changed key.
+    fold_after_a_changed_key(&mut c);
     assert_ne!(
         a.snapshot().unwrap().wallet_id,
         b.snapshot().unwrap().wallet_id
@@ -711,14 +853,95 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     device_a
         .platform
         .with(|state| state.sign_fault_at = Some(state.sign_calls));
+    let (pending, derivations) = derived(|| a.execute(send_ab.clone()).unwrap());
     assert_eq!(
-        a.execute(send_ab.clone()).unwrap(),
+        pending,
         Completion::Pending,
         "post-Advance receipt-signing outage must never report a rejected debit"
     );
+    assert_eq!(
+        derivations, 2,
+        "fresh Send: plan reused through proving, then commit"
+    );
     drop(a);
     let mut a = sources.open(&device_a, &f, &frames_a);
-    let payment_ab = complete(a.execute(send_ab.clone()).unwrap());
+    assert_eq!(
+        derived(|| a.execute(send_ab.clone()).unwrap()),
+        (Completion::Pending, 0)
+    );
+    let payment_ab = complete(a.resume().unwrap().expect("selected Send remains pending"));
+    finish_exchange(
+        output,
+        sources,
+        setup,
+        target_bytes,
+        [
+            Participant {
+                wallet: a,
+                device: device_a,
+                fixture: f,
+                frames: frames_a,
+            },
+            Participant {
+                wallet: b,
+                device: device_b,
+                fixture: f_b,
+                frames: frames_b,
+            },
+            Participant {
+                wallet: c,
+                device: device_c,
+                fixture: f_c,
+                frames: frames_c,
+            },
+        ],
+        send_ab,
+        payment_ab,
+    );
+}
+
+struct Participant {
+    wallet: Wallet,
+    device: HostDevice,
+    fixture: Fixture,
+    frames: [Vec<u8>; 4],
+}
+
+fn retain_frames(device: &HostDevice, frames: &[Vec<u8>; 4]) {
+    for (name, bytes) in FRAME_NAMES.into_iter().zip(frames) {
+        publish(&device.root.join(name), bytes);
+    }
+}
+
+fn finish_exchange(
+    output: PathBuf,
+    sources: Sources,
+    setup: LedgerSetup,
+    target_bytes: Vec<u8>,
+    participants: [Participant; 3],
+    send_ab: OperationRequestV1,
+    payment_ab: Vec<u8>,
+) {
+    let [
+        Participant {
+            wallet: mut a,
+            device: device_a,
+            fixture: f,
+            frames: frames_a,
+        },
+        Participant {
+            wallet: mut b,
+            device: device_b,
+            fixture: f_b,
+            frames: frames_b,
+        },
+        Participant {
+            wallet: mut c,
+            device: device_c,
+            fixture: f_c,
+            frames: frames_c,
+        },
+    ] = participants;
     require_payment_bound(&payment_ab, &f.config.scheme.scheme_id());
     assert_eq!(
         a.snapshot().unwrap().owned_balance,
@@ -747,14 +970,15 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         before_invalid,
         "invalid incoming proof cannot credit"
     );
-    let receive_ab = receive(&payment_ab, &frames_a, 213);
-    let received_ab = complete(b.execute(receive_ab.clone()).unwrap());
+    let incoming_ab = receive(&payment_ab, &frames_a, 213);
+    let (received_ab, derivations) = derived(|| complete(b.execute(incoming_ab.clone()).unwrap()));
+    assert_eq!(derivations, 2, "fresh Receive");
     assert_eq!(
-        complete(b.execute(receive_ab.clone()).unwrap()),
-        received_ab
+        derived(|| complete(b.execute(incoming_ab.clone()).unwrap())),
+        (received_ab.clone(), 0)
     );
     let before_duplicate = b.snapshot().unwrap();
-    let mut duplicate = receive_ab.clone();
+    let mut duplicate = incoming_ab.clone();
     duplicate.request_id = [214; 32];
     assert!(
         b.execute(duplicate).is_err(),
@@ -808,7 +1032,8 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     assert!(b.execute(send_bc.clone()).is_err());
     device_b.platform.with(|s| s.storage = Ok(()));
     assert_eq!(b.snapshot().unwrap(), before);
-    let payment_bc = complete(b.execute(send_bc.clone()).unwrap());
+    let (payment_bc, derivations) = derived(|| complete(b.execute(send_bc.clone()).unwrap()));
+    assert_eq!(derivations, 2, "Send after a refused attempt");
     require_payment_bound(&payment_bc, &f.config.scheme.scheme_id());
     assert_eq!(complete(b.execute(send_bc).unwrap()), payment_bc);
     let receive_bc = receive(&payment_bc, &frames_b, 223);
@@ -816,9 +1041,47 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let signed = device_c.platform.with(|state| state.sign_calls);
     drop(c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
-    assert_eq!(complete(c.execute(receive_bc).unwrap()), received_bc);
+    assert_eq!(
+        complete(c.execute(receive_bc.clone()).unwrap()),
+        received_bc
+    );
     assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
     fold(&mut c);
+    // A fresh operation identity must not bypass permanent credit consumption after
+    // reopening fully folded receiver custody. FoldRequired is not a passing refusal.
+    let folded_c = c.snapshot().unwrap();
+    assert_eq!(folded_c.folded_balance, Some(LOAD_AMOUNT));
+    drop(c);
+    let mut c = sources.open(&device_c, &f_c, &frames_c);
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(
+        complete(c.execute(receive_bc.clone()).unwrap()),
+        received_bc
+    );
+    let mut duplicate_after_restart = receive_bc.clone();
+    duplicate_after_restart.request_id = [224; 32];
+    assert!(matches!(
+        c.execute(duplicate_after_restart),
+        Err(state::Error::Invalid(_))
+    ));
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
+    assert_eq!(complete(c.execute(receive_bc).unwrap()), received_bc);
+    assert_eq!(c.snapshot().unwrap(), folded_c);
+    assert_eq!(device_c.platform.with(|state| state.sign_calls), signed);
+    publish(
+        &output.join("receiver-fresh-id-replay-after-restart.json"),
+        &norito::json::to_vec(&norito::json!({
+            "schema": "iroha.kagemusha.reopened-receiver-credit-replay.v1",
+            "same_folded_custody_reopened": true,
+            "fresh_operation_id_refused_as_invalid": true,
+            "exact_receive_original_before_and_after_refusal": true,
+            "head_balance_and_sequence_unchanged": true,
+            "new_payment_signatures": 0,
+            "scope": "Actual same-C native host custody with genuine incoming Payment; simulated hardware. This component record does not assert physical restart, power-loss or the enclosing campaign terminal."
+        }))
+        .unwrap(),
+    );
     assert_eq!(
         a.snapshot().unwrap().owned_balance
             + b.snapshot().unwrap().owned_balance
@@ -840,7 +1103,10 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let credited_ab = credited(&received_ab);
     let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
     let status_bc = c
-        .credit_status(&bc.request.credit_id(), &bc.payment_digest().unwrap())
+        .credit_status(
+            &bc.signed_request().unwrap().body.credit_id(),
+            &bc.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(
         status_bc.lineage.public.wallet_id,
@@ -855,11 +1121,103 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let (reopened_b, archived_bc) =
         archive::exercise(b, &device_b, &sources, &f_b, &frames_b, &credited_bc);
     b = reopened_b;
+    finish_unload(
+        output,
+        sources,
+        setup,
+        target_bytes,
+        [
+            Participant {
+                wallet: a,
+                device: device_a,
+                fixture: f,
+                frames: frames_a,
+            },
+            Participant {
+                wallet: b,
+                device: device_b,
+                fixture: f_b,
+                frames: frames_b,
+            },
+            Participant {
+                wallet: c,
+                device: device_c,
+                fixture: f_c,
+                frames: frames_c,
+            },
+        ],
+        ExchangeOriginals {
+            payment_ab,
+            payment_bc,
+            received_ab,
+            received_bc,
+            credited_ab,
+            credited_bc,
+            archived_ab,
+            archived_bc,
+        },
+    );
+}
+
+struct ExchangeOriginals {
+    payment_ab: Vec<u8>,
+    payment_bc: Vec<u8>,
+    received_ab: Vec<u8>,
+    received_bc: Vec<u8>,
+    credited_ab: Vec<u8>,
+    credited_bc: Vec<u8>,
+    archived_ab: Vec<u8>,
+    archived_bc: Vec<u8>,
+}
+
+// Shared unchanged Unload/proof/conservation/export assertions. Entry requires both
+// independently verified Archive branches and their exact retained originals.
+fn finish_unload(
+    output: PathBuf,
+    sources: Sources,
+    setup: LedgerSetup,
+    target_bytes: Vec<u8>,
+    participants: [Participant; 3],
+    originals: ExchangeOriginals,
+) {
+    let [
+        Participant {
+            wallet: mut a,
+            device: _device_a,
+            fixture: f,
+            frames: _frames_a,
+        },
+        Participant {
+            wallet: mut b,
+            device: _device_b,
+            fixture: f_b,
+            frames: _frames_b,
+        },
+        Participant {
+            wallet: mut c,
+            device: device_c,
+            fixture: f_c,
+            frames: frames_c,
+        },
+    ] = participants;
+    let ExchangeOriginals {
+        payment_ab,
+        payment_bc,
+        received_ab,
+        received_bc,
+        credited_ab,
+        credited_bc,
+        archived_ab,
+        archived_bc,
+    } = originals;
     // B has an incoming credit, so its public status also exposes the final
     // pending-outgoing root after folding the independently verified C evidence.
     let ab: KagemushaWalletPaymentV1 = decode(&payment_ab);
     let b_status = b
-        .credit_status(&ab.request.credit_id(), &ab.payment_digest().unwrap())
+        .credit_status(
+            &ab.signed_request().unwrap().body.credit_id(),
+            &ab.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(
         b_status.lineage.public.pending_outgoing_root,
@@ -874,8 +1232,12 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         },
     );
     let unload_id = unload.request_id;
-    let unloaded = complete(c.execute(unload.clone()).unwrap());
-    assert_eq!(complete(c.execute(unload).unwrap()), unloaded);
+    let (unloaded, derivations) = derived(|| complete(c.execute(unload.clone()).unwrap()));
+    assert_eq!(derivations, 2, "fresh Unload");
+    assert_eq!(
+        derived(|| complete(c.execute(unload).unwrap())),
+        (unloaded.clone(), 0)
+    );
     let claim_original = c.unload_claim_bytes(&unload_id, None).unwrap();
     drop(c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
@@ -896,7 +1258,7 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&claim.package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&claim.package, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(
         (payout.amount, payout.account_payout, payout.online_charge),
@@ -909,15 +1271,44 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
             + payout.account_payout,
         LOAD_AMOUNT
     );
+    let second_unload = action(
+        231,
+        OperationActionV1::Unload {
+            amount: 100,
+            charge: None,
+        },
+    );
+    let before_fold = c.snapshot().unwrap();
+    let before_second_unload_signs = device_c.platform.with(|state| state.sign_calls);
+    assert_eq!(before_fold.owned_balance, 0);
+    assert_eq!(before_fold.folded_balance, None);
+    assert!(matches!(
+        c.execute(second_unload.clone()),
+        Err(state::Error::FoldRequired)
+    ));
+    assert_eq!(c.snapshot().unwrap(), before_fold);
+    fold(&mut c);
+    let exhausted = c.snapshot().unwrap();
+    assert_eq!(exhausted.owned_balance, 0);
+    assert_eq!(exhausted.folded_balance, Some(0));
+    let outcome = c.execute(second_unload);
     assert!(
-        c.execute(action(
-            231,
-            OperationActionV1::Unload {
-                amount: 100,
-                charge: None
-            }
-        ))
-        .is_err()
+        matches!(
+            &outcome,
+            Err(state::Error::Proof(
+                "installed native operation preparation"
+            ))
+        ),
+        "positive Unload from the fully folded zero balance must fail native preparation: {outcome:?}"
+    );
+    assert_eq!(c.snapshot().unwrap(), exhausted);
+    assert_eq!(
+        device_c.platform.with(|state| state.sign_calls),
+        before_second_unload_signs
+    );
+    assert_eq!(
+        c.unload_claim_bytes(&unload_id, None).unwrap(),
+        claim_original
     );
     // Adversarial DATA uses the existing simulated C payment key outside the provider.
     // It never replaces the genuine released claim or performs another monetary operation.
@@ -943,6 +1334,12 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         &output.join("c-unload-bad-sigma-claim.norito"),
         &bad_sigma_claim,
     );
+    let message_envelopes = message_census::retain(
+        &output,
+        &sources,
+        [&payment_ab, &payment_bc],
+        [&credited_ab, &credited_bc],
+    );
     let archive_originals = [
         ("a-credited-receive.norito", credited_ab),
         ("b-credited-status.norito", credited_bc),
@@ -965,14 +1362,22 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     ] {
         publish(&output.join(name), &bytes);
     }
-    // Keep exactly C's existing test-only private platform key for the separate actual-ledger
-    // settlement consumer. Public continuation originals grant no new custody or authority.
-    device_c.save_simulator();
+    // C's key and open originals were retained before any transfer. Revalidate those exact
+    // originals for the separate consumer; never recreate custody after monetary execution.
+    let credential_c =
+        KagemushaWalletCredentialV1::decode_canonical(&frames_c[0], &f_c.config.scheme.scheme_id())
+            .unwrap();
+    let restored_c = HostDevice::restore(&device_c.root, &credential_c);
+    assert_eq!(restored_c.platform.with(|state| state.sign_calls), 0);
+    drop(restored_c);
     let c_open_originals = FRAME_NAMES
         .into_iter()
         .zip(&frames_c)
         .map(|(name, bytes)| {
-            publish(&device_c.root.join(name), bytes);
+            assert_eq!(
+                read_pin(&device_c.root.join(name), 32768, &sha(bytes)),
+                *bytes
+            );
             norito::json!({ "name": name, "bytes": (bytes.len()), "sha256": (sha(bytes)) })
         })
         .collect::<Vec<_>>();
@@ -984,12 +1389,14 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         "b_account_digest": (hex::encode(kagemusha_wallet_account_digest_v1(&f_b.account).unwrap())),
         "c_account_digest": (hex::encode(kagemusha_wallet_account_digest_v1(&f_c.account).unwrap())),
         "c_open_originals": c_open_originals,
+        "c_custody_root": (device_c.root.to_str().unwrap()),
         "c_wallet_id": (hex::encode(claim.credential.body.wallet_id)),
         "c_unload_request_id": (hex::encode(unload_id)),
         "c_unload_claim_sha256": (sha(&claim_original)),
         "c_unload_bad_sigma_claim": bad_sigma_original,
         "archive_receive_folded": true, "archive_status_folded": true,
         "archive_exact_replay_after_restart": true, "archive_originals": archive_originals,
+        "message_envelopes": message_envelopes,
         "ledger_settlement_executed": false, "physical_device_qualified": false,
         "scope": "Real installed proof source, finalized receipt proof, native host custody, exact replay and local folds; simulated hardware. Exported Unload claim still requires actual ledger execution and replay qualification." });
     publish(

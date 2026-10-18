@@ -117,6 +117,8 @@ mod json_helpers;
 
 mod json_key_codec;
 
+/// Native bond-servicing kernel records.
+pub mod bond;
 pub mod fee_evidence;
 mod json_object_key;
 /// Jurisdiction Data Guardian attestations and committee types.
@@ -326,6 +328,7 @@ pub mod prelude {
         alias_setup::*,
         asset::prelude::*,
         block::prelude::*,
+        bond::prelude::*,
         bridge::*,
         confidential::prelude::*,
         content::prelude::*,
