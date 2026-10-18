@@ -896,8 +896,16 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
             },
         ],
         send_ab,
-        payment_ab,
+        SendOriginals {
+            offer: offer_ab,
+            payment: payment_ab,
+        },
     );
+}
+
+struct SendOriginals {
+    offer: Vec<u8>,
+    payment: Vec<u8>,
 }
 
 struct Participant {
@@ -920,8 +928,19 @@ fn finish_exchange(
     target_bytes: Vec<u8>,
     participants: [Participant; 3],
     send_ab: OperationRequestV1,
-    payment_ab: Vec<u8>,
+    originals_ab: SendOriginals,
 ) {
+    let SendOriginals {
+        offer: offer_ab,
+        payment: payment_ab,
+    } = originals_ab;
+    let OperationActionV1::Send {
+        request: request_ab,
+    } = &send_ab.action
+    else {
+        panic!("retained A Send action required");
+    };
+    let request_ab = request_ab.clone();
     let [
         Participant {
             wallet: mut a,
@@ -997,7 +1016,7 @@ fn finish_exchange(
     let send_bc = action(
         222,
         OperationActionV1::Send {
-            request: request_bc,
+            request: request_bc.clone(),
         },
     );
     assert!(matches!(
@@ -1147,6 +1166,7 @@ fn finish_exchange(
             },
         ],
         ExchangeOriginals {
+            sessions: [[offer_ab, request_ab], [offer_bc, request_bc]],
             payment_ab,
             payment_bc,
             received_ab,
@@ -1160,6 +1180,7 @@ fn finish_exchange(
 }
 
 struct ExchangeOriginals {
+    sessions: [[Vec<u8>; 2]; 2],
     payment_ab: Vec<u8>,
     payment_bc: Vec<u8>,
     received_ab: Vec<u8>,
@@ -1201,6 +1222,7 @@ fn finish_unload(
         },
     ] = participants;
     let ExchangeOriginals {
+        sessions: [[offer_ab, request_ab], [offer_bc, request_bc]],
         payment_ab,
         payment_bc,
         received_ab,
@@ -1337,6 +1359,7 @@ fn finish_unload(
     let message_envelopes = message_census::retain(
         &output,
         &sources,
+        [(&offer_ab, &request_ab), (&offer_bc, &request_bc)],
         [&payment_ab, &payment_bc],
         [&credited_ab, &credited_bc],
     );

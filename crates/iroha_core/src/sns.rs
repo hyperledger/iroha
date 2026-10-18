@@ -1532,7 +1532,7 @@ pub fn seed_genesis_alias_bootstrap(
         let policy = policy.ok_or_else(|| {
             SnsError::BadRequest("private SNS bootstrap omits its signed fee policy".into())
         })?;
-        let payment_asset_id = policy.asset_definition_id.to_string();
+        let payment_asset_id = policy.fee_asset_id.to_string();
         // Prevalidate all present namespaces before inserting any absent policy. A partial
         // retained world with another currency must fail without creating mixed state.
         for namespace in [

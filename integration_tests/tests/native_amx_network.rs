@@ -13,8 +13,22 @@ fn autonomous_two_bank_paid_pvp_survives_all_root_restart_without_successor_traf
     let exchange = Exchange::start()?;
     let (transaction, approvals) = exchange.begin(300, 0xA1, false)?;
     let first = exchange.observe(&transaction, &approvals, AmxOutcomeV1::Commit, [true; 2])?;
-    let heights = exchange.quiescent_heights()?;
-    exchange.audit_fees(heights)?;
+    let heights = exchange.quiescent_fee_heights()?;
+    // A deliberately stale locator exercises the actual authenticated progress
+    // path without submitting any successor transaction or changing the final cut.
+    // Every root must authenticate its complete paid history before returning it.
+    exchange.runtime.block_on(async {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+        for (root, height) in exchange.roots.iter().zip(heights) {
+            ensure!(height > 2, "the paid exchange must follow bootstrap");
+            let cut = fees::audit(root, height - 1, deadline).await?;
+            ensure!(
+                cut == fees::FeeCut::Advanced { observed: height },
+                "a stale fee locator must return the exact independently authenticated cut"
+            );
+        }
+        Ok::<(), eyre::Report>(())
+    })?;
     for root in &exchange.roots {
         exchange.runtime.block_on(root.restart_all())?;
     }
@@ -72,8 +86,7 @@ fn autonomous_final_silent_bank_aborts_after_relay_restart_and_releases_original
     );
     exchange.resume_second_bank()?;
     exchange.observe(&transaction, &approvals, AmxOutcomeV1::Abort, [true; 2])?;
-    let after = exchange.quiescent_heights()?;
-    exchange.audit_fees(after)?;
+    let after = exchange.quiescent_fee_heights()?;
     ensure!(
         after[0] < transaction.deadline,
         "certified time closure must decide before height expiry"

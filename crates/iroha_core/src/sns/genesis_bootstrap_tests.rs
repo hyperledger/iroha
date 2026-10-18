@@ -80,6 +80,24 @@ fn private_genesis_seeds_signed_namespace_currency_before_global_defaults_withou
     );
     let mut world = World::default();
     seed_genesis_alias_bootstrap(&mut world, &block, &DataSpaceCatalog::default()).unwrap();
+    for namespace in [
+        SnsNamespace::AccountAlias,
+        SnsNamespace::Domain,
+        SnsNamespace::Dataspace,
+    ] {
+        let stored = policy_or_not_found(&world.view(), namespace.suffix_id()).unwrap();
+        for literal in std::iter::once(stored.payment_asset_id.as_str()).chain(
+            stored
+                .pricing
+                .iter()
+                .map(|tier| tier.base_price.asset_id.as_str()),
+        ) {
+            assert_eq!(
+                AssetDefinitionId::parse_address_literal(literal).unwrap(),
+                policy.fee_asset_id,
+            );
+        }
+    }
     // Exactly the ordinary State constructor's next initialization call: its fallback cannot
     // replace authoritative private policies that the original signed source installed.
     try_seed_default_namespace_policies(
@@ -89,7 +107,7 @@ fn private_genesis_seeds_signed_namespace_currency_before_global_defaults_withou
     .unwrap();
     ensure_default_namespace_policies_match_configured(
         &world.view(),
-        &policy.asset_definition_id.to_string(),
+        &policy.fee_asset_id.to_string(),
     )
     .unwrap();
     let before = world

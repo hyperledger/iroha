@@ -123,6 +123,7 @@ iroha = { workspace = true }
 zk_ace_prover = { path = "../crates/zk_ace_prover", optional = true }
 
 [dev-dependencies]
+iroha_private_settlement = { workspace = true }
 iroha_fs = { workspace = true }
 kotodama_lang = { workspace = true }
 irohad_lib = { path = "../crates/irohad", default-features = false, features = ["daemon"] }

@@ -22,10 +22,10 @@ use std::{
 
 mod observation;
 mod phases;
-pub(super) mod worker;
+mod worker;
 use observation::SettlementLedger;
 use phases::{OnlinePhases, SettlementPhases};
-use worker::run_worker;
+pub use worker::run_private_settlement_worker;
 
 const AVAILABILITY: usize = 0;
 const PREPARE: usize = 1;

@@ -1,6 +1,6 @@
 //! One existing workflow round owns original source/secret/proof custody.
 use super::*;
-use crate::workflow::{CustodyHandleV1, WorkflowJournalV1, WorkflowStorageError};
+use iroha::workflow::{CustodyHandleV1, WorkflowJournalV1, WorkflowStorageError};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub(super) fn driver_identity() -> DriverIdentityV1 {
@@ -17,7 +17,7 @@ impl WorkflowAccount for NoPreparationEffects {
     fn sign<'a>(
         &'a self,
         _: &'a [u8],
-    ) -> WorkflowFuture<'a, std::result::Result<crate::workflow::SignedStepTransaction, StepFailure>>
+    ) -> WorkflowFuture<'a, std::result::Result<iroha::workflow::SignedStepTransaction, StepFailure>>
     {
         Box::pin(async {
             Err(StepFailure::new(
@@ -158,7 +158,6 @@ impl PreparationDriver {
             let target = next.min(height);
             let proof = self
                 .account
-                .client()
                 .get_sumeragi_finality_proof_async(
                     NonZeroU64::new(target).ok_or(OneCallPrivateSettlementError::Binding)?,
                     SumeragiRootScope::Global,
@@ -236,11 +235,10 @@ impl PreparationDriver {
             .clone()
             .try_acquire_owned()
             .map_err(|_| OneCallPrivateSettlementError::Capacity)?;
-        let (original, original_lease) =
-            super::super::operation::worker::run_worker(permit, move || {
-                (artifacts.read_context(context_key, maximum), lease)
-            })
-            .await?;
+        let (original, original_lease) = run_private_settlement_worker(permit, move || {
+            (artifacts.read_context(context_key, maximum), lease)
+        })
+        .await?;
         lease = original_lease;
         let (proof, context_length, publish) = match original? {
             Some((proof, length)) => (proof, length, false),
@@ -269,46 +267,43 @@ impl PreparationDriver {
             .map_err(|_| OneCallPrivateSettlementError::Capacity)?;
         let artifacts = self.artifacts.clone();
         let original_block = block.clone();
-        let (original, original_lease) =
-            super::super::operation::worker::run_worker(permit, move || {
-                let result = (|| -> std::result::Result<_, OneCallPrivateSettlementError> {
-                    proof.verify(
+        let (original, original_lease) = run_private_settlement_worker(permit, move || {
+            let result = (|| -> std::result::Result<_, OneCallPrivateSettlementError> {
+                proof.verify(
+                    request.intent().network_id,
+                    request.0.schema,
+                    &selectors,
+                    &original_block,
+                )?;
+                // Public mismatches on any later leg must refuse before the first wallet
+                // opening or reservation. Reuse the producer's Model-owned exact join.
+                for (index, member) in proof.contexts.iter().enumerate() {
+                    let selected = member.verify(
                         request.intent().network_id,
                         request.0.schema,
-                        &selectors,
+                        selectors.pools[index],
                         &original_block,
                     )?;
-                    // Public mismatches on any later leg must refuse before the first wallet
-                    // opening or reservation. Reuse the producer's Model-owned exact join.
-                    for (index, member) in proof.contexts.iter().enumerate() {
-                        let selected = member.verify(
-                            request.intent().network_id,
-                            request.0.schema,
-                            selectors.pools[index],
-                            &original_block,
-                        )?;
-                        selected.verify_intent(
-                            request.intent(),
-                            request.intent().legs[index].ordinal,
-                        )?;
-                        if selected.pool_cut().block_time_ms() < request.0.minimum_context_time_ms {
-                            return Err(OneCallPrivateSettlementError::Binding);
-                        }
+                    selected
+                        .verify_intent(request.intent(), request.intent().legs[index].ordinal)?;
+                    if selected.pool_cut().block_time_ms() < request.0.minimum_context_time_ms {
+                        return Err(OneCallPrivateSettlementError::Binding);
                     }
-                    let digest = domain_digest(
-                        b"iroha:private-settlement:original-contexts:v1\0",
-                        &[&norito::encode_canonical(&proof)?],
-                    );
-                    // All exact selected context is durable before the first wallet call. One
-                    // physical source and one atomic encrypted file prevent partial-cut stranding.
-                    if publish {
-                        artifacts.publish_context(context_key, &proof, maximum)?;
-                    }
-                    Ok((Arc::new(proof), digest))
-                })();
-                (result, lease)
-            })
-            .await?;
+                }
+                let digest = domain_digest(
+                    b"iroha:private-settlement:original-contexts:v1\0",
+                    &[&norito::encode_canonical(&proof)?],
+                );
+                // All exact selected context is durable before the first wallet call. One
+                // physical source and one atomic encrypted file prevent partial-cut stranding.
+                if publish {
+                    artifacts.publish_context(context_key, &proof, maximum)?;
+                }
+                Ok((Arc::new(proof), digest))
+            })();
+            (result, lease)
+        })
+        .await?;
         lease = original_lease;
         let (contexts, context_digest) = original?;
         let mut complete = Vec::with_capacity(self.request.intent().legs.len());
@@ -329,7 +324,7 @@ impl PreparationDriver {
             let artifacts = self.artifacts.clone();
             let wallet = self.wallet.clone();
             let block = block.clone();
-            let (result,original_lease)=super::super::operation::worker::run_worker(permit,move||{
+            let (result,original_lease)=run_private_settlement_worker(permit,move||{
                 let result=(|| -> std::result::Result<Option<(Artifact,usize)>,OneCallPrivateSettlementError> {
                     let leg=&request.intent().legs[index];
                     let context=contexts.contexts[index].verify(request.intent().network_id,request.0.schema,

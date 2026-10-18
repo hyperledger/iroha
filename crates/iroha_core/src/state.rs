@@ -12794,10 +12794,6 @@ pub struct StateBlockFields<'state> {
     accounts_snapshot_cache: SyncOnceCell<Arc<Vec<AccountId>>>,
     /// Pipeline execution preferences for this block.
     pub pipeline: iroha_config::parameters::actual::Pipeline,
-    /// Oracle configuration snapshot for this block.
-    pub oracle: iroha_config::parameters::actual::Oracle,
-    /// Cryptography configuration snapshot for this block.
-    pub crypto: Arc<iroha_config::parameters::actual::Crypto>,
     /// Nexus configuration snapshot for this block.
     pub nexus: iroha_config::parameters::actual::Nexus,
     /// Active lane incarnation commitments for this block scope.
@@ -12816,12 +12812,6 @@ pub struct StateBlockFields<'state> {
     pub fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring,
     /// Zero-knowledge verification configuration snapshot for this block.
     pub zk: iroha_config::parameters::actual::Zk,
-    /// Governance configuration snapshot for this block.
-    pub gov: iroha_config::parameters::actual::Governance,
-    /// Content lane configuration snapshot for this block.
-    pub content: iroha_config::parameters::actual::Content,
-    /// Settlement configuration snapshot for this block.
-    pub settlement: iroha_config::parameters::actual::Settlement,
     /// Settlement engine snapshot for this block.
     pub settlement_engine: crate::settlement::SettlementEngine,
     /// Chain identifier for this block.
@@ -12966,6 +12956,17 @@ pub struct StateBlockFields<'state> {
     _read_releases: StateViewReleases<'state>,
     /// Original execution-pool scratch wakes outlive every physical State writer.
     _ivm_refunds: iroha_allocation::AllocationRefundBatch,
+}
+
+/// Immutable execution inputs retained by the original block construction owner.
+pub use canonical_runtime::StaticExecutionPolicy;
+
+impl std::ops::Deref for StateBlockFields<'_> {
+    type Target = StaticExecutionPolicy;
+
+    fn deref(&self) -> &Self::Target {
+        self.runtime_policy.static_inputs()
+    }
 }
 
 impl<'state> std::ops::Deref for StateBlock<'state> {
@@ -14025,10 +14026,8 @@ pub struct StateTransaction<'block, 'state> {
     pub(crate) zk_dedup: &'block mut crate::zk::DedupCache,
     /// Pipeline execution preferences snapshot for this transaction.
     pub pipeline: iroha_config::parameters::actual::Pipeline,
-    /// Oracle configuration snapshot for this transaction.
-    pub oracle: iroha_config::parameters::actual::Oracle,
-    /// Cryptography configuration snapshot for this transaction.
-    pub crypto: Arc<iroha_config::parameters::actual::Crypto>,
+    /// The exact block-owned immutable policy; rollback never acquires another source.
+    static_policy: &'block StaticExecutionPolicy,
     /// Nexus configuration snapshot for this transaction.
     pub nexus: iroha_config::parameters::actual::Nexus,
     /// Active lane incarnation commitments for this transaction overlay.
@@ -14067,12 +14066,6 @@ pub struct StateTransaction<'block, 'state> {
     pub zk: iroha_config::parameters::actual::Zk,
     /// Parent block ZK configuration snapshot updated when the transaction commits.
     block_zk: &'block mut iroha_config::parameters::actual::Zk,
-    /// Governance configuration snapshot for this transaction.
-    pub gov: iroha_config::parameters::actual::Governance,
-    /// Content lane configuration snapshot for this transaction.
-    pub content: iroha_config::parameters::actual::Content,
-    /// Settlement configuration snapshot for this transaction.
-    pub settlement: iroha_config::parameters::actual::Settlement,
     /// Settlement engine snapshot for this transaction.
     pub settlement_engine: crate::settlement::SettlementEngine,
     /// Display chain identifier snapshot exposed through the display sysvar.
@@ -14299,7 +14292,25 @@ pub struct StateTransaction<'block, 'state> {
     /// Lazy snapshot of accounts for trigger execution within this transaction.
     accounts_snapshot_cache: OnceCell<Arc<Vec<AccountId>>>,
 }
+
+impl std::ops::Deref for StateTransaction<'_, '_> {
+    type Target = StaticExecutionPolicy;
+
+    fn deref(&self) -> &Self::Target {
+        self.static_policy
+    }
+}
+
 impl<'block, 'state> StateTransaction<'block, 'state> {
+    /// Borrow the exact immutable execution inputs retained by this transaction's block.
+    ///
+    /// The borrow keeps the original block lifetime, allowing a caller to inspect
+    /// these inputs while updating disjoint transaction state. It cannot replace
+    /// the owner, reacquire live State configuration, or outlive the block.
+    pub fn static_execution_policy(&self) -> &'block StaticExecutionPolicy {
+        self.static_policy
+    }
+
     /// Return whether execution is currently inside a scheduled or data-trigger body.
     #[inline]
     pub(crate) const fn is_trigger_execution_active(&self) -> bool {
@@ -20638,8 +20649,8 @@ macro_rules! world_ro_accessors {
     };
     (configuration, $mode:ident) => {
         world_ro_accessors!(@items $mode;
-            /// Global parameters registry.
-            cell_ref parameters: Parameters;
+            /// Committed parameters and their validated execution projections.
+            cell_ref parameters: StateParameters;
             /// Lag-2 Sumeragi height-configuration schedule (read-only).
             cell_ref consensus_schedule: crate::sumeragi::schedule::RetainedConsensusSchedule;
             /// Dataspace alias catalog used to qualify domain-scoped aliases.
@@ -27447,6 +27458,7 @@ impl State {
         kura: Arc<Kura>,
         query_handle: LiveQueryStoreHandle,
         exact_durable_height: usize,
+        process_runtime: ProcessRuntimeInstallation,
         chain_id: iroha_model_base::chain::ChainId,
         network_id: iroha_data_model::NetworkId,
         #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
@@ -28050,7 +28062,7 @@ impl State {
             telemetry_seed.seed_space_directory_manifests(&manifest_view);
         }
         #[cfg(feature = "sm")]
-        {
+        if process_runtime.installs() {
             Sm2PublicKey::set_default_distid(initial_crypto.sm2_distid_default.clone())
                 .expect("sm2_distid_default must be valid");
         }
@@ -28088,13 +28100,15 @@ impl State {
             wtx.apply();
             wblock.commit();
         }
-        // Initialize the global IVM pre-decode cache with configured limits.
-        ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
-            capacity: s.pipeline.cache_size,
-            max_bytes: s.pipeline.ivm_cache_max_bytes,
-            max_decoded_ops: s.pipeline.ivm_cache_max_decoded_ops,
-        });
-        ivm::zk::set_prover_threads(s.pipeline.ivm_prover_threads);
+        if process_runtime.installs() {
+            // Only the live node installs process-wide execution resources.
+            ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
+                capacity: s.pipeline.cache_size,
+                max_bytes: s.pipeline.ivm_cache_max_bytes,
+                max_decoded_ops: s.pipeline.ivm_cache_max_decoded_ops,
+            });
+            ivm::zk::set_prover_threads(s.pipeline.ivm_prover_threads);
+        }
         Ok(s)
     }
     /// Synchronize Kura lane storage and manifests after an in-process test catalog mutation.
@@ -28332,6 +28346,7 @@ impl State {
             kura,
             query_handle,
             exact_durable_height,
+            ProcessRuntimeInstallation::Install,
             chain_id,
             network_id,
             #[cfg(feature = "telemetry")]
@@ -28404,6 +28419,47 @@ impl State {
             #[cfg(feature = "telemetry")]
             StateTelemetry::default(),
         )
+    }
+    /// Construct the original empty reconstruction State in a physically isolated store.
+    /// The same canonical constructor and pipeline policy validation run, but the
+    /// live process cache, prover settings and original pool limit retain their
+    /// current owners. This is not a selectable execution/consensus mode.
+    pub(crate) fn try_new_for_isolated_replay(
+        execution_budget: AllocationBudget,
+        world: World,
+        kura: Arc<Kura>,
+        query_handle: LiveQueryStoreHandle,
+        chain_id: iroha_model_base::chain::ChainId,
+        network_id: iroha_data_model::NetworkId,
+        pipeline: iroha_config::parameters::actual::Pipeline,
+    ) -> Result<Self, IsolatedReplayStateError> {
+        if !kura.is_temporary_staging() {
+            return Err(MergeLedgerCommitError::ExecutionStatePublication(
+                "isolated replay requires an original temporary destination".into(),
+            )
+            .into());
+        }
+        let exact_durable_height = kura
+            .exact_durable_blocks_count()
+            .map_err(MergeLedgerCommitError::from)?;
+        let mut state = Self::new_inner(
+            execution_budget,
+            world,
+            kura,
+            query_handle,
+            exact_durable_height,
+            ProcessRuntimeInstallation::Preserve,
+            chain_id,
+            network_id,
+            #[cfg(feature = "telemetry")]
+            StateTelemetry::default(),
+        )?;
+        state.world.parameters.view().pipeline_policy().validate()?;
+        state.install_pipeline_settings(
+            crate::pipeline_validity_policy::node_local_resources(pipeline),
+            ProcessRuntimeInstallation::Preserve,
+        );
+        Ok(state)
     }
     /// _(test only)_ Create state with mock telemetry (depends on features)
     #[must_use]
@@ -32243,6 +32299,14 @@ impl State {
     pub fn crypto(&self) -> Arc<iroha_config::parameters::actual::Crypto> {
         self.crypto.read().clone()
     }
+    /// Retain the original startup crypto snapshot in a separately owned replay
+    /// State without reconfiguring the running process's acceleration/SM defaults.
+    pub(crate) fn install_crypto_snapshot_for_isolated_replay(
+        &self,
+        crypto: iroha_config::parameters::actual::Crypto,
+    ) {
+        self.commit_crypto_snapshot(crypto);
+    }
     /// Update cryptography settings using loaded configuration.
     pub fn set_crypto(&self, crypto: iroha_config::parameters::actual::Crypto) {
         Self::apply_crypto_runtime(&crypto);
@@ -34878,10 +34942,6 @@ fn ensure_autoscale_managed_created_heights_not_future(
         ensure_autoscale_managed_lane_created_height_not_future(lane, block_height)?;
     }
     Ok(())
-}
-fn nexus_fee_asset_selector_is_canonical(value: &str) -> bool {
-    value.trim() == value
-        && (AssetDefinitionId::parse_address_literal(value).is_ok() || value == "xor#universal")
 }
 fn ensure_autoscale_managed_lane_in_range(
     lane: LaneId,
@@ -38464,8 +38524,7 @@ impl<'state> StateBlock<'state> {
             #[cfg(feature = "zk-preverify")]
             zk_dedup: &mut fields.zk_dedup,
             pipeline: fields.pipeline.clone(),
-            oracle: fields.oracle.clone(),
-            crypto: fields.crypto.clone(),
+            static_policy: fields.runtime_policy.static_inputs(),
             nexus,
             lane_incarnations,
             lane_incarnation_lineage,
@@ -38486,9 +38545,6 @@ impl<'state> StateBlock<'state> {
             fraud_monitoring: fields.fraud_monitoring.clone(),
             zk,
             block_zk: &mut fields.zk,
-            gov: fields.gov.clone(),
-            content: fields.content.clone(),
-            settlement: fields.settlement,
             settlement_engine: fields.settlement_engine.clone(),
             chain_id: fields.chain_id.clone(),
             network_id: fields.network_id,

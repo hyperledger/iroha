@@ -96,8 +96,8 @@ fn run_historical_reward_lifecycle() {
     nexus.staking.stake_escrow_account_id = escrow.to_string();
     nexus.staking.slash_sink_account_id = slash_sink.to_string();
     nexus.staking.unbonding_delay = Duration::from_millis(1);
-    nexus.fees.fee_asset_id = genesis_policy.xor_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = fee_sink.to_string();
+    nexus.fees.fee_asset_id = genesis_policy.xor_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = fee_sink.clone();
     let mut config = crate::sumeragi::test_chain::TestChainConfig::new(
         crate::validation_fee::tests::validation_fee_payout_world(&deployer),
         1_000,

@@ -1,6 +1,6 @@
 //! Redacted operational categories over surviving original failure owners.
 use super::*;
-use crate::workflow::{WorkflowStorageError, WorkflowStorageErrorKind};
+use iroha::workflow::{WorkflowStorageError, WorkflowStorageErrorKind};
 use iroha_core_privacy::privacy_engines::{
     atomic_private_settlement::{
         AtomicPrivateSettlementProofErrorV1 as ProofError,
@@ -94,21 +94,21 @@ fn provider_code(error: &eyre::Report) -> WorkflowErrorCode {
         404 | 405 | 501 => WorkflowErrorCode::UnsupportedOperation,
         _ => WorkflowErrorCode::EvidenceUnavailable,
     };
-    if let Some(error) = error.downcast_ref::<crate::Error>() {
+    if let Some(error) = error.downcast_ref::<iroha::Error>() {
         return match error {
-            crate::Error::Api { error, .. } => http_code(error.status()),
-            crate::Error::Http { status, .. } => http_code(*status),
-            crate::Error::RequestSigning { .. } | crate::Error::TransactionSigning(_) => {
+            iroha::Error::Api { error, .. } => http_code(error.status()),
+            iroha::Error::Http { status, .. } => http_code(*status),
+            iroha::Error::RequestSigning { .. } | iroha::Error::TransactionSigning(_) => {
                 WorkflowErrorCode::AuthorizationDenied
             }
-            crate::Error::Context(_) | crate::Error::ResponseBinding { .. } => {
+            iroha::Error::Context(_) | iroha::Error::ResponseBinding { .. } => {
                 WorkflowErrorCode::BindingMismatch
             }
-            crate::Error::InvalidRequest { .. } => WorkflowErrorCode::InvalidInput,
-            crate::Error::Decode { .. } => WorkflowErrorCode::ProofInvalid,
-            crate::Error::ResponseTooLarge { .. } => WorkflowErrorCode::ResourceLimitExceeded,
-            crate::Error::CanonicalDecode(error) => decode_code(&error.source),
-            crate::Error::NativeFinalityDecode(error) => native_decode_code(&error.source),
+            iroha::Error::InvalidRequest { .. } => WorkflowErrorCode::InvalidInput,
+            iroha::Error::Decode { .. } => WorkflowErrorCode::ProofInvalid,
+            iroha::Error::ResponseTooLarge { .. } => WorkflowErrorCode::ResourceLimitExceeded,
+            iroha::Error::CanonicalDecode(error) => decode_code(&error.source),
+            iroha::Error::NativeFinalityDecode(error) => native_decode_code(&error.source),
             _ => WorkflowErrorCode::EvidenceUnavailable,
         };
     }

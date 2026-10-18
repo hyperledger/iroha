@@ -177,8 +177,8 @@ mod bond_admission {
                 nexus.fees.per_byte_fee = Quantity::zero();
                 nexus.fees.per_instruction_fee = Quantity::zero();
                 nexus.fees.per_gas_unit_fee = Quantity::zero();
-                nexus.fees.fee_asset_id = fee_asset.to_string();
-                nexus.fees.fee_sink_account_id = accounts[OUTSIDER].to_string();
+                nexus.fees.fee_asset_id = fee_asset.clone();
+                nexus.fees.fee_sink_account_id = accounts[OUTSIDER].clone();
                 config.nexus = Some(nexus);
             }
             Self {

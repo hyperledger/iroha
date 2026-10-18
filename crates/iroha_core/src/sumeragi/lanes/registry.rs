@@ -20,6 +20,9 @@ use iroha_model_base::topology::LaneId;
 use iroha_sumeragi::types::Hash32;
 use parking_lot::Mutex;
 
+mod read_only;
+pub(in crate::sumeragi) use read_only::LaneFrameSource;
+
 use super::{
     incarnation_instance,
     merge::{CommittedLaneBlock, LaneBlockSource},

@@ -54,7 +54,8 @@ class IrohaPeerNfcAmbiguousTransceiveExceptionV1(cause: IOException) :
 
 /**
  * Reader-side IsoDep transceiver of one tag, selecting [applicationIdentifier] (the identifier
- * both phones registered). Pass [transceive] to [IrohaPeerNfcOfferExchangeV1.run], retain the
+ * both phones registered). Pass [transceive] to [IrohaPeerNfcOfferExchangeV1.runFromAsk] (or
+ * [IrohaPeerNfcOfferExchangeV1.run] to resume with an Offer already built), retain the
  * connection during approval, then continue with [IrohaPeerNfcReaderExchangeV1.run] using
  * [localLimits]. Each phase begins with SELECT for the same identifier without closing this
  * transceiver. A transport failure after a command was sent is an

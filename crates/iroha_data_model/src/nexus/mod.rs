@@ -657,6 +657,13 @@ impl LaneConfig {
                 .collect(),
         }
     }
+    /// Borrow the complete canonical lane projection without cloning strings or metadata.
+    ///
+    /// Its bare payload is identical to [`Self::consensus_projection`]. The source must
+    /// remain immutable while it is measured and written into the caller's funded frame.
+    pub fn borrowed_consensus_projection(&self) -> impl norito::SerializePayload + '_ {
+        borrowed_lane::Projection(self)
+    }
     /// Resolve the effective DA/storage shard for this lane.
     #[must_use]
     pub fn effective_shard_id(&self) -> ShardId {
@@ -3491,3 +3498,5 @@ mod checked_container_cleanup_tests {
         });
     }
 }
+
+mod borrowed_lane;

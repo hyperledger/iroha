@@ -2,10 +2,15 @@
 
 use super::PrivateSettlementError;
 
-// The blocking SDK deliberately rejects Tokio's inherited spawn_blocking context.
-// A native worker owns the original permit and artifacts through completion; dropping
-// the awaiting future neither cancels that work nor releases its capacity early.
-pub(in crate::client::private_settlement) async fn run_worker<T: Send + 'static>(
+/// Run bounded synchronous settlement work outside Tokio's inherited blocking context.
+///
+/// The native worker owns the original permit and artifacts through completion.
+/// Dropping the awaiting future neither cancels that work nor releases its capacity early.
+///
+/// # Errors
+/// Returns [`PrivateSettlementError::Worker`] if thread creation fails or the worker
+/// unwinds before returning its result. No replacement work is started automatically.
+pub async fn run_private_settlement_worker<T: Send + 'static>(
     permit: tokio::sync::OwnedSemaphorePermit,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, PrivateSettlementError> {
@@ -35,14 +40,15 @@ mod tests {
         let permits = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = permits.clone().try_acquire_owned().unwrap();
         assert!(
-            run_worker(permit, || tokio::runtime::Handle::try_current().is_err())
-                .await
-                .unwrap()
+            run_private_settlement_worker(permit, || tokio::runtime::Handle::try_current()
+                .is_err())
+            .await
+            .unwrap()
         );
         let permit = permits.clone().try_acquire_owned().unwrap();
         let (started, entered) = tokio::sync::oneshot::channel();
         let (release, wait) = std::sync::mpsc::channel();
-        let pending = tokio::spawn(run_worker(permit, move || {
+        let pending = tokio::spawn(run_private_settlement_worker(permit, move || {
             started.send(()).unwrap();
             wait.recv().unwrap();
         }));

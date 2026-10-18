@@ -70,7 +70,8 @@
 //! `s = h (2 - h)`, `t = h (h - 1) / 2`, and the scaled top enabled by `t`
 //! of `h` six rows down), the `U` group binary step and top columns
 //! ([`FF_PATTERN_COLUMNS`] = 4). The `C`/`Q` lookup inputs have degree 3
-//! (lookup degree 6), the `U` inputs degree 2; the gates have degree 3 and
+//! (norm lookup degree 10), the `U` inputs degree 2 (norm lookup degree 8
+//! with the fixed `V` table); the arithmetic gates have degree 3 and
 //! anchor on row 0, reading operands there, the `C`/`Q` running-sum roots
 //! on row 1 and the `U` roots on row 0, so every operand column is queried
 //! at rotations 0, 1 and 6 (five blinding rows). A multiplication or

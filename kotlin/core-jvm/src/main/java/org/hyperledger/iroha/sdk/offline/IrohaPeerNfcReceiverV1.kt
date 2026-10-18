@@ -526,12 +526,14 @@ class IrohaPeerNfcReceiverSessionV1 @JvmOverloads constructor(
      * Handles every command except BEGIN_PAYMENT and COMMIT, whose durable boundaries use
      * [preparePaymentAdmission]/[installPaymentAdmission] and [prepareCommit]/
      * [installDurableAcknowledgement], or the [process] convenience. In this direct mode GET_INTAKE
-     * answers [intakeRecord] and the Offer commands answer [IrohaPeerNfcErrorV1.STATE_MISMATCH].
+     * answers [intakeRecord] and GET_ASK and the Offer commands answer
+     * [IrohaPeerNfcErrorV1.STATE_MISMATCH].
      */
     @Synchronized
     fun handle(command: IrohaPeerNfcCommandV1): ByteArray = when (command) {
         is IrohaPeerNfcCommandV1.SelectApplication -> ByteArray(0)
         is IrohaPeerNfcCommandV1.GetIntake -> intakeRecord().encode()
+        is IrohaPeerNfcCommandV1.GetAsk -> nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
         is IrohaPeerNfcCommandV1.BeginOffer -> {
             requireSession(command.sessionId)
             nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)

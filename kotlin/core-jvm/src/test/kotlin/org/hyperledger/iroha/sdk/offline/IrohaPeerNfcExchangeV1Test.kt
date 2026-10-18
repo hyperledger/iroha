@@ -3,12 +3,15 @@
 
 package org.hyperledger.iroha.sdk.offline
 
+import java.math.BigInteger
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -444,6 +447,242 @@ class IrohaPeerNfcExchangeV1Test {
             IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED,
             receiver.process(begin, fixtures.BPNG_AID, { fail("never") }).statusWord,
         )
+    }
+
+    private val ask by lazy { IrohaPeerAskV1.of(IrohaPeerAskTestVectorsV1.offerAmount, ByteArray(32) { 0x5c }) }
+
+    private val tap1Prefix = listOf("SELECT_APPLICATION", "GET_INTAKE", "GET_ASK")
+
+    private fun askingCard(asked: IrohaPeerAskV1 = ask): IrohaPeerNfcCardEndpointV1 =
+        IrohaPeerNfcCardEndpointV1.intake(fixtures.BPNG_AID, fixtures.POLICY, ask = asked)
+
+    private fun askedTap1(reader: IrohaPeerNfcLoopbackV1, factory: IrohaPeerNfcOfferFactoryV1): IrohaPeerNfcRequestReadV1 =
+        IrohaPeerNfcOfferExchangeV1.runFromAsk(
+            factory,
+            fixtures.BPNG_AID,
+            fixtures.POLICY,
+            readerLimits,
+            reader,
+            sleeper = reader.sleeper,
+        )
+
+    @Test
+    fun `tap 1 reads the ask and builds the offer for it inside the same contact`() {
+        val card = askingCard()
+        val reader = IrohaPeerNfcLoopbackV1(card, preparationPolls = 2)
+        val asked = mutableListOf<IrohaPeerAskV1>()
+        val read = askedTap1(reader) { received ->
+            asked += received
+            // The wallet builds the Offer for exactly the asked amount between GET_ASK and BEGIN_OFFER.
+            assertEquals(tap1Prefix, reader.log)
+            assertEquals(received.amount, KagemushaWalletWireV1.offerAmountData(IrohaPeerKagemushaWalletAdapterV1.decode(fixtures.offer)))
+            fixtures.offer
+        }
+        assertEquals(listOf(ask), asked)
+        assertEquals(ask, read.ask)
+        assertEquals(fixtures.request, read.request)
+        assertEquals(IrohaPeerNfcIntakeStateV1.REQUEST_READY, read.intake.state)
+        assertContentEquals(fixtures.offer.wireHash, read.intake.offerWireHash)
+        assertEquals(1, reader.offersSubmitted)
+        assertEquals(1, reader.count(IrohaPeerNfcOperationV1.GET_ASK))
+        assertEquals("BEGIN_OFFER", reader.log[tap1Prefix.size])
+        assertEquals("READ_REQUEST", reader.log.last())
+        assertEquals(
+            IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED,
+            card.process(IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetAsk)).statusWord,
+        )
+
+        // Tap 2 is unchanged.
+        reader.log.clear()
+        val result = tap2(reader, read.senderCheckpoint(fixtures.payment.encode()).encode())
+        assertEquals(fixtures.credited, result.acknowledgement)
+        assertEquals(1, reader.durableCommits)
+        assertEquals(0, reader.count(IrohaPeerNfcOperationV1.GET_ASK))
+
+        // run carries an Offer the payer already holds and names no ask.
+        val plain = tap1(IrohaPeerNfcLoopbackV1(askingCard(), preparationPolls = 0))
+        assertNull(plain.ask)
+        assertEquals(fixtures.request, plain.request)
+    }
+
+    @Test
+    fun `a card without an ask is refused before any offer exists`() {
+        val card = IrohaPeerNfcCardEndpointV1.intake(fixtures.BPNG_AID, fixtures.POLICY)
+        val reader = IrohaPeerNfcLoopbackV1(card)
+        val error = assertFailsWith<IrohaPeerNfcExceptionV1> { askedTap1(reader) { fail("no ask, no Offer") } }
+        assertEquals(IrohaPeerNfcErrorV1.PEER_REJECTED, error.error)
+        assertEquals(IrohaPeerNfcOperationV1.GET_ASK, error.operation)
+        assertEquals(tap1Prefix, reader.log)
+        assertEquals(IrohaPeerNfcIntakeStateV1.AWAITING_OFFER, card.intakeRecord().state)
+    }
+
+    @Test
+    fun `an intake bound to an offer is not asked and an interrupted contact resumes with run`() {
+        val direct = IrohaPeerNfcLoopbackV1(
+            IrohaPeerNfcCardEndpointV1.direct(
+                fixtures.BPNG_AID,
+                IrohaPeerNfcReceiverSessionV1(ByteArray(16) { 0x2b }, fixtures.request.encode()),
+            ),
+        )
+        val refused = assertFailsWith<IrohaPeerNfcExceptionV1> { askedTap1(direct) { fail("a direct card hosts a Request") } }
+        assertEquals(IrohaPeerNfcErrorV1.STATE_MISMATCH, refused.error)
+        assertEquals(listOf("SELECT_APPLICATION", "GET_INTAKE"), direct.log)
+
+        for (lost in listOf(IrohaPeerNfcOperationV1.WRITE_OFFER, IrohaPeerNfcOperationV1.SUBMIT_OFFER)) {
+            val reader = IrohaPeerNfcLoopbackV1(askingCard(), preparationPolls = 1)
+            reader.loseResponseFor = lost
+            var built = 0
+            assertFailsWith<IrohaPeerNfcLostResponseV1>(lost.name) {
+                askedTap1(reader) {
+                    built += 1
+                    fixtures.offer
+                }
+            }
+            assertEquals(1, built, lost.name)
+            reader.log.clear()
+            if (lost == IrohaPeerNfcOperationV1.SUBMIT_OFFER) {
+                // Bound to the Offer: a new contact neither asks again nor builds another Offer.
+                val error = assertFailsWith<IrohaPeerNfcExceptionV1>(lost.name) { askedTap1(reader) { fail("a second Offer") } }
+                assertEquals(IrohaPeerNfcErrorV1.STATE_MISMATCH, error.error, lost.name)
+                assertEquals(listOf("SELECT_APPLICATION", "GET_INTAKE"), reader.log, lost.name)
+            }
+            // The payer resumes with the Offer its wallet already built.
+            val read = tap1(reader)
+            assertEquals(fixtures.request, read.request, lost.name)
+            assertEquals(1, reader.offersSubmitted, lost.name)
+            assertEquals(0, reader.count(IrohaPeerNfcOperationV1.BEGIN_OFFER), lost.name)
+            assertEquals(
+                IrohaPeerNfcErrorV1.STATE_MISMATCH,
+                assertFailsWith<IrohaPeerNfcExceptionV1>(lost.name) { askedTap1(reader) { fail("bound") } }.error,
+                lost.name,
+            )
+        }
+    }
+
+    @Test
+    fun `an abandoned contact leaves a receiving intake that the next payer's ask-led contact still serves`() {
+        val card = askingCard()
+        val earlier = IrohaPeerNfcLoopbackV1(card, preparationPolls = 1)
+        earlier.loseResponseFor = IrohaPeerNfcOperationV1.WRITE_OFFER
+        assertFailsWith<IrohaPeerNfcLostResponseV1> { askedTap1(earlier) { fixtures.offer } }
+        // The abandoned contact left part of an Offer on the card: it is receiving, not wedged.
+        assertEquals(IrohaPeerNfcIntakeStateV1.RECEIVING_OFFER, card.intakeRecord().state)
+
+        // The next payer asks and builds its Offer once; an Offer with another header would replace the unfinished one as `run` does.
+        val next = IrohaPeerNfcLoopbackV1(card, preparationPolls = 1)
+        val asked = mutableListOf<IrohaPeerAskV1>()
+        val read = askedTap1(next) { received ->
+            asked += received
+            fixtures.offer
+        }
+        assertEquals(listOf(ask), asked)
+        assertEquals(ask, read.ask)
+        assertEquals(fixtures.request, read.request)
+        assertEquals(tap1Prefix, next.log.take(tap1Prefix.size))
+        assertEquals(1, next.offersSubmitted)
+        assertEquals(IrohaPeerNfcIntakeStateV1.REQUEST_READY, read.intake.state)
+    }
+
+    @Test
+    fun `a malformed ask is refused before the offer factory runs`() {
+        val cases = IrohaPeerAskTestVectorsV1.list("invalid_records").map { IrohaPeerAskTestVectorsV1.hex(it["record_hex"]) }
+        assertEquals(8, cases.count { it.size == IrohaPeerNfcV1.ASK_BYTES })
+        for (record in cases) {
+            val loopback = IrohaPeerNfcLoopbackV1(askingCard())
+            // A hostile card answers GET_ASK with its own bytes.
+            val hostile = IrohaPeerNfcReaderTransceiverV1 { command ->
+                val response = loopback.transceive(command)
+                if (command is IrohaPeerNfcCommandV1.GetAsk) {
+                    IrohaPeerNfcAPDUResponseV1(record, IrohaPeerNfcStatusWordV1.SUCCESS)
+                } else {
+                    response
+                }
+            }
+            val error = assertFailsWith<IrohaPeerNfcExceptionV1> {
+                IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                    { fail("a malformed ask builds no Offer") },
+                    fixtures.BPNG_AID,
+                    fixtures.POLICY,
+                    transceive = hostile,
+                    sleeper = loopback.sleeper,
+                )
+            }
+            if (record.size == IrohaPeerNfcV1.ASK_BYTES) {
+                assertEquals(IrohaPeerNfcErrorV1.INVALID_ASK, error.error)
+                assertIs<IllegalArgumentException>(error.cause)
+            } else {
+                assertEquals(IrohaPeerNfcErrorV1.INVALID_LENGTH, error.error)
+            }
+            assertEquals(tap1Prefix, loopback.log)
+        }
+    }
+
+    @Test
+    fun `a failing wallet stops tap 1 after GET_ASK`() {
+        val card = askingCard()
+        val reader = IrohaPeerNfcLoopbackV1(card, preparationPolls = 0)
+        val refusal = IllegalStateException("native Offer creation failed")
+        var calls = 0
+        val thrown = assertFailsWith<IllegalStateException> {
+            askedTap1(reader) {
+                calls += 1
+                throw refusal
+            }
+        }
+        assertSame(refusal, thrown)
+        assertEquals(1, calls)
+        assertEquals(tap1Prefix, reader.log)
+        assertEquals(IrohaPeerNfcIntakeStateV1.AWAITING_OFFER, card.intakeRecord().state)
+
+        // An Offer of another kind is refused exactly as run refuses it, before any Offer command.
+        reader.log.clear()
+        val wrongKind = assertFailsWith<IrohaPeerNfcExceptionV1> { askedTap1(reader) { fixtures.request } }
+        assertEquals(IrohaPeerNfcErrorV1.INVALID_KIND, wrongKind.error)
+        assertEquals(tap1Prefix, reader.log)
+
+        // The card still asks, so the next contact completes.
+        assertEquals(fixtures.request, askedTap1(reader) { fixtures.offer }.request)
+    }
+
+    @Test
+    fun `a receiver declines an offer for another amount than it asked`() {
+        val reason = 0x41
+        for ((asked, accepted) in listOf(ask to true, IrohaPeerAskV1.of(ask.amount + BigInteger.ONE, ask.receiverAccountDigest) to false)) {
+            val card = askingCard(asked)
+            // The receiver's wallet issues a Request only for an Offer of the amount it asked.
+            val receiver = IrohaPeerNfcReaderTransceiverV1 { command ->
+                val response = card.process(IrohaPeerNfcAPDUCodecV1.encode(command), { offer ->
+                    if (KagemushaWalletWireV1.offerAmountData(IrohaPeerKagemushaWalletAdapterV1.decode(offer)) == asked.amount) {
+                        card.installRequest(offer.wireHash, fixtures.request.encode())
+                    } else {
+                        card.declineRequest(offer.wireHash, reason)
+                    }
+                })
+                IrohaPeerNfcAPDUResponseV1.decode(response.encode())
+            }
+            var built = 0
+            val exchange = {
+                IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                    {
+                        built += 1
+                        fixtures.offer
+                    },
+                    fixtures.BPNG_AID,
+                    fixtures.POLICY,
+                    transceive = receiver,
+                    sleeper = { },
+                )
+            }
+            if (accepted) {
+                assertEquals(fixtures.request, exchange().request)
+            } else {
+                val error = assertFailsWith<IrohaPeerNfcExceptionV1> { exchange() }
+                assertEquals(IrohaPeerNfcErrorV1.OFFER_DECLINED, error.error)
+                assertEquals(reason, error.declineReason)
+                assertEquals(IrohaPeerNfcIntakeStateV1.DECLINED, card.intakeRecord().state)
+            }
+            assertEquals(1, built)
+        }
     }
 
     private fun admitAndWrite(receiver: IrohaPeerNfcReceiverSessionV1, session: ByteArray, payment: ByteArray) {

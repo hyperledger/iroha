@@ -1314,7 +1314,11 @@ mod tests {
             .insert("require_api_token".into(), toml::Value::Boolean(true));
         table["nexus"].as_table_mut().unwrap().insert(
             "fees".into(),
-            toml::Value::Table([("base_fee".into(), toml::Value::String("0".into()))].into()),
+            toml::Value::Table(
+                [("base_fee".into(), toml::Value::String("0".into()))]
+                    .into_iter()
+                    .collect(),
+            ),
         );
         custody::replace(
             peer_path,

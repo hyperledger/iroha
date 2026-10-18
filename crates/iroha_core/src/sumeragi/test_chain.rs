@@ -140,6 +140,10 @@ pub struct TestChainConfig {
     /// Optional original BLS-normal committee custody, ordered canonically before signing genesis.
     /// The signed genesis validator rules still reject invalid committee sizes or keys.
     pub validator_keys: Option<Vec<KeyPair>>,
+    /// Register the fixture clock through its signed genesis instead of initial World.
+    /// Recovery tests use this with an empty World so all business rows are carried
+    /// by canonical signed inputs, just as in production startup.
+    pub clock_bootstrap_in_genesis: bool,
     /// Instructions of the genesis's ordinary transaction.
     pub genesis_instructions: Vec<InstructionBox>,
     /// Explicit parameters carried by the authoritative signed genesis snapshot.
@@ -192,6 +196,7 @@ impl TestChainConfig {
             world,
             genesis_key: KeyPair::from_seed(vec![0xCE; 32], Algorithm::Ed25519),
             validator_keys: None,
+            clock_bootstrap_in_genesis: false,
             genesis_instructions: Vec::new(),
             genesis_parameters: Vec::new(),
             consensus_mode: SumeragiConsensusMode::Permissioned,
@@ -363,7 +368,8 @@ impl CertifiedTestChain {
             mut world,
             genesis_key,
             validator_keys,
-            genesis_instructions,
+            clock_bootstrap_in_genesis,
+            mut genesis_instructions,
             mut genesis_parameters,
             consensus_mode,
             root_scope,
@@ -387,6 +393,14 @@ impl CertifiedTestChain {
             world.insert_domain_for_testing(domain_id, domain);
         }
         for account in [&genesis_account, &clock_account] {
+            if clock_bootstrap_in_genesis && account == &clock_account {
+                genesis_instructions.insert(
+                    0,
+                    iroha_data_model::isi::Register::account(Account::new(clock_account.clone()))
+                        .into(),
+                );
+                continue;
+            }
             if world.accounts.view().get(account).is_none() {
                 let (id, value) = Account::new(account.clone())
                     .build(account)

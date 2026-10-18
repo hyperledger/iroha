@@ -62,6 +62,51 @@ impl ContentAdmissionPolicyV1 {
     }
 }
 
+/// Borrow the complete policy and fund the account set's canonical ordering.
+pub(super) struct BorrowedContentPolicy<'a> {
+    config: &'a Content,
+    accounts: super::policy_borrowed::SortedRefs<'a, AccountId>,
+}
+impl<'a> BorrowedContentPolicy<'a> {
+    pub(super) fn new(
+        config: &'a Content,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, super::policy_borrowed::OrderError> {
+        Ok(Self {
+            config,
+            accounts: super::policy_borrowed::SortedRefs::new_by(
+                &config.publish_allow_accounts,
+                budget,
+                Ord::cmp,
+            )?,
+        })
+    }
+}
+impl norito::SerializePayload for BorrowedContentPolicy<'_> {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        use super::policy_borrowed::{Ref, Seq, record};
+        let config = self.config;
+        record!(
+            config.max_bundle_bytes,
+            config.max_files,
+            config.max_path_len,
+            config.max_retention_blocks,
+            config.chunk_size_bytes,
+            Seq(self.accounts.unique()),
+            config.default_cache_max_age_secs,
+            config.max_cache_max_age_secs,
+            config.immutable_bundles,
+            Ref(&config.default_auth_mode),
+            record!(
+                config.stripe_layout.total_stripes,
+                config.stripe_layout.shards_per_stripe,
+                config.stripe_layout.row_parity_stripes
+            )
+        )
+        .serialize(writer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,6 +160,11 @@ mod tests {
     }
 
     fn frame(policy: &Content) -> Vec<u8> {
+        super::super::policy_borrowed::assert_same_payload(
+            &BorrowedContentPolicy::new(policy, &iroha_allocation::AllocationBudget::new(1 << 20))
+                .unwrap(),
+            &ContentAdmissionPolicyV1::from_actual(policy),
+        );
         norito::encode_canonical(&ContentAdmissionPolicyV1::from_actual(policy)).unwrap()
     }
 

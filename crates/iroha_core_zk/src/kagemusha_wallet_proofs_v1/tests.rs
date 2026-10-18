@@ -230,8 +230,8 @@ fn foreign_challenge_limbs_preserve_all_256_bits_without_reduction() {
 
 #[test]
 fn lineage_digest_matches_independent_integer_rp57_endian_and_order_vector() {
-    // The known answer was computed with an independent Python modular-integer
-    // implementation of the 8/57 RP57 permutation and pinned Fp constant table.
+    // Reproduce this vector with fixtures/native_prover/lineage_digest_vector.py,
+    // which uses the independent Python integer RP57 sponge and checks the Fp table pin.
     // The fixed finite point (-1,2) and challenges1..16 are only an encoding vector;
     // no accumulator decide or monetary acceptance is asserted for this claim.
     let point = Option::<iroha_pasta::EpAffine>::from(iroha_pasta::EpAffine::from_xy(
@@ -259,17 +259,26 @@ fn lineage_digest_matches_independent_integer_rp57_endian_and_order_vector() {
         payment_key: KagemushaDevicePublicKeyV1::from_sec1_bytes(&key).unwrap(),
         lifecycle: KagemushaWalletLifecycleV1::Active,
         policy_epoch: 0x0102_0304_0506_0708,
-        // TODO(blacklist-local G5): recompute the known answer below with the independent
-        // integer implementation; it was pinned for the retired three-bit mask 7, which the
-        // two-control lineage no longer admits.
         enabled_controls: KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
         burned_total: 0x1122_3344_5566_7788_99aa_bbcc_ddee_ff00,
         pending_outgoing_root: Fp::from(9).to_repr(),
         credit_digest_root: Fp::from(10).to_repr(),
     };
     assert_eq!(
+        public.enabled_controls, 3,
+        "the two-control vector is fixed"
+    );
+    assert_eq!(
         hex::encode(lineage_digest(&public, Fp::from(11).to_repr(), &claim).unwrap()),
-        "9570139378353ed3bfd6a661281cbc42989a3f5493be973914a21c94a04fc407",
+        "4501dca8d1da0168c8000e3bcb18c2178e5258e5bff684a07a6bc1fed852780f",
+    );
+    // The independent producer also reproduces the old raw mask-7 digest. That is
+    // an encoding control only: the retired control bit cannot enter native verification.
+    let mut retired = public;
+    retired.enabled_controls = 7;
+    assert_eq!(
+        lineage_digest(&retired, Fp::from(11).to_repr(), &claim),
+        Err(Error::Authority),
     );
 }
 

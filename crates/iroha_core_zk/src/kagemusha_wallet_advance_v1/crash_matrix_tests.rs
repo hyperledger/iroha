@@ -1589,6 +1589,136 @@ fn wallet_advance_v1_crash_matrix_keychain_last_write_loss_rejects_restored_spen
 }
 
 #[test]
+fn wallet_advance_v1_crash_matrix_keychain_restore_authority_combinations() {
+    // Separate the three persistence assumptions instead of coupling anchor and file loss.
+    // In particular, losing both new anchor values alone must not lose a durable release,
+    // and losing the payment key must close the old-files/old-anchor counterexample. These
+    // are adversarial model schedules, not evidence that stock iOS permits each restore.
+    let (device, slot, request, competitor) =
+        advance_base(KagemushaWalletAnchorPolicyV1::Keychain, 0x83);
+    let previous_head = device.open().status(&slot).expect("predecessor");
+    let previous_anchor = device
+        .platform
+        .with(|state| state.anchors.get(&slot).cloned().expect("prior anchor"));
+    let before = device.fork();
+    let mut provider = device.open();
+    let original = released(
+        provider
+            .advance(&slot, &TestOwnerV1, &request)
+            .expect("advance"),
+    );
+    let released_head = provider.status(&slot).expect("released head");
+    let released_anchor = device
+        .platform
+        .with(|state| state.anchors.get(&slot).cloned().expect("released anchor"));
+    assert_ne!(previous_anchor, released_anchor);
+    drop(provider);
+
+    let mut cases = 0;
+    for restore_files in [false, true] {
+        for (anchor_name, anchor) in [
+            ("current", Some(&released_anchor)),
+            ("old", Some(&previous_anchor)),
+            ("absent", None),
+        ] {
+            for keep_key in [false, true] {
+                let fs = if restore_files {
+                    before.fs.fork()
+                } else {
+                    device.fs.fork()
+                };
+                let platform = device.platform.fork(Some(&fs));
+                let restored = DeviceV1 { fs, platform };
+                restored.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced, BOOT_B);
+                restored.platform.with(|state| {
+                    match anchor {
+                        Some(bytes) => {
+                            state.anchors.insert(slot, bytes.clone());
+                        }
+                        None => {
+                            state.anchors.remove(&slot);
+                        }
+                    }
+                    if !keep_key {
+                        state.keys.remove(&slot);
+                    }
+                });
+                let signed = restored.platform.with(|state| state.sign_calls);
+                let label = format!(
+                    "restore files={restore_files}, anchor={anchor_name}, keep key={keep_key}"
+                );
+                let mut provider = restored.open();
+                let refusal = if anchor.is_none() {
+                    Some(KagemushaWalletProviderErrorV1::LostCustody(
+                        KagemushaWalletLostCustodyV1::AnchorMissing,
+                    ))
+                } else if restore_files && anchor_name == "current" {
+                    Some(KagemushaWalletProviderErrorV1::LostCustody(
+                        KagemushaWalletLostCustodyV1::RolledBack,
+                    ))
+                } else if !keep_key {
+                    Some(KagemushaWalletProviderErrorV1::KeyLost)
+                } else {
+                    None
+                };
+                if let Some(refusal) = refusal {
+                    assert_eq!(provider.status(&slot), Err(refusal), "{label}");
+                    for candidate in [&competitor, &request] {
+                        assert_eq!(
+                            provider.advance(&slot, &TestOwnerV1, candidate),
+                            Err(refusal),
+                            "{label}"
+                        );
+                    }
+                } else if restore_files {
+                    // The only unsafe cell remains explicitly observable. The adjacent
+                    // multiple_write_loss_remains_unqualified test demonstrates its second
+                    // release; do not relabel this accepted predecessor as rollback closure.
+                    assert_eq!(provider.status(&slot), Ok(previous_head.clone()), "{label}");
+                    assert_eq!(
+                        provider.lookup(&slot, &original.operation_id),
+                        Ok(KagemushaWalletLookupV1::Unknown),
+                        "{label}"
+                    );
+                } else {
+                    assert_eq!(provider.status(&slot), Ok(released_head.clone()), "{label}");
+                    assert!(
+                        matches!(
+                            provider.advance(&slot, &TestOwnerV1, &competitor),
+                            Ok(KagemushaWalletAdvanceOutcomeV1::NotPerformed(
+                                KagemushaWalletNotPerformedV1::StaleHead
+                            ))
+                        ),
+                        "{label}"
+                    );
+                    for _ in 0..2 {
+                        assert_eq!(
+                            released_of(&provider.advance(&slot, &TestOwnerV1, &request)),
+                            Some(original.clone()),
+                            "{label}"
+                        );
+                    }
+                    assert_eq!(
+                        restored
+                            .platform
+                            .with(|state| state.anchors.get(&slot).cloned()),
+                        Some(released_anchor.clone()),
+                        "{label}: surviving release repairs the old anchor"
+                    );
+                }
+                assert_eq!(
+                    restored.platform.with(|state| state.sign_calls),
+                    signed,
+                    "{label}"
+                );
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 12);
+}
+
+#[test]
 fn wallet_advance_v1_crash_matrix_keychain_multiple_write_loss_remains_unqualified() {
     // Counterexample to treating two acknowledgements as a durability fence: the API does
     // not promise that only its final write can be lost. If *both* new anchor values are

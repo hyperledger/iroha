@@ -630,9 +630,15 @@ impl Exchange {
         }).await })?
     }
 
-    // Only status polling schedules this bounded drain of already authorized carriers.
-    // It supplies no work to consensus and never authenticates a monetary outcome.
+    // Status polling supplies no work to consensus and never authenticates a monetary
+    // outcome. Rotation has a separate workload-specific fee audit at its fixed cut.
     pub(crate) fn quiescent_heights(&self) -> Result<[u64; 3]> {
+        self.drain_heights(false)
+    }
+    pub(crate) fn quiescent_fee_heights(&self) -> Result<[u64; 3]> {
+        self.drain_heights(true)
+    }
+    fn drain_heights(&self, audit_fees: bool) -> Result<[u64; 3]> {
         self.runtime.block_on(async {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
             tokio::time::timeout_at(deadline, async {
@@ -657,7 +663,41 @@ impl Exchange {
                         stable_since = tokio::time::Instant::now();
                         previous = Some(heights);
                     } else if stable_since.elapsed() >= Duration::from_secs(3) {
-                        return Ok(heights);
+                        let mut advanced = false;
+                        if audit_fees {
+                            for (root, height) in self.roots.iter().zip(heights) {
+                                match fees::audit(root, height, deadline).await? {
+                                    fees::FeeCut::Exact => {},
+                                    fees::FeeCut::Advanced { observed } => {
+                                        eprintln!(
+                                            "AMX fee drain root {}: expected {height}, authenticated newer cut {observed}",
+                                            root.index
+                                        );
+                                        advanced = true;
+                                        break;
+                                    },
+                                }
+                            }
+                        }
+                        if audit_fees && !advanced {
+                            // A different root can advance while a later root's cut
+                            // is being audited. Status remains only a locator: any
+                            // change schedules another fully authenticated audit.
+                            for (index, root) in self.roots.iter().enumerate() {
+                                for peer in root.network.validators() {
+                                    advanced |= status_poll::read_until(deadline, || peer.status())
+                                        .await?
+                                        .blocks != heights[index];
+                                }
+                            }
+                        }
+                        if !advanced {
+                            return Ok(heights);
+                        }
+                        // Retain the original phase deadline and wait for another
+                        // aligned quiet candidate. No audit error is retried here.
+                        previous = None;
+                        stable_since = tokio::time::Instant::now();
                     }
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
@@ -672,10 +712,18 @@ impl Exchange {
         })
     }
     pub(crate) fn audit_fees(&self, heights: [u64; 3]) -> Result<()> {
-        for (root, height) in self.roots.iter().zip(heights) {
-            fees::audit(root, height, &self.runtime)?;
-        }
-        Ok(())
+        self.runtime.block_on(async {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+            for (root, height) in self.roots.iter().zip(heights) {
+                let cut = fees::audit(root, height, deadline).await?;
+                ensure!(
+                    cut == fees::FeeCut::Exact,
+                    "fee audit root {} requires the exact quiescent certified tip: expected {height}, observed {cut:?}",
+                    root.index
+                );
+            }
+            Ok(())
+        })
     }
     pub(crate) fn assert_no_background_blocks(&self, heights: [u64; 3]) -> Result<()> {
         self.runtime.block_on(async {

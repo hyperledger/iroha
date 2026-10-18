@@ -16,10 +16,6 @@ fn seed_parliament_no_roster_retry_fixture(
     let proposal_content_id = ProposalContentId::new(proposal_id);
     let governance_attempt_id = GovernanceAttemptId::derive_v1(proposal_content_id, 0);
     let (risk_tier, requirements) = parliament_attempt_policy_v1(&proposal);
-    let mut governance = parliament_test_governance(&requirements);
-    governance.citizenship_bond_amount = Quantity::from(10_u64);
-    governance.parliament_sortition_pulse_delay_blocks = PULSE_DELAY;
-    state_transaction.gov = governance;
     let expected_head = parliament_expected_head_v1(&proposal, state_transaction)
         .expect("derive the actual proposal subject head");
     let mut attempt = ParliamentAttemptStateV1::try_new(
@@ -182,12 +178,12 @@ fn parliament_retry_block_header() -> iroha_data_model::block::BlockHeader {
 
 #[test]
 fn parliament_planned_sccp_sortition_retry_is_permissionless_and_admitted() {
-    let state = blank_test_state();
+    let mut state = blank_test_state();
+    let proposal =
+        sccp_route_governance_test_kind(&sccp_route_governance_test_proposal(state.network_id));
+    configure_parliament_fixture_state(&mut state, &proposal, 4);
     let mut block = state.block(parliament_retry_block_header());
     let mut state_transaction = block.transaction();
-    let proposal = sccp_route_governance_test_kind(&sccp_route_governance_test_proposal(
-        state_transaction.network_id,
-    ));
     let (governance_attempt_id, requirements) =
         seed_parliament_no_roster_retry_fixture(&mut state_transaction, proposal);
     let manager: Permission = CanManageParliament.into();
@@ -205,7 +201,12 @@ fn parliament_planned_sccp_sortition_retry_is_permissionless_and_admitted() {
 
 #[test]
 fn parliament_planned_sortition_retry_is_manager_intent_outside_sccp() {
-    let state = blank_test_state();
+    let mut state = blank_test_state();
+    configure_parliament_fixture_state(
+        &mut state,
+        &parliament_permissionless_progress_proposal(),
+        4,
+    );
     let mut block = state.block(parliament_retry_block_header());
     let mut state_transaction = block.transaction();
     let (governance_attempt_id, requirements) = seed_parliament_no_roster_retry_fixture(

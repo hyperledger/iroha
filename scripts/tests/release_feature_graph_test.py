@@ -2408,6 +2408,84 @@ def test_android_cargo_uses_canonical_root_manifest_and_lock_custody(tmp_path: P
 
 
 @pytest.mark.parametrize(("original", "replacement"), (
+    ('sourceSealPlatform.convention("android")',
+     'sourceSealPlatform.convention(NativeBridgeBuildContract.armv7DiagnosticPlatform)'),
+    ('localIntegration.convention(false)', 'localIntegration.convention(true)'),
+    ('if (tools.diagnosticConfiguration == null) "android-cargo"',
+     'if (tools.diagnosticConfiguration != null) "android-cargo"'),
+    ('if (tools.diagnosticConfiguration == null) "android-cargo"',
+     'if (tools.diagnosticConfiguration == null) "android-armv7-diagnostic-cargo"'),
+    ('else "android-armv7-diagnostic-cargo"', 'else "android-cargo"'),
+    ('val diagnosticConfiguration = if (armv7Diagnostic) cargoConfiguration else null',
+     'val diagnosticConfiguration = cargoConfiguration'),
+    ('armv7Diagnostic = platform == NativeBridgeBuildContract.armv7DiagnosticPlatform,',
+     'armv7Diagnostic = true,'),
+    ('val compileNativeLibs = tasks.register<CompileNativeBridgeTask>("compileNativeLibs") {',
+     'val compileNativeLibs = tasks.register<CompileNativeBridgeTask>("compileNativeLibs") {\n'
+     '    sourceSealPlatform.set(NativeBridgeBuildContract.armv7DiagnosticPlatform)'),
+    ('val compileNativeLibs = tasks.register<CompileNativeBridgeTask>("compileNativeLibs") {',
+     'val compileNativeLibs = tasks.register<CompileNativeBridgeTask>("compileNativeLibs") {\n'
+     '    localIntegration.set(true)'),
+))
+def test_android_diagnostic_profile_cannot_become_shipping_default(
+    tmp_path: Path, original: str, replacement: str,
+) -> None:
+    checker = load_checker()
+    catalog = prepare_android_cargo_envelope_repo(tmp_path, checker)
+    owner = tmp_path / checker.ANDROID_NATIVE_BUILD_OWNER
+    source = owner.read_text()
+    assert original in source
+    # Mutate every shared selector occurrence so the command and provenance
+    # cannot disagree while a different intact occurrence masks the change.
+    owner.write_text(source.replace(original, replacement))
+    with pytest.raises(RuntimeError, match="Android shipping profile routing changed"):
+        checker.android_native_artifact_targets(tmp_path, catalog)
+
+
+@pytest.mark.parametrize(("original", "replacement", "error"), (
+    ('"connect_norito_bridge",', '"iroha_data_model",', "Android Cargo package"),
+    ('addAll(listOf("--features", "privacy-production-enabled"))',
+     'addAll(listOf("--features", "test-utils"))', "Android Cargo feature"),
+    ('addAll(listOf("--features", "privacy-production-enabled"))',
+     'addAll(listOf("--all-features"))', "Android Cargo feature"),
+    ('inputDirectory.set(compileNativeLibs.flatMap { it.outputDirectory })',
+     'inputDirectory.set(compileArmv7DiagnosticRaw.flatMap { it.outputDirectory })',
+     "Android native packaging chain changed"),
+))
+def test_android_diagnostic_split_preserves_shipping_recipe(
+    tmp_path: Path, original: str, replacement: str, error: str,
+) -> None:
+    checker = load_checker()
+    catalog = prepare_android_cargo_envelope_repo(tmp_path, checker)
+    owner = tmp_path / checker.ANDROID_NATIVE_BUILD_OWNER
+    source = owner.read_text()
+    assert source.count(original) == 1
+    owner.write_text(source.replace(original, replacement))
+    with pytest.raises(RuntimeError, match=error):
+        checker.android_native_artifact_targets(tmp_path, catalog)
+
+
+@pytest.mark.parametrize("replacement", (
+    'if args.profile == "android-cargo":',
+    'if args.profile == "android-armv7-diagnostic-cargo":',
+    'if args.profile in {"android-cargo", "unreviewed-cargo"}:',
+    'if False:',
+))
+def test_android_both_profiles_must_authenticate_root_cargo_arguments(
+    tmp_path: Path, replacement: str,
+) -> None:
+    checker = load_checker()
+    catalog = prepare_android_cargo_envelope_repo(tmp_path, checker)
+    owner = tmp_path / checker.ANDROID_HERMETIC_RUNNER
+    source = owner.read_text()
+    original = 'if args.profile in {"android-cargo", "android-armv7-diagnostic-cargo"}:'
+    assert source.count(original) == 1
+    owner.write_text(source.replace(original, replacement))
+    with pytest.raises(RuntimeError, match="Android Cargo authentication changed"):
+        checker.android_native_artifact_targets(tmp_path, catalog)
+
+
+@pytest.mark.parametrize(("original", "replacement"), (
     ('"build",', '"check",'),
     ('"--locked",', '"--frozen",'),
     ('"--offline",', '"--online",'),

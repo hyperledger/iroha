@@ -372,23 +372,41 @@ of an exchange use the same one. Pass it as
 their own registration use the protocol identifier `F0504B45504B524E464301`
 (`IrohaPeerNfcApplicationIdentifierV1.protocolDefault`), as shown.
 
-An exchange completes in one continuous hold. On the receiver, `IrohaPeerNfcCardSessionControllerV1.startIntake`
-emulates a card that awaits the payer's Offer and calls `prepareRequest` to sign the
-Request. On the payer, `IrohaPeerNfcReaderServiceV1.run(offer:)` writes the Offer,
-reads the Request, and keeps the same reader session and tag connection open while
-`loadOrCreateDurableCheckpoint` confirms the exact payment with hardware-backed
-authentication and durably stores its `IrohaPeerNfcSenderCheckpointV1`. That same
-hold then delivers the Payment, persists the receiver's Credited acknowledgement,
-and confirms it. The normal flow does not close the reader or ask for another tap.
+The receiver's `IrohaPeerNfcCardSessionControllerV1.startIntake` awaits the
+payer's Offer and calls `prepareRequest` to produce the Request. The payer can
+use `IrohaPeerNfcReaderServiceV1.run(offer:)` to keep a reader session open through
+Request, hardware-backed payment approval, durable checkpoint creation, Payment
+and Credited acknowledgement. Its operation deadline includes approval and wallet
+work. For slower approval or proof preparation, `readRequest(offer:)` closes the
+first reader session after reading the Request; the application then confirms and
+stores the exact Payment before automatically calling `run(restoredCheckpoint:)`.
+That second session must rediscover the still-held peer to meet a one-hold product
+requirement. Validate that behavior on real devices; automatic session creation
+alone does not establish a continuous physical hold.
+
 If contact is interrupted, `run(restoredCheckpoint:)` resumes the exact retained
 Payment without another debit. A receiver whose card session stops restarts with
-`start(sessionID:receiveRequest:)` and the same session identifier and Request bytes.
-While a receiver finishes saving, the reader retries admission/commit storage-failure
-replies within the same hold, bounded by twelve attempts and the operation deadline.
-The iOS card retains one context-bound durability worker across APDU timeouts;
-replays await that same work. Cancellation or session retirement prevents late
-results from entering another session and retains the shared worker lease until
-the callback actually returns.
+`start(sessionID:receiveRequest:)` and the same session identifier, Request bytes,
+and retained admission or acknowledgement. While a receiver finishes saving, the
+reader retries admission/commit storage-failure replies within the same hold,
+bounded by twelve attempts and the operation deadline. The card retains one
+context-bound durability worker across APDU timeouts; replays await that same work.
+Cancellation or session retirement prevents late results from entering another
+session and retains the shared worker lease until the callback actually returns.
+
+An established card session that reaches Apple's duration limit reports
+`.failed(.sessionDurationReached)` before `.ended`; other failures and explicit
+cancellation do not identify that expiry. `.ended` describes radio termination,
+not completion of detached wallet callbacks. Capture the presentation's
+`latestSessionSettlement` handle before replacing it and await `wait()` before
+reusing its application state. The handle completes only after that presentation
+can dispatch no more callbacks, its reserved Request/admission/commit callbacks
+have returned, and its durability lease has been released. Cancellation removes
+only the waiter. Settlement does not imply monetary success: the application
+must retain and check the exact Request/admission/acknowledgement results before
+rearming. The SDK does not automatically restart a card session. Apple enforces a
+cooldown after expiry; a replacement can return `cardSessionSystemUnavailable`,
+so applications must bound any automatic retry and honor explicit user stops.
 
 Reader builds also need the Near Field Communication Tag Reading capability,
 which produces this entitlement:

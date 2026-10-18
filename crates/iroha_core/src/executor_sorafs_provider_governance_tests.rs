@@ -26,7 +26,7 @@ mod sorafs_provider_governance_admission {
         assert!(initial_native_instruction_is_explicitly_admitted(
             &instruction
         ));
-        let state = state_after_genesis(World::with(
+        let mut state = state_after_genesis(World::with(
             [],
             [
                 Account::new(authority.clone()).build(&authority),
@@ -34,9 +34,9 @@ mod sorafs_provider_governance_admission {
             ],
             [],
         ));
+        state.gov.citizenship_bond_amount = Quantity::from(10_u32);
         let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 1, 0));
         let mut transaction = block.transaction();
-        transaction.gov.citizenship_bond_amount = Quantity::from(10_u32);
 
         for bond in [None, Some(9_u32)] {
             if let Some(amount) = bond {
@@ -119,7 +119,13 @@ mod sorafs_provider_governance_admission {
             before
         );
 
-        transaction.gov.citizenship_bond_amount = Quantity::from(11_u32);
+        transaction.apply();
+        block
+            .commit_world_overlay_for_testing()
+            .expect("retain original proposal for changed-policy replay");
+        state.gov.citizenship_bond_amount = Quantity::from(11_u32);
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 1, 0));
+        let mut transaction = block.transaction();
         let error = crate::executor::Executor::Initial
             .execute_instruction(&mut transaction, &authority, instruction)
             .expect_err("replay must recheck the current bond requirement");

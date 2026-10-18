@@ -12,6 +12,7 @@ pub struct PreparedNative {
     pub(super) genesis: Option<GenesisBlock>,
     pub(super) stored_genesis_block: Option<iroha_data_model::block::SharedSignedBlock>,
     pub(super) block_count: iroha_core::kura::BlockCount,
+    pub(super) fastpq_replay_seed: Option<iroha_core::sumeragi::node::NativeReplaySeed>,
     pub(super) prepared_sumeragi: Option<iroha_core::sumeragi::node::Prepared>,
     pub(super) signed_consensus_mode: iroha_data_model::block::consensus::ConsensusMode,
     pub(super) frozen_startup_lane_manifests: LaneManifestRegistryHandle,
@@ -425,6 +426,19 @@ impl PreparedStartup {
                 startup_trace_started_at,
             );
         }
+        let fastpq_replay_seed = if emergency_fast {
+            None
+        } else {
+            Some(
+                iroha_core::sumeragi::node::NativeReplaySeed::capture(
+                    &state,
+                    config.kura.clone(),
+                    AccountId::new(effective_genesis_public_key.clone()),
+                    signed_consensus_mode,
+                )
+                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?,
+            )
+        };
         // Delay Arc wrapping until after we tweak state with config
         let events_buffer_capacity = if emergency_fast {
             1
@@ -478,6 +492,7 @@ impl PreparedStartup {
             stored_genesis_block,
             block_count,
             prepared_sumeragi,
+            fastpq_replay_seed,
             signed_consensus_mode,
             frozen_startup_lane_manifests,
             frozen_startup_lane_compliance,

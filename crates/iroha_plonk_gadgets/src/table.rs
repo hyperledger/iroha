@@ -51,11 +51,13 @@
 //!
 //! # Degree
 //!
-//! The lookup degree is `2 + deg(input) + deg(table)`. The `C`/`Q` range
-//! residual has degree 3 (ternary patterns), so its guest must use fixed
-//! table expressions (SHA: `2 + 3 + 1 = 6`); the `U` residual has degree 2,
-//! so its guest may use the degree-2 dynamic window table (`2 + 2 + 2 =
-//! 6`).
+//! The norm lookup degree is
+//! `max(6, 2 + 2*max(1, deg(input)) + 2*max(1, deg(table)))`. The `C`/`Q`
+//! range residual has degree 3 (ternary patterns) and its SHA guest uses
+//! fixed table expressions, giving `2 + 2*3 + 2*1 = 10`. The `U` residual
+//! has degree 2 and its window guest uses the degree-2 dynamic table,
+//! giving `2 + 2*2 + 2*2 = 10`. These norm argument degrees do not change
+//! the arithmetic-gate bound of six.
 
 use iroha_pasta::PastaField;
 use iroha_plonk::cs::{Column, ConstraintSystem, Expression, Fixed, VirtualCells};

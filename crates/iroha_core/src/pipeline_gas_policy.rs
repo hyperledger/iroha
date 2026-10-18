@@ -1,4 +1,4 @@
-//! One MV owner for canonical parameters and validated fee, limit and fraud projections.
+//! One MV owner for canonical parameters and validated fee, limit, fraud and ZK projections.
 //!
 //! Views and block construction read this projection from committed parameters.
 //! A block freezes its predecessor's projection; execution never refreshes it
@@ -22,6 +22,24 @@ use iroha_data_model::{
 };
 use iroha_primitives::{json::Json, numeric::Numeric};
 
+/// The bootstrap value is explicit owned state; reading it never allocates a
+/// replacement default or mistakes it for committed monetary authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RootFeeProjection {
+    Bootstrap(RootFeePolicy),
+    Committed(RootFeePolicy),
+}
+impl RootFeeProjection {
+    fn bootstrap() -> Self {
+        Self::Bootstrap(iroha_config::parameters::defaults::nexus::fees::genesis_policy())
+    }
+    fn effective(&self) -> &RootFeePolicy {
+        match self {
+            Self::Bootstrap(value) | Self::Committed(value) => value,
+        }
+    }
+}
+
 /// One MV value owning canonical parameters and validated execution projections.
 ///
 /// Only `parameters` is serialized or committed. The derived fields are rebuilt
@@ -32,7 +50,8 @@ pub struct StateParameters {
     gas: Gas,
     pipeline: PipelineValidityPolicyV1,
     fraud: FraudAdmissionPolicyV1,
-    root_fees: Option<RootFeePolicy>,
+    zk: iroha_data_model::zk_validity_policy::ZkValidityPolicyV1,
+    root_fees: RootFeeProjection,
 }
 
 impl Default for StateParameters {
@@ -42,7 +61,8 @@ impl Default for StateParameters {
             gas: Gas::default(),
             pipeline: PipelineValidityPolicyV1::protocol_default(),
             fraud: FraudAdmissionPolicyV1::protocol_default(),
-            root_fees: None,
+            zk: iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default(),
+            root_fees: RootFeeProjection::bootstrap(),
         }
     }
 }
@@ -70,16 +90,27 @@ impl TryFrom<Parameters> for StateParameters {
             .map(|custom| fraud_policy(custom.payload()))
             .transpose()?
             .unwrap_or_else(FraudAdmissionPolicyV1::protocol_default);
+        let zk = parameters
+            .custom()
+            .get(&iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::parameter_id())
+            .map(|custom| zk_policy(custom.payload()))
+            .transpose()?
+            .unwrap_or_else(
+                iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default,
+            );
         let root_fees = parameters
             .custom()
             .get(&RootFeePolicy::parameter_id())
             .map(|custom| root_fee_policy(custom.payload()))
-            .transpose()?;
+            .transpose()?
+            .map(RootFeeProjection::Committed)
+            .unwrap_or_else(RootFeeProjection::bootstrap);
         Ok(Self {
             parameters,
             gas,
             pipeline,
             fraud,
+            zk,
             root_fees,
         })
     }
@@ -99,10 +130,7 @@ pub(crate) fn with_root_fees(
     if cfg!(all(test, sumeragi_core_mutation = "HC396")) {
         return nexus;
     }
-    nexus.fees = parameters
-        .root_fees()
-        .cloned()
-        .unwrap_or_else(iroha_config::parameters::defaults::nexus::fees::genesis_policy);
+    nexus.fees = parameters.effective_root_fees().clone();
     nexus
 }
 
@@ -122,10 +150,25 @@ impl StateParameters {
         &self.fraud
     }
 
+    /// Borrow every validated ZK validity term from this exact parameter version.
+    /// Readers never decode JSON or consult a process-local policy memo.
+    pub fn zk_policy(&self) -> &iroha_data_model::zk_validity_policy::ZkValidityPolicyV1 {
+        &self.zk
+    }
+
     /// Borrow the complete monetary policy derived from this exact committed version.
     /// Absence is permitted only before signed genesis has installed the required policy.
     pub fn root_fees(&self) -> Option<&RootFeePolicy> {
-        self.root_fees.as_ref()
+        match &self.root_fees {
+            RootFeeProjection::Bootstrap(_) => None,
+            RootFeeProjection::Committed(value) => Some(value),
+        }
+    }
+
+    /// Borrow the deterministic projection even for the original pre-genesis cut.
+    /// Ordinary execution must still require `root_fees()` to be present.
+    pub(crate) fn effective_root_fees(&self) -> &RootFeePolicy {
+        self.root_fees.effective()
     }
 
     /// Validate and atomically update one original parameter and its derived policies.
@@ -157,7 +200,7 @@ impl StateParameters {
         scope: iroha_data_model::block::consensus::SumeragiRootScope,
         is_genesis: bool,
     ) -> Result<(), norito::Error> {
-        let previous = self.root_fees.clone();
+        let previous = self.root_fees().cloned();
         self.set_parameter_validated(parameter, |next| {
             next.validate_for_scope(&scope)
                 .map_err(|error| norito::Error::Message(error.to_string()))?;
@@ -206,12 +249,19 @@ impl StateParameters {
             self.parameters.set_parameter(parameter);
             self.fraud = fraud;
         } else if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
+            && custom.id().name().as_ref()
+                == iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::PARAMETER_ID_STR
+        {
+            let zk = zk_policy(custom.payload())?;
+            self.parameters.set_parameter(parameter);
+            self.zk = zk;
+        } else if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
             && custom.id().name().as_ref() == RootFeePolicy::PARAMETER_ID_STR
         {
             let root_fees = root_fee_policy(custom.payload())?;
             validate_root_fees(&root_fees)?;
             self.parameters.set_parameter(parameter);
-            self.root_fees = Some(root_fees);
+            self.root_fees = RootFeeProjection::Committed(root_fees);
         } else {
             // Other parameters cannot change these projections and need no decoding.
             self.parameters.set_parameter(parameter);
@@ -238,7 +288,11 @@ impl StateParameters {
             FraudAdmissionPolicyV1::PARAMETER_ID_STR => {
                 self.fraud = FraudAdmissionPolicyV1::protocol_default();
             }
-            RootFeePolicy::PARAMETER_ID_STR => self.root_fees = None,
+            iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::PARAMETER_ID_STR => {
+                self.zk =
+                    iroha_data_model::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+            }
+            RootFeePolicy::PARAMETER_ID_STR => self.root_fees = RootFeeProjection::bootstrap(),
             _ => {}
         }
         previous
@@ -291,6 +345,17 @@ impl norito::json::JsonDeserialize for StateParameters {
 
 fn fraud_policy(payload: &Json) -> Result<FraudAdmissionPolicyV1, norito::Error> {
     let policy = payload.try_into_any_norito::<FraudAdmissionPolicyV1>()?;
+    policy
+        .validate()
+        .map_err(|error| norito::Error::Message(error.to_string()))?;
+    Ok(policy)
+}
+
+fn zk_policy(
+    payload: &Json,
+) -> Result<iroha_data_model::zk_validity_policy::ZkValidityPolicyV1, norito::Error> {
+    let policy = payload
+        .try_into_any_norito::<iroha_data_model::zk_validity_policy::ZkValidityPolicyV1>()?;
     policy
         .validate()
         .map_err(|error| norito::Error::Message(error.to_string()))?;
@@ -515,6 +580,51 @@ mod tests {
 
     fn parameter(name: &str, payload: Json) -> CustomParameter {
         CustomParameter::new(name.parse().expect("parameter id"), payload)
+    }
+
+    #[test]
+    fn zk_projection_and_bootstrap_fees_share_original_atomic_parameter_owner() {
+        use iroha_data_model::zk_validity_policy::ZkValidityPolicyV1;
+        let mut owner = StateParameters::default();
+        let bootstrap = owner.effective_root_fees().clone();
+        assert!(owner.root_fees().is_none());
+        let mut policy = ZkValidityPolicyV1::protocol_default();
+        policy.gas.proof_base += 7;
+        let update = Parameter::Custom(policy.clone().into_custom_parameter());
+        let zero = norito::DecodeLimits::new(0, 0, 0, 0, 0);
+        let original = owner.clone();
+        norito::with_decode_limits_scope(zero, || {
+            assert_eq!(owner.effective_root_fees(), &bootstrap);
+            assert_eq!(owner.zk_policy(), &ZkValidityPolicyV1::protocol_default());
+            let error = owner.set_parameter(update.clone()).unwrap_err();
+            assert!(norito::core::decode_error_matches_active_limits(&error));
+        });
+        assert_eq!(owner, original);
+        owner.set_parameter(update).unwrap();
+        assert_eq!(owner.zk_policy(), &policy);
+        let committed = owner.clone();
+        let mut invalid = policy.clone();
+        invalid.proofs.max_verify_batch = 0;
+        assert!(
+            owner
+                .set_parameter(Parameter::Custom(invalid.into_custom_parameter()))
+                .is_err()
+        );
+        assert_eq!(owner, committed);
+        let canonical = norito::json::to_json(&owner).unwrap();
+        assert_eq!(
+            canonical,
+            norito::json::to_json(&*owner).unwrap(),
+            "only canonical input is serialized"
+        );
+        let restored: StateParameters = norito::json::from_str(&canonical).unwrap();
+        assert_eq!(restored, owner);
+        assert_eq!(StateParameters::try_from((*owner).clone()).unwrap(), owner);
+        owner
+            .remove_custom_parameter(&ZkValidityPolicyV1::parameter_id())
+            .unwrap();
+        assert_eq!(owner.zk_policy(), &ZkValidityPolicyV1::protocol_default());
+        assert_eq!(owner.effective_root_fees(), &bootstrap);
     }
 
     #[test]

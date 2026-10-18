@@ -127,6 +127,14 @@ impl TransactionMembershipPublicationCut<'_> {
         self.frontier_height
     }
 
+    /// Exact logical predecessor frontier of this retained publication.
+    pub(in crate::state) fn predecessor_frontier_height(
+        &self,
+    ) -> Result<u64, TransactionMembershipAuthorityError> {
+        u64::try_from(self.transition.predecessor_height())
+            .map_err(|_| TransactionMembershipAuthorityError::HeightOverflow)
+    }
+
     /// Physical source-entry inspections admitted before either stream starts.
     pub(in crate::state) fn row_visits(&self) -> usize {
         self.row_visits
@@ -135,7 +143,7 @@ impl TransactionMembershipPublicationCut<'_> {
     /// Emit current then rollback from this same immutable original transition.
     /// Error discards all provisional consumer output and changes no publication source.
     pub(in crate::state) fn visit<E>(
-        self,
+        &self,
         mut visit: impl FnMut(TransactionMembershipSide, &Key, u64) -> Result<(), E>,
     ) -> Result<(), TransactionMembershipVisitError<E>> {
         self.transition.visit_staged_membership(|key, height| {

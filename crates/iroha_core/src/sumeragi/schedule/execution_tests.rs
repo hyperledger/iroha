@@ -15,6 +15,13 @@ fn registered_world(context: &iroha_data_model::sumeragi::epoch::ValidatorEpochC
                 iroha_data_model::block::consensus::SumeragiRootScope::Global,
             ))
             .expect("valid fixture parameters");
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                iroha_config::parameters::defaults::nexus::fees::genesis_policy()
+                    .into_custom_parameter()
+                    .unwrap(),
+            ))
+            .expect("explicit committed fixture fee policy");
         parameters.commit();
     }
     for member in &context.committee {
@@ -215,6 +222,42 @@ fn executed_genesis_rejects_an_extra_voting_registration() {
         overlay.commit();
     }
     assert!(validate_executed_genesis(&world.view(), &context).is_err());
+}
+
+#[test]
+fn executed_genesis_requires_committed_fee_policy_without_defaults() {
+    use iroha_data_model::{block::consensus::RootFeePolicy, parameter::Parameter};
+
+    let signed = crate::sumeragi::epoch::tests::genesis_fixture(
+        SumeragiConsensusMode::Permissioned,
+        10,
+        false,
+    );
+    let context = crate::sumeragi::epoch::authenticated_genesis(&signed)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
+    let world = registered_world(&context);
+    validate_executed_genesis(&world.view(), &context).unwrap();
+    let policy = {
+        let mut parameters = world.parameters.block();
+        let policy = parameters
+            .remove_custom_parameter(&RootFeePolicy::parameter_id())
+            .expect("registered world has a committed fee policy");
+        parameters.commit();
+        policy
+    };
+    assert!(matches!(
+        validate_executed_genesis(&world.view(), &context),
+        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+            ScheduleError::Epoch(message)
+        )) if message == "executed genesis fee policy is invalid: committed root fee policy is absent"
+    ));
+    {
+        let mut parameters = world.parameters.block();
+        parameters.set_parameter(Parameter::Custom(policy)).unwrap();
+        parameters.commit();
+    }
+    validate_executed_genesis(&world.view(), &context).unwrap();
 }
 
 #[test]

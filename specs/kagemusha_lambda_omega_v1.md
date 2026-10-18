@@ -1054,7 +1054,12 @@ tampered and the circuit must become unsatisfiable.
 `m3_gates` measures synthesis through consuming-witness proving and cleanup;
 parameter setup, key generation and verification are reported separately. Every
 measured proof is verified. A one- or four-worker Rayon pool is constructed and
-its actual worker count checked. Missing CPU/RSS probes invalidate a run. Memory
+its actual worker count checked. Missing CPU/RSS probes invalidate a run. Every
+existing thermal observation, including those after parameter loading, key
+generation, witness synthesis and verification, must be nominal. An unavailable
+or non-nominal intermediate reading invalidates the process even when its first
+and last readings are nominal; its phase diagnostic and failed output are retained.
+Memory
 is the kernel lifetime high-water RSS of a fresh process, including setup; it is
 never a subtraction of phase peaks or the maximum of periodic RSS samples.
 The current driver keeps one explicit caller-owned quotient workspace across
@@ -1075,14 +1080,25 @@ For a component qualification during unrelated protocol work, `prepare
 --component` derives its source scope from Cargo's actual compiled package
 artifacts, including local build/dev dependencies, cross-crate Rust inputs,
 workspace build configuration and the measurement harness. It records every
-selected file and both whole-checkout hashes. Changes anywhere in a selected
-crate invalidate that component; edits outside the recorded scope do not.
+selected file and both whole-checkout hashes. The generated native source identity
+also binds the complete maintained native-input census, which can extend beyond
+the compiled package roots. Its sole admitted generated file must match the exact
+Cargo producer, current complete census and target; the measured binary must
+report that same compiled identity before workload key generation. The deliberate
+rescan watcher must remain absent. These rules do not admit arbitrary generated
+inputs or incomplete identities. Changes anywhere in this selected scope
+invalidate the component; edits outside the recorded scope do not.
 A component verdict qualifies only those measured workloads and cannot establish
 a frozen whole-release candidate. Registry versions remain bound by Cargo.lock.
 
 For each configuration collect three separated blocks of three fresh processes,
 balancing configuration order with a recorded shuffle seed. Retain the first two
-proofs of each process and use the slower one for its timing sample. Bracket each
+proofs of each process and use the slower one for its timing sample. The process
+seed and sample index derive two distinct input-fixture seeds through the pinned
+SplitMix64 mapping. Reports must retain and validate both seeds and their exact
+derivation marker; missing, repeated, swapped or foreign-process samples are
+invalid. These seeds vary witness/public inputs while proof randomness remains
+fresh and hedged. Bracket each
 process with a fixed k16 proof calibration of its family; both CPU and elapsed
 calibration samples must agree within 5%. Require nominal thermal/power state,
 normal memory pressure and no new compression, pageout or swapout episode from

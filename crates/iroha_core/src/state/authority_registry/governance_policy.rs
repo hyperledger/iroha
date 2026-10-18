@@ -366,12 +366,167 @@ impl GovernanceAuthorityV1 {
     }
 }
 
+/// Stream every original governance term, preserving sequence and map order.
+pub(super) fn borrowed(config: &Governance) -> impl norito::SerializePayload + '_ {
+    use super::policy_borrowed::{Ref, Seq, record};
+    fn vk(
+        key: &iroha_config::parameters::actual::VerifyingKeyRef,
+    ) -> impl norito::SerializePayload + '_ {
+        record!(Ref(&key.backend), Ref(&key.name))
+    }
+    fn pin_signer(signer: &SorafsPinApprovalSigner) -> impl norito::SerializePayload + '_ {
+        record!(
+            Ref(&signer.signer_id),
+            Ref(&signer.public_key),
+            signer.valid_from_block_height,
+            signer.revoked_at_block_height
+        )
+    }
+
+    let provenance = &config.runtime_upgrade_provenance;
+    let viral = &config.viral_incentives;
+    let pin = &config.sorafs_pin_policy;
+    let penalty = &config.sorafs_penalty;
+    let telemetry = &config.sorafs_telemetry;
+    let timed = config.parliament_timed_ovn;
+    let tle = config.parliament_tle_key_lifecycle;
+    record!(
+        config.vk_ballot.as_ref().map(vk),
+        config.vk_tally.as_ref().map(vk),
+        Ref(&config.voting_asset_id),
+        Ref(&config.citizenship_asset_id),
+        Ref(&config.citizenship_bond_amount),
+        Ref(&config.citizenship_escrow_account),
+        Ref(&config.min_bond_amount),
+        Ref(&config.bond_escrow_account),
+        Ref(&config.slash_receiver_account),
+        config.slash_double_vote_bps,
+        config.slash_invalid_proof_bps,
+        config.slash_ineligible_proof_bps,
+        Ref(&config.alias_teu_minimum),
+        Seq(config
+            .jdg_signature_schemes
+            .iter()
+            .map(|scheme| scheme.scheme_id())),
+        record!(
+            match provenance.mode {
+                RuntimeUpgradeProvenanceMode::Optional => 0_u8,
+                RuntimeUpgradeProvenanceMode::Required => 1_u8,
+            },
+            provenance.require_sbom,
+            provenance.require_slsa,
+            Seq(provenance.trusted_signers.iter().map(Ref)),
+            u64::try_from(provenance.signature_threshold).expect("supported usize fits u64")
+        ),
+        record!(
+            Ref(&viral.incentive_pool_account),
+            Ref(&viral.escrow_account),
+            Ref(&viral.reward_asset_definition_id),
+            Ref(&viral.follow_reward_amount),
+            Ref(&viral.sender_bonus_amount),
+            viral.max_daily_claims_per_uaid,
+            viral.max_claims_per_binding,
+            Ref(&viral.daily_budget),
+            viral.halt,
+            Ref(&viral.deny_uaids),
+            Ref(&viral.deny_binding_digests),
+            viral.promo_starts_at_ms,
+            viral.promo_ends_at_ms,
+            Ref(&viral.campaign_cap)
+        ),
+        record!(
+            pin.min_replicas_floor,
+            pin.max_replicas_ceiling,
+            pin.max_retention_epoch,
+            pin.allowed_storage_classes
+                .as_ref()
+                .map(|classes| Seq(classes.iter().map(Ref))),
+            pin.require_council_signatures,
+            pin.approval_quorum,
+            Seq(pin.approval_signers.iter().map(pin_signer)),
+            pin.max_global_manifests,
+            pin.max_global_bytes,
+            pin.max_manifests_per_authority,
+            pin.max_bytes_per_authority,
+            pin.max_lineage_depth,
+            pin.max_successor_fanout
+        ),
+        Ref(&config.sorafs_pin_fee_asset_id),
+        Ref(&config.sorafs_pin_fee_treasury_account),
+        Ref(&config.sorafs_pricing),
+        record!(
+            penalty.utilisation_floor_bps,
+            penalty.uptime_floor_bps,
+            penalty.por_success_floor_bps,
+            penalty.strike_threshold,
+            penalty.penalty_bond_bps,
+            penalty.cooldown_windows,
+            penalty.max_pdp_failures,
+            penalty.max_potr_breaches
+        ),
+        record!(
+            telemetry.require_submitter,
+            telemetry.require_nonce,
+            telemetry.max_window_gap.as_secs(),
+            telemetry.max_window_gap.subsec_nanos(),
+            telemetry.reject_zero_capacity,
+            Ref(&telemetry.submitters),
+            Ref(&telemetry.per_provider_submitters)
+        ),
+        Ref(&config.sorafs_provider_owners),
+        config.conviction_step_blocks,
+        config.max_conviction,
+        config.min_enactment_delay,
+        config.window_span,
+        config.max_active_referenda.get(),
+        config.max_lock_owners_per_referendum.get(),
+        config.plain_voting_enabled,
+        config.approval_threshold_q_num,
+        config.approval_threshold_q_den,
+        config.min_turnout,
+        u64::try_from(config.parliament_alternate_size).expect("supported usize fits u64"),
+        config.parliament_sortition_pulse_delay_blocks,
+        config.parliament_invitation_phase_blocks,
+        config.parliament_public_finding_phase_blocks,
+        record!(
+            timed.registration_phase_blocks,
+            timed.survivor_freeze_phase_blocks,
+            timed.commitment_phase_blocks,
+            timed.release_delay_blocks,
+            timed.opening_phase_blocks,
+            timed.max_ballot_retries,
+            timed.max_corpus_entries
+        ),
+        record!(
+            tle.session_lifetime_blocks,
+            tle.max_fresh_ballots_per_session
+        ),
+        Ref(&config.parliament_tle_partial_release_signer_provider_handle),
+        config.parliament_tle_partial_release_signer_provider_revision,
+        config.parliament_tle_partial_release_signer_provider_policy_digest,
+        u64::try_from(config.rules_committee_size).expect("supported usize fits u64"),
+        u64::try_from(config.agenda_council_size).expect("supported usize fits u64"),
+        u64::try_from(config.interest_panel_size).expect("supported usize fits u64"),
+        u64::try_from(config.review_panel_size).expect("supported usize fits u64"),
+        u64::try_from(config.coordination_council_size).expect("supported usize fits u64"),
+        u64::try_from(config.policy_jury_size).expect("supported usize fits u64"),
+        u64::try_from(config.confirmation_jury_size).expect("supported usize fits u64"),
+        u64::try_from(config.oversight_committee_size).expect("supported usize fits u64"),
+        u64::try_from(config.mpc_committee_size).expect("supported usize fits u64"),
+        u64::try_from(config.fma_committee_size).expect("supported usize fits u64")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use iroha_crypto::{Algorithm, KeyPair};
 
     fn frame(config: &Governance) -> Vec<u8> {
+        super::super::policy_borrowed::assert_same_payload(
+            &borrowed(config),
+            &GovernanceAuthorityV1::from_actual(config),
+        );
         norito::encode_canonical(&GovernanceAuthorityV1::from_actual(config)).unwrap()
     }
 

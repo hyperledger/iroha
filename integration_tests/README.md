@@ -116,6 +116,10 @@ signs the same finite Nexus-only cap. At the quiescent tips, the tests authentic
 every charged receipt, every seeded fee-account balance and the total burned supply
 against the complete certified World cut. Genesis explicitly grants the test reader
 the existing full-ledger read permission; HTTP/query responses alone are not evidence.
+Status selection and fee verification share one bounded drain phase. A newer cut
+restarts that phase only after independent authentication, without renewing its
+deadline; proof and monetary failures remain fatal. Restart audits and the final
+idle observation require the exact previously verified heights.
 The tests currently require network qualification;
 source presence and component tests do not establish this result.
 
@@ -199,6 +203,19 @@ does not duplicate its executor. Ordinary query errors never establish absence.
 The rotation case uses the same isolated three-root permit settings, replacing
 `--test core_api native_amx_network::` above with
 `--test sumeragi_npos_committee_transition amx_rotation::original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_rotation_and_restart`.
+Build its local DKG/custody and disposable-broker executables from the same source
+before starting that test:
+
+```bash
+scripts/cargo_fast.sh --stable-local-metadata --incremental -- \
+  build --locked -p irohad --bin iroha3d_taira
+scripts/cargo_fast.sh --stable-local-metadata --incremental -- \
+  build --locked -p irohad --bin iroha_test_runtime_provider_broker \
+  --features test-network-disposable-broker
+export TEST_NETWORK_BIN_IROHAD_TAIRA="$PWD/target/debug/iroha3d_taira"
+export TEST_NETWORK_BIN_IROHAD_DISPOSABLE_BROKER="$PWD/target/debug/iroha_test_runtime_provider_broker"
+```
+
 A same-source daemon, the full-World disclosure containment gate and privileged
 bank roles are prerequisites. This source candidate is not network qualification
 or G3 State-proof readiness.

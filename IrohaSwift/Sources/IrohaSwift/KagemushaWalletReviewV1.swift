@@ -12,7 +12,6 @@ public struct KagemushaWalletReviewProjectionV1: Sendable {
   public let grossDebit: KagemushaWalletUInt128V1
   public let netDestinationAmount: KagemushaWalletUInt128V1
   private let retained: Data
-  init(original:Data)throws{try self.init(original)}
   init(_ original: Data) throws {
     guard original.count >= Self.fixedByteCount, original.count <= Self.maximumByteCount
     else { throw KagemushaWalletErrorV1.invalidNativeOutput }
@@ -58,10 +57,6 @@ public struct KagemushaWalletReviewProjectionV1: Sendable {
   public var credentialDigest: Data { word(8) }
   public var artifactManifestDigest: Data { word(9) }
   public var paymentPublicKey: Data { retained.subdata(in: 426..<491) }
-  public var receiverWalletId:Data?{receiverWalletID}
-  public var schemeId:Data{schemeID}
-  public var walletId:Data{walletID}
-  public var paymentKey:Data{paymentPublicKey}
 }
 
 /// Move-only owner-local Native capability; a projection cannot reconstruct one.
@@ -101,7 +96,6 @@ struct KagemushaWalletReviewReplyV1 {
   }
 }
 
-public typealias KagemushaWalletReviewedKindV1 = KagemushaWalletReviewProjectionV1.Kind
 final class KagemushaWalletReviewOriginV1: @unchecked Sendable {}
 /// Fixed foreign bounds/copies only; Native authenticates all financial inputs.
 struct KagemushaWalletReviewInputV1 {

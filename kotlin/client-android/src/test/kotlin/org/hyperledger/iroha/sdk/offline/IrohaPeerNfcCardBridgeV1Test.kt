@@ -1,6 +1,7 @@
 package org.hyperledger.iroha.sdk.offline
 
 import java.io.File
+import java.math.BigInteger
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
@@ -10,6 +11,7 @@ import java.util.concurrent.TimeUnit
 import org.hyperledger.iroha.sdk.client.JsonParser
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
@@ -299,6 +301,42 @@ class IrohaPeerNfcCardBridgeV1Test {
         assertFailsWith<IllegalArgumentException> { bridge(endpoint, Callbacks(), deadline = 15_001) }
         assertEquals(15_000L, bridge(endpoint, Callbacks(), deadline = 15_000).durableDeadlineMillis)
         assertEquals(5_000L, IrohaPeerNfcCardApduBridgeV1(endpoint, Callbacks()).durableDeadlineMillis)
+    }
+
+    @Test
+    fun `the HCE path answers GET_ASK from the armed intake until an offer is bound`() {
+        val ask = IrohaPeerAskV1.of(BigInteger.valueOf(1_000), ByteArray(32) { 0x5c })
+        val endpoint = IrohaPeerNfcCardEndpointV1.intake(aid, IrohaPeerNfcOfferIntakeV1(policy, sessionId = session, ask = ask))
+        val bridge = bridge(endpoint, Callbacks())
+        val sent = CopyOnWriteArrayList<ByteArray>()
+        val dispatcher = IrohaPeerNfcHostApduDispatcherV1(aid, { bridge }, { it.run() }, { sent += it })
+        val getAsk = IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetAsk)
+        fun answer(): IrohaPeerNfcAPDUResponseV1 = IrohaPeerNfcAPDUResponseV1.decode(requireNotNull(dispatcher.process(getAsk)))
+
+        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, answer().statusWord)
+        assertContentEquals(byteArrayOf(0x90.toByte(), 0x00), dispatcher.process(IrohaPeerNfcAidSelectionV1(aid).command()))
+        val asked = answer()
+        assertEquals(IrohaPeerNfcStatusWordV1.SUCCESS, asked.statusWord)
+        assertContentEquals(ask.encode(), asked.data())
+        // GET_ASK is answered synchronously and never reaches the wallet callbacks.
+        assertTrue(queued.isEmpty())
+        assertTrue(sent.isEmpty())
+
+        // Once the Offer is bound the card no longer asks.
+        val offer = Fixtures.message(IrohaPeerPayloadKind.OFFER)
+        val offerBytes = offer.encode()
+        bridge.send(IrohaPeerNfcCommandV1.BeginOffer(session, offerBytes.copyOfRange(0, 84)))
+        bridge.send(IrohaPeerNfcCommandV1.WriteOffer(session, offer.wireHash, 0, offerBytes))
+        bridge.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offer.wireHash))
+        assertEquals(IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST, endpoint.intakeRecord().state)
+        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, answer().statusWord)
+
+        // A card without an ask answers 6985.
+        val plain = bridge(IrohaPeerNfcCardEndpointV1.intake(aid, policy), Callbacks())
+        assertEquals(
+            IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED,
+            plain.send(IrohaPeerNfcCommandV1.GetAsk).responses.single().statusWord,
+        )
     }
 
     /** Exchange-bound wallet envelopes of `fixtures/kagemusha/wallet_v1_vectors.json`, in IPM1. */

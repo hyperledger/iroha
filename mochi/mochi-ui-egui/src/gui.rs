@@ -757,28 +757,37 @@ impl Desktop {
         {
             return;
         }
+        let captured = self
+            .selected
+            .as_ref()
+            .map(|selected| selected.network.clone());
         self.epoch = self.epoch.wrapping_add(1);
-        self.clear_network();
         self.private_dialog = false;
         self.attaching = Some(alias.clone());
         self.attachment_poll_pending = false;
         self.attachment_progress = None;
         self.last_poll = Instant::now();
-        self.spawn(move || {
-            let outcome = workspace
-                .start_dataspace(&alias, &network, &alias)
-                .map_err(|e| e.to_string());
-            let refreshed = inspect_workspace_with_selection(workspace, |workspace| {
-                outcome
-                    .as_ref()
-                    .ok()
-                    .map(|status| load_context_selection(workspace, &status.local.context))
-                    .transpose()
+        // A failed attachment must not discard completed work or adopt a mutable name.
+        self.retain_completed_evidence(|desktop| {
+            desktop.clear_network();
+            desktop.spawn(move || {
+                let outcome = workspace
+                    .start_dataspace(&alias, &network, &alias)
+                    .map_err(|e| e.to_string());
+                let refreshed =
+                    inspect_workspace_with_selection(workspace, |workspace| match &outcome {
+                        Ok(status) => {
+                            load_context_selection(workspace, &status.local.context).map(Some)
+                        }
+                        Err(_) => captured
+                            .map(|network| load_network_selection(workspace, network))
+                            .transpose(),
+                    });
+                Message::Attached {
+                    result: outcome.map(|status| attachment_summary(&status.attachment)),
+                    refreshed,
+                }
             });
-            Message::Attached {
-                result: outcome.map(|status| attachment_summary(&status.attachment)),
-                refreshed,
-            }
         });
     }
 
@@ -1006,9 +1015,18 @@ impl Desktop {
                     self.attaching = None;
                     self.attachment_poll_pending = false;
                     self.attachment_progress = None;
+                    if result.is_ok() {
+                        // Completed attachment replaces the previous operation's presentation,
+                        // even if the new workspace observation is unavailable.
+                        self.clear_network();
+                    }
                     match refreshed {
-                        Ok(opened) => self.install_opened(opened),
-                        Err(error) => self.error = Some(error),
+                        Ok(opened) if result.is_ok() => self.install_opened(opened),
+                        Ok(opened) => self.install_observed_workspace(opened),
+                        Err(error) => {
+                            self.withdraw_observed_network();
+                            self.error = Some(error);
+                        }
                     }
                     match result {
                         Ok(message) => self.notice = Some(message),
@@ -3144,3 +3162,7 @@ mod tests {
 #[cfg(test)]
 #[path = "gui/publication_tests.rs"]
 mod publication_tests;
+
+#[cfg(test)]
+#[path = "gui/attachment_tests.rs"]
+mod attachment_tests;

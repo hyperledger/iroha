@@ -32,6 +32,8 @@ pub(super) enum ProducerError {
     Durable(#[from] durable::DurableError),
     #[error(transparent)]
     Work(#[from] FastpqWorkRefusal),
+    #[error(transparent)]
+    Replay(#[from] crate::sumeragi::node::IsolatedReplayError),
     #[error("FASTPQ producer original source: {0}")]
     Identity(&'static str),
 }
@@ -44,6 +46,7 @@ impl ProducerError {
                 deferred_retryable(error)
             }
             Self::Source(error) => source_retryable(error),
+            Self::Replay(error) => replay_retryable(error),
             Self::Durable(durable::DurableError::Storage(error)) => storage_retryable(error),
             Self::Durable(durable::DurableError::Verification(error)) => {
                 verification_retryable(error)
@@ -151,6 +154,191 @@ fn source_retryable(error: &SourceReadError) -> bool {
     }
 }
 
+fn archive_replay_retryable(error: &NativeContextArchiveError) -> bool {
+    match error {
+        NativeContextArchiveError::Storage(original) => storage_retryable(original),
+        NativeContextArchiveError::Allocation(original) => buffer_retryable(original),
+        NativeContextArchiveError::CaptureAdmission(original) => allocation_retryable(original),
+        NativeContextArchiveError::Proof(original) => original.is_local_refusal(),
+        NativeContextArchiveError::Io(original) => matches!(
+            original.kind(),
+            ErrorKind::Interrupted | ErrorKind::WouldBlock
+        ),
+        _ => false,
+    }
+}
+fn world_storage_retryable(error: &mv::storage::AdmittedStorageError) -> bool {
+    error.release_wait().is_some()
+        || matches!(error, mv::storage::AdmittedStorageError::Allocator { .. })
+}
+fn storage_admission_retryable(error: &crate::state::StateStorageAdmissionError) -> bool {
+    match error {
+        crate::state::StateStorageAdmissionError::World(original) => {
+            world_storage_retryable(original)
+        }
+        _ => error.release_wait().is_some(),
+    }
+}
+fn membership_retryable(error: &crate::state::MembershipAdmissionError) -> bool {
+    error.release_wait().is_some()
+        || matches!(
+            error,
+            crate::state::MembershipAdmissionError::Allocator { .. }
+        )
+}
+fn validation_replay_retryable(error: &crate::block::BlockValidationError) -> bool {
+    use crate::block::BlockValidationError as Error;
+    match error {
+        Error::ExecutionDeferred(original) => deferred_retryable(original),
+        Error::StateStorageAdmission(original) => storage_admission_retryable(original),
+        Error::MembershipAdmission(original) => membership_retryable(original),
+        Error::BlockHashAdmission(original) => original.release_wait().is_some(),
+        Error::StateView(StateViewError::Busy(_)) => true,
+        Error::LaneStorage(original) => matches!(
+            original.kind(),
+            ErrorKind::Interrupted | ErrorKind::WouldBlock
+        ),
+        _ => false,
+    }
+}
+fn state_publication_retryable(
+    error: &crate::state::storage_transactions::TransactionsBlockError,
+) -> bool {
+    use crate::state::storage_transactions::TransactionsBlockError as Error;
+    match error {
+        Error::LocalStateStorage(original) => storage_admission_retryable(original),
+        Error::MembershipAdmission(original) => membership_retryable(original),
+        Error::BlockHashesBusy(_) | Error::PublicationBusy(_) => true,
+        Error::ExecutionDeferred(original) => deferred_retryable(original),
+        Error::CaptureDeferred(original) => {
+            if let Some(admission) = original.allocation_refusal() {
+                return allocation_retryable(admission);
+            }
+            original.buffer_refusal().is_some_and(buffer_retryable)
+                || matches!(
+                    original.shared_refusal(),
+                    Some(iroha_allocation::PrepaidSharedError::Allocator { .. })
+                )
+                || original.codec_allocation_bytes().is_some()
+        }
+        _ => false,
+    }
+}
+fn startup_replay_retryable(error: &crate::sumeragi::startup::StartupError) -> bool {
+    use crate::sumeragi::{commitment::ResultPreimageError, startup::StartupError as Error};
+    use iroha_data_model::block::CertificateAdmissionError;
+    match error {
+        Error::Deferred(original)
+        | Error::LaneStep(crate::sumeragi::lanes::step::LaneStepError::Deferred(original)) => {
+            deferred_retryable(original)
+        }
+        Error::InvalidGenesis(original) => validation_replay_retryable(original),
+        Error::LaneProof(original) => original.is_local_refusal(),
+        Error::ResultPreimage(ResultPreimageError::Allocation(original))
+        | Error::CertificateBuffer(original)
+        | Error::Certificate(CertificateAdmissionError::Buffer(original)) => {
+            buffer_retryable(original)
+        }
+        Error::Certificate(CertificateAdmissionError::ControlAdmission(original)) => {
+            allocation_retryable(original)
+        }
+        Error::Certificate(CertificateAdmissionError::ControlAllocation(
+            iroha_allocation::PrepaidSharedError::Allocator { .. },
+        )) => true,
+        Error::Storage(original) => {
+            matches!(original, crate::kura::Error::IO(io, _) if matches!(io.kind(), ErrorKind::Interrupted | ErrorKind::WouldBlock))
+        }
+        Error::StateApplication(original) => state_replay_retryable(original),
+        Error::StatePublication(original) => state_publication_retryable(&original.0),
+        Error::IsolatedSourceTransport(original) => archive_replay_retryable(original),
+        _ => false,
+    }
+}
+fn state_replay_retryable(error: &crate::state::MergeLedgerCommitError) -> bool {
+    use crate::state::MergeLedgerCommitError as Error;
+    match error {
+        Error::StateView(StateViewError::Busy(_)) => true,
+        Error::ExecutionDeferred(original) => deferred_retryable(original),
+        Error::NativeResourceAdmission(original) => allocation_retryable(original),
+        Error::StateStorageAdmission(original) => storage_admission_retryable(original),
+        Error::MembershipAdmission(original) => membership_retryable(original),
+        Error::BlockHashAdmission(original) => original.release_wait().is_some(),
+        Error::Persistence(original) => storage_retryable(original),
+        _ => false,
+    }
+}
+fn replay_retryable(error: &crate::sumeragi::node::IsolatedReplayError) -> bool {
+    use crate::{
+        execution_attempt::ExecutionAttemptError as Attempt,
+        sumeragi::{
+            driver::traits::{PublicationDeferral, PublicationError},
+            node::IsolatedReplayError as Error,
+        },
+    };
+    match error {
+        Error::Deadline | Error::View(StateViewError::Busy(_)) => true,
+        Error::Read(Attempt::Deferred(original))
+        | Error::KuraRead(Attempt::Deferred(original))
+        | Error::Startup(crate::sumeragi::node::NodeError::Deferred(original))
+        | Error::World(crate::state::WorldConstructionError::Initialization(Attempt::Deferred(
+            original,
+        )))
+        | Error::Sns(crate::sns::SnsError::Deferred(original)) => deferred_retryable(original),
+        Error::World(crate::state::WorldConstructionError::Storage(original)) => {
+            world_storage_retryable(original)
+        }
+        Error::State(crate::state::IsolatedReplayStateError::State(original)) => {
+            state_replay_retryable(original)
+        }
+        Error::Read(Attempt::Rejected(original)) => matches!(
+            original.kind(),
+            ErrorKind::Interrupted | ErrorKind::WouldBlock
+        ),
+        Error::Kura(original) | Error::KuraRead(Attempt::Rejected(original)) => {
+            storage_retryable(original)
+        }
+        Error::Startup(crate::sumeragi::node::NodeError::Startup(original)) => {
+            startup_replay_retryable(original)
+        }
+        Error::Execution(PublicationError::Deferred(original)) => match original {
+            PublicationDeferral::Execution(original) => deferred_retryable(original),
+            PublicationDeferral::IsolatedSourceTransport(original) => {
+                archive_replay_retryable(original)
+            }
+            // Each wait belongs to the actual original acquisition owner. It
+            // grants scheduling only, never evidence of an execution outcome.
+            _ => original.release_wait().is_some(),
+        },
+        _ => false,
+    }
+}
+// Only a completed optional capture retaining actual pool contention needs a
+// fresh execution. Storage/projection retries keep their exact staged witness;
+// fixed limits, missing provenance and corruption cannot request reconstruction.
+fn replay_needs_fresh_capture(error: &crate::sumeragi::node::IsolatedReplayError) -> bool {
+    use crate::sumeragi::{
+        driver::traits::{PublicationDeferral, PublicationError},
+        node::{IsolatedReplayError, NodeError},
+        startup::StartupError,
+    };
+    matches!(
+        error,
+        IsolatedReplayError::Execution(PublicationError::Deferred(
+            PublicationDeferral::IsolatedSourceTransport(
+                NativeContextArchiveError::CaptureAdmission(AllocationRefusal::Capacity { .. })
+            )
+        )) | IsolatedReplayError::Startup(NodeError::Startup(
+            StartupError::IsolatedSourceTransport(NativeContextArchiveError::CaptureAdmission(
+                AllocationRefusal::Capacity { .. }
+            ))
+        ))
+    )
+}
+fn missing_transport(error: &SourceReadError) -> bool {
+    matches!(error, SourceReadError::Archive(NativeContextArchiveError::Io(original)) if original.kind() == ErrorKind::NotFound)
+        || matches!(error, SourceReadError::Archive(NativeContextArchiveError::Storage(crate::kura::Error::IO(original, _))) if original.kind() == ErrorKind::NotFound)
+}
+
 /// Retained progress of the existing worker, not a second dispatch queue or workflow.
 pub(super) struct Producer {
     state: Arc<State>,
@@ -159,6 +347,10 @@ pub(super) struct Producer {
     height: u64,
     h2: Option<crate::sumeragi::certified_chain::AuthenticatedExecutionBlock>,
     source: Option<NativeFastpqSourceRead>,
+    replay_seed: Option<crate::sumeragi::node::NativeReplaySeed>,
+    replay: Option<crate::sumeragi::node::IsolatedNativeReplay>,
+    source_missing: bool,
+    source_replayed: bool,
     job: Option<FastpqWitnessJob>,
     completed: Option<FastpqCompletedEntry>,
     // A terminal proof/source failure stops dispatch but retains its original work owner.
@@ -166,7 +358,11 @@ pub(super) struct Producer {
     cause: Option<ProducerError>,
 }
 impl Producer {
-    pub(super) fn new(state: Arc<State>, policy: FastpqProducer) -> Self {
+    pub(super) fn new(
+        state: Arc<State>,
+        policy: FastpqProducer,
+        replay_seed: Option<crate::sumeragi::node::NativeReplaySeed>,
+    ) -> Self {
         Self {
             state,
             policy,
@@ -174,6 +370,10 @@ impl Producer {
             height: 1,
             h2: None,
             source: None,
+            replay_seed,
+            replay: None,
+            source_missing: false,
+            source_replayed: false,
             job: None,
             completed: None,
             stopped: false,
@@ -267,9 +467,65 @@ impl Producer {
             return check(deadline);
         }
         if let Some(read) = self.source.as_mut() {
-            if let Some(source) = read.poll()? {
-                self.job = Some(FastpqWitnessJob::from_recovered(source));
-                self.source = None;
+            if self.source_missing {
+                let seed = self.replay_seed.as_ref().ok_or(ProducerError::Identity(
+                    "missing original startup replay seed",
+                ))?;
+                if !seed.belongs_to(&self.state) {
+                    return Err(ProducerError::Identity(
+                        "replay seed differs from original State, Kura or pool",
+                    ));
+                }
+                if self.replay.is_none() {
+                    self.replay = Some(seed.begin(read.native()?, deadline)?);
+                    return check(deadline);
+                }
+                let completed = self
+                    .replay
+                    .as_mut()
+                    .expect("retained original replay")
+                    .advance(
+                        read.native()?,
+                        deadline,
+                        usize::from(self.policy.max_native_steps.get()),
+                    );
+                let completed = match completed {
+                    Ok(completed) => completed,
+                    Err(error) => {
+                        if replay_needs_fresh_capture(&error) {
+                            // Drop only this isolated temporary destination. The
+                            // original authenticated source, seed and deadline
+                            // remain selected; no durable cursor has advanced.
+                            self.replay = None;
+                        }
+                        return Err(error.into());
+                    }
+                };
+                if let Some(transport) = completed {
+                    read.use_replayed_transport(transport)?;
+                    self.source_missing = false;
+                    self.source_replayed = true;
+                    self.replay = None;
+                }
+                return check(deadline);
+            }
+            match read.poll() {
+                Ok(Some(source)) => {
+                    self.job = Some(FastpqWitnessJob::from_recovered(source));
+                    self.source = None;
+                    self.source_replayed = false;
+                }
+                Ok(None) => {}
+                Err(error) if missing_transport(&error) => {
+                    if self.source_replayed {
+                        return Err(ProducerError::Identity(
+                            "completed isolated replay omitted exact source transport",
+                        ));
+                    }
+                    self.source_missing = true;
+                    return Err(error.into());
+                }
+                Err(error) => return Err(error.into()),
             }
             return check(deadline);
         }
@@ -376,7 +632,8 @@ mod tests {
             .set_limit_bytes(2 * 1024 * 1024 * 1024);
         let calls = Arc::new(AtomicUsize::new(0));
         let engine: Arc<dyn FastpqProofEngine> = Arc::new(BusyEngine(Arc::clone(&calls)));
-        let mut producer = Producer::new(Arc::clone(chain.state()), FastpqProducer::default());
+        let mut producer =
+            Producer::new(Arc::clone(chain.state()), FastpqProducer::default(), None);
         let shutdown = ShutdownSignal::new();
         for _ in 0..256 {
             producer.attempt(&engine, 0, &shutdown, None);
@@ -434,7 +691,7 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let mut policy = FastpqProducer::default();
         policy.poll_interval = std::time::Duration::from_millis(1);
-        let producer = Producer::new(Arc::clone(chain.state()), policy);
+        let producer = Producer::new(Arc::clone(chain.state()), policy, None);
         let (_sender, receiver) = tokio::sync::mpsc::channel(1);
         let shutdown = ShutdownSignal::new();
         let callback_calls = Arc::clone(&calls);
@@ -496,7 +753,8 @@ mod tests {
         drop(source);
         let calls = Arc::new(AtomicUsize::new(0));
         let engine: Arc<dyn FastpqProofEngine> = Arc::new(BusyEngine(Arc::clone(&calls)));
-        let mut producer = Producer::new(Arc::clone(chain.state()), FastpqProducer::default());
+        let mut producer =
+            Producer::new(Arc::clone(chain.state()), FastpqProducer::default(), None);
         assert!(matches!(
             producer.step(&engine, 0, &ShutdownSignal::new(), None, Instant::now()),
             Err(ProducerError::Deadline)
@@ -602,4 +860,159 @@ mod tests {
             "decoder cause cannot invent a pool release source"
         );
     }
+    #[test]
+    fn replay_retry_rebuilds_only_original_optional_pool_capture() {
+        use crate::sumeragi::{
+            driver::traits::{PublicationDeferral, PublicationError},
+            node::IsolatedReplayError,
+        };
+        let pool = iroha_allocation::AllocationBudget::new(8);
+        let occupied = pool.try_reserve_bytes(8).unwrap();
+        let capacity = pool.try_reserve_bytes(1).unwrap_err();
+        let capture = |error| {
+            IsolatedReplayError::Execution(PublicationError::Deferred(
+                PublicationDeferral::IsolatedSourceTransport(error),
+            ))
+        };
+        let error = capture(NativeContextArchiveError::CaptureAdmission(
+            capacity.clone(),
+        ));
+        assert!(replay_retryable(&error));
+        assert!(replay_needs_fresh_capture(&error));
+        let IsolatedReplayError::Execution(PublicationError::Deferred(
+            PublicationDeferral::IsolatedSourceTransport(
+                NativeContextArchiveError::CaptureAdmission(original),
+            ),
+        )) = &error
+        else {
+            panic!("original capture cause lost")
+        };
+        assert_eq!(original, &capacity);
+        drop(occupied);
+        assert!(pool.try_reserve_bytes(1).is_ok());
+        for original in [
+            pool.try_reserve_bytes(9).unwrap_err(),
+            AllocationRefusal::DemandOverflow,
+        ] {
+            let error = capture(NativeContextArchiveError::CaptureAdmission(original));
+            assert!(!replay_retryable(&error));
+            assert!(!replay_needs_fresh_capture(&error));
+        }
+        let projection = capture(NativeContextArchiveError::Allocation(
+            ChargedBufferError::Admission(capacity),
+        ));
+        assert!(replay_retryable(&projection));
+        assert!(
+            !replay_needs_fresh_capture(&projection),
+            "projection retains its immutable witness"
+        );
+        for error in [
+            NativeContextArchiveError::Source("erased capture capacity"),
+            NativeContextArchiveError::Source("foreign original pool"),
+            NativeContextArchiveError::Limit {
+                maximum: 1,
+                actual: 2,
+            },
+            NativeContextArchiveError::Io(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "corrupt source",
+            )),
+        ] {
+            let error = capture(error);
+            assert!(!replay_retryable(&error));
+            assert!(!replay_needs_fresh_capture(&error));
+        }
+    }
+    #[test]
+    fn missing_transport_reconstruction_requires_exact_file_absence() {
+        let absent = SourceReadError::Archive(NativeContextArchiveError::Io(std::io::Error::new(
+            ErrorKind::NotFound,
+            "original source tape missing",
+        )));
+        assert!(missing_transport(&absent));
+        for error in [
+            SourceReadError::Archive(NativeContextArchiveError::Io(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "NotFound: corrupt retained tape",
+            ))),
+            SourceReadError::Archive(NativeContextArchiveError::Source("missing optional tape")),
+            SourceReadError::Archive(NativeContextArchiveError::Limit {
+                maximum: 1,
+                actual: 2,
+            }),
+            SourceReadError::Source("missing authenticated source"),
+        ] {
+            assert!(!missing_transport(&error));
+        }
+    }
+    #[test]
+    fn idle_worker_reconstructs_missing_nonempty_h1_before_retrying_original_proof() {
+        std::thread::Builder::new()
+            .name("missing-fastpq-source-fixture".into())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                // The large stack belongs only to construction of the genuine fixture;
+                // the existing asynchronous worker retains its normal runtime threads.
+                let (chain, mut seeds, _) = crate::sumeragi::node::isolated_replay_source_fixture_for_test(1);
+                let seed = seeds.pop().unwrap();
+                let source_root = chain.kura().store_root().join(crate::kura::Kura::fastpq_source_namespace());
+                let mut removed = 0;
+                for entry in std::fs::read_dir(&source_root).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.extension().is_some_and(|extension| extension == "fqs") {
+                        std::fs::remove_file(path).unwrap();
+                        removed += 1;
+                    }
+                }
+                assert!(removed > 0, "the genuine nonempty source had retained optional tapes");
+                let root_before = chain.state().verify_world_state_accumulator().unwrap();
+                let calls = Arc::new(AtomicUsize::new(0));
+                let observed_calls = Arc::clone(&calls);
+                let runtime = tokio::runtime::Runtime::new().unwrap();
+                runtime.block_on(async {
+                    let policy = FastpqProducer {
+                        poll_interval: std::time::Duration::from_millis(1),
+                        ..FastpqProducer::default()
+                    };
+                    let producer = Producer::new(Arc::clone(chain.state()), policy, Some(seed));
+                    let (_sender, receiver) = tokio::sync::mpsc::channel(1);
+                    let shutdown = ShutdownSignal::new();
+                    let task = spawn_worker(
+                        receiver,
+                        Arc::new(AtomicBool::new(false)),
+                        Some(producer),
+                        Arc::new(FastpqLaneGenerationLease { generation: 0 }),
+                        shutdown.clone(),
+                        None,
+                        move || Some(Arc::new(BusyEngine(observed_calls))),
+                    );
+                    let observed = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+                        while calls.load(Ordering::SeqCst) < 2 {
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        }
+                    }).await;
+                    shutdown.send();
+                    task.await.unwrap();
+                    assert!(observed.is_ok(), "the idle worker must reconstruct the missing source before invoking its proof engine");
+                });
+                assert_eq!(chain.state().committed_height(), 2, "no successor traffic was submitted");
+                assert_eq!(chain.state().verify_world_state_accumulator().unwrap(), root_before);
+                assert!(std::fs::read_dir(source_root).unwrap().all(|entry| {
+                    !entry.unwrap().path().extension().is_some_and(|extension| extension == "fqs")
+                }), "isolated reconstruction must not rewrite live optional source custody");
+            })
+            .unwrap()
+            .join()
+            .unwrap_or_else(|failure| std::panic::resume_unwind(failure));
+    }
 }
+
+#[cfg(test)]
+pub(crate) fn isolated_replay_retryable_for_test(
+    error: &crate::sumeragi::node::IsolatedReplayError,
+) -> bool {
+    replay_retryable(error)
+}
+
+#[cfg(test)]
+mod proof_completion_tests;

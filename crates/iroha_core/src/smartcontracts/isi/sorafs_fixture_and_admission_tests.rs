@@ -140,33 +140,28 @@ fn council_approval_policy(
         ..Default::default()
     }
 }
-fn set_council_approval_policy(
-    state_transaction: &mut StateTransaction<'_, '_>,
+// Establish trusted approval keys before an execution scope captures its policy.
+// Keep automatic registration unchanged for the explicit auto-approval regressions.
+fn set_council_approval_signers(
+    state: &mut State,
     quorum: u16,
     signers: Vec<iroha_config::parameters::actual::SorafsPinApprovalSigner>,
 ) {
     let policy = council_approval_policy(quorum, signers);
-    state_transaction
-        .gov
-        .sorafs_pin_policy
-        .require_council_signatures = true;
-    state_transaction.gov.sorafs_pin_policy.approval_quorum = policy.approval_quorum;
-    state_transaction.gov.sorafs_pin_policy.approval_signers = policy.approval_signers;
+    state.gov.sorafs_pin_policy.approval_quorum = policy.approval_quorum;
+    state.gov.sorafs_pin_policy.approval_signers = policy.approval_signers;
 }
-fn build_trusted_envelope(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    record: &PinManifestRecord,
-    keypair: &KeyPair,
-) -> (Vec<u8>, String) {
-    set_council_approval_policy(
-        state_transaction,
-        1,
-        vec![council_approval_signer("council-a", keypair, 0, None)],
-    );
-    build_envelope(record, keypair)
+fn set_council_approval_policy(
+    state: &mut State,
+    quorum: u16,
+    signers: Vec<iroha_config::parameters::actual::SorafsPinApprovalSigner>,
+) {
+    set_council_approval_signers(state, quorum, signers);
+    state.gov.sorafs_pin_policy.require_council_signatures = true;
 }
 fn registered_manifest_approval_envelope(
     state_transaction: &mut StateTransaction<'_, '_>,
+    council_key: &KeyPair,
 ) -> (Vec<u8>, String, String) {
     seed_automatic_replication_capacity(state_transaction, default_policy().min_replicas);
     RegisterPinManifest {
@@ -182,14 +177,12 @@ fn registered_manifest_approval_envelope(
         .get(&default_digest())
         .expect("manifest stored")
         .clone();
-    let council_key = checked_ed25519_keypair();
     let (_, signer_bytes) = council_key
         .public_key()
         .try_to_bytes()
         .expect("council signer key bytes");
     let signer_hex = hex::encode(signer_bytes);
-    let (envelope, signature_hex) =
-        build_trusted_envelope(state_transaction, &stored_record, &council_key);
+    let (envelope, signature_hex) = build_envelope(&stored_record, council_key);
     (envelope, signature_hex, signer_hex)
 }
 fn rejected_manifest_approval_message(
@@ -1114,11 +1107,11 @@ fn register_pin_manifest_allows_public_submission() {
 }
 #[test]
 fn public_pin_resource_ceilings_reject_before_fee_or_state_mutation() {
-    let state = make_state();
+    let mut state = make_state();
+    state.gov.sorafs_pin_policy.max_global_manifests = 1;
     let mut block = state.block(block_header());
     let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
     seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
-    stx.gov.sorafs_pin_policy.max_global_manifests = 1;
     RegisterPinManifest {
         manifest_payload: default_manifest_payload(),
         alias: None,
@@ -1157,15 +1150,15 @@ fn public_pin_resource_ceilings_reject_before_fee_or_state_mutation() {
 #[test]
 fn retired_pin_history_cannot_recycle_count_ceilings() {
     for authority_scoped in [false, true] {
-        let state = make_state();
+        let mut state = make_state();
+        if authority_scoped {
+            state.gov.sorafs_pin_policy.max_manifests_per_authority = 1;
+        } else {
+            state.gov.sorafs_pin_policy.max_global_manifests = 1;
+        }
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
-        if authority_scoped {
-            stx.gov.sorafs_pin_policy.max_manifests_per_authority = 1;
-        } else {
-            stx.gov.sorafs_pin_policy.max_global_manifests = 1;
-        }
         RegisterPinManifest {
             manifest_payload: default_manifest_payload(),
             alias: None,
@@ -1226,15 +1219,15 @@ fn retired_pin_history_cannot_recycle_count_ceilings() {
 #[test]
 fn public_pin_global_and_authority_byte_ceilings_reject_before_fee_or_state() {
     for authority_scoped in [false, true] {
-        let state = make_state();
+        let mut state = make_state();
+        if authority_scoped {
+            state.gov.sorafs_pin_policy.max_bytes_per_authority = default_content_length();
+        } else {
+            state.gov.sorafs_pin_policy.max_global_bytes = default_content_length();
+        }
         let mut block = state.block(block_header());
         let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
         seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
-        if authority_scoped {
-            stx.gov.sorafs_pin_policy.max_bytes_per_authority = default_content_length();
-        } else {
-            stx.gov.sorafs_pin_policy.max_global_bytes = default_content_length();
-        }
         RegisterPinManifest {
             manifest_payload: default_manifest_payload(),
             alias: None,
@@ -1550,6 +1543,12 @@ fn register_pin_manifest_rejects_insufficient_public_fee_without_side_effects() 
 fn threshold_approval_may_be_relayed_without_broad_permission() {
     let mut state = make_initial_sorafs_state();
     seed_sorafs_permissions(&mut state, &bob());
+    let signer = checked_ed25519_keypair();
+    set_council_approval_signers(
+        &mut state,
+        1,
+        vec![council_approval_signer("council-a", &signer, 0, None)],
+    );
     let mut block = state.block(initial_sorafs_block_header(&state));
     let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0x51; Hash::LENGTH]));
     seed_automatic_replication_capacity(&mut stx, default_policy().min_replicas);
@@ -1560,8 +1559,7 @@ fn threshold_approval_may_be_relayed_without_broad_permission() {
         .get(&default_digest())
         .expect("pending manifest fixture")
         .clone();
-    let signer = checked_ed25519_keypair();
-    let (council_envelope, _) = build_trusted_envelope(&mut stx, &record, &signer);
+    let (council_envelope, _) = build_envelope(&record, &signer);
     let approve = ApprovePinManifest {
         digest: default_digest(),
         council_envelope: Some(council_envelope),
@@ -1633,6 +1631,7 @@ pub(super) fn register_and_approve_manifest(
     stx: &mut crate::state::StateTransaction<'_, '_>,
     digest: ManifestDigest,
     chunk_digest: [u8; 32],
+    council_key: &KeyPair,
 ) {
     seed_automatic_replication_capacity(stx, default_policy().min_replicas);
     let seed = fixture_seed_for_digest(digest);
@@ -1654,13 +1653,7 @@ pub(super) fn register_and_approve_manifest(
         .get(&digest)
         .expect("manifest stored")
         .clone();
-    let council_key = checked_ed25519_keypair();
-    set_council_approval_policy(
-        stx,
-        1,
-        vec![council_approval_signer("council-a", &council_key, 0, None)],
-    );
-    let (envelope, _) = build_envelope(&stored_record, &council_key);
+    let (envelope, _) = build_envelope(&stored_record, council_key);
     let approve = ApprovePinManifest {
         digest,
         council_envelope: Some(envelope),

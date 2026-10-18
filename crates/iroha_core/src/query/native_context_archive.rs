@@ -19,7 +19,7 @@ use crate::{
     state::{NativeExecutionProjectionV1, StateBlock, StateReadOnly, WorldReadOnly},
 };
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, RetainedPayload};
-use iroha_crypto::HashOf;
+use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
     block::{
         BlockHeader, SignedBlock,
@@ -35,6 +35,15 @@ use std::{
     num::NonZeroUsize,
     path::Path,
 };
+
+/// Original optional capture diagnostic retained without exposing a mutable witness.
+/// No textual diagnostic grants retry permission; a diagnostic whose underlying
+/// allocator owner was already erased remains terminal.
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("original optional FASTPQ capture: {original:?}")]
+pub struct FastpqCaptureFailure {
+    original: crate::state::QuantityCaptureIssue,
+}
 
 /// Context projection capture, source custody or durable storage failure.
 #[derive(Debug, thiserror::Error)]
@@ -53,6 +62,14 @@ pub enum NativeContextArchiveError {
     /// Preserve the original pool's exact capacity or allocator refusal.
     #[error(transparent)]
     Allocation(#[from] ChargedBufferError),
+    /// The optional execution tape failed under its original pool owner.
+    /// A completed witness is immutable: only an independently authenticated
+    /// replay can recapture it, never an archive retry or a replacement tape.
+    #[error("original optional FASTPQ capture admission: {0}")]
+    CaptureAdmission(iroha_allocation::AllocationRefusal),
+    /// Original invariant/ownership diagnostic from the exact optional witness.
+    #[error(transparent)]
+    CaptureFailure(FastpqCaptureFailure),
     /// Original lane-state proof, retaining scratch custody or captured decoder provenance.
     #[error("native context archive proof: {0}")]
     Proof(#[from] iroha_data_model::sumeragi_finality::NativeLaneStateProofError),
@@ -74,6 +91,7 @@ impl NativeContextArchiveError {
     /// mismatches require recovery. Encoder errors do not borrow a decoder scope.
     pub fn is_local_refusal(&self) -> bool {
         match self {
+            Self::CaptureAdmission(iroha_allocation::AllocationRefusal::Capacity { .. }) => true,
             Self::Allocation(
                 ChargedBufferError::Admission(
                     iroha_allocation::AllocationRefusal::Capacity { .. }
@@ -191,6 +209,7 @@ pub struct NativeContextArchive {
     writable: bool,
     namespace: &'static str,
     fastpq_maximum: Option<NonZeroUsize>,
+    fastpq_replay_target: Option<u64>,
 }
 impl NativeContextArchive {
     /// Open the exact canonical Kura namespace using the original execution pool and finite limit.
@@ -212,7 +231,34 @@ impl NativeContextArchive {
             writable: true,
             namespace: "native-contexts",
             fastpq_maximum: Some(kura.fastpq_object_max_bytes()),
+            fastpq_replay_target: None,
         })
+    }
+
+    /// Select transport retention only for the exact isolated recovery target.
+    /// Earlier canonical replay still computes every mandatory source commitment;
+    /// its optional tapes are not stored in the bounded target outbox.
+    pub(crate) fn retain_isolated_fastpq_target(
+        &mut self,
+        kura: &Kura,
+        height: u64,
+    ) -> Result<(), NativeContextArchiveError> {
+        if !self.writable
+            || !kura.is_temporary_staging()
+            || height == 0
+            || self.fastpq_replay_target.is_some()
+        {
+            return Err(NativeContextArchiveError::Source(
+                "invalid isolated FASTPQ target",
+            ));
+        }
+        self.recheck_namespace()?;
+        self.fastpq_replay_target = Some(height);
+        Ok(())
+    }
+
+    pub(crate) fn retains_isolated_fastpq_source(&self) -> bool {
+        self.fastpq_replay_target.is_some()
     }
 
     /// Read an existing archive through the original Kura directory descriptor.
@@ -235,6 +281,7 @@ impl NativeContextArchive {
             writable: false,
             namespace: "native-contexts",
             fastpq_maximum: None,
+            fastpq_replay_target: None,
         })
     }
 
@@ -255,6 +302,7 @@ impl NativeContextArchive {
             maximum: kura.fastpq_object_max_bytes(),
             writable: false,
             fastpq_maximum: None,
+            fastpq_replay_target: None,
         })
     }
 
@@ -278,6 +326,7 @@ impl NativeContextArchive {
             writable: false,
             namespace: "native-contexts",
             fastpq_maximum: None,
+            fastpq_replay_target: None,
         })
     }
 
@@ -442,6 +491,8 @@ impl NativeContextArchive {
             &RecordName::new(original.height, original.carrier_hash, false),
             process_crash::Boundary::BeforeWrite,
         );
+        #[cfg(test)]
+        publication_test_hook::run()?;
         publish_record(
             &self.directory,
             original.height,
@@ -484,12 +535,22 @@ impl NativeContextArchive {
                 "foreign FASTPQ source backing",
             ));
         }
-        kura.persist_fastpq_source_record(
+        let receipt = kura.persist_fastpq_source_record(
             original.height,
             original.carrier_hash,
             source.as_slice(),
         )?;
         self.recheck_namespace()?;
+        // Hold the original durability acknowledgement across the archive fence.
+        // This binds only these transport bytes; no reference or proof verdict is published.
+        if !receipt.is_from(kura)
+            || receipt.reference().digest() != *Hash::new(source.as_slice()).as_ref()
+            || receipt.reference().byte_len() != source.as_slice().len() as u64
+        {
+            return Err(NativeContextArchiveError::Source(
+                "source transport receipt differs from original bytes",
+            ));
+        }
         Ok(())
     }
 
@@ -874,3 +935,6 @@ fn publish_named_record(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod publication_test_hook;

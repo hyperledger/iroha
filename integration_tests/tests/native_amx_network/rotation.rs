@@ -83,10 +83,6 @@ fn global_root() -> Result<amx::Root> {
             AssetId::of(customer_asset(), ALICE_ID.clone()),
         ))
         .with_genesis_instruction(Grant::account_permission(
-            iroha_executor_data_model::permission::parameter::CanSetParameters,
-            amx::account(&amx::genesis_key(0)),
-        ))
-        .with_genesis_instruction(Grant::account_permission(
             iroha_executor_data_model::permission::query::CanReadAllLedgerData,
             amx::account(&amx::genesis_key(0)),
         ))
@@ -164,7 +160,9 @@ fn install_genesis_custody(
     let hash = global.pins.genesis_hash;
     let network_id = network.network_id();
     let scope = global.scope;
-    runtime.block_on(async {
+    // Keep the ceremony future out of Runtime::block_on's generic stack frame.
+    // Each owned customer payment is supervised on a default Tokio worker.
+    runtime.block_on(Box::pin(async {
         network.start_all().await?;
         let bundle = network.native_genesis_provisioning_bundle()?;
         ensure!(bundle.block_hash == hash);
@@ -210,7 +208,7 @@ fn install_genesis_custody(
         network.start_all().await?;
         network.ensure_blocks(5).await?;
         Ok((dkg, catalogs))
-    })
+    }))
 }
 
 fn deliver_boundary(

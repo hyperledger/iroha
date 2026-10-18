@@ -136,17 +136,30 @@ impl NativeContextArchive {
         if original.fastpq_capture_complete {
             return Ok(());
         }
+        if self
+            .fastpq_replay_target
+            .is_some_and(|height| height != original.height)
+        {
+            original.fastpq_capture_complete = true;
+            return Ok(());
+        }
         if witness.verify_source_binding().is_err() {
             return Err(NativeContextArchiveError::Source(
                 "FASTPQ original capture binding differs",
             ));
         }
-        let Ok(archive) = witness.admit_quantity_archive() else {
-            // Capture is optional for native validity. The mandatory D7 write and
-            // complete canonical input history remain durable recovery authority.
-            // No `.fqs` file is a durable completion or negative fact.
-            original.fastpq_capture_complete = true;
-            return Ok(());
+        let archive = match witness.admit_quantity_archive() {
+            Ok(archive) => archive,
+            Err(error) if self.fastpq_replay_target.is_some() => {
+                return Err(isolated_capture_error(error));
+            }
+            Err(_) => {
+                // Capture is optional for native validity. The mandatory D7 write and
+                // complete canonical input history remain durable recovery authority.
+                // No `.fqs` file is a durable completion or negative fact.
+                original.fastpq_capture_complete = true;
+                return Ok(());
+            }
         };
         let projection = SourceRef {
             height: original.height,
@@ -167,6 +180,12 @@ impl NativeContextArchive {
             ))?
             .get();
         if length > maximum {
+            if self.fastpq_replay_target.is_some() {
+                return Err(NativeContextArchiveError::Limit {
+                    maximum,
+                    actual: length,
+                });
+            }
             // The full source remains committed by native D7. Optional transport
             // must not prevent native publication when its separate cap is smaller.
             original.fastpq_capture_complete = true;
@@ -174,6 +193,7 @@ impl NativeContextArchive {
         }
         let mut bytes = match ChargedBuffer::new(length, &self.budget) {
             Ok(bytes) => bytes,
+            Err(error) if self.fastpq_replay_target.is_some() => return Err(error.into()),
             Err(
                 ChargedBufferError::Admission(
                     iroha_allocation::AllocationRefusal::Capacity { .. }
@@ -203,5 +223,53 @@ impl NativeContextArchive {
         carrier: HashOf<BlockHeader>,
     ) -> NativeContextRead {
         NativeContextRead::new_named(self, RecordName::fastpq(height, carrier, false))
+    }
+}
+
+// The original enum identifies the allocation owner. Text and the old erased
+// Capacity diagnostic cannot establish a restartable pool refusal.
+fn isolated_capture_error(error: crate::state::QuantityCaptureIssue) -> NativeContextArchiveError {
+    match error {
+        crate::state::QuantityCaptureIssue::Admission(original) => {
+            NativeContextArchiveError::CaptureAdmission(original)
+        }
+        // TODO: carry the remaining move-only physical allocator/refusal owners
+        // through optional capture before making their isolated replay retryable.
+        original => {
+            NativeContextArchiveError::CaptureFailure(super::FastpqCaptureFailure { original })
+        }
+    }
+}
+
+#[cfg(test)]
+mod isolated_capture_tests {
+    use super::*;
+    #[test]
+    fn isolated_capture_retains_original_pool_refusal_and_never_promotes_erased_capacity() {
+        let pool = iroha_allocation::AllocationBudget::new(8);
+        let retained = pool.try_reserve_bytes(8).unwrap();
+        let capacity = pool.try_reserve_bytes(1).unwrap_err();
+        assert!(
+            matches!(isolated_capture_error(crate::state::QuantityCaptureIssue::Admission(capacity.clone())),
+            NativeContextArchiveError::CaptureAdmission(original) if original == capacity)
+        );
+        let fixed = pool.try_reserve_bytes(9).unwrap_err();
+        assert!(
+            matches!(isolated_capture_error(crate::state::QuantityCaptureIssue::Admission(fixed.clone())),
+            NativeContextArchiveError::CaptureAdmission(original) if original == fixed)
+        );
+        for issue in [
+            crate::state::QuantityCaptureIssue::Capacity,
+            crate::state::QuantityCaptureIssue::InvalidFacts,
+            crate::state::QuantityCaptureIssue::UnsupportedOwner,
+            crate::state::QuantityCaptureIssue::UnownedMutation,
+            crate::state::QuantityCaptureIssue::InterruptedScope,
+            crate::state::QuantityCaptureIssue::MissingIncarnation,
+        ] {
+            assert!(matches!(isolated_capture_error(issue.clone()),
+                NativeContextArchiveError::CaptureFailure(original) if original.original == issue));
+        }
+        drop(retained);
+        assert!(pool.try_reserve_bytes(1).is_ok());
     }
 }

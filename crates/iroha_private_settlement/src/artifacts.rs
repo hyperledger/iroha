@@ -109,7 +109,7 @@ impl FilePrivateSettlementArtifacts {
     }
     /// Reopen the exact original all-leg public context. Decode and AEAD custody do not authenticate it;
     /// the caller must reverify it against the independently pinned original native decision.
-    pub fn read_context(
+    pub(super) fn read_context(
         &self,
         key: ArtifactKey,
         maximum: usize,
@@ -147,7 +147,7 @@ impl FilePrivateSettlementArtifacts {
     }
     /// Persist a verified original all-leg batch before wallet reservation or proving, under the same round lease.
     /// A failed durable acknowledgement must be reconciled by reading this exact filename first.
-    pub fn publish_context(
+    pub(super) fn publish_context(
         &self,
         key: ArtifactKey,
         proof: &PrivateSettlementContextsProofV1,
@@ -169,7 +169,8 @@ impl FilePrivateSettlementArtifacts {
             .map_err(OneCallPrivateSettlementError::Storage)?;
         Ok(length)
     }
-    pub fn read(
+    /// Reopen one original encrypted leg and verify its exact request, round and ordinal.
+    pub(super) fn read(
         &self,
         key: ArtifactKey,
         maximum: usize,
@@ -215,7 +216,7 @@ impl FilePrivateSettlementArtifacts {
     }
     /// Caller holds the original durable per-round runner lease throughout publication.
     /// An I/O error is deliberately ambiguous; next recovery reads this original name first.
-    pub fn publish(
+    pub(super) fn publish(
         &self,
         artifact: &Artifact,
         maximum: usize,
@@ -240,12 +241,14 @@ impl FilePrivateSettlementArtifacts {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::client::evidence_http_tests::{base_url, client_with_base_url};
+    use crate::test_support::client_with_base_url;
+    use iroha_test_samples::private_settlement::{
+        availability_material_fixture_v1, context_fixture,
+    };
 
     fn fixture() -> Artifact {
-        let client = client_with_base_url(base_url());
-        let (material, _) =
-            crate::client::private_settlement::tests::availability_material_fixture_v1(&client);
+        let client = client_with_base_url("http://mock.local/".parse().unwrap());
+        let (material, _) = availability_material_fixture_v1(client.network_id(), client.account());
         Artifact {
             key: ArtifactKey {
                 request: [1; 32],
@@ -264,81 +267,15 @@ pub(super) mod tests {
         }
     }
 
-    // Explicitly unauthenticated storage-only data; no proof or monetary authority is asserted.
-    pub(in crate::client::private_settlement::one_call) fn context_fixture()
-    -> PrivateSettlementContextProofV1 {
-        use iroha_data_model::{
-            consensus::{ConsensusKeyId, ConsensusKeyRecord, ConsensusKeyRole, ConsensusKeyStatus},
-            nexus::*,
-            privacy::PrivacyRootV1,
-            sumeragi_finality::WorldStateSnapshotV1,
-            sumeragi_lanes::SumeragiLaneState,
-        };
-        let artifact = fixture();
-        let route = artifact.statement.route;
-        let pool_id = artifact.statement.pool_id;
-        let governance = PrivateSettlementPoolGovernanceProjectionV1 {
-            version: 1,
-            route,
-            pool_id,
-            asset_binding_commitment: Hash::new(b"storage asset"),
-            audit_policy_digest: artifact.policy.policy_digest,
-            audit_key_epoch: 1,
-            lifecycle: PrivateSettlementPoolGovernanceLifecycleV1 {
-                governance_revision: 1,
-                activation_height: 2,
-                retirement_height: None,
-            },
-            governance_digest: Hash::new(b"storage governance"),
-            prior_revisions: Vec::new(),
-        };
-        let pool = PrivateSettlementPoolStateV1 {
-            version: 1,
-            route,
-            pool_id,
-            restricted_pool_policy_digest: governance.governance_digest,
-            epoch: 1,
-            root: PrivacyRootV1::new([4; 32]),
-            tree_size: 0,
-            leaf: None,
-            ommers: Vec::new(),
-        };
-        let committee_keys = std::array::from_fn(|index| {
-            let id = ConsensusKeyId::new(ConsensusKeyRole::Committee, format!("storage-{index}"));
-            PrivateSettlementCommitteeKeyProofV1 {
-                index: vec![id.clone()],
-                record: ConsensusKeyRecord {
-                    id,
-                    public_key: artifact.authority.validators[index].public_key().clone(),
-                    pop: Some(artifact.authority.validator_pops[index].clone()),
-                    activation_height: 2,
-                    expiry_height: None,
-                    replaces: None,
-                    status: ConsensusKeyStatus::Pending,
-                },
-            }
-        });
-        PrivateSettlementContextProofV1 {
-            pool: PrivateSettlementPoolCutProofV1 {
-                world: WorldStateSnapshotV1 {
-                    schema_hash: Hash::new(b"storage fixture"),
-                    entries: Vec::new(),
-                },
-                governance,
-                pool,
-            },
-            lanes: SumeragiLaneState::default(),
-            committee_keys,
-        }
-    }
     #[test]
     fn private_onecall_original_context_survives_restart_without_replacement_or_artifact_confusion()
     {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("artifacts");
         let key = fixture().key;
+        let client = client_with_base_url("http://mock.local/".parse().unwrap());
         let proof = PrivateSettlementContextsProofV1 {
-            contexts: vec![context_fixture()],
+            contexts: vec![context_fixture(client.network_id(), client.account())],
         };
         let maximum = norito::canonical_frame_len(&proof).unwrap();
         let store = FilePrivateSettlementArtifacts::open(&path, &[22; 32]).unwrap();

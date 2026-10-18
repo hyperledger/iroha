@@ -2267,6 +2267,7 @@ impl Iroha {
             stored_genesis_block,
             block_count,
             prepared_sumeragi,
+            fastpq_replay_seed,
             signed_consensus_mode,
             frozen_startup_lane_manifests,
             frozen_startup_lane_compliance,
@@ -4678,6 +4679,7 @@ impl Iroha {
                     &config.zk.fastpq,
                     Some(queue_backpressure),
                     Arc::clone(&state),
+                    fastpq_replay_seed.ok_or_else(|| Report::new(StartError::InitKura).attach("FASTPQ original replay seed absent after native startup"))?,
                     supervisor.shutdown_signal(),
                 )
             {

@@ -6,6 +6,9 @@
 
 use super::*;
 
+mod static_policy;
+pub use static_policy::StaticExecutionPolicy;
+
 #[cfg(test)]
 std::thread_local! {
     static RUNTIME_REPLACEMENT_ACQUISITION: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>>
@@ -33,6 +36,9 @@ pub(super) struct CanonicalRuntimeProjection {
 /// Immutable inputs for checking a carrier's runtime projections after execution.
 /// The actual World/Cell undo journals still own its dynamic predecessor.
 pub(super) struct CapturedRuntimePolicy {
+    // The five existing construction snapshots move here once. Only shared
+    // access is exposed to execution scopes and the complete original cut.
+    static_inputs: StaticExecutionPolicy,
     pub(super) nexus: iroha_config::parameters::actual::Nexus,
     pub(super) manifests: LaneManifestRegistryHandle,
     pub(super) compliance: Option<Arc<LaneComplianceEngine>>,
@@ -40,12 +46,19 @@ pub(super) struct CapturedRuntimePolicy {
 }
 
 impl CapturedRuntimePolicy {
+    /// Borrow the original construction inputs; there is no mutable projection.
+    pub(super) fn static_inputs(&self) -> &StaticExecutionPolicy {
+        &self.static_inputs
+    }
+
     pub(super) fn capture(
         projection: &CanonicalRuntimeProjection,
         zk: &iroha_config::parameters::actual::Zk,
         compliance: Option<Arc<LaneComplianceEngine>>,
+        state: &State,
     ) -> Self {
         Self {
+            static_inputs: StaticExecutionPolicy::capture(state),
             nexus: projection.nexus.clone(),
             manifests: Arc::clone(&projection.manifests),
             compliance,
