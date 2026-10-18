@@ -264,7 +264,10 @@ fn lineage_digest_matches_independent_integer_rp57_endian_and_order_vector() {
         pending_outgoing_root: Fp::from(9).to_repr(),
         credit_digest_root: Fp::from(10).to_repr(),
     };
-    assert_eq!(public.enabled_controls, 3, "the two-control vector is fixed");
+    assert_eq!(
+        public.enabled_controls, 3,
+        "the two-control vector is fixed"
+    );
     assert_eq!(
         hex::encode(lineage_digest(&public, Fp::from(11).to_repr(), &claim).unwrap()),
         "4501dca8d1da0168c8000e3bcb18c2178e5258e5bff684a07a6bc1fed852780f",

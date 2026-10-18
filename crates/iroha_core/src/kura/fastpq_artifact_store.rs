@@ -1338,8 +1338,14 @@ mod tests {
             &iroha_config::parameters::actual::LaneConfig::default(),
         )
         .unwrap();
-        kura.persist_fastpq_source_record(2, carrier, b"tape")
+        let source_receipt = kura
+            .persist_fastpq_source_record(2, carrier, b"tape")
             .unwrap();
+        assert!(source_receipt.is_from(&kura));
+        assert_eq!(
+            source_receipt.reference(),
+            FastpqStoredArtifactReference::for_bytes(b"tape")
+        );
         let receipt = kura.persist_fastpq_producer_record(key, b"artf").unwrap();
         drop(kura);
         let (kura, _) = Kura::open_test_kura_with_configured_lane_config(
@@ -1350,6 +1356,10 @@ mod tests {
         assert!(
             !receipt.is_from(&kura),
             "old receipts cannot authorize a new Kura instance"
+        );
+        assert!(
+            !source_receipt.is_from(&kura),
+            "source transport receipts also retain their original Kura identity"
         );
         assert_eq!(
             kura.read_fastpq_producer_record(key).unwrap().unwrap(),

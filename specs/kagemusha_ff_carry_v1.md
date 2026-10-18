@@ -32,7 +32,9 @@ degree and descriptors, not the fused chip's carry equations, interval bounds,
 range membership predicates, shared-table layout or row/column counts.
 The carry and range-binding derivations below retain only that narrow scope;
 they assume the native lookup/permutation arguments establish their stated
-relations. They do not supply a new soundness review of the norm arguments.
+relations. The [conditional norm lookup multiset lemma](plonk_ipa_v1.md#21-conditional-norm-lookup-multiset-binding)
+states the polynomial binding argument, required commitment order and sampled
+challenge premises; it does not discharge full native or Fiat–Shamir soundness.
 `MAX_GATE_DEGREE = 6` continues to bound ordinary fused-leaf arithmetic polynomials, not the
 total norm lookup argument. Earlier descriptor/key/proof sizes, performance
 records and source-specific sign-offs below remain evidence for their captured
@@ -362,11 +364,12 @@ These are fresh clarity findings, not a reconstruction of the missing four:
    component run, then explicitly executed and passed among all thirteen selected
    cases in `target/qualification/m3-streaming-msm-heavy-gadgets-3`. Its FF/Q-leaf
    sources remain unchanged; its transitive engine source interval predates the
-   current lookup-FFT/merged changes. The sweeps
-   select a `+1` mutation at every assigned advice cell only for Fq-in-Fp and
-   P-256 p-in-Fq; there is no dedicated exhaustive FF sweep for Fp-in-Fq or
-   P-256 n, or the full field/table matrix. The P-256 leaf mutation suite samples
-   FF/glue/SHA cells and does not supply that missing exhaustive coverage.
+   current lookup-FFT/merged changes. Those historical sweeps selected a `+1`
+   mutation at every assigned advice cell only for Fq-in-Fp and P-256 p-in-Fq;
+   that record did not include dedicated Fp-in-Fq or P-256 n sweeps, or the
+   full field/table matrix. The four-modulus component run recorded below
+   adds the former two cases. The P-256 leaf mutation suite samples FF/glue/SHA
+   cells and does not establish an exhaustive full field/table matrix.
 
    The component record is
    `target/qualification/kagemusha-post-retirement-correctness-1/02-gadgets-all-ordinary-3.stdout.log`
@@ -401,6 +404,35 @@ The current independent packet is
 retains reviewed source snapshots and hashes, the exact-integer script/output,
 accepted premises and the remaining proof/test obligations. It does not recover
 the historical four-item wording checklist or qualify a measured binary.
+
+### Conditional norm-wrapper review (2026-10-18)
+
+The fresh source review found no carry/range-binding defect in the fused M3
+path: `QLeafConfig::chips` still selects `FfChip::starting_at`, whose
+`serialized=None` construction retains the seven-row layout, all four carries,
+two-membership tops and operand copy constraints. The shared-table premises
+remain the fixed construction and bindings in §11; `audit` is not a new circuit
+constraint. Current Q-leaf norm argument degree is ten, with unmerged U
+arguments degree eight and ordinary arithmetic bounded by six. The native
+lemma linked above supplies only the conditional lookup polynomial argument.
+Serialized or shortened-carry backends, equality-permutation soundness and
+concrete Fiat–Shamir security are outside this scoped acceptance. This review
+ran no tests and does not transfer earlier proof or performance qualification.
+
+Separately, the retained component result
+`target/qualification/ff-all-moduli-cell-tamper-20261018-1/result.json` records
+all four exhaustive `+1` advice-cell sweeps passing in 1,135.792409042 seconds:
+Fq-in-Fp, Fp-in-Fq, P-256 p-in-Fq and P-256 n-in-Fq. Its executable SHA-256
+before and after is
+`8c25834da019dd7e5f752f019d6c426fc6d52340eff1b2d7d1e545147a5525fa`.
+The receipt retains compiled FF test source
+`d4505216e0c1430d9681690b458fa5e6ed79f64b31396086e787f89c179488e4`
+and the subsequent rustfmt-only slice-pattern source
+`3ed80389a3fde81976d31a9f4138bbf07479dec72f6de5fef291e1f4d7ac8a96`;
+these are distinct source captures. This covers the four named component
+circuits, not every native-field/shared-table combination, arbitrary mutations,
+cryptographic grand-product attacks, current M3 resource gates or release
+readiness.
 
 ## 12. Recursive scalar adapter and canonical S6 certificates
 

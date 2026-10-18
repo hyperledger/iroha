@@ -151,6 +151,70 @@ polynomials, then permutation items 1-4, then lookups.
 has its own blind. `R`, of degree `< n`, is committed before `y` and masks `h(x_3)`. The prover's
 evaluation over exactly `d - 1` cosets is internal and yields the same `h`.
 
+### 2.1 Conditional norm lookup multiset binding
+
+This lemma concerns the lookup equations, not the full proof system. Let `F`
+be either admitted Pasta scalar field, of odd characteristic, with five a
+nonsquare. Condition on the committed polynomials being fixed at their specified
+transcript positions, authenticated key/table binding, and correct enforcement
+of the polynomial, opening and row constraints. The lemma does not establish
+these premises or the separate equality-permutation argument.
+
+For `a in F`, set `f_a(T) = (T+a)^2 - 5`. This is a monic irreducible
+quadratic: a root would give a square root of five. Moreover `f_a = f_b`
+implies `2a = 2b`, hence `a = b`. Unique factorization in `F[T]` therefore
+gives, for two lists of `u` values, equality of their products of `f_a(T)`
+**as polynomials** exactly when the lists are the same multiset, including
+multiplicities. Nonvanishing at one sampled challenge alone does not give
+this conclusion; `N(t)` is not an injective scalar map.
+
+After tuple compression, define `P_A(B) = prod_{i<u} f_{A_i}(B)` and
+`P_S(G) = prod_{i<u} f_{S_i}(G)`, and similarly for the committed `A'`, `S'`.
+The polynomial identity
+
+```text
+P_A(B) P_S(G) = P_A'(B) P_S'(G)
+```
+
+forces both multiset equalities. Comparing coefficients of `G^(2u)` gives
+`P_A = P_A'`; comparing coefficients of `B^(2u)` gives `P_S = P_S'`, since
+all four factors are monic. The `Start` and `Step` constraints then make
+every value in `A'` occur in `S'`: the first row matches, and each later row
+either matches or repeats its predecessor. Thus the identity and adjacency
+constraints imply compressed membership. Nonzero norm factors and the
+`z_0 = z_u = 1` boundaries make the row-product recurrence telescope to the
+displayed equality **at the sampled** `(beta, gamma)`; treating that sample
+as evidence of a polynomial identity requires an additional challenge argument.
+
+The required timing is the actual §7 order: advice polynomials (including
+dynamic table advice) and fixed/key data precede `theta`; `A'` and `S'`
+commitments precede both `beta` and `gamma`. The latter columns may depend on
+`theta`, but must be fixed before those two challenges. For fixed unequal
+width-`w` tuples, compression collides only at roots of a nonzero polynomial
+of degree at most `w-1` in `theta`. If an input tuple is absent from the
+`u` table rows, selecting it before `theta` and taking a union bound gives
+at most `u(w-1) lambda_theta`, where each `lambda` bounds the maximum
+conditional probability of a challenge value at its sampling prefix.
+
+Once `A'`/`S'` are fixed, a false multiset identity has a nonzero difference
+polynomial of degree at most `2u` in each of `B,G`. Under fresh sequential
+challenge laws satisfying the conditional atom bounds, its probability of
+vanishing at `(beta,gamma)` is at most
+`2u lambda_beta + 2u lambda_gamma`. This follows by first bounding roots of
+a nonzero coefficient polynomial in `B`, then roots in `G`. Together with
+the compression bound this is a conditional bound for one lookup; multiple
+lookups and attempts require their own union/query accounting. Independent
+uniform scalar challenges would give `lambda = 1/|F|`. PIPA-R challenges
+instead use the actual base-to-scalar pushforward distribution in §6.2b;
+its atom bounds must not be replaced by uniform-scalar bounds.
+
+This sampled argument assumes fresh challenge laws; commitment order alone
+does not prove those laws for a deterministic Fiat–Shamir transcript. The
+concrete hash assumption, adaptive transcript-query accounting, commitment
+knowledge/binding, equality permutation, quotient testing and IPA security
+remain separate obligations. This component lemma is neither full soundness
+sign-off nor descriptor, proof-size, M3 resource or release qualification.
+
 ## 3. Parameters and the params digest
 
 `ParamsIpa<C>` is the transparent derivation of `crates/iroha_pasta/src/params.rs`:

@@ -32,6 +32,13 @@ sealed class IrohaPeerNfcCommandV1 {
         override fun toString(): String = "GET_INTAKE"
     }
 
+    /** GET_ASK (`34`), Le 56: the receiver's `IAK1` ask ([IrohaPeerAskV1]). */
+    object GetAsk : IrohaPeerNfcCommandV1() {
+        override val operation: IrohaPeerNfcOperationV1 get() = IrohaPeerNfcOperationV1.GET_ASK
+
+        override fun toString(): String = "GET_ASK"
+    }
+
     /** BEGIN_OFFER (`31`): `s ‖` Offer IPM1 header (84). */
     class BeginOffer(sessionId: ByteArray, offerHeader: ByteArray) : IrohaPeerNfcCommandV1() {
         private val session = nfcRequireSession(sessionId)
@@ -297,6 +304,8 @@ object IrohaPeerNfcAPDUCodecV1 {
         )
         is IrohaPeerNfcCommandV1.GetIntake ->
             encodeProprietary(IrohaPeerNfcInstructionV1.GET_INTAKE, ByteArray(0), IrohaPeerNfcV1.INTAKE_BYTES)
+        is IrohaPeerNfcCommandV1.GetAsk ->
+            encodeProprietary(IrohaPeerNfcInstructionV1.GET_ASK, ByteArray(0), IrohaPeerNfcV1.ASK_BYTES)
         is IrohaPeerNfcCommandV1.BeginOffer ->
             encodeProprietary(IrohaPeerNfcInstructionV1.BEGIN_OFFER, command.sessionId + command.offerHeader)
         is IrohaPeerNfcCommandV1.WriteOffer -> encodeProprietary(
@@ -368,6 +377,10 @@ object IrohaPeerNfcAPDUCodecV1 {
             IrohaPeerNfcInstructionV1.GET_INTAKE -> {
                 if (data.isNotEmpty() || le != IrohaPeerNfcV1.INTAKE_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
                 IrohaPeerNfcCommandV1.GetIntake
+            }
+            IrohaPeerNfcInstructionV1.GET_ASK -> {
+                if (data.isNotEmpty() || le != IrohaPeerNfcV1.ASK_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
+                IrohaPeerNfcCommandV1.GetAsk
             }
             IrohaPeerNfcInstructionV1.BEGIN_OFFER -> {
                 if (le != null || data.size != SESSION + IrohaPeerWireMessageV1.HEADER_LENGTH) {

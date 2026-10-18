@@ -241,12 +241,13 @@ impl FilePrivateSettlementArtifacts {
 pub(super) mod tests {
     use super::*;
     use crate::test_support::client_with_base_url;
-    use iroha_test_samples::private_settlement::availability_material_fixture_v1;
+    use iroha_test_samples::private_settlement::{
+        availability_material_fixture_v1, context_fixture,
+    };
 
     fn fixture() -> Artifact {
         let client = client_with_base_url("http://mock.local/".parse().unwrap());
-        let (material, _) =
-            availability_material_fixture_v1(client.network_id(), client.account());
+        let (material, _) = availability_material_fixture_v1(client.network_id(), client.account());
         Artifact {
             key: ArtifactKey {
                 request: [1; 32],
@@ -271,8 +272,9 @@ pub(super) mod tests {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("artifacts");
         let key = fixture().key;
+        let client = client_with_base_url("http://mock.local/".parse().unwrap());
         let proof = PrivateSettlementContextsProofV1 {
-            contexts: vec![context_fixture()],
+            contexts: vec![context_fixture(client.network_id(), client.account())],
         };
         let maximum = norito::canonical_frame_len(&proof).unwrap();
         let store = FilePrivateSettlementArtifacts::open(&path, &[22; 32]).unwrap();

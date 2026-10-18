@@ -283,9 +283,13 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
                 .read_fastpq_producer_record(first_key)
                 .unwrap()
                 .unwrap();
-            foreign
+            let receipt = foreign
                 .persist_fastpq_producer_record(key, &h1_bytes)
                 .unwrap();
+            assert!(receipt.is_from(&foreign));
+            assert!(!receipt.is_from(chain.kura()));
+            assert_eq!(receipt.reference().digest(), *Hash::new(&h1_bytes).as_ref());
+            assert_eq!(receipt.reference().byte_len(), h1_bytes.len() as u64);
             let job = restarted.job.as_mut().unwrap();
             let original = std::ptr::from_ref(job.source.entry(0).unwrap().effects());
             assert!(matches!(

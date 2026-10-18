@@ -22,9 +22,11 @@
 //!
 //! Ten arguments, all on the shared table ([`crate::table`]): eight width-1
 //! foreign-field range arguments, the `c_0` range argument carrying the
-//! SHA-256 spread lookup (width 3: `T, x_0, V`; degree `2 + 3 + 1 = 6`),
-//! and the `u_0` range argument carrying the window lookup (width 8; degree
-//! `2 + 2 + 2 = 6`).
+//! SHA-256 spread lookup (width 3: `T, x_0, V`; norm argument degree
+//! `2 + 2*3 + 2*1 = 10`), and the `u_0` range argument carrying the window
+//! lookup (width 8; norm argument degree `2 + 2*2 + 2*2 = 10`). The other
+//! C/Q arguments have degree 10 and the other U arguments degree 8; these
+//! argument degrees are separate from the arithmetic-gate bound of six.
 //!
 //! # Rows
 //!

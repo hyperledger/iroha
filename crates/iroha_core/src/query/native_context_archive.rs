@@ -19,7 +19,7 @@ use crate::{
     state::{NativeExecutionProjectionV1, StateBlock, StateReadOnly, WorldReadOnly},
 };
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, RetainedPayload};
-use iroha_crypto::HashOf;
+use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
     block::{
         BlockHeader, SignedBlock,
@@ -535,12 +535,22 @@ impl NativeContextArchive {
                 "foreign FASTPQ source backing",
             ));
         }
-        kura.persist_fastpq_source_record(
+        let receipt = kura.persist_fastpq_source_record(
             original.height,
             original.carrier_hash,
             source.as_slice(),
         )?;
         self.recheck_namespace()?;
+        // Hold the original durability acknowledgement across the archive fence.
+        // This binds only these transport bytes; no reference or proof verdict is published.
+        if !receipt.is_from(kura)
+            || receipt.reference().digest() != *Hash::new(source.as_slice()).as_ref()
+            || receipt.reference().byte_len() != source.as_slice().len() as u64
+        {
+            return Err(NativeContextArchiveError::Source(
+                "source transport receipt differs from original bytes",
+            ));
+        }
         Ok(())
     }
 

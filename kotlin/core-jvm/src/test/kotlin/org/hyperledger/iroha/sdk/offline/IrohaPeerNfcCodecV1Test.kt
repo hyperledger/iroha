@@ -358,6 +358,33 @@ class IrohaPeerNfcCodecV1Test {
         )
     }
 
+    @Test
+    fun `GET_ASK has one canonical APDU shared with Swift`() {
+        val nfc = IrohaPeerAskTestVectorsV1.section("nfc")
+        assertEquals(Integer.decode(nfc["instruction"] as String), IrohaPeerNfcInstructionV1.GET_ASK.code)
+        assertEquals(IrohaPeerNfcInstructionV1.GET_ASK, IrohaPeerNfcInstructionV1.fromCode(0x34))
+        assertEquals(IrohaPeerAskV1.RECORD_BYTES, IrohaPeerNfcV1.ASK_BYTES)
+        val apdu = (nfc["get_ask_apdu_hex"] as String).uppercase()
+        assertEquals(apdu, hex(IrohaPeerNfcAPDUCodecV1.encode(IrohaPeerNfcCommandV1.GetAsk)))
+        val decoded = IrohaPeerNfcAPDUCodecV1.decode(bytes(apdu), BPNG_AID)
+        assertEquals(IrohaPeerNfcCommandV1.GetAsk, decoded)
+        assertEquals(IrohaPeerNfcOperationV1.GET_ASK, decoded.operation)
+
+        // Another Le, any data, nonzero P1 or P2 and a missing Le are malformed (6A80).
+        val endpoint = IrohaPeerNfcCardEndpointV1.intake(BPNG_AID, POLICY)
+        val invalid = IrohaPeerAskTestVectorsV1.list("invalid_apdu_hex", nfc)
+        assertEquals(6, invalid.size)
+        for (vector in invalid) {
+            val name = vector["name"] as String
+            val candidate = bytes((vector["apdu_hex"] as String).uppercase())
+            val error = assertFailsWith<IrohaPeerNfcExceptionV1>(name) { IrohaPeerNfcAPDUCodecV1.decode(candidate, BPNG_AID) }
+            assertEquals(IrohaPeerNfcErrorV1.INVALID_APDU, error.error, name)
+            assertEquals(IrohaPeerNfcStatusWordV1.WRONG_DATA, endpoint.process(candidate).statusWord, name)
+        }
+        // A malformed ask from a card is malformed data as well.
+        assertEquals(0x6a80, IrohaPeerNfcStatusWordV1.forError(IrohaPeerNfcErrorV1.INVALID_ASK).code)
+    }
+
     internal companion object {
         val PROFILE = IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1
         val POLICY = IrohaPeerNfcProfilePolicyV1(PROFILE)

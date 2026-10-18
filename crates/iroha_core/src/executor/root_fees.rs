@@ -18,7 +18,7 @@ fn scope(
 
 /// Validate the captured predecessor policy without reading a later parameter value.
 /// Presence is mandatory; the only unconfigured context is H1, whose caller skips fees.
-pub(crate) fn effective(
+pub(super) fn effective(
     world: &impl WorldReadOnly,
     captured: &RootFeePolicy,
 ) -> Result<RootFeePolicy, ExecutionAttemptError<NexusFeeAdmissionError>> {
@@ -52,6 +52,18 @@ pub(crate) fn effective(
         }
     }
     Ok(captured.clone())
+}
+
+/// Validate the complete committed policy for executed-genesis schedule admission.
+/// This borrows the existing projection; it never decodes parameters or selects local defaults.
+pub(crate) fn validate_committed(
+    world: &impl WorldReadOnly,
+) -> Result<(), ExecutionAttemptError<NexusFeeAdmissionError>> {
+    let policy = world
+        .parameters()
+        .root_fees()
+        .ok_or_else(|| invalid("committed root fee policy is absent"))?;
+    effective(world, policy).map(|_| ())
 }
 
 /// Public quoting is evaluated against the supplied committed World. A caller-supplied
@@ -232,6 +244,21 @@ mod tests {
             parameters.commit();
         }
         (state, ds, asset)
+    }
+
+    #[test]
+    fn committed_policy_validation_uses_exact_world_projection() {
+        let (state, _, _) = fixture(true, true);
+        let view = state.view();
+        let world = view.world();
+        assert!(std::ptr::eq(world.parameters(), world.parameters.get()));
+        validate_committed(world).unwrap();
+
+        let (missing, _, _) = fixture(false, true);
+        assert!(validate_committed(missing.view().world()).is_err());
+        let (wrong_scope, _, _) = fixture(true, false);
+        assert!(validate_committed(wrong_scope.view().world()).is_err());
+        assert!(validate_committed(&World::new().view()).is_err());
     }
 
     #[test]

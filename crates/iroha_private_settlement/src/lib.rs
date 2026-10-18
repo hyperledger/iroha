@@ -9,8 +9,6 @@ use iroha::client::{
     PrivateSettlementResult, PrivateSettlementRunOptions, run_private_settlement_worker,
     validate_private_settlement_committee_endpoints_v1,
 };
-use iroha_crypto::Hash;
-use url::Url;
 use iroha::workflow::{
     CommittedOutcome, Digest32, DispatchOutcome, DriverIdentityV1, RoundContext, RoundRecovery,
     RoundReport, RoundStatusReport, StepDescriptorV1, StepFailure, SystemWorkflowClock,
@@ -24,14 +22,15 @@ use iroha_core_privacy::privacy_engines::atomic_private_settlement::{
     finalize_atomic_private_settlement_provisional_bundle_v1,
     prepare_atomic_private_settlement_leg_v1, verify_atomic_private_settlement_intent_v1,
 };
+use iroha_crypto::Hash;
 use iroha_data_model::{
     asset::AssetDefinitionId,
     block::consensus::SumeragiRootScope,
     nexus::{
-        PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1, PrivateSettlementAuditPolicyV1, PrivateSettlementCapsulePaddingV1,
-        PrivateSettlementContextRequestV1, PrivateSettlementContextsProofV1,
-        PrivateSettlementPoolGovernanceV1, PrivateSettlementPoolKeyV1,
-        PrivateSettlementProofIntentV1,
+        PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1, PrivateSettlementAuditPolicyV1,
+        PrivateSettlementCapsulePaddingV1, PrivateSettlementContextRequestV1,
+        PrivateSettlementContextsProofV1, PrivateSettlementPoolGovernanceV1,
+        PrivateSettlementPoolKeyV1, PrivateSettlementProofIntentV1,
     },
     sumeragi_finality::{
         FinalityError, FinalityReadError, SumeragiFinalityVerifier, VerifiedSumeragiBlock,
@@ -41,6 +40,7 @@ use std::{
     num::NonZeroU64,
     sync::{Arc, Mutex},
 };
+use url::Url;
 
 mod artifacts;
 mod errors;

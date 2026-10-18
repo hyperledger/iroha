@@ -738,32 +738,150 @@ def parse_native_identity(text: str, native: dict, binary_sha256: str) -> dict:
     return value
 
 
+def validate_retained_native_source(native: dict, outputs: list[dict]) -> None:
+    """Validate complete retained evidence without consulting the live filesystem."""
+    def fields(value, names, label):
+        if not isinstance(value, dict) or set(value) != set(names.split()):
+            raise ValueError(f"incomplete native {label} evidence")
+
+    def digest(value):
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("malformed native provenance digest")
+
+    def path(value, *, absolute=True):
+        if not isinstance(value, str) or not value or "\x00" in value:
+            raise ValueError("missing native provenance path")
+        result = Path(value)
+        if (result.is_absolute() != absolute or str(result) != value or
+                any(part in (".", "..") for part in result.parts) or value == "."):
+            raise ValueError("noncanonical native provenance path")
+        return result
+
+    fields(native, "policy tool evaluator evaluator_record_sha256 source_digest watched admin_watchers target builds", "scope")
+    if native["policy"] != "complete-native-source-identity-v1":
+        raise ValueError("missing complete audited native source scope")
+    for name in ("source_digest", "evaluator_record_sha256"):
+        digest(native[name])
+    admin = native["admin_watchers"]
+    fields(admin, ".git/index .git/info/exclude", "admin watcher")
+    for value in admin.values():
+        if value is not None:
+            digest(value)
+    watched = native["watched"]
+    if not isinstance(watched, list) or any(not isinstance(value, str) for value in watched):
+        raise ValueError("missing native watch inventory")
+    if watched != sorted(set(watched)):
+        raise ValueError("duplicate or unordered native watch inventory")
+    for value in watched:
+        path(value, absolute=False)
+    required = {"crates/iroha_plonk/build.rs", "crates/iroha_plonk/build_support/source_identity.rs",
+                "crates/iroha_plonk/src/keys/keygen/builtin/generated.rs", "scripts/audit_native_source_inputs.py",
+                "scripts/native_source_snapshot.rs", *admin}
+    if not required.issubset(watched):
+        raise ValueError("native watch inventory omits generator or admin inputs")
+
+    target = native["target"]
+    fields(target, "triple cfg cfg_stdout environment", "target")
+    cfg = target["cfg"]
+    fields(cfg, "target_arch target_os target_pointer_width target_endian", "target cfg")
+    if (cfg["target_arch"] not in ("aarch64", "x86_64") or cfg["target_os"] != "macos" or
+            cfg["target_pointer_width"] != "64" or cfg["target_endian"] != "little" or
+            target["triple"] != cfg["target_arch"] + "-apple-darwin"):
+        raise ValueError("unsupported or inconsistent native qualification target")
+    if not isinstance(target["cfg_stdout"], str):
+        raise ValueError("missing native compiler cfg output")
+    for name, value in cfg.items():
+        if re.findall(rf'^{name}="([a-zA-Z0-9_]+)"$', target["cfg_stdout"], re.MULTILINE) != [value]:
+            raise ValueError("native target differs from retained compiler cfg output")
+    environment = {"TARGET": target["triple"], **{"CARGO_CFG_" + key.upper(): value for key, value in cfg.items()}}
+    if target["environment"] != environment:
+        raise ValueError("native target environment differs from compiler cfg")
+
+    tool = path(native["tool"])
+    evaluator = native["evaluator"]
+    fields(evaluator, "helperPath helperSha256 driverPath driverSha256 binaryPath binarySha256 sha2Path sha2Sha256 sha2Features command", "evaluator")
+    for prefix in ("helper", "driver", "binary", "sha2"):
+        path(evaluator[prefix + "Path"])
+        digest(evaluator[prefix + "Sha256"])
+    helper = ROOT / "crates/iroha_plonk/build_support/source_identity.rs"
+    driver = ROOT / "scripts/native_source_snapshot.rs"
+    sha2 = path(evaluator["sha2Path"])
+    if (tool.name != "source-snapshot" or evaluator["binaryPath"] != str(tool) or
+            evaluator["helperPath"] != str(helper) or evaluator["driverPath"] != str(driver) or
+            not sha2.is_relative_to(ROOT / "target") or sha2.parent.name != "deps" or
+            re.fullmatch(r"libsha2-[a-zA-Z0-9_-]+\.rlib", sha2.name) is None):
+        raise ValueError("native evaluator has foreign input paths")
+    features = evaluator["sha2Features"]
+    if (not isinstance(features, list) or any(not isinstance(value, str) or not value for value in features) or
+            len(set(features)) != len(features)):
+        raise ValueError("missing or duplicated native evaluator dependency features")
+    expected_command = ["rustc", "--edition=2024", "--crate-name", "iroha_native_source_snapshot", str(driver),
+                        "--extern", "sha2=" + str(sha2), "-L", "dependency=" + str(sha2.parent), "-o", str(tool)]
+    if evaluator["command"] != expected_command:
+        raise ValueError("native evaluator command differs from retained inputs")
+
+    builds = native["builds"]
+    if not isinstance(builds, list) or not builds:
+        raise ValueError("missing selected native generator evidence")
+    if not isinstance(outputs, list):
+        raise ValueError("missing retained native build output originals")
+    seen, packages = set(), set()
+    expected_hash = hashlib.sha256(native_identity_source(native["source_digest"], target).encode()).hexdigest()
+    for item in builds:
+        fields(item, "package_id out_dir identity identity_sha256 rescan output output_sha256 inventory", "generator")
+        if not isinstance(item["package_id"], str) or not item["package_id"]:
+            raise ValueError("missing native generator package identity")
+        packages.add(item["package_id"])
+        out = path(item["out_dir"])
+        if out in seen or out.name != "out" or not out.is_relative_to(ROOT / "target"):
+            raise ValueError("foreign or duplicate native Cargo OUT_DIR")
+        seen.add(out)
+        identity = out / "native_source_identity.rs"
+        for name, expected in (("identity", identity), ("rescan", out / "native-source-rescan-required"),
+                               ("output", out.parent / "output")):
+            if path(item[name]) != expected:
+                raise ValueError("native generated output path differs from selected Cargo OUT_DIR")
+        for name in ("identity_sha256", "output_sha256"):
+            digest(item[name])
+        if (item["identity_sha256"] != expected_hash or
+                item["inventory"] != {identity.relative_to(ROOT).as_posix(): "file:" + expected_hash}):
+            raise ValueError("native generated output differs from complete source identity and target")
+        matches = [record for record in outputs if isinstance(record, dict) and record.get("path") == item["output"]]
+        if len(matches) != 1:
+            raise ValueError("missing or ambiguous retained native build output")
+        retained = matches[0]
+        fields(retained, "record path sha256 text generated_disposition", "build output")
+        event = retained["record"]
+        if (not isinstance(event, dict) or event.get("reason") != "build-script-executed" or
+                event.get("package_id") != item["package_id"] or event.get("out_dir") != str(out) or
+                retained["generated_disposition"] != "exact complete native source identity" or
+                not isinstance(retained["text"], str)):
+            raise ValueError("retained native build output differs from selected Cargo event")
+        if (retained["sha256"] != item["output_sha256"] or
+                hashlib.sha256(retained["text"].encode()).hexdigest() != item["output_sha256"]):
+            raise ValueError("retained native build output digest differs from original text")
+        declared, declared_environment = set(), set()
+        for line in retained["text"].splitlines():
+            directive = line.removeprefix("cargo::").removeprefix("cargo:")
+            if directive.startswith("rerun-if-changed="):
+                declared.add(path(directive.partition("=")[2]).relative_to(ROOT).as_posix())
+            elif directive.startswith("rerun-if-env-changed="):
+                declared_environment.add(directive.partition("=")[2])
+        if declared != set(watched) | {(out / "native-source-rescan-required").relative_to(ROOT).as_posix()}:
+            raise ValueError("retained native build watchers differ from snapshot and exact rescan marker")
+        if declared_environment != set(environment):
+            raise ValueError("retained native build environment differs from target inputs")
+    if len(packages) != 1:
+        raise ValueError("native generated outputs select different Cargo packages")
+
+
 def candidate_native_reasons(candidate: dict) -> list[str]:
     """Require retained successful executable identity and its audited native scope."""
     try:
         if candidate["source_scope"].get("kind") not in ("cargo_component", "whole_checkout"):
             raise ValueError("missing captured Cargo source scope")
         native = candidate["source_scope"]["native_source"]
-        if not isinstance(native, dict) or native.get("policy") != "complete-native-source-identity-v1":
-            raise ValueError("missing complete audited native source scope")
-        for key in ("source_digest", "evaluator_record_sha256"):
-            if not isinstance(native.get(key), str) or re.fullmatch(r"[0-9a-f]{64}", native[key]) is None:
-                raise ValueError(f"missing native provenance digest: {key}")
-        if (not isinstance(native.get("builds"), list) or not native["builds"] or
-                any(not isinstance(item, dict) or not item for item in native["builds"]) or
-                not isinstance(native.get("evaluator"), dict) or not native["evaluator"] or
-                not isinstance(native.get("tool"), str) or not native["tool"] or
-                not isinstance(native.get("watched"), list) or not native["watched"]):
-            raise ValueError("missing selected native generator or snapshot evaluator evidence")
-        admin = native["admin_watchers"]
-        if (not isinstance(admin, dict) or set(admin) != {".git/index", ".git/info/exclude"} or
-                any(item is not None and (not isinstance(item, str) or re.fullmatch(r"[0-9a-f]{64}", item) is None)
-                    for item in admin.values())):
-            raise ValueError("missing native admin watcher evidence")
-        cfg = native["target"]["cfg"]
-        if (cfg.get("target_arch") not in ("aarch64", "x86_64") or cfg.get("target_os") != "macos" or
-                cfg.get("target_pointer_width") != "64" or cfg.get("target_endian") != "little"):
-            raise ValueError("unsupported native qualification target")
+        validate_retained_native_source(native, candidate["source_scope"]["build_script_outputs"])
         if (not isinstance(candidate.get("binary_sha256"), str) or
                 re.fullmatch(r"[0-9a-f]{64}", candidate["binary_sha256"]) is None):
             raise ValueError("missing native executable digest")

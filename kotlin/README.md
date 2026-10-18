@@ -652,6 +652,19 @@ hold; reconnecting is only recovery after interrupted contact. A Nearby receiver
 advertises before it holds a Request uses
 `IrohaPeerNearbyDiscoveryContextV1.freshReceiver`.
 
+The receiver sets the amount. Its ask (`IrohaPeerAskV1`: the amount and the receiver's account
+digest, display DATA that authorizes nothing) reaches the payer before the Offer, because Native
+requires the Request amount to equal the Offer amount: a card built with
+`IrohaPeerNfcCardEndpointV1.intake(aid, policy, limits, ask)` answers GET_ASK, and the payer's
+`IrohaPeerNfcOfferExchangeV1.runFromAsk(offerFactory, ...)` reads it and calls the factory once to
+build the Offer in the same hold (resume an interrupted contact with `run(offer)`, never a second
+factory call). Nearby carries the ask as the receiver's first sealed record
+(`IrohaPeerNearbySessionV1.sealAsk`/`openAsk`), QR as `IrohaPeerAskV1.toText`/`fromText`. The
+receiver declines an Offer for any other amount, read with `KagemushaWalletWireV1.offerAmountData`,
+before it issues a Request. Nearby pairing derives a picture with
+`IrohaPeerNearbyPictureCodeV1.targetIndex` from the transport's authentication digits; never show the
+digits.
+
 `KagemushaWalletAccountOriginalV1` encodes and renders the bounded complete
 canonical Norito `AccountId` frame used by `KagemushaWalletV1.reviewSend`.
 Supply both the receiver's original Request and destination account frame;
