@@ -598,3 +598,181 @@ const fn last_millisecond_of_second_v1(
         None => Err(PrivacyZkX509PresentationIntervalErrorV1::TimestampOverflow),
     }
 }
+
+/// Explicit local estimates for one holder preparation and submission attempt.
+///
+/// All terms are milliseconds and are added conservatively; overlapping work is
+/// not deducted. These estimates neither change consensus validity nor promise
+/// actual execution time. There is no implicit budget or clock-margin default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrivacyZkX509HolderBudgetV1 {
+    /// Time budgeted for observing the selected authenticated records.
+    pub observation_ms: u64,
+    /// Time budgeted for preparing the witness and statement.
+    pub preparation_ms: u64,
+    /// Time budgeted for proving the prepared statement.
+    pub proving_ms: u64,
+    /// Time budgeted for publication jitter.
+    pub publication_jitter_ms: u64,
+    /// Time budgeted for submission and inclusion.
+    pub submission_ms: u64,
+    /// Explicit local allowance for clock uncertainty.
+    pub clock_margin_ms: u64,
+}
+
+impl PrivacyZkX509HolderBudgetV1 {
+    /// Add every phase estimate without wrapping or saturating.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PrivacyZkX509HolderScheduleErrorV1::BudgetOverflow`] if the
+    /// aggregate estimate cannot be represented in milliseconds.
+    pub fn total_millis(self) -> Result<u64, PrivacyZkX509HolderScheduleErrorV1> {
+        [
+            self.observation_ms,
+            self.preparation_ms,
+            self.proving_ms,
+            self.publication_jitter_ms,
+            self.submission_ms,
+            self.clock_margin_ms,
+        ]
+        .into_iter()
+        .try_fold(0_u64, |total, term| {
+            total
+                .checked_add(term)
+                .ok_or(PrivacyZkX509HolderScheduleErrorV1::BudgetOverflow)
+        })
+    }
+}
+
+/// Failure to construct or calculate a local holder schedule.
+///
+/// No variant carries private certificate dates or a retained source dump.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
+pub enum PrivacyZkX509HolderScheduleErrorV1 {
+    /// The original parsed intervals or public window are not admitted.
+    #[error(transparent)]
+    Interval(#[from] PrivacyZkX509PresentationIntervalErrorV1),
+    /// The sum of local phase estimates does not fit milliseconds.
+    #[error("X.509 holder phase budgets overflow milliseconds")]
+    BudgetOverflow,
+    /// Adding the estimate to the supplied local start time overflows.
+    #[error("X.509 holder estimated completion overflows Unix milliseconds")]
+    CompletionOverflow,
+}
+
+/// Local scheduling assessment, never proof or authoritative-state admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrivacyZkX509HolderScheduleOutcomeV1 {
+    /// The complete supplied estimate fits the original admitted deadline.
+    ///
+    /// This includes equality at the final admissible millisecond. It does not
+    /// establish that the work will finish, that the block will be timely, or
+    /// that an early block timestamp lies inside the public window.
+    WithinBudget,
+    /// The original deadline cannot accommodate the complete supplied estimate.
+    ///
+    /// The caller must obtain eligible material and prepare a new schedule;
+    /// neither automatic replay nor extension of this window is authorized.
+    Reprepare,
+    /// The caller's authenticated current selection differs from the original.
+    ///
+    /// Discard this scheduling decision and derive a new one from that exact
+    /// selection, even if its epochs or window endpoints are unchanged.
+    Superseded,
+}
+
+/// A local budget decision bound to one borrowed statement and parsed intervals.
+///
+/// The caller must authenticate both the original selection and the current
+/// selection passed to [`Self::assess`], and must derive the supplied certificate
+/// and CRL intervals from the exact original signed material. This helper does
+/// not verify those signatures, select the newest eligible merged event, or
+/// establish authority from an epoch comparison. It retains the original
+/// statement unchanged and compares the entire statement for supersession,
+/// including the CRL, policy and anchor identities and all revision bindings.
+///
+/// The supplied schedule start is a local Unix-millisecond estimate covering
+/// all six budget terms. Repeated calls do not infer elapsed time, freshness, or
+/// monotonic wall-clock progress. Consensus still checks the executing block's
+/// timestamp independently. An idle chain does not acquire wall-clock freshness
+/// from this helper, a wallet TTL, or a previously observed block timestamp.
+///
+/// TODO(X.6): integrate authenticated merged-event selection and actual holder
+/// lifecycle ownership, including quiet-chain and same-block revocation rules.
+/// Measured preparation/proving/inclusion budgets remain E.1/X.4 obligations.
+/// This non-wire component is not a shipping holder scheduler.
+#[derive(Clone, Copy)]
+pub struct PrivacyZkX509HolderScheduleV1<'a> {
+    original: &'a IrohaZkX509StarkP256StatementV1,
+    bounds: PrivacyZkX509PresentationBoundsV1,
+    total_millis: u64,
+}
+
+impl fmt::Debug for PrivacyZkX509HolderScheduleV1<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("PrivacyZkX509HolderScheduleV1 { <private material redacted> }")
+    }
+}
+
+impl<'a> PrivacyZkX509HolderScheduleV1<'a> {
+    /// Retain the exact statement after canonical signed-interval admission.
+    ///
+    /// The interval/source authentication obligation is described on the type.
+    /// This neither chooses a public window nor publishes private bounds.
+    ///
+    /// # Errors
+    ///
+    /// Preserves canonical interval errors and rejects an overflowing budget.
+    pub fn new(
+        original: &'a IrohaZkX509StarkP256StatementV1,
+        certificates: &[PrivacyZkX509CertificateValidityV1],
+        crl: PrivacyZkX509CrlUpdateIntervalV1,
+        budget: PrivacyZkX509HolderBudgetV1,
+    ) -> Result<Self, PrivacyZkX509HolderScheduleErrorV1> {
+        let bounds = PrivacyZkX509PresentationBoundsV1::from_signed_intervals(certificates, crl)?;
+        bounds.admit(original.presentation_window())?;
+        Ok(Self {
+            original,
+            bounds,
+            total_millis: budget.total_millis()?,
+        })
+    }
+
+    /// Borrow the unchanged original public statement.
+    #[must_use]
+    pub const fn original(&self) -> &'a IrohaZkX509StarkP256StatementV1 {
+        self.original
+    }
+
+    /// Compare the current selection, then assess the full local estimate.
+    ///
+    /// The caller supplies an authenticated current selection; equality is not
+    /// an authentication check. Any difference supersedes the old schedule
+    /// before its timing estimate is considered. No input is mutated.
+    ///
+    /// # Errors
+    ///
+    /// Reports checked timestamp overflow without accepting or extending the
+    /// original deadline. Interval errors retain their canonical category.
+    pub fn assess(
+        &self,
+        current: &IrohaZkX509StarkP256StatementV1,
+        schedule_start_unix_ms: u64,
+    ) -> Result<PrivacyZkX509HolderScheduleOutcomeV1, PrivacyZkX509HolderScheduleErrorV1> {
+        if self.original != current {
+            return Ok(PrivacyZkX509HolderScheduleOutcomeV1::Superseded);
+        }
+        let completion = schedule_start_unix_ms
+            .checked_add(self.total_millis)
+            .ok_or(PrivacyZkX509HolderScheduleErrorV1::CompletionOverflow)?;
+        let deadline = self
+            .bounds
+            .presentation_deadline_unix_ms(self.original.presentation_not_after_unix_seconds)?;
+        Ok(if completion <= deadline {
+            PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget
+        } else {
+            PrivacyZkX509HolderScheduleOutcomeV1::Reprepare
+        })
+    }
+}

@@ -278,6 +278,7 @@ mod tests_accel {
     use super::*;
     #[test]
     fn public_batch_paths_match_independent_round_sequences() {
+        let _serial = crate::vector::forced_simd_test_lock();
         let blocks: Vec<[u8; 16]> = (0u16..256)
             .map(|index| std::array::from_fn(|lane| index as u8 ^ (lane as u8).wrapping_mul(13)))
             .collect();
