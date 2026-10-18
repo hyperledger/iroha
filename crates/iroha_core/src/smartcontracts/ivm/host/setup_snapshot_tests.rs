@@ -25,13 +25,8 @@ const FIXTURE_ACCOUNTS: u32 = 300;
 const FIXTURE_EPOCH_LENGTH: u64 = 3;
 
 fn seeded_account(index: u32) -> AccountId {
-    let seed = index
-        .to_le_bytes()
-        .iter()
-        .copied()
-        .cycle()
-        .take(32)
-        .collect::<Vec<_>>();
+    // Hashing the index yields a distinct, never all-zero Ed25519 seed.
+    let seed = Hash::new(index.to_le_bytes()).as_ref().to_vec();
     let (public_key, _) = KeyPair::from_seed(seed, Algorithm::Ed25519).into_parts();
     AccountId::new(public_key)
 }

@@ -74,7 +74,7 @@ fn verify_signature_rejects_missing_multisig_signatures() {
         signature,
         payload,
         multisig_signatures: None,
-        entrypoint_hash: Default::default(),
+        entrypoint_hash: EntrypointHashMemo::default(),
     };
     let err = tx
         .verify_signature()
@@ -106,7 +106,7 @@ fn verify_signature_accepts_multisig_with_quorum() {
         signature,
         payload,
         multisig_signatures: Some(multisig_signatures),
-        entrypoint_hash: Default::default(),
+        entrypoint_hash: EntrypointHashMemo::default(),
     };
     tx.verify_signature()
         .expect("multisig with quorum must verify");
@@ -150,7 +150,7 @@ fn signed_transaction_json_rejects_unknown_authorization_envelope_fields() {
             signer.public_key().clone(),
             member_signature,
         )])),
-        entrypoint_hash: Default::default(),
+        entrypoint_hash: EntrypointHashMemo::default(),
     };
     let canonical =
         norito::json::to_value(&transaction).expect("serialize multisig transaction JSON");
@@ -248,7 +248,7 @@ fn verify_signature_rejects_empty_multisig_bundle() {
         signature,
         payload,
         multisig_signatures: Some(MultisigSignatures::new(Vec::new())),
-        entrypoint_hash: Default::default(),
+        entrypoint_hash: EntrypointHashMemo::default(),
     };
     let err = tx
         .verify_signature()
@@ -277,7 +277,7 @@ fn verify_signature_rejects_unknown_signer() {
         signature,
         payload,
         multisig_signatures: Some(multisig_signatures),
-        entrypoint_hash: Default::default(),
+        entrypoint_hash: EntrypointHashMemo::default(),
     };
     let err = tx
         .verify_signature()
@@ -310,7 +310,7 @@ fn verify_signature_does_not_double_count_duplicates() {
         signature,
         payload,
         multisig_signatures: Some(multisig_signatures),
-        entrypoint_hash: Default::default(),
+        entrypoint_hash: EntrypointHashMemo::default(),
     };
     assert_eq!(
         tx.verify_signature()
@@ -357,7 +357,7 @@ fn signature_count_tracks_all_multisig_entries() {
         signature: TransactionSignature(signature),
         payload,
         multisig_signatures: Some(multisig_signatures),
-        entrypoint_hash: Default::default(),
+        entrypoint_hash: EntrypointHashMemo::default(),
     };
     assert_eq!(tx.signature_count(), 3);
     assert_eq!(

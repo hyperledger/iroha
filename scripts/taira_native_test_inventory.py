@@ -78,6 +78,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'pending_payload_selection_keeps_original_rows_across_unrelated_admissions',
         'pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions',
         'pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry',
+        'pending_payload_lease_accepts_shared_queue_handles_and_their_copies',
         'pending_payload_admission_exhaustion_refuses_before_input_publication',
     )),
     ('native original Queue resident custody', 'queue.rs', 'queue/resident_owner_tests.rs', 'resident_owner_tests', 'queue::tests::resident_owner_tests', ('removed_pending_owner_retains_original_resident_credit_until_last_reader', 'original_queue_shell_refusal_preserves_graph_and_exact_release_then_retries', 'first_queue_resident_ledger_refusal_keeps_original_input_and_retry_pool', 'every_queue_retirement_defers_original_refund_until_its_mutation_fence_releases', 'equal_limit_foreign_state_cannot_replace_original_queue_resident_pool', 'queue_drop_keeps_original_shell_and_ledger_charges_until_detached_last_owner', 'cold_queue_retirement_holds_original_fence_until_first_admission_can_publish')),
@@ -341,6 +342,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_tip_snapshot_scope_is_mandatory_and_objects_are_closed',
     )),
     ('native certified history', 'sumeragi/certified_chain.rs', 'sumeragi/certified_chain/tests.rs', 'tests', 'sumeragi::certified_chain::tests', (
+        'certified_id_streams_exact_preimage_without_heap_allocation',
         'committed_and_certified_reads_of_a_real_chain',
         'uncommitted_heights_are_not_read',
         'frames_without_a_matching_header_preimage_or_certificate_are_refused',

@@ -1530,6 +1530,10 @@ impl Ord for EntrypointHashMemo {
         core::cmp::Ordering::Equal
     }
 }
+#[allow(
+    clippy::missing_fields_in_debug,
+    reason = "the identity memo is a cache of `payload`, not data; output matches the former derive"
+)]
 impl core::fmt::Debug for SignedTransaction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SignedTransaction")

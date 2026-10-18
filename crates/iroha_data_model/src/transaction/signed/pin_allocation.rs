@@ -117,7 +117,7 @@ impl AllocatedPinTransactionV1 {
                 attachments: None,
             },
             multisig_signatures: None,
-            entrypoint_hash: Default::default(),
+            entrypoint_hash: super::EntrypointHashMemo::default(),
         });
         let (charges, complete) = ledger.finish();
         if !complete {
