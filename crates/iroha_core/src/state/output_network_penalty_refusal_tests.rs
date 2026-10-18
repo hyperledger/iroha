@@ -43,8 +43,8 @@ fn fixture_with_registered_policy() -> PenaltyFixture {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = asset.to_string();
-    nexus.fees.fee_sink_account_id = BOB_ID.to_string();
+    nexus.fees.fee_asset_id = asset.clone();
+    nexus.fees.fee_sink_account_id = BOB_ID.clone();
     let mut config = TestChainConfig::new(
         crate::validation_fee::tests::validation_fee_payout_world(&deployer),
         1_000,

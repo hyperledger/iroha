@@ -1,106 +1,96 @@
-//! Signed private-root fee currency and schedule; the parent currency is never a fallback.
+//! One committed root fee policy; execution consumes only its captured predecessor projection.
 
 use super::*;
 use crate::execution_attempt::ExecutionAttemptError;
-use iroha_data_model::block::consensus::{PrivateRootFeePolicy, SumeragiRootScope};
+use iroha_data_model::block::consensus::{RootFeePolicy, SumeragiRootScope};
 
 fn invalid(reason: impl Into<String>) -> NexusFeeAdmissionError {
     NexusFeeAdmissionError::ConfigInvalid(reason.into())
 }
 
-/// Read the immutable root's complete fee policy and validate its local monetary namespace.
-pub(crate) fn policy(
+fn scope(
     world: &impl WorldReadOnly,
-) -> Result<
-    Option<(DataSpaceId, PrivateRootFeePolicy)>,
-    ExecutionAttemptError<NexusFeeAdmissionError>,
-> {
-    let scope = crate::sumeragi::lanes::routing::read_routing_root_scope(world)
+) -> Result<SumeragiRootScope, ExecutionAttemptError<NexusFeeAdmissionError>> {
+    crate::sumeragi::lanes::routing::read_routing_root_scope(world)
         .map_err(ExecutionAttemptError::Deferred)?
-        .ok_or_else(|| invalid("fee admission requires immutable root scope"))?;
-    let SumeragiRootScope::Dataspace { dataspace_id, .. } = scope else {
-        return Ok(None);
-    };
-    let parameter_id = PrivateRootFeePolicy::parameter_id();
-    let parameter = world
-        .parameters()
-        .custom()
-        .get(&parameter_id)
-        .ok_or_else(|| invalid("signed private root fee policy is absent"))?;
-    if parameter.id() != &parameter_id {
-        return Err(invalid("private root fee policy has a foreign parameter identity").into());
-    }
-    let policy: PrivateRootFeePolicy = norito::core::classify_decode_attempt(|| {
-        norito::json::from_str(parameter.payload().get())
-            .map_err(norito::json::Error::into_core_error)
-    })
-    .map_err(|error| {
-        crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
-            let diagnostic = match error.into_error() {
-                norito::Error::Json(error) => format!("invalid signed private fee policy: {error}"),
-                error => format!("invalid signed private fee policy: {error}"),
-            };
-            invalid(diagnostic)
-        })
-    })?;
-    policy
-        .validate()
-        .map_err(|error| invalid(format!("invalid signed private fee policy: {error}")))?;
-    let definition = world
-        .asset_definition(&policy.asset_definition_id)
-        .map_err(|_| invalid("private fee asset is not registered"))?;
-    let domain = definition
-        .owning_domain
-        .as_ref()
-        .ok_or_else(|| invalid("private fee asset requires an owning domain"))?;
-    if definition.balance_scope_policy() != AssetBalancePolicy::DataspaceRestricted
-        || world
-            .dataspace_catalog()
-            .by_alias(domain.dataspace().as_ref())
-            .map(|entry| entry.id)
-            != Some(dataspace_id)
-        || world.domain(domain).is_err()
-    {
-        return Err(
-            invalid("private fee asset must belong to the exact signed root dataspace").into(),
-        );
-    }
-    Ok(Some((dataspace_id, policy)))
+        .ok_or_else(|| invalid("fee admission requires immutable root scope").into())
 }
 
+/// Validate the captured predecessor policy without reading a later parameter value.
+/// Presence is mandatory; the only unconfigured context is H1, whose caller skips fees.
 pub(super) fn effective(
     world: &impl WorldReadOnly,
-    configured: &NexusFees,
-) -> Result<NexusFees, ExecutionAttemptError<NexusFeeAdmissionError>> {
-    let mut fees = configured.clone();
-    if let Some((_, policy)) = policy(world)? {
-        fees.fee_asset_id = policy.asset_definition_id.canonical_address();
-        fees.base_fee = policy.base_fee;
-        fees.per_byte_fee = policy.per_byte_fee;
-        fees.per_instruction_fee = policy.per_instruction_fee;
-        fees.per_gas_unit_fee = policy.per_gas_unit_fee;
-        fees.successful_claim_fee_exempt_authorities.clear();
+    captured: &RootFeePolicy,
+) -> Result<RootFeePolicy, ExecutionAttemptError<NexusFeeAdmissionError>> {
+    if world.parameters().root_fees().is_none() {
+        return Err(invalid("committed root fee policy is absent").into());
     }
-    Ok(fees)
+    let scope = scope(world)?;
+    captured
+        .validate_for_scope(&scope)
+        .map_err(|error| invalid(format!("invalid committed root fee policy: {error}")))?;
+    if let SumeragiRootScope::Dataspace { dataspace_id, .. } = scope {
+        let definition = world
+            .asset_definition(&captured.fee_asset_id)
+            .map_err(|_| invalid("private fee asset is not registered"))?;
+        let domain = definition
+            .owning_domain
+            .as_ref()
+            .ok_or_else(|| invalid("private fee asset requires an owning domain"))?;
+        if definition.balance_scope_policy() != AssetBalancePolicy::DataspaceRestricted
+            || world
+                .dataspace_catalog()
+                .by_alias(domain.dataspace().as_ref())
+                .map(|entry| entry.id)
+                != Some(dataspace_id)
+            || world.domain(domain).is_err()
+        {
+            return Err(invalid(
+                "private fee asset must belong to the exact signed root dataspace",
+            )
+            .into());
+        }
+    }
+    Ok(captured.clone())
+}
+
+/// Public quoting is evaluated against the supplied committed World. A caller-supplied
+/// Nexus value cannot supply monetary policy; the usual captured view takes no clone.
+pub(super) fn quote_nexus<'a>(
+    world: &impl WorldReadOnly,
+    nexus: &'a iroha_config::parameters::actual::Nexus,
+) -> Result<
+    std::borrow::Cow<'a, iroha_config::parameters::actual::Nexus>,
+    ExecutionAttemptError<NexusFeeAdmissionError>,
+> {
+    let policy = world
+        .parameters()
+        .root_fees()
+        .ok_or_else(|| invalid("committed root fee policy is absent"))?;
+    let policy = effective(world, policy)?;
+    if policy == nexus.fees {
+        Ok(std::borrow::Cow::Borrowed(nexus))
+    } else {
+        let mut projected = nexus.clone();
+        projected.fees = policy;
+        Ok(std::borrow::Cow::Owned(projected))
+    }
 }
 
 pub(super) fn currency(
     world: &impl WorldReadOnly,
-    fees: &NexusFees,
+    fees: &RootFeePolicy,
     observation_time_ms: u64,
-) -> Result<
-    AssetDefinitionId,
-    crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
-> {
-    if let Some((_, policy)) = policy(world)? {
-        return Ok(policy.asset_definition_id);
+) -> Result<AssetDefinitionId, ExecutionAttemptError<NexusFeeAdmissionError>> {
+    if matches!(scope(world)?, SumeragiRootScope::Dataspace { .. }) {
+        return Ok(fees.fee_asset_id.clone());
     }
     crate::block::resolve_network_xor_asset_definition(
         world,
-        &fees.fee_asset_id,
+        &fees.fee_asset_id.canonical_address(),
         observation_time_ms,
     )
-    .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
+    .map_err(ExecutionAttemptError::Deferred)?
     .ok_or_else(|| {
         invalid("invalid Nexus fee asset; expected the committed global XOR identity").into()
     })
@@ -110,13 +100,13 @@ pub(super) fn private_scope(
     world: &impl WorldReadOnly,
     route: Option<DataSpaceId>,
 ) -> Result<Option<DataSpaceId>, ExecutionAttemptError<NexusFeeAdmissionError>> {
-    let Some((dataspace, _)) = policy(world)? else {
+    let SumeragiRootScope::Dataspace { dataspace_id, .. } = scope(world)? else {
         return Ok(None);
     };
-    if route != Some(dataspace) {
+    if route != Some(dataspace_id) {
         return Err(invalid("private fee debit requires the exact captured root dataspace").into());
     }
-    Ok(Some(dataspace))
+    Ok(Some(dataspace_id))
 }
 
 pub(super) fn permits_public_exemption(
@@ -198,12 +188,13 @@ mod tests {
         if with_policy {
             parameters
                 .set_parameter(Parameter::Custom(
-                    PrivateRootFeePolicy {
-                        asset_definition_id: asset.clone(),
+                    RootFeePolicy {
+                        fee_asset_id: asset.clone(),
                         base_fee: 2_u32.into(),
                         per_byte_fee: Quantity::zero(),
                         per_instruction_fee: 3_u32.into(),
                         per_gas_unit_fee: 4_u32.into(),
+                        ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
                     }
                     .into_custom_parameter()
                     .unwrap(),
@@ -233,37 +224,51 @@ mod tests {
         nexus.lane_config =
             iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
         nexus.routing_policy.default_dataspace = ds;
-        nexus.fees.fee_asset_id = asset.canonical_address();
-        (
-            State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test()),
-            ds,
-            asset,
-        )
+        nexus.fees.fee_asset_id = asset.clone();
+        let state = State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test());
+        if !with_policy {
+            let mut parameters = state.world.parameters.block();
+            parameters.remove_custom_parameter(&RootFeePolicy::parameter_id());
+            parameters.commit();
+        }
+        (state, ds, asset)
     }
 
     #[test]
-    fn private_fee_refresh_preserves_signed_schedule_and_frozen_pipeline_gas() {
+    fn private_fee_policy_is_frozen_before_transaction_parameter_writes() {
         let (state, _, asset) = fixture(true, true);
         let mut block = state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
         let mut tx = block.transaction();
-        tx.nexus.fees.base_fee = Quantity::zero();
-        tx.nexus.fees.per_gas_unit_fee = Quantity::zero();
+        let before = tx.nexus.fees.clone();
         let frozen_gas = tx.pipeline.gas.clone();
-        Executor::refresh_private_fee_policy(&mut tx).unwrap();
-        assert_eq!(tx.nexus.fees.fee_asset_id, asset.canonical_address());
-        assert_eq!(tx.nexus.fees.base_fee, Quantity::from(2_u32));
-        assert_eq!(tx.nexus.fees.per_gas_unit_fee, Quantity::from(4_u32));
-        assert_eq!(tx.pipeline.gas, frozen_gas);
-        // A private-root fee error must still fail rather than select local fees.
+        let mut next = before.clone();
+        next.base_fee = 7_u32.into();
+        next.per_gas_unit_fee = 9_u32.into();
         tx.world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(CustomParameter::new(
-                PrivateRootFeePolicy::parameter_id(),
-                iroha_primitives::json::Json::new("malformed private policy"),
-            )))
-            .expect("valid fixture parameters");
-        assert!(Executor::refresh_private_fee_policy(&mut tx).is_err());
+            .set_parameter(Parameter::Custom(
+                next.clone().into_custom_parameter().unwrap(),
+            ))
+            .unwrap();
+        Executor::validate_root_fee_policy(&mut tx).unwrap();
+        assert_eq!(tx.world.parameters().root_fees(), Some(&next));
+        assert_eq!(tx.nexus.fees, before);
+        assert_eq!(tx.nexus.fees.fee_asset_id, asset);
+        assert_eq!(tx.pipeline.gas, frozen_gas);
+        let original_parameters = tx.world.parameters().clone();
+        assert!(
+            tx.world
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(CustomParameter::new(
+                    RootFeePolicy::parameter_id(),
+                    iroha_primitives::json::Json::new("malformed policy"),
+                )))
+                .is_err()
+        );
+        assert_eq!(tx.world.parameters(), &original_parameters);
+        assert_eq!(tx.nexus.fees, before);
         assert_eq!(tx.pipeline.gas, frozen_gas);
     }
 
@@ -274,7 +279,8 @@ mod tests {
         let mut nexus = view.nexus().clone();
         nexus.fees.base_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
-        nexus.fees.fee_asset_id = "xor#universal".into();
+        nexus.fees.fee_asset_id =
+            iroha_config::parameters::defaults::nexus::fees::genesis_policy().fee_asset_id;
         let transaction = TransactionBuilder::new(
             *view.network_id(),
             ALICE_ID.clone(),
@@ -314,13 +320,13 @@ mod tests {
     fn private_fee_readers_preserve_local_scope_decode_refusal_and_retry() {
         let (state, ds, asset) = fixture(true, true);
         let view = state.view();
-        let original = policy(view.world()).unwrap();
+        let original = effective(view.world(), &view.nexus().fees).unwrap();
         for reader in 0..4 {
             let refused = norito::with_decode_limits_scope(
                 norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
                 || {
                     match reader {
-                        0 => policy(view.world()).map(|_| ()),
+                        0 => quote_nexus(view.world(), view.nexus()).map(|_| ()),
                         1 => effective(view.world(), &view.nexus().fees).map(|_| ()),
                         2 => currency(view.world(), &view.nexus().fees, 0).map(|_| ()),
                         _ => private_scope(view.world(), Some(ds)).map(|_| ()),
@@ -333,7 +339,10 @@ mod tests {
                 "reader {reader}: {refused:?}"
             );
         }
-        assert_eq!(policy(view.world()).unwrap(), original);
+        assert_eq!(
+            effective(view.world(), &view.nexus().fees).unwrap(),
+            original
+        );
         assert_eq!(
             currency(view.world(), &view.nexus().fees, 0).unwrap(),
             asset
@@ -373,44 +382,54 @@ mod tests {
     }
 
     #[test]
-    fn private_policy_readers_preserve_the_actual_post_root_quota_owner_and_retry() {
-        let (state, ds, _) = fixture(true, true);
+    fn committed_policy_projection_preserves_original_decode_refusal_and_retry() {
+        let (state, _, _) = fixture(true, true);
         let view = state.view();
         let pool = state.ivm_execution_budget();
-        let root_bytes = original_private_root_demand(view.world(), &pool);
-        let original_policy = policy(view.world()).unwrap();
-        for reader in 0..4 {
+        let parameter = view
+            .world()
+            .parameters()
+            .custom()
+            .get(&RootFeePolicy::parameter_id())
+            .unwrap()
+            .clone();
+        let original = view.world().parameters().clone();
+        for restore in [false, true] {
             let baseline = pool.reserved_bytes();
-            let context = original_fee_decode_context(&pool, root_bytes);
+            let context = original_fee_decode_context(&pool, 0);
             let funded = pool.reserved_bytes();
             assert!(funded > baseline);
-            let refused = context
-                .with(|| match reader {
-                    0 => policy(view.world()).map(|_| ()),
-                    1 => effective(view.world(), &view.nexus().fees).map(|_| ()),
-                    2 => currency(view.world(), &view.nexus().fees, 0).map(|_| ()),
-                    _ => private_scope(view.world(), Some(ds)).map(|_| ()),
+            let mut owner = original.clone();
+            let error = context
+                .with(|| {
+                    if restore {
+                        crate::pipeline_gas_policy::StateParameters::try_from(
+                            (**view.world().parameters()).clone(),
+                        )
+                        .map(|_| ())
+                    } else {
+                        owner.set_parameter(Parameter::Custom(parameter.clone()))
+                    }
                 })
                 .unwrap_err();
             assert_eq!(
-                context.consumed_allocated_bytes(),
-                u64::try_from(root_bytes).unwrap()
+                owner, original,
+                "refused source and cached projection remain atomic"
             );
+            let refused = crate::execution_attempt::norito_decode_attempt_error(error, |_| ());
             let ExecutionAttemptError::Deferred(owner) = refused else {
-                panic!(
-                    "the actual policy reader must defer after its funded root prelude: {refused:?}"
-                );
+                panic!("actual policy producer must retain decoder cause: {refused:?}");
             };
-            let original = owner
+            let original_cause = owner
                 .decode_refusal()
-                .expect("actual signed private-policy parser owner")
+                .expect("original policy parser owner")
                 .clone();
             assert_eq!(
-                original.kind(),
+                original_cause.kind(),
                 norito::core::DecodeLocalRefusalKind::EnclosingLimit
             );
             assert!(
-                matches!(original.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit && limit == u64::try_from(root_bytes).unwrap())
+                matches!(original_cause.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit } if attempted > limit && limit == 0)
             );
             assert!(owner.allocation_refusal().is_none());
             assert!(owner.allocator_refusal().is_none());
@@ -418,7 +437,7 @@ mod tests {
             assert_eq!(
                 pool.reserved_bytes(),
                 funded,
-                "the captured original retains its funded counter after scope retirement"
+                "the exported cause keeps its original counter funded"
             );
             let mut exported = None;
             let allocations = crate::test_allocations::allocations_during(|| {
@@ -426,22 +445,33 @@ mod tests {
             });
             assert_eq!(allocations, 0);
             let ivm::VMError::DecodeDeferred(exported) = exported.unwrap() else {
-                panic!("original decoder owner moves through VM boundary");
+                panic!("preserve actual decoder owner");
             };
-            assert_eq!(exported, original);
-            assert_eq!(policy(view.world()).unwrap(), original_policy);
-            drop((exported, original));
+            assert_eq!(exported, original_cause);
+            let mut retry = original.clone();
+            retry
+                .set_parameter(Parameter::Custom(parameter.clone()))
+                .unwrap();
+            assert_eq!(retry, original);
+            assert_eq!(
+                crate::pipeline_gas_policy::StateParameters::try_from(
+                    (**view.world().parameters()).clone()
+                )
+                .unwrap(),
+                original
+            );
+            drop((exported, original_cause));
             assert_eq!(pool.reserved_bytes(), baseline);
         }
     }
 
     #[test]
-    fn private_fee_refresh_retains_original_policy_refusal_before_changing_fees_or_gas() {
+    fn private_fee_validation_retains_original_scope_refusal_before_changing_fees_or_gas() {
         let (state, ds, asset) = fixture(true, true);
         let pool = state.ivm_execution_budget();
         let view = state.view();
-        let root_bytes = original_private_root_demand(view.world(), &pool);
-        let id = PrivateRootFeePolicy::parameter_id();
+        let root_bytes = original_private_root_demand(view.world(), &pool) - 1;
+        let id = RootFeePolicy::parameter_id();
         let source = view
             .world()
             .parameters()
@@ -456,20 +486,15 @@ mod tests {
             let mut block =
                 state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
             let mut tx = block.transaction();
-            tx.nexus.fees.base_fee = Quantity::zero();
-            tx.nexus.fees.per_gas_unit_fee = Quantity::zero();
             let before = tx.nexus.fees.clone();
             let gas = tx.pipeline.gas.clone();
             let context = original_fee_decode_context(&pool, root_bytes);
             assert!(
                 context
-                    .with(|| Executor::refresh_private_fee_policy(&mut tx))
+                    .with(|| Executor::validate_root_fee_policy(&mut tx))
                     .is_err()
             );
-            assert_eq!(
-                context.consumed_allocated_bytes(),
-                u64::try_from(root_bytes).unwrap()
-            );
+            assert!(context.consumed_allocated_bytes() <= u64::try_from(root_bytes).unwrap());
             let original = tx
                 .borrow_execution_deferral()
                 .expect("live State bridge keeps original")
@@ -500,7 +525,6 @@ mod tests {
                 tx.nexus.fees.sponsor_vault_custody_account_id,
                 before.sponsor_vault_custody_account_id
             );
-            assert_eq!(tx.nexus.fees.settlement_mode, before.settlement_mode);
             assert_eq!(
                 tx.nexus.fees.successful_claim_fee_exempt_authorities,
                 before.successful_claim_fee_exempt_authorities
@@ -534,7 +558,7 @@ mod tests {
         let mut block = state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
         let mut retry = block.transaction();
         let gas = retry.pipeline.gas.clone();
-        Executor::refresh_private_fee_policy(&mut retry).unwrap();
+        Executor::validate_root_fee_policy(&mut retry).unwrap();
         assert!(!retry.is_execution_deferred());
         assert_eq!(retry.nexus.fees.base_fee, Quantity::from(2_u32));
         assert_eq!(retry.nexus.fees.per_gas_unit_fee, Quantity::from(4_u32));
@@ -713,26 +737,33 @@ mod tests {
     #[test]
     fn private_policy_refuses_missing_malformed_global_assets_and_unbound_roots() {
         let (missing, _, _) = fixture(false, true);
-        assert!(policy(missing.view().world()).is_err());
+        let missing_view = missing.view();
+        assert!(effective(missing_view.world(), &missing_view.nexus().fees).is_err());
         let (global_asset, _, _) = fixture(true, false);
-        assert!(policy(global_asset.view().world()).is_err());
-        assert!(policy(&World::new().view()).is_err());
+        let global_view = global_asset.view();
+        assert!(effective(global_view.world(), &global_view.nexus().fees).is_err());
+        assert!(
+            effective(
+                &World::new().view(),
+                &iroha_config::parameters::defaults::nexus::fees::genesis_policy()
+            )
+            .is_err()
+        );
         let (state, _, _) = fixture(true, true);
         let mut block = state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
         let mut tx = block.transaction();
-        tx.world
-            .parameters
-            .get_mut()
-            .set_parameter(Parameter::Custom(CustomParameter::new(
-                PrivateRootFeePolicy::parameter_id(),
-                iroha_primitives::json::Json::new(false),
-            )))
-            .expect("valid fixture parameters");
-        assert!(matches!(
-            policy(&tx.world),
-            Err(ExecutionAttemptError::Rejected(
-                NexusFeeAdmissionError::ConfigInvalid(_)
-            ))
-        ));
+        let original = tx.world.parameters().clone();
+        assert!(
+            tx.world
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(CustomParameter::new(
+                    RootFeePolicy::parameter_id(),
+                    iroha_primitives::json::Json::new(false),
+                )))
+                .is_err()
+        );
+        assert_eq!(tx.world.parameters(), &original);
+        Executor::validate_root_fee_policy(&mut tx).unwrap();
     }
 }

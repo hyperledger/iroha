@@ -484,9 +484,10 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
         }
         #[cfg(test)]
         scope_ancestry_tests::record(scope_ancestry_tests::Point::Tree);
-        // A complete graph direction may lend its exact original root reader. The actual
+        // A complete graph direction or local census may lend its exact original root reader.
+        // The actual
         // inventory and allowed-name comparison still run at every original position.
-        // Only root ancestry observations consolidate into that direction's closed entry/exit;
+        // Only root ancestry observations consolidate into that read phase's closed entry/exit;
         // foreign owners and a decoder activated after scope entry keep the literal recipe.
         let read_names = |reader: &mut iroha_fs::PrivateReadScope<'_>| {
             let names = reader.entries(4)?;
@@ -504,6 +505,8 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
                 || {
                     #[cfg(test)]
                     graph_root_scope_tests::record(graph_root_scope_tests::Point::InventoryBracket);
+                    #[cfg(test)]
+                    local_census_tests::record(local_census_tests::Point::SeparateRootBracket);
                     tree.read_scope(&self.root, read_names)
                 },
                 |read| read.read(read_names),
@@ -542,7 +545,13 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
             })
     }
     fn require_active(&self) -> Result<()> {
-        self.revalidate()?;
+        self.require_active_with_snapshot_read_pass(None)
+    }
+    fn require_active_with_snapshot_read_pass(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+    ) -> Result<()> {
+        self.revalidate_with_snapshot_read_pass(pass)?;
         if !self.active {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }
@@ -2963,6 +2972,10 @@ mod pure_original_tests;
 mod target_digest_tests;
 
 #[cfg(test)]
+#[path = "body_history/local_census_tests.rs"]
+pub(in crate::managed) mod local_census_tests;
+
+#[cfg(test)]
 #[path = "body_history/operation_scope_tests.rs"]
 pub(in crate::managed) mod operation_scope_tests;
 
@@ -2996,3 +3009,7 @@ pub(in crate::managed) mod generated_phase_tests;
 #[cfg(test)]
 #[path = "body_history/finish_wallet_tests.rs"]
 mod finish_wallet_tests;
+
+#[cfg(test)]
+#[path = "body_history/current_active_tests.rs"]
+pub(in crate::managed) mod current_active_tests;

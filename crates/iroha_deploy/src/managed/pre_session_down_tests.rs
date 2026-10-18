@@ -418,7 +418,7 @@ fn down_waits_for_delayed_terminal_reply_and_original_owner_release() {
         }
     });
     let started = Instant::now();
-    let result = store.down_until("local", started + Duration::from_secs(20));
+    let result = store.down_until("local", started + Duration::from_secs(20), None);
     worker.join().unwrap();
     assert_eq!(result.unwrap(), expected);
     assert!(started.elapsed() >= Duration::from_millis(11_100));
@@ -448,7 +448,7 @@ fn late_terminal_reply_cannot_extend_down_observation_or_prove_cleanup() {
         }
     });
     let started = Instant::now();
-    let result = store.down_until("local", started + Duration::from_millis(150));
+    let result = store.down_until("local", started + Duration::from_millis(150), None);
     let still_owned = runtime_owned(&directory).unwrap();
     release.send(()).unwrap();
     worker.join().unwrap();
@@ -483,7 +483,7 @@ fn terminal_reply_does_not_restart_owner_observation_deadline() {
         }
     });
     let started = Instant::now();
-    let result = store.down_until("local", started + Duration::from_millis(150));
+    let result = store.down_until("local", started + Duration::from_millis(150), None);
     let still_owned = runtime_owned(&directory).unwrap();
     release.send(()).unwrap();
     worker.join().unwrap();

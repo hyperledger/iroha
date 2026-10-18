@@ -758,12 +758,9 @@ def extract_config_value(section_name: str, key: str) -> str | None:
     return None
 
 
-asset = (
-    extract_config_value("torii.faucet", "asset_definition_id")
-    or extract_config_value("nexus.fees", "fee_asset_id")
-)
+asset = extract_config_value("torii.faucet", "asset_definition_id")
 if not asset:
-    sys.exit("could not find localnet faucet or Nexus fee asset id")
+    sys.exit("could not find localnet faucet asset id")
 
 assets = []
 

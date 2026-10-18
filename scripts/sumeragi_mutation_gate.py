@@ -1356,6 +1356,20 @@ CORE_MUTATIONS = [
               "original lane retirement refund must wait for both registry and runner unlock",
           ])),
 
+    m("HC399", "Root fee policy: permit post-genesis currency or sponsor custody replacement",
+      ["executor::settlement_replay_tests::paid_root_fee_identity_updates_are_rejected_without_replacing_committed_custody"],
+      causes=(ExpectedFailure("paid policy update must retain immutable currency and sponsor custody", "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
+    m("HC398", "Root fee policy: permit duplicate original genesis policy slots",
+      ["block::valid::native_genesis_policy_tests::native_h1_rejects_missing_or_duplicate_original_root_fee_slots"],
+      causes=(ExpectedFailure("native H1 must refuse missing or duplicate original root fee slots", "crates/iroha_core/src/block/native_genesis_policy.rs"),)),
+
+    m("HC397", "Root fee policy: refresh execution charges from same-block parameter writes",
+      ["executor::settlement_replay_tests::committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay"],
+      causes=(ExpectedFailure("every transaction in the policy-update block must use predecessor fees", "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
+    m("HC396", "Root fee policy: retain process-local monetary schedule instead of committed projection",
+      ["executor::settlement_replay_tests::committed_global_fee_policy_prevents_local_schedule_rejecting_payment", "executor::settlement_replay_tests::committed_global_fee_policy_prevents_local_schedule_changing_paid_receipt"],
+      causes=(ExpectedFailure("a node-local schedule cannot reject the same authorized payment", "crates/iroha_core/src/executor/settlement_replay_tests.rs"), ExpectedFailure("the exact same input must publish the same monetary receipt", "crates/iroha_core/src/executor/settlement_replay_tests.rs"))),
+
     m("HC352", "Geometry claim release: wake original watch callbacks under physical publication owners",
       ['kura::lane_geometry::tests::original_watch_release_tests::original_geometry_captured_rollback_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_applied_rollback_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_catalog_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_pure_drop_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_partial_error_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_unwind_watch_follows_physical_cleanup', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_direct_state_completion', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_all_state_sibling_owners', 'state::tests::geometry_completion_tests::original_watch_release_tests::original_geometry_watch_follows_all_state_sibling_unwind', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_capture_error_watch_follows_physical_cleanup', 'kura::lane_geometry::tests::original_watch_release_tests::original_geometry_capture_unwind_watch_follows_physical_cleanup'],
       causes=tuple(ExpectedFailure('original geometry watch must wait for all physical owners', path)

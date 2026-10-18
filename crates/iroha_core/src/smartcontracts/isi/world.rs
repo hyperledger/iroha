@@ -17675,14 +17675,18 @@ pub mod isi {
                 }
                 if parse_config_asset_definition_id(
                     &state_transaction.world,
-                    &state_transaction.nexus.fees.fee_asset_id,
+                    &state_transaction
+                        .nexus
+                        .fees
+                        .fee_asset_id
+                        .canonical_address(),
                     state_transaction.block_unix_timestamp_ms(),
                 )
                 .is_some_and(|configured| &configured == asset_definition_id)
                 {
                     return Err(InstructionExecutionError::InvariantViolation(
                         format!(
-                            "cannot unregister domain {domain_id}: asset definition {asset_definition_id} is configured as nexus fee asset definition (`nexus.fees.fee_asset_id`); update nexus config first"
+                            "cannot unregister domain {domain_id}: asset definition {asset_definition_id} is the immutable committed root fee currency"
                         )
                         .into(),
                     )
@@ -18581,10 +18585,22 @@ pub mod isi {
                                     }
                                 }
                             }
+                            let is_genesis = state_transaction._curr_block.is_genesis();
+                            let root_fee_scope = if next.id() == &iroha_data_model::block::consensus::RootFeePolicy::parameter_id() {
+                                Some(crate::sumeragi::lanes::routing::read_routing_root_scope(&*state_transaction.world)
+                                    .map_err(|reason| state_transaction.attempt_error_to_instruction_error(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)))?
+                                    // H1 may author this slot before its metadata slot. The native
+                                    // genesis validator checks the complete signed root after execution.
+                                    .or_else(|| is_genesis.then_some(iroha_data_model::block::consensus::SumeragiRootScope::Global))
+                                    .ok_or_else(|| invalid_smart_contract_parameter("root fee update requires signed root scope"))?)
+                            } else { None };
                             let previous = {
                                 let params = state_transaction.world.parameters.get_mut();
                                 let previous = params.custom().get(next.id()).cloned();
-                                let result = params.set_parameter(Parameter::Custom(next.clone()));
+                                let result = match root_fee_scope {
+                                    Some(scope) => params.set_parameter_for_root(Parameter::Custom(next.clone()), scope, is_genesis),
+                                    None => params.set_parameter(Parameter::Custom(next.clone())),
+                                };
                                 result.map_err(|error| {
                                     state_transaction.attempt_error_to_instruction_error(
                                         crate::execution_attempt::norito_decode_attempt_error(error, |error| {
@@ -29306,7 +29322,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             stx.gov.bond_escrow_account = account_id.clone();
             stx.gov.viral_incentives.incentive_pool_account = account_id.clone();
             stx.oracle.economics.reward_pool = account_id.clone();
-            stx.nexus.fees.fee_sink_account_id = "not-an-account-literal".to_owned();
+            stx.nexus.fees.fee_sink_account_id = account_id.clone();
             stx.nexus.staking.stake_escrow_account_id = account_id.to_string();
             stx.content.publish_allow_accounts = vec![account_id.clone()];
             let provider_id = iroha_data_model::sorafs::capacity::ProviderId::new([0xC3; 32]);
@@ -29360,7 +29376,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .into();
             Grant::account_permission(permission.clone(), holder_id.clone())
                 .expect_execute(&ALICE_ID, &mut stx, "grant account-target permission");
-            stx.nexus.fees.fee_sink_account_id = account_id.to_string();
+            stx.nexus.fees.fee_sink_account_id = account_id.clone();
             Unregister::domain(remove_domain.clone())
                 .expect_execute(&ALICE_ID, &mut stx, "removing an unrelated domain should preserve canonical account state");
             assert!(
@@ -29904,7 +29920,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 Some(domain_id.clone()),
             ))
             .expect_execute(&ALICE_ID, &mut stx, "register cleanup-domain asset definition");
-            stx.nexus.fees.fee_asset_id = fee_def.to_string();
+            stx.nexus.fees.fee_asset_id = fee_def.clone();
             let err = Unregister::domain(domain_id.clone())
                 .expect_execute_err(&ALICE_ID, &mut stx, "domain unregister must reject nexus fee asset-definition removal");
             let err_string = format!("{err:?}");

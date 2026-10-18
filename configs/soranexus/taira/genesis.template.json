@@ -3,7 +3,25 @@
   "chain_discriminant": 369,
   "consensus_fingerprint": null,
   "consensus_mode": "Npos",
-  "sumeragi_context": {"root_scope":{"kind":"global","value":null},"da_layout":{"encoding":{"encoding":"reed_solomon16","details":null},"chunk_size_bytes":262144,"data_shards":4,"parity_shards":2,"max_payload_size_bytes":16777216,"max_chunk_count":1024},"nexus_amx_context_hash":"E9B61F86F63F556C0A8460B3EE54C1A4DBC3FE0F0097819D99C724C68B148EAB","execution_policy_hash":"3F947453758F8EE90B2C66437A128FC22D93C4D2E0CA60C261D828B7E0B897C3"},
+  "sumeragi_context": {
+    "root_scope": {
+      "kind": "global",
+      "value": null
+    },
+    "da_layout": {
+      "encoding": {
+        "encoding": "reed_solomon16",
+        "details": null
+      },
+      "chunk_size_bytes": 262144,
+      "data_shards": 4,
+      "parity_shards": 2,
+      "max_payload_size_bytes": 16777216,
+      "max_chunk_count": 1024
+    },
+    "nexus_amx_context_hash": "E9B61F86F63F556C0A8460B3EE54C1A4DBC3FE0F0097819D99C724C68B148EAB",
+    "execution_policy_hash": "3F947453758F8EE90B2C66437A128FC22D93C4D2E0CA60C261D828B7E0B897C3"
+  },
   "crypto": {
     "allowed_curve_ids": [
       1,
@@ -440,6 +458,19 @@
                 "per_commitment": 500
               }
             }
+          },
+          "root_fees_v1": {
+            "id": "root_fees_v1",
+            "payload": {
+              "fee_asset_id": "6TEAJqbb8oEPmLncoNiMRbLEK6tw",
+              "fee_sink_account_id": "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+              "sponsor_vault_custody_account_id": "testuﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT",
+              "successful_claim_fee_exempt_authorities": [],
+              "base_fee": "0",
+              "per_byte_fee": "0",
+              "per_instruction_fee": "0.001",
+              "per_gas_unit_fee": "0.00005"
+            }
           }
         },
         "executor": {
@@ -458,8 +489,9 @@
         },
         "sumeragi": {
           "block_cadence_ms": 4000,
-          "max_clock_drift_ms": 1000,
-          "due_work_max_lag_ms": 60000},
+          "due_work_max_lag_ms": 60000,
+          "max_clock_drift_ms": 1000
+        },
         "transaction": {
           "ivm_bytecode_size": 4194304,
           "max_decompressed_bytes": 10485760,
@@ -570,7 +602,7 @@
                     {
                       "kind": "native_instruction",
                       "value": {
-                      "wire_id": "iroha.alias.ensure"
+                        "wire_id": "iroha.alias.ensure"
                       }
                     },
                     {
@@ -582,13 +614,13 @@
                     {
                       "kind": "native_instruction",
                       "value": {
-"wire_id": "iroha.instruction.v1::space_directory::PublishSpaceDirectoryManifest"
+                        "wire_id": "iroha.instruction.v1::space_directory::PublishSpaceDirectoryManifest"
                       }
                     },
                     {
                       "kind": "native_instruction",
                       "value": {
-                      "wire_id": "iroha.account.alias.primary.compare_and_set"
+                        "wire_id": "iroha.account.alias.primary.compare_and_set"
                       }
                     },
                     {
@@ -682,18 +714,18 @@
         },
         {
           "EnrollFeeSponsorBeneficiary": {
-          "program_id": {
-            "sponsor": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A",
-            "name": "cbsi_web"
+            "program_id": {
+              "sponsor": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A",
+              "name": "cbsi_web"
             },
             "beneficiary": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A"
           }
         },
         {
           "FundFeeSponsorProgram": {
-          "program_id": {
-            "sponsor": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A",
-            "name": "cbsi_web"
+            "program_id": {
+              "sponsor": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A",
+              "name": "cbsi_web"
             },
             "asset_definition_id": "6TEAJqbb8oEPmLncoNiMRbLEK6tw",
             "amount": "100000000"
@@ -701,9 +733,9 @@
         },
         {
           "ActivateFeeSponsorProgramRevision": {
-              "program_id": {
-                "sponsor": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A",
-                "name": "cbsi_web"
+            "program_id": {
+              "sponsor": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A",
+              "name": "cbsi_web"
             },
             "revision": 1,
             "activate_at_height": 1
@@ -763,7 +795,7 @@
         {
           "Grant": {
             "Permission": {
-              "destination": "testu\uff9b1P\uff75Em\uff77jMZZ\uff91\uff99e\uff71\uff81\uff8e\uff85\uff82\uff8amECepdb\uff8e\uff732uW\uff83\uff78\uff8a\uff98v\uff75i2\uff66P1Y18A",
+              "destination": "testuﾛ1PｵEmｷjMZZﾑﾙeｱﾁﾎﾅﾂﾊmECepdbﾎｳ2uWﾃｸﾊﾘvｵi2ｦP1Y18A",
               "object": {
                 "name": "CanEnactGovernance",
                 "payload": null

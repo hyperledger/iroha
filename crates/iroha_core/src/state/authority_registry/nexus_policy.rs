@@ -255,7 +255,6 @@ mod tests {
         changed.autoscale.last_transition_height = 17;
         changed.registry.manifest_directory = Some(PathBuf::from("/node/a/manifests"));
         changed.registry.poll_interval = Duration::from_secs(9);
-        changed.relay_worker.retry_backoff = Duration::from_secs(10);
         changed.storage.budget_enforce_interval_blocks = 27;
         assert_eq!(authority(&changed), original);
     }
@@ -294,7 +293,21 @@ mod tests {
         let changed = canonical_preimage_once(&state)
             .expect("updated State authority")
             .expect("stable generation");
-        assert_ne!(changed, encoded);
+        assert_eq!(changed, encoded, "local cache is not monetary authority");
+        let mut policy = state.nexus_snapshot().fees;
+        policy.base_fee = 123_u32.into();
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.into_custom_parameter().unwrap(),
+            ))
+            .unwrap();
+        parameters.commit();
+        let committed = canonical_preimage_once(&state).unwrap().unwrap();
+        assert_ne!(
+            committed, encoded,
+            "actual committed monetary terms change authority"
+        );
     }
 
     #[test]

@@ -1,8 +1,7 @@
 #[test]
 fn successful_claim_fee_exempt_draft_returns_zero_quote_in_direct_mode() {
     let (world, mut nexus, pipeline, mut payload) = multi_component_fee_quote_fixture();
-    let fee_asset = AssetDefinitionId::parse_address_literal(&nexus.fees.fee_asset_id)
-        .expect("fixture fee asset address");
+    let fee_asset = nexus.fees.fee_asset_id.clone();
     payload.fee_payment = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
             FeeChargeKind::Nexus,
@@ -16,7 +15,6 @@ fn successful_claim_fee_exempt_draft_returns_zero_quote_in_direct_mode() {
         .fees
         .successful_claim_fee_exempt_authorities
         .insert(payload.authority.clone());
-    nexus.fees.settlement_mode = iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
     payload.metadata.insert(
         SORA_V2_CLAIM_TX_HASH_METADATA_KEY
             .parse()
@@ -86,7 +84,7 @@ fn original_claim_metadata_refusal_defers_fee_quote_and_retries_exact_payload() 
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
     nexus.fees.base_fee = Quantity::from(2_u32);
     let pipeline = Pipeline::default();
-    let asset = AssetDefinitionId::parse_address_literal(&nexus.fees.fee_asset_id).unwrap();
+    let asset = nexus.fees.fee_asset_id.clone();
     let payload = original_claim_fee_payload(
         authority.clone(),
         asset,
@@ -98,6 +96,7 @@ fn original_claim_metadata_refusal_defers_fee_quote_and_retries_exact_payload() 
         .successful_claim_fee_exempt_authorities
         .insert(authority);
     let original = payload.clone();
+    author_component_fee_policy(&world, &nexus.fees);
     let quote = || {
         quote_nexus_fee_admission_draft(
             &world.view(),
@@ -145,11 +144,12 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
         .fees
         .successful_claim_fee_exempt_authorities
         .insert(authority.clone());
-    let asset = AssetDefinitionId::parse_address_literal(&nexus.fees.fee_asset_id).unwrap();
+    let asset = nexus.fees.fee_asset_id.clone();
     let payload =
         original_claim_fee_payload(authority, asset, "customer@fi.universal".into(), recipient);
     let original = payload.clone();
     let pipeline = Pipeline::default();
+    author_component_fee_policy(&world, &nexus.fees);
     let quote = || {
         quote_nexus_fee_admission_draft(
             &world.view(),
@@ -170,7 +170,7 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
         norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 32),
             || {
-                if include_root && !private_fees::permits_public_exemption(&world.view())? {
+                if include_root && !root_fees::permits_public_exemption(&world.view())? {
                     return Ok(false);
                 }
                 metadata_string(&payload.metadata, SORA_V2_CLAIM_TX_HASH_METADATA_KEY).and_then(
@@ -337,6 +337,7 @@ fn original_network_xor_pin_refusal_defers_quote_and_retries_same_parameter() {
         .unwrap()
         .payload()
         .clone();
+    author_component_fee_policy(&world, &nexus.fees);
     let quote = || {
         quote_nexus_fee_admission_draft(
             &world.view(),

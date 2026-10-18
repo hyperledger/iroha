@@ -18,6 +18,10 @@ use super::{
         ValidatedPrivateSettlementLegV1,
     },
 };
+#[cfg(test)]
+use crate::private_settlement::state::PrivateSettlementPoolGovernanceExtV1 as _;
+#[cfg(test)]
+use iroha_data_model::nexus::PrivateSettlementPoolGovernanceProjectionV1;
 
 fn validate_provisional_authority_cryptography_v1(
     authority: &PrivateSettlementCommitteeAuthorityV1,
@@ -3756,7 +3760,6 @@ pub(crate) mod tests {
             sign_private_settlement_phase_vote_v1,
         },
         state::{
-            PrivateSettlementPoolGovernanceProjectionV1,
             authorize_private_settlement_auditor_view_against_governance_v1,
             validated_private_settlement_leg_for_sidecar_test_v1,
         },

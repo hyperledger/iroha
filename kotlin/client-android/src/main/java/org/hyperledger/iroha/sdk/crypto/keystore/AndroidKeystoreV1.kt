@@ -15,9 +15,6 @@ internal const val ANDROID_KEYSTORE2_MIN_API_V1: Int = 31
 internal class AndroidKeystoreUnavailableExceptionV1(message: String, cause: Throwable? = null) :
     IllegalStateException(message, cause)
 
-/** A definitive answer of [probeAndroidKeystoreAliasV1]; an unknown answer is a throw, never a value. */
-internal enum class AndroidKeystoreAliasStateV1 { PRESENT, ABSENT }
-
 /**
  * Tri-state AndroidKeyStore alias probe (AOSP android14 `AndroidKeyStoreSpi`).
  *
@@ -65,10 +62,6 @@ internal interface AndroidKeystoreEntriesV1 {
 /** Tri-state probe of [alias]; see [probeAndroidKeystoreAliasV1]. */
 internal fun AndroidKeystoreEntriesV1.probe(alias: String): Key? =
     probeAndroidKeystoreAliasV1(apiLevel, alias) { getKey(it) }
-
-/** [probe] as a definitive [AndroidKeystoreAliasStateV1]; an unknown answer throws. */
-internal fun AndroidKeystoreEntriesV1.aliasState(alias: String): AndroidKeystoreAliasStateV1 =
-    if (probe(alias) == null) AndroidKeystoreAliasStateV1.ABSENT else AndroidKeystoreAliasStateV1.PRESENT
 
 /** Production [AndroidKeystoreEntriesV1] over the platform `AndroidKeyStore`. */
 internal class AndroidSystemKeystoreV1 : AndroidKeystoreEntriesV1 {

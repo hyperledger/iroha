@@ -129,7 +129,7 @@ Poseidon domain, signer certificate role, proof descriptor or proof bytes change
 ## Account-authenticated issuer transport
 
 The optional node issuer accepts `POST /v1/kagemusha/enrollment`. Its sole canonical Norito
-request binds the action (`PreKey`, `Evidence`, `Issue` or `Deliver`), exact native dispatch
+request binds the action (`PreKey`, `Evidence`, `Issue`, `Deliver` or `ExpiryProof`), exact native dispatch
 and, only for Evidence, the exact account-signed E5. Native Torii account authentication covers
 the complete envelope, method, route and network. Configuration selects the provider; this
 endpoint accepts no caller-selected signer, worker, private path or platform verdict.
@@ -142,6 +142,19 @@ originals with fresh HTTP authentication. Permit and E6 response bytes remain tr
 until the native wallet owner verifies and durably admits them. Online enrollment envelopes
 have separate fixed bounds (544 KiB request, 264 KiB response); the offline Payment limit
 remains 10,000 bytes.
+
+`ExpiryProof` returns a separately signed, at most 4,096-byte statement that the
+exact retained Fresh permit's immutable E1 deadline elapsed. It requires a
+current account-authenticated Resume dispatch and the original permit retained
+by the issuer. This is a nonmonetary fact, so it neither requests fresh bank
+eligibility nor applies E1's live authorization window. It does not change the
+issuer attempt's phase, refusal, evidence or credential. The issuer retains the
+signed original before delivery and returns those exact bytes on retry, before
+requiring a live signer again. The native wallet's existing `abandonExpired`
+operation separately verifies the installed Enrollment signer, all original
+bindings and the absence of a selected Slot/Phase or matching custody intent.
+Neither an HTTP refusal header nor the app's clock can replace this proof, and
+the transport never abandons an attempt or starts key generation automatically.
 
 ## Component evidence and remaining integration
 

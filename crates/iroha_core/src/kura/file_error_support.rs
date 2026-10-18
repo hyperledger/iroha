@@ -349,6 +349,19 @@ pub enum Error {
         source: Arc<Error>,
     },
 
+    /// FASTPQ aggregate quota is full: {stable_count} records plus {incoming_bytes} incoming bytes under limits {maximum_records}/{maximum_bytes}
+    FastpqArtifactQuota {
+        /// Exact original stable object count.
+        stable_count: usize,
+        /// Exact original bytes including any retained temporary.
+        retained_bytes: u64,
+        /// Exact complete object being offered.
+        incoming_bytes: u64,
+        /// Immutable stable object ceiling.
+        maximum_records: usize,
+        /// Immutable aggregate byte ceiling.
+        maximum_bytes: u64,
+    },
     /// Failed reading/writing {1:?} from disk: {0}
     IO(#[source] std::io::Error, PathBuf),
     /// Original native journal {1:?} is unavailable at its bound pathname: {0}

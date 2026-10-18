@@ -768,10 +768,11 @@ pub fn staged_default_account_literal(
         .to_i105_for_discriminant(target_discriminant)
         .map_err(|error| eyre!("re-encode built-in {label} for staged genesis: {error}"))
 }
-/// Resolve generic node defaults against the manifest canonical public asset binding.
+/// Resolve staging policy from the explicit manifest fees and canonical public asset binding.
 ///
 /// # Errors
-/// Returns an error for an invalid committed stake asset or a built-in account that cannot be re-encoded for the manifest.
+/// Returns an error for missing or invalid fees, an inconsistent committed XOR asset,
+/// or a built-in account that cannot be re-encoded for the manifest.
 pub fn staged_default_nexus(
     genesis: &RawGenesisTransaction,
 ) -> Result<actual::Nexus, color_eyre::eyre::Error> {
@@ -781,13 +782,6 @@ pub fn staged_default_nexus(
         nexus.staking.unbonding_delay =
             std::time::Duration::from_millis(super::sccp::UNBONDING_DELAY_MS);
         nexus.staking.max_slash_bps = super::sccp::MAX_SLASH_BPS;
-    }
-    if public_xor_profile_for_manifest(genesis).is_some() {
-        // The public bootstrap and the State that executes it must select the same
-        // signed XOR binding and immutable NPoS asset identity.
-        let public_xor = configured_npos_bootstrap_stake_asset_id(genesis, None)?.to_string();
-        nexus.staking.stake_asset_id = public_xor.clone();
-        nexus.fees.fee_asset_id = public_xor;
     }
     nexus.staking.stake_escrow_account_id = staged_default_account_literal(
         &nexus.staking.stake_escrow_account_id,
@@ -799,24 +793,25 @@ pub fn staged_default_nexus(
         discriminant,
         "nexus.staking.slash_sink_account_id",
     )?;
-    nexus.fees.fee_sink_account_id = staged_default_account_literal(
-        &nexus.fees.fee_sink_account_id,
-        discriminant,
-        "nexus.fees.fee_sink_account_id",
-    )?;
-    if let Some(authority) = nexus.relay_worker.authority_account_id.as_mut() {
-        *authority = staged_default_account_literal(
-            authority,
-            discriminant,
-            "nexus.relay_worker.authority_account_id",
-        )?;
-    }
-    if genesis.consensus_mode() == SumeragiConsensusMode::Npos {
+    // The manifest is the authoring input; runtime fee authority is the executed parameter.
+    let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(
+        &genesis.effective_parameters()?,
+    )?
+    .ok_or_else(|| eyre!("staged genesis requires an explicit root fee policy"))?;
+    fees.validate_for_scope(&genesis.sumeragi_context_parameters().root_scope)?;
+    nexus.fees = fees;
+    if genesis.consensus_mode() == SumeragiConsensusMode::Npos
+        || public_xor_profile_for_manifest(genesis).is_some()
+    {
         // Bootstrap and the offline execution that authenticates it must use
         // the same manifest-selected asset, including public XOR alias bindings.
-        let xor_asset = configured_npos_bootstrap_stake_asset_id(genesis, None)?.to_string();
-        nexus.staking.stake_asset_id = xor_asset.clone();
-        nexus.fees.fee_asset_id = xor_asset;
+        let xor_asset = configured_npos_bootstrap_stake_asset_id(genesis, None)?;
+        if nexus.fees.fee_asset_id != xor_asset {
+            return Err(eyre!(
+                "signed root fee asset must equal the committed canonical XOR definition `{xor_asset}`"
+            ));
+        }
+        nexus.staking.stake_asset_id = xor_asset.to_string();
     }
     Ok(nexus)
 }
@@ -951,6 +946,50 @@ mod tests {
             .collect::<Vec<_>>();
         entries.sort_by(|left, right| left.peer.cmp(&right.peer));
         entries
+    }
+
+    #[test]
+    fn staged_fees_retain_exact_authored_terms_and_reject_npos_currency_substitution() {
+        use iroha_data_model::{
+            block::consensus::RootFeePolicy,
+            parameter::{Parameter, system::SumeragiNposParameters},
+        };
+        let mut fees = defaults::nexus::fees::genesis_policy();
+        fees.base_fee = 7_u32.into();
+        let sink_key = KeyPair::try_from_seed(vec![0x63; 32], Algorithm::Ed25519).unwrap();
+        fees.fee_sink_account_id = AccountId::new(sink_key.public_key().clone());
+        let npos = SumeragiNposParameters::default();
+        fees.fee_asset_id = npos.xor_asset_definition_id.clone();
+        let raw = GenesisBuilder::new_without_executor(ChainId::from("explicit-staging-fees"), ".")
+            .set_topology(default_test_topology())
+            .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+            .append_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .append_parameter(Parameter::Custom(
+                fees.clone().into_custom_parameter().unwrap(),
+            ))
+            .build_raw()
+            .unwrap()
+            .with_consensus_mode(SumeragiConsensusMode::Npos);
+        assert_eq!(staged_default_nexus(&raw).unwrap().fees, fees);
+        assert_eq!(
+            RootFeePolicy::from_parameters(&raw.effective_parameters().unwrap()).unwrap(),
+            Some(fees.clone())
+        );
+        fees.fee_asset_id = AssetDefinitionId::derive_from_components(
+            DomainId::parse_fully_qualified("fee-substitution.universal").unwrap(),
+            "other".parse().unwrap(),
+        );
+        let substituted = raw
+            .into_builder()
+            .append_parameter(Parameter::Custom(fees.into_custom_parameter().unwrap()))
+            .build_raw()
+            .unwrap();
+        let error = staged_default_nexus(&substituted).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("signed root fee asset must equal")
+        );
     }
 
     #[test]

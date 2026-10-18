@@ -51,11 +51,23 @@ fn fixture_with_bob_balance(
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
-    let fees = &mut state.nexus.get_mut().fees;
+    let mut fees = state.nexus_snapshot().fees;
     fees.base_fee = Quantity::zero();
     fees.per_byte_fee = Quantity::zero();
     fees.per_instruction_fee = Quantity::zero();
     fees.per_gas_unit_fee = Quantity::zero();
+    {
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.clone()
+                    .into_custom_parameter()
+                    .expect("explicit fixture policy"),
+            ))
+            .expect("valid fixture monetary projection");
+        parameters.commit();
+    }
+
     let domain = DomainId::try_new("wonderland", "universal").unwrap();
     let alice = AssetId::of(definition.clone(), ALICE_ID.clone());
     let bob = AssetId::of(definition.clone(), BOB_ID.clone());
@@ -542,7 +554,7 @@ pub(crate) fn with_native_capture_dataspace_source<T>(
     use iroha_data_model::{
         NetworkId, Registrable,
         asset::{Asset, AssetBalanceScope},
-        block::consensus::{PrivateRootFeePolicy, SumeragiRootScope},
+        block::consensus::{RootFeePolicy, SumeragiRootScope},
         nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig, LaneVisibility},
         parameter::Parameter,
     };
@@ -576,12 +588,13 @@ pub(crate) fn with_native_capture_dataspace_source<T>(
     );
     let mut config = TestChainConfig::new(world, 1_000);
     config.genesis_parameters.push(Parameter::Custom(
-        PrivateRootFeePolicy {
-            asset_definition_id: definition.clone(),
+        RootFeePolicy {
+            fee_asset_id: definition.clone(),
             base_fee: 1_u32.into(),
             per_byte_fee: 0_u32.into(),
             per_instruction_fee: 1_u32.into(),
             per_gas_unit_fee: 1_u32.into(),
+            ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
         }
         .into_custom_parameter()
         .unwrap(),
@@ -595,7 +608,7 @@ pub(crate) fn with_native_capture_dataspace_source<T>(
         dataspace_id: ds,
     };
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.fee_asset_id = definition.to_string();
+    nexus.fees.fee_asset_id = definition.clone();
     nexus.lane_catalog = LaneCatalog::new(
         std::num::NonZeroU32::new(1).unwrap(),
         vec![LaneConfig {

@@ -1497,7 +1497,7 @@ pub fn seed_genesis_alias_bootstrap(
     dataspace_catalog: &impl DataSpaceCatalogRead,
 ) -> Result<(), SnsError> {
     use iroha_data_model::{
-        block::consensus::{PrivateRootFeePolicy, SumeragiRootScope},
+        block::consensus::{RootFeePolicy, SumeragiRootScope},
         isi::SetParameter,
         parameter::Parameter,
     };
@@ -1517,10 +1517,10 @@ pub fn seed_genesis_alias_bootstrap(
                 let Parameter::Custom(custom) = set.inner() else {
                     continue;
                 };
-                if custom.id() != &PrivateRootFeePolicy::parameter_id() {
+                if custom.id() != &RootFeePolicy::parameter_id() {
                     continue;
                 }
-                let decoded = PrivateRootFeePolicy::from_custom_parameter(custom)
+                let decoded = RootFeePolicy::from_custom_parameter(custom)
                     .map_err(|error| SnsError::BadRequest(error.to_string()))?;
                 if policy.replace(decoded).is_some() {
                     return Err(SnsError::BadRequest(

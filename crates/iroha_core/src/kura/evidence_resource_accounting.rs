@@ -58,10 +58,7 @@ fn evidence_resource_kind(
                 true,
             )));
         }
-        if name
-            .strip_suffix(".norito")
-            .is_some_and(|hash| evidence_resource_hex(hash, Hash::LENGTH))
-        {
+        if fastpq_artifact_store::stable_name(name) {
             return singleton(maximum, false);
         }
         return Err(Missing::OwnerMismatch);

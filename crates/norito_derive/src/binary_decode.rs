@@ -232,11 +232,7 @@ pub(super) fn derive_enum_deserialize(
     let mut r#gen = generics.clone();
     let validation = match ContainerAttr::parse(container_attrs) {
         Ok(attrs) if attrs.decode_fields => {
-            return syn::Error::new_spanned(
-                ident,
-                "decode_fields requires a closed positional record",
-            )
-            .to_compile_error();
+            return field_destination::derive_enum(ident, generics, data, container_attrs, &attrs);
         }
         Ok(attrs) => attrs.validate,
         Err(error) => return error.to_compile_error(),

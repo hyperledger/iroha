@@ -125,7 +125,6 @@ pub async fn read_attestation(
                     crate::ResponseFormat::Norito,
                     MAX_RESPONSE,
                     &budget,
-                    crate::native_projection_response::capacity,
                 )
                 .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
                 if Instant::now() >= deadline {

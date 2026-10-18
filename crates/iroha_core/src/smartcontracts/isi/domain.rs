@@ -4207,7 +4207,7 @@ mod tests {
         };
         let (nft_id, nft_value) = nft.into_key_value();
         tx.world.insert_nft_entry(nft_id.clone(), nft_value);
-        tx.nexus.fees.fee_sink_account_id = authority.to_string();
+        tx.nexus.fees.fee_sink_account_id = authority.clone();
         tx.nexus.staking.stake_escrow_account_id = authority.to_string();
         tx.nexus.staking.slash_sink_account_id = authority.to_string();
         Unregister::account(account_id.clone())
@@ -4837,12 +4837,12 @@ mod tests {
                 Register::account(NewAccount::new(helper_account_id.clone()))
                     .execute(authority, tx)
                     .expect("register helper account");
-                tx.nexus.fees.fee_sink_account_id = account_id.to_string();
+                tx.nexus.fees.fee_sink_account_id = account_id.clone();
                 tx.nexus.staking.stake_escrow_account_id = helper_account_id.to_string();
                 tx.nexus.staking.slash_sink_account_id = helper_account_id.to_string();
             },
-            "nexus fee sink account must not be unregistered",
-            "nexus fee sink account",
+            "committed root fee sink account must not be unregistered",
+            "committed root fee sink account",
             "error should explain nexus fee-sink conflict",
         );
     }
@@ -4861,7 +4861,7 @@ mod tests {
         Register::account(NewAccount::new(account_id.clone()))
             .execute(&authority, &mut tx)
             .expect("register configured account");
-        tx.nexus.fees.fee_sink_account_id = account_id.to_string();
+        tx.nexus.fees.fee_sink_account_id = account_id.clone();
         tx.nexus.staking.stake_escrow_account_id = account_id.to_string();
         tx.nexus.staking.slash_sink_account_id = account_id.to_string();
         let err = Unregister::account(account_id.clone())
@@ -4869,23 +4869,12 @@ mod tests {
             .expect_err("configured account must remain protected");
         let err_string = err.to_string();
         assert!(
-            err_string.contains("nexus fee sink account"),
+            err_string.contains("committed root fee sink account"),
             "error should explain nexus fee-sink conflict: {err_string}"
         );
         assert!(
             tx.world.accounts.get(&account_id).is_some(),
             "configured sink account should remain"
-        );
-    }
-    #[test]
-    fn unregister_account_rejects_when_nexus_fee_sink_literal_is_invalid() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, _account_id| {
-                tx.nexus.fees.fee_sink_account_id = "not-an-account-literal".to_owned();
-            },
-            "invalid nexus fee sink literal must fail closed",
-            "invalid nexus.fees.fee_sink_account_id account literal",
-            "error should explain invalid nexus fee-sink literal",
         );
     }
     #[test]
@@ -4907,7 +4896,7 @@ mod tests {
         Register::account(NewAccount::new(remove_account_id.clone()))
             .execute(&authority, &mut tx)
             .expect("register removal candidate account");
-        tx.nexus.fees.fee_sink_account_id = sink_account_id.to_string();
+        tx.nexus.fees.fee_sink_account_id = sink_account_id.clone();
         Unregister::account(remove_account_id.clone())
             .execute(&authority, &mut tx)
             .expect("unrelated account should not be blocked by the configured sink account");
@@ -4928,7 +4917,7 @@ mod tests {
                 Register::account(NewAccount::new(helper_account_id.clone()))
                     .execute(authority, tx)
                     .expect("register helper account");
-                tx.nexus.fees.fee_sink_account_id = helper_account_id.to_string();
+                tx.nexus.fees.fee_sink_account_id = helper_account_id.clone();
                 tx.nexus.staking.stake_escrow_account_id = account_id.to_string();
                 tx.nexus.staking.slash_sink_account_id = helper_account_id.to_string();
             },
@@ -4945,7 +4934,7 @@ mod tests {
                 Register::account(NewAccount::new(helper_account_id.clone()))
                     .execute(authority, tx)
                     .expect("register helper account");
-                tx.nexus.fees.fee_sink_account_id = helper_account_id.to_string();
+                tx.nexus.fees.fee_sink_account_id = helper_account_id.clone();
                 tx.nexus.staking.stake_escrow_account_id = helper_account_id.to_string();
                 tx.nexus.staking.slash_sink_account_id = account_id.to_string();
             },
@@ -7750,7 +7739,7 @@ mod tests {
     fn unregister_asset_definition_rejects_when_definition_is_nexus_fee_asset() {
         with_registered_asset_definition_unregistration_candidate(
             |authority, asset_definition_id, tx| {
-                tx.nexus.fees.fee_asset_id = asset_definition_id.to_string();
+                tx.nexus.fees.fee_asset_id = asset_definition_id.clone();
                 let err = Unregister::asset_definition(asset_definition_id.clone())
                     .execute(&authority, tx)
                     .expect_err("nexus fee asset definition must not be unregistered");

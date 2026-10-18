@@ -404,6 +404,9 @@ contract_enum! {
         ReplayRejected => "ReplayRejected",
         /// A local resource (storage, prover, custody, transport before dispatch) is unavailable.
         LocalResourceUnavailable => "LocalResourceUnavailable",
+        /// A required evidence read did not complete with a classified result.
+        /// This is not proof rejection, local capacity, or a ledger outcome; retain custody.
+        EvidenceUnavailable => "EvidenceUnavailable",
         /// A dispatch may have been admitted and nothing authoritative is known.
         SubmissionOutcomeUnknown => "SubmissionOutcomeUnknown",
         /// The transaction is known to the network and not yet final.
@@ -1123,6 +1126,27 @@ mod tests {
     }
 
     #[test]
+    fn evidence_unavailable_has_one_canonical_code_and_codec() {
+        let code = WorkflowErrorCode::EvidenceUnavailable;
+        assert_eq!(code.id(), "EvidenceUnavailable");
+        assert!(code.is_shared_operation_code());
+        // Contract enums are nested payloads of the framed workflow journal.
+        // Exercise the same declared framing without inventing a standalone
+        // production schema for each nested enum.
+        #[derive(Debug, PartialEq, Eq, Encode, Decode, norito::NoritoSchema)]
+        #[norito_schema(name = "iroha::workflow::tests::ErrorCodeRecord")]
+        struct ErrorCodeRecord {
+            code: WorkflowErrorCode,
+        }
+        let record = ErrorCodeRecord { code };
+        let frame = norito::encode_canonical(&record).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<ErrorCodeRecord>(&frame).unwrap(),
+            record
+        );
+    }
+
+    #[test]
     fn error_codes_are_the_shared_set_plus_three_workflow_extensions() {
         let shared = [
             "InvalidInput",
@@ -1135,6 +1159,7 @@ mod tests {
             "Expired",
             "ReplayRejected",
             "LocalResourceUnavailable",
+            "EvidenceUnavailable",
             "SubmissionOutcomeUnknown",
             "FinalityPending",
             "Rejected",

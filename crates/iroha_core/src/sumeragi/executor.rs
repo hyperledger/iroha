@@ -2163,6 +2163,15 @@ impl<'s> Worker<'s> {
                 original.valid.as_ref(),
                 original.phase.ready().expect("original prepared result"),
                 &original.witness,
+            )?;
+            self.context.native_context_archive.prepare_fastpq_source(
+                original
+                    .native_contexts
+                    .as_mut()
+                    .expect("original context capture"),
+                original.valid.as_ref(),
+                original.phase.ready().expect("original prepared result"),
+                &original.witness,
             )
         })();
         match capture {
@@ -3077,6 +3086,16 @@ impl<'s> Worker<'s> {
                     // and immutable I/O checks; it has no allocation release source to invent.
                     format!("original native context archive publication failed: {error}")
                 })?;
+            if let Err(error) = self
+                .context
+                .native_context_archive
+                .publish_fastpq_source(self.state.kura(), &pending.native_contexts)
+            {
+                // Optional proof transport cannot strand mandatory native publication.
+                // Missing transport remains unresolved at this exact certified source;
+                // no outbox cursor or proof acknowledgement is emitted here.
+                iroha_logger::warn!(%error, height, "FASTPQ source transport remains unresolved");
+            }
             if let Some(archives) = &self.archives {
                 archives.capture(&view)?;
             }

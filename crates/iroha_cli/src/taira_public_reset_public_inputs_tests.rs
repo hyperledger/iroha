@@ -323,13 +323,10 @@ fn execute_fixture_genesis(
     for literal in [
         &mut nexus.staking.stake_escrow_account_id,
         &mut nexus.staking.slash_sink_account_id,
-        &mut nexus.fees.fee_sink_account_id,
     ] {
         *literal = reprofile(literal);
     }
-    if let Some(authority) = nexus.relay_worker.authority_account_id.as_mut() {
-        *authority = reprofile(authority);
-    }
+
     let kura_config = actual::Kura {
         init_mode: InitMode::Strict,
         // The temporary constructor supplies and retains its isolated directory.

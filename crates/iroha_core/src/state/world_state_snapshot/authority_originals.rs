@@ -478,6 +478,7 @@ impl State {
             budget,
             |snapshot, world| {
                 consume_retail_policy(snapshot, world, asset, dataspace, budget, consume)
+                    .map_err(WorldStateSnapshotError::from)
             },
         )
     }
@@ -504,7 +505,10 @@ impl State {
             tip,
             Some(authority),
             budget,
-            |snapshot, world| consume_identifier(snapshot, world, policy_id, budget, consume),
+            |snapshot, world| {
+                consume_identifier(snapshot, world, policy_id, budget, consume)
+                    .map_err(WorldStateSnapshotError::from)
+            },
         )
     }
 
@@ -572,7 +576,7 @@ impl State {
             }
             let catalog = crate::state::runtime_catalog_dataspaces(baseline, Some(&runtime))
                 .map_err(|e| e.to_string())?;
-            consume_account(snapshot, world, name, &catalog, budget, consume)
+            consume_account(snapshot, world, name, &catalog, budget, consume).map_err(WorldStateSnapshotError::from)
         })
     }
 
@@ -612,7 +616,10 @@ impl State {
             tip,
             Some(authority),
             budget,
-            |snapshot, world| consume_fee(snapshot, world, program_id, fee_asset, budget, consume),
+            |snapshot, world| {
+                consume_fee(snapshot, world, program_id, fee_asset, budget, consume)
+                    .map_err(WorldStateSnapshotError::from)
+            },
         )
     }
 }

@@ -279,12 +279,12 @@ impl QuantityTape {
             .ok_or(QuantityCaptureIssue::Capacity)?;
         let mut reservation = budget
             .try_reserve_bytes(bytes)
-            .map_err(|_| QuantityCaptureIssue::Capacity)?;
+            .map_err(QuantityCaptureIssue::Admission)?;
         // Locals drop in reverse declaration order during a partial-clone refusal.
         let mut nested = ChargedBuffer::from_reservation(nested_count, &mut reservation)
-            .map_err(|_| QuantityCaptureIssue::Capacity)?;
+            .map_err(QuantityCaptureIssue::from_prepaid)?;
         let mut effects = ChargedBuffer::from_reservation(count, &mut reservation)
-            .map_err(|_| QuantityCaptureIssue::Capacity)?;
+            .map_err(QuantityCaptureIssue::from_prepaid)?;
         for original in prefix {
             let kind = clone_kind((&original.kind).into(), &mut reservation, &mut nested)?;
             effects.push_reserved(FastpqExecutionEffectV1 {
@@ -585,7 +585,7 @@ impl<V> QuantityArchiveMap<V> {
         capacity: usize,
         budget: &AllocationBudget,
     ) -> Result<ChargedBuffer<(Hash, V)>, QuantityCaptureIssue> {
-        ChargedBuffer::new(capacity, budget).map_err(|_| QuantityCaptureIssue::Capacity)
+        ChargedBuffer::new(capacity, budget).map_err(QuantityCaptureIssue::from_buffer)
     }
     pub(super) fn for_each_mut(&mut self, mut visit: impl FnMut(&mut V)) {
         assert!(

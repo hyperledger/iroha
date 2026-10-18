@@ -92,7 +92,6 @@ def test_pipeline_preflight_parses_every_served_field_of_the_rust_sample() -> No
     assert dict(preflight.fees) == payload["fees"]
     assert preflight.fees["base_fee"] == "0.1"
     assert preflight.fees["per_gas_unit_fee"] == "0.00005"
-    assert preflight.fees["settlement_mode"] == "direct"
     assert len(preflight.fees["successful_claim_fee_exempt_authorities"]) == 1
     assert dict(preflight.raw) == payload
 
@@ -191,12 +190,6 @@ def test_pipeline_preflight_rejects_alias_shaped_fee_accounts(field: str, value:
         ("fee_asset_id", "", TypeError, r"fees\.fee_asset_id must be a non-empty string"),
         ("base_fee", 0, TypeError, r"fees\.base_fee must be a non-empty string"),
         (
-            "settlement_mode",
-            "burn",
-            ValueError,
-            r"fees\.settlement_mode must be one of: direct, lane_relay_burn",
-        ),
-        (
             "successful_claim_fee_exempt_authorities",
             None,
             TypeError,
@@ -214,4 +207,5 @@ def test_pipeline_preflight_requires_the_served_fee_values(
 
     relay = served()
     relay["fees"]["settlement_mode"] = "lane_relay_burn"
-    assert ToriiPipelinePreflight.from_payload(relay).fees["settlement_mode"] == "lane_relay_burn"
+    with pytest.raises(ValueError, match="unsupported settlement_mode"):
+        ToriiPipelinePreflight.from_payload(relay)

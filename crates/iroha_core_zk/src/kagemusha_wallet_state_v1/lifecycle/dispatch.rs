@@ -325,6 +325,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                         "prepared retained private/public binding",
                     ));
                 }
+                self.require_retained_output(operation, &retained)?;
                 Some(Completion::Complete(retained.record.output))
             }
             Lookup::Archived(tombstone) => {

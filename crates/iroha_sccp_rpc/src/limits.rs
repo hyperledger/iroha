@@ -64,6 +64,8 @@ pub const EVM_BLOCK_RESPONSE_BYTES: usize = 4 * MIB;
 /// `eth_getTransactionReceipt`: one receipt, whose logs are bounded by the
 /// transaction gas limit.
 pub const EVM_RECEIPT_RESPONSE_BYTES: usize = 16 * MIB;
+/// `eth_getRawTransactionByHash`: an opaque hex-encoded transaction envelope.
+pub const EVM_RAW_TRANSACTION_RESPONSE_BYTES: usize = 16 * MIB;
 /// Beacon `light_client/bootstrap` (about 55 KiB).
 pub const BEACON_BOOTSTRAP_RESPONSE_BYTES: usize = MIB;
 /// One beacon light-client update (about 60 KiB with its sync committee); the
@@ -201,6 +203,7 @@ pub fn json_rpc_response_cap(method: &str) -> Option<usize> {
         "eth_getProof" => EVM_PROOF_RESPONSE_BYTES,
         "eth_getBlockByNumber" | "eth_getBlockByHash" => EVM_BLOCK_RESPONSE_BYTES,
         "eth_getTransactionReceipt" | "eth_getLogs" => EVM_RECEIPT_RESPONSE_BYTES,
+        "eth_getRawTransactionByHash" => EVM_RAW_TRANSACTION_RESPONSE_BYTES,
         _ => return None,
     })
 }
@@ -385,6 +388,10 @@ mod tests {
         assert_eq!(
             json_rpc_response_cap("eth_getTransactionReceipt"),
             Some(EVM_RECEIPT_RESPONSE_BYTES)
+        );
+        assert_eq!(
+            json_rpc_response_cap("eth_getRawTransactionByHash"),
+            Some(EVM_RAW_TRANSACTION_RESPONSE_BYTES)
         );
         assert_eq!(json_rpc_response_cap("eth_getBlockReceipts"), None);
         assert_eq!(json_rpc_response_cap("debug_traceBlock"), None);

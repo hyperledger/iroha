@@ -39,6 +39,7 @@ pub type ValidatorIndex = u32;
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Encode, Decode, IntoSchema,
 )]
+#[norito(decode_fields)]
 pub struct Hash32(pub [u8; 32]);
 
 impl Hash32 {
@@ -145,6 +146,7 @@ pub struct Signature(pub [u8; SIGNATURE_LEN]);
 
 /// An aggregate signature (canonical compressed encoding, [`SIGNATURE_LEN`] bytes).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode, IntoSchema)]
+#[norito(decode_fields)]
 pub struct AggregateSignature(pub [u8; SIGNATURE_LEN]);
 
 impl fmt::Debug for Signature {
@@ -166,6 +168,7 @@ impl fmt::Debug for AggregateSignature {
 // SPEC: §3.4 does not fix the bit order inside a byte. Bit `i` is `(bytes[i / 8] >> (i % 8)) & 1`
 // (least significant bit first) (Appendix E, E11).
 #[derive(Clone, PartialEq, Eq, Hash, Default, Encode, Decode, IntoSchema)]
+#[norito(decode_fields)]
 pub struct Bitmap(Vec<u8>);
 
 impl Bitmap {
@@ -196,6 +199,12 @@ impl Bitmap {
     /// The raw bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    // Only the private physically funded field writer can mutate an existing
+    // original bitmap allocation. This cannot grow, replace or extract its Vec.
+    pub(crate) fn original_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.0
     }
 
     /// Whether bit `index` is set (`false` when out of range).
@@ -406,6 +415,7 @@ impl Default for ChainParams {
 #[derive(Encode, Decode, NoritoSchema, IntoSchema)]
 #[norito_schema(name = "iroha_sumeragi::EpochId")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[norito(decode_fields)]
 pub struct EpochId {
     /// Monotonically increasing scheduling epoch.
     pub epoch: u64,

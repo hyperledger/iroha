@@ -683,8 +683,6 @@
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_VIRAL_SENDER_BONUS_AMOUNT", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_VOTING_ASSET_ID", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_WINDOW_SPAN", 1],
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "NEXUS_FEE_ASSET_ID", 1],
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "NEXUS_FEE_SINK_ACCOUNT_ID", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "ORACLE_HISTORY_DEPTH", 1]
    ]
   },
@@ -1985,31 +1983,19 @@
    "owner": "F.4",
    "path": "crates/iroha_config/src/parameters/actual.rs",
    "symbol": "NexusConsensusPolicyPreimageV1",
-   "gates": "The remaining Nexus consensus-policy preimage fields: lane, dataspace and routing identities, staking policy, fee schedule, lease and endorsement timing, settlement relation identity and windows, governance modules, fusion and autoscale policy, DA attester sampling and the preimage version.",
+   "gates": "The remaining Nexus consensus-policy preimage fields: lane, dataspace and routing identities, staking policy, lease and endorsement timing, settlement relation identity and windows, governance modules, fusion and autoscale policy, DA attester sampling and the preimage version.",
    "decided_by": "Committed State (the Nexus runtime catalog and lane policy already are; these values follow them).",
    "attribution": "read",
    "open_reason": "The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations. Native SCCP L1 additionally consumes the original pinned Nexus staking projection at parameter checking/genesis/startup (governance delegates to init::check_parameters); these reads do not close the broader family migration or authenticate unpinned restore inputs.",
    "sites": [
     ["crates/iroha_core/src/block.rs", "node_policy_read", "da.*", 1],
-    ["crates/iroha_core/src/block/post_execution_tail.rs", "node_policy_read", "fees.settlement_mode", 1],
-    ["crates/iroha_core/src/executor.rs", "node_policy_read", "fees.*", 7],
-    ["crates/iroha_core/src/executor.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 2],
-    ["crates/iroha_core/src/executor_execution_fee.rs", "node_policy_read", "fees.*", 5],
-    ["crates/iroha_core/src/executor_fastpq_rejection_tail.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/asset.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 5],
-    ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "fees.fee_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "staking.slash_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "staking.stake_asset_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "staking.stake_escrow_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/init.rs", "node_policy_read", "staking.max_slash_bps", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/init.rs", "node_policy_read", "staking.unbonding_delay.*", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/coalition.rs", "node_policy_read", "staking.max_slash_bps", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "node_policy_read", "fees.fee_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "endorsement.quorum", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "fees.fee_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "hf_shared_leases.drain_grace.*", 1],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.*", 3],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.max_pending_unbonds_per_share", 1],
@@ -2022,8 +2008,6 @@
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "dataspace_fee_sponsor_program_ids", 1],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "endorsement.committee_keys", 1],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "endorsement.quorum", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 3],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "staking.stake_asset_id", 1],
     ["crates/iroha_core/src/state.rs", "node_policy_read", "atomic_private_settlement.*", 1],
     ["crates/iroha_core/src/state.rs", "node_policy_read", "atomic_private_settlement.max_expiry_blocks", 2],
@@ -2037,10 +2021,51 @@
     ["crates/iroha_core/src/sumeragi/penalties.rs", "node_policy_read", "staking.max_slash_bps", 1],
     ["crates/iroha_core/src/sumeragi/penalties.rs", "node_policy_read", "staking.max_stake_shares_per_validator", 1],
     ["crates/iroha_core/src/sumeragi/penalties.rs", "node_policy_read", "staking.max_validators", 1],
-    ["crates/iroha_torii/src/game.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_torii/src/lib.rs", "node_policy_read", "fees.fee_asset_id", 2],
     ["crates/iroha_torii/src/private_settlement.rs", "node_policy_read", "atomic_private_settlement.*", 1],
     ["crates/irohad/src/main.rs", "node_policy_read", "staking.*", 1]
+   ]
+  },
+  {
+   "id": "cfg.root_fees.committed_policy",
+   "kind": "node_local_config",
+   "status": "open",
+   "owner": "F.4",
+   "path": "crates/iroha_core/src/pipeline_gas_policy.rs",
+   "symbol": "with_root_fees",
+   "gates": "The complete root monetary schedule, exact currency, sink, sponsor custody and Global claim exemptions.",
+   "decided_by": "The mandatory root_fees_v1 parameter, validated and atomically projected by StateParameters. Each block freezes its predecessor projection; restore rebuilds it from original canonical Parameters. H1 authors exactly one original policy and retains both signed policy digest checks. Currency and sponsor custody are immutable after H1; other authorized terms apply next block. Node fee and fee-relay worker configuration are removed.",
+   "attribution": "read",
+   "open_reason": "Causal original execution dependence was reproduced after identical H1 (two failures). Source migration, replay/update controls, deployment and SDK conversions are staged; current-candidate Rust compilation, generated digests/fixtures and combined network qualification remain pending. The regression does not establish divergent admissible fresh-node configurations, whose signed-genesis digest checks already refused mismatch.",
+   "sites": [
+    ["crates/iroha_core/src/executor.rs", "node_policy_read", "fees", 9],
+    ["crates/iroha_core/src/executor_execution_fee.rs", "node_policy_read", "fees", 5],
+    ["crates/iroha_core/src/executor_fastpq_rejection_tail.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/asset.rs", "node_policy_read", "fees", 5],
+    ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "fees", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "fees", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees", 4],
+    ["crates/iroha_torii/src/game.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_torii/src/lib.rs", "node_policy_read", "fees", 2]
+   ],
+   "tests": [
+    {
+     "path": "crates/iroha_core/src/executor/settlement_replay_tests.rs",
+     "name": "committed_global_fee_policy_prevents_local_schedule_rejecting_payment"
+    },
+    {
+     "path": "crates/iroha_core/src/executor/settlement_replay_tests.rs",
+     "name": "committed_global_fee_policy_prevents_local_schedule_changing_paid_receipt"
+    },
+    {
+     "path": "crates/iroha_core/src/executor/settlement_replay_tests.rs",
+     "name": "committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay"
+    },
+    {
+     "path": "crates/iroha_genesis/src/root_fee_policy_tests.rs",
+     "name": "authenticated_signed_policy_has_one_exact_original_owner"
+    }
    ]
   },
   {
@@ -5961,15 +5986,6 @@
       "staking.stake_asset_id",
       "staking.stake_escrow_account_id",
       "staking.slash_sink_account_id",
-      "fees.fee_asset_id",
-      "fees.fee_sink_account_id",
-      "fees.base_fee",
-      "fees.per_byte_fee",
-      "fees.per_instruction_fee",
-      "fees.per_gas_unit_fee",
-      "fees.sponsor_vault_custody_account_id",
-      "fees.settlement_mode",
-      "fees.successful_claim_fee_exempt_authorities",
       "hf_shared_leases.drain_grace.seconds",
       "hf_shared_leases.drain_grace.nanoseconds",
       "endorsement.committee_keys",
@@ -6042,6 +6058,12 @@
       "atomic_private_settlement.enabled",
       "atomic_private_settlement.activation_height",
       "atomic_private_settlement.minimum_activation_notice_blocks"
+     ]
+    },
+    {
+     "entry": "cfg.root_fees.committed_policy",
+     "fields": [
+      "fees"
      ]
     }
    ]
@@ -6287,9 +6309,9 @@
   }
  },
  "summary": {
-  "entries": 222,
-  "sites": 1532,
-  "by_status": {"done": 11, "local_resource": 22, "not_a_gate": 98, "open": 56, "out_of_plan": 20, "unsupported": 15},
-  "by_owner": {"-": 118, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 27, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
+  "entries": 223,
+  "sites": 1525,
+  "by_status": {"done": 11, "local_resource": 22, "not_a_gate": 98, "open": 57, "out_of_plan": 20, "unsupported": 15},
+  "by_owner": {"-": 118, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 28, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
  }
 }

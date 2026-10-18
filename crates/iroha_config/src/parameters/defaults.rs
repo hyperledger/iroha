@@ -3706,8 +3706,24 @@ pub mod nexus {
         pub fn per_gas_unit_fee() -> Quantity {
             "0.00005".parse().expect("canonical fee quantity")
         }
-        /// Default Nexus fee settlement mode.
-        pub const SETTLEMENT_MODE: &str = "direct";
+        /// Complete default to be encoded into the signed genesis parameter by an author.
+        /// Runtime execution never substitutes this for an absent committed policy.
+        pub fn genesis_policy() -> iroha_data_model::block::consensus::RootFeePolicy {
+            let _default_chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+                super::super::common::chain_discriminant(),
+            );
+            iroha_data_model::block::consensus::RootFeePolicy {
+                fee_asset_id: fee_asset_id().parse().expect("canonical default fee asset"),
+                fee_sink_account_id: AccountId::parse_encoded(FEE_SINK_ACCOUNT_ID)
+                    .expect("canonical default fee sink"),
+                sponsor_vault_custody_account_id: sponsor_vault_custody_account_id(),
+                successful_claim_fee_exempt_authorities: Default::default(),
+                base_fee: base_fee(),
+                per_byte_fee: per_byte_fee(),
+                per_instruction_fee: per_instruction_fee(),
+                per_gas_unit_fee: per_gas_unit_fee(),
+            }
+        }
         /// Sponsor vault custody account parsed under the default Sora chain discriminant.
         pub fn sponsor_vault_custody_account_id() -> AccountId {
             let _default_chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
@@ -3720,19 +3736,6 @@ pub mod nexus {
         pub fn fee_asset_id() -> String {
             super::super::canonical_asset_definition_literal("universal.universal", "xor")
         }
-    }
-    /// Asynchronous Nexus lane-relay worker defaults.
-    pub mod relay_worker {
-        /// Protocol relay worker is disabled until rollout config activates it.
-        pub const ENABLED: bool = false;
-        /// Optional relayer account override; by default the node account signs worker transactions.
-        pub const AUTHORITY_ACCOUNT_ID: Option<&str> = None;
-        /// Hard per-kind cap for durable relay/allocation work and relay announcement history.
-        pub const MAX_PENDING_RELAYS: usize = 1024;
-        /// Worker retry cadence in milliseconds.
-        pub const RETRY_BACKOFF_MS: u64 = 5_000;
-        /// Maximum proof/submission attempts before marking local worker state rejected.
-        pub const MAX_RETRY_ATTEMPTS: u32 = 10;
     }
     /// Domain endorsement defaults.
     pub mod endorsement {
@@ -4146,6 +4149,16 @@ pub mod zk {
         use iroha_config_base::util::Bytes;
         use nonzero_ext::nonzero;
         use std::num::NonZeroUsize;
+        /// Retry unresolved local proof work even while the native chain is idle.
+        pub const PRODUCER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+        /// Maximum cooperative monotonic budget for one producer attempt.
+        pub const PRODUCER_STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+        /// Finite native prefix work per attempt (the canonical owner caps this at 64).
+        pub const PRODUCER_MAX_NATIVE_STEPS: std::num::NonZeroU16 = nonzero!(16_u16);
+        /// Finite admitted canonical source entry count.
+        pub const PRODUCER_MAX_SOURCE_ENTRIES: std::num::NonZeroU32 = nonzero!(65_536_u32);
+        /// Finite admitted canonical nonempty statement count.
+        pub const PRODUCER_MAX_SOURCE_STATEMENTS: std::num::NonZeroU32 = nonzero!(16_384_u32);
         /// Default execution mode for the FASTPQ prover (`cpu` or `gpu`).
         pub const EXECUTION_MODE: &str = "cpu";
         /// Default Poseidon pipeline mode (`cpu` or `gpu`).

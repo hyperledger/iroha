@@ -5082,9 +5082,91 @@ impl json::JsonDeserialize for FastpqPoseidonMode {
         })
     }
 }
+/// Autonomous FASTPQ producer scheduling and source limits (node-local only).
+#[derive(Debug, ReadConfig, Clone, Copy)]
+pub struct FastpqProducer {
+    /// Retry interval including idle final-tip recovery.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_POLL_INTERVAL.into()")]
+    pub poll_interval_ms: DurationMs,
+    /// Cooperative monotonic bound on one attempt.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_STEP_TIMEOUT.into()")]
+    pub step_timeout_ms: DurationMs,
+    /// Native prefix steps per attempt (1 through 64).
+    #[config(default = "defaults::zk::fastpq::PRODUCER_MAX_NATIVE_STEPS")]
+    pub max_native_steps: std::num::NonZeroU16,
+    /// Maximum full source entries admitted before allocation.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_MAX_SOURCE_ENTRIES")]
+    pub max_source_entries: std::num::NonZeroU32,
+    /// Maximum nonempty complete-effect statements admitted before allocation.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_MAX_SOURCE_STATEMENTS")]
+    pub max_source_statements: std::num::NonZeroU32,
+}
+impl FastpqProducer {
+    fn parse(self) -> actual::FastpqProducer {
+        assert!(
+            !self.poll_interval_ms.get().is_zero(),
+            "fastpq.producer.poll_interval_ms must be nonzero"
+        );
+        assert!(
+            !self.step_timeout_ms.get().is_zero(),
+            "fastpq.producer.step_timeout_ms must be nonzero"
+        );
+        assert!(
+            self.max_native_steps.get() <= 64,
+            "fastpq.producer.max_native_steps must not exceed 64"
+        );
+        actual::FastpqProducer {
+            poll_interval: self.poll_interval_ms.get(),
+            step_timeout: self.step_timeout_ms.get(),
+            max_native_steps: self.max_native_steps,
+            max_source_entries: self.max_source_entries,
+            max_source_statements: self.max_source_statements,
+        }
+    }
+}
+#[cfg(test)]
+mod fastpq_producer_policy_tests {
+    use super::*;
+    fn policy() -> FastpqProducer {
+        FastpqProducer {
+            poll_interval_ms: defaults::zk::fastpq::PRODUCER_POLL_INTERVAL.into(),
+            step_timeout_ms: defaults::zk::fastpq::PRODUCER_STEP_TIMEOUT.into(),
+            max_native_steps: defaults::zk::fastpq::PRODUCER_MAX_NATIVE_STEPS,
+            max_source_entries: defaults::zk::fastpq::PRODUCER_MAX_SOURCE_ENTRIES,
+            max_source_statements: defaults::zk::fastpq::PRODUCER_MAX_SOURCE_STATEMENTS,
+        }
+    }
+    #[test]
+    fn producer_policy_uses_finite_canonical_owner_bounds() {
+        let actual = policy().parse();
+        assert!(!actual.poll_interval.is_zero());
+        assert!(!actual.step_timeout.is_zero());
+        assert!(actual.max_native_steps.get() <= 64);
+        assert_eq!(
+            actual.max_source_entries,
+            actual::FastpqProducer::default().max_source_entries
+        );
+    }
+    #[test]
+    fn producer_policy_rejects_unbounded_native_turns_and_zero_timers() {
+        for field in [0, 1, 2] {
+            let mut value = policy();
+            match field {
+                0 => value.poll_interval_ms = std::time::Duration::ZERO.into(),
+                1 => value.step_timeout_ms = std::time::Duration::ZERO.into(),
+                _ => value.max_native_steps = std::num::NonZeroU16::new(65).unwrap(),
+            }
+            assert!(std::panic::catch_unwind(|| value.parse()).is_err());
+        }
+    }
+}
+
 /// FASTPQ prover configuration (user view).
 #[derive(Debug, ReadConfig, Clone)]
 pub struct Fastpq {
+    /// Autonomous source discovery and bounded proof dispatch.
+    #[config(nested)]
+    pub producer: FastpqProducer,
     /// Execution mode used when initialising the FASTPQ prover backend.
     #[config(
         env = "FASTPQ_EXECUTION_MODE",
@@ -5157,6 +5239,7 @@ impl Fastpq {
             "fastpq.proof_sidecar_max_bytes must be greater than zero"
         );
         actual::Fastpq {
+            producer: self.producer.parse(),
             execution_mode: self.execution_mode.into_actual(),
             poseidon_mode: self.poseidon_mode.into_actual(),
             proof_sidecar_queue_cap: self.proof_sidecar_queue_cap,
@@ -9143,12 +9226,6 @@ pub struct Nexus {
     /// Public-lane staking guardrails.
     #[config(nested)]
     pub staking: NexusStaking,
-    /// Universal Nexus fee schedule.
-    #[config(nested)]
-    pub fees: NexusFees,
-    /// Asynchronous lane-relay proof and sponsor-budget worker.
-    #[config(nested)]
-    pub relay_worker: NexusRelayWorker,
     /// Shared Hugging Face lease policy.
     #[config(nested)]
     pub hf_shared_leases: NexusHfSharedLeases,
@@ -9211,8 +9288,6 @@ impl_default!(Nexus {
     lane_catalog: Vec::new(),
     dataspace_catalog: Vec::new(),
     staking: NexusStaking::default(),
-    fees: NexusFees::default(),
-    relay_worker: NexusRelayWorker::default(),
     hf_shared_leases: NexusHfSharedLeases::default(),
     uploaded_models: NexusUploadedModels::default(),
     endorsement: NexusEndorsement::default(),
@@ -9690,44 +9765,6 @@ impl NexusStaking {
         })
     }
 }
-/// User-level configuration container for Nexus fee schedule.
-#[derive(Debug, Clone, ReadConfig, norito::JsonDeserialize)]
-pub struct NexusFees {
-    /// Fee asset definition identifier (string form).
-    #[config(
-        env = "NEXUS_FEE_ASSET_ID",
-        default = "defaults::nexus::fees::fee_asset_id()"
-    )]
-    pub fee_asset_id: String,
-    /// Account that receives collected fees.
-    #[config(
-        env = "NEXUS_FEE_SINK_ACCOUNT_ID",
-        default = "defaults::nexus::fees::FEE_SINK_ACCOUNT_ID.to_string()"
-    )]
-    pub fee_sink_account_id: String,
-    /// Base fee charged per transaction.
-    #[config(default = "defaults::nexus::fees::base_fee()")]
-    pub base_fee: Quantity,
-    /// Per-byte fee charged over the signed transaction payload.
-    #[config(default = "defaults::nexus::fees::per_byte_fee()")]
-    pub per_byte_fee: Quantity,
-    /// Per-instruction fee charged for native ISI batches.
-    #[config(default = "defaults::nexus::fees::per_instruction_fee()")]
-    pub per_instruction_fee: Quantity,
-    /// Per-gas-unit fee multiplier applied to measured gas usage.
-    #[config(default = "defaults::nexus::fees::per_gas_unit_fee()")]
-    pub per_gas_unit_fee: Quantity,
-    /// Protocol account that physically custodies isolated sponsor-program vault assets.
-    #[config(default = "defaults::nexus::fees::SPONSOR_VAULT_CUSTODY_ACCOUNT_ID.to_string()")]
-    pub sponsor_vault_custody_account_id: String,
-    /// Fee settlement mode: `direct`; receipt-only relay settlement is retired.
-    #[config(default = "defaults::nexus::fees::SETTLEMENT_MODE.to_string()")]
-    pub settlement_mode: String,
-    /// Canonical I105 authorities allowed to submit fee-free successful SORA v2 XOR claim mint
-    /// transactions.
-    #[config(default = "Vec::new()")]
-    pub successful_claim_fee_exempt_authorities: Vec<String>,
-}
 /// User-level configuration container for shared Hugging Face lease policy.
 #[derive(Debug, Clone, Copy, ReadConfig, norito::JsonDeserialize)]
 pub struct NexusHfSharedLeases {
@@ -9821,165 +9858,14 @@ impl NexusEndorsement {
     }
 }
 #[cfg(test)]
-#[path = "user/nexus_endorsement_tests.rs"]
-mod nexus_endorsement_tests;
-impl_default!(NexusFees {
-    fee_asset_id: defaults::nexus::fees::fee_asset_id(),
-    fee_sink_account_id: defaults::nexus::fees::FEE_SINK_ACCOUNT_ID.to_string(),
-    base_fee: defaults::nexus::fees::base_fee(),
-    per_byte_fee: defaults::nexus::fees::per_byte_fee(),
-    per_instruction_fee: defaults::nexus::fees::per_instruction_fee(),
-    per_gas_unit_fee: defaults::nexus::fees::per_gas_unit_fee(),
-    sponsor_vault_custody_account_id: defaults::nexus::fees::SPONSOR_VAULT_CUSTODY_ACCOUNT_ID
-        .to_owned(),
-    settlement_mode: defaults::nexus::fees::SETTLEMENT_MODE.to_string(),
-    successful_claim_fee_exempt_authorities: Vec::new(),
-});
-impl NexusFees {
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::NexusFees> {
-        let fee_asset_id = match validate_nexus_fee_asset_selector_literal(&self.fee_asset_id) {
-            Ok(value) => value,
-            Err(err) => {
-                emitter.emit(Report::new(ParseError::InvalidNexusConfig).attach(format!(
-                    "invalid nexus.fees.fee_asset_id `{}`: {err}",
-                    self.fee_asset_id
-                )));
-                return None;
-            }
-        };
-        if self.fee_sink_account_id.trim().is_empty() {
-            emitter.emit(
-                Report::new(ParseError::InvalidNexusConfig)
-                    .attach("nexus.fees.fee_sink_account_id must not be empty".to_string()),
-            );
-            return None;
-        }
-        let settlement_mode = match self.settlement_mode.as_str() {
-            "direct" => actual::NexusFeeSettlementMode::Direct,
-            other => {
-                emitter.emit(Report::new(ParseError::InvalidNexusConfig).attach(format!(
-                    "invalid nexus.fees.settlement_mode `{other}`: expected `direct`"
-                )));
-                return None;
-            }
-        };
-        let sponsor_vault_custody_account_id = parse_account_id_literal(
-            self.sponsor_vault_custody_account_id.trim(),
-            "invalid nexus.fees.sponsor_vault_custody_account_id",
-        );
-        let mut successful_claim_fee_exempt_authorities = BTreeSet::new();
-        let mut valid_authorities = true;
-        for (index, literal) in self
-            .successful_claim_fee_exempt_authorities
-            .into_iter()
-            .enumerate()
-        {
-            match AccountId::parse_encoded(&literal) {
-                Ok(account_id) if account_id.to_string() == literal => {
-                    successful_claim_fee_exempt_authorities.insert(account_id);
-                }
-                Ok(account_id) => {
-                    emitter.emit(Report::new(ParseError::InvalidNexusConfig).attach(format!(
-                        "nexus.fees.successful_claim_fee_exempt_authorities[{index}] must be the exact canonical I105 literal `{account_id}`"
-                    )));
-                    valid_authorities = false;
-                }
-                Err(err) => {
-                    emitter.emit(Report::new(ParseError::InvalidNexusConfig).attach(format!(
-                        "invalid nexus.fees.successful_claim_fee_exempt_authorities[{index}] `{literal}`: {err}"
-                    )));
-                    valid_authorities = false;
-                }
-            }
-        }
-        valid_authorities.then_some(())?;
-        Some(actual::NexusFees {
-            fee_asset_id,
-            fee_sink_account_id: self.fee_sink_account_id,
-            base_fee: self.base_fee,
-            per_byte_fee: self.per_byte_fee,
-            per_instruction_fee: self.per_instruction_fee,
-            per_gas_unit_fee: self.per_gas_unit_fee,
-            sponsor_vault_custody_account_id,
-            settlement_mode,
-            successful_claim_fee_exempt_authorities,
-        })
-    }
-}
-/// User-level configuration for the asynchronous Nexus lane-relay worker.
-#[derive(Debug, Clone, ReadConfig, norito::JsonDeserialize)]
-pub struct NexusRelayWorker {
-    /// Enable the protocol worker that proves and submits lane relays and fee budgets.
-    #[config(default = "defaults::nexus::relay_worker::ENABLED")]
-    pub enabled: bool,
-    /// Optional relayer account id; when set it must match the node signing key account.
-    pub authority_account_id: Option<String>,
-    /// Hard per-kind cap for durable relay/allocation work and verified-relay announcement history.
-    #[config(default = "defaults::nexus::relay_worker::MAX_PENDING_RELAYS")]
-    pub max_pending_relays: usize,
-    /// Delay between proof/submission retry passes.
-    #[config(default = "defaults::nexus::relay_worker::RETRY_BACKOFF_MS")]
-    pub retry_backoff_ms: u64,
-    /// Maximum proof/submission attempts before local worker retry stops.
-    #[config(default = "defaults::nexus::relay_worker::MAX_RETRY_ATTEMPTS")]
-    pub max_retry_attempts: u32,
-}
-impl_default!(NexusRelayWorker {
-    enabled: defaults::nexus::relay_worker::ENABLED,
-    authority_account_id: defaults::nexus::relay_worker::AUTHORITY_ACCOUNT_ID.map(str::to_owned),
-    max_pending_relays: defaults::nexus::relay_worker::MAX_PENDING_RELAYS,
-    retry_backoff_ms: defaults::nexus::relay_worker::RETRY_BACKOFF_MS,
-    max_retry_attempts: defaults::nexus::relay_worker::MAX_RETRY_ATTEMPTS,
-});
-impl NexusRelayWorker {
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::NexusRelayWorker> {
-        let authority_account_id = self.authority_account_id.and_then(|raw| {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_owned())
-            }
-        });
-        let max_pending_relays = NonZeroUsize::new(self.max_pending_relays).unwrap_or_else(|| {
-            emitter.emit(
-                Report::new(ParseError::InvalidNexusConfig)
-                    .attach("nexus.relay_worker.max_pending_relays must be > 0"),
-            );
-            NonZeroUsize::new(1).expect("placeholder non-zero")
-        });
-        if self.retry_backoff_ms == 0 {
-            emitter.emit(
-                Report::new(ParseError::InvalidNexusConfig)
-                    .attach("nexus.relay_worker.retry_backoff_ms must be > 0"),
-            );
-            return None;
-        }
-        let max_retry_attempts = NonZeroU32::new(self.max_retry_attempts).unwrap_or_else(|| {
-            emitter.emit(
-                Report::new(ParseError::InvalidNexusConfig)
-                    .attach("nexus.relay_worker.max_retry_attempts must be > 0"),
-            );
-            NonZeroU32::new(1).expect("placeholder non-zero")
-        });
-        if self.max_pending_relays == 0 || self.max_retry_attempts == 0 {
-            return None;
-        }
-        Some(actual::NexusRelayWorker {
-            enabled: self.enabled,
-            authority_account_id,
-            max_pending_relays,
-            retry_backoff: Duration::from_millis(self.retry_backoff_ms),
-            max_retry_attempts,
-        })
-    }
-}
-#[cfg(test)]
 #[path = "user/nexus_asset_selector_tests.rs"]
 mod nexus_asset_selector_tests;
 #[cfg(test)]
 #[path = "user/nexus_dataspace_catalog_tests.rs"]
 mod nexus_dataspace_catalog_tests;
+#[cfg(test)]
+#[path = "user/nexus_endorsement_tests.rs"]
+mod nexus_endorsement_tests;
 /// User-level configuration container for governance catalog.
 #[derive(Debug, Clone, ReadConfig, Default, norito::JsonDeserialize)]
 pub struct GovernanceCatalogConfig {
@@ -11306,8 +11192,6 @@ impl Nexus {
             lane_catalog,
             dataspace_catalog,
             staking,
-            fees,
-            relay_worker,
             hf_shared_leases,
             uploaded_models,
             endorsement: endorsement_cfg,
@@ -11340,21 +11224,10 @@ impl Nexus {
         let axt_cfg = axt.parse(emitter)?;
         let atomic_private_settlement = atomic_private_settlement.parse(emitter)?;
         let staking = staking.parse(emitter)?;
-        let fees = fees.parse(emitter)?;
-        let relay_worker = relay_worker.parse(emitter)?;
         let hf_shared_leases = hf_shared_leases.parse();
         let uploaded_models = uploaded_models.parse(emitter)?;
         let endorsement = endorsement_cfg.parse(emitter)?;
         let lane_config = actual::LaneConfig::from_catalog(&lane_catalog);
-        if relay_worker.enabled
-            && fees.settlement_mode != actual::NexusFeeSettlementMode::LaneRelayBurn
-        {
-            emitter.emit(
-                Report::new(ParseError::InvalidNexusConfig)
-                    .attach("nexus.relay_worker.enabled requires lane-relay-burn settlement"),
-            );
-            return None;
-        }
         if autoscale.enabled {
             let min_lane_id = autoscale.min_lane_id.get();
             let max_lane_id_exclusive = autoscale.max_lane_id_exclusive.get();
@@ -11381,10 +11254,9 @@ impl Nexus {
             }
         }
         Some(actual::Nexus {
+            fees: defaults::nexus::fees::genesis_policy(),
             storage,
             staking,
-            fees,
-            relay_worker,
             hf_shared_leases,
             uploaded_models,
             endorsement,
@@ -34506,18 +34378,20 @@ include!("user_validation_tests.rs");
 mod settlement_router_tests;
 
 #[cfg(test)]
-mod native_fee_mode_tests {
+mod committed_fee_configuration_tests {
     use super::*;
-
     #[test]
-    fn retired_lane_relay_burn_mode_is_a_configuration_error() {
-        let mut emitter = Emitter::new();
-        let fees = NexusFees {
-            settlement_mode: "lane_relay_burn".to_owned(),
-            ..NexusFees::default()
-        };
-        assert!(fees.parse(&mut emitter).is_none());
-        assert!(emitter.into_result().is_err());
+    fn node_configuration_refuses_retired_fee_and_worker_fields() {
+        use iroha_config_base::{read::ConfigReader, toml::TomlSource};
+        for source in ["[fees]\nbase_fee = \"1\"", "[relay_worker]\nenabled = true"] {
+            let parsed = toml::from_str(source).expect("valid TOML control");
+            assert!(
+                ConfigReader::new()
+                    .with_toml_source(TomlSource::inline(parsed))
+                    .read_and_complete::<Nexus>()
+                    .is_err()
+            );
+        }
     }
 }
 

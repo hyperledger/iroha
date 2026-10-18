@@ -5,7 +5,7 @@ use super::PrivateSettlementError;
 // The blocking SDK deliberately rejects Tokio's inherited spawn_blocking context.
 // A native worker owns the original permit and artifacts through completion; dropping
 // the awaiting future neither cancels that work nor releases its capacity early.
-pub(super) async fn run_worker<T: Send + 'static>(
+pub(in crate::client::private_settlement) async fn run_worker<T: Send + 'static>(
     permit: tokio::sync::OwnedSemaphorePermit,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, PrivateSettlementError> {

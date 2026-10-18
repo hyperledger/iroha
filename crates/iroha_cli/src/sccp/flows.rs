@@ -554,8 +554,8 @@ fn run_evm_step(
     let signed = iroha_sccp_wallet::pure::evm::SignedEip1559V1::decode(&step.record().submission)
         .map_err(|error| eyre!("original EVM envelope: {error:?}"))?;
     let hash = destination.retained_hash(&step.record().submission, &signed.transaction.data)?;
-    let _confirmation_budget =
-        destination.confirmation_budget(context.sccp_config()?.confirmation_timeout);
+    let (receipt_deadline, _receipt_budget) =
+        destination.receipt_budget(context.sccp_config()?.confirmation_timeout)?;
     let outcome = drive_and_wait(
         context,
         step,
@@ -588,7 +588,7 @@ fn run_evm_step(
                 proof_items.extend(destination.confirm_finalized(&receipt, &bundle)?);
             }
             let locator = norito::json!({"transaction_hash": (hex::encode(hash)), "block_hash": (hex::encode(receipt.block_hash)), "block_number": (receipt.block_number), "transaction_index": (receipt.transaction_index)});
-            Ok(Some(SccpJournalOutcomeV1 {
+            checked_outcome(Some(SccpJournalOutcomeV1 {
                 outcome: kind,
                 transaction: hash.to_vec(),
                 evidence: {
@@ -602,6 +602,10 @@ fn run_evm_step(
                     proof_items
                 },
             }))
+            .and_then(|outcome| {
+                destination.require_receipt_deadline(receipt_deadline)?;
+                Ok(outcome)
+            })
         },
         |raw| {
             ensure!(

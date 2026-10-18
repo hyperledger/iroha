@@ -36,7 +36,7 @@ impl State {
         self.with_native_world_state_snapshot_cut_v1(tip, None, budget, |snapshot, world| {
             let (permissions, current) =
                 reserve_policy_originals(snapshot, world, manager, budget)?;
-            consume(snapshot, permissions, current)
+            consume(snapshot, permissions, current).map_err(WorldStateSnapshotError::from)
         })
     }
 }

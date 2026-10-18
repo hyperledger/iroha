@@ -142,11 +142,7 @@ pub async fn handler(
                     |world, permissions, current| {
                         let payload = ReservePolicyProofRefV1::new(world, permissions, current);
                         crate::native_projection_response::encode(
-                            &payload,
-                            format,
-                            maximum,
-                            &budget,
-                            unavailable,
+                            &payload, format, maximum, &budget,
                         )
                         .map_err(|_| "reserve policy proof encoding refused".to_owned())
                     },

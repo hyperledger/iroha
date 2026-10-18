@@ -4,10 +4,10 @@
 
 use iroha_torii_shared::kagemusha_enrollment::{
     ENROLLMENT_DISPATCH_MAX_BYTES_V1, ENROLLMENT_EVIDENCE_REQUEST_MAX_BYTES_V1,
-    ENROLLMENT_RESULT_MAX_BYTES_V1, ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1,
-    ENROLLMENT_SERVICE_RESPONSE_MAX_BYTES_V1, ENROLLMENT_SERVICE_ROUTE_V1,
-    EnrollmentServiceActionV1 as Action, EnrollmentServiceRequestV1 as Request,
-    EnrollmentServiceResponseV1 as Response,
+    ENROLLMENT_EXPIRY_PROOF_MAX_BYTES_V1, ENROLLMENT_RESULT_MAX_BYTES_V1,
+    ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1, ENROLLMENT_SERVICE_RESPONSE_MAX_BYTES_V1,
+    ENROLLMENT_SERVICE_ROUTE_V1, EnrollmentServiceActionV1 as Action,
+    EnrollmentServiceRequestV1 as Request, EnrollmentServiceResponseV1 as Response,
 };
 use norito::{NoritoSchema, json};
 use sha2::{Digest, Sha256};
@@ -36,6 +36,7 @@ fn vectors() -> Result<json::Value, Box<dyn std::error::Error>> {
         ("evidence", Action::Evidence),
         ("issue", Action::Issue),
         ("deliver", Action::Deliver),
+        ("expiry_proof", Action::ExpiryProof),
     ] {
         let value = Request {
             version: 1,
@@ -70,6 +71,7 @@ fn vectors() -> Result<json::Value, Box<dyn std::error::Error>> {
         ("pending", Response::Pending),
         ("credential_ready", Response::CredentialReady),
         ("credential", Response::Credential(vec![9, 10])),
+        ("expiry_proof", Response::ExpiryProof(vec![11, 12])),
     ] {
         let wire = value.canonical_wire()?;
         assert_eq!(Response::decode_canonical(&wire)?, value);
@@ -80,6 +82,10 @@ fn vectors() -> Result<json::Value, Box<dyn std::error::Error>> {
         (
             "response_credential",
             Response::Credential(vec![2; ENROLLMENT_RESULT_MAX_BYTES_V1]),
+        ),
+        (
+            "response_expiry_proof",
+            Response::ExpiryProof(vec![3; ENROLLMENT_EXPIRY_PROOF_MAX_BYTES_V1]),
         ),
     ] {
         let wire = value.canonical_wire()?;
@@ -101,9 +107,10 @@ fn vectors() -> Result<json::Value, Box<dyn std::error::Error>> {
         "evidence_hex": "040506",
         "permit_hex": "0708",
         "credential_hex": "090a",
+        "expiry_proof_hex": "0b0c",
         "request_frame_max_bytes": ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1,
         "response_frame_max_bytes": ENROLLMENT_SERVICE_RESPONSE_MAX_BYTES_V1,
-        "bound_inputs": "Dispatch/Permit use byte 01; Evidence/Credential use byte 02, repeated to their inclusive original limits. Evidence is present only for its action.",
+        "bound_inputs": "Dispatch/Permit use byte 01; Evidence/Credential use byte 02; ExpiryProof uses byte 03, repeated to their inclusive original limits. Evidence is present only for its action.",
         "requests": requests,
         "responses": responses,
         "inclusive_bounds": bounds,

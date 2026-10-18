@@ -10949,7 +10949,6 @@ _PIPELINE_PREFLIGHT_SECTION_FIELDS: Dict[str, Tuple[str, ...]] = {
         "per_instruction_fee",
         "per_gas_unit_fee",
         "sponsor_vault_custody_account_id",
-        "settlement_mode",
         "successful_claim_fee_exempt_authorities",
     ),
 }
@@ -10967,9 +10966,7 @@ _PIPELINE_PREFLIGHT_FEE_STRINGS = (
     "per_byte_fee",
     "per_instruction_fee",
     "per_gas_unit_fee",
-    "settlement_mode",
 )
-_PIPELINE_PREFLIGHT_SETTLEMENT_MODES = ("direct", "lane_relay_burn")
 
 
 def _require_pipeline_preflight_fields(
@@ -11066,11 +11063,6 @@ class ToriiPipelinePreflight:
             value = fees[field_name]
             if not isinstance(value, str) or not value:
                 raise TypeError(f"pipeline preflight fees.{field_name} must be a non-empty string")
-        if fees["settlement_mode"] not in _PIPELINE_PREFLIGHT_SETTLEMENT_MODES:
-            raise ValueError(
-                "pipeline preflight fees.settlement_mode must be one of: "
-                + ", ".join(_PIPELINE_PREFLIGHT_SETTLEMENT_MODES)
-            )
         fees["fee_sink_account_id"] = _normalize_exact_any_i105_account_id(
             fees["fee_sink_account_id"],
             "pipeline preflight fees.fee_sink_account_id",

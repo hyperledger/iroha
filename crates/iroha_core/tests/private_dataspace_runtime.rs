@@ -144,9 +144,7 @@ fn sign_paid(
     instructions: impl IntoIterator<Item = InstructionBox>,
     created_ms: u64,
 ) -> SignedTransaction {
-    let fee_asset =
-        AssetDefinitionId::parse_address_literal(&chain.state().view().nexus().fees.fee_asset_id)
-            .expect("the signed network fee asset");
+    let fee_asset = chain.state().view().nexus().fees.fee_asset_id.clone();
     let intent = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
             FeeChargeKind::Nexus,
@@ -172,9 +170,7 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
     let owner = AccountId::new(owner_key.public_key().clone());
     let governance_key = KeyPair::from_seed(vec![0x52; 32], Algorithm::Ed25519);
     let governance = AccountId::new(governance_key.public_key().clone());
-    let fee_asset =
-        AssetDefinitionId::parse_address_literal(&actual::Nexus::default().fees.fee_asset_id)
-            .expect("default network XOR asset");
+    let fee_asset = actual::Nexus::default().fees.fee_asset_id.clone();
     let mut validators = (0x61..=0x64)
         .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
         .collect::<Vec<_>>();

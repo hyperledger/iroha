@@ -161,6 +161,12 @@ class ParliamentTimedOvnWalletV1Test {
         assertTrue(source.contains("synchronized(lockForAlias(handle.alias))"))
         assertTrue(source.contains("handle.matchesGenerationId(generationId)"))
         assertTrue(source.contains("cipher.updateAAD(aad)"))
+        // Only seed creation may generate the wrapping key; decryption only loads it.
+        assertTrue(source.contains("ParliamentTimedOvnSeedWrappingKeyV1.androidKeystore()"))
+        assertTrue(source.contains("cipher.init(Cipher.ENCRYPT_MODE, wrappingKey.loadOrGenerate())"))
+        assertTrue(source.contains("cipher.init(Cipher.DECRYPT_MODE, wrappingKey.load(), GCMParameterSpec(128, iv))"))
+        assertEquals(1, Regex("""\.loadOrGenerate\(\)""").findAll(source).count())
+        assertEquals(1, Regex("""::generatePlatformKey\b""").findAll(source).count())
         assertFalse(source.contains("nativeRegistrationFromSeedV1"))
         assertFalse(source.contains("nativeBallotFromSeedV1"))
     }

@@ -384,7 +384,7 @@ fn test_state() -> (
     };
     npos.validate().expect("native currency fixture policy");
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.fee_asset_id = npos.xor_asset_definition_id.canonical_address();
+    nexus.fees.fee_asset_id = npos.xor_asset_definition_id.clone();
     nexus.staking.stake_asset_id = npos.xor_asset_definition_id.canonical_address();
     // Preserve the original component State fixture's zero generic fees.
     nexus.fees.base_fee = Quantity::zero();
@@ -443,8 +443,7 @@ fn admission_fixture_authenticates_network_xor_identity_and_precision_in_signed_
         npos.xor_asset_definition_id.canonical_address()
     );
     assert_eq!(
-        AssetDefinitionId::parse_address_literal(&nexus.fees.fee_asset_id)
-            .expect("the fee selector is the canonical authenticated currency address"),
+        nexus.fees.fee_asset_id.clone(),
         npos.xor_asset_definition_id
     );
     assert_eq!(nexus.fees.base_fee, Quantity::zero());
@@ -1275,7 +1274,7 @@ fn admission_fixture_retains_original_same_epoch_schedule_without_finalizing_his
         TEST_POLICY_LAST_SCHEDULED_HEIGHT
     );
     let policy = validation_fee_policy(&state, asset.clone(), treasury);
-    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy.clone());
+    install_canonical_post_enactment_validation_fee_state(&state, &user, &key, &policy);
     {
         let view = state.view();
         let schedule = view.world().consensus_schedule();

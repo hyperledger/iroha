@@ -2147,6 +2147,8 @@ a flag that bypasses monetary validation.
 
 The remaining work is executed in the following order, with independent proof,
 ledger and measurement work continuing while a platform dependency is resolved.
+The [first-release execution goals](kagemusha_first_release_goals.md) map these
+requirements to the current source, harnesses and external dependencies.
 This is the first release: replace defective layouts, APIs and constructions
 directly, regenerate their artifacts and consumers, and remove superseded paths.
 Do not preserve compatibility decoders, old-key fallbacks or a second monetary
@@ -2238,23 +2240,34 @@ proof lengths must be measured together after descriptor regeneration. The retir
 Reserve/Commit monetary engines and mint-finality authority are deleted.
 
 Native PIPA-R/PIPA-AS, total soft circuit verification and authenticated indexed
-map components have tests. A real Q verifies a Receive-k12 and incoming Send-k14
-proof and produces a verified 10,496-byte local proof. The Q-to-A recursive
-frame fits k16 after bounded foreign-arithmetic optimization. These are
-component proofs: every operation's object signatures, effects and full
-recursive composition are still being connected. The complete current Ω construction still needs capacity and size qualification
-against the 5,086-byte transport cap. Changes to proof constraints and fixed
-input capacities require regenerated descriptors and genuine proofs before
-artifact freeze; earlier component geometry does not establish this result.
+map components, per-operation relations and Q → A → Ω composition are
+implemented. Load authenticates ordinary Sumeragi BLS finality before Advance;
+retired recursive-finality proofs supply no authority. The current complete
+catalog test expects 22 routes and 16 programs, including ordinary and renewed
+Receive routes over the single Receive sigma selector. The complete current
+catalog still needs matching strict profiles, regenerated registry DATA and
+genuine capacity/size qualification against the 5,086-byte Omega transport cap.
+Changes to proof constraints and fixed input capacities require regenerated
+descriptors and genuine proofs before artifact freeze; earlier component
+geometry and the historical 52-route catalog do not establish this result.
 
 The shared Rust wallet coordinator now retains exact outputs, fold witnesses,
 checkpoints and permanent replay indexes around the existing durable `Advance`
 provider. Its component tests exercise interruption, recovery and missing or
 rolled-back archives. Native storage uses retained directory descriptors and
 identity-checked publication. The coordinator requires a real authenticated
-proof provider; bridge/SDK wiring, complete finalized ledger services and real
-A → B → C → unload remain unfinished. Component tests do not demonstrate a
-complete phone payment, the two-second p95 requirement or physical-device
-latency, energy, durability or memory compliance. The [current evidence
-checklist](kagemusha_evidence_gate.md#8-recorded-results) distinguishes executed
-component checks, diagnostic hard failures and outstanding qualification.
+proof provider. C/JNI and managed SDK lifecycle paths and the seven-stage host
+journey are implemented. The recorded captured journey completes
+Bootstrap/Activate/Load, A → B → C → Unload, archive restart/replay and local
+certified settlement/confirmation with an engineering issuer, simulated payment
+hardware and a local committee. That result does not qualify the changed source,
+four running validators or physical phones. Current harnesses also assert a
+fresh-ID duplicate Receive after receiver restart and reverse spending of
+received value through the renewal continuation; their matching execution
+remains required. The iOS multiple-anchor-write-loss counterexample remains
+explicitly unqualified until the supported platform persistence/key boundary
+excludes it. Component tests do not demonstrate a complete phone payment, the
+two-second p95 requirement or physical-device latency, energy, durability or
+memory compliance. The [current evidence checklist](kagemusha_evidence_gate.md#8-recorded-results)
+distinguishes executed component checks, diagnostic hard failures and outstanding
+qualification.

@@ -302,7 +302,7 @@ fn staking_configuration_and_reward_custody_reject_registered_xor_lookalike() {
     // authority. Staking and funded reward custody both require the committed identity.
     for configured in [&committed_xor, &lookalike] {
         stx.nexus.staking.stake_asset_id = configured.to_string();
-        stx.nexus.fees.fee_asset_id = configured.to_string();
+        stx.nexus.fees.fee_asset_id = configured.clone();
         let stake_result = stake_context(
             &stx.world,
             &stx.nexus.dataspace_catalog,
@@ -636,5 +636,261 @@ fn final_unbond_rejects_mismatched_share_identity_and_rolls_back_transaction() {
             .unwrap()
             .as_ref(),
         &quantity_add(balances_before.1.unwrap().as_ref().clone(), request.amount).unwrap(),
+    );
+}
+
+#[test]
+fn every_changed_bond_plan_rolls_back_an_earlier_successful_bond() {
+    use iroha_data_model::asset::AssetBalanceScope;
+
+    let state = setup_state();
+    let lane = LaneId::new(42);
+    let mut block = state.block(block_header_with_height(1));
+    let (validator, delegator, escrow, definition, nexus) = {
+        let mut stx = block.transaction_for_callback_testing();
+        let (validator, delegator, escrow, definition) = prepare_accounts(&mut stx);
+        RegisterPublicLaneValidator::new(
+            lane,
+            validator.clone(),
+            validator_peer_id(&validator),
+            validator.clone(),
+            Quantity::from(1_000_u64),
+            Metadata::default(),
+            fixture_registration_plan(&stx, lane, &validator, Quantity::from(1_000_u64)),
+        )
+        .execute(&validator, &mut stx)
+        .expect("fund exact canonical XOR custody before the tested transactions");
+        let nexus = stx.nexus.clone();
+        stx.apply();
+        (validator, delegator, escrow, definition, nexus)
+    };
+    let validator_key = validator_storage_key(lane, &validator);
+    let share_key = stake_key(lane, &validator, &delegator);
+    let source = AssetId::new(definition.clone(), delegator.clone());
+    let destination = AssetId::new(definition.clone(), escrow);
+    let (bond, validator_before, custody_before, reserve_before, balances_before) = {
+        let mut stx = block.transaction_for_callback_testing();
+        stx.nexus = nexus.clone();
+        let amount = Quantity::from(100_u64);
+        let bond = BondPublicLaneStake {
+            lane_id: lane,
+            validator: validator.clone(),
+            staker: delegator.clone(),
+            amount: amount.clone(),
+            metadata: Metadata::default(),
+            monetary_plan: fixture_bond_plan(&stx, lane, &validator, &delegator, amount),
+        };
+        assert!(stx.world.public_lane_stake_shares.get(&share_key).is_none());
+        (
+            bond,
+            stx.world
+                .public_lane_validators
+                .get(&validator_key)
+                .cloned(),
+            stx.world
+                .public_lane_stake_custody
+                .get(&validator_key)
+                .cloned(),
+            stx.world
+                .public_lane_stake_reserves
+                .get(&destination)
+                .cloned(),
+            (
+                stx.world.assets.get(&source).cloned(),
+                stx.world.assets.get(&destination).cloned(),
+            ),
+        )
+    };
+    for changed_binding in 0..11 {
+        let mut stx = block.transaction_for_callback_testing();
+        stx.nexus = nexus.clone();
+        // The first instruction really changes all five affected stores. The
+        // later rejection must discard this successful prefix as well.
+        BondPublicLaneStake {
+            lane_id: lane,
+            validator: validator.clone(),
+            staker: delegator.clone(),
+            amount: Quantity::one(),
+            metadata: Metadata::default(),
+            monetary_plan: fixture_bond_plan(&stx, lane, &validator, &delegator, Quantity::one()),
+        }
+        .execute(&delegator, &mut stx)
+        .expect("the successful prefix must exist before the rejecting instruction");
+        let prefix = (
+            stx.world
+                .public_lane_validators
+                .get(&validator_key)
+                .cloned(),
+            stx.world.public_lane_stake_shares.get(&share_key).cloned(),
+            stx.world
+                .public_lane_stake_custody
+                .get(&validator_key)
+                .cloned(),
+            stx.world
+                .public_lane_stake_reserves
+                .get(&destination)
+                .cloned(),
+            (
+                stx.world.assets.get(&source).cloned(),
+                stx.world.assets.get(&destination).cloned(),
+            ),
+        );
+        assert_ne!(prefix.0, validator_before);
+        assert_eq!(prefix.1.as_ref().unwrap().bonded, Quantity::one());
+        assert_ne!(prefix.2, custody_before);
+        assert_ne!(prefix.3, reserve_before);
+        assert_ne!(prefix.4, balances_before);
+
+        let mut altered = bond.clone();
+        let plan = &mut altered.monetary_plan;
+        match changed_binding {
+            0 => {
+                plan.network_scope = PublicLaneMonetaryScopeV1::Network(
+                    iroha_data_model::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+                        Hash::new(b"foreign-bond-plan-network"),
+                    )),
+                );
+            }
+            1 => plan.valid_until_height = 0,
+            2 => plan.valid_until_height = u64::MAX,
+            3 => plan.source_asset = AssetId::new(definition.clone(), validator.clone()),
+            4 => {
+                plan.source_asset = AssetId::with_scope(
+                    definition.clone(),
+                    delegator.clone(),
+                    AssetBalanceScope::Dataspace(DataSpaceId::new(42)),
+                );
+            }
+            5 => plan.destination_asset = source.clone(),
+            6 => {
+                plan.destination_asset = AssetId::with_scope(
+                    definition.clone(),
+                    destination.account().clone(),
+                    AssetBalanceScope::Dataspace(DataSpaceId::new(42)),
+                );
+            }
+            7 => plan.amount = Quantity::from(99_u64),
+            8 => {
+                let PublicLaneMonetaryPreconditionV1::Bond(binding) = &mut plan.precondition else {
+                    panic!("the original observed precondition must be a bond");
+                };
+                binding.activation_height += 1;
+            }
+            9 => {
+                let PublicLaneMonetaryPreconditionV1::Bond(binding) = &mut plan.precondition else {
+                    panic!("the original observed precondition must be a bond");
+                };
+                binding.peer_id = validator_peer_id(&delegator);
+            }
+            _ => {
+                plan.precondition = PublicLaneMonetaryPreconditionV1::Registration(
+                    PublicLaneMonetaryRegistrationV1 {
+                        activation_height: validator_before.as_ref().unwrap().activation_height,
+                    },
+                );
+            }
+        }
+        let error = altered
+            .execute(&delegator, &mut stx)
+            .expect_err("every exact monetary binding must be reproduced before custody writes");
+        assert!(
+            error.to_string().contains("monetary plan"),
+            "{changed_binding}: {error}"
+        );
+        assert_eq!(
+            (
+                stx.world
+                    .public_lane_validators
+                    .get(&validator_key)
+                    .cloned(),
+                stx.world.public_lane_stake_shares.get(&share_key).cloned(),
+                stx.world
+                    .public_lane_stake_custody
+                    .get(&validator_key)
+                    .cloned(),
+                stx.world
+                    .public_lane_stake_reserves
+                    .get(&destination)
+                    .cloned(),
+                (
+                    stx.world.assets.get(&source).cloned(),
+                    stx.world.assets.get(&destination).cloned(),
+                ),
+            ),
+            prefix,
+            "the refusing instruction cannot change the successful prefix",
+        );
+        drop(stx);
+        let reopened = block.transaction_for_callback_testing();
+        assert_eq!(
+            reopened.world.public_lane_validators.get(&validator_key),
+            validator_before.as_ref()
+        );
+        assert!(
+            reopened
+                .world
+                .public_lane_stake_shares
+                .get(&share_key)
+                .is_none()
+        );
+        assert_eq!(
+            reopened.world.public_lane_stake_custody.get(&validator_key),
+            custody_before.as_ref()
+        );
+        assert_eq!(
+            reopened.world.public_lane_stake_reserves.get(&destination),
+            reserve_before.as_ref()
+        );
+        assert_eq!(
+            (
+                reopened.world.assets.get(&source).cloned(),
+                reopened.world.assets.get(&destination).cloned(),
+            ),
+            balances_before,
+            "dropping a rejected transaction must undo its successful prefix",
+        );
+    }
+    let mut accepted = block.transaction_for_callback_testing();
+    accepted.nexus = nexus;
+    bond.execute(&delegator, &mut accepted)
+        .expect("the unchanged original monetary plan remains executable after every rejection");
+    assert_eq!(
+        accepted
+            .world
+            .public_lane_stake_shares
+            .get(&share_key)
+            .unwrap()
+            .bonded,
+        Quantity::from(100_u64)
+    );
+    assert_eq!(
+        accepted
+            .world
+            .public_lane_validators
+            .get(&validator_key)
+            .unwrap()
+            .total_stake,
+        Quantity::from(1_100_u64)
+    );
+    assert_eq!(
+        accepted
+            .world
+            .public_lane_stake_custody
+            .get(&validator_key)
+            .unwrap()
+            .1,
+        Quantity::from(1_100_u64)
+    );
+    assert_eq!(
+        accepted.world.public_lane_stake_reserves.get(&destination),
+        Some(&Quantity::from(1_100_u64))
+    );
+    assert_eq!(
+        accepted.world.assets.get(&source).unwrap().as_ref(),
+        &Quantity::from(9_900_u64)
+    );
+    assert_eq!(
+        accepted.world.assets.get(&destination).unwrap().as_ref(),
+        &Quantity::from(1_100_u64)
     );
 }

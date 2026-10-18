@@ -8,6 +8,9 @@
 //! The included release-harness entrypoint parameterizes the same production
 //! workflow across N=2,3,4,8,16 and publishes only measured process evidence.
 
+#[cfg(feature = "atomic-private-settlement-smoke")]
+#[path = "atomic_private_settlement_onecall.rs"]
+mod atomic_private_settlement_onecall;
 #[path = "atomic_private_settlement_observation.rs"]
 mod peer_observation;
 #[cfg(feature = "atomic-private-settlement-smoke")]
@@ -658,6 +661,23 @@ fn localnet_builder(shape: TopologyShape) -> NetworkBuilder {
             },
         )
         .with_genesis_instruction(npos_override_instruction(VALIDATORS_PER_LANE))
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.fee_asset_id = (nexus_fee_asset_definition_id().to_string())
+                    .parse()
+                    .expect("canonical fixture fee asset");
+                fees.base_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = (NEXUS_FEE_PER_PRIVATE_SETTLEMENT_CARRIER)
+                    .parse()
+                    .expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(move |layer| {
             let lanes = (0..shape.lane_count())
                 .map(|lane| {
@@ -755,17 +775,6 @@ fn localnet_builder(shape: TopologyShape) -> NetworkBuilder {
                 .write(["nexus", "lane_catalog"], TomlValue::Array(lanes))
                 .write(["nexus", "dataspace_catalog"], TomlValue::Array(dataspaces))
                 .write(["nexus", "routing_policy"], TomlValue::Table(routing))
-                .write(
-                    ["nexus", "fees", "fee_asset_id"],
-                    nexus_fee_asset_definition_id().to_string(),
-                )
-                .write(["nexus", "fees", "base_fee"], "0")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(
-                    ["nexus", "fees", "per_instruction_fee"],
-                    NEXUS_FEE_PER_PRIVATE_SETTLEMENT_CARRIER,
-                )
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0")
                 .write(
                     ["nexus", "staking", "public_validator_mode"],
                     "stake_elected",
@@ -1449,11 +1458,26 @@ fn private_settlement_leg_private_material(
     material_ordinal: usize,
     purpose: &[u8],
 ) -> [u8; 32] {
-    use sha2::Digest as _;
+    private_settlement_leg_private_material_for_bundle(
+        manifest.bundle_id,
+        governed,
+        leg_ordinal,
+        material_ordinal,
+        purpose,
+    )
+}
 
+fn private_settlement_leg_private_material_for_bundle(
+    bundle_id: Hash,
+    governed: &GovernedLeg,
+    leg_ordinal: usize,
+    material_ordinal: usize,
+    purpose: &[u8],
+) -> [u8; 32] {
+    use sha2::Digest as _;
     let mut digest = sha2::Sha256::new();
     digest.update(PRIVATE_SETTLEMENT_LEG_PRIVATE_MATERIAL_DOMAIN_V1);
-    digest.update(manifest.bundle_id.as_ref());
+    digest.update(bundle_id.as_ref());
     digest.update(governed.governance.governance_digest.as_ref());
     digest.update(
         u64::try_from(leg_ordinal)
@@ -1704,16 +1728,30 @@ fn private_settlement_reimbursement_terms_salt(
     manifest: &AtomicPrivateSettlementV1,
     governed: &GovernedLeg,
 ) -> [u8; 32] {
-    use sha2::Digest as _;
+    private_settlement_reimbursement_terms_salt_for_terms(
+        manifest.network_id,
+        manifest.authority_context_height,
+        manifest.expiry_height,
+        manifest.fee_intent_digest,
+        governed,
+    )
+}
 
-    // `bundle_id` commits to the reimbursement commitment, so derive this
-    // salt from the rest of the unique bundle preimage to avoid a cycle.
+fn private_settlement_reimbursement_terms_salt_for_terms(
+    network_id: iroha_data_model::NetworkId,
+    authority_context_height: u64,
+    expiry_height: u64,
+    fee_intent_digest: Hash,
+    governed: &GovernedLeg,
+) -> [u8; 32] {
+    use sha2::Digest as _;
+    // The bundle binds this commitment: its salt excludes bundle_id to avoid a cycle.
     let mut digest = sha2::Sha256::new();
     digest.update(PRIVATE_SETTLEMENT_REIMBURSEMENT_SALT_DOMAIN_V1);
-    digest.update(manifest.network_id.as_bytes());
-    digest.update(manifest.authority_context_height.to_le_bytes());
-    digest.update(manifest.expiry_height.to_le_bytes());
-    digest.update(manifest.fee_intent_digest.as_ref());
+    digest.update(network_id.as_bytes());
+    digest.update(authority_context_height.to_le_bytes());
+    digest.update(expiry_height.to_le_bytes());
+    digest.update(fee_intent_digest.as_ref());
     digest.update(governed.governance.governance_digest.as_ref());
     digest.finalize().into()
 }
@@ -2367,7 +2405,10 @@ fn provisional_materials(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(finalize_atomic_private_settlement_provisional_bundle_v1(manifest, inputs)?.materials)
+    Ok(
+        finalize_atomic_private_settlement_provisional_bundle_v1(manifest.proof_intent(), inputs)?
+            .materials,
+    )
 }
 
 /// Keep receipt diagnostics scoped to one query without changing its returned value.
@@ -3368,6 +3409,7 @@ fn smoke_diagnostic_partial_and_interrupted_sinks_preserve_complete_record() {
 enum N3SettlementExperimentV1 {
     HappyDay,
     RestartRecovery,
+    ColdRestartRecovery,
 }
 
 #[cfg(feature = "atomic-private-settlement-smoke")]
@@ -3380,6 +3422,7 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
     let expected_kind = match experiment {
         N3SettlementExperimentV1::HappyDay => "happy_day",
         N3SettlementExperimentV1::RestartRecovery => "smoke",
+        N3SettlementExperimentV1::ColdRestartRecovery => "cold_one_call",
     };
     ensure!(
         smoke_request.kind == expected_kind,
@@ -3466,7 +3509,7 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             expiry_height,
         )?;
         pool_timing.complete();
-        let manifest = proof_manifest(
+        let intent = atomic_private_settlement_onecall::intent(
             network.network_id(),
             authority_context_height,
             expiry_height,
@@ -3498,7 +3541,7 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             &network,
             &before,
             shape.participants,
-            &manifest.bundle_id,
+            &intent.bundle_id,
             false,
         )?;
 
@@ -3508,40 +3551,18 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             governed.len() == 3 && committees.len() == 3,
             "exactly three proof jobs are required"
         );
-        // Authenticate all committee digests before launching any proof worker.
-        let jobs: [(GovernedLeg, Hash); 3] = governed
-            .into_iter()
-            .zip(&committees)
-            .map(|(leg, committee)| Ok((leg, committee.authority.digest()?)))
-            .collect::<Result<Vec<_>>>()?
-            .try_into()
-            .map_err(|_| eyre!("exactly three proof jobs are required"))?;
-        let prepared = collect_three_smoke_phase_jobs_v1(
-            SmokeLegJobPhaseV1::Proof,
-            jobs,
-            |ordinal, (leg, authority_digest)| {
-                let leg_timing = SmokeDiagnosticSpanV1::start(
-                    SmokeDiagnosticPhaseV1::ClientLegConstruction,
-                    Some(ordinal),
-                );
-                let prepared = prepare_leg(ordinal, leg, &manifest, authority_digest)?;
-                leg_timing.complete();
-                Ok(prepared)
-            },
-        )?;
-        let materials = provisional_materials(manifest, &prepared, &committees)?;
-        let endpoint_matrix = committees
-            .iter()
-            .map(|committee| committee.endpoints.clone())
-            .collect::<Vec<_>>();
-        let journal_directory = tempfile::tempdir_in(network.env_dir())?.keep();
-        let operation = prepared_operation::PreparedSdkFlow::new(
+        let operation = atomic_private_settlement_onecall::N3SdkFlow::new(
+            experiment == N3SettlementExperimentV1::ColdRestartRecovery,
             &network,
             &sponsor,
-            &materials,
-            endpoint_matrix,
-            &journal_directory.join("prepared-settlement"),
+            governed,
+            &committees,
+            &intent,
+            activated_height,
         )?;
+        // Auditors own their separate keys and independently reopen the governed policy.
+        // Cold SDK proof/witness/material owners exist only inside the exited child.
+        let auditor_legs = governed_legs(&routes, activated_height, expiry_height)?;
         let availability_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::AvailabilityCertification, None);
         // This injects an SDK journal acknowledgement loss after the real durable
@@ -3552,11 +3573,11 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
         let original_availability_checkpoint = operation.availability_checkpoint()?;
         let certificates = operation
             .round::<Vec<iroha_data_model::nexus::PrivateSettlementSidecarAvailabilityV1>>(0)?;
-        let final_manifest = operation.availability_manifest(&materials)?;
+        let final_manifest = operation.availability_manifest()?;
         evidence_files.push(write_smoke_evidence(
             &evidence_root,
             "prepared-artifact-sizes.json",
-            &prepared_operation::artifact_sizes(&materials, &final_manifest, &certificates)?,
+            &operation.artifact_sizes()?,
         )?);
         let upload_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::RestrictedUpload, None);
@@ -3577,17 +3598,17 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
 
         let audit_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::AuditorApproval, None);
-        for (ordinal, (leg, committee)) in prepared.iter().zip(&committees).enumerate() {
+        for (ordinal, (leg, committee)) in auditor_legs.iter().zip(&committees).enumerate() {
             let auditor_transport_signer =
-                BorrowedKeyPairIdentityRequestSignerV1::new(&leg.governed.auditor_signing);
+                BorrowedKeyPairIdentityRequestSignerV1::new(&leg.auditor_signing);
             let capsule_request = PrivateSettlementAuditorCapsuleRequestV1 {
-                audit_policy: leg.governed.policy.clone(),
+                audit_policy: leg.policy.clone(),
             };
             let fetched = sponsor
                 .client()
                 .private_settlement_auditor_capsule_quorum_for_authority_v1(
                     &committee.endpoints,
-                    &materials[ordinal].committee_authority,
+                    &committee.authority,
                     final_manifest.legs[ordinal].payload_digest,
                     &capsule_request,
                     &auditor_transport_signer,
@@ -3598,14 +3619,19 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             );
             ensure!(
                 fetched.manifest == final_manifest
-                    && fetched.audit_policy == materials[ordinal].audit_policy
-                    && fetched.committee_authority == materials[ordinal].committee_authority
-                    && fetched.statement == materials[ordinal].statement
-                    && fetched.delta == materials[ordinal].delta
-                    && fetched.audit_capsule == materials[ordinal].audit_capsule
+                    && fetched.audit_policy == leg.policy
+                    && fetched.committee_authority == committee.authority
                     && fetched.availability == certificates[ordinal],
                 "authenticated auditor view replaced original prepared material or availability certificate"
             );
+            operation.require_original_sidecar(
+                ordinal,
+                &fetched.audit_policy,
+                &fetched.committee_authority,
+                &fetched.statement,
+                &fetched.delta,
+                &fetched.audit_capsule,
+            )?;
             let authoritative_height = fetched.authoritative_height;
             let view = PrivateSettlementAuditorSidecarViewV1 {
                 manifest: fetched.manifest,
@@ -3617,21 +3643,21 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
                 availability: fetched.availability,
                 lifecycle: PrivateSettlementSidecarLifecycleV1::Collecting,
             };
-            let auditor_id = AccountId::new(leg.governed.auditor_signing.public_key().clone());
+            let auditor_id = AccountId::new(leg.auditor_signing.public_key().clone());
             let approval = approve_private_settlement_leg_v1(
                 &view,
-                &leg.governed.governance,
+                &leg.governance,
                 authoritative_height,
                 &auditor_id,
-                leg.governed.auditor_encryption.secret(),
-                &leg.governed.auditor_signing,
+                leg.auditor_encryption.secret(),
+                &leg.auditor_signing,
                 &approve_all_audit_material,
             )?;
             let response = sponsor
                 .client()
                 .submit_private_settlement_audit_approval_quorum_for_authority_v1(
                     &committee.endpoints,
-                    &materials[ordinal].committee_authority,
+                    &committee.authority,
                     final_manifest.legs[ordinal].payload_digest,
                     &auditor_transport_signer,
                     &PrivateSettlementAuditApprovalRequestV1 {
@@ -3661,7 +3687,7 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
         let prepare_timing =
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::PrepareCertification, None);
         operation.interrupt_after(&runtime, 1)?;
-        let barrier = operation.barrier(final_manifest.clone(), &materials)?;
+        let barrier = operation.barrier(final_manifest.clone(), &committees)?;
         prepare_timing.complete();
         assert_no_partial_visibility(&network, final_manifest.bundle_id, "prepared")?;
         let state = capture_fault_state_snapshot(&network, "smoke-prepared")?;
@@ -3723,8 +3749,7 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             SmokeDiagnosticSpanV1::start(SmokeDiagnosticPhaseV1::FinalityWorkflow, None);
         // The public operation includes submission and independent finality reads;
         // its duration belongs to FinalityWorkflow, not an HTTP-only submission span.
-        let settled = operation.finish(&runtime)?;
-        let verified_receipt = settled.receipt;
+        let verified_receipt = operation.finish(&runtime, &sponsor, &barrier)?;
         let request = prepared_operation::original_finalization(&verified_receipt)?;
         ensure!(
             operation.availability_checkpoint()? == original_availability_checkpoint,
@@ -3953,7 +3978,7 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
                 wait_for_identical_receipt(&network, final_manifest.bundle_id)? == receipt,
                 "smoke restart target #{peer_index} changed the finalized receipt"
             );
-            let recovered_receipt = operation.recover(&runtime)?;
+            let recovered_receipt = operation.recover(&runtime, &sponsor, &barrier)?;
             ensure!(
                 recovered_receipt.receipt() == verified_receipt.receipt()
                     && recovered_receipt.transaction_hash() == verified_receipt.transaction_hash()
@@ -4034,10 +4059,14 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             "restarts.json",
             &restarts,
         )?);
+        if experiment == N3SettlementExperimentV1::ColdRestartRecovery {
+            evidence_files.extend(operation.write_evidence(&evidence_root)?);
+        }
+        operation.require_original_deadline()?;
         write_real_process_result(&RealProcessSmokeResultV1 {
             version: 1,
             protocol: "AtomicPrivateSettlementV1".to_owned(),
-            kind: "smoke".to_owned(),
+            kind: expected_kind.to_owned(),
             request: smoke_request,
             request_sha256: request_sha,
             network_id: norito::json::to_value(&network.network_id())?,
@@ -4052,8 +4081,9 @@ fn run_n3_real_process_experiment(experiment: N3SettlementExperimentV1) -> Resul
             passed: true,
             artifacts: evidence_files,
         })?;
+        operation.require_original_deadline()?;
         println!(
-            "APS smoke completed: participants={} processes={} restarted={} finalized_height={}",
+            "APS {expected_kind} completed: participants={} processes={} restarted={} finalized_height={}",
             shape.participants,
             shape.process_count(),
             shape.process_count(),
@@ -4089,6 +4119,20 @@ fn atomic_private_settlement_n3_happy_day() -> Result<()> {
         .stack_size(TEST_STACK_BYTES)
         .spawn(|| run_n3_real_process_experiment(N3SettlementExperimentV1::HappyDay))
         .expect("spawn happy-day settlement thread");
+    match handle.join() {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+#[cfg(feature = "atomic-private-settlement-smoke")]
+#[test]
+#[ignore = "genuine one-call wallet/prover in fresh SDK processes; restarts all 16 validators"]
+fn atomic_private_settlement_n3_cold_one_call() -> Result<()> {
+    let handle = thread::Builder::new()
+        .name("atomic-private-settlement-n3-cold".to_owned())
+        .stack_size(TEST_STACK_BYTES)
+        .spawn(|| run_n3_real_process_experiment(N3SettlementExperimentV1::ColdRestartRecovery))?;
     match handle.join() {
         Ok(result) => result,
         Err(panic) => std::panic::resume_unwind(panic),
@@ -4397,8 +4441,8 @@ fn participant_assets_execute_paid_setup_after_signed_genesis_domain_transfer() 
                 .into(),
             ]);
             let mut nexus = iroha_config::parameters::actual::Nexus::default();
-            nexus.fees.fee_asset_id = nexus_fee_asset_definition_id().to_string();
-            nexus.fees.fee_sink_account_id = BOB_ID.to_string();
+            nexus.fees.fee_asset_id = nexus_fee_asset_definition_id().clone();
+            nexus.fees.fee_sink_account_id = BOB_ID.clone();
             nexus.fees.base_fee = Quantity::zero();
             nexus.fees.per_byte_fee = Quantity::zero();
             nexus.fees.per_instruction_fee =

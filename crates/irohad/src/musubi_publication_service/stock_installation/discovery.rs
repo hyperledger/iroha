@@ -56,7 +56,9 @@ pub(super) fn prepare(
         budget,
         network,
         chain,
-        cursor: Mutex::new(NativeFinalityCursorV1::new()),
+        cursor: Mutex::new(NativeFinalityCursorV1::new(
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )),
         _selection_charge: selection_charge,
         _result_charge: result_charge,
     };

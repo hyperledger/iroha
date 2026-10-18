@@ -7570,21 +7570,7 @@ fn distribute_hf_join_refunds(
 fn resolve_fee_sink_account(
     state_transaction: &StateTransaction<'_, '_>,
 ) -> Result<AccountId, InstructionExecutionError> {
-    crate::block::parse_account_literal_with_world(
-        &state_transaction.world,
-        &state_transaction.nexus.dataspace_catalog,
-        &state_transaction.nexus.fees.fee_sink_account_id,
-        state_transaction.block_unix_timestamp_ms(),
-    )
-    .map_err(|error| {
-        InstructionExecutionError::InvariantViolation(error.to_string().into())
-    })?
-    .ok_or_else(|| {
-        InstructionExecutionError::InvariantViolation(
-            "invalid nexus.fees.fee_sink_account_id; expected canonical I105 account id or on-chain alias"
-                .into(),
-        )
-    })
+    Ok(state_transaction.nexus.fees.fee_sink_account_id.clone())
 }
 fn transfer_hf_shared_lease_amount(
     authority: &AccountId,
@@ -7613,7 +7599,7 @@ fn resolve_fee_asset_definition_id(
 ) -> Result<AssetDefinitionId, InstructionExecutionError> {
     crate::block::parse_asset_definition_literal_with_world(
         &state_transaction.world,
-        &state_transaction.nexus.fees.fee_asset_id,
+        &state_transaction.nexus.fees.fee_asset_id.canonical_address(),
         state_transaction.block_unix_timestamp_ms(),
     )
     .ok_or_else(|| {

@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 @testable import IrohaSwift
 
-/// Synthetic envelope DATA exercises transport only; it is never a valid native permit or E6.
+/// Synthetic envelope DATA exercises transport only; it grants no native permit, E6 or expiry authority.
 final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
     private typealias Action = ToriiKagemushaEnrollmentActionV1
     private typealias Request = ToriiKagemushaEnrollmentRequestV1
@@ -16,7 +16,8 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
     }
 
     private func request(_ action: Action) throws -> Request {
-        try Request(action: action, dispatchOriginal: Data([1, 2, 3]),
+        if action == .expiryProof { return try Request.expiryProof(dispatchOriginal: Data([1, 2, 3])) }
+        return try Request(action: action, dispatchOriginal: Data([1, 2, 3]),
                     evidenceOriginal: action == .evidence ? Data([4, 5, 6]) : Data())
     }
 
@@ -52,14 +53,15 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
         var payload = CompactNoritoWriter()
         payload.writeUInt32LE(tag)
         if let original { payload.writeField(CompactNorito.encodeBytesVec(original)) }
-        return frame(payload.data, flags: (tag == 0 || tag == 4) ? NoritoHeader.compactLen : 0)
+        return frame(payload.data, flags: (tag == 0 || tag == 4 || tag == 5) ? NoritoHeader.compactLen : 0)
     }
 
     private var replies: [(Action, Data, Response.Outcome)] {
         [(.preKey, response(0, original: Data([7, 8])), .permit(Data([7, 8]))),
          (.evidence, response(1), .evidenceReady), (.evidence, response(2), .pending),
          (.issue, response(3), .credentialReady),
-         (.deliver, response(4, original: Data([9, 10])), .credential(Data([9, 10])))]
+         (.deliver, response(4, original: Data([9, 10])), .credential(Data([9, 10]))),
+         (.expiryProof, response(5, original: Data([11, 12])), .expiryProof(Data([11, 12])))]
     }
 
     func testRustCanonicalFixtureFrames() throws {
@@ -75,7 +77,7 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
         XCTAssertEqual(fixture.requestFrameMaxBytes, Request.maximumBytes)
         XCTAssertEqual(fixture.responseFrameMaxBytes, Response.maximumBytes)
 
-        let actions: [String: Action] = ["pre_key": .preKey, "evidence": .evidence, "issue": .issue, "deliver": .deliver]
+        let actions: [String: Action] = ["pre_key": .preKey, "evidence": .evidence, "issue": .issue, "deliver": .deliver, "expiry_proof": .expiryProof]
         XCTAssertEqual(fixture.requests.count, actions.count)
         XCTAssertEqual(Set(fixture.requests.map(\.name)), Set(actions.keys))
         for row in fixture.requests {
@@ -91,7 +93,8 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
         let outcomes: [String: Response.Outcome] = [
             "permit": .permit(try XCTUnwrap(Data(hexString: fixture.permitHex))),
             "evidence_ready": .evidenceReady, "pending": .pending, "credential_ready": .credentialReady,
-            "credential": .credential(try XCTUnwrap(Data(hexString: fixture.credentialHex)))
+            "credential": .credential(try XCTUnwrap(Data(hexString: fixture.credentialHex))),
+            "expiry_proof": .expiryProof(try XCTUnwrap(Data(hexString: fixture.expiryProofHex)))
         ]
         XCTAssertEqual(fixture.responses.count, outcomes.count)
         XCTAssertEqual(Set(fixture.responses.map(\.name)), Set(outcomes.keys))
@@ -109,14 +112,15 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
     func testRustInclusiveBoundaryFixtures() throws {
         let fixture = try enrollmentFixture()
         var frames: [String: Data] = [:]
-        for (name, action) in [("pre_key", Action.preKey), ("evidence", .evidence), ("issue", .issue), ("deliver", .deliver)] {
+        for (name, action) in [("pre_key", Action.preKey), ("evidence", .evidence), ("issue", .issue), ("deliver", .deliver), ("expiry_proof", .expiryProof)] {
             frames["request_" + name] = try Request(action: action,
                 dispatchOriginal: Data(repeating: 1, count: Request.maximumDispatchBytes),
                 evidenceOriginal: action == .evidence ? Data(repeating: 2, count: Request.maximumEvidenceBytes) : Data()).canonicalOriginal
         }
         frames["response_permit"] = response(0, original: Data(repeating: 1, count: Response.maximumPermitBytes))
         frames["response_credential"] = response(4, original: Data(repeating: 2, count: Response.maximumCredentialBytes))
-        XCTAssertEqual(fixture.inclusiveBounds.count, 6)
+        frames["response_expiry_proof"] = response(5, original: Data(repeating: 3, count: Response.maximumExpiryProofBytes))
+        XCTAssertEqual(fixture.inclusiveBounds.count, 8)
         XCTAssertEqual(Set(fixture.inclusiveBounds.map(\.name)), Set(frames.keys))
         for row in fixture.inclusiveBounds {
             let wire = try XCTUnwrap(frames[row.name])
@@ -164,18 +168,31 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
                 dispatchOriginal: Data(repeating: 1, count: Request.maximumDispatchBytes + 1)))
         }
         XCTAssertThrowsError(try Request(action: .evidence, dispatchOriginal: Data([1])))
-        for action in [Action.preKey, .issue, .deliver] {
+        for action in [Action.preKey, .issue, .deliver, .expiryProof] {
             XCTAssertThrowsError(try Request(action: action, dispatchOriginal: Data([1]), evidenceOriginal: Data([2])))
         }
         XCTAssertThrowsError(try Request(action: .evidence, dispatchOriginal: Data([1]),
             evidenceOriginal: Data(repeating: 2, count: Request.maximumEvidenceBytes + 1)))
     }
 
+    func testExpiryProofFactoryRetainsOnlyTheExactDispatch() throws {
+        var dispatch = Data([1, 2, 3])
+        let original = try Request.expiryProof(dispatchOriginal: dispatch)
+        dispatch[0] = 99
+        XCTAssertEqual(original.action, .expiryProof)
+        XCTAssertEqual(original.dispatchOriginal, Data([1, 2, 3]))
+        XCTAssertTrue(original.evidenceOriginal.isEmpty)
+        XCTAssertEqual(try Request(canonicalOriginal: original.canonicalOriginal), original)
+        XCTAssertThrowsError(try Request.expiryProof(dispatchOriginal: Data()))
+        XCTAssertThrowsError(try Request.expiryProof(
+            dispatchOriginal: Data(repeating: 1, count: Request.maximumDispatchBytes + 1)))
+    }
+
     func testRequestRejectsVersionTagCountAndNonminimalFieldLength() throws {
         for mutation in 0..<5 {
             var body = CompactNoritoWriter()
             body.writeField(CompactNorito.encodeUInt16(mutation == 0 ? 2 : 1))
-            body.writeField(CompactNorito.encodeUInt32(mutation == 1 ? 4 : 0))
+            body.writeField(CompactNorito.encodeUInt32(mutation == 1 ? 5 : 0))
             if mutation == 2 {
                 body.writeLength(9); body.writeUInt64LE(UInt64.max); body.writeUInt8(1)
             } else if mutation == 3 {
@@ -223,7 +240,7 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
     }
 
     func testResponseRejectsEmptyOversizedUnknownAndExtraFields() throws {
-        for (tag, bound) in [(UInt32(0), Response.maximumPermitBytes), (4, Response.maximumCredentialBytes)] {
+        for (tag, bound) in [(UInt32(0), Response.maximumPermitBytes), (4, Response.maximumCredentialBytes), (5, Response.maximumExpiryProofBytes)] {
             XCTAssertNoThrow(try Response(canonicalOriginal: response(tag, original: Data(repeating: 1, count: bound))))
             XCTAssertThrowsError(try Response(canonicalOriginal: response(tag, original: Data())))
             XCTAssertThrowsError(try Response(canonicalOriginal: response(tag, original: Data(repeating: 1, count: bound + 1))))
@@ -232,6 +249,7 @@ final class ToriiKagemushaEnrollmentV1Tests: XCTestCase {
             XCTAssertThrowsError(try Response(canonicalOriginal: response(tag, original: Data([1]))))
         }
         XCTAssertThrowsError(try Response(canonicalOriginal: response(5)))
+        XCTAssertThrowsError(try Response(canonicalOriginal: response(6)))
         var invalid = CompactNoritoWriter()
         invalid.writeUInt32LE(4); invalid.writeLength(8); invalid.writeUInt64LE(UInt64.max)
         XCTAssertThrowsError(try Response(canonicalOriginal: frame(invalid.data)))
@@ -505,6 +523,7 @@ private struct EnrollmentFixtureV1: Decodable {
     let evidenceHex: String
     let permitHex: String
     let credentialHex: String
+    let expiryProofHex: String
     let requestSchemaName: String
     let requestSchemaHash: String
     let requestPayloadAlignment: Int

@@ -336,13 +336,6 @@ stake_asset_id = "xor#universal"
 stake_escrow_account_id = "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
 slash_sink_account_id = "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
 
-[nexus.fees]
-fee_asset_id = "xor#universal"
-fee_sink_account_id = "testuﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"
-sponsor_vault_custody_account_id = "testuﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT"
-
-# Lanes are logical workload streams. Their `dataspace` binding names the
-# physical validator/storage boundary that owns the lane.
 [[nexus.lane_catalog]]
 index = 0
 alias = "core"

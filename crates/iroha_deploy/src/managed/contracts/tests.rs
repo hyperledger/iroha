@@ -92,9 +92,7 @@ fn private_call_cap_uses_native_child_currency_and_never_parent_fee_asset() {
     );
     assert_eq!(
         target.fee_asset().unwrap(),
-        crate::localnet::private_fee_policy(&spec)
-            .unwrap()
-            .asset_definition_id
+        crate::localnet::private_fee_asset(&spec).unwrap()
     );
     assert_ne!(
         target.fee_asset().unwrap(),

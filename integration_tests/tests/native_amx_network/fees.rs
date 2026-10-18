@@ -18,7 +18,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-pub(super) fn audit(root: &Root, height: u64, runtime: &tokio::runtime::Runtime) -> Result<()> {
+pub(crate) fn audit(root: &Root, height: u64, runtime: &tokio::runtime::Runtime) -> Result<()> {
     ensure!(
         (2..=128).contains(&height),
         "fee audit exceeded the fixture's finite history bound"
@@ -147,7 +147,7 @@ pub(super) fn audit(root: &Root, height: u64, runtime: &tokio::runtime::Runtime)
 // Reuse the existing signed full-ledger read owner. Only its complete World hash
 // preimages are needed; neither the HTTP publisher nor its reported tip grants
 // finality authority. The fixture deliberately grants this read capability in genesis.
-async fn world_cut(root: &Root) -> Result<NativeResourceNamesStateV1> {
+pub(crate) async fn world_cut(root: &Root) -> Result<NativeResourceNamesStateV1> {
     static NONCE: AtomicU64 = AtomicU64::new(0);
     let nonce = format!("amx-fee-audit-{}", NONCE.fetch_add(1, Ordering::Relaxed));
     let challenge: [u8; 32] = Sha256::digest(nonce.as_bytes()).into();

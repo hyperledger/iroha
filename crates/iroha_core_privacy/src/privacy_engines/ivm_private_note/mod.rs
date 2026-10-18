@@ -94,3 +94,5 @@ pub fn private_note_statement_fixture_v1() -> (
     let fixture = test_fixtures::fixture();
     (fixture.statement, fixture.input_commitment)
 }
+
+pub(crate) use relation::derive_note_nullifier_for_namespace_v1;

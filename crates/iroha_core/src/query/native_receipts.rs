@@ -36,7 +36,7 @@ pub use amx_intents::{
     NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, NativeAmxRelaySourceV1,
     prepared_amx_relays,
 };
-mod ordinary_writes;
+pub(crate) mod ordinary_writes;
 mod reward_history;
 pub use amx_read::{
     NativeAmxRecordProofErrorV1, NativeAmxRecordProofIssuedV1, NativeAmxRecordProofOwnedV1,

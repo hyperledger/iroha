@@ -160,28 +160,6 @@ fn hold_inbound(
     Ok(changed || registered)
 }
 
-/// Resolve the Nexus fee sink account under the executing block; `Ok(None)` when the
-/// configured literal names no account.
-///
-/// # Errors
-///
-/// Fails, deferring the transaction, when the local alias read did not complete.
-fn fee_sink(state_transaction: &StateTransaction<'_, '_>) -> Result<Option<AccountId>, Error> {
-    match crate::block::parse_account_literal_with_world(
-        &*state_transaction.world,
-        &state_transaction.nexus.dataspace_catalog,
-        &state_transaction.nexus.fees.fee_sink_account_id,
-        state_transaction.block_unix_timestamp_ms(),
-    ) {
-        Ok(sink) => Ok(sink),
-        Err(crate::sns::SnsError::Deferred(reason)) => {
-            let _ = state_transaction.world.defer_execution(reason);
-            Err(refuse("the local fee sink read did not complete"))
-        }
-        Err(_) => Ok(None),
-    }
-}
-
 /// Attempt to settle the `Pending` inbound message `message_id` (§4.12.3, §4.12.5) and return
 /// whether its record or its recipient changed.
 ///
@@ -331,9 +309,10 @@ fn release_inbound(
     let sink = if fee == 0 {
         None
     } else {
-        match fee_sink(state_transaction)? {
-            Some(sink) if state_transaction.world.account(&sink).is_ok() => Some(sink),
-            _ => {
+        let sink = state_transaction.nexus.fees.fee_sink_account_id.clone();
+        match state_transaction.world.account(&sink) {
+            Ok(_) => Some(sink),
+            Err(_) => {
                 return hold_inbound(
                     state_transaction,
                     message_id,

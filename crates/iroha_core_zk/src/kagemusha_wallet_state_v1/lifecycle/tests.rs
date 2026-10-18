@@ -217,6 +217,133 @@ fn exact_request_replay_survives_restart_without_reproving_or_resigning() {
 }
 
 #[test]
+fn request_replay_authenticates_exact_completion_in_each_retained_source_state() {
+    for source in ["historical", "current", "released_before_index"] {
+        for mutation in [8, 0, 1, 2, 3, 4, 5, 6, 7] {
+            let mut wallet = prepared_wallet();
+            let request = request();
+            if source == "released_before_index" {
+                // Persist the request/operation mapping first, then interrupt only the
+                // post-Advance StepEntry publication. The Released marker still binds output.
+                wallet.custody.pause = true;
+                assert_eq!(
+                    wallet.execute(request.clone()).unwrap(),
+                    Completion::Pending
+                );
+                wallet.custody.pause = false;
+                wallet.custody.fail_publication = Some(false);
+                assert!(wallet.resume().is_err());
+                assert!(matches!(wallet.status().unwrap(), SlotStatus::Released(_)));
+            } else {
+                assert!(matches!(
+                    wallet.execute(request.clone()).unwrap(),
+                    Completion::Complete(_)
+                ));
+            }
+            let marker = wallet.status().unwrap();
+            let (sequence, operation, capsule) = marker.marker().unwrap().head().unwrap();
+            let original = wallet.custody.retained.get(&operation).unwrap().clone();
+            let exact = Completion::Complete(original.record.output.clone());
+            if source == "historical" {
+                // Explicit mock policy proof: advance the head without collecting the old
+                // completion. Keep the already-retiring lifecycle; this is retry custody,
+                // not a claim of valid policy issuance or native proof admission.
+                let previous = wallet.frozen(capsule).unwrap();
+                let mut next = frozen(
+                    Some(&previous),
+                    KagemushaWalletEffectV1::RefreshPolicy {
+                        update_kind: KagemushaWalletPolicyUpdateKindV1::TimeAnchor,
+                        update: field(111),
+                        accepted_time_floor_ms: previous
+                            .capsule
+                            .body()
+                            .successor_state
+                            .core
+                            .accepted_time_floor_ms,
+                    },
+                );
+                let mut body = next.capsule.body().clone();
+                body.statement.lifecycle = KagemushaWalletLifecycleV1::Retiring;
+                body.successor_state.core.lifecycle = KagemushaWalletLifecycleV1::Retiring;
+                rebind_frozen_successor(&mut next, body);
+                wallet.commit(next).unwrap();
+                assert!(wallet.manifest().unwrap().1.indexed.unwrap() > sequence);
+                assert_ne!(
+                    wallet.status().unwrap().marker().unwrap().head().unwrap().1,
+                    operation
+                );
+            } else if source == "released_before_index" {
+                assert!(wallet.manifest().unwrap().1.indexed.unwrap() < sequence);
+            } else {
+                assert_eq!(wallet.manifest().unwrap().1.indexed, Some(sequence));
+            }
+            let signatures = wallet.custody.signatures;
+            let plans = wallet.proofs.preparations.load(Ordering::SeqCst);
+            let proofs = wallet.proofs.preparation_proofs.load(Ordering::SeqCst);
+            let selected = wallet.custody.checkpoint.clone();
+            assert_eq!(wallet.retry(&operation).unwrap(), Some(exact.clone()));
+            assert_eq!(
+                wallet.retry_request(&request.request_id).unwrap(),
+                RequestStatusV1::Outcome(exact.clone())
+            );
+            assert_eq!(wallet.execute(request.clone()).unwrap(), exact);
+            let retained = wallet.custody.retained.get_mut(&operation).unwrap();
+            mutate_retained_completion(retained, mutation);
+            // The altered record remains a valid self-contained completion frame. Neither
+            // its recomputed hash nor the permanent request's IDs authorize these bytes.
+            assert_eq!(
+                KagemushaWalletCompletionRecordV1::decode_canonical(
+                    &retained.frame,
+                    &wallet.wallet_id
+                )
+                .unwrap(),
+                retained.record
+            );
+            let direct = wallet.retry(&operation);
+            let request_retry = wallet.retry_request(&request.request_id);
+            let repeated = wallet.execute(request.clone());
+            assert!(direct.is_err(), "{source}, mutation {mutation}");
+            assert!(
+                request_retry.is_err(),
+                "request retry: {source}, mutation {mutation}"
+            );
+            assert!(
+                repeated.is_err(),
+                "repeated execute: {source}, mutation {mutation}"
+            );
+            if mutation == 8 {
+                // Canonical structure, statement and receipt remain unchanged: only the
+                // source-authenticated exact completion identity rejects the proof change.
+                let expected = if source == "released_before_index" {
+                    "unindexed retry marker"
+                } else {
+                    "retry selected completion binding"
+                };
+                assert!(matches!(direct, Err(Error::WitnessLost(reason)) if reason == expected));
+                assert!(
+                    matches!(request_retry, Err(Error::WitnessLost(reason)) if reason == expected)
+                );
+                assert!(matches!(repeated, Err(Error::WitnessLost(reason)) if reason == expected));
+            }
+            wallet.custody.retained.insert(operation, original);
+            assert_eq!(wallet.retry(&operation).unwrap(), Some(exact.clone()));
+            assert_eq!(
+                wallet.retry_request(&request.request_id).unwrap(),
+                RequestStatusV1::Outcome(exact.clone())
+            );
+            assert_eq!(wallet.execute(request).unwrap(), exact);
+            assert_eq!(wallet.custody.signatures, signatures);
+            assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), plans);
+            assert_eq!(
+                wallet.proofs.preparation_proofs.load(Ordering::SeqCst),
+                proofs
+            );
+            assert_eq!(wallet.custody.checkpoint, selected);
+        }
+    }
+}
+
+#[test]
 fn runtime_capacity_refuses_before_planning_with_typed_results_and_keeps_the_binding() {
     use crate::kagemusha_wallet_capacity_v1::{
         KagemushaWalletRuntimeCapacityV1, KagemushaWalletRuntimeResourcesV1,

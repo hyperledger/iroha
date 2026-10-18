@@ -104,15 +104,30 @@ impl History {
             )
             .map(|history| (history, false));
         }
-        prior.revalidate_handles()?;
+        // Only the admitted immutable record owner is copied here. Both reference clones are
+        // infallible and callback-free; the new scope does not enter this handle census.
+        // Preserve all original physical checks for a decoder active at this use boundary.
+        let repeat_prior_handles = norito::core::decode_limits_active();
+        #[cfg(test)]
+        let repeat_prior_handles = repeat_prior_handles || original_handle_recipe();
+        if repeat_prior_handles {
+            prior.revalidate_handles()?;
+        }
         let history = Self {
             records: HistoryRecordsOwner::Retained(Arc::clone(records)),
             scope: scope.retained_copy(),
         };
-        // This is the old read_with_handles custody exit, not a cached source verdict.
-        // Existing current-local validation must run before the first wallet callback.
-        prior.revalidate_handles()?;
+        #[cfg(test)]
+        let copied = after_record_copy();
+        if repeat_prior_handles {
+            prior.revalidate_handles()?;
+        }
+        // The full final census closes the same original operation/root/attempt handles.
+        // A source change restored wholly between omitted observations may be unseen.
+        // Existing fresh record/scope validation still precedes the first wallet callback.
         history.revalidate_handles()?;
+        #[cfg(test)]
+        copied?;
         if !covered {
             retained.revalidate_retained_handles()?;
         }
@@ -132,7 +147,44 @@ impl History {
 }
 
 #[cfg(test)]
+type AfterRecordCopy = Box<dyn FnOnce() -> Result<()>>;
+#[cfg(test)]
+thread_local! {
+    static ORIGINAL_HANDLE_RECIPE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static AFTER_RECORD_COPY: std::cell::RefCell<Option<AfterRecordCopy>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+fn original_handle_recipe() -> bool {
+    ORIGINAL_HANDLE_RECIPE.with(std::cell::Cell::get)
+}
+#[cfg(test)]
+fn after_record_copy() -> Result<()> {
+    AFTER_RECORD_COPY
+        .with(|state| state.take())
+        .map_or(Ok(()), |action| action())
+}
+
+#[cfg(test)]
 impl History {
+    pub(in crate::managed) fn test_published_handle_recipe<T>(
+        original: bool,
+        after_copy: Option<Box<dyn FnOnce() -> Result<()>>>,
+        read: impl FnOnce() -> T,
+    ) -> T {
+        struct Restore(bool, Option<AfterRecordCopy>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ORIGINAL_HANDLE_RECIPE.with(|state| state.set(self.0));
+                AFTER_RECORD_COPY.with(|state| state.replace(self.1.take()));
+            }
+        }
+        let _restore = Restore(
+            ORIGINAL_HANDLE_RECIPE.with(|state| state.replace(original)),
+            AFTER_RECORD_COPY.with(|state| state.replace(after_copy)),
+        );
+        read()
+    }
+
     pub(in crate::managed) fn test_published_read(
         &self,
         source: &History,

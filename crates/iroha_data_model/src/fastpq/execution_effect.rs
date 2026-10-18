@@ -18,7 +18,13 @@ use iroha_crypto::Hash;
 use iroha_primitives::numeric::Quantity;
 use iroha_schema::IntoSchema;
 
+mod admitted;
 mod commitment;
+pub use admitted::{
+    AllocatedFastpqEffectsV1, FastpqEffectsDecodeError, PendingFastpqEffectsDecodeV1,
+    decode_fastpq_source_entry_payload_v1, decode_fastpq_source_leaf_payload_v1,
+    decode_fastpq_source_manifest_frame_v1, decode_fastpq_source_manifest_payload_v1,
+};
 pub use commitment::*;
 
 /// Exact definition and externally authenticated registration/lifecycle identity.
@@ -35,6 +41,7 @@ pub use commitment::*;
     norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::fastpq::FastpqExecutionAssetV1")]
+#[norito(decode_fields)]
 pub struct FastpqExecutionAssetV1 {
     /// Canonical definition identity.
     pub definition: AssetDefinitionId,
@@ -47,6 +54,7 @@ pub struct FastpqExecutionAssetV1 {
     Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, IntoSchema, norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::fastpq::FastpqExecutionBalanceV1")]
+#[norito(decode_fields)]
 pub struct FastpqExecutionBalanceV1 {
     /// Definition and exact lifecycle.
     pub asset: FastpqExecutionAssetV1,
@@ -79,6 +87,7 @@ pub enum FastpqExecutionQuantityKeyV1 {
     Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, IntoSchema, norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::fastpq::FastpqExecutionTransferV1")]
+#[norito(decode_fields)]
 pub struct FastpqExecutionTransferV1 {
     /// Exact sender bucket.
     pub source: FastpqExecutionBalanceV1,
@@ -101,6 +110,7 @@ pub struct FastpqExecutionTransferV1 {
     Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, IntoSchema, norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::fastpq::FastpqExecutionSupplyChangeV1")]
+#[norito(decode_fields)]
 pub struct FastpqExecutionSupplyChangeV1 {
     /// Exact affected balance; its asset also identifies the supply key.
     pub balance: FastpqExecutionBalanceV1,
@@ -143,6 +153,7 @@ pub enum FastpqExecutionEffectKindV1 {
     Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, IntoSchema, norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::fastpq::FastpqExecutionEffectV1")]
+#[norito(decode_fields)]
 pub struct FastpqExecutionEffectV1 {
     /// Zero-based contiguous committed-effect ordinal within the logical entry.
     pub ordinal: u32,
@@ -167,6 +178,7 @@ pub struct FastpqExecutionEffectV1 {
     norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::fastpq::FastpqExecutionEffectContextV1")]
+#[norito(decode_fields)]
 pub struct FastpqExecutionEffectContextV1 {
     /// Source network and height.
     pub source: FastpqSourceStatementContextV1,
@@ -179,6 +191,7 @@ pub struct FastpqExecutionEffectContextV1 {
     Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, IntoSchema, norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_data_model::fastpq::FastpqExecutionEffectsV1")]
+#[norito(decode_fields)]
 pub struct FastpqExecutionEffectsV1 {
     /// Exact source owner context.
     pub context: FastpqExecutionEffectContextV1,

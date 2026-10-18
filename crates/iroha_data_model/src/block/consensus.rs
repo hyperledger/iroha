@@ -26,8 +26,8 @@ use std::{string::String, vec::Vec};
 pub mod fingerprint;
 mod root_scope;
 pub use root_scope::SumeragiRootScope;
-mod private_root_fees;
-pub use private_root_fees::{PrivateRootFeePolicy, PrivateRootFeePolicyError};
+mod root_fees;
+pub use root_fees::{RootFeePolicy, RootFeePolicyError};
 /// Height alias for consensus.
 pub type Height = u64;
 /// View/round number alias.
@@ -421,15 +421,24 @@ impl Evidence {
     pub fn decode_native_frame(
         bytes: &[u8],
     ) -> Result<iroha_sumeragi::message::Evidence, iroha_sumeragi::message::CodecError> {
-        let native = iroha_sumeragi::message::Evidence::decode(bytes)?;
-        let mut canonical = native.clone();
-        Self::canonicalize_pairs(&mut canonical)?;
-        if canonical != native {
-            return Err(iroha_sumeragi::message::CodecError::Norito(
-                "native evidence artifact pair is not in canonical frame order".into(),
-            ));
-        }
-        Ok(native)
+        // Enter before native decoding, cloning or pair comparison. Nested
+        // canonical kernels capture their original causes within this same root;
+        // preserving this typed result also preserves structural error categories.
+        // TODO: fund the complete decoded graph, clone and pair-encoding scratch.
+        norito::core::classify_decode_attempt(|| {
+            Ok((|| {
+                let native = iroha_sumeragi::message::Evidence::decode(bytes)?;
+                let mut canonical = native.clone();
+                Self::canonicalize_pairs(&mut canonical)?;
+                if canonical != native {
+                    return Err(iroha_sumeragi::message::CodecError::Norito(
+                        "native evidence artifact pair is not in canonical frame order".into(),
+                    ));
+                }
+                Ok(native)
+            })())
+        })
+        .expect("the enclosing observer returns the unchanged typed result")
     }
 
     /// Borrow the original canonical native evidence bytes.
@@ -446,8 +455,8 @@ impl Evidence {
             first: &mut T,
             second: &mut T,
         ) -> Result<(), CodecError> {
-            let left = norito::encode_canonical(first).map_err(CodecError::from)?;
-            let right = norito::encode_canonical(second).map_err(CodecError::from)?;
+            let left = canonical_pair_frame(first)?;
+            let right = canonical_pair_frame(second)?;
             if left > right {
                 core::mem::swap(first, second);
             }
@@ -467,6 +476,38 @@ impl Evidence {
         }
     }
 }
+// One canonical pair-order writer. The original fixed flags, schema, header,
+// padding and checksum are unchanged; the exact counted output is fallible.
+// TODO: retain these actual output allocations in the operation's finite pool.
+fn canonical_pair_frame<T: norito::NoritoSerialize>(
+    value: &T,
+) -> Result<Vec<u8>, iroha_sumeragi::message::CodecError> {
+    use iroha_sumeragi::message::{CodecError, MAX_EVIDENCE_FRAME_BYTES};
+    use norito::core::BoundedEncodeError;
+    norito::core::classify_decode_attempt(|| {
+        let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+        match norito::core::to_bytes_bounded(value, MAX_EVIDENCE_FRAME_BYTES) {
+            Ok(bytes) => Ok(Ok(bytes)),
+            Err(BoundedEncodeError::FrameTooLarge {
+                encoded_bytes,
+                max_bytes,
+            }) => Ok(Err(CodecError::TooLarge {
+                len: encoded_bytes,
+                max: max_bytes,
+            })),
+            Err(BoundedEncodeError::AllocationFailed { bytes }) => {
+                // The bounded writer attempted this exact original layout.
+                // Its checked protocol cap fits u64 on every supported target.
+                Err(norito::Error::AllocationFailed {
+                    bytes: bytes as u64,
+                })
+            }
+            Err(BoundedEncodeError::Serialization(error)) => Err(error),
+        }
+    })
+    .map_err(CodecError::from)?
+}
+
 #[derive(Decode, DeriveJsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct EvidenceWire {
@@ -500,7 +541,7 @@ impl norito::json::JsonDeserialize for Evidence {
         };
         evidence.decode_native().map_err(|error| match error {
             iroha_sumeragi::message::CodecError::Resource(resource) => {
-                norito::json::Error::from_decode_resource(resource.into())
+                norito::json::Error::from_decode_resource(resource.into_error())
             }
             other => norito::json::Error::Message(other.to_string()),
         })?;
@@ -799,13 +840,13 @@ pub struct NexusFeeScheduleInputs {
     pub instruction_count: u64,
     /// Gas units used by the transaction.
     pub gas_used: u64,
-    /// Base fee from `nexus.fees.base_fee`.
+    /// Base fee from `root_fees_v1.base_fee`.
     pub base_fee: Quantity,
-    /// Per-byte fee from `nexus.fees.per_byte_fee`.
+    /// Per-byte fee from `root_fees_v1.per_byte_fee`.
     pub per_byte_fee: Quantity,
-    /// Per-instruction fee from `nexus.fees.per_instruction_fee`.
+    /// Per-instruction fee from `root_fees_v1.per_instruction_fee`.
     pub per_instruction_fee: Quantity,
-    /// Per-gas-unit fee from `nexus.fees.per_gas_unit_fee`.
+    /// Per-gas-unit fee from `root_fees_v1.per_gas_unit_fee`.
     pub per_gas_unit_fee: Quantity,
 }
 /// Actual native settlement performed for one Nexus charge.

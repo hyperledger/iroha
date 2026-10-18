@@ -22,6 +22,7 @@ use iroha_data_model::{account::AccountId, kagemusha::*};
 use sha2::{Digest as _, Sha256};
 use std::sync::Arc;
 
+mod expiry;
 mod operations;
 mod runtime;
 mod selection;

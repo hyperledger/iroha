@@ -225,8 +225,16 @@ fn finish_genesis(
         state.kura().native_context_archive_max_bytes(),
     )
     .map_err(|error| StartupError::Local(error.to_string()))?;
-    let native_contexts = archive
+    let mut native_contexts = archive
         .prepare(&overlay, valid.as_ref(), &retained_result, &witness)
+        .map_err(|error| StartupError::Local(error.to_string()))?;
+    archive
+        .prepare_fastpq_source(
+            &mut native_contexts,
+            valid.as_ref(),
+            &retained_result,
+            &witness,
+        )
         .map_err(|error| StartupError::Local(error.to_string()))?;
     let shell = iroha_data_model::block::SharedSignedBlock::reserve(&budget)
         .map_err(|error| StartupError::Deferred(error.into()))?;
@@ -253,6 +261,9 @@ fn finish_genesis(
     archive
         .publish(&native_contexts)
         .map_err(|error| StartupError::Local(error.to_string()))?;
+    if let Err(error) = archive.publish_fastpq_source(state.kura(), &native_contexts) {
+        iroha_logger::warn!(%error, "genesis FASTPQ source transport remains unresolved");
+    }
     overlay
         .authorize_sumeragi_output_publication(
             &finalized_block,

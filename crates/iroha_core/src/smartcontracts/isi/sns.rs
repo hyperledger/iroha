@@ -85,7 +85,11 @@ fn ensure_configured_policy_payment_asset(
     crate::sns::ensure_namespace_policy_payment_asset_matches_configured(
         state_transaction.world(),
         namespace,
-        &state_transaction.nexus.fees.fee_asset_id,
+        &state_transaction
+            .nexus
+            .fees
+            .fee_asset_id
+            .canonical_address(),
     )
     .map_err(|error| sns_mutation_instruction_error(error, state_transaction))
 }
@@ -770,7 +774,21 @@ mod tests {
         state_transaction.tx_call_hash = Some(Hash::prehashed([byte; Hash::LENGTH]));
     }
     fn configure_test_fee_asset(state: &State, asset: &AssetDefinitionId) {
-        state.nexus.write().fees.fee_asset_id = asset.to_string();
+        {
+            let mut fees = state.nexus_snapshot().fees;
+            fees.fee_asset_id = asset.clone();
+            {
+                let mut parameters = state.world.parameters.block();
+                parameters
+                    .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                        fees.clone()
+                            .into_custom_parameter()
+                            .expect("explicit fixture policy"),
+                    ))
+                    .expect("valid fixture monetary projection");
+                parameters.commit();
+            }
+        }
     }
     fn smart_contract_error_contains(error: &InstructionExecutionError, expected: &str) -> bool {
         matches!(
@@ -1252,7 +1270,7 @@ mod tests {
         };
         let mut config = TestChainConfig::new(world, 0);
         let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.fees.fee_asset_id = payment_asset.to_string();
+        nexus.fees.fee_asset_id = payment_asset.clone();
         config.nexus = Some(nexus);
         let genesis_account = AccountId::new(config.genesis_key.public_key().clone());
         let consensus_mode = config.consensus_mode;
@@ -3542,7 +3560,21 @@ mod tests {
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         );
-        state.nexus.write().fees.fee_asset_id = payment_asset_definition_id.to_string();
+        {
+            let mut fees = state.nexus_snapshot().fees;
+            fees.fee_asset_id = payment_asset_definition_id.clone();
+            {
+                let mut parameters = state.world.parameters.block();
+                parameters
+                    .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                        fees.clone()
+                            .into_custom_parameter()
+                            .expect("explicit fixture policy"),
+                    ))
+                    .expect("valid fixture monetary projection");
+                parameters.commit();
+            }
+        }
         {
             let mut block = state.block(next_header(&state));
             let mut stx = block.transaction();
@@ -3635,7 +3667,21 @@ mod tests {
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         );
-        state.nexus.write().fees.fee_asset_id = payment_asset_definition_id.to_string();
+        {
+            let mut fees = state.nexus_snapshot().fees;
+            fees.fee_asset_id = payment_asset_definition_id.clone();
+            {
+                let mut parameters = state.world.parameters.block();
+                parameters
+                    .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                        fees.clone()
+                            .into_custom_parameter()
+                            .expect("explicit fixture policy"),
+                    ))
+                    .expect("valid fixture monetary projection");
+                parameters.commit();
+            }
+        }
         state.set_dataspace_catalog_for_testing(
             DataSpaceCatalog::new(vec![
                 DataSpaceMetadata::default(),

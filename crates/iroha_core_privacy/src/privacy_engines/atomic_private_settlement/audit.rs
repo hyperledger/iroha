@@ -10,12 +10,9 @@ use chacha20poly1305::{
     XChaCha20Poly1305,
     aead::{Aead as _, KeyInit as _, Payload},
 };
-#[cfg(any(test, feature = "test-utils"))]
 use iroha_crypto::HybridError;
-#[cfg(any(test, feature = "test-utils"))]
 use iroha_crypto::hybrid_encapsulate;
 use iroha_crypto::{Hash, HybridKemCiphertext, HybridSecretKey, HybridSuite, hybrid_decapsulate};
-#[cfg(any(test, feature = "test-utils"))]
 use iroha_data_model::nexus::{
     ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1, PrivateSettlementWrappedDekV1,
 };
@@ -28,7 +25,6 @@ use iroha_data_model::{
         private_settlement_audit_plaintext_commitment_v1 as data_model_plaintext_commitment_v1,
     },
 };
-#[cfg(any(test, feature = "test-utils"))]
 use rand::rand_core::TryCryptoRng;
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -95,7 +91,6 @@ pub fn private_settlement_audit_plaintext_commitment_v1(
         .map_err(|_| PrivateSettlementAuditCryptoErrorV1::CanonicalEncoding)
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Seal one canonical private leg plaintext using injected cryptographic entropy.
 ///
 /// The plaintext is encrypted once. Each governed auditor receives an
@@ -257,7 +252,6 @@ fn maximum_plaintext_bytes(padding: PrivateSettlementCapsulePaddingV1) -> usize 
         .saturating_sub(AUDIT_PLAINTEXT_HEADER_BYTES_V1)
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 fn validate_aad_against_policy(
     aad: &PrivateSettlementAuditAadV1,
     policy: &PrivateSettlementAuditPolicyV1,
@@ -286,7 +280,6 @@ fn validate_aad_against_policy(
     Ok(())
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 fn fill_nonzero_random<R: TryCryptoRng + ?Sized>(
     rng: &mut R,
     destination: &mut [u8],
@@ -339,7 +332,6 @@ fn frame_public_aad(
     Ok(framed)
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 fn aead_encrypt(
     key: &[u8; AUDIT_DEK_BYTES_V1],
     nonce: &[u8; 24],
@@ -386,7 +378,6 @@ fn aead_decrypt(
         .map_err(|_| PrivateSettlementAuditCryptoErrorV1::CryptographicFailure)
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 fn map_hybrid_seal_error(error: HybridError) -> PrivateSettlementAuditCryptoErrorV1 {
     match error {
         HybridError::RandomBytes { .. } => {

@@ -210,9 +210,7 @@ fn sign_paid(
     instructions: impl IntoIterator<Item = InstructionBox>,
     created_ms: u64,
 ) -> SignedTransaction {
-    let fee_asset =
-        AssetDefinitionId::parse_address_literal(&chain.state().view().nexus().fees.fee_asset_id)
-            .expect("the signed network fee asset");
+    let fee_asset = chain.state().view().nexus().fees.fee_asset_id.clone();
     let intent = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
             FeeChargeKind::Nexus,
@@ -239,9 +237,7 @@ fn start_chain(
     lanes: Arc<DeferredLaneStores>,
 ) -> CertifiedTestChain {
     let (owner, governance) = (keys.owner(), keys.governance());
-    let fee_asset =
-        AssetDefinitionId::parse_address_literal(&actual::Nexus::default().fees.fee_asset_id)
-            .expect("default network XOR asset");
+    let fee_asset = actual::Nexus::default().fees.fee_asset_id.clone();
     let accounts = [owner.clone(), governance.clone(), keys.reserve.clone()]
         .into_iter()
         .chain(

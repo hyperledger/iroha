@@ -16965,7 +16965,21 @@ fn hf_revision_parser_rejects_mutable_and_noncanonical_references() {
 #[test]
 fn leave_hf_shared_lease_last_member_uses_configured_drain_grace() -> Result<(), eyre::Report> {
     permissioned_soracloud_state!(kura, mut state);
-    state.nexus.get_mut().fees.fee_sink_account_id = ALICE_ID.to_string();
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.fee_sink_account_id = ALICE_ID.clone();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     state.nexus.get_mut().hf_shared_leases.drain_grace = Duration::from_secs(30);
     let repo_id = "openai/gpt-oss";
     let resolved_revision = "0123456789abcdef0123456789abcdef01234567";
@@ -17051,7 +17065,21 @@ fn leave_hf_shared_lease_last_member_uses_configured_drain_grace() -> Result<(),
 #[test]
 fn hf_shared_lease_registration_does_not_create_runtime_service() -> Result<(), eyre::Report> {
     permissioned_soracloud_state!(kura, mut state);
-    state.nexus.get_mut().fees.fee_sink_account_id = ALICE_ID.to_string();
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.fee_sink_account_id = ALICE_ID.clone();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     let repo_id = "openai/gpt-oss";
     let resolved_revision = "0123456789abcdef0123456789abcdef01234567";
     let service_name: iroha_model_base::name::Name = "vision_portal".parse().expect("valid");
@@ -17114,7 +17142,21 @@ fn hf_shared_lease_registration_does_not_create_runtime_service() -> Result<(), 
 #[test]
 fn renew_hf_shared_lease_active_window_queues_next_window() -> Result<(), eyre::Report> {
     permissioned_soracloud_state!(kura, mut state);
-    state.nexus.get_mut().fees.fee_sink_account_id = BOB_ID.to_string();
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.fee_sink_account_id = BOB_ID.clone();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     let repo_id = "openai/gpt-oss";
     let resolved_revision = "0123456789abcdef0123456789abcdef01234567";
     let service_name: iroha_model_base::name::Name = "vision_portal".parse().expect("valid");

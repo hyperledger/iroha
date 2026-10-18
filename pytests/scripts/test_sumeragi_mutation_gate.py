@@ -6187,9 +6187,11 @@ def test_partial_native_amx_worker_custody_has_one_owned_omission_and_all_three_
     assert 'AllocationBudget::new' not in boundary and 'set_limit_bytes' not in boundary
     model = (ROOT / 'crates/iroha_data_model/src/sumeragi_amx/native/leg_decode.rs').read_text()
     assert 'sumeragi_core_mutation' not in model
-    assert tuple(re.findall(r'sumeragi_model_mutation\s*=\s*"([^"]+)"', model)) == ('DM33',)
+    account = (ROOT / 'crates/iroha_data_model/src/account/prepared_decode.rs').read_text()
+    assert not re.findall(r'sumeragi_model_mutation\s*=\s*"([^"]+)"', model)
+    assert tuple(re.findall(r'sumeragi_model_mutation\s*=\s*"([^"]+)"', account)) == ('DM33',)
     assert 'workspace: Option<PreparedDecodeWorkspace>' in model
-    assert 'ncore::RetainedElementSequence' in model
+    assert 'ncore::RetainedElementSequence' in account
     controls = (core / 'sumeragi/executor_amx_retry_tests.rs').read_text()
     for name in required:
         assert controls.count('fn '+name.rsplit('::', 1)[1]+'(') == 1
@@ -6281,14 +6283,14 @@ def test_native_multisig_semantic_mutation_owns_only_the_original_cause_projecti
     model = ROOT / "crates/iroha_data_model/src"
     owners = {path.relative_to(model).as_posix() for path in model.rglob("*.rs")
               if f'sumeragi_model_mutation = "{mid}"' in path.read_text()}
-    assert owners == {"sumeragi_amx/native/leg_decode.rs"}
-    source = (model / "sumeragi_amx/native/leg_decode.rs").read_text()
-    owner = source.split("fn policy_error(", 1)[1].split("fn scope(", 1)[0]
+    assert owners == {"account/prepared_decode.rs"}
+    source = (model / "account/prepared_decode.rs").read_text()
+    owner = source.split("fn policy_error(", 1)[1]
     assert source.count(f'sumeragi_model_mutation = "{mid}"') == 1
     assert 'cfg!(all(test, sumeragi_model_mutation = "DM33"))' in owner
     assert 'norito::Error::Message(error.to_string()).into()' in owner
     assert 'Error::Multisig(error)' in owner
-    assert 'Multisig(#[from] crate::account::MultisigPolicyError)' in source
+    assert 'Multisig(#[from] super::MultisigPolicyError)' in source
     tests = (model / "sumeragi_amx/native/leg_decode/tests.rs").read_text()
     helper = tests.split("fn assert_multisig_semantic_replay_has_no_diagnostic_allocation(", 1)[1]
     for proof in ('measured(|| pending.decode(&frame))', 'pool.limit_bytes()',
@@ -10100,7 +10102,7 @@ def test_lane_wait_retirement_and_debug_mutations_keep_exact_original_owners(
     assert code.count(f'sumeragi_core_mutation = "{identifier}"') == 1
     if identifier == "HC390":
         guard = f'#[cfg(not(all(test, sumeragi_core_mutation = "{identifier}")))]'
-        assert re.search(re.escape(guard) + r"\s*self\.inputs\.stores\.resume_retired_publications\(&lanes,\s*\|key\|\s*\{\s*!self\.running\.lock\(\)\.contains_key\(key\)\s*\}\);", code)
+        assert re.search(re.escape(guard) + r"\s*self\s*\.\s*inputs\s*\.\s*stores\s*\.\s*resume_retired_publications\(&lanes,\s*\|key\|\s*!self\.running\.lock\(\)\.contains_key\(key\)\);", code)
         assert code.index(guard) < code.index('if cfg!(all(test, sumeragi_core_mutation = "HC349"))')
     else:
         guard = f'#[cfg(all(test, sumeragi_core_mutation = "{identifier}"))]'

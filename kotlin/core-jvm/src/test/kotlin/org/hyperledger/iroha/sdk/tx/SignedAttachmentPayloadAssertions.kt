@@ -4,6 +4,11 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import org.hyperledger.iroha.sdk.core.model.ActionIntentV1
+import org.hyperledger.iroha.sdk.core.model.ActionInvocationBindingV1
+import org.hyperledger.iroha.sdk.core.model.ActionOperationV1
+import org.hyperledger.iroha.sdk.core.model.SignedAttachmentsV1
+import org.hyperledger.iroha.sdk.core.model.TransactionPayload
 import org.hyperledger.iroha.sdk.tx.norito.SignedTransactionEncoder
 import org.hyperledger.iroha.sdk.tx.norito.InstructionWireIdsV1
 import org.hyperledger.iroha.sdk.client.JsonParser
@@ -224,9 +229,54 @@ internal object SignedAttachmentPayloadAssertions {
     fun nativeRegistryMatches() {
         val source = String(Files.readAllBytes(findVectors().parent.parent.parent.parent
             .resolve("crates/iroha_data_model/src/isi/registry/wire_ids.rs")), StandardCharsets.UTF_8)
-        val expected = Regex("=>\\s*\"(iroha\\.[^\"]+)\"").findAll(source).map { it.groupValues[1] }.toSet()
-        assertTrue(expected.isNotEmpty())
-        assertEquals(expected, InstructionWireIdsV1.values)
+        val wireIds = Regex("\\b(?:built_in_wire_id|governance_wire_id)!\\(\\s*[A-Za-z_][A-Za-z0-9_:]*\\s*=>\\s*\"([^\"]+)\"")
+            .findAll(source).map { it.groupValues[1] }.toList()
+        val entryCount = Regex("\\b(?:built_in_wire_id|governance_wire_id)\\s*!\\s*\\(").findAll(source).count()
+        assertTrue(wireIds.isNotEmpty())
+        assertEquals(entryCount, wireIds.size)
+        assertEquals(wireIds.size, wireIds.toSet().size)
+        assertEquals(wireIds.toSet(), InstructionWireIdsV1.values)
+    }
+
+    fun nonIrohaNativeOperationsRoundtrip() {
+        val vector = vectors().arrayValue("accepted").map { it.objectValue() }
+            .single { it.text("name") == "contract_subject_nested_invocation" }
+        val payload = adapter.decodeTransaction(hex(vector.text("payload_hex")))
+        val attachments = payload.attachments!!
+        val original = attachments.actions.single()
+        check(original.operation is ActionOperationV1.NativeInstruction)
+        check(original.invocation is ActionInvocationBindingV1.Contract)
+        fun rebound(wireId: String): TransactionPayload {
+            val action = ActionIntentV1(
+                original.actionIndex, ActionOperationV1.NativeInstruction(wireId), original.role,
+                original.authority, original.invocation, original.publicInputsDigest,
+                original.statementDigest, original.attachments,
+            )
+            return adapter.bindAttachmentStatements(payload.copy(
+                attachments = SignedAttachmentsV1(listOf(action), attachments.occurrences),
+            ))
+        }
+        // Exercise transaction admission and exact framing; these are not execution proofs.
+        for (wireId in listOf(
+            "nexus::CreateFeeSponsorProgram",
+            "soracloud::DeploySoracloudService",
+            "consensus::RegisterConsensusKey",
+            "identity::ClaimIdentifier",
+            "zk::ScheduleConfidentialPolicyTransition",
+        )) {
+            val candidate = rebound(wireId)
+            val encoded = adapter.encodeTransaction(candidate)
+            val decoded = adapter.decodeTransaction(encoded)
+            assertEquals(ActionOperationV1.NativeInstruction(wireId), decoded.attachments!!.actions.single().operation)
+            assertContentEquals(encoded, adapter.encodeTransaction(decoded))
+            for (unregistered in listOf("iroha.$wireId", "$wireId.Missing")) {
+                var refused = false
+                try { rebound(unregistered) } catch (error: IllegalArgumentException) {
+                    refused = error.message == "unregistered native action wire ID"
+                }
+                check(refused) { "unregistered native operation $unregistered was not refused" }
+            }
+        }
     }
 
     private fun decodeSignedFrame(bytes: ByteArray): SignedTransaction {

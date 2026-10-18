@@ -228,7 +228,17 @@ impl History {
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<()> {
         let snapshot = pass.and_then(EnrollmentReadPass::snapshot);
-        successor.revalidate_with_snapshot_read_pass(snapshot)?;
+        // SemanticSuccessor is sealed to ReservedBodySuccessor. Its revalidate method and
+        // this exact target's validation call the same immutable Target owner, with only
+        // the infallible target getter between them. Keep the final complete native scan
+        // before any binding comparison or wallet callback; no observation is retained.
+        // An inherited or newly active decoder keeps both original physical observations.
+        let repeat_successor = norito::core::decode_limits_active();
+        #[cfg(test)]
+        let repeat_successor = repeat_successor || ORIGINAL_SUCCESSOR_VALIDATION.get();
+        if repeat_successor {
+            successor.revalidate_with_snapshot_read_pass(snapshot)?;
+        }
         let target = successor.target();
         target.validate_target_with_snapshot_read_pass(snapshot)?;
         let evidence = self.scope.enrollment()?;
@@ -821,6 +831,8 @@ std::thread_local! {
     static HISTORY_PARSES: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     // Restore precisely the former second census, using the actual native graph walker.
     static ORIGINAL_RECEIPT_CENSUS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Restore the adjacent duplicate target scan through the sole native implementation.
+    static ORIGINAL_SUCCESSOR_VALIDATION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 #[cfg(test)]
 fn original_receipt_census_for_test() -> bool {
@@ -836,6 +848,26 @@ pub(super) fn record_history_parse_for_test() {
 }
 #[cfg(test)]
 impl History {
+    pub(in crate::managed) fn test_original_successor_validation<T>(
+        original: bool,
+        read: impl FnOnce() -> T,
+    ) -> T {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ORIGINAL_SUCCESSOR_VALIDATION.set(self.0);
+            }
+        }
+        let _restore = Restore(ORIGINAL_SUCCESSOR_VALIDATION.replace(original));
+        read()
+    }
+    pub(in crate::managed) fn test_successor_binding(
+        &self,
+        successor: &dyn SemanticSuccessor,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
+        self.check_successor_binding(successor, pass)
+    }
     pub(in crate::managed) fn test_original_receipt_census<T>(
         original: bool,
         read: impl FnOnce() -> T,
