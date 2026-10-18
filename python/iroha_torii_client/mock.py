@@ -276,7 +276,6 @@ class _MockState:
                     "per_instruction_fee": "0",
                     "per_gas_unit_fee": "0",
                     "sponsor_vault_custody_account_id": _MOCK_ACCOUNT_ID,
-                    "settlement_mode": "direct",
                     "successful_claim_fee_exempt_authorities": [],
                 },
             }

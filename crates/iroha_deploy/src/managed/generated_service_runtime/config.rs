@@ -175,8 +175,11 @@ pub(super) fn render(
             "original peer already contains a publication installation",
         ));
     }
-    let expected = crate::localnet::service_authorities::configured_execution_policy(&before)
-        .map_err(|_| invalid("invalid original execution policy"))?;
+    let signed_fees = iroha_genesis::signed_genesis_root_fee_policy(&authority.genesis.genesis)
+        .map_err(|_| invalid("invalid original signed fee policy"))?;
+    let expected =
+        crate::localnet::service_authorities::configured_execution_policy(&before, &signed_fees)
+            .map_err(|_| invalid("invalid original execution policy"))?;
     let nexus = section(&mut table, &["nexus"])?;
     // An omitted catalog has a precise default meaning in this sole config owner. Preserve it
     // explicitly rather than reconstructing model catalogs in a second TOML serializer.
@@ -273,7 +276,7 @@ pub(super) fn render(
     };
     if after.nexus.lane_catalog != before.nexus.lane_catalog
         || after.nexus.dataspace_catalog != before.nexus.dataspace_catalog
-        || crate::localnet::service_authorities::configured_execution_policy(&after)
+        || crate::localnet::service_authorities::configured_execution_policy(&after, &signed_fees)
             .map_err(|_| invalid("invalid derived execution policy"))?
             != expected
         || after.genesis.expected_hash != before.genesis.expected_hash

@@ -27,7 +27,21 @@ fn intrinsic_body_rejection_keeps_only_pipeline_gas_transfer_under_the_original_
         )
         .expect("canonical network XOR fee asset");
         let mut state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
-        state.nexus.get_mut().fees.base_fee = Quantity::zero();
+        {
+            let mut fees = state.nexus_snapshot().fees;
+            fees.base_fee = Quantity::zero();
+            {
+                let mut parameters = state.world.parameters.block();
+                parameters
+                    .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                        fees.clone()
+                            .into_custom_parameter()
+                            .expect("explicit fixture policy"),
+                    ))
+                    .expect("valid fixture monetary projection");
+                parameters.commit();
+            }
+        }
         let gas = iroha_config::parameters::actual::Gas {
             tech_account_id: CARPENTER_ID.to_string(),
             accepted_assets: vec![asset.canonical_address()],
@@ -289,7 +303,21 @@ fn transfer_mint_transfer_keeps_one_accounted_entry_before_d7_relation_activatio
         )
         .expect("canonical network XOR fee asset");
         let mut state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
-        state.nexus.get_mut().fees.base_fee = Quantity::zero();
+        {
+            let mut fees = state.nexus_snapshot().fees;
+            fees.base_fee = Quantity::zero();
+            {
+                let mut parameters = state.world.parameters.block();
+                parameters
+                    .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                        fees.clone()
+                            .into_custom_parameter()
+                            .expect("explicit fixture policy"),
+                    ))
+                    .expect("valid fixture monetary projection");
+                parameters.commit();
+            }
+        }
         let alice = AssetId::of(asset.clone(), ALICE_ID.clone());
         let bob = AssetId::of(asset.clone(), BOB_ID.clone());
         let entry = input(

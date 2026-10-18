@@ -457,6 +457,11 @@ impl Fixture {
             ),
         ];
         if include_proofs {
+            let mut account_proof = self.proof.clone();
+            account_proof
+                .as_object_mut()
+                .unwrap()
+                .insert("storageProof".into(), json!([]));
             reads.extend([
                 rpc(
                     "eth_getBlockByNumber",
@@ -472,6 +477,15 @@ impl Fixture {
                     "eth_getTransactionReceipt",
                     json!([(hash)]),
                     receipt_json(&self.receipt),
+                ),
+                rpc(
+                    "eth_getProof",
+                    json!([
+                        (format_data(&CONTRACT)),
+                        [],
+                        (BlockId::Hash(self.receipt.block_hash).to_state_param())
+                    ]),
+                    account_proof,
                 ),
             ]);
         }
@@ -639,6 +653,7 @@ fn receipt_adapter_authenticates_original_success_failure_and_finalized_state() 
                 "taira.evm_receipt_checkpoint",
                 "evm.original_transaction.proof",
                 "evm.original_receipt.proof",
+                "evm.original_call_target.proof",
                 "evm.receipt.ancestry.0.rlp"
             ]
         );
@@ -656,6 +671,25 @@ fn receipt_adapter_authenticates_original_success_failure_and_finalized_state() 
             assert!(transport.confirm_finalized(&receipt, &f.bundle).is_err());
         }
         transport.require_receipt_deadline(deadline).unwrap();
+        assert!(reads.0.lock().unwrap().is_empty());
+        rpc.assert_drained();
+    }
+}
+
+#[test]
+fn receipt_adapter_requires_call_target_proof_for_success_and_failure() {
+    for success in [false, true] {
+        let mut f = Fixture::new(success, true);
+        f.proof
+            .as_object_mut()
+            .unwrap()
+            .insert("accountProof".into(), json!([]));
+        let (native, reads) = f.native(200, false);
+        let rpc = RpcMock::new(f.rpc_reads(true, false));
+        let destination = destination(&rpc);
+        let transport = destination.transport();
+        let (_deadline, _guard) = transport.receipt_budget(Duration::from_secs(5)).unwrap();
+        assert!(transport.receipt(&native, &f.origin, &f.raw).is_err());
         assert!(reads.0.lock().unwrap().is_empty());
         rpc.assert_drained();
     }

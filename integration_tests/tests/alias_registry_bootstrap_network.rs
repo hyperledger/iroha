@@ -181,7 +181,19 @@ fn custom_genesis_post_topology(
     let two_stakes = stake
         .checked_add(&stake)
         .expect("two validator self-stakes must be representable");
+    let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    fees.fee_asset_id = stake_asset_id.clone();
+    fees.fee_sink_account_id = staking_custody_account();
+    fees.base_fee = 0_u32.into();
+    fees.per_byte_fee = 0_u32.into();
+    fees.per_instruction_fee = 0_u32.into();
+    fees.per_gas_unit_fee = 0_u32.into();
     let mut bootstrap: Vec<InstructionBox> = vec![
+        SetParameter::new(Parameter::Custom(
+            fees.into_custom_parameter()
+                .expect("canonical original fee policy"),
+        ))
+        .into(),
         Register::account(Account::new(staking_custody_account())).into(),
         Register::domain(Domain::new(
             DomainId::try_new("universal", "universal").expect("XOR domain"),
@@ -2118,13 +2130,9 @@ async fn bpng_native_bootstrap_survives_four_peer_retained_kura_catalog_expansio
         )))
         .with_block_cadence(Duration::from_secs(1))
         .with_config_layer(|layer| {
-            // Fees are fixed in the original network and retained on restart.
+            // The original signed genesis fixes fees across restarts.
             // Keep one fluent borrow of the configuration writer.
             layer
-                .write(
-                    ["nexus", "fees", "fee_asset_id"],
-                    stake_asset_definition_id().to_string(),
-                )
                 .write(
                     ["nexus", "staking", "stake_asset_id"],
                     stake_asset_definition_id().to_string(),
@@ -2142,11 +2150,7 @@ async fn bpng_native_bootstrap_survives_four_peer_retained_kura_catalog_expansio
                 .write(
                     ["nexus", "storage", "local_budget_bytes"],
                     1_073_741_824_i64,
-                )
-                .write(["nexus", "fees", "base_fee"], "0")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0");
+                );
         });
     let network = timeout(
         NETWORK_TIMEOUT,

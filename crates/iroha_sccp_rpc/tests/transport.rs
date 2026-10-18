@@ -35,9 +35,6 @@ use iroha_sccp_rpc::{
 };
 use norito::json::Value;
 
-#[path = "transport/transaction_proof.rs"]
-mod transaction_proof_tests;
-
 // ---------------------------------------------------------------------------
 // Mock HTTP server
 // ---------------------------------------------------------------------------

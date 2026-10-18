@@ -50,13 +50,24 @@ fn fixture_with_policy(
         .expect("valid fixture execution limits");
     if let Some(asset) = &fee_asset {
         use iroha_primitives::numeric::Quantity;
-        let fees = &mut state.nexus.get_mut().fees;
+        let mut fees = state.nexus_snapshot().fees;
         fees.base_fee = Quantity::from(1_u32);
         fees.per_byte_fee = Quantity::zero();
         fees.per_instruction_fee = Quantity::zero();
         fees.per_gas_unit_fee = Quantity::zero();
-        fees.fee_asset_id = asset.to_string();
-        fees.fee_sink_account_id = iroha_test_samples::BOB_ID.to_string();
+        fees.fee_asset_id = asset.clone();
+        fees.fee_sink_account_id = iroha_test_samples::BOB_ID.clone();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
     }
     // Genesis executes under its original predecessor's policy. Its signed
     // parameter writes install these limits for the successor being tested.

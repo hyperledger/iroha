@@ -167,6 +167,16 @@ fn parent() -> Parent {
                     iroha_data_model::block::consensus::SumeragiRootScope::Global,
                 ))
                 .expect("fixture global metadata");
+            let mut fees = nexus().fees;
+            fees.fee_asset_id =
+                iroha_data_model::sccp::escrow::sccp_taira_xor_asset_definition_id();
+            stx.world
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.into_custom_parameter().unwrap(),
+                ))
+                .expect("committed fixture fee policy");
             install_value_route(
                 &mut stx,
                 ETH,
@@ -343,7 +353,6 @@ impl Expected {
 
 fn nexus() -> iroha_config::parameters::actual::Nexus {
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.settlement_mode = iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
     nexus.fees.base_fee = Quantity::from(1_u32);
     nexus
 }
@@ -571,12 +580,7 @@ fn fund(stx: &mut StateTransaction<'_, '_>, network: SccpNetworkV1, amount: u128
 }
 
 fn set_fee_sink(stx: &mut StateTransaction<'_, '_>, sink: &AccountId) {
-    stx.nexus.fees.fee_sink_account_id = AccountAddress::from_account_id(sink)
-        .and_then(|address| {
-            address
-                .to_i105_for_discriminant(iroha_data_model::account::address::chain_discriminant())
-        })
-        .expect("i105 literal");
+    stx.nexus.fees.fee_sink_account_id = sink.clone();
 }
 
 #[test]
@@ -660,7 +664,7 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
     );
     let mut nexus = nexus();
     nexus.fees.fee_asset_id =
-        iroha_data_model::sccp::escrow::sccp_taira_xor_asset_definition_id().canonical_address();
+        iroha_data_model::sccp::escrow::sccp_taira_xor_asset_definition_id().clone();
     let draft = crate::executor::quote_nexus_fee_admission_draft(
         view.world(),
         &nexus,
@@ -812,7 +816,7 @@ fn charged_parent_self_claim_is_not_reclassified_by_expired_executing_world() {
     let mut stx = block.transaction();
     stx.nexus.fees = nexus().fees;
     stx.nexus.fees.fee_asset_id =
-        iroha_data_model::sccp::escrow::sccp_taira_xor_asset_definition_id().canonical_address();
+        iroha_data_model::sccp::escrow::sccp_taira_xor_asset_definition_id().clone();
     let transaction = signed(
         &ed25519(RECIPIENT),
         vec![SettleSccpV1::inbound(parent.settleable).into()],

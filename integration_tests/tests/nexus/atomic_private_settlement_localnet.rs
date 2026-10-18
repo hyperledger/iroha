@@ -661,6 +661,23 @@ fn localnet_builder(shape: TopologyShape) -> NetworkBuilder {
             },
         )
         .with_genesis_instruction(npos_override_instruction(VALIDATORS_PER_LANE))
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.fee_asset_id = (nexus_fee_asset_definition_id().to_string())
+                    .parse()
+                    .expect("canonical fixture fee asset");
+                fees.base_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = (NEXUS_FEE_PER_PRIVATE_SETTLEMENT_CARRIER)
+                    .parse()
+                    .expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(move |layer| {
             let lanes = (0..shape.lane_count())
                 .map(|lane| {
@@ -758,17 +775,6 @@ fn localnet_builder(shape: TopologyShape) -> NetworkBuilder {
                 .write(["nexus", "lane_catalog"], TomlValue::Array(lanes))
                 .write(["nexus", "dataspace_catalog"], TomlValue::Array(dataspaces))
                 .write(["nexus", "routing_policy"], TomlValue::Table(routing))
-                .write(
-                    ["nexus", "fees", "fee_asset_id"],
-                    nexus_fee_asset_definition_id().to_string(),
-                )
-                .write(["nexus", "fees", "base_fee"], "0")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(
-                    ["nexus", "fees", "per_instruction_fee"],
-                    NEXUS_FEE_PER_PRIVATE_SETTLEMENT_CARRIER,
-                )
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0")
                 .write(
                     ["nexus", "staking", "public_validator_mode"],
                     "stake_elected",
@@ -4435,8 +4441,8 @@ fn participant_assets_execute_paid_setup_after_signed_genesis_domain_transfer() 
                 .into(),
             ]);
             let mut nexus = iroha_config::parameters::actual::Nexus::default();
-            nexus.fees.fee_asset_id = nexus_fee_asset_definition_id().to_string();
-            nexus.fees.fee_sink_account_id = BOB_ID.to_string();
+            nexus.fees.fee_asset_id = nexus_fee_asset_definition_id().clone();
+            nexus.fees.fee_sink_account_id = BOB_ID.clone();
             nexus.fees.base_fee = Quantity::zero();
             nexus.fees.per_byte_fee = Quantity::zero();
             nexus.fees.per_instruction_fee =

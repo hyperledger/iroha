@@ -319,6 +319,17 @@ pub(super) fn network_builder_with_genesis_transactions(
         .with_genesis_instruction(SetParameter::new(Parameter::Custom(
             npos.into_custom_parameter(),
         )))
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.fee_asset_id = (fee_asset_id_literal.clone())
+                    .parse()
+                    .expect("canonical fixture fee asset");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(move |layer| {
             layer
                 .write(["nexus", "lane_count"], 3_i64)
@@ -341,10 +352,6 @@ pub(super) fn network_builder_with_genesis_transactions(
                 .write(
                     ["nexus", "routing_policy"],
                     TomlValue::Table(policy.clone()),
-                )
-                .write(
-                    ["nexus", "fees", "fee_asset_id"],
-                    fee_asset_id_literal.clone(),
                 )
                 .write(
                     ["nexus", "staking", "stake_asset_id"],

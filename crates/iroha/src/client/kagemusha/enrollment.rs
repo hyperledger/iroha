@@ -26,9 +26,11 @@ impl Kagemusha<'_> {
     /// retry. Recovery resubmits the same native originals with fresh HTTP authentication;
     /// a timeout never permits a new platform attempt.
     ///
-    /// A response is transport data: pass Permit/E6 originals to the native owner for their
+    /// A response is transport data: pass Permit/E6/expiry originals to the native owner for their
     /// full signature, scope, deadline and durable-state checks before reporting completion.
-    /// The service independently checks current provider eligibility at each boundary.
+    /// The service independently checks current provider eligibility at each authority boundary.
+    /// An expiry statement only attests the retained permit's elapsed deadline; it grants no
+    /// authority and does not select a new attempt or abandon an existing one automatically.
     ///
     /// # Errors
     /// [`Error::EnrollmentOutcome`] for a closed refusal, withheld delivery or unknown outcome
@@ -113,6 +115,7 @@ impl Kagemusha<'_> {
                 )
                 | (Action::Issue, Response::CredentialReady)
                 | (Action::Deliver, Response::Credential(_))
+                | (Action::ExpiryProof, Response::ExpiryProof(_))
         ) {
             return Err(Error::ResponseBinding {
                 operation: OP,

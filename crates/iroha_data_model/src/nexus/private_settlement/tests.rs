@@ -35,6 +35,25 @@ fn hash(seed: u8) -> Hash {
     Hash::new([seed])
 }
 
+// Independent test projection for canonical encoding, carrier-count mutations and scrubbing.
+fn reimbursement_terms_material(
+    plaintext: &PrivateSettlementAuditPlaintextV1,
+    success_fee_bearing_carriers: u8,
+) -> PrivateSettlementReimbursementTermsMaterialV1 {
+    PrivateSettlementReimbursementTermsMaterialV1 {
+        network_id: plaintext.network_id,
+        leg_ordinal: plaintext.leg_ordinal,
+        route: plaintext.route,
+        sponsor: plaintext.sponsor.clone(),
+        asset_definition_id: plaintext.asset_definition_id.clone(),
+        sponsor_reimbursement_amount: plaintext.sponsor_reimbursement_amount,
+        fee_intent_digest: plaintext.fee_intent_digest,
+        success_fee_bearing_carriers,
+        settlement_expiry_height: plaintext.settlement_expiry_height,
+        reimbursement_terms_salt: plaintext.reimbursement_terms_salt,
+    }
+}
+
 fn legacy_signature_preimage<T: norito::NoritoSerialize>(domain: &[u8], body: &T) -> Vec<u8> {
     let body = norito::encode_canonical(body).expect("legacy canonical body encoding");
     let mut preimage = Vec::with_capacity(domain.len() + 8 + body.len());
@@ -754,7 +773,7 @@ fn auditor_plaintext_is_fixed_balanced_bound_and_redacted() {
         .expect("reimbursement terms commitment");
     let one_carrier_reimbursement = canonical_hash(
         REIMBURSEMENT_TERMS_COMMITMENT_DOMAIN_V1,
-        &plaintext.reimbursement_terms_material(1),
+        &reimbursement_terms_material(&plaintext, 1),
     )
     .expect("one-carrier reimbursement terms commitment");
     assert_eq!(PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1, 2);
@@ -874,8 +893,10 @@ fn audit_commitment_material_confidential_discard_scrubs_secret_projection() {
 
     let (_, plaintext) = audit_plaintext_fixture();
     let mut material = plaintext.commitment_material();
-    let mut reimbursement =
-        plaintext.reimbursement_terms_material(PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1);
+    let mut reimbursement = reimbursement_terms_material(
+        &plaintext,
+        PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1,
+    );
     let mut asset_binding = PrivateSettlementAssetBindingMaterialV1 {
         route: plaintext.route,
         pool_id: plaintext.pool_id,
@@ -2582,8 +2603,10 @@ fn preproof_reimbursement_projection_matches_exact_existing_plaintext_commitment
         expected,
         canonical_hash(
             REIMBURSEMENT_TERMS_COMMITMENT_DOMAIN_V1,
-            &plaintext
-                .reimbursement_terms_material(PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1)
+            &reimbursement_terms_material(
+                &plaintext,
+                PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1,
+            )
         )
         .unwrap()
     );

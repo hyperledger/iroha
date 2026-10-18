@@ -42,7 +42,7 @@ pub(crate) struct ExecutionFeeMeter {
     dataspace: Option<DataSpaceId>,
     index: Option<u64>,
     gas_policy: iroha_config::parameters::actual::Gas,
-    nexus_fees: iroha_config::parameters::actual::NexusFees,
+    nexus_fees: iroha_data_model::block::consensus::RootFeePolicy,
     tx_bytes_len: usize,
     exemption: ExecutionFeeExemption,
     work: Option<ExecutionFeeWork>,

@@ -174,6 +174,20 @@ class NativeProverRetirementSourceTest(unittest.TestCase):
         manifest = (ROOT / "crates/iroha_plonk_gadgets/Cargo.toml").read_text(encoding="utf-8")
         self.assertNotRegex(manifest, r"(?m)^\s*(?:ark-(?:bls12-381|ff|ec|serialize)|iroha_crypto)\s*=")
 
+    def test_retired_finality_compiler_dependencies_are_absent(self) -> None:
+        """Load fixtures use native model verification without the deleted compiler owners."""
+        manifest = (ROOT / "crates/iroha_kagemusha_proof/Cargo.toml").read_text(encoding="utf-8")
+        retired = r"(?:iroha_genesis|iroha_sumeragi)"
+        self.assertNotRegex(manifest, rf"(?m)^\s*{retired}\s*=")
+        self.assertNotRegex(manifest, rf"\bpackage\s*=\s*[\"']{retired}[\"']")
+        lock = (ROOT / "Cargo.lock").read_text(encoding="utf-8")
+        packages = [
+            package for package in lock.split("[[package]]")
+            if re.search(r'(?m)^name = "iroha_kagemusha_proof"$', package)
+        ]
+        self.assertEqual(len(packages), 1)
+        self.assertNotRegex(packages[0], rf'"{retired}(?: [^"\n]+)?"')
+
     def test_native_engine_wire_discriminants_stay_closed(self) -> None:
         source = (ROOT / "crates/iroha_data_model/src/zk.rs").read_text(encoding="utf-8")
         match = re.search(r"pub enum BackendTag\s*\{([^}]+)\}", source)

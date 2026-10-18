@@ -22,8 +22,9 @@ use core::{
     ops::{Deref, DerefMut},
 };
 use derive_more::Debug;
-use iroha_config::parameters::actual::{ConfidentialGas, NexusFees, Pipeline};
+use iroha_config::parameters::actual::{ConfidentialGas, Pipeline};
 use iroha_crypto::Hash;
+use iroha_data_model::block::consensus::RootFeePolicy;
 #[cfg(test)]
 use iroha_data_model::nexus::{
     VERIFIED_FEE_SPONSOR_VAULT_ALLOCATION_STATE_KEY_PREFIX, VerifiedFeeSponsorVaultAllocation,
@@ -98,7 +99,7 @@ mod execution_fee;
 mod fee_sponsor_multisig;
 mod settlement_replay;
 pub(crate) use settlement_replay::reject_committed_direct_payment;
-pub(crate) mod private_fees;
+pub(crate) mod root_fees;
 /// Authenticated root scope for native and contract-generated instruction effects.
 pub(crate) mod root_scope;
 pub(crate) use execution_fee::{
@@ -1457,7 +1458,7 @@ fn metadata_string(
 }
 fn should_charge_pipeline_gas_asset(
     skip_nexus_fee: bool,
-    nexus_fees: &NexusFees,
+    nexus_fees: &RootFeePolicy,
     gas_asset_opt: Option<&str>,
 ) -> bool {
     !skip_nexus_fee && gas_asset_opt.is_some() && nexus_fees.per_gas_unit_fee.is_zero()
@@ -1509,7 +1510,7 @@ fn successful_claim_fee_exempt_instructions(
     };
     let Some(asset_def) = crate::block::resolve_network_xor_asset_definition(
         world,
-        &nexus.fees.fee_asset_id,
+        &nexus.fees.fee_asset_id.canonical_address(),
         observation_time_ms,
     )?
     else {
@@ -1587,7 +1588,7 @@ fn fee_exempt_payload(
     observation_time_ms: u64,
     sccp_committed_time_ms: Option<u64>,
 ) -> Result<bool, crate::execution_attempt::ExecutionDeferred> {
-    Ok(private_fees::permits_public_exemption(world)?
+    Ok(root_fees::permits_public_exemption(world)?
         && (nexus_fee_exempt_payload(payload)
             || successful_claim_fee_exempt_payload(world, nexus, payload, observation_time_ms)?
             || crate::smartcontracts::isi::sccp::fees::exempt_on_success(
@@ -1607,7 +1608,7 @@ fn fee_exempt_transaction(
     sccp_committed_time_ms: Option<u64>,
 ) -> Result<bool, crate::execution_attempt::ExecutionDeferred> {
     // `world` is the committed parent World, the one SCCP eligibility is judged against.
-    Ok(private_fees::permits_public_exemption(world)?
+    Ok(root_fees::permits_public_exemption(world)?
         && (nexus_fee_exempt_transaction(transaction)
             || successful_claim_fee_exempt_transaction(
                 world,
@@ -1639,7 +1640,7 @@ fn transaction_fee_exemption(
     crate::execution_attempt::ExecutionAttemptError<ValidationFail>,
 > {
     let world = &state_transaction.world;
-    if !private_fees::permits_public_exemption(world)
+    if !root_fees::permits_public_exemption(world)
         .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?
     {
         return Ok((ExecutionFeeExemption::Charged, None));
@@ -4210,7 +4211,7 @@ pub(crate) fn validate_prepared_contract_lifecycle_call(
     code::validate_contract_lifecycle_call(world, contract_address, code_hash, descriptor.kind)
 }
 pub(crate) fn compute_nexus_fee_amount(
-    cfg: &iroha_config::parameters::actual::NexusFees,
+    cfg: &iroha_data_model::block::consensus::RootFeePolicy,
     tx_bytes_len: usize,
     instruction_count: usize,
     gas_used: u64,
@@ -4440,7 +4441,7 @@ fn authority_fee_asset_id(
     charge: &FeeChargeBound,
 ) -> Result<AssetId, crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>> {
     if charge.kind == FeeChargeKind::Nexus {
-        let scope = private_fees::private_scope(world, route_dataspace_id)?
+        let scope = root_fees::private_scope(world, route_dataspace_id)?
             .map_or(AssetBalanceScope::Global, AssetBalanceScope::Dataspace);
         return Ok(AssetId::with_scope(
             charge.asset_definition_id.clone(),
@@ -4468,19 +4469,6 @@ fn authority_fee_asset_id(
         scope,
     ))
 }
-/// Refuse the retired receipt settlement mode before any monetary effect or plan.
-fn require_direct_fee_settlement(
-    nexus: &iroha_config::parameters::actual::Nexus,
-) -> Result<(), NexusFeeAdmissionError> {
-    if nexus.fees.settlement_mode
-        != iroha_config::parameters::actual::NexusFeeSettlementMode::Direct
-    {
-        return Err(NexusFeeAdmissionError::ConfigInvalid(
-            "retired lane-relay-burn fee settlement is not admitted by native execution".to_owned(),
-        ));
-    }
-    Ok(())
-}
 fn evaluate_nexus_fee_admission_payload(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4495,11 +4483,10 @@ fn evaluate_nexus_fee_admission_payload(
     FeeAdmissionQuote,
     crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
-    require_direct_fee_settlement(nexus)?;
-    let fees = private_fees::effective(world, &nexus.fees)?;
+    let fees = root_fees::effective(world, &nexus.fees)?;
     // TODO: Private sponsorship needs vaults with exact dataspace custody. Public
     // sponsor-program identifiers alone cannot authorize a private monetary debit.
-    if private_fees::private_scope(world, route_dataspace_id)?.is_some()
+    if root_fees::private_scope(world, route_dataspace_id)?.is_some()
         && payload.fee_payment.sponsor_program().is_some()
     {
         return Err(NexusFeeAdmissionError::ConfigInvalid(
@@ -4512,7 +4499,7 @@ fn evaluate_nexus_fee_admission_payload(
     let mut charges = Vec::with_capacity(2);
     let fee = compute_nexus_fee_amount(&fees, tx_bytes_len, instruction_count, gas_used)
         .map_err(validation_fail_to_nexus_fee_admission_error)?;
-    let asset_definition_id = private_fees::currency(world, &fees, observation_time_ms)?;
+    let asset_definition_id = root_fees::currency(world, &fees, observation_time_ms)?;
     if !fee.is_zero() {
         charges.push(FeeChargeBound {
             kind: FeeChargeKind::Nexus,
@@ -4642,7 +4629,8 @@ pub fn quote_nexus_fee_admission_payload(
     FeeAdmissionQuote,
     crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
-    require_direct_fee_settlement(nexus)?;
+    let canonical = root_fees::quote_nexus(world, nexus)?;
+    let nexus = canonical.as_ref();
     if fee_exempt_payload(
         world,
         nexus,
@@ -4740,7 +4728,8 @@ pub fn quote_nexus_fee_admission_draft(
     FeeAdmissionDraftQuote,
     crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
-    require_direct_fee_settlement(nexus)?;
+    let canonical = root_fees::quote_nexus(world, nexus)?;
+    let nexus = canonical.as_ref();
     if fee_exempt_payload(
         world,
         nexus,
@@ -4891,6 +4880,8 @@ pub(crate) fn quote_external_nexus_fee_admission(
     Option<FeeAdmissionQuote>,
     crate::execution_attempt::ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
+    let canonical = root_fees::quote_nexus(world, nexus)?;
+    let nexus = canonical.as_ref();
     if fee_exempt_transaction(
         world,
         nexus,
@@ -4925,15 +4916,17 @@ pub(crate) fn validate_transaction_fee_admission(
     state_transaction: &mut StateTransaction<'_, '_>,
     transaction: &SignedTransaction,
 ) -> Result<(), ValidationFail> {
-    if is_initial_genesis_context(state_transaction)
-        || transaction_fee_exemption(state_transaction, transaction)
-            .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?
-            .0
-            .skips_fee_on_success()
+    if is_initial_genesis_context(state_transaction) {
+        return Ok(());
+    }
+    Executor::validate_root_fee_policy(state_transaction)?;
+    if transaction_fee_exemption(state_transaction, transaction)
+        .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?
+        .0
+        .skips_fee_on_success()
     {
         return Ok(());
     }
-    Executor::refresh_private_fee_policy(state_transaction)?;
     evaluate_nexus_fee_admission_payload(
         &state_transaction.world,
         &state_transaction.nexus,
@@ -5419,8 +5412,7 @@ impl Executor {
         gas_used: u64,
         fee_sponsor: Option<&FeeSponsorProgramId>,
     ) -> Result<(), ValidationFail> {
-        require_direct_fee_settlement(&state_transaction.nexus)
-            .map_err(nexus_fee_admission_error_to_validation_fail)?;
+        Self::validate_root_fee_policy(state_transaction)?;
         let gas_rate = state_transaction
             .pipeline
             .gas
@@ -5550,9 +5542,8 @@ impl Executor {
         instruction_count: usize,
         gas_used: u64,
     ) -> Result<(), ValidationFail> {
-        require_direct_fee_settlement(&state_transaction.nexus)
-            .map_err(nexus_fee_admission_error_to_validation_fail)?;
-        let cfg = private_fees::effective(&state_transaction.world, &state_transaction.nexus.fees)
+        Self::validate_root_fee_policy(state_transaction)?;
+        let cfg = root_fees::effective(&state_transaction.world, &state_transaction.nexus.fees)
             .map_err(|error| match error {
                 crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
                     state_transaction.defer_execution(reason)
@@ -5561,7 +5552,7 @@ impl Executor {
                     nexus_fee_admission_error_to_validation_fail(error)
                 }
             })?;
-        let private_scope = private_fees::private_scope(
+        let private_scope = root_fees::private_scope(
             &state_transaction.world,
             state_transaction.current_dataspace_id,
         )
@@ -5587,7 +5578,7 @@ impl Executor {
         } else {
             NexusFeePayer::Payer
         };
-        let asset_def = private_fees::currency(
+        let asset_def = root_fees::currency(
             &state_transaction.world,
             &cfg,
             state_transaction.block_unix_timestamp_ms(),
@@ -5726,24 +5717,27 @@ impl Executor {
         });
         Ok(())
     }
-    /// Preserve the private-dataspace fee projection used by direct Nexus readers.
-    ///
-    /// Pipeline gas is already frozen from the committed predecessor and must
-    /// never be refreshed from transaction-local parameter writes here.
-    fn refresh_private_fee_policy(
+    /// Validate the predecessor's complete monetary policy before any fee exemption.
+    /// Neither SetParameter nor other transaction-local changes refresh this snapshot.
+    fn validate_root_fee_policy(
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), ValidationFail> {
         if !is_initial_genesis_context(state_transaction) {
-            state_transaction.nexus.fees =
-                private_fees::effective(&state_transaction.world, &state_transaction.nexus.fees)
-                    .map_err(|error| match error {
-                        crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
-                            state_transaction.defer_execution(reason)
-                        }
-                        crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
-                            nexus_fee_admission_error_to_validation_fail(error)
-                        }
-                    })?;
+            if cfg!(all(test, sumeragi_core_mutation = "HC397")) {
+                if let Some(policy) = state_transaction.world.parameters().root_fees() {
+                    state_transaction.nexus.fees = policy.clone();
+                }
+            }
+            root_fees::effective(&state_transaction.world, &state_transaction.nexus.fees).map_err(
+                |error| match error {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                        state_transaction.defer_execution(reason)
+                    }
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                        nexus_fee_admission_error_to_validation_fail(error)
+                    }
+                },
+            )?;
         }
         Ok(())
     }
@@ -7200,6 +7194,7 @@ impl Executor {
             .fee_payment_intent()
             .sponsor_program()
             .map(|(program_id, _)| program_id.clone());
+        Self::validate_root_fee_policy(state_transaction)?;
         let (fee_exemption, sccp_class) = if is_initial_genesis_context(state_transaction) {
             (ExecutionFeeExemption::Exempt, None)
         } else {
@@ -7211,7 +7206,6 @@ impl Executor {
         state_transaction.sccp_exempt_self_claim = (sccp_class
             == Some(crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1::SelfClaim))
         .then(|| authority.clone());
-        Self::refresh_private_fee_policy(state_transaction)?;
         // Quote the predecessor-frozen pipeline fee snapshot shared with block execution.
         let fee_quote = if !skip_nexus_fee {
             Some(
@@ -16110,7 +16104,6 @@ mod tests {
         custody: &AccountId,
         tech_account: &AccountId,
         asset_definition_id: &AssetDefinitionId,
-        settlement_mode: iroha_config::parameters::actual::NexusFeeSettlementMode,
     ) {
         state_transaction.current_dataspace_id = Some(DataSpaceId::UNIVERSAL);
         state_transaction.nexus.fees.per_gas_unit_fee = Quantity::zero();
@@ -16118,7 +16111,6 @@ mod tests {
             .nexus
             .fees
             .sponsor_vault_custody_account_id = custody.clone();
-        state_transaction.nexus.fees.settlement_mode = settlement_mode;
         configure_pipeline_fee_snapshot(state_transaction, tech_account, asset_definition_id, 1);
     }
     fn install_fee_fixture_network_currency(
@@ -16144,9 +16136,7 @@ mod tests {
         state_transaction: &mut StateTransaction<'_, '_>,
         fee_asset: &AssetDefinitionId,
     ) {
-        state_transaction.nexus.fees.settlement_mode =
-            iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
-        state_transaction.nexus.fees.fee_asset_id = fee_asset.canonical_address();
+        state_transaction.nexus.fees.fee_asset_id = fee_asset.clone();
         install_fee_fixture_network_currency(state_transaction, fee_asset);
         state_transaction.nexus.fees.base_fee = Quantity::from(2_u32);
         state_transaction.nexus.fees.per_byte_fee = Quantity::zero();
@@ -16191,9 +16181,7 @@ mod tests {
         let mut config = crate::sumeragi::test_chain::TestChainConfig::new(world, 0);
         config.genesis_key = keypair;
         let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.fees.settlement_mode =
-            iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
-        nexus.fees.fee_asset_id = fee_asset.canonical_address();
+        nexus.fees.fee_asset_id = fee_asset.clone();
         nexus.fees.base_fee = Quantity::from(2_u32);
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();
@@ -16887,7 +16875,6 @@ mod tests {
             &custody,
             &tech_account,
             &asset_definition_id,
-            iroha_config::parameters::actual::NexusFeeSettlementMode::Direct,
         );
         super::Executor::charge_pipeline_gas_asset_fee(
             &mut state_transaction,
@@ -16975,7 +16962,6 @@ mod tests {
             &custody,
             &tech_account,
             &asset_definition_id,
-            iroha_config::parameters::actual::NexusFeeSettlementMode::Direct,
         );
         super::Executor::charge_pipeline_gas_asset_fee(
             &mut state_transaction,
@@ -17029,7 +17015,7 @@ mod tests {
         );
     }
     #[test]
-    fn retired_sponsored_pipeline_mode_fails_before_debit_or_transfer() {
+    fn missing_committed_policy_fails_before_sponsored_debit_or_transfer() {
         for allocation in [1_u32, 10_u32] {
             let (
                 state,
@@ -17060,8 +17046,12 @@ mod tests {
                 &custody,
                 &tech_account,
                 &asset_definition_id,
-                iroha_config::parameters::actual::NexusFeeSettlementMode::LaneRelayBurn,
             );
+            state_transaction
+                .world
+                .parameters
+                .get_mut()
+                .remove_custom_parameter(&RootFeePolicy::parameter_id());
             let error = super::Executor::charge_pipeline_gas_asset_fee(
                 &mut state_transaction,
                 &beneficiary,
@@ -17070,9 +17060,9 @@ mod tests {
                 2,
                 Some(&program_id),
             )
-            .expect_err("retired receipt mode rejects even a fully funded spend lease");
+            .expect_err("missing committed policy rejects even a fully funded spend lease");
             assert!(
-                matches!(error, ValidationFail::InternalError(reason) if reason.contains("retired lane-relay-burn fee settlement"))
+                matches!(error, ValidationFail::InternalError(reason) if reason.contains("committed root fee policy is absent"))
             );
             let vault_key = FeeSponsorVaultKey {
                 program_id,
@@ -17149,7 +17139,6 @@ mod tests {
             &custody,
             &tech_account,
             &asset_definition_id,
-            iroha_config::parameters::actual::NexusFeeSettlementMode::LaneRelayBurn,
         );
         let revision_one = state_transaction
             .world
@@ -17443,7 +17432,7 @@ mod tests {
     }
     #[test]
     fn pipeline_gas_asset_charge_is_disabled_when_nexus_gas_fee_is_active() {
-        let mut nexus_fees = NexusFees::default();
+        let mut nexus_fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
         let gas_asset = Some("xor#universal".to_owned());
         nexus_fees.per_gas_unit_fee = Quantity::zero();
         assert!(should_charge_pipeline_gas_asset(
@@ -17522,7 +17511,7 @@ mod tests {
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
-        nexus.fees.fee_asset_id = nexus_asset.canonical_address();
+        nexus.fees.fee_asset_id = nexus_asset.clone();
         let params = iroha_data_model::parameter::system::SumeragiNposParameters {
             xor_asset_definition_id: nexus_asset.clone(),
             ..Default::default()
@@ -17539,7 +17528,14 @@ mod tests {
             ))
             .expect("valid fixture parameters");
         parameter_block.commit();
-        nexus.fees.fee_sink_account_id = sink.to_string();
+        nexus.fees.fee_sink_account_id = sink.clone();
+        let mut parameter_block = world.parameters.block();
+        parameter_block
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                nexus.fees.clone().into_custom_parameter().unwrap(),
+            ))
+            .unwrap();
+        parameter_block.commit();
         let mut pipeline = Pipeline::default();
         pipeline.gas.accepted_assets = vec![gas_asset.canonical_address()];
         pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
@@ -17559,6 +17555,20 @@ mod tests {
         .expect("canonical unsigned payload");
         (world, nexus, pipeline, payload)
     }
+    fn author_component_fee_policy(
+        world: &World,
+        fees: &iroha_data_model::block::consensus::RootFeePolicy,
+    ) {
+        let mut parameters = world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.clone()
+                    .into_custom_parameter()
+                    .expect("canonical fixture policy"),
+            ))
+            .expect("committed component fee policy");
+        parameters.commit();
+    }
     fn assert_direct_fee_exempt_draft(
         world: World,
         nexus: &iroha_config::parameters::actual::Nexus,
@@ -17566,6 +17576,7 @@ mod tests {
         mut payload: TransactionPayload,
     ) {
         let authority = payload.authority.clone();
+        author_component_fee_policy(&world, &nexus.fees);
         let world = world.block();
         let draft = quote_nexus_fee_admission_draft(
             &world,
@@ -17608,8 +17619,7 @@ mod tests {
     #[test]
     fn protocol_fee_exempt_draft_returns_zero_quote_in_direct_mode() {
         let (world, mut nexus, pipeline, mut payload) = multi_component_fee_quote_fixture();
-        let fee_asset = AssetDefinitionId::parse_address_literal(&nexus.fees.fee_asset_id)
-            .expect("fixture fee asset address");
+        let fee_asset = nexus.fees.fee_asset_id.clone();
         payload.fee_payment = FeePaymentIntent::authority(
             vec![FeeChargeLimit::new(
                 FeeChargeKind::Nexus,
@@ -17640,16 +17650,15 @@ mod tests {
             },
         )]
         .into();
-        nexus.fees.settlement_mode =
-            iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
         assert_direct_fee_exempt_draft(world, &nexus, &pipeline, payload);
     }
     include!("executor_fee_quote_tests.rs");
     #[test]
-    fn retired_receipt_mode_rejects_quotes_before_signing() {
+    fn missing_committed_policy_rejects_quotes_before_signing() {
         let (world, mut nexus, pipeline, payload) = multi_component_fee_quote_fixture();
-        nexus.fees.settlement_mode =
-            iroha_config::parameters::actual::NexusFeeSettlementMode::LaneRelayBurn;
+        let mut parameters = world.parameters.block();
+        parameters.remove_custom_parameter(&RootFeePolicy::parameter_id());
+        parameters.commit();
         let world = world.block();
         let error = quote_nexus_fee_admission_draft(
             &world,
@@ -17662,14 +17671,14 @@ mod tests {
             1,
             Some(DataSpaceId::UNIVERSAL),
         )
-        .expect_err("receipt-settled quotes must require an exact sponsor program");
+        .expect_err("quotes require an exact committed policy");
         assert!(
             matches!(crate::execution_attempt::expect_completed_rejection(error), NexusFeeAdmissionError::ConfigInvalid(reason)
-            if reason.contains("retired lane-relay-burn fee settlement"))
+            if reason.contains("committed root fee policy is absent"))
         );
     }
     #[test]
-    fn retired_receipt_mode_rejects_execution_before_actual_fee_debit() {
+    fn missing_committed_policy_rejects_execution_before_actual_fee_debit() {
         let authority = ALICE_ID.clone();
         let domain_id = DomainId::try_new("receipt_execution", "universal").expect("fee domain id");
         let fee_asset = AssetDefinitionId::derive_from_components(
@@ -17714,9 +17723,12 @@ mod tests {
             0,
         ));
         let mut state_tx = block.transaction();
-        state_tx.nexus.fees.settlement_mode =
-            iroha_config::parameters::actual::NexusFeeSettlementMode::LaneRelayBurn;
-        state_tx.nexus.fees.fee_asset_id = fee_asset.canonical_address();
+        state_tx
+            .world
+            .parameters
+            .get_mut()
+            .remove_custom_parameter(&RootFeePolicy::parameter_id());
+        state_tx.nexus.fees.fee_asset_id = fee_asset.clone();
         install_fee_fixture_network_currency(&mut state_tx, &fee_asset);
         state_tx.nexus.fees.base_fee = Quantity::from(1_u32);
         state_tx.nexus.fees.per_byte_fee = Quantity::zero();
@@ -17731,11 +17743,11 @@ mod tests {
             1,
             0,
         )
-        .expect_err("execution must defensively reject an authority-paid receipt");
+        .expect_err("execution must reject an absent committed policy");
         assert!(matches!(
             error,
             ValidationFail::InternalError(reason)
-                if reason.contains("retired lane-relay-burn fee settlement")
+                if reason.contains("committed root fee policy is absent")
         ));
         assert_eq!(
             state_tx
@@ -17791,7 +17803,7 @@ mod tests {
         .sign(keypair.private_key());
         let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
         let mut state_transaction = block.transaction();
-        state_transaction.nexus.fees.fee_asset_id = fee_asset.canonical_address();
+        state_transaction.nexus.fees.fee_asset_id = fee_asset.clone();
         install_fee_fixture_network_currency(&mut state_transaction, &fee_asset);
         state_transaction.nexus.fees.base_fee = Quantity::from(2_u32);
         state_transaction.nexus.fees.per_byte_fee = Quantity::zero();

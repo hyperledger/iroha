@@ -167,8 +167,7 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 - `getPipelinePreflight()` parses exactly the served `GET /v1/pipeline/preflight`
   body, checked against the Rust-generated `fixtures/torii/pipeline_preflight.json`:
   `sumeragi` carries only the positive `block_cadence_ms`, every object rejects
-  fields Torii does not serve, fee amounts are strings and `settlement_mode` is
-  `direct` or `lane_relay_burn`. Torii serves no stall threshold, so the result
+  fields Torii does not serve, fee amounts are strings from the committed root policy. Torii serves no stall threshold, so the result
   exposes the SDK-derived `stallThresholdMs` (20 × `block_cadence_ms`) that
   `isStatusStalled` applies; the typed `sumeragi.block_time_ms`,
   `commit_time_ms` and `stall_threshold_ms` fields are removed.

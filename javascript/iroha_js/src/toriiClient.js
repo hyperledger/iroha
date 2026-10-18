@@ -24495,12 +24495,10 @@ const PIPELINE_PREFLIGHT_FIELDS = Object.freeze({
     "per_instruction_fee",
     "per_gas_unit_fee",
     "sponsor_vault_custody_account_id",
-    "settlement_mode",
     "successful_claim_fee_exempt_authorities",
   ]),
 });
 
-const PIPELINE_PREFLIGHT_SETTLEMENT_MODES = Object.freeze(["direct", "lane_relay_burn"]);
 
 /** Require `mapping` to be an object that carries no field outside `allowed`. */
 function requirePipelinePreflightRecord(mapping, allowed, context) {
@@ -24540,16 +24538,6 @@ function requirePipelinePreflightString(mapping, key, context) {
     rejectType(`${context}.${key} must be a non-empty string`);
   }
   return value;
-}
-
-function requirePipelinePreflightSettlementMode(fees, context) {
-  const mode = requirePipelinePreflightString(fees, "settlement_mode", context);
-  if (!PIPELINE_PREFLIGHT_SETTLEMENT_MODES.includes(mode)) {
-    rejectType(
-      `${context}.settlement_mode must be one of: ${PIPELINE_PREFLIGHT_SETTLEMENT_MODES.join(", ")}`,
-    );
-  }
-  return mode;
 }
 
 function requirePipelinePreflightArray(mapping, key, context) {
@@ -24720,7 +24708,6 @@ function normalizePipelinePreflight(payload, context = "pipeline preflight respo
         fees.sponsor_vault_custody_account_id,
         `${context}.fees.sponsor_vault_custody_account_id`,
       ),
-      settlement_mode: requirePipelinePreflightSettlementMode(fees, `${context}.fees`),
       successful_claim_fee_exempt_authorities: parseStringArray(
         requirePipelinePreflightArray(
           fees,

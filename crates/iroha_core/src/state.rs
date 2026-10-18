@@ -37,9 +37,7 @@ use crate::private_settlement::{
     },
 };
 use eyre::Result;
-use iroha_config::parameters::actual::{
-    LaneConfig, LaneConfigEntry, LaneRoutingPolicy, NexusFeeSettlementMode,
-};
+use iroha_config::parameters::actual::{LaneConfig, LaneConfigEntry, LaneRoutingPolicy};
 #[cfg(any(test, feature = "bench"))]
 use iroha_crypto::KeyPair;
 #[cfg(feature = "sm")]
@@ -3096,18 +3094,11 @@ pub enum LaneLifecycleError {
         /// Pending-progress invariant that blocks retirement.
         reason: &'static str,
     },
-    /// Relay worker requires asynchronous lane-relay-burn fee settlement.
-    #[error("nexus.relay_worker.enabled requires lane-relay-burn fee settlement")]
-    RelayWorkerFeeConfig,
-    /// Nexus fee selector must be canonical; execution pins its identity to the signed root policy.
+    /// The local staking selector must name the signed network asset.
     #[error(
-        "invalid nexus.fees.fee_asset_id; expected a canonical asset definition id or exact xor#universal alias"
+        "invalid nexus.staking.stake_asset_id; expected a canonical asset definition id or exact xor#universal alias"
     )]
-    NexusFeeAssetIdInvalid,
-    /// Nexus fee sink account literal must be non-empty.
-    #[error("nexus.fees.fee_sink_account_id must not be empty")]
-    NexusFeeSinkAccountEmpty,
-    /// Lane-relay emergency multisig threshold cannot exceed member count.
+    NexusStakeAssetIdInvalid,
     /// Dataspace default sponsor program references a dataspace absent from the catalog.
     #[error("nexus dataspace fee sponsor program references unknown dataspace {0}")]
     DataspaceFeeSponsorProgramUnknownDataspace(DataSpaceId),
@@ -25869,11 +25860,24 @@ mod state_block_construction;
 mod uaid_dataspace_restore;
 impl State {
     fn disable_nexus_fees_for_testing(&mut self) {
-        let nexus = self.nexus.get_mut();
-        nexus.fees.base_fee = Quantity::zero();
-        nexus.fees.per_byte_fee = Quantity::zero();
-        nexus.fees.per_instruction_fee = Quantity::zero();
-        nexus.fees.per_gas_unit_fee = Quantity::zero();
+        // Fixture authoring only. Preserve an already committed/root-specific schedule.
+        // Every ordinary test execution still reads the real StateParameters projection.
+        if self.world.parameters.view().get().root_fees().is_some() {
+            return;
+        }
+        let mut fees = self.nexus.get_mut().fees.clone();
+        fees.base_fee = Quantity::zero();
+        fees.per_byte_fee = Quantity::zero();
+        fees.per_instruction_fee = Quantity::zero();
+        fees.per_gas_unit_fee = Quantity::zero();
+        let mut parameters = self.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.into_custom_parameter()
+                    .expect("explicit free test policy"),
+            ))
+            .expect("valid free test policy");
+        parameters.commit();
     }
     /// Snapshot the current Nexus configuration.
     ///
@@ -25901,7 +25905,9 @@ impl State {
         let runtime = self.canonical_runtime.view();
         let parameters = self.world.parameters.view();
         let projection = runtime_catalog_from_parameters(parameters.get()).and_then(|catalog| {
-            runtime.nexus_projection_with_catalog(&self.nexus.read(), catalog.as_ref())
+            runtime
+                .nexus_projection_with_catalog(&self.nexus.read(), catalog.as_ref())
+                .map(|nexus| crate::pipeline_gas_policy::with_root_fees(nexus, parameters.get()))
         });
         if !is_stable_state_view_generation(generation_before, self.state_view_generation()) {
             return Ok(None);
@@ -28624,8 +28630,11 @@ impl State {
             iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
         nexus.configured_lane_catalog = nexus.lane_catalog.clone();
         nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
-        crate::sns::try_seed_default_namespace_policies(&mut world, &nexus.fees.fee_asset_id)
-            .expect("pre-genesis test world must use current SNS namespace policies");
+        crate::sns::try_seed_default_namespace_policies(
+            &mut world,
+            &nexus.fees.fee_asset_id.canonical_address(),
+        )
+        .expect("pre-genesis test world must use current SNS namespace policies");
         let kura_config = iroha_config::parameters::actual::Kura {
             init_mode: iroha_config::kura::InitMode::Strict,
             // The authenticated temporary constructor replaces this placeholder.
@@ -32765,31 +32774,17 @@ impl State {
             &dataspace_aliases,
             &dataspace_ids,
         )?;
-        if !nexus_fee_asset_selector_is_canonical(&nexus.fees.fee_asset_id) {
-            return Err(LaneLifecycleError::NexusFeeAssetIdInvalid);
-        }
         if let Some(params) = self.world.view().sumeragi_npos_parameters()? {
-            // Runtime selectors cannot replace the identity authenticated by genesis.
-            // Aliases are resolved at execution; the literal XOR alias is only a
-            // routing convenience and every monetary use still checks this pin.
-            for selector in [&nexus.fees.fee_asset_id, &nexus.staking.stake_asset_id] {
-                if selector != "xor#universal"
-                    && AssetDefinitionId::parse_address_literal(selector)
-                        .ok()
-                        .as_ref()
-                        != Some(&params.xor_asset_definition_id)
-                {
-                    return Err(LaneLifecycleError::NexusFeeAssetIdInvalid);
-                }
+            // Staking configuration still has its existing authenticated XOR pin.
+            let selector = &nexus.staking.stake_asset_id;
+            if selector != "xor#universal"
+                && AssetDefinitionId::parse_address_literal(selector)
+                    .ok()
+                    .as_ref()
+                    != Some(&params.xor_asset_definition_id)
+            {
+                return Err(LaneLifecycleError::NexusStakeAssetIdInvalid);
             }
-        }
-        if nexus.fees.fee_sink_account_id.trim().is_empty() {
-            return Err(LaneLifecycleError::NexusFeeSinkAccountEmpty);
-        }
-        if nexus.relay_worker.enabled
-            && nexus.fees.settlement_mode != NexusFeeSettlementMode::LaneRelayBurn
-        {
-            return Err(LaneLifecycleError::RelayWorkerFeeConfig);
         }
         for dataspace_id in nexus.dataspace_fee_sponsor_program_ids.keys() {
             if !dataspace_ids.contains(dataspace_id) {
@@ -32862,16 +32857,13 @@ impl State {
         )?;
         nexus.lane_config =
             iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
-        let configured_fee_asset_id = nexus.fees.fee_asset_id.clone();
-        crate::sns::ensure_default_namespace_policies_match_configured(
-            &self.world.view(),
-            &configured_fee_asset_id,
-        )
-        .map_err(|error| {
-            LaneLifecycleError::Storage(format!(
-                "Nexus fee configuration does not match current SNS namespace policies: {error}"
-            ))
-        })?;
+        if let Some(committed) = self.world.parameters.view().get().root_fees() {
+            crate::sns::ensure_default_namespace_policies_match_configured(
+                &self.world.view(), &committed.fee_asset_id.canonical_address(),
+            ).map_err(|error| LaneLifecycleError::Storage(format!(
+                "committed root fee currency does not match current SNS namespace policies: {error}",
+            )))?;
+        }
         let previous_lane_config = previous_nexus.lane_config.clone();
         let previous_lane_incarnations = self.lane_incarnations_snapshot();
         let previous_lane_incarnation_lineage = self.lane_incarnation_lineage_snapshot();
@@ -36539,7 +36531,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
 -> Vec<iroha_data_model::parameter::CustomParameterId> {
     use iroha_data_model::{
         account::admission::AccountAdmissionPolicy,
-        block::consensus::PrivateRootFeePolicy,
+        block::consensus::RootFeePolicy,
         da::ingest::DaIngestAdmissionPolicyV1,
         hijiri::HijiriParametersV1,
         isi::settlement::FxCorridorPolicyRegistry,
@@ -36568,7 +36560,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
         FxCorridorPolicyRegistry::parameter_id(),
         ValidationFeePolicyRegistryV1::parameter_id(),
         AccountAdmissionPolicy::parameter_id(),
-        PrivateRootFeePolicy::parameter_id(),
+        RootFeePolicy::parameter_id(),
         ReputationFinalizedArchiveRetentionRequestV1::parameter_id(),
     ];
     ids.extend(crate::pipeline_gas_policy::parameter_ids());
@@ -37199,11 +37191,15 @@ impl State {
         // The committed ZK and pipeline validity policies, as every view and block reads them.
         let zk = self.zk_snapshot();
         let pipeline = self.pipeline_snapshot();
+        let nexus = crate::pipeline_gas_policy::with_root_fees(
+            nexus.clone(),
+            self.world.parameters.view().get(),
+        );
         compute_execution_policy_digest_v1(
             &pipeline,
             &self.oracle,
             crypto.as_ref(),
-            nexus,
+            &nexus,
             lane_manifests,
             lane_compliance,
             &self.fraud_monitoring_snapshot(),
@@ -37233,11 +37229,15 @@ impl StateBlock<'_> {
             self.fraud_monitoring.clone(),
             self.world.parameters.get(),
         );
+        let authored_nexus = crate::pipeline_gas_policy::with_root_fees(
+            self.nexus.clone(),
+            self.world.parameters.get(),
+        );
         compute_execution_policy_digest_v1(
             &self.pipeline,
             &self.oracle,
             self.crypto.as_ref(),
-            &self.nexus,
+            &authored_nexus,
             self.lane_manifests.as_ref(),
             self.lane_compliance.as_deref(),
             &authored_fraud,

@@ -302,7 +302,7 @@ fn staking_configuration_and_reward_custody_reject_registered_xor_lookalike() {
     // authority. Staking and funded reward custody both require the committed identity.
     for configured in [&committed_xor, &lookalike] {
         stx.nexus.staking.stake_asset_id = configured.to_string();
-        stx.nexus.fees.fee_asset_id = configured.to_string();
+        stx.nexus.fees.fee_asset_id = configured.clone();
         let stake_result = stake_context(
             &stx.world,
             &stx.nexus.dataspace_catalog,

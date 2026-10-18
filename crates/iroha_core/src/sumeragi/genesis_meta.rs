@@ -40,8 +40,12 @@ pub fn staged_genesis_nexus_amx_context_preimage(staged: &StateBlock<'_>) -> Vec
             activation_height: lineage.activation_height,
         })
         .collect::<Vec<_>>();
+    let authored_nexus = crate::pipeline_gas_policy::with_root_fees(
+        staged.nexus.clone(),
+        staged.world().parameters(),
+    );
     sumeragi_nexus_amx_context_preimage(
-        &staged.nexus,
+        &authored_nexus,
         &staged.pipeline,
         &eligible_validators,
         &retained_lane_lineage,

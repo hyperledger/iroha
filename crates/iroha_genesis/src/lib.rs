@@ -32,6 +32,8 @@ fn genesis_transaction_metadata(index: u64) -> Result<Metadata> {
 mod bounded_manifest;
 #[cfg(test)]
 mod ivm_path_codec_tests;
+#[cfg(test)]
+mod root_fee_policy_tests;
 use base64::Engine as _;
 pub use bounded_manifest::{
     GENESIS_IVM_BYTECODE_MAX_BYTES_V1, GENESIS_IVM_BYTECODE_MAX_TOTAL_BYTES_V1,
@@ -257,6 +259,48 @@ pub fn validate_prepared_genesis_bundle(
         consensus_metadata,
     })
 }
+/// Authenticate the original genesis and read its sole committed monetary fee policy.
+///
+/// The caller still selects the expected network and genesis identity independently.
+/// This uses the native signed-genesis authenticator before inspecting original instructions;
+/// it does not confer authority on a mutable World or on result-only certificates.
+///
+/// # Errors
+/// Rejects invalid original signatures/context, missing or repeated policy instructions,
+/// malformed canonical policy bytes, and a policy invalid for the signed root scope.
+pub fn signed_genesis_root_fee_policy(
+    block: &SignedBlock,
+) -> Result<iroha_data_model::block::consensus::RootFeePolicy> {
+    use iroha_data_model::block::consensus::RootFeePolicy;
+    let authenticated = iroha_data_model::sumeragi_finality::authenticated_genesis(block)
+        .map_err(|error| eyre!("authenticate fee-policy genesis: {error}"))?;
+    let scope = authenticated.metadata().sumeragi_context.root_scope;
+    let mut policy = None;
+    for transaction in block.external_transactions() {
+        let Executable::Instructions(instructions) = transaction.instructions() else {
+            return Err(eyre!("authenticated genesis omitted explicit instructions"));
+        };
+        for instruction in instructions {
+            let Some(set) = instruction.as_any().downcast_ref::<SetParameter>() else {
+                continue;
+            };
+            let Parameter::Custom(custom) = set.inner() else {
+                continue;
+            };
+            if custom.id() != &RootFeePolicy::parameter_id() {
+                continue;
+            }
+            if policy.is_some() {
+                return Err(eyre!("signed genesis repeats its root fee policy"));
+            }
+            let decoded = RootFeePolicy::from_custom_parameter(custom)?;
+            decoded.validate_for_scope(&scope)?;
+            policy = Some(decoded);
+        }
+    }
+    policy.ok_or_else(|| eyre!("signed genesis omits root_fees_v1"))
+}
+
 /// Read and validate the validator keys and BLS proofs of possession in genesis.
 ///
 /// The caller must independently authenticate this exact genesis body and its
@@ -1296,7 +1340,25 @@ impl GenesisSourceTemplate {
                 .and_then(norito::json::Value::as_array_mut)
                 .ok_or_else(|| eyre!("genesis source has no transaction array"))?;
             let mut pinned = 0;
+            let mut fee_pinned = 0;
             for transaction in transactions {
+                if let Some(payload) = transaction
+                    .get_mut("parameters")
+                    .and_then(|value| value.get_mut("custom"))
+                    .and_then(|value| {
+                        value.get_mut(
+                            iroha_data_model::block::consensus::RootFeePolicy::PARAMETER_ID_STR,
+                        )
+                    })
+                    .and_then(|value| value.get_mut("payload"))
+                    .and_then(norito::json::Value::as_object_mut)
+                {
+                    payload.insert(
+                        "fee_asset_id".to_owned(),
+                        norito::json::Value::String(asset.canonical_address()),
+                    );
+                    fee_pinned += 1;
+                }
                 if let Some(payload) = transaction
                     .get_mut("parameters")
                     .and_then(|value| value.get_mut("custom"))
@@ -1311,9 +1373,9 @@ impl GenesisSourceTemplate {
                     pinned += 1;
                 }
             }
-            if pinned != 1 {
+            if pinned != 1 || fee_pinned != 1 {
                 return Err(eyre!(
-                    "NPoS source must have exactly one authoritative XOR asset pin"
+                    "NPoS source must have exactly one authoritative XOR asset pin and root fee recipe"
                 ));
             }
         }
@@ -1335,6 +1397,9 @@ impl RawGenesisTransaction {
     /// its boundary.
     pub fn validate_mode_specific_consensus_parameters(&self) -> Result<()> {
         let parameters = self.effective_parameters()?;
+        let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(&parameters)?
+            .ok_or_else(|| eyre!("genesis requires its explicit root_fees_v1 monetary policy"))?;
+        fees.validate_for_scope(&self.sumeragi_context.root_scope)?;
         let scheduled_epoch_length = parameters.sumeragi().epoch_length_blocks;
         let npos_parameter = parameters
             .custom()
@@ -1352,6 +1417,15 @@ impl RawGenesisTransaction {
                 "NPoS genesis requires `sumeragi_npos_parameters`; node-local election defaults are not signed inputs"
             )),
             (SumeragiConsensusMode::Npos, Some(parameters)) => {
+                if matches!(
+                    self.sumeragi_context.root_scope,
+                    iroha_data_model::block::consensus::SumeragiRootScope::Global
+                ) && fees.fee_asset_id != parameters.xor_asset_definition_id
+                {
+                    return Err(eyre!(
+                        "Global genesis fee currency must equal its exact signed NPoS XOR identity"
+                    ));
+                }
                 // The pulse at boundary - 1 authenticates a committed anchor at boundary - 2.
                 // Height zero is not a block and cannot serve as that anchor.
                 if parameters.epoch_length_blocks().get() < 3 {
@@ -2743,6 +2817,22 @@ impl GenesisBuilder {
                 parameter_snapshot.set_parameter(parameter);
             }
         }
+        if !parameter_snapshot
+            .custom()
+            .contains_key(&iroha_data_model::block::consensus::RootFeePolicy::parameter_id())
+        {
+            let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+            if let Some(npos) = parameter_snapshot
+                .custom()
+                .get(&SumeragiNposParameters::parameter_id())
+                .map(SumeragiNposParameters::from_custom_parameter)
+                .transpose()?
+                .flatten()
+            {
+                fees.fee_asset_id = npos.xor_asset_definition_id;
+            }
+            parameter_snapshot.set_parameter(Parameter::Custom(fees.into_custom_parameter()?));
+        }
         parameter_snapshot.sumeragi.block_cadence_ms = self.block_cadence_ms;
         let mut transactions: Vec<_> = source_transactions
             .into_iter()
@@ -3111,6 +3201,15 @@ mod tests {
     use iroha_test_samples::{ALICE_KEYPAIR, BOB_KEYPAIR};
     use tempfile::TempDir;
 
+    fn parameters_with_root_fees_for_test() -> Parameters {
+        let mut parameters = Parameters::default();
+        parameters.set_parameter(Parameter::Custom(
+            iroha_config::parameters::defaults::nexus::fees::genesis_policy()
+                .into_custom_parameter()
+                .expect("canonical authored policy"),
+        ));
+        parameters
+    }
     impl GenesisBuilder {
         fn build_raw_for_test(self) -> RawGenesisTransaction {
             self.with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
@@ -3129,7 +3228,7 @@ mod tests {
 
     fn configured_execution_policy_for_test() -> Parameters {
         use std::num::{NonZeroU16, NonZeroU64};
-        let mut parameters = Parameters::default();
+        let mut parameters = parameters_with_root_fees_for_test();
         parameters.transaction.max_signatures = NonZeroU64::new(3).unwrap();
         parameters.transaction.max_instructions = NonZeroU64::new(5).unwrap();
         parameters.transaction.ivm_bytecode_size = NonZeroU64::new(65_536).unwrap();
@@ -3722,7 +3821,7 @@ mod tests {
     #[test]
     fn raw_genesis_tx_parameters_json_serializes() {
         let tx = RawGenesisTx {
-            parameters: Some(Parameters::default()),
+            parameters: Some(parameters_with_root_fees_for_test()),
             ..RawGenesisTx::default()
         };
         let json = norito::json::to_json(&tx).expect("serialize raw genesis tx");
@@ -4211,7 +4310,7 @@ mod tests {
         let mut manifest = GenesisBuilder::new_without_executor(chain, ".")
             .build_raw_for_test()
             .with_consensus_meta()?;
-        let mut parameters = Parameters::default();
+        let mut parameters = parameters_with_root_fees_for_test();
         parameters.set_parameter(stale_param);
         manifest
             .transactions
@@ -4374,7 +4473,7 @@ mod tests {
             }))
             .expect("construct handshake payload"),
         ));
-        let mut parameters = Parameters::default();
+        let mut parameters = parameters_with_root_fees_for_test();
         parameters.set_parameter(explicit_param);
         manifest
             .transactions

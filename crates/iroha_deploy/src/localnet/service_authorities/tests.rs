@@ -359,7 +359,11 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
                 .collect::<std::collections::BTreeMap<_, _>>()
         );
         assert_eq!(
-            configured_execution_policy(&config).unwrap(),
+            configured_execution_policy(
+                &config,
+                &iroha_genesis::signed_genesis_root_fee_policy(&block).unwrap()
+            )
+            .unwrap(),
             Hash::prehashed(metadata.sumeragi_context.execution_policy_hash)
         );
         assert!(!config.torii.sorafs_storage.stream_tokens.enabled);
@@ -476,10 +480,23 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
         .unwrap();
     assert_eq!(receipt.genesis().hash(), block.hash());
     assert_eq!(owner, manifest.providers[0].authorities[0].account);
-    assert_eq!(policy, configured_execution_policy(&config).unwrap());
+    assert_eq!(
+        policy,
+        configured_execution_policy(
+            &config,
+            &iroha_genesis::signed_genesis_root_fee_policy(&block).unwrap()
+        )
+        .unwrap()
+    );
     let mut external_compliance = config;
     external_compliance.nexus.compliance.enabled = true;
-    assert!(configured_execution_policy(&external_compliance).is_err());
+    assert!(
+        configured_execution_policy(
+            &external_compliance,
+            &iroha_genesis::signed_genesis_root_fee_policy(&block).unwrap()
+        )
+        .is_err()
+    );
 }
 
 #[test]

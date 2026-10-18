@@ -26,8 +26,8 @@ use std::{string::String, vec::Vec};
 pub mod fingerprint;
 mod root_scope;
 pub use root_scope::SumeragiRootScope;
-mod private_root_fees;
-pub use private_root_fees::{PrivateRootFeePolicy, PrivateRootFeePolicyError};
+mod root_fees;
+pub use root_fees::{RootFeePolicy, RootFeePolicyError};
 /// Height alias for consensus.
 pub type Height = u64;
 /// View/round number alias.
@@ -76,8 +76,8 @@ pub const MAX_EXECUTED_BLOCK_WIRE_BYTES: u64 = 256 * 1024 * 1024;
 /// Keeping the bytes here lets configuration-independent genesis builders emit
 /// a valid signed template without introducing a data-model/config cycle.
 pub const RECOMMENDED_NEXUS_AMX_CONTEXT_HASH: [u8; 32] = [
-    74, 51, 152, 173, 244, 125, 165, 95, 209, 37, 162, 171, 118, 190, 96, 81, 77, 208, 196, 105,
-    150, 82, 221, 249, 100, 224, 199, 91, 89, 239, 44, 131,
+    88, 12, 48, 173, 107, 114, 85, 95, 186, 200, 40, 53, 208, 134, 200, 251, 174, 162, 47, 222,
+    184, 23, 6, 105, 200, 240, 15, 116, 81, 131, 222, 53,
 ];
 /// Canonical V1 boot execution-policy identity emitted by the recommended genesis template.
 ///
@@ -840,13 +840,13 @@ pub struct NexusFeeScheduleInputs {
     pub instruction_count: u64,
     /// Gas units used by the transaction.
     pub gas_used: u64,
-    /// Base fee from `nexus.fees.base_fee`.
+    /// Base fee from `root_fees_v1.base_fee`.
     pub base_fee: Quantity,
-    /// Per-byte fee from `nexus.fees.per_byte_fee`.
+    /// Per-byte fee from `root_fees_v1.per_byte_fee`.
     pub per_byte_fee: Quantity,
-    /// Per-instruction fee from `nexus.fees.per_instruction_fee`.
+    /// Per-instruction fee from `root_fees_v1.per_instruction_fee`.
     pub per_instruction_fee: Quantity,
-    /// Per-gas-unit fee from `nexus.fees.per_gas_unit_fee`.
+    /// Per-gas-unit fee from `root_fees_v1.per_gas_unit_fee`.
     pub per_gas_unit_fee: Quantity,
 }
 /// Actual native settlement performed for one Nexus charge.

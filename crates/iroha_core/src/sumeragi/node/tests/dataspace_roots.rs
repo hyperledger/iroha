@@ -3,7 +3,7 @@
 use super::*;
 use iroha_data_model::{
     asset::{AssetBalancePolicy, AssetBalanceScope},
-    block::consensus::{PrivateRootFeePolicy, SumeragiRootScope},
+    block::consensus::{RootFeePolicy, SumeragiRootScope},
     nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig},
     transaction::{FeeChargeKind, FeeChargeLimit},
 };
@@ -128,8 +128,8 @@ impl DataspaceChain {
         .unwrap();
         nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
         nexus.routing_policy.default_dataspace = id;
-        nexus.fees.fee_asset_id = fee_asset.canonical_address();
-        nexus.fees.fee_sink_account_id = SAMPLE_GENESIS_ACCOUNT_ID.to_string();
+        nexus.fees.fee_asset_id = fee_asset.clone();
+        nexus.fees.fee_sink_account_id = SAMPLE_GENESIS_ACCOUNT_ID.clone();
         // Global Nexus burns are separate from the root's explicitly scoped gas payment.
         nexus.fees.base_fee = Quantity::zero();
         nexus.fees.per_byte_fee = Quantity::zero();
@@ -151,12 +151,13 @@ impl DataspaceChain {
         context.root_scope = scope;
         let builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
             .append_parameter(Parameter::Custom(
-                PrivateRootFeePolicy {
-                    asset_definition_id: fee_asset.clone(),
+                RootFeePolicy {
+                    fee_asset_id: fee_asset.clone(),
                     base_fee: 1_u32.into(),
                     per_byte_fee: Quantity::zero(),
                     per_instruction_fee: Quantity::zero(),
                     per_gas_unit_fee: 1_u32.into(),
+                    ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
                 }
                 .into_custom_parameter()
                 .unwrap(),
@@ -259,7 +260,7 @@ impl DataspaceChain {
                 let mut world = bootstrap_world();
                 crate::sns::try_seed_default_namespace_policies(
                     &mut world,
-                    &self.nexus.fees.fee_asset_id,
+                    &self.nexus.fees.fee_asset_id.canonical_address(),
                 )
                 .unwrap();
                 let mut state = State::new_with_chain_and_network_id_for_testing(

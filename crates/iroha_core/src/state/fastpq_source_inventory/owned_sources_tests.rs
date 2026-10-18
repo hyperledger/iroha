@@ -109,14 +109,26 @@ fn fixture_with_effects_in_root(
     };
     let mut fee_parameters = Vec::new();
     if fee_and_protocol {
-        let fees = &mut state.nexus.get_mut().fees;
+        let mut fees = state.nexus_snapshot().fees;
         fees.base_fee = Quantity::zero();
         fees.per_byte_fee = Quantity::zero();
         fees.per_instruction_fee = Quantity::zero();
         fees.per_gas_unit_fee = Quantity::zero();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+
         // Nexus admission retains the canonical XOR identity even when its fee
         // is zero. The independently signed PipelineGas charge uses this asset.
-        fees.fee_sink_account_id = BOB_ID.to_string();
+        fees.fee_sink_account_id = BOB_ID.clone();
         let gas = iroha_config::parameters::actual::Gas {
             tech_account_id: BOB_ID.to_string(),
             accepted_assets: vec![asset.canonical_address()],
@@ -152,7 +164,7 @@ fn fixture_with_effects_in_root(
     if let Some(dataspace) = private_dataspace {
         use iroha_data_model::{
             asset::AssetBalanceScope,
-            block::consensus::{PrivateRootFeePolicy, SumeragiRootScope},
+            block::consensus::{RootFeePolicy, SumeragiRootScope},
             domain::Domain,
             nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig},
         };
@@ -185,13 +197,13 @@ fn fixture_with_effects_in_root(
         .unwrap();
         nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
         nexus.routing_policy.default_dataspace = dataspace;
-        nexus.fees.fee_asset_id = asset.canonical_address();
+        nexus.fees.fee_asset_id = asset.clone();
         nexus.fees.base_fee = Quantity::zero();
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         let genesis_authority = AccountId::new(config.genesis_key.public_key().clone());
-        nexus.fees.fee_sink_account_id = genesis_authority.to_string();
+        nexus.fees.fee_sink_account_id = genesis_authority.clone();
         let gas = iroha_config::parameters::actual::Gas {
             tech_account_id: genesis_authority.to_string(),
             accepted_assets: vec![asset.canonical_address()],
@@ -207,12 +219,13 @@ fn fixture_with_effects_in_root(
             .genesis_parameters
             .extend(crate::pipeline_gas_policy::parameters_for_testing(gas));
         config.genesis_parameters.push(Parameter::Custom(
-            PrivateRootFeePolicy {
-                asset_definition_id: asset.clone(),
+            RootFeePolicy {
+                fee_asset_id: asset.clone(),
                 base_fee: Quantity::one(),
                 per_byte_fee: Quantity::zero(),
                 per_instruction_fee: Quantity::zero(),
                 per_gas_unit_fee: Quantity::one(),
+                ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
             }
             .into_custom_parameter()
             .unwrap(),

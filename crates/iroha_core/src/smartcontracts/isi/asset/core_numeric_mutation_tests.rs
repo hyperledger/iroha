@@ -140,7 +140,21 @@ fn fee_sponsor_custody_state() -> (State, AccountId, AssetDefinitionId, AssetId)
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
-    state.nexus.get_mut().fees.sponsor_vault_custody_account_id = custody.clone();
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.sponsor_vault_custody_account_id = custody.clone();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     (state, custody, definition_id, source_id)
 }
 #[test]

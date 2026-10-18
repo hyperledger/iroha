@@ -6,16 +6,16 @@ use iroha_data_model::{
     NetworkId,
     block::{
         SignedBlock,
-        consensus::{PrivateRootFeePolicy, SumeragiGenesisContextParameters, SumeragiRootScope},
+        consensus::{RootFeePolicy, SumeragiGenesisContextParameters, SumeragiRootScope},
     },
     nexus::DataSpaceCatalog,
     parameter::{Parameter, system::SumeragiConsensusMode},
 };
 use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
 
-fn policy() -> PrivateRootFeePolicy {
-    PrivateRootFeePolicy {
-        asset_definition_id: AssetDefinitionId::derive_from_components(
+fn policy() -> RootFeePolicy {
+    RootFeePolicy {
+        fee_asset_id: AssetDefinitionId::derive_from_components(
             DomainId::parse_fully_qualified("app.private-bootstrap").unwrap(),
             "gas".parse().unwrap(),
         ),
@@ -23,6 +23,7 @@ fn policy() -> PrivateRootFeePolicy {
         per_byte_fee: 0_u32.into(),
         per_instruction_fee: 1_u32.into(),
         per_gas_unit_fee: 1_u32.into(),
+        ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
     }
 }
 

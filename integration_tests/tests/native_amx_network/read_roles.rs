@@ -33,8 +33,9 @@ async fn assert_disclosure_denied(mut response: reqwest::Response) -> Result<()>
     let expected = norito::to_bytes(&iroha_torii_shared::ErrorEnvelope::new(
         "query_validation_failed",
         ValidationFail::NotPermitted(
-            "Full ledger carriers require CanReadAllLedgerData; use an authorized exact transaction query for selective inclusion".to_owned(),
-        ).to_string(),
+            "AMX approval complete World carrier requires current CanReadAllLedgerData".to_owned(),
+        )
+        .to_string(),
     ))?;
     if let Some(length) = response.content_length() {
         ensure!(

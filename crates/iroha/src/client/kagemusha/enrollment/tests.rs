@@ -88,6 +88,7 @@ async fn signs_complete_action_and_originals_for_the_exact_account_network_route
         (Action::Evidence, Response::Pending),
         (Action::Issue, Response::CredentialReady),
         (Action::Deliver, Response::Credential(vec![9, 10])),
+        (Action::ExpiryProof, Response::ExpiryProof(vec![11, 12])),
     ] {
         let value = request(action);
         let (client, requests, _) = attach(response(&expected), Duration::ZERO, Duration::ZERO);
@@ -252,6 +253,7 @@ async fn rejects_every_response_for_another_action() {
         Action::Evidence,
         Action::Issue,
         Action::Deliver,
+        Action::ExpiryProof,
     ] {
         for reply in [
             Response::Permit(vec![1]),
@@ -259,6 +261,7 @@ async fn rejects_every_response_for_another_action() {
             Response::Pending,
             Response::CredentialReady,
             Response::Credential(vec![2]),
+            Response::ExpiryProof(vec![3]),
         ] {
             let allowed = matches!(
                 (action, &reply),
@@ -269,6 +272,7 @@ async fn rejects_every_response_for_another_action() {
                     )
                     | (Action::Issue, Response::CredentialReady)
                     | (Action::Deliver, Response::Credential(_))
+                    | (Action::ExpiryProof, Response::ExpiryProof(_))
             );
             if allowed {
                 continue;
@@ -316,6 +320,8 @@ async fn rejects_invalid_response_frames_original_bounds_and_media_types() {
         [good.body().clone(), vec![0]].concat(),
         norito::encode_canonical(&Response::Permit(vec![])).unwrap(),
         norito::encode_canonical(&Response::Permit(vec![0; 2049])).unwrap(),
+        norito::encode_canonical(&Response::ExpiryProof(vec![])).unwrap(),
+        norito::encode_canonical(&Response::ExpiryProof(vec![0; 4097])).unwrap(),
     ] {
         let mut reply = good.clone();
         *reply.body_mut() = original;

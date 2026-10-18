@@ -200,7 +200,11 @@ fn onboarding_readiness_payment_asset_mismatch_is_blocked_while_joining_state_is
         iroha_core::sns::ensure_namespace_policy_payment_asset_matches_configured(
             &app.state.world_view(),
             iroha_core::sns::SnsNamespace::AccountAlias,
-            &app.state.nexus_snapshot().fees.fee_asset_id,
+            &app.state
+                .nexus_snapshot()
+                .fees
+                .fee_asset_id
+                .canonical_address(),
         ),
         Err(iroha_core::sns::SnsError::Conflict(_))
     ));

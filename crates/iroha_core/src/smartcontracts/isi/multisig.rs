@@ -3317,7 +3317,7 @@ mod tests {
         nexus.configured_lane_catalog = nexus.lane_catalog.clone();
         nexus.lane_config =
             iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
-        nexus.fees.fee_asset_id = payment_asset_definition_id.to_string();
+        nexus.fees.fee_asset_id = payment_asset_definition_id.clone();
         // The executor resolves aliases from committed SNS state. A static node
         // catalog and domain entity cannot replace either original parent lease.
         let bootstrap_dataspace = EnsureAlias::new(

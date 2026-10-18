@@ -345,24 +345,6 @@ fn sccp_unauthed_genesis_writes_never_supply_committee_authority() {
 }
 
 #[test]
-fn native_execution_rejects_relay_fee_mode_before_source_execution() {
-    let (_key, genesis) = sccp_call_site_genesis();
-    let state = crate::smartcontracts::isi::sccp::test_support::blank_state();
-    let block = state.block(genesis.header());
-    ValidBlock::validate_native_fee_settlement_mode(&block).expect("direct fees are admitted");
-    drop(block);
-    state.nexus.write().fees.settlement_mode =
-        iroha_config::parameters::actual::NexusFeeSettlementMode::LaneRelayBurn;
-    let block = state.block(genesis.header());
-    let error = ValidBlock::validate_staged_execution_controls(&genesis, &block)
-        .expect_err("relay receipt settlement is rejected before transactions");
-    assert!(
-        error.to_string().contains("retired lane-relay-burn"),
-        "{error}"
-    );
-}
-
-#[test]
 fn sccp_follower_rejects_second_included_forgery_independent_of_total_cap() {
     use crate::smartcontracts::isi::sccp::forgery::tests::{
         active_member_chain_with_penalty_delay, future,

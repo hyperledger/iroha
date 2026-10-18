@@ -2,8 +2,8 @@
 //!
 //! Views and block construction read this projection from committed parameters.
 //! A block freezes its predecessor's projection; execution never refreshes it
-//! from transaction-local writes. Missing parameters have protocol defaults,
-//! and malformed parameters are errors rather than a node-local fallback.
+//! from transaction-local writes. Root fees are mandatory after genesis; other
+//! families retain protocol defaults. Malformed parameters never select local configuration.
 
 use std::{collections::BTreeSet, str::FromStr as _};
 
@@ -14,6 +14,7 @@ use iroha_data_model::{
         address::{AccountAddress, AccountAddressError},
     },
     asset::AssetDefinitionId,
+    block::consensus::RootFeePolicy,
     parameter::{CustomParameter, CustomParameterId, Parameters},
 };
 use iroha_data_model::{
@@ -31,6 +32,7 @@ pub struct StateParameters {
     gas: Gas,
     pipeline: PipelineValidityPolicyV1,
     fraud: FraudAdmissionPolicyV1,
+    root_fees: Option<RootFeePolicy>,
 }
 
 impl Default for StateParameters {
@@ -40,6 +42,7 @@ impl Default for StateParameters {
             gas: Gas::default(),
             pipeline: PipelineValidityPolicyV1::protocol_default(),
             fraud: FraudAdmissionPolicyV1::protocol_default(),
+            root_fees: None,
         }
     }
 }
@@ -67,13 +70,40 @@ impl TryFrom<Parameters> for StateParameters {
             .map(|custom| fraud_policy(custom.payload()))
             .transpose()?
             .unwrap_or_else(FraudAdmissionPolicyV1::protocol_default);
+        let root_fees = parameters
+            .custom()
+            .get(&RootFeePolicy::parameter_id())
+            .map(|custom| root_fee_policy(custom.payload()))
+            .transpose()?;
         Ok(Self {
             parameters,
             gas,
             pipeline,
             fraud,
+            root_fees,
         })
     }
+}
+
+fn root_fee_policy(payload: &Json) -> Result<RootFeePolicy, norito::Error> {
+    payload.try_into_any_norito::<RootFeePolicy>()
+}
+
+/// Replace the process-local cache with the exact committed monetary projection.
+/// The deterministic bootstrap value never authorizes ordinary execution: that
+/// requires the committed parameter. Genesis alone may start with an empty State.
+pub(crate) fn with_root_fees(
+    mut nexus: iroha_config::parameters::actual::Nexus,
+    parameters: &StateParameters,
+) -> iroha_config::parameters::actual::Nexus {
+    if cfg!(all(test, sumeragi_core_mutation = "HC396")) {
+        return nexus;
+    }
+    nexus.fees = parameters
+        .root_fees()
+        .cloned()
+        .unwrap_or_else(iroha_config::parameters::defaults::nexus::fees::genesis_policy);
+    nexus
 }
 
 impl StateParameters {
@@ -92,6 +122,12 @@ impl StateParameters {
         &self.fraud
     }
 
+    /// Borrow the complete monetary policy derived from this exact committed version.
+    /// Absence is permitted only before signed genesis has installed the required policy.
+    pub fn root_fees(&self) -> Option<&RootFeePolicy> {
+        self.root_fees.as_ref()
+    }
+
     /// Validate and atomically update one original parameter and its derived policies.
     ///
     /// Errors preserve the original decoder refusal and leave both values unchanged.
@@ -104,6 +140,48 @@ impl StateParameters {
     pub fn set_parameter(
         &mut self,
         parameter: iroha_data_model::parameter::Parameter,
+    ) -> Result<(), norito::Error> {
+        self.set_parameter_validated(parameter, |_| Ok(()))
+    }
+
+    /// Install a root fee update through the same one-decode atomic projection owner.
+    /// The signed scope is supplied by the execution owner. Currency and sponsor
+    /// custody cannot move after genesis: existing asset liabilities stay at their identity.
+    ///
+    /// # Errors
+    /// Preserves the original decoder refusal and rejects root-incompatible rates,
+    /// public exemptions on private roots, or a post-genesis monetary identity change.
+    pub fn set_parameter_for_root(
+        &mut self,
+        parameter: iroha_data_model::parameter::Parameter,
+        scope: iroha_data_model::block::consensus::SumeragiRootScope,
+        is_genesis: bool,
+    ) -> Result<(), norito::Error> {
+        let previous = self.root_fees.clone();
+        self.set_parameter_validated(parameter, |next| {
+            next.validate_for_scope(&scope)
+                .map_err(|error| norito::Error::Message(error.to_string()))?;
+            if !is_genesis
+                && !cfg!(all(test, sumeragi_core_mutation = "HC399"))
+                && let Some(previous) = previous
+            {
+                if previous.fee_asset_id != next.fee_asset_id
+                    || previous.sponsor_vault_custody_account_id
+                        != next.sponsor_vault_custody_account_id
+                {
+                    return Err(norito::Error::Message(
+                        "root fee currency and sponsor custody are immutable after genesis".into(),
+                    ));
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn set_parameter_validated(
+        &mut self,
+        parameter: iroha_data_model::parameter::Parameter,
+        validate_root_fees: impl FnOnce(&RootFeePolicy) -> Result<(), norito::Error>,
     ) -> Result<(), norito::Error> {
         if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
             && matches!(
@@ -127,6 +205,13 @@ impl StateParameters {
             let fraud = fraud_policy(custom.payload())?;
             self.parameters.set_parameter(parameter);
             self.fraud = fraud;
+        } else if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
+            && custom.id().name().as_ref() == RootFeePolicy::PARAMETER_ID_STR
+        {
+            let root_fees = root_fee_policy(custom.payload())?;
+            validate_root_fees(&root_fees)?;
+            self.parameters.set_parameter(parameter);
+            self.root_fees = Some(root_fees);
         } else {
             // Other parameters cannot change these projections and need no decoding.
             self.parameters.set_parameter(parameter);
@@ -153,6 +238,7 @@ impl StateParameters {
             FraudAdmissionPolicyV1::PARAMETER_ID_STR => {
                 self.fraud = FraudAdmissionPolicyV1::protocol_default();
             }
+            RootFeePolicy::PARAMETER_ID_STR => self.root_fees = None,
             _ => {}
         }
         previous
@@ -429,6 +515,65 @@ mod tests {
 
     fn parameter(name: &str, payload: Json) -> CustomParameter {
         CustomParameter::new(name.parse().expect("parameter id"), payload)
+    }
+
+    #[test]
+    fn root_policy_projection_is_atomic_restorable_and_custody_safe() {
+        use iroha_data_model::block::consensus::SumeragiRootScope;
+        let mut policy = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+        policy.base_fee = 1_u32.into();
+        let mut owner = StateParameters::default();
+        owner
+            .set_parameter_for_root(
+                Parameter::Custom(policy.clone().into_custom_parameter().unwrap()),
+                SumeragiRootScope::Global,
+                true,
+            )
+            .unwrap();
+        let original = owner.clone();
+        let zero = norito::DecodeLimits::new(0, 0, 0, 0, 0);
+        norito::with_decode_limits_scope(zero, || assert_eq!(owner.root_fees(), Some(&policy)));
+        let mut next = policy.clone();
+        next.base_fee = 3_u32.into();
+        let update = Parameter::Custom(next.clone().into_custom_parameter().unwrap());
+        assert!(
+            norito::with_decode_limits_scope(zero, || owner.set_parameter_for_root(
+                update.clone(),
+                SumeragiRootScope::Global,
+                false
+            ))
+            .is_err()
+        );
+        assert_eq!(owner, original);
+        for custody in [false, true] {
+            let mut invalid = next.clone();
+            if custody {
+                invalid.sponsor_vault_custody_account_id = ALICE_ID.clone();
+            } else {
+                invalid.fee_asset_id = AssetDefinitionId::derive_from_components(
+                    iroha_model_base::domain::DomainId::try_new("other_fee", "universal").unwrap(),
+                    "xor".parse().unwrap(),
+                );
+            }
+            assert!(
+                owner
+                    .set_parameter_for_root(
+                        Parameter::Custom(invalid.into_custom_parameter().unwrap()),
+                        SumeragiRootScope::Global,
+                        false
+                    )
+                    .is_err()
+            );
+            assert_eq!(
+                owner, original,
+                "a rejected identity change preserves monetary source and projection"
+            );
+        }
+        owner
+            .set_parameter_for_root(update, SumeragiRootScope::Global, false)
+            .unwrap();
+        assert_eq!(owner.root_fees(), Some(&next));
+        assert_eq!(StateParameters::try_from((*owner).clone()).unwrap(), owner);
     }
 
     #[test]

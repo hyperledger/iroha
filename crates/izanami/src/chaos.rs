@@ -2301,15 +2301,18 @@ fn make_network_builder_with_sorafs(
     builder = builder.with_block_cadence(pipeline_time);
     if let Some(profile) = &config.nexus {
         builder = builder.with_config_table(profile.config_layer.clone());
-        let gas_account_id = instructions::nexus_gas_account_id()?.to_string();
+        let gas_account = instructions::nexus_gas_account_id()?;
+        let mut root_fees = profile.root_fees.clone();
+        root_fees.fee_sink_account_id = gas_account.clone();
+        root_fees.sponsor_vault_custody_account_id = gas_account.clone();
+        builder = builder.with_genesis_instruction(SetParameter::new(Parameter::Custom(
+            root_fees.into_custom_parameter()?,
+        )));
+        let gas_account_id = gas_account.to_string();
         builder = builder.with_config_layer(move |layer| {
             layer
                 .write(
                     ["pipeline", "gas", "tech_account_id"],
-                    gas_account_id.clone(),
-                )
-                .write(
-                    ["nexus", "fees", "fee_sink_account_id"],
                     gas_account_id.clone(),
                 )
                 .write(
@@ -10756,10 +10759,18 @@ mod tests {
             None
         };
         let layers: Vec<Table> = network.config_layers().map(Cow::into_owned).collect();
-        let expected_gas_account = instructions::nexus_gas_account_id()?.to_string();
+        let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(&params)?
+            .expect("original signed fee policy");
+        let expected_gas = instructions::nexus_gas_account_id()?;
+        assert_eq!(fees.fee_sink_account_id, expected_gas);
+        assert_eq!(fees.sponsor_vault_custody_account_id, expected_gas);
+        assert_eq!(
+            fees.fee_asset_id,
+            config.nexus.as_ref().unwrap().fee_asset_id
+        );
+        let expected_gas_account = expected_gas.to_string();
         for path in [
             &["pipeline", "gas", "tech_account_id"][..],
-            &["nexus", "fees", "fee_sink_account_id"][..],
             &["nexus", "staking", "stake_escrow_account_id"][..],
             &["nexus", "staking", "slash_sink_account_id"][..],
         ] {

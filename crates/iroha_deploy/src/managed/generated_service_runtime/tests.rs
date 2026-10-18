@@ -1132,6 +1132,9 @@ fn ingest_projection_retains_original_signer_policy_paths_and_all_four_execution
     let fixture = Genuine::new("runtime-ingest-projection", false, false);
     let peers = fixture.peers();
     let root = PrivateDirectory::open_exact(generation_path(&fixture.prepared).unwrap()).unwrap();
+    let signed_fees =
+        iroha_genesis::signed_genesis_root_fee_policy(&fixture.owner.authority.genesis.genesis)
+            .unwrap();
     for index in 0..4 {
         let original = root
             .read(format!("peer{index}.toml"), MAX_CONFIG_BYTES)
@@ -1160,8 +1163,13 @@ fn ingest_projection_retains_original_signer_policy_paths_and_all_four_execution
             after.nexus.dataspace_catalog
         );
         assert_eq!(
-            crate::localnet::service_authorities::configured_execution_policy(&before).unwrap(),
-            crate::localnet::service_authorities::configured_execution_policy(&after).unwrap()
+            crate::localnet::service_authorities::configured_execution_policy(
+                &before,
+                &signed_fees
+            )
+            .unwrap(),
+            crate::localnet::service_authorities::configured_execution_policy(&after, &signed_fees)
+                .unwrap()
         );
         assert_eq!(before.genesis.expected_hash, after.genesis.expected_hash);
         assert_eq!(

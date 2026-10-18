@@ -6,6 +6,7 @@ public enum ToriiKagemushaEnrollmentActionV1: UInt32, CaseIterable, Sendable {
     case evidence = 1
     case issue = 2
     case deliver = 3
+    case expiryProof = 4
 }
 
 /// Immutable transport DATA retaining the native dispatch and, only for Evidence, signed E5.
@@ -20,6 +21,12 @@ public struct ToriiKagemushaEnrollmentRequestV1: Equatable, Sendable, CustomStri
     public let evidenceOriginal: Data
     public let canonicalOriginal: Data
     public var description: String { "ToriiKagemushaEnrollmentRequestV1(action=\(action), originals=[REDACTED])" }
+
+    /// Request the signed expiry original for this retained dispatch. Returning transport
+    /// DATA does not abandon an attempt; the same native owner must explicitly admit it.
+    public static func expiryProof(dispatchOriginal: Data) throws -> Self {
+        try Self(action: .expiryProof, dispatchOriginal: dispatchOriginal)
+    }
 
     public init(action: ToriiKagemushaEnrollmentActionV1, dispatchOriginal: Data,
                 evidenceOriginal: Data = Data()) throws {
@@ -66,11 +73,12 @@ public struct ToriiKagemushaEnrollmentRequestV1: Equatable, Sendable, CustomStri
     }
 }
 
-/// Bounded canonical service output. Permit and Credential remain unverified originals:
+/// Bounded canonical service output. Permit, Credential and expiry proof are unverified originals:
 /// pass them to the same native enrollment owner for authority, deadline and custody checks.
 public struct ToriiKagemushaEnrollmentResponseV1: Equatable, Sendable, CustomStringConvertible {
     public static let maximumPermitBytes = 2_048
     public static let maximumCredentialBytes = 262_144
+    public static let maximumExpiryProofBytes = 4_096
     public static let maximumBytes = 264 * 1024
 
     /// Pending retains the consumed attempt; it never authorizes new platform evidence.
@@ -80,6 +88,7 @@ public struct ToriiKagemushaEnrollmentResponseV1: Equatable, Sendable, CustomStr
         case pending
         case credentialReady
         case credential(Data)
+        case expiryProof(Data)
     }
 
     public let outcome: Outcome
@@ -93,13 +102,14 @@ public struct ToriiKagemushaEnrollmentResponseV1: Equatable, Sendable, CustomStr
         var payload = CompactNoritoWriter()
         payload.writeUInt32LE(tag)
         switch tag {
-        case 0, 4:
-            let bytes = try EnrollmentServiceCodec.bytes(&reader,
-                maximum: tag == 0 ? Self.maximumPermitBytes : Self.maximumCredentialBytes)
+        case 0, 4, 5:
+            let maximum = tag == 0 ? Self.maximumPermitBytes
+                : tag == 4 ? Self.maximumCredentialBytes : Self.maximumExpiryProofBytes
+            let bytes = try EnrollmentServiceCodec.bytes(&reader, maximum: maximum)
             guard !bytes.isEmpty else {
                 throw ToriiClientError.invalidPayload("empty enrollment response original")
             }
-            outcome = tag == 0 ? .permit(bytes) : .credential(bytes)
+            outcome = tag == 0 ? .permit(bytes) : tag == 4 ? .credential(bytes) : .expiryProof(bytes)
             payload.writeField(CompactNorito.encodeBytesVec(bytes))
         case 1: outcome = .evidenceReady
         case 2: outcome = .pending
@@ -107,7 +117,7 @@ public struct ToriiKagemushaEnrollmentResponseV1: Equatable, Sendable, CustomStr
         default: throw ToriiClientError.invalidPayload("unknown enrollment response")
         }
         // Rust emits COMPACT_LEN only when the selected variant has a field.
-        let flags: UInt8 = (tag == 0 || tag == 4) ? NoritoHeader.compactLen : 0
+        let flags: UInt8 = (tag == 0 || tag == 4 || tag == 5) ? NoritoHeader.compactLen : 0
         guard reader.remaining() == 0,
               EnrollmentServiceCodec.frame(payload.data, schema: .response, flags: flags) == canonicalOriginal else {
             throw ToriiClientError.invalidPayload("noncanonical enrollment response")
@@ -118,7 +128,7 @@ public struct ToriiKagemushaEnrollmentResponseV1: Equatable, Sendable, CustomStr
     func requireAction(_ action: ToriiKagemushaEnrollmentActionV1) throws {
         switch (action, outcome) {
         case (.preKey, .permit), (.evidence, .evidenceReady), (.evidence, .pending),
-             (.issue, .credentialReady), (.deliver, .credential): return
+             (.issue, .credentialReady), (.deliver, .credential), (.expiryProof, .expiryProof): return
         default: throw ToriiClientError.invalidPayload("enrollment response does not match requested action")
         }
     }

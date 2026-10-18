@@ -3421,11 +3421,9 @@ _PIPELINE_PREFLIGHT_SECTION_FIELDS: Dict[str, Tuple[str, ...]] = {
         "per_instruction_fee",
         "per_gas_unit_fee",
         "sponsor_vault_custody_account_id",
-        "settlement_mode",
         "successful_claim_fee_exempt_authorities",
     ),
 }
-_PIPELINE_PREFLIGHT_SETTLEMENT_MODES = ("direct", "lane_relay_burn")
 
 
 @dataclass(frozen=True)
@@ -3491,7 +3489,6 @@ class PipelinePreflightFees:
     per_instruction_fee: str
     per_gas_unit_fee: str
     sponsor_vault_custody_account_id: str
-    settlement_mode: Literal["direct", "lane_relay_burn"]
     successful_claim_fee_exempt_authorities: List[str]
 
 
@@ -8842,12 +8839,6 @@ class ToriiClient(
                 fees.get("sponsor_vault_custody_account_id"),
                 f"{context}.fees.sponsor_vault_custody_account_id",
             )
-            settlement_mode = _preflight_string("settlement_mode")
-            if settlement_mode not in _PIPELINE_PREFLIGHT_SETTLEMENT_MODES:
-                raise RuntimeError(
-                    f"{context}.fees.settlement_mode must be one of: "
-                    + ", ".join(_PIPELINE_PREFLIGHT_SETTLEMENT_MODES)
-                )
             exempt_authorities = fees.get("successful_claim_fee_exempt_authorities")
             if not isinstance(exempt_authorities, list):
                 raise RuntimeError(
@@ -8861,7 +8852,6 @@ class ToriiClient(
                 per_instruction_fee=quantities["per_instruction_fee"],
                 per_gas_unit_fee=quantities["per_gas_unit_fee"],
                 sponsor_vault_custody_account_id=sponsor_vault_custody_account_id,
-                settlement_mode=cast(Literal["direct", "lane_relay_burn"], settlement_mode),
                 successful_claim_fee_exempt_authorities=[
                     self._require_exact_i105_account_id(
                         authority,

@@ -228,11 +228,22 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
     for key in [
         "nexus.staking.stake_escrow_account_id",
         "nexus.staking.slash_sink_account_id",
-        "nexus.fees.fee_sink_account_id",
-        "nexus.fees.sponsor_vault_custody_account_id",
     ] {
         assert_eq!(string_at(static_config, key), custody, "{key}");
     }
+    for account in [
+        &profile.genesis_recipe().root_fees.fee_sink_account_id,
+        &profile
+            .genesis_recipe()
+            .root_fees
+            .sponsor_vault_custody_account_id,
+    ] {
+        assert_eq!(account.to_i105_for_discriminant(369).unwrap(), custody);
+    }
+    assert!(
+        static_config["nexus"].get("fees").is_none(),
+        "fees are authored by genesis recipe"
+    );
     assert!(
         static_config["pipeline"].get("gas").is_none(),
         "pipeline fee policy belongs exclusively to committed parameters"
@@ -245,11 +256,19 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
         .to_string()
     };
     assert_eq!(
-        string_at(static_config, "nexus.fees.fee_asset_id"),
+        profile
+            .genesis_recipe()
+            .root_fees
+            .fee_asset_id
+            .canonical_address(),
         defaults::nexus::fees::fee_asset_id()
     );
     assert_eq!(
-        string_at(static_config, "nexus.fees.fee_asset_id"),
+        profile
+            .genesis_recipe()
+            .root_fees
+            .fee_asset_id
+            .canonical_address(),
         asset("universal.universal")
     );
     assert_eq!(

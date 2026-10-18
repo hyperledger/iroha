@@ -111,7 +111,7 @@ fn fixture(balance: Quantity, free: bool, self_collector: bool) -> Fixture {
     );
     let mut config = TestChainConfig::new(world, 0);
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.fee_asset_id = asset.to_string();
+    nexus.fees.fee_asset_id = asset.clone();
     config.nexus = Some(nexus);
     let genesis_account = AccountId::new(config.genesis_key.public_key().clone());
     let mode = config.consensus_mode;

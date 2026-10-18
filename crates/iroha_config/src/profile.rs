@@ -20,7 +20,7 @@
 
 use iroha_config_base::{ReadConfig, read::ConfigReader, toml::TomlSource};
 use iroha_crypto::Hash;
-use iroha_data_model::block::consensus::ConsensusMode;
+use iroha_data_model::block::consensus::{ConsensusMode, RootFeePolicy};
 use norito::codec::{Decode, Encode};
 use std::{collections::BTreeMap, fmt, path::PathBuf, str::FromStr, time::Duration};
 use thiserror::Error;
@@ -44,7 +44,7 @@ const POLICY_DIGEST_DOMAIN: &[u8] = b"iroha:config:profile:policy-digest:v1\0";
 /// One account per base profile holds the gas technical account, the fee sink, the sponsor-vault
 /// custody, the stake escrow and the slash sink, as Kagami's per-genesis gas-custody account did.
 /// It is `derive_non_signing_ed25519_public_key(PROTOCOL_CUSTODY_ACCOUNT_DOMAIN, &[profile id])`,
-/// so no signing key exists for it; the profile's `[static]` literals must equal
+/// so no signing key exists for it; the profile's genesis recipe and staking literals must equal
 /// [`protocol_custody_account`].
 pub const PROTOCOL_CUSTODY_ACCOUNT_DOMAIN: &[u8] = b"iroha:config:profile:protocol-custody:v1";
 
@@ -325,6 +325,8 @@ pub struct GenesisRecipeV1 {
     pub ivm_gas_limit_per_block: u64,
     /// `NPoS` minimum self bond.
     pub npos_min_self_bond: u64,
+    /// Complete monetary policy authored into the original signed genesis.
+    pub root_fees: RootFeePolicy,
 }
 
 impl GenesisRecipeV1 {
@@ -495,6 +497,61 @@ struct GenesisRecipeFile {
     block_max_transactions: u64,
     ivm_gas_limit_per_block: u64,
     npos_min_self_bond: u64,
+    #[config(nested)]
+    root_fees: GenesisRootFeesFile,
+}
+
+// TOML authoring adapter only; the model owns the monetary policy and its validation.
+#[derive(ReadConfig)]
+struct GenesisRootFeesFile {
+    fee_asset_id: String,
+    fee_sink_account_id: String,
+    sponsor_vault_custody_account_id: String,
+    successful_claim_fee_exempt_authorities: Vec<String>,
+    base_fee: iroha_primitives::numeric::Quantity,
+    per_byte_fee: iroha_primitives::numeric::Quantity,
+    per_instruction_fee: iroha_primitives::numeric::Quantity,
+    per_gas_unit_fee: iroha_primitives::numeric::Quantity,
+}
+
+impl GenesisRootFeesFile {
+    fn into_policy(self, discriminant: u16) -> Result<RootFeePolicy, String> {
+        use iroha_data_model::{
+            account::{AccountId, address::ChainDiscriminantGuard},
+            asset::AssetDefinitionId,
+        };
+        let _chain = ChainDiscriminantGuard::enter(discriminant);
+        let account = |literal: &str| -> Result<AccountId, String> {
+            let account = AccountId::parse_encoded(literal).map_err(|error| error.to_string())?;
+            if account.to_string() != literal {
+                return Err("genesis fee identities require canonical account literals".to_owned());
+            }
+            Ok(account)
+        };
+        let asset = self
+            .fee_asset_id
+            .parse::<AssetDefinitionId>()
+            .map_err(|error| error.to_string())?;
+        if asset.canonical_address() != self.fee_asset_id {
+            return Err("genesis fee currency requires its canonical asset identity".to_owned());
+        }
+        let mut exemptions = std::collections::BTreeSet::new();
+        for literal in &self.successful_claim_fee_exempt_authorities {
+            if !exemptions.insert(account(literal)?) {
+                return Err("genesis fee exemptions repeat an account".to_owned());
+            }
+        }
+        Ok(RootFeePolicy {
+            fee_asset_id: asset,
+            fee_sink_account_id: account(&self.fee_sink_account_id)?,
+            sponsor_vault_custody_account_id: account(&self.sponsor_vault_custody_account_id)?,
+            successful_claim_fee_exempt_authorities: exemptions,
+            base_fee: self.base_fee,
+            per_byte_fee: self.per_byte_fee,
+            per_instruction_fee: self.per_instruction_fee,
+            per_gas_unit_fee: self.per_gas_unit_fee,
+        })
+    }
 }
 
 #[derive(ReadConfig)]
@@ -651,6 +708,11 @@ impl Profile {
                 block_max_transactions: file.genesis_recipe.block_max_transactions,
                 ivm_gas_limit_per_block: file.genesis_recipe.ivm_gas_limit_per_block,
                 npos_min_self_bond: file.genesis_recipe.npos_min_self_bond,
+                root_fees: file
+                    .genesis_recipe
+                    .root_fees
+                    .into_policy(file.profile.chain_discriminant)
+                    .map_err(malformed)?,
             },
             static_config,
             derive: DeriveInputs {

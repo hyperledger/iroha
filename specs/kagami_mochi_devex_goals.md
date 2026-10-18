@@ -222,14 +222,16 @@ node and client contexts retain that credential automatically, while account sig
 and revocable ledger permissions still authorize individual reads. These source
 boundaries remain subject to the combined private-network qualification above.
 
-Private genesis now commits `PrivateRootFeePolicy` under `private_root_fees_v1`:
+Global and private genesis commit one `RootFeePolicy` under `root_fees_v1`.
+Private roots select
 an exact dataspace-restricted currency and decimal transaction rates with positive
 base and gas charges. Private execution derives its fee schedule from that committed
 policy and burns the payer's exact private balance. Node-local currency/rate settings
 cannot replace it; the global XOR economy remains separate. Private sponsors require
 a separately implemented dataspace-local vault owner and are currently rejected.
-The generated configuration mirrors the signed policy for configuration identity;
-runtime startup and paid private execution still require combined qualification.
+Genesis recipes author the policy directly; node configuration accepts no monetary
+override. Both signed policy digests are still checked at startup. Runtime startup,
+committed policy changes and paid private execution require combined qualification.
 
 The parent now retains a canonical `PrivateDataspaceRegistry` and native
 `RegisterPrivateDataspace` / `AnchorPrivateDataspace` transitions. Registration
@@ -446,6 +448,14 @@ original position before binding comparisons or wallet access. Its full native s
 and entry/exit custody remain; no source verdict crosses a callback or effect. Inherited or
 late active decode owners retain both observations. A source change restored entirely within
 the omitted earlier observation may be unseen.
+Adjacent current-body and active-enrollment checks at reservation, publication and root
+retention share one exact immutable snapshot read phase. A fresh current-body local census
+precedes the original active-scope checks; a complete forward and reverse mutable graph
+closes every ordinary outcome before the original snapshot exit and any subsequent write.
+Persistent graph failures override ordinary inner errors. The first predecessor observation
+moves to the final graph, so a change restored wholly inside the phase may be unobserved.
+Unmatched owners, bodies without a predecessor and inherited or late active decode budgets
+retain the original sequence; closure-only publication retains its current-body-only check.
 The unchanged ten-second body and 64-body campaign gates still require native qualification.
 The concrete generated enrollment worker likewise groups only its empty current-body read
 prefix. Its three original wallet-verification entries cannot call a wallet while the body
@@ -458,10 +468,12 @@ sequence. A late active decoder cannot borrow predecessor coverage. Persistent s
 wins an ordinary phase error; a sibling changed and restored wholly between observations may
 be unobserved. The live origin, authorization checks, term selection and effects retain their
 original positions. This structural reduction does not establish the unchanged latency gates.
-Within an inactive native tree read, an exact snapshot-owned local history census holds its
-original root reader and one operation reader across the forward and reverse checks. Every
-inventory, Original hash, metadata read and decoder remains in its original order. The operation
-reader closes before the root and tree exits and before any wallet callback or write. A persistent
+An inactive, exact snapshot-owned local history census borrows its original root reader and
+tree from one canonical root entry/exit boundary, with one operation reader across the forward
+and reverse checks. Every inventory, Original hash, metadata read and decoder remains in its
+original order. The operation reader closes before the common root/tree exit and before any
+wallet callback or write. Explicit generic tree reads of the anchor still perform independent
+full custody checks; only the owning root boundary lends its original reader. A persistent
 operation custody failure can supersede an ordinary inner error; a change restored entirely
 inside a scope may be unobserved. Active or newly inherited decode budgets, unmatched owners and
 reads without a tree retain their original scope sequence. Full graph checks remain independent

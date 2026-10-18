@@ -47,6 +47,42 @@ fn selected(
     Ok(())
 }
 impl EnrollmentJournalV1 {
+    /// Authenticate the retained Fresh permit named by a current Resume dispatch.
+    /// This reads existing journal custody only and grants no live authorization.
+    pub(super) fn expiry_permit(
+        &self,
+        attempt: &EnrollmentAttemptV1,
+        dispatch: &PreKeyDispatchV1,
+    ) -> Result<KagemushaEnrollmentPermitV1> {
+        self.require_current(attempt)?;
+        dispatch.validate().map_err(|_| Invalid)?;
+        if dispatch.stable_selection().map_err(|_| Invalid)? != attempt.selection().stable_selection
+        {
+            return Err(Conflict);
+        }
+        if dispatch.purpose != KagemushaEnrollmentPermitPurposeV1::Resume {
+            return Err(Invalid);
+        }
+        let previous = KagemushaEnrollmentPermitV1::decode_canonical(
+            dispatch.previous_permit.as_deref().ok_or(Invalid)?,
+            &dispatch.scheme,
+            &dispatch.enrollment_certificate,
+        )
+        .map_err(|_| Invalid)?;
+        if previous.body.purpose != KagemushaEnrollmentPermitPurposeV1::Fresh
+            || previous.body.native_dispatch_nonce == dispatch.native_dispatch_nonce
+        {
+            return Err(Conflict);
+        }
+        let retained = self
+            .read_permit(attempt, &previous.body.native_dispatch_nonce)?
+            .ok_or(Conflict)?;
+        if Some(retained.permit.as_slice()) != dispatch.previous_permit.as_deref() {
+            return Err(Conflict);
+        }
+        Ok(previous)
+    }
+
     fn read_permit(
         &self,
         attempt: &EnrollmentAttemptV1,

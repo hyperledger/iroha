@@ -4,8 +4,7 @@ mod public_contract_creation_fees {
 
     #[test]
     fn public_contract_artifact_stages_pay_fees_without_management_grants() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let _guard = crate::status::nexus_fee_test_lock()
             .lock()
             .expect("fee status lock");
@@ -57,13 +56,25 @@ mod public_contract_creation_fees {
                 pipeline.parallel_apply = parallel_apply;
                 pipeline.workers = 2;
                 state.set_pipeline(pipeline);
-                let fees = &mut state.nexus.get_mut().fees;
+                let mut fees = state.nexus_snapshot().fees;
                 fees.base_fee = Quantity::from(1_u32);
                 fees.per_byte_fee = Quantity::zero();
                 fees.per_instruction_fee = Quantity::zero();
                 fees.per_gas_unit_fee = Quantity::zero();
-                fees.fee_asset_id = fee_id.to_string();
-                fees.fee_sink_account_id = sink.to_string();
+                fees.fee_asset_id = fee_id.clone();
+                fees.fee_sink_account_id = sink.clone();
+                {
+                    let mut parameters = state.world.parameters.block();
+                    parameters
+                        .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                            fees.clone()
+                                .into_custom_parameter()
+                                .expect("explicit fixture policy"),
+                        ))
+                        .expect("valid fixture monetary projection");
+                    parameters.commit();
+                }
+
                 let leader = crate::block::checked_keypair_with_algorithm(Algorithm::BlsNormal);
                 let _genesis: SignedBlock =
                     ValidBlock::new_dummy_and_modify_header(leader.private_key(), |header| {
@@ -142,7 +153,7 @@ mod public_contract_creation_fees {
                 assert_eq!(
                     crate::block::resolve_network_xor_asset_definition(
                         &state_block.world,
-                        &state_block.nexus.fees.fee_asset_id,
+                        &state_block.nexus.fees.fee_asset_id.canonical_address(),
                         20,
                     )
                     .expect("completed pin read"),

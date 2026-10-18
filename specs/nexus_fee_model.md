@@ -11,23 +11,45 @@ depend on balances, sponsor revisions, or receipt leases that genesis has not
 created yet. Public fee quotes and every non-genesis transaction retain the
 strict quote-to-sign, admission, and settlement rules described below.
 
-Successful SORA v2 XOR claim mints have one further narrow exemption. Every
-entry in `nexus.fees.successful_claim_fee_exempt_authorities` must be an exact
-canonical I105 universal `AccountId`; empty strings, aliases, whitespace-padded
-literals, and malformed addresses make configuration loading fail. Runtime
-configuration stores a deterministically ordered set of typed account IDs, and
-authorization compares the transaction authority directly against that set.
-It never resolves aliases or other mutable world state while deciding the
-exemption.
+## Committed root monetary policy
 
-The `nexus` charge component uses canonical XOR (the exact lowercase
-`xor#universal` alias, or its exact canonical asset definition literal). A `pipeline_gas` component may instead
-use one exact asset accepted by the governed gas schedule. A signed intent
-identifies either the transaction authority or one exact on-chain sponsor
-program and immutable revision. It also contains a positive gas bound when the
-executable needs gas and a canonically ordered maximum for each applicable
-charge component. The legacy metadata keys `fee_sponsor`, `gas_limit`, and
-`gas_asset_id` are rejected before signing and at admission.
+Genesis authors exactly one `root_fees_v1` custom parameter containing
+`RootFeePolicy`: typed currency, sink, sponsor custody and claim-exempt account
+identities plus the four decimal rates. `StateParameters` retains its validated
+projection beside the original canonical parameter. Each block and quote view
+captures that exact version; same-block `SetParameter` instructions cannot change
+that block's admission, charge, output receipt or execution-policy commitment.
+Restore rebuilds the projection from the original parameter bytes. Missing policy
+is permitted only before H1; ordinary execution and quoting reject absence.
+
+Global execution burns the exact signed network XOR currency. A data space root
+burns its own registered, currency restricted to that data space and requires positive base
+and gas rates. Public claim exemptions and public sponsor vaults cannot authorize
+private-root fees. The typed sink remains the receiver for SCCP and SoraCloud fee
+transfers; alias changes cannot redirect it. Currency and sponsor custody are
+immutable after H1. Authorized changes of rates, sink and Global claim exemptions
+apply from the next block. Signed fee limits, sponsor authorization, rejection
+charging and conservation rules remain mandatory.
+
+Node configuration has no monetary fee table or settlement-mode switch. Genesis
+recipes explicitly author the intended defaults. Mainnet source-template
+materialization binds the operator's accepted canonical XOR into both NPoS and fee
+policy before signing. Startup retains both the signed execution-policy and Nexus
+context digest checks; deployment readiness reads the fee policy through the
+canonical authenticated-original-genesis helper.
+
+The causal regression changes only a mutable process-local copy after identical
+H1: the previous executor rejected a signed maximum of one or charged two instead
+of one. This does not demonstrate two differently configured fresh nodes passing
+startup: their signed-genesis digest checks already refused mismatches. The new
+regressions additionally cover complete State results, receipt identity, committed
+updates and final-tip certified replay. Full candidate compilation, generated
+fixtures and network qualification remain pending.
+
+A signed `FeePaymentIntent` selects the authority or one exact sponsor program and
+immutable revision, plus a positive gas limit where required and canonically ordered
+maximum charges. Retired fee metadata remains rejected. Successful public SORA v2
+claims compare the authority directly with the committed typed exemption set.
 
 ## Quote, sign, submit
 
@@ -152,12 +174,9 @@ delegate holding `CanManageFeeSponsorProgram` may register one. Registration
 rejects future source heights, recomputes the proof's source-state commitment
 from the authoritative exact program vault, permits at most one unexpired
 lease per `(program, revision, asset, dataspace)` route, and rejects any live
-aggregate whose unspent remainder would exceed that vault. The relay worker
-partitions one vault deterministically across every eligible manifest-backed
-dataspace; it never copies the full balance into multiple routes and renews a
-route only as its prior lease expires. Renewal is driven by the AXT replay
-retention horizon; there is no independent budget-refresh interval. Explicitly
-enrolled programs receive leases even when they are not a route default.
+aggregate whose unspent remainder would exceed that vault. Allocation submission
+requires the program's existing permission and canonical native proof; no retired
+node-local fee relay worker supplies monetary authority.
 Withdrawals must leave every unexpired lease remainder intact, and final close
 waits until executed receipt usage has been merge-settled.
 
@@ -169,11 +188,10 @@ settlement paths.
 
 ## Reservations and settlement
 
-Queue admission reserves the deterministic quoted maxima authorized by the
-signed intent. In direct mode this includes ordinary authority balances;
-sponsor payments reserve exact program vault and budget capacity in both modes.
-In `lane_relay_burn` mode, admission also reserves the selected route lease for
-the aggregate maximum charged in each asset, including PipelineGas.
+Queue admission reserves the deterministic quoted maxima authorized by the signed
+intent against ordinary authority balances or exact sponsor-program vault and budget
+capacity. Existing receipt-lane sponsor allocations retain their native source-lock
+and usage checks.
 Reservations are released on every queue exit: routing or push failure,
 rejection, expiry/culling, proposal removal, queue clearing, and commit.
 Rechecks subtract existing reservations before admitting another transaction.
@@ -191,44 +209,22 @@ There is no sender fallback. If a selected sponsor program is missing,
 inactive, ineligible, disallows an operation, lacks budget, or lacks vault
 capacity, the transaction is rejected with that sponsor error.
 
-## Direct and receipt-backed lanes
+## Execution receipts
 
-`nexus.fees.settlement_mode` supports only the exact labels `direct` and
-`lane_relay_burn`; case, whitespace, and punctuation aliases are rejected.
+Native execution debits the authority or exact sponsor vault in its canonical fee
+context. There is one execution path; the retired lane-relay-burn configuration and
+unused worker configuration are removed.
 
-In direct mode, settlement debits the authority balance or the exact isolated
-sponsor-program vault in the canonical fee context and records the component
-receipts needed to recompute the charge.
-
-In lane-relay-burn mode, a DPN lane records versioned fee receipts without
-mutating public XOR locally. Nexus applies the debit only when the corresponding
-relay settlement commits. This mode is sponsor-only: quotes, queue admission,
-and execution reject authority-paid Nexus fees with
-`relay_capacity_unavailable` and direct clients to select an active program's
-exact active revision. A public authority balance is not a safe substitute for
-an authenticated source lock, and there is no authority exception for a
-transaction that creates or redeems funds during execution. Authority payment
-remains available in direct mode; receipt settlement can add it only after an
-authenticated authority-lease protocol exists. Sponsor-backed relay settlement
-requires a verified, receipt-bound allocation for the exact program revision
-and fee asset. Relay, settlement hash, coordinates, charge calculation,
-source-ID uniqueness, and capacity are checked before mutation. Invalid or
-replayed evidence fails atomically and cannot partially debit a payer.
-Every sponsored vault debit in this mode consumes its exact route lease.
-PipelineGas remains directly settled to the technical account, so its lease
-usage is recorded as executed and settled atomically; Nexus receipt usage is
-recorded as executed first and becomes settled only when relay merge commits.
-
-An actual nonzero direct Nexus charge is retained in the exact Network
+An actual nonzero Nexus charge is retained in the exact Network
 `TransactionResult` as its mandatory nullable `nexus_fee_receipt` field. The
 binary result tuple always has three fields, and JSON always includes the key,
 including explicit `null` when no charge was applied. The receipt participates
 in the result hash and therefore in the executed output commitment. It binds
 the original outer entrypoint, physical dataspace and lane, applying height,
 actual authority or sponsor program and revision, signed asset/amount cap,
-canonical payload length, metering inputs and actual amount. Direct settlement
+canonical payload length, metering inputs and actual amount. Settlement
 records `Burn`, because the native charge reduces the payer or sponsor custody
-balance and the global XOR supply; a configured sink or a fee quote is not
+balance and the global XOR supply; a committed sink or a fee quote is not
 proof of a paid charge.
 
 The execution owner retains the fee overlay until its receipt-bearing terminal
@@ -251,14 +247,13 @@ arrays are exact-width uppercase hexadecimal in Norito JSON.
 
 ## Operator checklist
 
-- Configure the canonical XOR Nexus fee asset, accepted PipelineGas assets, and
-  dedicated sponsor-vault custody account.
+- Author the canonical root currency and custody in genesis and accepted PipelineGas
+  assets in their existing committed parameters.
 - Keep every sponsor-program budget and vault asset globally scoped.
 - Create a program, stage an immutable revision, fund every budgeted asset,
   enroll beneficiaries, and schedule activation.
 - Configure route defaults by exact program ID only where desired.
-- Grant each configured relay-worker authority `CanManageFeeSponsorProgram`
-  for the sponsor whose allocation proofs it submits.
+- Grant allocation submitters `CanManageFeeSponsorProgram` only for their exact sponsor.
 - Use `/v1/fees/quote` in clients and automation; do not manufacture maxima or
   encode fee controls in transaction metadata.
 - Monitor stable rejection codes, queue reservations, vault capacity, budget

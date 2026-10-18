@@ -1927,24 +1927,6 @@ impl PrivateSettlementAuditPlaintextV1 {
         )
     }
 
-    fn reimbursement_terms_material(
-        &self,
-        success_fee_bearing_carriers: u8,
-    ) -> PrivateSettlementReimbursementTermsMaterialV1 {
-        PrivateSettlementReimbursementTermsMaterialV1 {
-            network_id: self.network_id,
-            leg_ordinal: self.leg_ordinal,
-            route: self.route,
-            sponsor: self.sponsor.clone(),
-            asset_definition_id: self.asset_definition_id.clone(),
-            sponsor_reimbursement_amount: self.sponsor_reimbursement_amount,
-            fee_intent_digest: self.fee_intent_digest,
-            success_fee_bearing_carriers,
-            settlement_expiry_height: self.settlement_expiry_height,
-            reimbursement_terms_salt: self.reimbursement_terms_salt,
-        }
-    }
-
     /// Validate the restricted plaintext's fixed slot shape and value balance.
     ///
     /// # Errors

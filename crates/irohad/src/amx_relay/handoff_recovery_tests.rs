@@ -90,8 +90,8 @@ fn private_config(global: &CertifiedTestChain, id: DataSpaceId) -> TestChainConf
     .unwrap();
     nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
     nexus.routing_policy.default_dataspace = id;
-    nexus.fees.fee_asset_id = fee_asset().canonical_address();
-    nexus.fees.fee_sink_account_id = account(&config.genesis_key).to_string();
+    nexus.fees.fee_asset_id = fee_asset().clone();
+    nexus.fees.fee_sink_account_id = account(&config.genesis_key).clone();
     nexus.fees.base_fee = Quantity::zero();
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
@@ -100,12 +100,13 @@ fn private_config(global: &CertifiedTestChain, id: DataSpaceId) -> TestChainConf
     config
         .genesis_parameters
         .push(iroha_data_model::parameter::Parameter::Custom(
-            iroha_data_model::block::consensus::PrivateRootFeePolicy {
-                asset_definition_id: fee_asset(),
+            iroha_data_model::block::consensus::RootFeePolicy {
+                fee_asset_id: fee_asset(),
                 base_fee: 1_u32.into(),
                 per_byte_fee: Quantity::zero(),
                 per_instruction_fee: 1_u32.into(),
                 per_gas_unit_fee: 1_u32.into(),
+                ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
             }
             .into_custom_parameter()
             .unwrap(),

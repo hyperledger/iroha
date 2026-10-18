@@ -2001,7 +2001,7 @@ fn native_ingress_with_registered_route_peers_and_chain_for_test(
         "this fixture has post-genesis route peers"
     );
     assert_eq!(labels.len(), members.len());
-    let fee_asset: AssetDefinitionId = nexus.fees.fee_asset_id.parse().expect("original fee asset");
+    let fee_asset: AssetDefinitionId = nexus.fees.fee_asset_id.clone();
     assert!(
         world.view().asset_definition(&fee_asset).is_err(),
         "fixture fee currency is seeded once"
@@ -4714,7 +4714,9 @@ async fn full_ledger_carrier_authentication_precedes_height_or_hash_lookup() {
 #[cfg(feature = "app_api")]
 #[tokio::test]
 async fn explorer_transaction_proof_rejects_incomplete_and_foreign_network_authentication() {
-    let uri: Uri = "/v1/explorer/transactions/invalid-hash/proof".parse().unwrap();
+    let uri: Uri = "/v1/explorer/transactions/invalid-hash/proof"
+        .parse()
+        .unwrap();
     let mut bare = HeaderMap::new();
     bare.insert(super::HEADER_ACCOUNT, "untrusted-caller".parse().unwrap());
     let incomplete = super::handler_explorer_transaction_proof(
@@ -4727,7 +4729,10 @@ async fn explorer_transaction_proof_rejects_incomplete_and_foreign_network_authe
     )
     .await
     .expect_err("incomplete account auth must not become an anonymous lookup");
-    assert_eq!(incomplete.into_response().status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        incomplete.into_response().status(),
+        StatusCode::UNAUTHORIZED
+    );
     let (app, headers) = foreign_network_signed_app_fixture(&Method::GET, &uri, &[], 0xc9, 0xca);
     let foreign = super::handler_explorer_transaction_proof(
         State(app),
