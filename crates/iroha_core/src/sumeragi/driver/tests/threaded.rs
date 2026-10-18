@@ -78,13 +78,20 @@ impl Instance {
     }
 }
 
-/// A fresh instance `tag` whose key was generated on the node; `prepare` may set up failures
-/// or a closed executor gate before it starts.
-fn spawn_instance<C: Clock + 'static>(
+/// Original unstarted test inputs, shared by ordinary and staged driver startup.
+struct PreparedInstance<C> {
+    driver: Driver<FakeNet, FakeRecords, FakeBodies, FakeBlocks, C, FakeExecutor>,
+    start: DriverStart,
+    key: PublicKey,
+    instance: Hash32,
+    fakes: Fakes,
+}
+
+fn prepare_instance<C: Clock + 'static>(
     tag: u8,
     clock: Arc<C>,
     prepare: impl FnOnce(&Fakes),
-) -> Instance {
+) -> PreparedInstance<C> {
     let signer = FakeSigner::from_seed(&[tag], None);
     let key = signer.public_key().clone();
     let crypto: SharedCrypto = Arc::new(FakeCrypto::new());
@@ -148,19 +155,37 @@ fn spawn_instance<C: Clock + 'static>(
         fakes.exec.clone(),
         observer,
     );
-    let running = driver
-        .spawn(
-            DriverConfig::default(),
-            DriverStart {
-                node_gate: Arc::new(NodeGate::new()),
-                allocation_budget: super::test_budget(),
-                local: LocalParams::default(),
-                init,
-                signers: vec![Arc::new(signer)],
-                crypto,
-            },
-        )
-        .unwrap();
+    PreparedInstance {
+        driver,
+        start: DriverStart {
+            node_gate: Arc::new(NodeGate::new()),
+            allocation_budget: super::test_budget(),
+            local: LocalParams::default(),
+            init,
+            signers: vec![Arc::new(signer)],
+            crypto,
+        },
+        key,
+        instance,
+        fakes,
+    }
+}
+
+/// A fresh instance `tag` whose key was generated on the node; `prepare` may set up failures
+/// or a closed executor gate before it starts.
+fn spawn_instance<C: Clock + 'static>(
+    tag: u8,
+    clock: Arc<C>,
+    prepare: impl FnOnce(&Fakes),
+) -> Instance {
+    let PreparedInstance {
+        driver,
+        start,
+        key,
+        instance,
+        fakes,
+    } = prepare_instance(tag, clock, prepare);
+    let running = driver.spawn(DriverConfig::default(), start).unwrap();
     Instance {
         running,
         key,

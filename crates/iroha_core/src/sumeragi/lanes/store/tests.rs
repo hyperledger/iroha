@@ -131,14 +131,48 @@ pub(super) fn schedule(source: &AvailabilitySource) -> Arc<dyn AvailabilitySched
         config: source.config().clone(),
     })
 }
+// Explicit harness ownership follows the production original-joiner contract.
+// Closing this wrapper stops and physically joins that job before releasing the store.
+pub(super) struct LiveStore {
+    publication: Option<crate::sumeragi::driver::PublicationSession>,
+    store: Arc<FileLaneBlockStore>,
+}
+impl LiveStore {
+    pub(super) fn new(store: FileLaneBlockStore) -> Self {
+        let store = Arc::new(store);
+        let publication =
+            crate::sumeragi::driver::PublicationSession::start(store.clone(), &store.budget);
+        Self {
+            publication: Some(publication),
+            store,
+        }
+    }
+}
+impl std::ops::Deref for LiveStore {
+    type Target = Arc<FileLaneBlockStore>;
+    fn deref(&self) -> &Self::Target {
+        &self.store
+    }
+}
+impl std::fmt::Debug for LiveStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.store, f)
+    }
+}
+impl Drop for LiveStore {
+    fn drop(&mut self) {
+        drop(self.publication.take());
+    }
+}
+
 pub(super) fn open(
     path: &Path,
     source: &AvailabilitySource,
     crypto: SharedCrypto,
     budget: &AllocationBudget,
     faults: Arc<dyn Faults>,
-) -> FileLaneBlockStore {
-    FileLaneBlockStore::begin_open_with_faults(
+) -> LiveStore {
+    let store = FileLaneBlockStore::begin_open_with_faults(
         path,
         &source.instance(),
         crypto,
@@ -148,7 +182,8 @@ pub(super) fn open(
     )
     .unwrap()
     .complete()
-    .unwrap_or_else(|(_, e)| panic!("empty valid store: {e}"))
+    .unwrap_or_else(|(_, e)| panic!("empty valid store: {e}"));
+    LiveStore::new(store)
 }
 struct FailAfterLink {
     armed: AtomicBool,
@@ -821,10 +856,15 @@ fn committed_body_moves_the_exact_completed_read_without_metadata_clone_or_readm
     store.append(&body, &qc).unwrap();
     drop(body);
     drop(qc);
-    assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(
+        budget.reserved_bytes(),
+        crate::sumeragi::driver::PublicationSession::admitted_bytes()
+    );
     let (payload, epoch) = {
         let mut state = store.state.lock();
-        let prepared = store.read_prepared(&mut state, 1).unwrap();
+        let prepared = store
+            .read_prepared(&mut state, 1, &super::ReadInterest::Historical)
+            .unwrap();
         (
             prepared.body().payload().as_slice().as_ptr(),
             std::ptr::from_ref(&*prepared.body().source().config().epoch),
@@ -841,6 +881,11 @@ fn committed_body_moves_the_exact_completed_read_without_metadata_clone_or_readm
     assert_eq!(budget.reserved_bytes(), retained);
     drop(body);
     drop(qc);
+    assert_eq!(
+        budget.reserved_bytes(),
+        crate::sumeragi::driver::PublicationSession::admitted_bytes()
+    );
+    drop(store);
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -877,14 +922,20 @@ fn cancelled_lane_read_finishes_original_custody_before_a_different_height() {
             fs::write(&path, frame.prepare(&budget).unwrap()).unwrap();
         }
         drop((first, first_qc, second, second_qc));
-        assert_eq!(budget.reserved_bytes(), 0);
+        assert_eq!(
+            budget.reserved_bytes(),
+            crate::sumeragi::driver::PublicationSession::admitted_bytes()
+        );
         let raw = usize::try_from(fs::metadata(path).unwrap().len()).unwrap();
-        budget.set_limit_bytes(raw);
+        budget.set_limit_bytes(raw + crate::sumeragi::driver::PublicationSession::admitted_bytes());
         assert_eq!(
             store.committed_body(1).unwrap_err().io_kind(),
             io::ErrorKind::WouldBlock
         );
-        assert_eq!(budget.reserved_bytes(), raw);
+        assert_eq!(
+            budget.reserved_bytes(),
+            raw + crate::sumeragi::driver::PublicationSession::admitted_bytes()
+        );
         // The worker can cancel height one while this store still owns its refused read.
         // New metadata and payload requests must preserve that owner until it completes.
         assert_eq!(
@@ -892,7 +943,10 @@ fn cancelled_lane_read_finishes_original_custody_before_a_different_height() {
             io::ErrorKind::WouldBlock
         );
         assert_eq!(store.state.lock().read.as_ref().unwrap().height, 1);
-        assert_eq!(budget.reserved_bytes(), raw);
+        assert_eq!(
+            budget.reserved_bytes(),
+            raw + crate::sumeragi::driver::PublicationSession::admitted_bytes()
+        );
         budget.set_limit_bytes(1 << 25);
         if invalid_certificate {
             assert_eq!(
@@ -907,12 +961,20 @@ fn cancelled_lane_read_finishes_original_custody_before_a_different_height() {
             assert!(body.admitted_to(&budget));
             assert!(store.state.lock().read.is_none());
             drop((body, certificate));
-            assert_eq!(budget.reserved_bytes(), 0);
+            assert_eq!(
+                budget.reserved_bytes(),
+                crate::sumeragi::driver::PublicationSession::admitted_bytes()
+            );
             let first_again = store.entry(1).unwrap().unwrap();
             assert_eq!(first_again.commit_qc.block_hash, source.block_hash());
             drop(first_again);
-            assert_eq!(budget.reserved_bytes(), 0);
+            assert_eq!(
+                budget.reserved_bytes(),
+                crate::sumeragi::driver::PublicationSession::admitted_bytes()
+            );
         }
+        drop(store);
+        assert_eq!(budget.reserved_bytes(), 0);
     }
 }
 
@@ -958,8 +1020,13 @@ fn opened_lane_store_rejects_replaced_instance_directory_and_retries_original() 
     assert_eq!(fs::read_dir(&store.dir).unwrap().count(), 1);
     assert_eq!(fs::read_dir(&original).unwrap().count(), 1);
     assert_eq!(body.payload().as_slice().as_ptr(), payload);
-    assert_eq!(budget.reserved_bytes(), retained);
+    assert_eq!(
+        budget.reserved_bytes(),
+        retained + crate::sumeragi::driver::PublicationSession::admitted_bytes()
+    );
+    // The replacement owns its own exact funded joining job until it is closed.
     drop(other);
+    assert_eq!(budget.reserved_bytes(), retained);
     fs::rename(&store.dir, &replacement).unwrap();
     fs::rename(&original, &store.dir).unwrap();
     store.append(&body, &qc).unwrap();
@@ -1149,7 +1216,7 @@ fn cached_lane_frame_and_retained_reader_refuse_replaced_directory_then_resume_s
     let pointer = {
         let mut state = store.state.lock();
         store
-            .read_prepared(&mut state, 1)
+            .read_prepared(&mut state, 1, &super::ReadInterest::Historical)
             .unwrap()
             .body()
             .payload()

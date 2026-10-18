@@ -23,6 +23,30 @@ impl SelectedRead {
     }
 }
 
+/// The mutex only arbitrates ownership; native I/O and final authority Drop run outside it.
+enum ReadSlot {
+    Available(Option<SelectedRead>),
+    InFlight,
+}
+
+/// Retain the same partial read across success, refusal and unwind without another allocation.
+struct OriginalRead<'a> {
+    slot: &'a Mutex<ReadSlot>,
+    selected: Option<SelectedRead>,
+}
+
+impl Drop for OriginalRead<'_> {
+    fn drop(&mut self) {
+        let previous = {
+            let mut slot = self.slot.lock();
+            std::mem::replace(&mut *slot, ReadSlot::Available(self.selected.take()))
+        };
+        // Any unexpected displaced owner still drops after the actual mutex guard.
+        debug_assert!(matches!(previous, ReadSlot::InFlight));
+        drop(previous);
+    }
+}
+
 /// One retained original read, never a lane store writer, queue or prefix authority.
 /// The replay State supplies historical authority; exact committed global merge
 /// references select heights. No directory scan, cache or observed tip grants authority.
@@ -33,7 +57,7 @@ pub(in crate::sumeragi) struct LaneFrameSource {
     crypto: SharedCrypto,
     budget: AllocationBudget,
     authorities: Arc<dyn LaneStoreAuthorities>,
-    read: Mutex<Option<SelectedRead>>,
+    read: Mutex<ReadSlot>,
 }
 impl LaneFrameSource {
     pub(in crate::sumeragi) fn new(
@@ -51,8 +75,30 @@ impl LaneFrameSource {
             crypto,
             budget,
             authorities,
-            read: Mutex::new(None),
+            read: Mutex::new(ReadSlot::Available(None)),
         }
+    }
+
+    fn original_read(&self) -> Result<OriginalRead<'_>, Attempt<io::Error>> {
+        let mut slot = self.read.try_lock().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::WouldBlock, "original lane frame is busy")
+        })?;
+        let selected = match &mut *slot {
+            ReadSlot::Available(original) => original.take(),
+            ReadSlot::InFlight => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "original lane frame is busy",
+                )
+                .into());
+            }
+        };
+        *slot = ReadSlot::InFlight;
+        drop(slot);
+        Ok(OriginalRead {
+            slot: &self.read,
+            selected,
+        })
     }
 
     fn selected(
@@ -119,11 +165,13 @@ impl LaneFrameSource {
             ready: None,
         });
         let result = slot.as_mut().expect("original frame read").authenticate();
-        // Absent input owns no partial paid decode and must be reopened after a
-        // later source publication. Every other refusal retains its exact owner.
-        if result
-            .as_ref()
-            .is_err_and(|error| error.io_kind() == io::ErrorKind::NotFound)
+        // Initial absence returned from open before this slot was installed. Any
+        // failure now belongs to the original open/read/authority owner and must
+        // retain its exact partial backing, even when its I/O kind is NotFound.
+        if cfg!(all(test, sumeragi_core_mutation = "HC418"))
+            && result
+                .as_ref()
+                .is_err_and(|error| error.io_kind() == io::ErrorKind::NotFound)
         {
             *slot = None;
         }
@@ -145,11 +193,14 @@ impl LaneBlockSource for LaneFrameSource {
         height: u64,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
         self.budget.with_deferred_refund_notifications(|_| {
-            let mut slot = self.read.try_lock().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::WouldBlock, "original lane frame is busy")
-            })?;
-            self.selected(&mut slot, lane, incarnation, height)?;
-            let original = slot.as_ref().expect("authenticated original source");
+            let mut original_read = self.original_read()?;
+            #[cfg(all(test, sumeragi_core_mutation = "HC402"))]
+            let _held_read_mutex = self.read.lock();
+            self.selected(&mut original_read.selected, lane, incarnation, height)?;
+            let original = original_read
+                .selected
+                .as_ref()
+                .expect("authenticated original source");
             let read = original
                 .ready
                 .as_ref()
@@ -160,10 +211,24 @@ impl LaneBlockSource for LaneFrameSource {
                 result: read.qc.result,
                 batch,
             };
-            *slot = None;
+            original_read.selected = None;
             Ok(Some(result))
         })
     }
+    fn proposal_block(
+        &self,
+        _: LaneId,
+        _: &[u8; 32],
+        _: u64,
+        _: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "read-only replay has no proposal-selection authority",
+        )
+        .into())
+    }
+    fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,
         lane: LaneId,
@@ -174,10 +239,10 @@ impl LaneBlockSource for LaneFrameSource {
         // One finite read attempt. The enclosing original replay/producer owns
         // scheduling and the absolute deadline; this reader never sleeps or spins.
         self.budget.with_deferred_refund_notifications(|_| {
-            let mut slot = self.read.try_lock().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::WouldBlock, "original lane frame is busy")
-            })?;
-            self.selected(&mut slot, lane, incarnation, height)
+            let mut original_read = self.original_read()?;
+            #[cfg(all(test, sumeragi_core_mutation = "HC402"))]
+            let _held_read_mutex = self.read.lock();
+            self.selected(&mut original_read.selected, lane, incarnation, height)
                 .map(|()| true)
         })
     }

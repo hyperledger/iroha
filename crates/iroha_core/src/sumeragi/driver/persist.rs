@@ -372,7 +372,7 @@ pub fn install_records<R: RecordStore + ?Sized>(
                 );
                 let bytes = record
                     .encode(crypto)
-                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                    .map_err(installation_record_encoding_error)?;
                 store.write(instance, key, &bytes)?;
             }
             let key = key.clone();
@@ -390,6 +390,18 @@ pub fn install_records<R: RecordStore + ?Sized>(
         out.push((key.clone(), store.load(instance, key)?, *retired));
     }
     Ok(out)
+}
+
+// Encoding is a completed deterministic rejection, never a native filesystem retry.
+fn installation_record_encoding_error(
+    error: iroha_sumeragi::safety::RecordError,
+) -> std::io::Error {
+    let kind = if cfg!(all(test, sumeragi_core_mutation = "HC412")) {
+        std::io::ErrorKind::Other
+    } else {
+        std::io::ErrorKind::InvalidData
+    };
+    std::io::Error::new(kind, error)
 }
 
 #[cfg(test)]
@@ -773,5 +785,22 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, LogEntry::Key { key, generated: false, .. } if *key == other))
         );
+    }
+    #[test]
+    fn installation_encoding_refusal_preserves_original_record_error() {
+        let error = installation_record_encoding_error(iroha_sumeragi::safety::RecordError::Encode);
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::InvalidData,
+            "installation encoding refusal must stay deterministic InvalidData"
+        );
+        assert_eq!(error.to_string(), "Encode");
+        assert!(error.raw_os_error().is_none());
+        assert!(matches!(
+            error
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<iroha_sumeragi::safety::RecordError>()),
+            Some(iroha_sumeragi::safety::RecordError::Encode)
+        ));
     }
 }

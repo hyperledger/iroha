@@ -197,3 +197,108 @@ fn read_only_capacity_retry_retains_the_original_authority_and_partial_frame() {
     assert_eq!(budget.limit_bytes(), ceiling);
     assert_eq!(fs::read(fixture.path()).unwrap(), bytes);
 }
+
+struct PostOpenMissingSchedule {
+    original: Arc<dyn AvailabilitySchedule>,
+    path: PathBuf,
+    moved: PathBuf,
+    first: Arc<AtomicBool>,
+}
+impl AvailabilitySchedule for PostOpenMissingSchedule {
+    fn instance(&self) -> Hash32 {
+        self.original.instance()
+    }
+    fn height_config(&self, height: u64) -> Result<Option<HeightConfig>, Attempt<io::Error>> {
+        if self.first.swap(false, Ordering::SeqCst) {
+            // RestoreFrame reaches this independent authority only after it opened
+            // and decoded the actual funded canonical frame. Produce real native
+            // NotFound now; the opened original must not be treated as initial absence.
+            fs::rename(&self.path, &self.moved)?;
+            return Err(fs::metadata(&self.path)
+                .expect_err("the original frame was moved before native lookup")
+                .into());
+        }
+        self.original.height_config(height)
+    }
+}
+struct PostOpenMissingAuthorities {
+    original: Arc<dyn LaneStoreAuthorities>,
+    path: PathBuf,
+    moved: PathBuf,
+    first: Arc<AtomicBool>,
+}
+impl LaneStoreAuthorities for PostOpenMissingAuthorities {
+    fn authority(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        instance: Hash32,
+    ) -> Result<Option<LaneStoreAuthority>, Attempt<io::Error>> {
+        self.original
+            .authority(lane, incarnation, instance)
+            .map(|authority| {
+                authority.map(|authority| LaneStoreAuthority {
+                    schedule: Arc::new(PostOpenMissingSchedule {
+                        original: authority.schedule,
+                        path: self.path.clone(),
+                        moved: self.moved.clone(),
+                        first: Arc::clone(&self.first),
+                    }),
+                })
+            })
+    }
+}
+
+#[test]
+fn read_only_post_open_not_found_retains_original_source() {
+    let fixture = Fixture::new(true);
+    fixture.publish();
+    let path = fixture.path();
+    let moved = fixture.dir.path().join("retained-original-frame");
+    let bytes = fs::read(&path).unwrap();
+    let budget = fixture.stores.budget.clone();
+    let baseline = budget.reserved_bytes();
+    let ceiling = budget.limit_bytes();
+    let calls = fixture.authorities.calls.load(Ordering::SeqCst);
+    let reader = LaneFrameSource::new(
+        fixture.dir.path().to_path_buf(),
+        fixture.stores.network,
+        fixture.stores.chain_id.clone(),
+        fixture.stores.crypto.clone(),
+        budget.clone(),
+        Arc::new(PostOpenMissingAuthorities {
+            original: fixture.authorities.clone(),
+            path: path.clone(),
+            moved: moved.clone(),
+            first: Arc::new(AtomicBool::new(true)),
+        }),
+    );
+    let refused = reader.block(LANE, &INCARNATION, 1);
+    let original_native = matches!(&refused,
+        Err(Attempt::Rejected(error)) if error.kind() == io::ErrorKind::NotFound && error.raw_os_error().is_some());
+    let funded_original = budget.reserved_bytes() > baseline;
+    let moved_original = moved.is_file() && !path.exists();
+    // The same bytes at a new inode are deliberately insufficient to replace the
+    // admitted source. A correct retry does not request another schedule or open.
+    fs::write(&path, &bytes).unwrap();
+    let completed = reader.block(LANE, &INCARNATION, 1);
+    let exact_result = matches!(&completed, Ok(Some(block))
+        if block.block_hash == fixture.qc.block_hash && block.result == fixture.qc.result && block.batch.is_some());
+    let same_authority = fixture.authorities.calls.load(Ordering::SeqCst) == calls + 1;
+    drop(completed);
+    drop(refused);
+    drop(reader);
+    fs::remove_file(&path).unwrap();
+    fs::rename(&moved, &path).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(budget.limit_bytes(), ceiling);
+    assert!(
+        original_native && moved_original,
+        "the original opened frame must reach actual native NotFound"
+    );
+    assert!(
+        funded_original && same_authority && exact_result,
+        "post-open NotFound must retain the original funded frame and authority without recapture"
+    );
+}

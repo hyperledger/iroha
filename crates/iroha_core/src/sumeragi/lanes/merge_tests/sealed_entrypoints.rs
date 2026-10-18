@@ -463,6 +463,21 @@ fn funded_merge_index_refuses_one_short_retries_same_source_and_releases_after_s
             Ok(block)
         }
 
+        fn proposal_block(
+            &self,
+            _: LaneId,
+            _: &[u8; 32],
+            _: u64,
+            _: &crate::sumeragi::lanes::ProposalReadScope,
+        ) -> Result<
+            Option<CommittedLaneBlock>,
+            crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+        > {
+            panic!("merge expansion scratch observer is not a proposal source")
+        }
+        fn release_cancelled_proposal_reads(&self) {
+            self.stores.release_cancelled_proposal_reads();
+        }
         fn wait_for(
             &self,
             lane: LaneId,

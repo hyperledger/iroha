@@ -53,8 +53,13 @@ pub mod persist;
 mod retirement;
 pub mod serve;
 mod startup;
+pub(in crate::sumeragi) use startup::{
+    DriverPreparation, PendingDriver, StartupContext, StartupPoll, StartupPreparationError,
+    StartupRetirement,
+};
 pub mod traits;
 mod wake;
+mod worker_panic;
 pub use node_gate::NodeGate;
 
 #[cfg(test)]
@@ -110,8 +115,12 @@ use self::{
     },
 };
 use super::metrics::InstanceMetrics;
+pub use retirement::OriginalPublicationOwner;
+#[cfg(any(test, feature = "iroha-core-tests"))]
+pub(in crate::sumeragi) use retirement::PublicationSession;
 use retirement::{RetirementControl, RetirementJob};
 use wake::ThreadWake;
+use worker_panic::{OriginalWorkerPanic, discard_join_result, join_original_workers};
 
 /// Longest idle wait of the event loop before it re-reads the clock.
 const MAX_IDLE_WAIT_MS: Millis = 1_000;
@@ -131,6 +140,20 @@ pub enum Worker {
     Exec,
     /// The serve thread.
     Serve,
+}
+
+impl Worker {
+    // One private authority for original worker membership and bounded join custody.
+    const COUNT: usize = Self::Loop.index() + 1;
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Persist => 0,
+            Self::Exec => 1,
+            Self::Serve => 2,
+            Self::Loop => 3,
+        }
+    }
 }
 
 /// O10 at run time: a committed configuration needs larger frames than the transport accepts,
@@ -777,6 +800,40 @@ pub fn assemble_init(
     configs: Vec<(u64, ConfigSlot)>,
     nonce: u64,
 ) -> Result<Init, crate::execution_attempt::ExecutionAttemptError<StartupHistoryError>> {
+    let StartupHistory {
+        tip,
+        recent_headers,
+    } = assemble_startup_history(blocks, genesis_height, genesis, demotion_window)?;
+    Ok(Init {
+        instance,
+        records,
+        genesis_height,
+        demotion_window,
+        nonce,
+        tip,
+        configs,
+        recent_headers,
+    })
+}
+
+/// Read-only certified startup history, before consuming installed record/configuration owners.
+pub(in crate::sumeragi) struct StartupHistory {
+    /// Exact original committed tip returned by the block store.
+    pub(in crate::sumeragi) tip: CommittedTip,
+    /// Original authenticated headers in the unchanged demotion window.
+    pub(in crate::sumeragi) recent_headers: Vec<iroha_sumeragi::message::BlockHeader>,
+}
+
+/// Read the same startup history without consuming previously installed inputs.
+///
+/// # Errors
+/// Preserves the original local read refusal or exact completed history error.
+pub(in crate::sumeragi) fn assemble_startup_history(
+    blocks: &(impl BlockStore + ?Sized),
+    genesis_height: u64,
+    genesis: (Hash32, Hash32),
+    demotion_window: u64,
+) -> Result<StartupHistory, crate::execution_attempt::ExecutionAttemptError<StartupHistoryError>> {
     let t = blocks.height().max(genesis_height);
     let tip = if t == genesis_height {
         CommittedTip {
@@ -804,17 +861,15 @@ pub fn assemble_init(
         let entry = startup_entry(blocks, height)?;
         recent_headers.push(entry.manifest.header);
     }
-    Ok(Init {
-        instance,
-        records,
-        genesis_height,
-        demotion_window,
-        nonce,
+    Ok(StartupHistory {
         tip,
-        configs,
         recent_headers,
     })
 }
+
+#[cfg(test)]
+#[path = "startup/history_tests.rs"]
+mod startup_history_tests;
 
 /// Why a driver did not start.
 #[derive(Debug, thiserror::Error)]
@@ -834,6 +889,12 @@ pub enum DriverError {
     /// The original retirement store does not belong to this exact instance and pool.
     #[error("sumeragi retirement store does not belong to the original instance and resource pool")]
     RetirementIdentity,
+    /// The exact original native store refused its joining-thread owner.
+    #[error("sumeragi original publication binding failed: {0}")]
+    RetirementBinding(#[source] std::io::Error),
+    /// Prepared startup belongs to a different original instance or resource pool.
+    #[error("sumeragi startup inputs do not belong to the original instance and resource pool")]
+    StartupIdentity,
     /// Canonical storage failed; this storage owner cannot start another instance.
     #[error("sumeragi canonical storage is closed; restart is required")]
     StorageClosed,
@@ -1468,22 +1529,45 @@ struct DriverJoiner {
 }
 
 impl DriverJoiner {
-    fn start(mut retirement: Option<RetirementJob>) -> std::io::Result<Self> {
+    fn start(retirement: Option<RetirementJob>) -> std::io::Result<Self> {
+        Self::start_with(move |receive| Self::join_workers(receive, retirement))
+    }
+
+    // Ordinary and prepared startup create this same one physical joiner/channel.
+    fn start_with(
+        run: impl FnOnce(mpsc::Receiver<Vec<JoinHandle<()>>>) + Send + 'static,
+    ) -> std::io::Result<Self> {
         let (workers, receive) = mpsc::sync_channel::<Vec<JoinHandle<()>>>(1);
-        let thread = super::threads::sumeragi_thread_builder("sumeragi-join").spawn(move || {
-            if let Some(job) = retirement.as_mut() {
-                job.bind_current();
-            }
-            if let Ok(threads) = receive.recv() {
-                for thread in threads {
-                    let _ = thread.join();
-                }
-                if let Some(job) = retirement {
-                    job.run();
-                }
-            }
-        })?;
+        let thread =
+            super::threads::sumeragi_thread_builder("sumeragi-join").spawn(move || run(receive))?;
         Ok(Self { workers, thread })
+    }
+
+    fn join_workers(
+        receive: mpsc::Receiver<Vec<JoinHandle<()>>>,
+        mut retirement: Option<RetirementJob>,
+    ) {
+        if let Some(job) = retirement.as_mut() {
+            job.bind_current();
+        }
+        if let Ok(threads) = receive.recv() {
+            if cfg!(all(test, sumeragi_core_mutation = "HC395"))
+                && let Some(job) = retirement.take()
+            {
+                job.run();
+            }
+            let failure = join_original_workers(threads);
+            if let Some(error) = failure
+                && !cfg!(all(test, sumeragi_core_mutation = "HC421"))
+            {
+                // All original handles were joined, but a panic cannot
+                // authorize publication or a successful retirement receipt.
+                error.resume();
+            }
+            if let Some(job) = retirement {
+                job.run();
+            }
+        }
     }
 
     fn handoff(self, threads: Vec<JoinHandle<()>>) -> Result<JoinHandle<()>, FailedDriverHandoff> {
@@ -1504,15 +1588,13 @@ impl DriverJoiner {
                 // callback shutdown. Lifecycle polling retains a failed handoff instead.
                 iroha_logger::error!("sumeragi joining control stopped before receiving workers");
                 if !on_worker {
-                    for worker in workers {
-                        let _ = worker.join();
-                    }
+                    drop(join_original_workers(workers));
                 }
                 thread
             }
         };
         if !on_worker {
-            let _ = thread.join();
+            discard_join_result(thread.join());
         }
     }
 }
@@ -1537,6 +1619,8 @@ pub struct RunningDriver {
     joining: Option<JoinHandle<()>>,
     shutdown_requested: bool,
     handoff_failed: bool,
+    // Retain the original joining/worker panic until final owner destruction.
+    join_failure: Option<OriginalWorkerPanic>,
     // Keeps the exact store and prepaid control through refusal or joiner unwind.
     retirement: Option<RetirementControl>,
 }
@@ -1568,6 +1652,9 @@ impl RunningDriver {
     pub(in crate::sumeragi) fn poll_shutdown(&mut self) -> bool {
         #[cfg(all(test, sumeragi_core_mutation = "HC393"))]
         self.stop_and_join();
+        if let Some(retirement) = &self.retirement {
+            retirement.retire();
+        }
         self.request_shutdown();
         let current = std::thread::current().id();
         if self.handoff_failed
@@ -1600,8 +1687,8 @@ impl RunningDriver {
             return false;
         }
         if let Some(thread) = self.joining.take() {
-            let joined = thread.join();
-            if joined.is_err()
+            self.join_failure = thread.join().err().map(OriginalWorkerPanic::new);
+            if self.join_failure.is_some()
                 || self
                     .retirement
                     .as_ref()
@@ -1645,14 +1732,12 @@ impl RunningDriver {
             // join/self-worker behavior; never silently restart the failed handoff.
             let workers = std::mem::take(&mut self.threads);
             if !on_worker {
-                for worker in workers {
-                    let _ = worker.join();
-                }
+                drop(join_original_workers(workers));
             }
         }
         if let Some(thread) = self.joining.take() {
             if !on_worker {
-                let _ = thread.join();
+                discard_join_result(thread.join());
             }
         }
     }

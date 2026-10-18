@@ -305,13 +305,6 @@ mod runtime;
     )
 )]
 mod runtime_lane_policy;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TODO: consume the settlement policy projection in the complete State root owner"
-    )
-)]
 mod settlement_policy;
 mod state;
 pub(in crate::state) mod world;

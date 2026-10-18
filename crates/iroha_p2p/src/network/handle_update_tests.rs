@@ -398,6 +398,55 @@ mod handle_update_tests {
         assert_eq!(budget.retained(), 0);
     }
     #[test]
+    fn small_source_frames_pipeline_only_within_original_byte_and_item_caps() {
+        for ceiling in [
+            RELIABLE_ACTOR_SOURCE_WINDOW,
+            RELIABLE_ACTOR_SOURCE_WINDOW + 1,
+        ] {
+            let budget = NetworkActorProgressBudget::new(ceiling, 1, 1).unwrap();
+            let shape = |index: usize| ProgressTicketShape {
+                topic: message::Topic::Consensus,
+                stream_wire_bytes: 1,
+                broadcast: false,
+                reply_writer_timeout_attempt: None,
+                request_digest: Hash::new(index.to_le_bytes()),
+                authority: None,
+            };
+            let mut retained = Vec::new();
+            for index in 0..RELIABLE_ACTOR_SOURCE_WINDOW {
+                let ProgressLeaseAttempt::Ready { lease, mut ticket } =
+                    budget.try_reserve(1, shape(index), None)
+                else {
+                    panic!("small original frames must fit the existing source window");
+                };
+                ticket.commit();
+                retained.push(lease);
+            }
+            assert_eq!(budget.retained(), RELIABLE_ACTOR_SOURCE_WINDOW);
+            let pending = shape(RELIABLE_ACTOR_SOURCE_WINDOW);
+            let ProgressLeaseAttempt::Waiting {
+                ticket: Some(ticket),
+                rank: 1,
+            } = budget.try_reserve(1, pending, None)
+            else {
+                panic!("an additional frame must wait even when one byte remains");
+            };
+            drop(retained.pop().unwrap());
+            let ProgressLeaseAttempt::Ready {
+                lease,
+                ticket: mut admitted,
+            } = budget.try_reserve(1, pending, Some(ticket))
+            else {
+                panic!("the original rank-one ticket acquires the released source slot");
+            };
+            admitted.commit();
+            assert_eq!(budget.retained(), RELIABLE_ACTOR_SOURCE_WINDOW);
+            drop(lease);
+            drop(retained);
+            assert_eq!(budget.retained(), 0);
+        }
+    }
+    #[test]
     fn configured_producer_geometry_gives_six_same_source_waiters_decreasing_ranks() {
         let waiters_per_source = RELIABLE_PROGRESS_WAITERS_PER_SOURCE;
         assert!(
@@ -497,9 +546,12 @@ mod handle_update_tests {
     }
     #[test]
     fn targetized_broadcast_coalesces_only_the_same_digest_and_membership() {
-        let budget =
-            NetworkActorProgressBudget::new_classed(ActorProgressByteLimits::uniform(1), 1, 195)
-                .expect("one target per class must fit");
+        let budget = NetworkActorProgressBudget::new_classed(
+            ActorProgressByteLimits::uniform(1),
+            1,
+            actor_waiter_limits().unwrap().into_iter().sum(),
+        )
+        .expect("one target per class must fit");
         let target = random_node_peer_id();
         let source = ActorProgressSource {
             target: Some(target.clone()),
@@ -604,9 +656,12 @@ mod handle_update_tests {
             request_digest: Hash::new(b"membership-cancellation-direct-owner"),
             authority: None,
         };
-        let budget =
-            NetworkActorProgressBudget::new_classed(ActorProgressByteLimits::uniform(1), 1, 195)
-                .expect("one target with production class waiter ranks must fit");
+        let budget = NetworkActorProgressBudget::new_classed(
+            ActorProgressByteLimits::uniform(1),
+            1,
+            actor_waiter_limits().unwrap().into_iter().sum(),
+        )
+        .expect("one target with production class waiter ranks must fit");
         let ProgressLeaseAttempt::Ready {
             lease: direct_lease,
             ticket: mut direct_ticket,
@@ -733,9 +788,12 @@ mod handle_update_tests {
     }
     #[test]
     fn progress_class_geometry_reserves_safety_from_arbitrary_lane_sources() {
-        let budget =
-            NetworkActorProgressBudget::new_classed(ActorProgressByteLimits::uniform(1), 1, 195)
-                .expect("single-target class geometry must fit");
+        let budget = NetworkActorProgressBudget::new_classed(
+            ActorProgressByteLimits::uniform(1),
+            1,
+            actor_waiter_limits().unwrap().into_iter().sum(),
+        )
+        .expect("single-target class geometry must fit");
         let first_target = random_node_peer_id();
         let second_target = random_node_peer_id();
         let lane_shape = ProgressTicketShape {
@@ -2388,7 +2446,7 @@ mod handle_update_tests {
     }
     #[tokio::test(flavor = "current_thread")]
     async fn ordinary_control_overflow_cannot_consume_source_isolated_safety_capacity() {
-        let (handle, mut safety_rx, mut progress_rx, mut high_rx, _low_rx) =
+        let (mut handle, mut safety_rx, mut progress_rx, mut high_rx, _low_rx) =
             handle_with_network_receivers::<RoutedActorDummy>();
         let peer_id = random_node_peer_id();
         accept_direct_targets(&handle, HashSet::from([peer_id.clone()]));
@@ -2397,6 +2455,17 @@ mod handle_update_tests {
             peer_id: peer_id.clone(),
             priority: Priority::High,
         };
+        // Fill the actual source byte cap with the first safety frame. Small
+        // frames may pipeline within that same cap, so an empty actor queue is
+        // not a one-item source limit.
+        let plaintext = outbound_actor_message_wire_bytes(
+            &NetworkMessage::Post(post(RoutedActorDummy::Safety)),
+            &handle.self_id,
+            handle.relay_ttl,
+        )
+        .unwrap();
+        let wire = crate::frame_queue_charge(plaintext).unwrap();
+        handle.network_actor_progress_budget = NetworkActorProgressBudget::new(wire, 1, 1).unwrap();
         handle.post(post(RoutedActorDummy::Control));
         handle.post(post(RoutedActorDummy::Control));
         assert_eq!(

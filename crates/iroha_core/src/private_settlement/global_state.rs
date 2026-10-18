@@ -22,14 +22,16 @@ use iroha_data_model::nexus::{
     PrivateSettlementPoolStateV1, decode_private_settlement_storage_key_v1,
     encode_private_settlement_storage_key_v1,
 };
+#[cfg(test)]
+use iroha_data_model::privacy::PrivacyNullifierV1;
 use iroha_data_model::{
     nexus::{
         PrivateSettlementAbortReceiptV1, PrivateSettlementDeltaV1,
         PrivateSettlementPrepareBarrierV1, PrivateSettlementReceiptV1, PrivateSettlementRouteV1,
     },
     privacy::{
-        PrivacyCommitmentV1, PrivacyEncryptedOutputV1, PrivacyNullifierV1, PrivacyPoolIdV1,
-        PrivacyRecipientIdV1, PrivacyRootV1,
+        PrivacyCommitmentV1, PrivacyEncryptedOutputV1, PrivacyPoolIdV1, PrivacyRecipientIdV1,
+        PrivacyRootV1,
     },
 };
 use mv::storage::StorageReadOnly;

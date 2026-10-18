@@ -3,7 +3,11 @@
 //! One exclusive instance owner validates its entire recovered prefix before exposing a tip.
 //! Complete signed availability and the original CommitQC share one canonical atomic frame.
 
-use super::{AdmissionAttemptError, LaneBatch, merge::CommittedLaneBlock};
+use super::{
+    AdmissionAttemptError, LaneBatch,
+    merge::CommittedLaneBlock,
+    proposal_reads::{ProposalReadScope, ReadInterest},
+};
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use crate::sumeragi::{
     availability_schedule::{AvailabilitySchedule, resolve_source},
@@ -88,10 +92,27 @@ impl LaneFrameRead {
 }
 
 struct PendingRead {
+    interest: ReadInterest,
     height: u64,
     job: RestoreFrame,
     ready: Option<PreparedLaneWrite>,
 }
+pub(super) struct PendingBatch {
+    interest: ReadInterest,
+    pub(super) read: BatchRead,
+}
+
+// Each native caller inherits cancellation cleanup if a concurrent lifecycle probe finds its
+// mutex busy. This guard is declared before native guards and never performs I/O or waits.
+struct CancelledReadCleanup<'a>(&'a FileLaneBlockStore);
+impl Drop for CancelledReadCleanup<'_> {
+    fn drop(&mut self) {
+        if !cfg!(all(test, sumeragi_core_mutation = "HC434")) {
+            self.0.release_cancelled_reads();
+        }
+    }
+}
+
 struct StoreState {
     write: Option<PreparedLaneWrite>,
     read: Option<PendingRead>,
@@ -135,11 +156,13 @@ pub struct FileLaneBlockStore {
     // The sole validated durable tip has a short notification lock. Waiting never
     // acquires the read/publication I/O mutex; operations order state before tip.
     tip: Mutex<u64>,
-    pub(super) batch_read: Mutex<Option<BatchRead>>,
+    pub(super) batch_read: Mutex<Option<PendingBatch>>,
     grown: Condvar,
     // The same runtime store serves member and observer publication. Only a weak original
     // Queue is retained; no Store -> State/runner/Queue ownership cycle is introduced.
     global_queue: OnceLock<Weak<crate::queue::Queue>>,
+    // Notification-only custody cannot retain this store or form an ownership cycle.
+    publication_owner: OnceLock<crate::sumeragi::driver::OriginalPublicationOwner>,
 }
 impl core::fmt::Debug for FileLaneBlockStore {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -351,6 +374,7 @@ impl FileLaneBlockStore {
             batch_read: Mutex::new(None),
             grown: Condvar::new(),
             global_queue: OnceLock::new(),
+            publication_owner: OnceLock::new(),
         };
         Ok(LaneStoreOpen::new(store, tip))
     }
@@ -363,55 +387,120 @@ impl FileLaneBlockStore {
         &self,
         height: u64,
     ) -> Result<Option<(AvailableBody, Qc)>, Attempt<io::Error>> {
+        let _cancelled_reads = CancelledReadCleanup(self);
         Self::with_original_refunds(&self.budget, || {
-            self.revalidate_custody()?;
-            let mut state = self.state.lock();
-            if height == 0 || height > *self.tip.lock() {
-                return Ok(None);
-            }
-            self.read_prepared(&mut state, height)?;
-            let prepared = state
-                .read
-                .take()
-                .and_then(|read| read.ready)
-                .expect("completed original lane read");
-            Ok(Some(prepared.into_parts()))
+            self.take_prepared(height, &ReadInterest::Historical)
+                .map(|prepared| prepared.map(|(prepared, _)| prepared.into_parts()))
         })
     }
 
-    /// Decode a merge batch while retaining the exact authenticated source on local refusal.
-    /// Only this incarnation's earlier read must finish before switching requested heights.
-    /// Other native readers cannot consume this separate retained batch owner.
-    ///
-    /// # Errors
-    /// Invalid stored artifacts, unavailable historical authority, I/O or original-pool refusal.
+    fn take_prepared(
+        &self,
+        height: u64,
+        requested: &ReadInterest,
+    ) -> Result<Option<(PreparedLaneWrite, ReadInterest)>, Attempt<io::Error>> {
+        self.revalidate_custody()?;
+        let mut state = self.state.lock();
+        if height == 0 || height > *self.tip.lock() {
+            return Ok(None);
+        }
+        self.read_prepared(&mut state, height, requested)?;
+        let read = state.read.take().expect("completed original lane read");
+        Ok(Some((
+            read.ready.expect("restored body and QC"),
+            read.interest,
+        )))
+    }
+
+    /// Decode an actual historical merge without withdrawing its retained source on refusal.
     pub(super) fn committed_batch(
         &self,
         height: u64,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        self.batch_with_interest(height, ReadInterest::Historical)
+    }
+
+    /// Select local proposal work under its original request and exact operation pool.
+    pub(super) fn proposal_batch(
+        &self,
+        height: u64,
+        request: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        let requested = ReadInterest::proposal(request, &self.budget)?;
+        self.batch_with_interest(height, requested)
+    }
+
+    fn batch_with_interest(
+        &self,
+        height: u64,
+        requested: ReadInterest,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        let _cancelled_reads = CancelledReadCleanup(self);
         Self::with_original_refunds(&self.budget, || {
             self.revalidate_custody()?;
             let mut slot = self.batch_read.lock();
             loop {
                 if slot.is_none() {
-                    let Some((body, qc)) = self.committed_body(height)? else {
+                    let Some((prepared, interest)) = self.take_prepared(height, &requested)? else {
                         return Ok(None);
                     };
-                    *slot = Some(BatchRead { body, qc });
+                    let (body, qc) = prepared.into_parts();
+                    *slot = Some(PendingBatch {
+                        interest,
+                        read: BatchRead { body, qc },
+                    });
                 }
-                let read = slot.as_ref().expect("retained authenticated batch read");
-                let batch = read.decode_batch()?;
+                let pending = slot.as_mut().expect("retained authenticated batch read");
+                pending
+                    .interest
+                    .join(&requested, pending.read.body.header().height == height)?;
+                let batch = pending.read.decode_batch()?;
                 self.revalidate_custody()?;
-                let read = slot.take().expect("completed original batch decode");
-                if read.body.header().height == height {
+                let pending = slot.take().expect("completed original batch decode");
+                if pending.read.body.header().height == height {
                     return Ok(Some(CommittedLaneBlock {
-                        block_hash: read.qc.block_hash,
-                        result: read.qc.result,
+                        block_hash: pending.read.qc.block_hash,
+                        result: pending.read.qc.result,
                         batch,
                     }));
                 }
             }
         })
+    }
+
+    /// Release only explicitly cancelled proposal reads. Select under separate nonblocking
+    /// guards, then destroy original jobs, authority and paid bodies after every guard is gone.
+    pub(super) fn release_cancelled_reads(&self) {
+        Self::with_original_refunds(&self.budget, || {
+            let read = {
+                let Some(mut state) = self.state.try_lock() else {
+                    return;
+                };
+                if state
+                    .read
+                    .as_ref()
+                    .is_some_and(|read| read.interest.cancelled())
+                {
+                    state.read.take()
+                } else {
+                    None
+                }
+            };
+            let batch = {
+                self.batch_read.try_lock().and_then(|mut slot| {
+                    if slot
+                        .as_ref()
+                        .is_some_and(|pending| pending.interest.cancelled())
+                    {
+                        slot.take()
+                    } else {
+                        None
+                    }
+                })
+            };
+            drop(read);
+            drop(batch);
+        });
     }
 
     /// Observe the durable tip only after the original retained read authenticates.
@@ -422,6 +511,7 @@ impl FileLaneBlockStore {
     /// Propagates the original incomplete attempt or authentication/storage rejection
     /// without taking, replacing or abandoning its retained restoration owner.
     pub(super) fn authenticated_height(&self) -> Result<u64, Attempt<io::Error>> {
+        let _cancelled_reads = CancelledReadCleanup(self);
         Self::with_original_refunds(&self.budget, || {
             self.revalidate_custody()?;
             let mut state = self.state.lock();
@@ -458,12 +548,34 @@ impl FileLaneBlockStore {
         Ok(())
     }
 
-    /// Continue only the original already-admitted publication after its driver retires.
-    /// A busy state or any original refusal retains the exact owner for reconciliation.
-    ///
-    /// # Errors
-    /// Original lock contention, resource refusal, namespace or publication failure.
-    pub(super) fn resume_retired_publication(&self) -> Result<(), Attempt<io::Error>> {
+    /// Notify the original admitted joining owner after its driver retires.
+    /// The registry never takes the I/O mutex or invokes a native operation.
+    pub(super) fn notify_retired_publication(&self) {
+        #[cfg(all(test, sumeragi_core_mutation = "HC423"))]
+        Self::with_original_refunds(&self.budget, || {
+            let mut state = self.state.lock();
+            let _ = self.publish_pending_write(&mut state);
+        });
+        if let Some(owner) = self.publication_owner.get() {
+            owner.retire();
+        }
+    }
+
+    // Called only by the exact bound original job after its physical worker joins
+    // and every admitted append permit. A refusal retains the exact prepared write.
+    fn resume_retired_publication(
+        &self,
+        owner: &crate::sumeragi::driver::OriginalPublicationOwner,
+    ) -> Result<(), Attempt<io::Error>> {
+        if !self
+            .publication_owner
+            .get()
+            .is_some_and(|original| original.same_owner(owner))
+        {
+            return Err(invalid("retired publication requires its exact original owner").into());
+        }
+        owner.require_resume()?;
+        let _cancelled_reads = CancelledReadCleanup(self);
         Self::with_original_refunds(&self.budget, || {
             let Some(mut state) = self.state.try_lock() else {
                 return Err(io::Error::new(
@@ -497,6 +609,11 @@ impl FileLaneBlockStore {
         drop(state);
         pending_state || self.batch_read.try_lock().is_none_or(|slot| slot.is_some())
     }
+    #[cfg(test)]
+    pub(in crate::sumeragi) fn has_pending_work_for_test(&self) -> bool {
+        self.retains_pending_work()
+    }
+
     /// Wait until the durable validated tip reaches `height`, bounded by `timeout`.
     #[must_use]
     pub fn wait_for(&self, height: u64, timeout: Duration) -> bool {
@@ -525,8 +642,12 @@ impl FileLaneBlockStore {
         &self,
         state: &'a mut StoreState,
         height: u64,
+        requested: &ReadInterest,
     ) -> Result<&'a mut PreparedLaneWrite, Attempt<io::Error>> {
         self.revalidate_custody()?;
+        if let Some(read) = &mut state.read {
+            read.interest.join(requested, read.height == height)?;
+        }
         if state
             .read
             .as_ref()
@@ -544,6 +665,7 @@ impl FileLaneBlockStore {
         }
         if state.read.is_none() {
             state.read = Some(PendingRead {
+                interest: requested.clone(),
                 height,
                 job: self.restore(height)?,
                 ready: None,
@@ -565,8 +687,27 @@ impl crate::sumeragi::driver::traits::RetiredPublication for FileLaneBlockStore 
     fn belongs_to(&self, budget: &AllocationBudget) -> bool {
         self.budget.same_pool(budget)
     }
-    fn resume(&self) -> Result<(), Attempt<io::Error>> {
-        self.resume_retired_publication()
+    fn bind_owner(
+        &self,
+        owner: crate::sumeragi::driver::OriginalPublicationOwner,
+    ) -> io::Result<()> {
+        owner.require_binding_thread()?;
+        if !owner.belongs_to(self.instance, &self.budget) {
+            return Err(invalid(
+                "publication owner belongs to another original instance or pool",
+            ));
+        }
+        match self.publication_owner.set(owner) {
+            Ok(()) => Ok(()),
+            Err(_) if cfg!(all(test, sumeragi_core_mutation = "HC424")) => Ok(()),
+            Err(_) => Err(invalid("original publication owner is already bound")),
+        }
+    }
+    fn resume(
+        &self,
+        owner: &crate::sumeragi::driver::OriginalPublicationOwner,
+    ) -> Result<(), Attempt<io::Error>> {
+        self.resume_retired_publication(owner)
     }
 }
 
@@ -593,13 +734,14 @@ impl BlockStore for FileLaneBlockStore {
         *self.tip.lock()
     }
     fn entry(&self, height: u64) -> Result<Option<SyncEntry>, Attempt<io::Error>> {
+        let _cancelled_reads = CancelledReadCleanup(self);
         Self::with_original_refunds(&self.budget, || {
             self.revalidate_custody()?;
             let mut state = self.state.lock();
             if height == 0 || height > *self.tip.lock() {
                 return Ok(None);
             }
-            let prepared = self.read_prepared(&mut state, height)?;
+            let prepared = self.read_prepared(&mut state, height, &ReadInterest::Historical)?;
             let entry = SyncEntry {
                 manifest: PayloadManifest {
                     header: prepared.body().header().clone(),
@@ -619,6 +761,19 @@ impl BlockStore for FileLaneBlockStore {
         resolve_source(&*self.schedule, self.instance, height, block_hash)
     }
     fn append(&self, body: &AvailableBody, qc: &Qc) -> Result<(), Attempt<io::Error>> {
+        let _cancelled_reads = CancelledReadCleanup(self);
+        // Declare before the refund scope and every native/store guard. A refused
+        // admission cannot resolve authority, mutate State or install a write.
+        let _original_append = if cfg!(all(test, sumeragi_core_mutation = "HC422")) {
+            None
+        } else {
+            Some(
+                self.publication_owner
+                    .get()
+                    .ok_or_else(|| invalid("lane append has no original publication owner"))?
+                    .admit_append()?,
+            )
+        };
         Self::with_original_refunds(&self.budget, || {
             if !body.admitted_to(&self.budget) {
                 return Err(invalid("lane append original pool mismatch").into());
@@ -635,7 +790,7 @@ impl BlockStore for FileLaneBlockStore {
             let mut state = self.state.lock();
             let tip = *self.tip.lock();
             if height <= tip {
-                let stored = self.read_prepared(&mut state, height)?;
+                let stored = self.read_prepared(&mut state, height, &ReadInterest::Historical)?;
                 if stored.body() != body || stored.commit_qc().result != qc.result {
                     // This healthy stored read is complete; reject the incoming decision without
                     // pinning unrelated future reads behind it. Pending publication is untouched.
@@ -708,3 +863,7 @@ mod retirement_probe_tests;
 #[cfg(test)]
 #[path = "store/refund_tests.rs"]
 mod refund_tests;
+
+#[cfg(test)]
+#[path = "store/owner_tests.rs"]
+mod owner_tests;

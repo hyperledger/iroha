@@ -1125,6 +1125,7 @@ fn check_progress_clock(
 }
 
 struct Worker<'s> {
+    proposal_reads: Option<(payload_owner::ProposalReadRequest, lanes::ProposalReadScope)>,
     payload_build: Option<GlobalPayloadBuild>,
     assembly_parent_service: Option<(
         OriginalPayloadScope,
@@ -1160,9 +1161,16 @@ struct Worker<'s> {
     completed_replay: Option<replay::CompletedReplay>,
 }
 
+impl Drop for Worker<'_> {
+    fn drop(&mut self) {
+        self.cancel_proposal_reads();
+    }
+}
+
 fn run(context: &ExecutorContext, requests: &mpsc::Receiver<Request>) {
     let state = Arc::clone(&context.state);
     let mut worker = Worker {
+        proposal_reads: None,
         payload_build: None,
         assembly_parent_service: None,
         signature_decode: None,
@@ -2486,6 +2494,13 @@ impl<'s> Worker<'s> {
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
+        if self
+            .proposal_reads
+            .as_ref()
+            .is_some_and(|(request, _)| request.height == height)
+        {
+            self.cancel_proposal_reads();
+        }
         self.retire_completed_payload(height);
         if self.proposal_decode.as_ref().is_some_and(|original| {
             original.source.header().height == height && !keep.contains(&original.block_hash)
@@ -3176,6 +3191,7 @@ impl<'s> Worker<'s> {
         let height = pending.header.height;
         self.completed_replay = None;
         self.applied = (height, pending.qc.block_hash);
+        self.cancel_proposal_reads();
         self.proposal_decode = None;
         self.assembly_parent_service = None;
         self.context
@@ -3261,6 +3277,13 @@ impl<'s> Worker<'s> {
         // subsequently refuses. This expiry-only check creates no lending authority.
         self.partial_payload_expiry_wait();
 
+        self.retain_proposal_read_request(payload_owner::ProposalReadRequest {
+            height,
+            view,
+            max_bytes,
+            exec_budget_ms,
+            applied: self.applied,
+        });
         let original_generation = self.state.state_view_generation();
         let current_view = self.state.try_view_once().map_err(|error| {
             let classified =
@@ -3274,8 +3297,16 @@ impl<'s> Worker<'s> {
         })?;
         // Certified lane blocks come first: they reserve their share of the block's capacity
         // (`specs/sumeragi_lanes.md` §4.2).
-        let merges = match lanes::merge::propose(&current_view, &*self.context.lane_blocks, height)
-        {
+        let merges = match lanes::merge::propose(
+            &current_view,
+            &*self.context.lane_blocks,
+            height,
+            &mut self
+                .proposal_reads
+                .as_mut()
+                .expect("original build request")
+                .1,
+        ) {
             Ok(merges) => merges,
             Err(error) => {
                 let error = match error {
@@ -3699,6 +3730,13 @@ impl<'s> Worker<'s> {
     /// transaction can be proved without forging a replacement native source header.
     fn reject(&mut self, height: u64, view: u64, block_hash: Hash32) {
         if self
+            .proposal_reads
+            .as_ref()
+            .is_some_and(|(request, _)| request.height == height && request.view == view)
+        {
+            self.cancel_proposal_reads();
+        }
+        if self
             .assembly_parent_service
             .as_ref()
             .is_some_and(|(scope, _)| scope.height == height && scope.view == view)
@@ -4107,3 +4145,7 @@ fn parent_history_error(
 #[cfg(test)]
 #[path = "executor_parent_service_custody_tests.rs"]
 mod parent_service_custody_tests;
+
+#[cfg(test)]
+#[path = "executor/proposal_read_tests.rs"]
+mod proposal_read_tests;

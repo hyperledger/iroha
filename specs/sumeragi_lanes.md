@@ -435,29 +435,109 @@ ready-store ownership until finished. Historical openings after retirement keep 
 recovery progress across subsequent lifecycle checks. This owner cleanup does not delete
 certified frames. A retired running driver's already-admitted publication stays with its
 exact store and original allocation pool. Before any worker starts, that pool admits one fixed
-completion control and one release registration for the driver's original joiner. After
-physically joining the original workers, the same joiner continues the pending write;
+completion control and one release registration for the driver's original joiner. That joiner
+binds an unforgeable store owner and acknowledges readiness before the first append. Owner
+admission checks the exact instance and allocation pool; concurrent, repeated or ended-owner
+binding cannot replace the original. An ownerless or stopped append refuses before native I/O
+or installation of retained write state. Each admitted append keeps an inline permit through
+all its original I/O and refund guards. After explicit retirement, every append permit ends
+and all original workers physically join before the same joiner continues the pending write;
 no new worker, replacement body, certificate or authority is admitted. The move-only
 refusal stays on that thread: actual capacity release enables its retry, and source-less
 failures use the configured local backoff. The lifecycle retains the original driver,
 excludes it from delivery/status, and prevents a new incarnation of the same lane from
 starting until both joins and publication complete. A failed handoff or joiner unwind
-retains the original store and does not advertise successful retirement.
+retains the original store and does not advertise successful retirement. Ordinary startup
+refusal closes its channels and physically joins every acquired worker and the original
+joiner before reporting failure. An original worker or binding panic takes precedence over
+a generated readiness diagnosis; its exact payload is propagated after cleanup. Drop during
+an existing unwind performs cleanup without starting another panic. Stop before or during
+binding cannot acknowledge live append readiness or lose its original completion wake.
 
 Every continuation keeps the original nonblocking state-mutex probe and runs outside
 registry/running maps. Materialized frames do not advance the durable tip before their
 original synchronization succeeds. Final shutdown cancels further retries and joins
-original work, including any native syscall already in progress. It does not clear an
+original work, including any native syscall and admitted append permit already in progress.
+It rejects new permits and drains existing ones without another publication retry. It does not clear an
 unfinished store write or claim it durable: the registry retains that original pending
-owner. Process exit does not make unflushed in-memory work recoverable; startup continues
+store, whose ended owner cannot be rebound or revived by reconciliation. The store retains
+only funded notification state, while coordinator and job retain store custody separately;
+there is no ownership cycle. Its exact control charge remains until the final store owner
+is released. Process exit does not make unflushed in-memory work recoverable; startup continues
 to authenticate only available durable artifacts through the existing recovery path.
 
-Historical/orphan Ready stores without an admitted driver still use synchronous registry
-continuation. Their I/O, historical opening and lane startup may delay lifecycle wakeups,
-starts or final shutdown; asynchronous ownership of those paths remains open. Each registry
-pass attempts at most its initial owner count, and new historical owners continue on a
-subsequent lifecycle check. No additional history-deletion authority follows from runtime
-owner retirement.
+Runtime lane startup admits one fixed completion/control and original release registration
+from the State allocation pool before starting its intended driver joiner. That same joiner
+performs authenticated store opening, record installation, certified-history reads, retained
+executor recovery and body-store opening. Resource retries retain the original prepared
+inputs and refusal; they do not reconstruct a completed executor or clone its grants.
+The lifecycle checks the exact current incarnation and applied activation height before
+acknowledging worker creation, then checks current eligibility again before exposing ingress.
+Unactivated, cancelling and terminally refused generations expose no live status/handle and
+continue to exclude another incarnation of the same LaneId while that generation is current.
+After committed retirement, only successful original physical joins and completion of
+its already-admitted publication release that exclusion. The same startup joiner retains
+that job before activation, through unexposed Ready, and after ordinary worker-creation
+or readiness refusal. Every acquired prefix must join successfully before publication;
+a worker panic retains its original failure and cannot authorize replacement. Final
+shutdown instead stops the same prepaid job and preserves unfinished store custody.
+Transferring Ready transfers its final-shutdown authority too: dropping the empty startup
+observer cannot stop the running owner. Transfer and cancellation claim the worker owner
+under one completion lock: a transferred owner always reaches its original joiner, while
+cancellation takes untransferred workers for cleanup outside that lock.
+Ready transfer also reissues the existing
+coalesced transaction wake, covering arrivals before the new handle was exposed. No additional
+physical worker, stack setting or resource limit is introduced. Initial control admission uses
+the existing lifecycle cadence; admitted resource retries use the existing driver backoff.
+Final shutdown can still wait for an in-flight syscall.
+
+Read-only certified-frame inspection moves its exact retained read out of the short
+selection mutex before I/O, decoding or final authority destruction. An inline in-flight
+slot rejects concurrent or reentrant selection with `WouldBlock`; the original owner
+restores that same selection after refusal or unwind without another allocation or authority
+lookup. This changes no writer custody, certificate verification or history-deletion
+authority.
+
+Registry continuation only notifies the exact admitted original publication owner outside
+its selection lock; it never begins publication I/O. Direct native publication callers must
+also bind that original joiner before append. A retained write therefore keeps its already
+admitted continuation owner even when no running or starting protocol driver is registered.
+Final-stop owners remain terminal and require actual authenticated restart of durable frames.
+Historical openings and authenticated reads are synchronous on their owning worker.
+Production global merge selection, execution and replay call them on the existing serialized
+State executor, whose request queue holds at most one waiting request. Runtime lane opening
+runs on that lane's original startup joiner. Lifecycle reconciliation neither opens historical
+stores nor advances their recovery; its bounded registry pass only notifies publication owners
+and releases eligible runtime ownership. Each pass inspects at most its initial owner count;
+new owners can wait for the next lifecycle check. Final shutdown waits for original native
+operations to finish. Runtime owner retirement grants no additional history-deletion authority.
+
+Proposal-tip discovery records only applied-incarnation interest, including a closing lane's
+certified merge backlog on nodes with no active lane driver. A local refusal keeps the exact
+opening until completion or committed incarnation retirement; an abandoned tip probe does not
+create an independent historical reader. Explicit historical `store`, `wait_for` and `block`
+consumers still preserve their original retry custody. Each original global build owns one
+funded proposal-read scope, admitted lazily from its State pool and retained through resource
+refusal and incidental State publication changes. The build parameters and actually applied
+parent identify that request before payload assembly has a scope. Actual request replacement,
+explicit matching discard/rejection, successful parent commit and final worker shutdown cancel
+its proposal interest. No pending or refused commit cancels a still-owned request.
+
+Ready read and batch slots retain their exact native job/body, source, schedule and request.
+A same-height historical joining read independently promotes only that slot; proposal cancellation
+cannot clear it. Another live proposal cannot consume the retained refusal. A cancelled request
+may transfer only its exact compatible height to another proposal; a foreign pool or incompatible
+height cannot acquire it. The existing global worker invokes bounded source cleanup at request
+cancellation. It selects original store Arcs under the registry map, releases cancelled slots with
+separate nonblocking probes, and drops all read/authority owners outside map and native guards.
+A busy original native operation inherits cleanup at its own return, after releasing its guards.
+Only a physically idle Ready owner with no live driver/joiner/reader Arcs or pending work can leave
+the registry. The node's single global worker serializes proposal source calls and cancellation;
+when no independent caller holds the store, cancellation and final shutdown release that idle
+runtime owner without successor traffic, including nodes with no local lane driver. An independent
+live caller keeps the store lock until its existing explicit release or retirement boundary. Its
+native completion guard releases cancelled read allocations, not registry ownership on behalf of
+that caller. None of these runtime releases deletes certified disk history.
 
 The registry map only selects or publishes a per-key owner. Directory establishment,
 prefix authentication, RS16 restoration and native synchronization run outside that shared

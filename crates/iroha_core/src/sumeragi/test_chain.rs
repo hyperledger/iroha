@@ -12,6 +12,11 @@
 //! block time with a `Log` transaction of its own clock account when the block's transactions do
 //! not.
 
+#[path = "test_chain/native_publication.rs"]
+mod native_publication;
+/// Original funded native publication owner for certified lane fixtures.
+pub use native_publication::NativeLanePublication;
+
 #[path = "test_chain/lane_authority.rs"]
 mod lane_authority;
 /// Independent committed-State authority used by certified lane fixtures.
@@ -1310,8 +1315,13 @@ impl CertifiedTestChain {
         let transaction_parameters = view.world().parameters().transaction();
         // The leader merges the lane blocks its lane stores have committed; they may raise the
         // block time (the merge time floor).
-        let merges = crate::sumeragi::lanes::merge::propose(&view, &*self.lane_blocks, height)
-            .expect("original lane store is available while building fixture proposal");
+        let merges = crate::sumeragi::lanes::merge::propose(
+            &view,
+            &*self.lane_blocks,
+            height,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .expect("original lane store is available while building fixture proposal");
         drop(view);
         let cadence = Duration::from_millis(scheduled.params.block_time_ms);
         let parent_time = parent.header().creation_time();
@@ -1388,9 +1398,13 @@ impl CertifiedTestChain {
             .ready(self.height() + 1)
             .expect("authenticated successor schedule");
         let cadence = Duration::from_millis(schedule.params.block_time_ms);
-        let merges =
-            crate::sumeragi::lanes::merge::propose(&view, &*self.lane_blocks, self.height() + 1)
-                .expect("original lane store is available while building fixture proposal");
+        let merges = crate::sumeragi::lanes::merge::propose(
+            &view,
+            &*self.lane_blocks,
+            self.height() + 1,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .expect("original lane store is available while building fixture proposal");
         let validation_time = crate::block::creation_time_after_inputs(
             parent
                 .header()

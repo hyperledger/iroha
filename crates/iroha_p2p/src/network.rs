@@ -6639,8 +6639,7 @@ fn network_actor_progress_source_capacity(max_total_connections: usize) -> Optio
         .checked_mul(ActorProgressClass::COUNT)
 }
 fn network_actor_progress_waiter_capacity(max_total_connections: usize) -> Option<usize> {
-    network_actor_progress_target_capacity(max_total_connections)?
-        .checked_mul(3)?
+    network_actor_progress_source_capacity(max_total_connections)?
         .checked_mul(RELIABLE_PROGRESS_WAITERS_PER_SOURCE)
 }
 fn inbound_source_credit_capacity(
@@ -6690,13 +6689,13 @@ mod inbound_source_memory_bound_tests {
     #[test]
     fn reliable_actor_source_geometry_counts_targets_broadcasts_and_classes() {
         assert_eq!(network_actor_progress_target_capacity(4), Some(8));
-        assert_eq!(network_actor_progress_source_capacity(4), Some(24));
+        assert_eq!(network_actor_progress_source_capacity(4), Some(32));
         let configured_per_source = RELIABLE_PROGRESS_LANE_RELAY_OWNER_CAPACITY
             + RELIABLE_PROGRESS_EXACT_OUTPUT_PRODUCERS_PER_SOURCE;
         assert_eq!(RELIABLE_PROGRESS_WAITERS_PER_SOURCE, configured_per_source);
         assert_eq!(
             network_actor_progress_waiter_capacity(4),
-            Some(24 * configured_per_source)
+            Some(32 * configured_per_source)
         );
         assert_eq!(network_actor_progress_target_capacity(usize::MAX), None);
         assert_eq!(

@@ -2279,6 +2279,15 @@ CORE_NATIVE_CONNECTION_STAGES = (
         'sumeragi::runtime_availability::refund_tests::original_history_scan_cancelled_error_refunds_after_scan_unlock',
         'sumeragi::runtime_availability::refund_tests::original_history_scan_invalid_prefix_refunds_after_scan_unlock',
         'sumeragi::runtime_availability::refund_tests::original_history_scan_refused_retry_refunds_after_scan_unlock',
+        'sumeragi::lanes::registry::tests::proposal_reads::cancelled_proposal_releases_actual_ready_read_and_native_lock_without_another_driver_tick',
+        'sumeragi::lanes::registry::tests::proposal_reads::historical_join_retains_exact_authenticated_body_after_proposal_cancellation',
+        'sumeragi::lanes::registry::tests::proposal_reads::successor_proposal_cannot_consume_live_or_incompatible_original_read',
+        'sumeragi::executor::proposal_read_tests::original_lane_read_request_survives_refusal_busy_state_and_incidental_publication',
+        'sumeragi::lanes::store::refund_tests::busy_original_native_operation_inherits_cancelled_read_cleanup_before_returning',
+        'sumeragi::lanes::registry::tests::proposal_reads::compatible_cancelled_proposal_adoption_preserves_original_body_certificate_and_pool',
+        'sumeragi::lanes::store::refund_tests::cancelled_proposal_read_refund_reenters_only_after_both_native_guards_release',
+        'sumeragi::executor::proposal_read_tests::final_global_worker_drop_cancels_its_actual_ready_lane_read_without_a_runner_tick',
+        'sumeragi::executor::proposal_read_tests::successful_parent_commit_cancels_proposal_read_only_after_original_publication',
         'sumeragi::lanes::store::refund_tests::original_lane_body_refund_waits_for_state_unlock',
         'sumeragi::lanes::store::refund_tests::original_lane_batch_refund_waits_for_both_original_guards',
         'sumeragi::lanes::store::refund_tests::original_lane_entry_refund_waits_for_state_unlock',
@@ -2690,6 +2699,16 @@ TORII_SHARED_BLOCK_HISTORY_STAGES = (("original history capacity through HTTP st
     'push::tests::push_worker_admits_original_retry_control_before_startup_and_refunds_after_shutdown',
 )),)
 TORII_UNIT_STAGES += TORII_SHARED_BLOCK_HISTORY_STAGES
+
+# Actual signed public-home finality and restricted-home rejection share the native fixture.
+# Its explicit ignored JSON capture helper is not an executable qualification selector.
+CORE_RETAIL_FINALITY_STAGES = (("native retail finality and restricted home authority", (
+    'smartcontracts::isi::retail_daily_limit::finality_tests::finalized_activation_evidence_is_anchored_on_native_certified_finality',
+    'smartcontracts::isi::retail_daily_limit::finality_tests::restricted_home_on_global_root_has_certified_rejection_without_activation_evidence',
+    'smartcontracts::isi::retail_daily_limit::finality_tests::activation_evidence_refuses_substituted_coordinates_entries_and_carriers',
+)),)
+CORE_STAGES += CORE_RETAIL_FINALITY_STAGES
+CORE_ADMISSION_STARTUP_STAGES += CORE_RETAIL_FINALITY_STAGES
 
 # Exact native owners supplement the independent application and custody regressions above.
 _NATIVE_CURRENT_STAGES = native_owner_stages(exclude=("native durable archive recovery",))

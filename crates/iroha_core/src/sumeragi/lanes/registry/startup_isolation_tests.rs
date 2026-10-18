@@ -304,12 +304,16 @@ fn original_signed_frame(
         panic!("the original native lane payload must be intrinsically valid");
     };
     let (body, qc) = sign_original_frame(record, chain, &shared, &config, &bytes, result.hash());
-    let store = FileLaneBlockStore::begin_open(root, &instance, shared, budget, authority.schedule)
-        .unwrap()
-        .complete()
-        .unwrap_or_else(|(_, error)| panic!("original frame owner: {error}"));
+    let store =
+        FileLaneBlockStore::begin_open(root, &instance, shared, budget.clone(), authority.schedule)
+            .unwrap()
+            .complete()
+            .unwrap_or_else(|(_, error)| panic!("original frame owner: {error}"));
+    let store = Arc::new(store);
+    let publication = crate::sumeragi::driver::PublicationSession::start(store.clone(), &budget);
     store.append(&body, &qc).unwrap();
     assert_eq!(store.height(), 1);
+    drop(publication);
     drop(store);
     let path = root
         .join(hex::encode(instance.0))

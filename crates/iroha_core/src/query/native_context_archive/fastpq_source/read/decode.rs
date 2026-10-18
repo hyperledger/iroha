@@ -28,6 +28,7 @@ impl FundedRecord {
                 .iter()
                 .all(|tape| tape.belongs_to(pool))
     }
+    #[cfg(test)]
     pub(super) fn allocation_bytes(&self) -> Option<usize> {
         let arrays =
             std::alloc::Layout::array::<FastpqSourceExecutionEntryV1>(self.entries.capacity())

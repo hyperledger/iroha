@@ -53,6 +53,19 @@ impl LaneBlockSource for OriginalFrames {
             .get(usize::try_from(height.checked_sub(1).unwrap()).expect("fixture value fits usize"))
             .cloned())
     }
+    fn proposal_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        _: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.block(lane, incarnation, height)
+    }
+    fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,
         lane: LaneId,

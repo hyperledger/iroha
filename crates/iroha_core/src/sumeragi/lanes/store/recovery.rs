@@ -50,7 +50,9 @@ impl LaneStoreOpen {
         while self.validated < self.target {
             let height = self.validated + 1;
             let mut state = self.store.state.lock();
-            let prepared = self.store.read_prepared(&mut state, height)?;
+            let prepared =
+                self.store
+                    .read_prepared(&mut state, height, &super::ReadInterest::Historical)?;
             let bytes = prepared.prepare(&self.store.budget).map_err(record_error)?;
             self.store.publish_frame(height, bytes)?;
             state.read = None;
