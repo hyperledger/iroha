@@ -458,6 +458,16 @@ pub(super) struct TestCustody {
     pub(super) resource_queries: usize,
 }
 impl TestCustody {
+    /// Replace one existing test completion without changing its selected manifest or marker.
+    pub(super) fn replace_retained(
+        &mut self,
+        retained: Retained<KagemushaWalletCompletionRecordV1>,
+    ) -> Retained<KagemushaWalletCompletionRecordV1> {
+        self.retained
+            .insert(retained.operation_id, retained)
+            .expect("existing retained test operation")
+    }
+
     fn new() -> Self {
         Self {
             checkpoint: None,
@@ -2650,6 +2660,121 @@ fn source_reads_preserve_exact_released_head_without_signing() {
     assert_eq!(wallet.custody.signatures, signatures);
 }
 
+// Re-encode each mutation so a self-consistent completion frame cannot stand in for the
+// source-selected completion digest. Shared by operation-ID and request-ID retry tests.
+fn mutate_retained_completion(
+    retained: &mut Retained<KagemushaWalletCompletionRecordV1>,
+    mutation: usize,
+) {
+    match mutation {
+        0 => retained.record.output[0] ^= 1,
+        1 => retained.record.output[6] ^= 1,
+        2 => retained.record.output[4] = 2,
+        3 => retained.record.output[39] ^= 2,
+        4 => {
+            let mut package: KagemushaWalletPackageV1 =
+                archive::decode(&retained.record.output).unwrap();
+            package.statement.sequence += 1;
+            retained.record.output = archive::encode(&package).unwrap();
+        }
+        5 => {
+            retained.record.capsule_digest[0] ^= 1;
+            retained.capsule_digest = retained.record.capsule_digest;
+        }
+        6 => retained.record.receipt.capsule_commitment[0] ^= 1,
+        7 => retained.record.output.push(0),
+        8 => {
+            let original: KagemushaWalletPackageV1 =
+                archive::decode(&retained.record.output).unwrap();
+            let mut changed = original.clone();
+            changed.step_proof.bytes[0] ^= 1;
+            retained.record.output = archive::encode(&changed).unwrap();
+            let decoded = KagemushaWalletPackageV1::decode_canonical(
+                &retained.record.output,
+                &original.statement.scheme_id,
+            )
+            .unwrap();
+            assert_eq!(decoded.statement, original.statement);
+            assert_eq!(decoded.receipt, original.receipt);
+            assert_ne!(decoded.step_proof, original.step_proof);
+        }
+        _ => panic!("unknown completion mutation"),
+    }
+    retained.frame = retained.record.to_canonical_bytes().unwrap();
+    retained.completion_digest = retained.record.completion_digest().unwrap();
+}
+
+/// Build an alternative valid low-S receipt for the same mock-proof frozen test body.
+/// Selected recovery may sign again if no completion survives, so validity alone cannot
+/// identify which completion was ultimately selected for release.
+pub(super) fn alternate_retained_completion(
+    frozen: &FrozenTransition,
+    original: &Retained<KagemushaWalletCompletionRecordV1>,
+) -> Retained<KagemushaWalletCompletionRecordV1> {
+    use p256::ecdsa::signature::RandomizedSigner as _;
+
+    let owner = TransitionOwner::new(frozen.credential.clone());
+    let body = owner
+        .receipt_body(&frozen.capsule, &frozen.capsule.custody_digest())
+        .unwrap();
+    let message =
+        kagemusha_wallet_signing_message_v1(KagemushaWalletSigningDomainV1::Receipt, &body);
+    let signature: Signature =
+        signer(&frozen.credential).sign_with_rng(&mut rand_core_06::OsRng, &message);
+    let signature = signature.normalize_s().unwrap_or(signature);
+    let signature = KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
+    assert_ne!(signature, original.record.receipt.signature);
+    let mut alternate = original.clone();
+    alternate.record.receipt.signature = signature;
+    let mut package: KagemushaWalletPackageV1 = archive::decode(&original.record.output).unwrap();
+    package.receipt = alternate.record.receipt;
+    alternate.record.output = archive::encode(&package).unwrap();
+    alternate.frame = alternate.record.to_canonical_bytes().unwrap();
+    alternate.completion_digest = alternate.record.completion_digest().unwrap();
+    alternate
+        .record
+        .verify(&frozen.credential, &frozen.capsule)
+        .unwrap();
+    assert_eq!(alternate.operation_id, original.operation_id);
+    assert_eq!(alternate.capsule_digest, original.capsule_digest);
+    assert_eq!(alternate.selected_generation, original.selected_generation);
+    assert_ne!(alternate.record.output, original.record.output);
+    assert_ne!(alternate.completion_digest, original.completion_digest);
+    alternate
+}
+
+#[test]
+fn historical_commit_requires_selected_bytes_even_for_another_valid_receipt() {
+    let mut w = wallet();
+    let boot = bootstrap();
+    let exact = w.commit(boot.clone()).unwrap();
+    w.commit(frozen(
+        Some(&boot),
+        KagemushaWalletEffectV1::Load {
+            load_ordinal: 0,
+            receipt_digest: field(113),
+            amount: 1,
+            online_charge: 0,
+        },
+    ))
+    .unwrap();
+    let operation = boot.capsule.body().operation_id;
+    let original = w.custody.retained.get(&operation).unwrap().clone();
+    let signatures = w.custody.signatures;
+    let selected = w.custody.checkpoint.clone();
+    assert_eq!(w.commit(boot.clone()).unwrap(), exact);
+    let alternate = alternate_retained_completion(&boot, &original);
+    w.custody.replace_retained(alternate);
+    assert!(matches!(
+        w.commit(boot.clone()),
+        Err(Error::WitnessLost("retry selected completion binding"))
+    ));
+    w.custody.replace_retained(original);
+    assert_eq!(w.commit(boot).unwrap(), exact);
+    assert_eq!(w.custody.signatures, signatures);
+    assert_eq!(w.custody.checkpoint, selected);
+}
+
 #[test]
 fn retry_rejects_forged_output_header_sequence_and_private_public_pair() {
     for mutation in 0..8 {
@@ -2658,26 +2783,7 @@ fn retry_rejects_forged_output_header_sequence_and_private_public_pair() {
         w.commit(boot.clone()).unwrap();
         let operation = boot.capsule.body().operation_id;
         let retained = w.custody.retained.get_mut(&operation).unwrap();
-        match mutation {
-            0 => retained.record.output[0] ^= 1,
-            1 => retained.record.output[6] ^= 1,
-            2 => retained.record.output[4] = 2,
-            3 => retained.record.output[39] ^= 2,
-            4 => {
-                let mut package: KagemushaWalletPackageV1 =
-                    archive::decode(&retained.record.output).unwrap();
-                package.statement.sequence += 1;
-                retained.record.output = archive::encode(&package).unwrap();
-            }
-            5 => {
-                retained.record.capsule_digest[0] ^= 1;
-                retained.capsule_digest = retained.record.capsule_digest;
-            }
-            6 => retained.record.receipt.capsule_commitment[0] ^= 1,
-            _ => retained.record.output.push(0),
-        }
-        retained.frame = retained.record.to_canonical_bytes().unwrap();
-        retained.completion_digest = retained.record.completion_digest().unwrap();
+        mutate_retained_completion(retained, mutation);
         let signatures = w.custody.signatures;
         assert!(w.retry(&operation).is_err(), "mutation {mutation}");
         assert_eq!(w.custody.signatures, signatures);

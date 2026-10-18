@@ -11,4 +11,5 @@ class SignedAttachmentVectorsTest {
     @Test fun `attachment bearing vectors decode and re-encode byte for byte`() = SignedAttachmentPayloadAssertions.acceptedPayloadsAndDigests()
     @Test fun `all rejected Rust vectors fail transaction admission`() = SignedAttachmentPayloadAssertions.rejectedPayloads()
     @Test fun `native action registry equals authoritative Rust inventory`() = SignedAttachmentPayloadAssertions.nativeRegistryMatches()
+    @Test fun `canonical non iroha native actions round trip and aliases are refused`() = SignedAttachmentPayloadAssertions.nonIrohaNativeOperationsRoundtrip()
 }

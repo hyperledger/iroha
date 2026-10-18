@@ -2,6 +2,7 @@
 
 mod compact_source;
 mod cursor;
+pub(crate) use cursor::NativeGenesisExecutionV1;
 mod interval;
 mod proof_destination;
 pub use compact_source::{

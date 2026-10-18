@@ -754,22 +754,8 @@ fn clone_index_account(
     if mismatch {
         return Err(EvidencePreparationError::Invariant);
     }
-    source
-        .try_clone_for_admission()
-        .map_err(|error| match error {
-            norito::core::Error::AllocationFailed { bytes } => {
-                EvidencePreparationError::Allocator {
-                    requested_bytes: usize::try_from(bytes).unwrap_or(usize::MAX),
-                }
-            }
-            norito::core::Error::TotalAllocationExceeded { attempted, limit } => {
-                EvidencePreparationError::DecodeScope {
-                    attempted_bytes: attempted,
-                    limit_bytes: limit,
-                }
-            }
-            _ => EvidencePreparationError::Invariant,
-        })
+    norito::core::classify_decode_attempt(|| source.try_clone_for_admission())
+        .map_err(EvidencePreparationError::from_decode_attempt)
 }
 
 /// One-shot retained-state proof for an exact public-lane staking slash.

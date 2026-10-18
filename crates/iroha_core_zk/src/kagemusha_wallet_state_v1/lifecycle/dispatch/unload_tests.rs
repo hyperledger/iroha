@@ -251,6 +251,52 @@ fn permanent_plan_projects_after_capsule_collection_and_restart_without_signing(
 }
 
 #[test]
+fn unload_projection_requires_selected_bytes_even_for_another_valid_receipt() {
+    use crate::kagemusha_wallet_state_v1::tests::{alternate_retained_completion, field};
+
+    let (mut w, request, account, capsule, _) = prepared();
+    let frozen_unload = w.frozen(capsule).unwrap();
+    let exact = w
+        .retained_unload_claim(&request.request_id, &account, None)
+        .unwrap();
+    w.commit(frozen(
+        Some(&frozen_unload),
+        KagemushaWalletEffectV1::Load {
+            load_ordinal: 0,
+            receipt_digest: field(115),
+            amount: 1,
+            online_charge: 0,
+        },
+    ))
+    .unwrap();
+    let operation = frozen_unload.capsule.body().operation_id;
+    let Lookup::Retained(original) = w.custody.lookup(&operation).unwrap() else {
+        panic!("retained Unload");
+    };
+    let signatures = w.custody.signatures;
+    let selected = w.manifest().unwrap().0;
+    assert_eq!(
+        w.retained_unload_claim(&request.request_id, &account, None)
+            .unwrap(),
+        exact
+    );
+    w.custody
+        .replace_retained(alternate_retained_completion(&frozen_unload, &original));
+    assert!(matches!(
+        w.retained_unload_claim(&request.request_id, &account, None),
+        Err(Error::WitnessLost("retry selected completion binding"))
+    ));
+    w.custody.replace_retained(*original);
+    assert_eq!(
+        w.retained_unload_claim(&request.request_id, &account, None)
+            .unwrap(),
+        exact
+    );
+    assert_eq!(w.custody.signatures, signatures);
+    assert_eq!(w.manifest().unwrap().0, selected);
+}
+
+#[test]
 fn unknown_and_lost_selected_originals_never_reconstruct_a_claim() {
     let (mut w, request, account, _, credential) = prepared();
     assert!(w.retained_unload_claim(&[0; 32], &account, None).is_err());

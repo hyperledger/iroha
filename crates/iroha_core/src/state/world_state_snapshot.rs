@@ -9,6 +9,8 @@
 
 #[path = "world_state_snapshot/amx_approval.rs"]
 mod amx_approval;
+#[path = "world_state_snapshot/private_settlement.rs"]
+mod private_settlement;
 #[path = "world_state_snapshot/reserve_account.rs"]
 mod reserve_account;
 #[path = "world_state_snapshot/reserve_policy.rs"]
@@ -37,12 +39,44 @@ use std::alloc::Layout;
 /// A complete World snapshot either retains the original local refusal or rejects its claim.
 #[derive(Debug, thiserror::Error)]
 pub enum WorldStateSnapshotError {
+    /// Original checked projection serializer failure, preserved before any cut recheck.
+    #[error("World snapshot projection encoding: {0}")]
+    Encoding(#[source] norito::core::DecodeAttemptError),
     /// The original State reader could not be acquired or its runtime was invalid.
     #[error("World snapshot State view: {0}")]
     View(#[from] StateViewError),
     /// The original World overlay retains its exact allocation or physical read refusal.
     #[error("World snapshot acquisition: {0}")]
     Acquisition(#[source] mv::storage::AdmittedStorageError),
+    /// The original request pool refused the snapshot's exact retained allocation.
+    #[error("World snapshot request allocation: {0}")]
+    Allocation(#[from] iroha_allocation::AllocationRefusal),
+    /// The original funded buffer retained its precise admission or allocator failure.
+    #[error("World snapshot request buffer: {0}")]
+    Buffer(#[from] iroha_allocation::ChargedBufferError),
+    /// An exactly bounded and admitted snapshot allocation failed at the allocator.
+    #[error("World snapshot backing allocation: {0}")]
+    Allocator(#[source] std::collections::TryReserveError),
+    /// The original prepaid decoder-counter owner refused its control allocation.
+    #[error("World snapshot decoder control: {0}")]
+    DecodeControl(#[from] iroha_allocation::PrepaidSharedError),
+    /// Original immutable-root metadata read refused in the canonical routing reader.
+    /// No missing or malformed root is converted into this local attempt outcome.
+    #[error("World snapshot root metadata read: {0}")]
+    RootScopeRead(#[source] crate::execution_attempt::ExecutionDeferred),
+    /// Exact AMX validation or checked permission-comparison refusal.
+    #[error("World snapshot AMX original: {0}")]
+    Amx(#[from] iroha_data_model::sumeragi_amx::AmxError),
+    /// A stable original State view has advanced or not yet reached the requested height.
+    #[error(
+        "World snapshot cut changed from requested height {requested_height} to observed {observed_height}"
+    )]
+    CutChanged {
+        /// Independently selected certified tip requested by the caller.
+        requested_height: u64,
+        /// Height of the original stable applied State view; not remote proof authority.
+        observed_height: u64,
+    },
     /// The certified cut, its typed originals or its bounded encoding was invalid.
     #[error("{0}")]
     Invalid(String),
@@ -88,7 +122,11 @@ pub(super) struct SnapshotCollector<'a> {
 }
 
 impl<'a> SnapshotCollector<'a> {
-    fn new(budget: &'a AllocationBudget, expected: usize, fields: usize) -> Result<Self, String> {
+    fn new(
+        budget: &'a AllocationBudget,
+        expected: usize,
+        fields: usize,
+    ) -> Result<Self, WorldStateSnapshotError> {
         if expected > MAX_WORLD_STATE_SNAPSHOT_ENTRIES_V1 {
             return Err("World snapshot exceeds its complete-entry bound".into());
         }
@@ -97,17 +135,14 @@ impl<'a> SnapshotCollector<'a> {
                 .checked_add(3)
                 .ok_or("World snapshot allocation ledger overflows")?,
             budget,
-        )
-        .map_err(|error| error.to_string())?;
+        )?;
         let layouts = [
             Layout::array::<WorldStateSnapshotEntryV1>(expected)
                 .map_err(|error| error.to_string())?,
             Layout::array::<bool>(fields).map_err(|error| error.to_string())?,
             Layout::new::<[u16; LANES]>(),
         ];
-        let mut reservation = budget
-            .try_reserve_layouts(layouts.iter().copied())
-            .map_err(|error| error.to_string())?;
+        let mut reservation = budget.try_reserve_layouts(layouts.iter().copied())?;
         for layout in layouts {
             charges.push_reserved(
                 reservation
@@ -118,7 +153,7 @@ impl<'a> SnapshotCollector<'a> {
         let mut entries = Vec::new();
         entries
             .try_reserve_exact(expected)
-            .map_err(|error| format!("World snapshot original storage is unavailable: {error}"))?;
+            .map_err(WorldStateSnapshotError::Allocator)?;
         Ok(Self {
             entries,
             charges,
@@ -133,7 +168,7 @@ impl<'a> SnapshotCollector<'a> {
         kind: WorldStateElementKindV1,
         key_hash: Option<Hash>,
         value_hash: Hash,
-    ) -> Result<(), String> {
+    ) -> Result<(), WorldStateSnapshotError> {
         if self.entries.len() >= self.expected {
             return Err("World snapshot differs from the original stored entry count".into());
         }
@@ -141,14 +176,13 @@ impl<'a> SnapshotCollector<'a> {
         let layout = Layout::array::<u8>(id.len()).map_err(|error| error.to_string())?;
         let charge = self
             .budget
-            .try_reserve(layout)
-            .map_err(|error| error.to_string())?
+            .try_reserve(layout)?
             .try_split(layout)
             .map_err(|error| error.to_string())?;
         let mut field_id = String::new();
-        field_id.try_reserve_exact(id.len()).map_err(|error| {
-            format!("World snapshot original field storage is unavailable: {error}")
-        })?;
+        field_id
+            .try_reserve_exact(id.len())
+            .map_err(WorldStateSnapshotError::Allocator)?;
         field_id.push_str(id);
         self.charges.push_reserved(charge);
         self.entries.push(WorldStateSnapshotEntryV1 {
@@ -160,7 +194,7 @@ impl<'a> SnapshotCollector<'a> {
         Ok(())
     }
 
-    fn finish(mut self, schema_hash: Hash) -> Result<CapturedSnapshot, String> {
+    fn finish(mut self, schema_hash: Hash) -> Result<CapturedSnapshot, WorldStateSnapshotError> {
         if self.entries.len() != self.expected {
             return Err("World snapshot omits original canonical entries".into());
         }
@@ -198,7 +232,7 @@ fn capture(
     world: &WorldBlock<'_>,
     expected: &WorldStateAccumulator,
     budget: &AllocationBudget,
-) -> Result<CapturedSnapshot, String> {
+) -> Result<CapturedSnapshot, WorldStateSnapshotError> {
     let index = field_index().as_ref().map_err(Clone::clone)?;
     let count = usize::try_from(expected.entries()).map_err(|error| error.to_string())?;
     let snapshot = SnapshotCollector::new(budget, count, index.canonical)?;
@@ -230,11 +264,11 @@ fn reconstruct(
     captured: &CapturedSnapshot,
     cut: &CutCapsule,
     budget: &AllocationBudget,
-) -> Result<CapturedSnapshot, String> {
+) -> Result<CapturedSnapshot, WorldStateSnapshotError> {
     let index = field_index().as_ref().map_err(Clone::clone)?;
     let count = usize::try_from(cut.entries).map_err(|e| e.to_string())?;
     let mut collector = SnapshotCollector::new(budget, count, 0)?;
-    let mut seen = ChargedBuffer::new(cut.changes().len(), budget).map_err(|e| e.to_string())?;
+    let mut seen = ChargedBuffer::new(cut.changes().len(), budget)?;
     for _ in 0..cut.changes().len() {
         seen.push_reserved(false);
     }
@@ -351,20 +385,56 @@ fn require_names_read_authority(
     Ok(())
 }
 
-fn require_cut(view: &StateView<'_>, tip: &CommittedBlock) -> Result<(), String> {
+fn stable_native_height(
+    observed_height: u64,
+    latest_hash: Option<iroha_crypto::HashOf<iroha_data_model::block::BlockHeader>>,
+    native: Option<crate::state::NativeExecutionTip>,
+) -> Result<u64, WorldStateSnapshotError> {
+    let native = native.ok_or("World snapshot has no original native execution tip")?;
+    if observed_height == 0
+        || native.height() != observed_height
+        || latest_hash != Some(native.iroha_hash())
+    {
+        return Err("World snapshot stable native publication is inconsistent".into());
+    }
+    Ok(observed_height)
+}
+
+impl StateView<'_> {
+    /// Height of this view's coherent original native publication, including genesis.
+    /// This observes the already acquired view and does not acquire or retry another reader.
+    /// A differing height is only a read-scheduling observation, never proof authority.
+    /// # Errors
+    /// The native publication is absent or disagrees with the same view's height/hash.
+    pub fn native_world_snapshot_height_v1(&self) -> Result<u64, WorldStateSnapshotError> {
+        let height = u64::try_from(self.height()).map_err(|_| "World snapshot height overflow")?;
+        stable_native_height(
+            height,
+            self.latest_block_hash(),
+            self.native_execution_tip(),
+        )
+    }
+}
+
+fn require_cut(view: &StateView<'_>, tip: &CommittedBlock) -> Result<(), WorldStateSnapshotError> {
+    let observed_height = view.native_world_snapshot_height_v1()?;
     let native = view
         .native_execution_tip()
         .ok_or("World snapshot has no original native execution tip")?;
-    if tip.height() < 2
-        || tip.header().is_none()
-        || u64::try_from(view.height()).ok() != Some(tip.height())
-        || view.latest_block_hash() != Some(tip.block_hash())
-        || native.height() != tip.height()
+    if tip.height() < 2 || tip.header().is_none() || tip.commitment().height != tip.height() {
+        return Err("World snapshot requested certified tip is inconsistent".into());
+    }
+    if observed_height != tip.height() {
+        return Err(WorldStateSnapshotError::CutChanged {
+            requested_height: tip.height(),
+            observed_height,
+        });
+    }
+    if view.latest_block_hash() != Some(tip.block_hash())
         || native.iroha_hash() != tip.block_hash()
         || native.core_hash() != tip.core_hash()
         || native.result() != tip.result()
         || native.creation_time_ms() != tip.block_time_ms()
-        || tip.commitment().height != tip.height()
     {
         return Err(
             "World snapshot certified execution differs from the current applied cut".into(),
@@ -424,6 +494,7 @@ impl State {
                 owner,
                 stream_token: stream_token_originals(snapshot, world, provider, budget)?,
             })
+            .map_err(WorldStateSnapshotError::from)
         })
     }
 
@@ -489,7 +560,7 @@ impl State {
                     }
                 }
             }
-            consume(snapshot, owner, current)
+            consume(snapshot, owner, current).map_err(WorldStateSnapshotError::from)
         })
     }
 
@@ -537,7 +608,7 @@ impl State {
                 Some(hash_value(&key)?),
                 hash_value(bytes)?,
             )?;
-            consume(snapshot, bytes)
+            consume(snapshot, bytes).map_err(WorldStateSnapshotError::from)
         })
     }
 
@@ -582,7 +653,7 @@ impl State {
                     hash_value(value)?,
                 )?;
             }
-            consume(snapshot, first, second)
+            consume(snapshot, first, second).map_err(WorldStateSnapshotError::from)
         })
     }
 
@@ -680,6 +751,7 @@ impl State {
                     keys.as_slice(),
                     sns.as_slice(),
                 )
+                .map_err(WorldStateSnapshotError::from)
             },
         )
     }
@@ -689,7 +761,10 @@ impl State {
         tip: &CommittedBlock,
         read_authority: Option<&AccountId>,
         budget: &AllocationBudget,
-        consume: impl FnOnce(&WorldStateSnapshotV1, &WorldBlock<'_>) -> Result<T, String>,
+        consume: impl FnOnce(
+            &WorldStateSnapshotV1,
+            &WorldBlock<'_>,
+        ) -> Result<T, WorldStateSnapshotError>,
     ) -> Result<T, WorldStateSnapshotError> {
         let publication_release = self.view_publication_release();
         let generation = self.state_view_generation();
@@ -699,10 +774,15 @@ impl State {
         if tip.commitment().schedule.current.network_id != *self.network_id_ref() {
             return Err("World snapshot native tip belongs to another network".into());
         }
-        {
+        #[cfg(test)]
+        run_snapshot_before_first_view_hook();
+        let generation = {
             let view = self.try_view_once()?;
             require_cut(&view, tip)?;
-        }
+            // Bind capture to the original coherent view, not the preliminary
+            // contention observation made before a legitimate publication.
+            view.publication_generation
+        };
         let cut = self.native_world_cut.lock().as_ref().cloned()
             .ok_or("World snapshot has no original certified pre-tail capture; restored state requires native replay")?;
         if cut.generation != generation
@@ -713,9 +793,13 @@ impl State {
             || cut.tip.creation_time_ms() != tip.block_time_ms()
             || cut.root != tip.commitment().execution.world_state_root
         {
-            return Err(
-                "World snapshot original journal belongs to another certified generation".into(),
-            );
+            // A real commit may publish between the first view and this capture.
+            // Only the current original native publication can establish that race.
+            // Missing captures and same-height source corruption remain terminal.
+            return Err(capture_mismatch_error(|| {
+                let view = self.try_view_once()?;
+                require_cut(&view, tip)
+            }));
         }
         let result = {
             // Storage controls belong to the State's original execution pool. The
@@ -737,12 +821,176 @@ impl State {
             let certified = reconstruct(&captured, &cut, budget)?;
             consume(&certified.snapshot, &world)
         };
-        let view = self.try_view_once()?;
-        require_cut(&view, tip)?;
-        if !is_stable_state_view_generation(generation, self.state_view_generation()) {
-            return Err("World snapshot publication generation changed".into());
+        finish_snapshot_result(result, || {
+            let view = self.try_view_once()?;
+            require_cut(&view, tip)?;
+            if !is_stable_state_view_generation(generation, view.publication_generation) {
+                return Err("World snapshot publication generation changed".into());
+            }
+            Ok(())
+        })
+    }
+}
+
+// One-shot thread-local scheduling seam for the original read boundary only.
+// Tests publish a genuine certified suffix; no view, result or certificate is forged here.
+#[cfg(test)]
+std::thread_local! {
+    static SNAPSHOT_BEFORE_FIRST_VIEW: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_snapshot_before_first_view_hook() {
+    let hook = SNAPSHOT_BEFORE_FIRST_VIEW.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+fn capture_mismatch_error(
+    recheck: impl FnOnce() -> Result<(), WorldStateSnapshotError>,
+) -> WorldStateSnapshotError {
+    match recheck() {
+        Err(error @ WorldStateSnapshotError::CutChanged { .. }) => error,
+        // A refused reacquisition cannot prove a causal new cut. Preserve the
+        // already observed mismatch rather than masking it with later capacity.
+        _ => "World snapshot original journal belongs to another certified generation".into(),
+    }
+}
+
+fn finish_snapshot_result<T>(
+    result: Result<T, WorldStateSnapshotError>,
+    recheck: impl FnOnce() -> Result<(), WorldStateSnapshotError>,
+) -> Result<T, WorldStateSnapshotError> {
+    // Once a producer rejected the original content, later local publication
+    // progress cannot turn that terminal verdict into retryable acquisition.
+    let result = result?;
+    recheck()?;
+    Ok(result)
+}
+
+#[cfg(test)]
+mod cut_observation_tests {
+    use super::*;
+    use crate::state::World;
+    use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+
+    #[test]
+    fn capture_mismatch_requires_a_completed_causal_cut_recheck() {
+        let rejected = capture_mismatch_error(|| Err(StateViewError::Changed.into()));
+        assert!(matches!(rejected, WorldStateSnapshotError::Invalid(_)));
+        let unchanged = capture_mismatch_error(|| Ok(()));
+        assert!(matches!(unchanged, WorldStateSnapshotError::Invalid(_)));
+        let changed = capture_mismatch_error(|| {
+            Err(WorldStateSnapshotError::CutChanged {
+                requested_height: 2,
+                observed_height: 3,
+            })
+        });
+        assert!(matches!(
+            changed,
+            WorldStateSnapshotError::CutChanged {
+                requested_height: 2,
+                observed_height: 3
+            }
+        ));
+    }
+    #[test]
+    fn snapshot_height_observation_rejects_invalid_publication_and_allows_genesis_lag() {
+        let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        let view = chain.state().view();
+        let native = view.native_execution_tip();
+        assert_eq!(view.native_world_snapshot_height_v1().unwrap(), 1);
+        for result in [
+            stable_native_height(1, view.latest_block_hash(), None),
+            stable_native_height(2, view.latest_block_hash(), native),
+            stable_native_height(1, None, native),
+        ] {
+            assert!(matches!(result, Err(WorldStateSnapshotError::Invalid(_))));
         }
-        result.map_err(Into::into)
+    }
+
+    #[test]
+    fn original_typed_consumer_refusal_wins_without_rechecking_a_later_cut() {
+        let request = AllocationBudget::new(1024);
+        let occupied = request.try_reserve_bytes(1024).unwrap();
+        let original = request.try_reserve_bytes(1).unwrap_err();
+        let result = finish_snapshot_result::<()>(
+            Err(WorldStateSnapshotError::Allocation(original.clone())),
+            || panic!("a rejected producer must not reacquire or replace its cause"),
+        );
+        assert!(
+            matches!(result, Err(WorldStateSnapshotError::Allocation(actual)) if actual == original)
+        );
+        drop(occupied);
+        assert_eq!(request.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn original_projection_codec_failure_wins_before_any_cut_recheck() {
+        let original =
+            norito::core::classify_decode_attempt(|| norito::decode_canonical::<u64>(&[]))
+                .unwrap_err();
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::Invalid
+        );
+        let result =
+            finish_snapshot_result::<()>(Err(WorldStateSnapshotError::Encoding(original)), || {
+                panic!("a failed original encoder must not reacquire the cut")
+            });
+        assert!(
+            matches!(result, Err(WorldStateSnapshotError::Encoding(cause))
+            if cause.kind() == norito::core::DecodeAttemptErrorKind::Invalid)
+        );
+    }
+
+    #[test]
+    fn original_snapshot_rejection_cannot_be_replaced_by_later_cut_change() {
+        let error = finish_snapshot_result::<()>(
+            Err("original permission binding rejected".into()),
+            || {
+                Err(WorldStateSnapshotError::CutChanged {
+                    requested_height: 2,
+                    observed_height: 3,
+                })
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, WorldStateSnapshotError::Invalid(message) if message == "original permission binding rejected")
+        );
+    }
+
+    #[test]
+    fn snapshot_stale_height_is_typed_only_after_original_native_validation() {
+        let config = TestChainConfig::new(World::new(), 1_000);
+        let signer = config.genesis_key.clone();
+        let mut chain = CertifiedTestChain::start(config).unwrap();
+        for (height, time) in [(2, 2_000), (3, 3_000)] {
+            let tx = chain.sign(
+                &signer,
+                [iroha_data_model::isi::Log::new(
+                    iroha_logger::Level::INFO,
+                    format!("explicit snapshot cut test work {height}"),
+                )
+                .into()],
+                time - 1,
+            );
+            assert_eq!(chain.commit_at(time, vec![tx]), vec![true]);
+        }
+        let original = chain.committed(2);
+        let view = chain.state().view();
+        let error: WorldStateSnapshotError = require_cut(&view, &original).unwrap_err().into();
+        assert!(matches!(
+            error,
+            WorldStateSnapshotError::CutChanged {
+                requested_height: 2,
+                observed_height: 3
+            }
+        ));
+        require_cut(&view, &chain.committed(3)).unwrap();
     }
 }
 

@@ -7,7 +7,14 @@
 
 use super::*;
 
+mod one_call;
 mod operation;
+pub use one_call::{
+    FilePrivateSettlementArtifacts, OneCallPrivateSettlementError,
+    OneCallPrivateSettlementOperation, OneCallPrivateSettlementRequest,
+    PrivateSettlementBusinessTerms, PrivateSettlementContextSource,
+    PrivateSettlementRestrictedOpening, PrivateSettlementWallet,
+};
 mod verified;
 pub use operation::{
     PrivateSettlementError, PrivateSettlementOperation, PrivateSettlementRecovery,

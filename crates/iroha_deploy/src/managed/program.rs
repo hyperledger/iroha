@@ -585,6 +585,8 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("program");
         std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+        // Admit a writable private fixture even when the test driver is read-only.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         let selected = NativeProgram::capture(&path).unwrap();
         let pin = selected.pin().unwrap();
         std::fs::OpenOptions::new()
@@ -684,6 +686,8 @@ mod tests {
         use std::{io::Write, os::unix::fs::PermissionsExt};
         let _resources = super::super::native_test_guard();
         let (_temporary, path) = copied_native_program();
+        // Set fixture permissions before capturing the identity and snapshot under test.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         let _hashes = ContentHashProbe::begin();
         let launcher = NativeProgram::capture(&path).unwrap();
         let pin = launcher.pin().unwrap();

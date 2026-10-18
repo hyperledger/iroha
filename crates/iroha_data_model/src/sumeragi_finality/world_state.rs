@@ -4,6 +4,11 @@
 //! `LtHash` lanes is never a membership proof: it can be algebraically manufactured.
 //! Native publication must capture all canonical elements at the same applied cut.
 //! Target values additionally require their real canonical typed preimages.
+//!
+//! Confidentiality: these unsalted key/value hashes expose all row identities/counts and
+//! allow dictionary recovery of low-entropy values. A full snapshot requires all-ledger
+//! read authorization even when only selected typed values accompany it. This format is
+//! not a privacy-preserving scoped membership or absence proof.
 
 use super::{FinalityError, FinalityReadError, VerifiedSumeragiBlock};
 use iroha_crypto::Hash;
@@ -725,6 +730,29 @@ impl VerifiedWorldStateSnapshotV1 {
             }
         }
         Ok(())
+    }
+
+    /// Prove an exact nullifier key absent from the complete canonical private pool table.
+    /// The caller independently selects native schema and certified cut; derived recipient
+    /// indexes and failed membership queries cannot authorize this absence.
+    /// # Errors
+    /// Present or unencodable key, or incompatible native table kind.
+    pub fn verify_private_settlement_nullifier_absent(
+        &self,
+        key: &crate::nexus::PrivateSettlementNullifierKeyV1,
+    ) -> Result<(), FinalityError> {
+        self.verify_native_table_key_absent("world.private_settlement_nullifiers", key)
+    }
+
+    /// Prove an exact output key absent from the same complete canonical private pool table.
+    /// This historical fact does not reserve an output or authorize a subsequent payment.
+    /// # Errors
+    /// Present or unencodable key, or incompatible native table kind.
+    pub fn verify_private_settlement_output_absent(
+        &self,
+        key: &crate::nexus::PrivateSettlementOutputKeyV1,
+    ) -> Result<(), FinalityError> {
+        self.verify_native_table_key_absent("world.private_settlement_outputs", key)
     }
 
     /// Verify exact canonical key and semantic value preimages for a native table row.

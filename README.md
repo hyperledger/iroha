@@ -164,34 +164,25 @@ ANDROID_SDK_ROOT=~/Library/Android/sdk \
 
 ## Run a Local Network
 
-Start the provided Docker Compose network:
+Use the matching native CLI package to start or resume a four-validator network
+without supplying configuration files:
 
 ```bash
-cargo run --bin kagami -- localnet \
-  --seed Iroha --peers 4 --sora-profile nexus --consensus-mode npos \
-  --out-dir target/compose-genesis
-export IROHA_GENESIS_SIGNED_FILE="$PWD/target/compose-genesis/genesis.signed.nrt"
-export IROHA_GENESIS_PUBLIC_KEY_FILE="$PWD/target/compose-genesis/genesis.public_key"
-export IROHA_GENESIS_EXPECTED_HASH_FILE="$PWD/target/compose-genesis/genesis.expected_hash"
-docker compose -f defaults/docker-compose.yml up
+kagami localnet up
+kagami contract deploy hello.ko
+kagami localnet down
 ```
 
-The checked-in `defaults/genesis.template.json` is a non-signable source and is
-not consumed by this path. `kagami localnet` creates a complete disposable
-manifest whose ordered validator BLS keys and proofs of possession define
-generation zero; it retains the matching development-only keys in the
-owner-controlled output directory. It contains no production signing key or
-runtime signer and fails closed when any read-only trust-root input is missing.
-For a normal generated network, use `kagami localnet` followed by `kagami docker`
-without `--seed`; Kagami validates and reuses the authoritative validator
-bundle, then embeds the three artifact paths directly. See the
-[Kagami swarm guide](./crates/iroha_kagami/docs/swarm.md).
+State and credentials are retained in a private workspace-scoped store. `down`
+stops the owned validators and preserves the ledger. Deployment accepts a `.ko`
+source, `.to` bytecode, or Musubi package directory; it starts the default
+localnet automatically when no context is selected.
 
-Use the CLI against the default client config:
-
-```bash
-cargo run --bin iroha -- --config ./defaults/client.toml --help
-```
+See [Kagami](./crates/iroha_kagami/README.md) for native package builds, context
+selection and private dataspace commands. Explicit artifact generation uses
+`kagami localnet generate`; the [swarm guide](./crates/iroha_kagami/docs/swarm.md)
+covers generated bundles and Docker Compose. Current runtime and release gates
+remain tracked in the [developer goals](./specs/kagami_mochi_devex_goals.md).
 
 For daemon-specific native deployment steps, see [`crates/irohad/README.md`](./crates/irohad/README.md).
 

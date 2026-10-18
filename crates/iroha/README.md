@@ -448,3 +448,18 @@ verified original and prepares its exact full reverse payment.
 exposes the same `submit`, `resume` and read-only `recover` boundary. It returns
 `VerifiedPaymentReturn`, retaining both successful receipts. Partial
 returns require a future consensus-owned cumulative allowance.
+
+The confidential `AccountClient::private_settlement_one_call` operation acquires
+one authenticated context batch, checks caller-held restricted openings, invokes
+the existing native wallet/prover/sealer and uses the prepared settlement
+workflow. Callers retain genesis/schema pins, exact private business terms,
+original wallet reservations and the encrypted artifact key. All selected context
+is durable before wallet work; `recover` reopens and independently re-verifies the
+original context/proofs without invoking the wallet or sending transactions.
+`run` explicitly continues the original preparation. Whole-network one-call
+qualification remains open; the advanced `private_settlement` operation accepts
+already prepared materials.
+The current context transport requires `CanReadAllLedgerData` because its complete
+World hashes disclose unrelated row identities and low-entropy values. A bank's
+selected-dataspace grants do not authorize that response; scoped authenticated
+context proofs remain unfinished.

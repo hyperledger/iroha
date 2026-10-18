@@ -155,9 +155,9 @@ fn the_receive_relation_follows_the_request_recorded_blacklist() {
         &disabled,
         &[Violation::ControlsMismatch]
     ));
-    // The consumer selects by the statement's blacklist bit, and a
-    // statement claiming the bit off for a receiver whose control is on is
-    // unprovable (the mask is the opened core cell).
+    // The consumer selects by the Request's recorded blacklist version.
+    // Clearing the statement's bit cannot change that selection, and the
+    // proof still binds the statement's mask to the opened core cell.
     let statement = enabled.statement(RECEIVE_BLACKLIST).expect("statement");
     let accepted_relation =
         check_receive(&enabled.relation_id, &enabled.request_body(), &statement).expect("consumer");

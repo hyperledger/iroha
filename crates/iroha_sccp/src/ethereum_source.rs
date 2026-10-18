@@ -720,6 +720,8 @@ pub enum EthereumMptRoleV1 {
     Account,
     /// Contract storage slot opening.
     Storage,
+    /// Raw transaction envelope opening.
+    Transaction,
     /// Transaction receipt opening.
     Receipt,
 }
@@ -1718,6 +1720,28 @@ mod tests {
         assert_eq!(mpt_root(&entries), Some(root));
         assert_eq!(mpt_proof(&entries, &key), Some(proof));
     }
+    #[test]
+    fn transaction_opening_preserves_opaque_bytes_and_diagnostic_role() {
+        let key = rlp_encode_u64(1);
+        let value = [0x7f, 0x00, 0xff];
+        let (root, proof) = single_leaf_proof(&key, &value);
+        assert_eq!(
+            verify_mpt_inclusion_ref(root, &key, &proof, EthereumMptRoleV1::Transaction),
+            Ok(value.as_slice())
+        );
+        assert_eq!(
+            verify_mpt_inclusion_ref(
+                root,
+                &rlp_encode_u64(2),
+                &proof,
+                EthereumMptRoleV1::Transaction,
+            ),
+            Err(EthereumExecutionError::MptKeyMismatch(
+                EthereumMptRoleV1::Transaction
+            ))
+        );
+    }
+
     #[test]
     fn mpt_rejects_wrong_key_trailing_and_duplicate_nodes() {
         let key = [0x12, 0x34];

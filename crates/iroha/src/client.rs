@@ -14350,6 +14350,7 @@ include!("client/activation_evidence.rs");
 include!("client/sumeragi_finality.rs");
 include!("client/reserve_policy.rs");
 include!("client/amx_approval.rs");
+include!("client/private_settlement_context.rs");
 include!("client/reserve_account.rs");
 include!("client/sns_lease.rs");
 /// Representation of `Iroha` client.

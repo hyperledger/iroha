@@ -9159,6 +9159,14 @@ fn recorded_evidence_fields_to_json(
         }
     }
 }
+fn native_evidence_decode_error(error: iroha_sumeragi::message::CodecError) -> Error {
+    match error {
+        iroha_sumeragi::message::CodecError::Resource(original) => {
+            Error::NativeEvidenceDecode(original)
+        }
+        other => conversion_error(format!("stored native evidence is not canonical: {other}")),
+    }
+}
 fn evidence_fields_to_json(
     evidence: &iroha_data_model::block::consensus::Evidence,
     attribution: &iroha_data_model::block::consensus::EvidenceAttribution,
@@ -9176,14 +9184,9 @@ fn evidence_fields_to_json(
             "native evidence has an SCCP generation scope".into(),
         ));
     }
-    let native = evidence.decode_native().map_err(|error| match error {
-        iroha_sumeragi::message::CodecError::Resource(_) => {
-            Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
-            ))
-        }
-        other => conversion_error(format!("stored native evidence is not canonical: {other}")),
-    })?;
+    let native = evidence
+        .decode_native()
+        .map_err(native_evidence_decode_error)?;
     let class = match native {
         NativeEvidence::ProposalEquivocation(..) => "proposal",
         NativeEvidence::VoteEquivocation(..) => "phase_vote",

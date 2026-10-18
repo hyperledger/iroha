@@ -6,13 +6,11 @@
 //! compact successor frontier needed for deterministic crash recovery and
 //! atomic global application.
 
-use super::{
-    global_state::PrivateSettlementPoolKeyV1,
-    sidecar_store::{
-        PrivateSettlementAuditorSidecarViewV1, PrivateSettlementAuthenticatedAuditorViewV1,
-        PrivateSettlementFileSidecarStoreV1, PrivateSettlementSidecarStoreErrorV1,
-    },
+use super::sidecar_store::{
+    PrivateSettlementAuditorSidecarViewV1, PrivateSettlementAuthenticatedAuditorViewV1,
+    PrivateSettlementFileSidecarStoreV1, PrivateSettlementSidecarStoreErrorV1,
 };
+use crate::private_settlement::global_state::PrivateSettlementPoolKeyExtV1 as _;
 use crate::{
     privacy_engines::{
         atomic_private_settlement::{
@@ -28,6 +26,10 @@ use crate::{
 use iroha_crypto::{Hash, PublicKey};
 #[cfg(test)]
 use iroha_data_model::nexus::PrivateSettlementPoolGovernanceV1;
+use iroha_data_model::nexus::{
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolGovernanceRevisionV1,
+    PrivateSettlementPoolKeyV1, PrivateSettlementPoolStateV1,
+};
 use iroha_data_model::{
     nexus::{
         ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1, AtomicPrivateSettlementV1,
@@ -91,78 +93,46 @@ fn settlement_namespace_v1(
     ))
 }
 
-/// One superseded public governance revision retained for snapshot validation.
-///
-/// The immutable route, pool, and asset-binding commitment live on the owning
-/// [`PrivateSettlementPoolGovernanceProjectionV1`]. Retaining the policy and
-/// lifecycle fields of every superseded revision lets recovery validate old
-/// finalized receipts against the policy that was effective when they committed.
-#[derive(norito::NoritoSchema)]
-#[norito_schema(
-    name = "iroha_core::private_settlement::state::PrivateSettlementPoolGovernanceRevisionV1"
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Decode, Encode, JsonDeserialize, JsonSerialize)]
-pub(crate) struct PrivateSettlementPoolGovernanceRevisionV1 {
-    pub(crate) audit_policy_digest: Hash,
-    pub(crate) audit_key_epoch: u64,
-    pub(crate) lifecycle: PrivateSettlementPoolGovernanceLifecycleV1,
-    pub(crate) governance_digest: Hash,
+/// Native state validation/mutation for the single Model-owned canonical record.
+pub(crate) trait PrivateSettlementPoolGovernanceRevisionExtV1: Sized {
+    fn validate_fields(&self) -> Result<(), PrivateSettlementStateErrorV1>;
 }
 
-impl PrivateSettlementPoolGovernanceRevisionV1 {
+impl PrivateSettlementPoolGovernanceRevisionExtV1 for PrivateSettlementPoolGovernanceRevisionV1 {
     fn validate_fields(&self) -> Result<(), PrivateSettlementStateErrorV1> {
-        if self.audit_policy_digest == zero_hash_v1()
-            || self.audit_key_epoch == 0
-            || self.lifecycle.governance_revision == 0
-            || self.lifecycle.activation_height == 0
-            || self
-                .lifecycle
-                .retirement_height
-                .is_some_and(|retirement| retirement <= self.lifecycle.activation_height)
-            || self.governance_digest == zero_hash_v1()
-        {
-            return Err(PrivateSettlementStateErrorV1::PoolGovernance);
-        }
-        Ok(())
+        self.validate_public_fields()
+            .map_err(|_| PrivateSettlementStateErrorV1::PoolGovernance)
     }
 }
 
-/// Public governance projection retained in globally replicated settlement state.
-///
-/// The restricted asset identifier and asset-binding opening salt are deliberately
-/// absent. They remain in access-controlled governance/auditor material supplied
-/// when the pool is bootstrapped.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    JsonDeserialize,
-    JsonSerialize,
-    norito::NoritoSchema,
-)]
-#[norito_schema(
-    name = "iroha_core::private_settlement::state::PrivateSettlementPoolGovernanceProjectionV1"
-)]
-pub(crate) struct PrivateSettlementPoolGovernanceProjectionV1 {
-    pub(crate) version: u8,
-    pub(crate) route: PrivateSettlementRouteV1,
-    pub(crate) pool_id: PrivacyPoolIdV1,
-    pub(crate) asset_binding_commitment: Hash,
-    pub(crate) audit_policy_digest: Hash,
-    pub(crate) audit_key_epoch: u64,
-    pub(crate) lifecycle: PrivateSettlementPoolGovernanceLifecycleV1,
-    pub(crate) governance_digest: Hash,
-    /// Superseded revisions in exact ascending revision order.
-    pub(crate) prior_revisions: Vec<PrivateSettlementPoolGovernanceRevisionV1>,
+/// Native state validation/mutation for the single Model-owned canonical record.
+pub(crate) trait PrivateSettlementPoolGovernanceExtV1: Sized {
+    #[cfg(test)]
+    fn from_restricted(
+        governance: &PrivateSettlementPoolGovernanceV1,
+    ) -> Result<Self, PrivateSettlementStateErrorV1>;
+    fn validate_current_fields(&self) -> Result<(), PrivateSettlementStateErrorV1>;
+    fn validate(&self) -> Result<(), PrivateSettlementStateErrorV1>;
+    fn current_revision(&self) -> PrivateSettlementPoolGovernanceRevisionV1;
+    fn revision_at(&self, height: u64) -> Option<PrivateSettlementPoolGovernanceRevisionV1>;
+    fn policy_revision_at(
+        &self,
+        policy: &PrivateSettlementAuditPolicyV1,
+        height: u64,
+    ) -> Result<PrivateSettlementPoolGovernanceRevisionV1, PrivateSettlementStateErrorV1>;
+    fn with_replacement(&self, replacement: Self) -> Result<Self, PrivateSettlementStateErrorV1>;
+    fn current_fields_equal(&self, other: &Self) -> bool;
+    fn validate_against_policy_at(
+        &self,
+        policy: &PrivateSettlementAuditPolicyV1,
+        height: u64,
+    ) -> Result<(), PrivateSettlementStateErrorV1>;
 }
 
-impl PrivateSettlementPoolGovernanceProjectionV1 {
+impl PrivateSettlementPoolGovernanceExtV1 for PrivateSettlementPoolGovernanceProjectionV1 {
     /// Derive the public projection only after validating the complete restricted record.
     #[cfg(test)]
-    pub(crate) fn from_restricted(
+    fn from_restricted(
         governance: &PrivateSettlementPoolGovernanceV1,
     ) -> Result<Self, PrivateSettlementStateErrorV1> {
         governance
@@ -184,112 +154,25 @@ impl PrivateSettlementPoolGovernanceProjectionV1 {
     }
 
     /// Validate the complete public projection after snapshot recovery.
-    pub(crate) fn validate_current_fields(&self) -> Result<(), PrivateSettlementStateErrorV1> {
-        if self.version != ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1
-            || self.route.dataspace_id == iroha_model_base::topology::DataSpaceId::UNIVERSAL
-            || self.route.lane_incarnation == zero_hash_v1()
-            || self.pool_id.is_zero()
-            || self.asset_binding_commitment == zero_hash_v1()
-            || self.audit_policy_digest == zero_hash_v1()
-            || self.audit_key_epoch == 0
-            || self.lifecycle.governance_revision == 0
-            || self.lifecycle.activation_height == 0
-            || self
-                .lifecycle
-                .retirement_height
-                .is_some_and(|retirement| retirement <= self.lifecycle.activation_height)
-            || self.governance_digest == zero_hash_v1()
-        {
-            return Err(PrivateSettlementStateErrorV1::PoolGovernance);
-        }
-        Ok(())
+    fn validate_current_fields(&self) -> Result<(), PrivateSettlementStateErrorV1> {
+        self.validate_public_fields()
+            .map_err(|_| PrivateSettlementStateErrorV1::PoolGovernance)
     }
 
     /// Validate the current projection and its complete, gap-free revision lineage.
-    pub(crate) fn validate(&self) -> Result<(), PrivateSettlementStateErrorV1> {
-        self.validate_current_fields()?;
-        let expected_prior_count = usize::try_from(
-            self.lifecycle
-                .governance_revision
-                .checked_sub(1)
-                .ok_or(PrivateSettlementStateErrorV1::PoolGovernance)?,
-        )
-        .map_err(|_| PrivateSettlementStateErrorV1::PoolGovernance)?;
-        if self.prior_revisions.len() != expected_prior_count {
-            return Err(PrivateSettlementStateErrorV1::PoolGovernance);
-        }
-
-        let mut previous: Option<PrivateSettlementPoolGovernanceRevisionV1> = None;
-        for (index, revision) in self.prior_revisions.iter().copied().enumerate() {
-            revision.validate_fields()?;
-            let expected_revision = u64::try_from(index)
-                .ok()
-                .and_then(|value| value.checked_add(1))
-                .ok_or(PrivateSettlementStateErrorV1::PoolGovernance)?;
-            if revision.lifecycle.governance_revision != expected_revision
-                || previous.is_some_and(|prior| {
-                    prior.audit_policy_digest == revision.audit_policy_digest
-                        || prior.audit_key_epoch >= revision.audit_key_epoch
-                        || prior.governance_digest == revision.governance_digest
-                        || prior.lifecycle.activation_height >= revision.lifecycle.activation_height
-                        || !prior
-                            .lifecycle
-                            .is_active_at(revision.lifecycle.activation_height.saturating_sub(1))
-                })
-            {
-                return Err(PrivateSettlementStateErrorV1::PoolGovernance);
-            }
-            previous = Some(revision);
-        }
-
-        if let Some(previous) = previous {
-            if previous.audit_policy_digest == self.audit_policy_digest
-                || previous.audit_key_epoch >= self.audit_key_epoch
-                || previous.governance_digest == self.governance_digest
-                || previous.lifecycle.activation_height >= self.lifecycle.activation_height
-                || !previous
-                    .lifecycle
-                    .is_active_at(self.lifecycle.activation_height.saturating_sub(1))
-            {
-                return Err(PrivateSettlementStateErrorV1::PoolGovernance);
-            }
-        } else if self.lifecycle.governance_revision != 1 {
-            return Err(PrivateSettlementStateErrorV1::PoolGovernance);
-        }
-        Ok(())
+    fn validate(&self) -> Result<(), PrivateSettlementStateErrorV1> {
+        self.validate_public_lineage()
+            .map_err(|_| PrivateSettlementStateErrorV1::PoolGovernance)
     }
 
     /// Return the compact current revision without duplicating immutable pool fields.
-    pub(crate) fn current_revision(&self) -> PrivateSettlementPoolGovernanceRevisionV1 {
-        PrivateSettlementPoolGovernanceRevisionV1 {
-            audit_policy_digest: self.audit_policy_digest,
-            audit_key_epoch: self.audit_key_epoch,
-            lifecycle: self.lifecycle,
-            governance_digest: self.governance_digest,
-        }
+    fn current_revision(&self) -> PrivateSettlementPoolGovernanceRevisionV1 {
+        self.current_public_revision()
     }
 
     /// Return the exact effective revision at a height, respecting later activations.
-    pub(crate) fn revision_at(
-        &self,
-        height: u64,
-    ) -> Option<PrivateSettlementPoolGovernanceRevisionV1> {
-        if self.validate().is_err() {
-            return None;
-        }
-        for (index, revision) in self.prior_revisions.iter().copied().enumerate() {
-            let next_activation = self
-                .prior_revisions
-                .get(index + 1)
-                .map_or(self.lifecycle.activation_height, |next| {
-                    next.lifecycle.activation_height
-                });
-            if revision.lifecycle.is_active_at(height) && height < next_activation {
-                return Some(revision);
-            }
-        }
-        let current = self.current_revision();
-        current.lifecycle.is_active_at(height).then_some(current)
+    fn revision_at(&self, height: u64) -> Option<PrivateSettlementPoolGovernanceRevisionV1> {
+        self.effective_revision_at(height)
     }
 
     /// Bind one complete restricted policy to the exact governance revision
@@ -327,7 +210,7 @@ impl PrivateSettlementPoolGovernanceProjectionV1 {
     }
 
     /// Materialize a replacement while preserving the complete prior lineage.
-    pub(crate) fn with_replacement(
+    fn with_replacement(
         &self,
         mut replacement: Self,
     ) -> Result<Self, PrivateSettlementStateErrorV1> {
@@ -345,7 +228,7 @@ impl PrivateSettlementPoolGovernanceProjectionV1 {
     }
 
     /// Compare only the externally supplied current revision fields.
-    pub(crate) fn current_fields_equal(&self, other: &Self) -> bool {
+    fn current_fields_equal(&self, other: &Self) -> bool {
         self.version == other.version
             && self.route == other.route
             && self.pool_id == other.pool_id
@@ -362,7 +245,7 @@ impl PrivateSettlementPoolGovernanceProjectionV1 {
     /// must never receive the literal asset mapping or its opening salt. This
     /// check therefore enforces every policy/lifecycle binding using only the
     /// globally replicated projection.
-    pub(crate) fn validate_against_policy_at(
+    fn validate_against_policy_at(
         &self,
         policy: &PrivateSettlementAuditPolicyV1,
         height: u64,
@@ -502,34 +385,42 @@ pub fn fetch_private_settlement_auditor_view_v1(
     )
 }
 
-/// Persisted compact frontier for one explicitly governed settlement pool.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Decode,
-    Encode,
-    JsonDeserialize,
-    JsonSerialize,
-    norito::NoritoSchema,
-)]
-#[norito_schema(name = "iroha_core::private_settlement::state::PrivateSettlementPoolStateV1")]
-pub(crate) struct PrivateSettlementPoolStateV1 {
-    version: u8,
-    route: PrivateSettlementRouteV1,
-    pool_id: PrivacyPoolIdV1,
-    restricted_pool_policy_digest: Hash,
-    epoch: u64,
-    root: PrivacyRootV1,
-    tree_size: u64,
-    leaf: Option<[u8; 32]>,
-    ommers: Vec<[u8; 32]>,
+/// Native state validation/mutation for the single Model-owned canonical record.
+pub(crate) trait PrivateSettlementPoolStateExtV1: Sized {
+    fn bootstrap(
+        route: PrivateSettlementRouteV1,
+        pool_id: PrivacyPoolIdV1,
+        restricted_pool_policy_digest: Hash,
+        initial_commitments: &[PrivacyCommitmentV1],
+    ) -> Result<Self, PrivateSettlementStateErrorV1>;
+    fn validate(&self) -> Result<(), PrivateSettlementStateErrorV1>;
+    fn rotate_governance_digest(
+        &self,
+        expected_current_digest: Hash,
+        replacement_digest: Hash,
+    ) -> Result<Self, PrivateSettlementStateErrorV1>;
+    fn successor(
+        &self,
+        output_commitments: &[PrivacyCommitmentV1],
+    ) -> Result<PrivateSettlementSuccessorFrontierV1, PrivateSettlementStateErrorV1>;
+    fn apply_certified_delta(
+        &self,
+        delta: &PrivateSettlementDeltaV1,
+        governance: &PrivateSettlementPoolGovernanceProjectionV1,
+        authority_context_height: u64,
+        expiry_height: u64,
+        finalized_height: u64,
+    ) -> Result<Self, PrivateSettlementStateErrorV1>;
+    #[cfg(test)]
+    fn apply_verified(
+        &self,
+        verified: &ValidatedPrivateSettlementLegV1,
+    ) -> Result<Self, PrivateSettlementStateErrorV1>;
 }
 
-impl PrivateSettlementPoolStateV1 {
+impl PrivateSettlementPoolStateExtV1 for PrivateSettlementPoolStateV1 {
     /// Bootstrap one pool from the exact governed origin commitments.
-    pub(crate) fn bootstrap(
+    fn bootstrap(
         route: PrivateSettlementRouteV1,
         pool_id: PrivacyPoolIdV1,
         restricted_pool_policy_digest: Hash,
@@ -560,7 +451,7 @@ impl PrivateSettlementPoolStateV1 {
     }
 
     /// Validate the complete persisted frontier after load or restart.
-    pub(crate) fn validate(&self) -> Result<(), PrivateSettlementStateErrorV1> {
+    fn validate(&self) -> Result<(), PrivateSettlementStateErrorV1> {
         if self.version != ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1
             || self.pool_id.is_zero()
             || self.route.lane_incarnation == zero_hash_v1()
@@ -581,26 +472,8 @@ impl PrivateSettlementPoolStateV1 {
         .map_err(|_| PrivateSettlementStateErrorV1::PoolInvariant)
     }
 
-    /// Opaque pool identifier.
-    #[must_use]
-    pub(crate) const fn pool_id(&self) -> PrivacyPoolIdV1 {
-        self.pool_id
-    }
-
-    /// Canonical participant route.
-    #[must_use]
-    pub(crate) const fn route(&self) -> PrivateSettlementRouteV1 {
-        self.route
-    }
-
-    /// Digest of the restricted one-pool-to-one-asset governance record.
-    #[must_use]
-    pub(crate) const fn restricted_pool_policy_digest(&self) -> Hash {
-        self.restricted_pool_policy_digest
-    }
-
     /// Rebind this unchanged frontier to an exact replacement governance record.
-    pub(crate) fn rotate_governance_digest(
+    fn rotate_governance_digest(
         &self,
         expected_current_digest: Hash,
         replacement_digest: Hash,
@@ -618,19 +491,7 @@ impl PrivateSettlementPoolStateV1 {
         Ok(rotated)
     }
 
-    /// Current root epoch.
-    #[must_use]
-    pub(crate) const fn epoch(&self) -> u64 {
-        self.epoch
-    }
-
-    /// Current authoritative root.
-    #[must_use]
-    pub(crate) const fn root(&self) -> PrivacyRootV1 {
-        self.root
-    }
-
-    pub(super) fn successor(
+    fn successor(
         &self,
         output_commitments: &[PrivacyCommitmentV1],
     ) -> Result<PrivateSettlementSuccessorFrontierV1, PrivateSettlementStateErrorV1> {
@@ -666,7 +527,7 @@ impl PrivateSettlementPoolStateV1 {
     /// method therefore rechecks every public state binding and independently
     /// derives the successor frontier instead of trusting the certificate's
     /// caller-supplied `new_root`.
-    pub(super) fn apply_certified_delta(
+    fn apply_certified_delta(
         &self,
         delta: &PrivateSettlementDeltaV1,
         governance: &PrivateSettlementPoolGovernanceProjectionV1,
@@ -757,7 +618,7 @@ impl PrivateSettlementPoolStateV1 {
 
     /// Apply one previously verified token to this exact parent head.
     #[cfg(test)]
-    pub(crate) fn apply_verified(
+    fn apply_verified(
         &self,
         verified: &ValidatedPrivateSettlementLegV1,
     ) -> Result<Self, PrivateSettlementStateErrorV1> {
@@ -878,7 +739,7 @@ impl PrivateSettlementDurableAvailabilityV1 {
     name = "iroha_core::private_settlement::state::PrivateSettlementSuccessorFrontierV1"
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Decode, Encode)]
-pub(super) struct PrivateSettlementSuccessorFrontierV1 {
+pub(crate) struct PrivateSettlementSuccessorFrontierV1 {
     pub(super) epoch: u64,
     pub(super) root: PrivacyRootV1,
     pub(super) tree_size: u64,
@@ -1319,7 +1180,7 @@ mod tests {
                 .expect("governance projection");
         assert_private_settlement_frame_v1(
             &projection,
-            "iroha_core::private_settlement::state::PrivateSettlementPoolGovernanceProjectionV1",
+            "iroha_data_model::nexus::PrivateSettlementPoolGovernanceProjectionV1",
         );
         let pool = PrivateSettlementPoolStateV1::bootstrap(
             projection.route,
@@ -1330,7 +1191,7 @@ mod tests {
         .expect("governed pool");
         assert_private_settlement_frame_v1(
             &pool,
-            "iroha_core::private_settlement::state::PrivateSettlementPoolStateV1",
+            "iroha_data_model::nexus::PrivateSettlementPoolStateV1",
         );
     }
 

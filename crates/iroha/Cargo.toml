@@ -71,6 +71,7 @@ iroha_service_model = { workspace = true }
 bytes = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
 iroha_config_base = { workspace = true }
+iroha_core_privacy = { workspace = true }
 iroha_crypto = { workspace = true, default-features = false, features = ["node-crypto"] }
 iroha_primitives = { workspace = true }
 tracing = { workspace = true }

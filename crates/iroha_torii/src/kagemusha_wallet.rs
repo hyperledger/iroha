@@ -212,7 +212,6 @@ async fn read(
                     &receipt,
                     maximum.min(512),
                     &budget,
-                    unavailable,
                 )?
             };
             let body = IssuanceBody {

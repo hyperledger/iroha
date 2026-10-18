@@ -1352,11 +1352,19 @@ fn sccp_evidence_publication_preserves_all_original_preparation_categories() {
         E::Allocator {
             requested_bytes: 17,
         },
-        E::DecodeScope {
-            attempted_bytes: 23,
-            limit_bytes: 19,
-        },
-        E::DecodeResource(norito::core::DecodeResourceError::AllocationFailed { bytes: 29 }),
+        E::DecodeResource(
+            norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+                || {
+                    norito::core::classify_decode_attempt(|| {
+                        norito::core::reserve_decode_allocation(29)
+                    })
+                },
+            )
+            .unwrap_err()
+            .into_local_refusal()
+            .unwrap(),
+        ),
     ] {
         let storage = S::SccpEvidence(original.clone());
         let result =
@@ -1393,4 +1401,57 @@ fn sccp_evidence_publication_preserves_all_original_preparation_categories() {
         Ok(PublicationError::Retryable(_))
     ));
     drop(occupied);
+}
+
+#[test]
+fn original_evidence_decode_owner_survives_worker_deferral_until_its_last_reader() {
+    use norito::core::{PreparedDecodeWorkspace, classify_decode_attempt};
+    let pool = AllocationBudget::new(4096);
+    let mut workspace = PreparedDecodeWorkspace::from_reservation(
+        &pool,
+        &mut pool
+            .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
+            .unwrap(),
+    )
+    .unwrap();
+    let narrow = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    // The workspace is already active caller policy when this actual operation
+    // enters its observer. Its refusing control is physically charged to pool.
+    let original = workspace
+        .with_limits(narrow, narrow, || {
+            classify_decode_attempt(|| norito::core::reserve_decode_allocation(29))
+        })
+        .unwrap()
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+    let expected = original.clone();
+    let error = validation_failure(BlockValidationError::EvidencePreparation(
+        crate::state::EvidencePreparationError::DecodeResource(original),
+    ))
+    .unwrap();
+    let PublicationError::Deferred(PublicationDeferral::EvidencePreparation(
+        crate::state::EvidencePreparationError::DecodeResource(retained),
+    )) = error
+    else {
+        panic!("same original decoder refusal reaches publication")
+    };
+    assert_eq!(retained, expected);
+    assert!(
+        crate::execution_attempt::ExecutionDeferred::from(retained.clone())
+            .decode_refusal()
+            .is_some()
+    );
+    drop(workspace);
+    assert_eq!(
+        pool.reserved_bytes(),
+        PreparedDecodeWorkspace::allocation_layouts()[0].size()
+    );
+    drop(expected);
+    assert_eq!(
+        pool.reserved_bytes(),
+        PreparedDecodeWorkspace::allocation_layouts()[0].size()
+    );
+    drop(retained);
+    assert_eq!(pool.reserved_bytes(), 0);
 }

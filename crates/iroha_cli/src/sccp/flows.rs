@@ -544,6 +544,8 @@ fn run_evm_step(
     let signed = iroha_sccp_wallet::pure::evm::SignedEip1559V1::decode(&step.record().submission)
         .map_err(|error| eyre!("original EVM envelope: {error:?}"))?;
     let hash = destination.retained_hash(&step.record().submission, &signed.transaction.data)?;
+    let (receipt_deadline, _receipt_budget) =
+        destination.receipt_budget(context.sccp_config()?.confirmation_timeout)?;
     let outcome = drive_and_wait(
         context,
         step,
@@ -576,7 +578,7 @@ fn run_evm_step(
                 proof_items.extend(destination.confirm_finalized(&receipt, &bundle)?);
             }
             let locator = norito::json!({"transaction_hash": (hex::encode(hash)), "block_hash": (hex::encode(receipt.block_hash)), "block_number": (receipt.block_number), "transaction_index": (receipt.transaction_index)});
-            Ok(Some(SccpJournalOutcomeV1 {
+            bounded_evm_outcome(SccpJournalOutcomeV1 {
                 outcome: kind,
                 transaction: hash.to_vec(),
                 evidence: {
@@ -589,7 +591,11 @@ fn run_evm_step(
                     ]);
                     proof_items
                 },
-            }))
+            })
+            .and_then(|outcome| {
+                destination.require_receipt_deadline(receipt_deadline)?;
+                Ok(Some(outcome))
+            })
         },
         |raw| {
             ensure!(
@@ -600,6 +606,16 @@ fn run_evm_step(
         },
     )?;
     print_outcome(context, &outcome, &hash)?;
+    Ok(outcome)
+}
+
+/// Refuse a terminal result before its evidence can exceed the durable journal's record cap.
+fn bounded_evm_outcome(outcome: SccpJournalOutcomeV1) -> Result<SccpJournalOutcomeV1> {
+    ensure!(
+        norito::json::to_vec(&outcome)?.len() as u64
+            <= iroha_sccp_wallet::journal::MAX_RECORD_BYTES,
+        "authenticated EVM outcome exceeds the journal record limit"
+    );
     Ok(outcome)
 }
 
@@ -735,6 +751,21 @@ pub(super) fn retired_ton_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evm_terminal_evidence_must_fit_before_journal_completion() {
+        let mut outcome = SccpJournalOutcomeV1 {
+            outcome: SccpStepOutcomeKindV1::Failed,
+            transaction: vec![7; 32],
+            evidence: vec![SccpEvidenceItemV1 {
+                label: "evm.original_receipt.proof".to_owned(),
+                bytes: vec![1, 2, 3],
+            }],
+        };
+        assert_eq!(bounded_evm_outcome(outcome.clone()).unwrap(), outcome);
+        outcome.evidence[0].bytes = vec![0; iroha_sccp_wallet::journal::MAX_RECORD_BYTES as usize];
+        assert!(bounded_evm_outcome(outcome).is_err());
+    }
 
     #[test]
     fn ton_preparation_retains_burn_preflight_before_any_dispatch_and_recovery() {

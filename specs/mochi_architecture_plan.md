@@ -16,6 +16,15 @@ SDK block/event readers use the generated account. The operator key is separate
 and must match all four generated Torii configs. A reset invalidates captured
 observers/previews; no automatic switch to a replacement authority occurs.
 
+Desktop lifecycle, deployment and publication actions carry that captured generation.
+Start/Stop/Reset compare it under the shared native operation lock before effects;
+automatic observations and action completion never reload an ambient selection.
+Action results retain their exact target even when the operation fails. An empty
+selection may create a fresh default `local`; it refuses an already selected or
+retained target instead of adopting it. As an explicit fresh-start action, successful
+default creation selects its own generation even if another frontend selected a
+different name during startup.
+
 Desktop deployment uses Musubi's presentation-free runtime, then the canonical
 `iroha_contract_deploy` service. A review channel exposes the exact fees and
 signed transaction hashes before dispatch. Closing the review cancels; successful

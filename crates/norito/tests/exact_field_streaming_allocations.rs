@@ -393,3 +393,8 @@ mod prepared_option;
 
 #[path = "exact_field_streaming_allocations/prepared_string.rs"]
 mod prepared_string;
+
+#[path = "exact_field_streaming_allocations/enum_rollback.rs"]
+mod enum_rollback;
+#[path = "exact_field_streaming_allocations/materialized_destination.rs"]
+mod materialized_destination;

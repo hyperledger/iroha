@@ -173,13 +173,8 @@ fn response_frame<T: norito::core::NoritoSerialize>(
     }
     // Count, acquire exact original-pool capacity, and serialize directly into that owner.
     // There is no geometrically grown temporary Vec or post-encoding custody transfer.
-    let output = crate::native_projection_response::encode_canonical(
-        value,
-        maximum,
-        budget,
-        crate::native_projection_response::capacity,
-    )
-    .map_err(|_| "certificate response encoding or allocation unavailable")?;
+    let output = crate::native_projection_response::encode_canonical(value, maximum, budget)
+        .map_err(|_| "certificate response encoding or allocation unavailable")?;
     if Instant::now() >= deadline {
         return Err("native certificate response deadline expired".into());
     }

@@ -1,3 +1,10 @@
+#[cfg(test)]
+use crate::private_settlement::state::PrivateSettlementPoolGovernanceExtV1 as _;
+use iroha_data_model::nexus::{
+    PrivateSettlementNullifierKeyV1, PrivateSettlementOutputKeyV1,
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolKeyV1,
+    PrivateSettlementPoolStateV1,
+};
 #[path = "deserialize_world_musubi_rejection.rs"]
 pub(in crate::state) mod musubi_rejection;
 use musubi_rejection::{ProjectionCut, ProjectionRejection, ProjectionTable};

@@ -6335,3 +6335,201 @@ def test_open_ram_lfe_inputs_record_what_the_candidates_project() -> None:
     notes: list = []
     assert CHECKER["check"](ROOT, stale, TASKS, True, notes) == []
     assert stale["ram_lfe"] == CONTRACT["ram_lfe"]
+
+
+@pytest.mark.parametrize(
+    ("identifier", "budget", "reserve"),
+    [
+        ("private_settlement_carrier_within_transaction_cap", "transaction.max_tx_bytes", 0),
+        (
+            "private_settlement_carrier_within_includable_transaction",
+            "block.max_block_bytes",
+            65_536,
+        ),
+    ],
+)
+def test_private_carrier_relations_count_the_signed_frame_at_exact_and_one_over(
+    identifier: str, budget: str, reserve: int
+) -> None:
+    """A wire that fits by itself can still exceed the actual canonical frame budget."""
+    values = {item["id"]: item["value"] for item in CONTRACT["bounds"]}
+    # Independent fixed-V1 geometry: one version byte is replaced by Header::SIZE;
+    # the signed model pins zero padding with a compile-time native type invariant.
+    assert values["transaction.norito_header_bytes"] == 40
+    overhead = values["transaction.norito_header_bytes"] - 1
+    exact_wire = values[budget] - reserve - overhead
+    expression = relation(CONTRACT, identifier)["expr"]
+    for extra, expected in [(0, True), (1, False)]:
+        probe = {**values, "transaction.config_private_settlement_max_carrier_bytes": exact_wire + extra}
+        observed = CHECKER["evaluate_relation"](expression, probe, identifier)
+        assert observed is expected, (
+            f"{identifier}: {exact_wire + extra} V1 wire bytes become "
+            f"{exact_wire + extra + overhead} canonical signed-frame bytes; "
+            f"with {reserve} reserved bytes and {values[budget]} budget, "
+            f"the contract incorrectly returns {observed}"
+        )
+
+
+@pytest.mark.parametrize(
+    "path,symbol,expression,reason_fragment",
+    (
+        (
+            "crates/iroha_data_model/src/nexus/private_settlement/context/selected.rs",
+            "PRIVATE_SETTLEMENT_CONTEXT_REQUEST_MAX_BYTES_V1",
+            "64 * 1024",
+            "pool selectors",
+        ),
+        (
+            "crates/iroha_core/src/kura.rs",
+            "DIGEST_CHUNK_BYTES",
+            "64 * 1024",
+            "digest framing",
+        ),
+        (
+            "crates/iroha_core/src/smartcontracts/isi/sccp/read/history/funded.rs",
+            "CHUNK_LEN",
+            "1 << MIN_LEVEL",
+            "32 leaves",
+        ),
+    ),
+)
+def test_payment_projection_census_limits_remain_pinned(
+    path: str, symbol: str, expression: str, reason_fragment: str
+) -> None:
+    """Auxiliary readers and physical chunks stay scanned at their original owners."""
+    matches = [
+        (holder, group["reason"])
+        for group in CONTRACT["completeness"]["excluded"]
+        for holder in (group["files"] if "files" in group else [group])
+        if holder["path"] == path and symbol in holder["symbols"]
+    ]
+    assert len(matches) == 1, (path, symbol, matches)
+    holder, reason = matches[0]
+    assert holder["exprs"][symbol] == expression
+    assert reason_fragment in reason
+    scope = next(
+        scope
+        for scope in CHECKER["expand_scopes"](ROOT, CONTRACT["completeness"], [])
+        if scope["path"] == path
+    )
+    source = CHECKER["_read"](ROOT, path, "test")
+    assert CHECKER["scope_expression"](source, scope, symbol, "test") == expression
+    changed = CHECKER["mutate_limit"](source, scope, symbol, "test")
+    assert changed is not None
+    found = _with_override(path, changed)
+    assert found == [
+        f"completeness {path}: the excluded limit `{symbol}` is now `1`; the contract records "
+        f"`{expression}`. Review the reason of its exclusion, then run --refresh"
+    ], found
+
+
+@pytest.mark.parametrize(
+    "path,site,changed_site,reason_fragment",
+    (
+        (
+            "crates/iroha_data_model/src/nexus/private_settlement/context/proof.rs",
+            "block.height() < 2",
+            "block.height() < 3",
+            "first block that follows genesis",
+        ),
+        (
+            "crates/iroha_torii/src/private_settlement_context.rs",
+            "*h >= 2",
+            "*h >= 3",
+            "first block that follows genesis",
+        ),
+        (
+            "crates/iroha_torii/src/private_settlement_context.rs",
+            "(unit * 2).min(NATIVE_FINALITY_MAX_JOURNAL_BYTES)",
+            "(unit * 3).min(NATIVE_FINALITY_MAX_JOURNAL_BYTES)",
+            "original request working-set budget",
+        ),
+    ),
+)
+def test_payment_projection_census_literals_remain_pinned(
+    path: str, site: str, changed_site: str, reason_fragment: str
+) -> None:
+    """Height semantics and a funded reader partition cannot silently change."""
+    matches = [
+        (holder, group["reason"])
+        for group in CONTRACT["completeness"]["literals"]["groups"]
+        for holder in group["files"]
+        if holder["path"] == path and site in holder["sites"]
+    ]
+    assert len(matches) == 1, (path, site, matches)
+    holder, reason = matches[0]
+    assert holder["sites"][site] == 1
+    assert reason_fragment in reason
+    source = CHECKER["_read"](ROOT, path, "test")
+    assert source.count(site) == 1
+    found = _with_override(path, source.replace(site, changed_site))
+    assert len(found) == 2, found
+    assert any(f"`{changed_site}`" in item and "neither a site" in item for item in found), found
+    assert any(f"`{site}` matches no literal comparison" in item for item in found), found
+
+
+@pytest.mark.parametrize(
+    "symbol,expression,reason_fragment",
+    (
+        ("PRODUCER_MAX_NATIVE_STEPS", "nonzero!(16_u16)", "retained prefix"),
+        ("PRODUCER_MAX_SOURCE_ENTRIES", "nonzero!(65_536_u32)", "terminal unresolved"),
+        ("PRODUCER_MAX_SOURCE_STATEMENTS", "nonzero!(16_384_u32)", "terminal unresolved"),
+    ),
+)
+def test_fastpq_producer_census_defaults_remain_pinned(
+    symbol: str, expression: str, reason_fragment: str
+) -> None:
+    """Original local policy owners cannot silently change or become validity limits."""
+    path = "crates/iroha_config/src/parameters/defaults.rs"
+    module = ["pub mod zk {", "pub mod fastpq {"]
+    matches = [
+        (holder, group["reason"])
+        for group in CONTRACT["completeness"]["excluded"]
+        for holder in (group["files"] if "files" in group else [group])
+        if holder["path"] == path
+        and holder.get("module") == module
+        and symbol in holder["symbols"]
+    ]
+    assert len(matches) == 1, (symbol, matches)
+    holder, reason = matches[0]
+    assert holder["exprs"][symbol] == expression
+    assert reason_fragment in reason
+    scope = next(
+        scope
+        for scope in CHECKER["expand_scopes"](ROOT, CONTRACT["completeness"], [])
+        if scope["path"] == path and scope.get("module") == module
+    )
+    source = CHECKER["_read"](ROOT, path, "test")
+    assert CHECKER["scope_expression"](source, scope, symbol, "test") == expression
+    changed = CHECKER["mutate_limit"](source, scope, symbol, "test")
+    assert changed is not None
+    found = _with_override(path, changed)
+    assert len(found) == 1, found
+    assert f"the excluded limit `{symbol}` is now" in found[0], found
+    assert f"the contract records `{expression}`" in found[0], found
+
+
+def test_fastpq_producer_census_preserves_original_genesis_successor() -> None:
+    """Both H1 gates need the authenticated H2 successor, not a configurable window."""
+    path = "crates/iroha_core/src/fastpq/lane/producer.rs"
+    site = "self.height.max(2)"
+    matches = [
+        (holder, group["reason"])
+        for group in CONTRACT["completeness"]["literals"]["groups"]
+        for holder in group["files"]
+        if holder["path"] == path and site in holder["sites"]
+    ]
+    assert len(matches) == 1, matches
+    holder, reason = matches[0]
+    assert holder["sites"][site] == 2
+    assert "original genesis" in reason and "authenticated H2" in reason
+    source = CHECKER["_read"](ROOT, path, "test")
+    assert source.count(site) == 2
+    # Mutate each physical gate independently, preserving the other original gate.
+    positions = [match.start() for match in re.finditer(re.escape(site), source)]
+    for start in positions:
+        changed = source[:start] + "self.height.max(3)" + source[start + len(site):]
+        found = _with_override(path, changed)
+        assert len(found) == 2, found
+        assert any("`self.height.max(3)`" in item and "neither a site" in item for item in found), found
+        assert any(f"`{site}` occurs 1 time(s)" in item and "records 2" in item for item in found), found

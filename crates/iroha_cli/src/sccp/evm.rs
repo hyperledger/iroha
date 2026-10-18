@@ -187,16 +187,6 @@ impl EvmDestination {
         ))
     }
 
-    /// Read all current identity fields after the registered runtime hash matches.
-    pub(super) fn verify_identity(&self, network: [u8; 32], instance: [u8; 32]) -> Result<()> {
-        let observed = self.observe([])?;
-        ensure!(
-            observed.network == network && observed.instance == instance,
-            "Taira and destination identities differ"
-        );
-        Ok(())
-    }
-
     /// Read complete applied control fields at one code-bound destination block.
     pub(super) fn control_observation(
         &self,
@@ -242,6 +232,7 @@ impl EvmDestination {
             client: &self.client,
             network: self.network,
             contract: self.contract,
+            code_hash: self.code_hash,
         }
     }
 }
@@ -251,38 +242,10 @@ pub(super) struct EvmTransport<'a> {
     client: &'a EvmClient,
     network: SccpNetworkV1,
     contract: [u8; 20],
+    code_hash: [u8; 32],
 }
 
 impl EvmTransport<'_> {
-    /// A successful transaction alone is not a terminal mint observation.
-    pub(super) fn confirm_finalized(
-        &self,
-        receipt: &iroha_sccp_rpc::evm::EvmReceipt,
-        bundle: &SccpMessageProofBundleV1,
-    ) -> Result<()> {
-        let payload = iroha_sccp::v1::payload::SccpTransferPayloadRefV1::decode(&bundle.payload)?;
-        let expected = iroha_sccp::v1::evm_abi::FinalizedLogV1 {
-            message_id: bundle.message_id,
-            nonce: payload.nonce,
-            token_amount: payload.amount,
-            recipient: payload
-                .recipient
-                .bytes
-                .try_into()
-                .map_err(|_| eyre!("original recipient is not EVM"))?,
-        };
-        require_finalized_log(&receipt.logs, self.contract, expected)?;
-        let call = ViewCallV1::IsConsumed(expected.nonce);
-        let bytes = self.client.call(
-            &EvmCallRequest::new(self.contract, call.calldata()),
-            BlockId::Hash(receipt.block_hash),
-        )?;
-        ensure!(
-            call.decode_return(&bytes)? == ViewReturnV1::Bool(true),
-            "finalized event lacks its consumed nonce at the original block"
-        );
-        Ok(())
-    }
     /// Quote an exact unsigned transaction for an external payer, without loading a key.
     pub(super) fn unsigned(&self, payer: [u8; 20], data: Vec<u8>) -> Result<Eip1559TransactionV1> {
         unsigned_transaction(self.client, self.network, payer, Some(self.contract), data)
@@ -314,37 +277,6 @@ impl EvmTransport<'_> {
         self.client
             .send_raw_transaction(raw)
             .map_err(|error| eyre!("eth_sendRawTransaction: {error}"))
-    }
-
-    /// Observe the exact transaction without signing or sending.
-    pub(super) fn receipt(
-        &self,
-        hash: &[u8; 32],
-    ) -> Result<Option<iroha_sccp_rpc::evm::EvmReceipt>> {
-        let Some(receipt) = self
-            .client
-            .transaction_receipt(hash)
-            .map_err(|error| eyre!("eth_getTransactionReceipt: {error}"))?
-        else {
-            return Ok(None);
-        };
-        let finalized = self
-            .client
-            .block_by_number(BlockTag::Finalized)
-            .map_err(|error| eyre!("finalized block: {error}"))?
-            .ok_or_else(|| eyre!("the destination has no finalized block"))?;
-        if receipt.block_number > finalized.header.number {
-            return Ok(None);
-        }
-        let canonical = self
-            .client
-            .block_by_number(BlockTag::Number(receipt.block_number))
-            .map_err(|error| eyre!("receipt canonical block: {error}"))?
-            .ok_or_else(|| eyre!("receipt block is absent"))?;
-        if canonical.header.hash != receipt.block_hash {
-            return Ok(None);
-        }
-        Ok(Some(receipt))
     }
 }
 
@@ -531,6 +463,7 @@ impl Deployment {
             client: &self.client,
             network: self.network,
             contract: DEPLOYER,
+            code_hash: iroha_sccp::v1::hashes::keccak256(&[&SCCP_EVM_DEPLOYER_RUNTIME]),
         }
     }
     pub(super) fn runtime_code_hash(&self) -> Result<[u8; 32]> {
@@ -913,3 +846,6 @@ impl EvmDestination {
 
 #[path = "evm_monitor.rs"]
 mod monitor;
+
+#[path = "evm_receipt.rs"]
+mod receipt;

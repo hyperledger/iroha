@@ -1033,23 +1033,13 @@ pub fn derive_note_nullifier_v1(
     rho: &[u8; 32],
     commitment: PrivacyCommitmentV1,
 ) -> Result<PrivacyNullifierV1, IvmPrivateNoteRelationErrorV1> {
-    if is_zero(spending_secret) || is_zero(rho) || commitment.is_zero() {
-        return Err(IvmPrivateNoteRelationErrorV1::ZeroWitnessComponent);
-    }
-    Ok(PrivacyNullifierV1::new(
-        sha256_invocation_v1(
-            Sha256InvocationRoleV1::Nullifier { input: 0 },
-            NOTE_NULLIFIER_DOMAIN_V1,
-            &[
-                spending_secret,
-                rho,
-                commitment.as_bytes(),
-                statement.pool_id.as_bytes(),
-                statement.program_id.as_bytes(),
-            ],
-        )?
-        .digest,
-    ))
+    derive_note_nullifier_for_namespace_v1(
+        statement.pool_id,
+        statement.program_id,
+        spending_secret,
+        rho,
+        commitment,
+    )
 }
 fn validate_note(note: &PrivateNotePlaintextV1) -> Result<(), IvmPrivateNoteRelationErrorV1> {
     validate_note_material_v1(note, false)
@@ -1536,4 +1526,33 @@ pub(super) fn validate_private_note_relation_with_profile_v1(
         output_sum,
         final_registers,
     })
+}
+
+/// Derive the same stable pool/program nullifier without manufacturing a full execution statement.
+/// # Errors
+/// Reserved-zero secret, rho or commitment, or a closed hash profile failure.
+pub(crate) fn derive_note_nullifier_for_namespace_v1(
+    pool_id: iroha_data_model::privacy::PrivacyPoolIdV1,
+    program_id: iroha_data_model::privacy::PrivacyProgramIdV1,
+    spending_secret: &[u8; 32],
+    rho: &[u8; 32],
+    commitment: PrivacyCommitmentV1,
+) -> Result<PrivacyNullifierV1, IvmPrivateNoteRelationErrorV1> {
+    if is_zero(spending_secret) || is_zero(rho) || commitment.is_zero() {
+        return Err(IvmPrivateNoteRelationErrorV1::ZeroWitnessComponent);
+    }
+    Ok(PrivacyNullifierV1::new(
+        sha256_invocation_v1(
+            Sha256InvocationRoleV1::Nullifier { input: 0 },
+            NOTE_NULLIFIER_DOMAIN_V1,
+            &[
+                spending_secret,
+                rho,
+                commitment.as_bytes(),
+                pool_id.as_bytes(),
+                program_id.as_bytes(),
+            ],
+        )?
+        .digest,
+    ))
 }

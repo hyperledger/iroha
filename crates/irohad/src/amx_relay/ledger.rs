@@ -127,6 +127,93 @@ fn locked<T>(owner: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
         .lock()
         .map_err(|_| eyre!("AMX destination verifier owner poisoned"))
 }
+// Classify the original typed source, never its display string. These are
+// operational failures at an evidence gate, not authoritative monetary outcomes.
+fn approval_evidence_failure(error: eyre::Report) -> StepFailure {
+    use iroha_data_model::sumeragi::finality::NativeFinalityDecodeError;
+    use iroha_torii_shared::amx_approval_read::{
+        AmxApprovalReadFailureV1, AmxApprovalReadReasonV1,
+    };
+    let http_code = |status| match status {
+        401 | 403 => WorkflowErrorCode::AuthorizationDenied,
+        404 | 405 | 501 => WorkflowErrorCode::UnsupportedOperation,
+        _ => WorkflowErrorCode::EvidenceUnavailable,
+    };
+    let decode_code = |source: &norito::core::DecodeAttemptError| match source.kind() {
+        norito::core::DecodeAttemptErrorKind::Invalid => WorkflowErrorCode::NonCanonicalEncoding,
+        norito::core::DecodeAttemptErrorKind::Allocator
+        | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+            WorkflowErrorCode::LocalResourceUnavailable
+        }
+    };
+    let native_decode_code = |error: &NativeFinalityDecodeError| match error {
+        NativeFinalityDecodeError::Resource(source) => decode_code(source),
+        NativeFinalityDecodeError::Invalid(_) | NativeFinalityDecodeError::Malformed(_) => {
+            WorkflowErrorCode::ProofInvalid
+        }
+    };
+    let code = if let Some(failure) = error.downcast_ref::<AmxApprovalReadFailureV1>() {
+        if !failure.is_valid() {
+            WorkflowErrorCode::ProofInvalid
+        } else {
+            match failure.reason {
+                AmxApprovalReadReasonV1::Capacity => WorkflowErrorCode::LocalResourceUnavailable,
+                AmxApprovalReadReasonV1::CutChanged => WorkflowErrorCode::EvidenceUnavailable,
+            }
+        }
+    } else if let Some(failure) = error.downcast_ref::<iroha::Error>() {
+        match failure {
+            iroha::Error::Api { error, .. } => http_code(error.status()),
+            iroha::Error::Http { status, .. } => http_code(*status),
+            iroha::Error::RequestSigning { .. } | iroha::Error::TransactionSigning(_) => {
+                WorkflowErrorCode::AuthorizationDenied
+            }
+            iroha::Error::Context(_) | iroha::Error::ResponseBinding { .. } => {
+                WorkflowErrorCode::BindingMismatch
+            }
+            iroha::Error::InvalidRequest { .. } => WorkflowErrorCode::InvalidInput,
+            iroha::Error::Decode { .. } => WorkflowErrorCode::ProofInvalid,
+            iroha::Error::ResponseTooLarge { .. } => WorkflowErrorCode::ResourceLimitExceeded,
+            iroha::Error::CanonicalDecode(failure) => decode_code(&failure.source),
+            iroha::Error::NativeFinalityDecode(failure) => native_decode_code(&failure.source),
+            _ => WorkflowErrorCode::EvidenceUnavailable,
+        }
+    } else if let Some(failure) = error.downcast_ref::<NativeFinalityDecodeError>() {
+        native_decode_code(failure)
+    } else if let Some(failure) =
+        error.downcast_ref::<iroha_data_model::sumeragi_finality::FinalityReadError>()
+    {
+        use iroha_data_model::sumeragi_finality::{FinalityReadError, GenesisReadError};
+        match failure {
+            FinalityReadError::Invalid(_)
+            | FinalityReadError::Genesis(GenesisReadError::Invalid(_)) => {
+                WorkflowErrorCode::ProofInvalid
+            }
+            FinalityReadError::DecodeResource(source) => decode_code(source),
+            FinalityReadError::ScratchLimit(_) | FinalityReadError::Allocator(_) => {
+                WorkflowErrorCode::LocalResourceUnavailable
+            }
+            FinalityReadError::Genesis(GenesisReadError::Json(source)) => {
+                // This JSON bound does not retain a classified
+                // original decoder attempt. Do not guess capacity from its label.
+                if source.is_decode_resource_limit() {
+                    WorkflowErrorCode::EvidenceUnavailable
+                } else {
+                    WorkflowErrorCode::ProofInvalid
+                }
+            }
+        }
+    } else if error
+        .downcast_ref::<iroha_data_model::sumeragi_finality::FinalityError>()
+        .is_some()
+    {
+        WorkflowErrorCode::ProofInvalid
+    } else {
+        WorkflowErrorCode::EvidenceUnavailable
+    };
+    StepFailure::new(code, error.to_string())
+}
+
 impl RelayLedger {
     pub(super) fn new(
         client: Arc<Client>,
@@ -240,9 +327,11 @@ impl RelayLedger {
         }
         Ok(())
     }
-    async fn authorize_debit(&self, payload: &TransactionPayload) -> Result<()> {
+    async fn authorize_debit(&self, payload: &TransactionPayload) -> Result<(), StepFailure> {
         use iroha_data_model::isi::sumeragi_amx::PrepareAmxV1;
-        self.check_authorized_payload(payload)?;
+        self.check_authorized_payload(payload).map_err(|error| {
+            StepFailure::new(WorkflowErrorCode::BindingMismatch, error.to_string())
+        })?;
         let Executable::Instructions(instructions) = payload.instructions() else {
             unreachable!("checked native payload")
         };
@@ -253,9 +342,15 @@ impl RelayLedger {
         {
             return Ok(());
         }
-        let approval = locked(&self.approval)?.clone().ok_or_else(|| {
-            eyre!("native AMX Prepare has no independently selected debit approval")
-        })?;
+        let approval = locked(&self.approval)
+            .map_err(approval_evidence_failure)?
+            .clone()
+            .ok_or_else(|| {
+                StepFailure::new(
+                    WorkflowErrorCode::BindingMismatch,
+                    "native AMX Prepare has no independently selected debit approval",
+                )
+            })?;
         // Status is only a locator. Once this route has authenticated a later cut, a
         // stale/Byzantine status reply cannot roll consent verification back to an old
         // grant. A fresh process still establishes a historical fact, not proof that
@@ -263,21 +358,32 @@ impl RelayLedger {
         let height = self
             .source
             .applied_height()
-            .await?
-            .max(locked(&self.verifier)?.authenticated_height().unwrap_or(0));
-        let block = self.verified_block(height).await?;
+            .await
+            .map_err(approval_evidence_failure)?
+            .max(
+                locked(&self.verifier)
+                    .map_err(approval_evidence_failure)?
+                    .authenticated_height()
+                    .unwrap_or(0),
+            );
+        let block = self
+            .verified_block(height)
+            .await
+            .map_err(approval_evidence_failure)?;
         let schema = iroha_core::state::State::native_world_schema_hash_v1()
-            .map_err(|error| eyre!(error))?;
+            .map_err(|error| StepFailure::new(WorkflowErrorCode::BindingMismatch, error))?;
         let verified = self
             .source
             .approval(&approval, &self.authority, schema, &block)
-            .await?;
+            .await
+            .map_err(approval_evidence_failure)?;
         if verified.approval() != &approval
             || verified.relay() != &self.authority
             || verified.height() != block.height()
         {
-            return Err(eyre!(
-                "native AMX debit approval proof differs from its original intent and relay"
+            return Err(StepFailure::new(
+                WorkflowErrorCode::BindingMismatch,
+                "native AMX debit approval proof differs from its original intent and relay",
             ));
         }
         Ok(())
@@ -442,17 +548,9 @@ impl WorkflowAccount for RelayAccount {
                 .map_err(|error| {
                     StepFailure::new(WorkflowErrorCode::BindingMismatch, error.to_string())
                 })?;
-            self.ledger
-                .authorize_debit(&payload)
-                .await
-                .map_err(|error| {
-                    // Failed evidence acquisition is not a monetary or authorization
-                    // verdict. Keep this exact unsigned reservation available to retry.
-                    StepFailure::new(
-                        WorkflowErrorCode::LocalResourceUnavailable,
-                        error.to_string(),
-                    )
-                })?;
+            // Any operational refusal retains the exact unsigned reservation;
+            // its original category cannot become a monetary rejection or capacity.
+            self.ledger.authorize_debit(&payload).await?;
             self.account.sign(unsigned_payload).await
         })
     }
@@ -498,8 +596,8 @@ impl WorkflowLedger for RelayLedger {
             };
             if let Err(error) = self.authorize_debit(transaction.payload()).await {
                 return DispatchOutcome::NotAdmitted {
-                    code: WorkflowErrorCode::LocalResourceUnavailable,
-                    detail: error.to_string(),
+                    code: error.code,
+                    detail: error.detail,
                 };
             }
             conservative_dispatch(self.dispatch.dispatch(bytes, identity).await)

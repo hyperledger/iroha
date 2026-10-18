@@ -26,7 +26,7 @@ use crate::privacy_engines::{
     },
 };
 use iroha_data_model::{
-    nexus::{AtomicPrivateSettlementV1, PrivateSettlementProofStatementV1},
+    nexus::{PrivateSettlementProofIntentV1, PrivateSettlementProofStatementV1},
     privacy::{IrohaIvmPrivateNoteStarkStatementV1, PrivacyProtocolIdV1},
 };
 use rand::TryRngCore;
@@ -95,7 +95,7 @@ pub(super) fn validate_atomic_private_settlement_stark_profile_v1()
 }
 
 struct AtomicPrivateSettlementStarkAdapterV1<'a> {
-    manifest: &'a AtomicPrivateSettlementV1,
+    manifest: &'a PrivateSettlementProofIntentV1,
     statement: &'a PrivateSettlementProofStatementV1,
     internal_statement: &'a IrohaIvmPrivateNoteStarkStatementV1,
     canonical_genesis_hash: [u8; 32],
@@ -105,7 +105,7 @@ struct AtomicPrivateSettlementStarkAdapterV1<'a> {
 
 impl<'a> AtomicPrivateSettlementStarkAdapterV1<'a> {
     fn new(
-        manifest: &'a AtomicPrivateSettlementV1,
+        manifest: &'a PrivateSettlementProofIntentV1,
         statement: &'a PrivateSettlementProofStatementV1,
         internal_statement: &'a IrohaIvmPrivateNoteStarkStatementV1,
         canonical_genesis_hash: [u8; 32],
@@ -242,7 +242,7 @@ impl ProofManagedNoteStarkAdapterV1 for AtomicPrivateSettlementStarkAdapterV1<'_
 }
 
 pub(crate) fn prove_atomic_private_settlement_stark_v1_with_rng<R: TryRngCore>(
-    manifest: &AtomicPrivateSettlementV1,
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
     current_height: u64,
@@ -266,7 +266,7 @@ pub(crate) fn prove_atomic_private_settlement_stark_v1_with_rng<R: TryRngCore>(
 }
 
 pub(crate) fn verify_atomic_private_settlement_stark_v1(
-    manifest: &AtomicPrivateSettlementV1,
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
     current_height: u64,
@@ -291,7 +291,7 @@ pub(crate) fn verify_atomic_private_settlement_stark_v1(
 
 /// Independently reconstruct the public adapter and consume one unverified candidate.
 pub(crate) fn verify_constructed_atomic_private_settlement_stark_v1(
-    manifest: &AtomicPrivateSettlementV1,
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
     current_height: u64,
@@ -321,7 +321,8 @@ mod tests {
         run: impl FnOnce(&AtomicPrivateSettlementStarkAdapterV1<'_>) -> R,
     ) -> R {
         let fixture = sidecar_fixture();
-        let manifest = &fixture.sidecar.manifest;
+        let intent = fixture.sidecar.manifest.proof_intent();
+        let manifest = &intent;
         let statement = &fixture.sidecar.payload.statement;
         let internal = internal_statement_v1(manifest, statement).expect("internal statement");
         let profile = relation_profile_v1(manifest, statement).expect("relation profile");
@@ -372,7 +373,8 @@ mod tests {
     #[test]
     fn public_input_is_stable_when_post_proof_artifacts_are_finalized() {
         let fixture = sidecar_fixture();
-        let manifest = &fixture.sidecar.manifest;
+        let intent = fixture.sidecar.manifest.proof_intent();
+        let manifest = &intent;
         let statement = &fixture.sidecar.payload.statement;
         let canonical_genesis_hash = *manifest.network_id.as_genesis_hash().as_ref();
         let internal = internal_statement_v1(manifest, statement).expect("internal statement");
@@ -388,12 +390,14 @@ mod tests {
         .public_input_digest_v1()
         .expect("provisional public input");
 
-        let mut finalized_manifest = manifest.clone();
+        let mut finalized_manifest = fixture.sidecar.manifest.clone();
         finalized_manifest.legs[0].payload_digest = iroha_crypto::Hash::new(b"final payload");
         finalized_manifest.legs[0].availability_certificate_digest =
             iroha_crypto::Hash::new(b"final availability certificate");
         finalized_manifest.legs[0].delta_digest = iroha_crypto::Hash::new(b"final delta");
-        let finalized_internal = internal_statement_v1(&finalized_manifest, statement)
+        let finalized_intent = finalized_manifest.proof_intent();
+        let finalized_manifest = &finalized_intent;
+        let finalized_internal = internal_statement_v1(finalized_manifest, statement)
             .expect("finalized internal statement");
         let finalized_profile =
             relation_profile_v1(&finalized_manifest, statement).expect("finalized profile");
@@ -414,7 +418,8 @@ mod tests {
     #[test]
     fn public_input_and_action_digest_bind_successor_root_and_epoch() {
         let fixture = sidecar_fixture();
-        let manifest = &fixture.sidecar.manifest;
+        let intent = fixture.sidecar.manifest.proof_intent();
+        let manifest = &intent;
         let statement = &fixture.sidecar.payload.statement;
         let canonical_genesis_hash = *manifest.network_id.as_genesis_hash().as_ref();
         let internal = internal_statement_v1(manifest, statement).expect("internal statement");

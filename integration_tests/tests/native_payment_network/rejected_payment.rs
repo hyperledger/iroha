@@ -55,7 +55,7 @@ fn evidence(block: &SignedBlock, input: u32) -> Result<CommittedTransaction> {
     })
 }
 
-fn rejected_identity(progress: &WorkflowProgressV1) -> Result<TransactionIdentityV1> {
+pub(super) fn rejected_identity(progress: &WorkflowProgressV1) -> Result<TransactionIdentityV1> {
     let [step] = progress.steps.as_slice() else {
         return Err(eyre!("payment must have one exact step"));
     };
@@ -76,7 +76,7 @@ fn rejected_identity(progress: &WorkflowProgressV1) -> Result<TransactionIdentit
         .ok_or_else(|| eyre!("included rejection lost its exact signed identity"))
 }
 
-async fn paid_rejection(
+pub(super) async fn paid_rejection(
     operation: &NativePaymentOperation,
     options: &NativePaymentRunOptions,
 ) -> Result<WorkflowProgressV1> {
@@ -103,7 +103,7 @@ async fn paid_rejection(
     Ok(progress)
 }
 
-async fn authenticate_rejection(
+pub(super) async fn authenticate_rejection(
     network: &Network,
     wire: &[u8],
     pins: &SignedGenesisPinsV1,

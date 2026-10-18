@@ -5303,8 +5303,20 @@ the control step of step 5.
     rebroadcast reuses its identical bytes, and a new attempt requires an
     authenticated terminal outcome. Tests cover crashes on both sides of the
     dispatch marker, altered intent, recovery without a second signature,
-    bounded discovery hints and private-directory custody. This component
-    qualification does not replace live route and external-chain qualification;
+    bounded discovery hints and private-directory custody. EVM outcomes open the
+    exact retained signed transaction and its receipt at the same trie index,
+    beneath a header chain ending at an original-native-World-authenticated
+    checkpoint. This includes reverted receipts. The configured EVM endpoint
+    must serve bounded `eth_getRawTransactionByHash` responses; an unavailable
+    method or proof leaves the operation unresolved. The caller-selected native
+    World snapshot remains fixed during observation. A newly broadcast operation
+    therefore stays unresolved until recovery supplies an independently selected
+    snapshot containing a covering checkpoint; polling never advances its trust
+    authority automatically. Finalization also opens the
+    registered contract account and consumed bitmap under that receipt block's
+    state root. The journal retains these proof nodes, headers and native-cut
+    identities within its record bound. This component qualification does not
+    replace live route and external-chain qualification;
   - `config.rs`: the client-config `[sccp]` table (file-only): endpoint lists,
     timeouts and pinned deployments per `NetworkId`.
 - **`crates/irohad`** has the SCCP keeper `sccp_keeper.rs` (§4.13.4:

@@ -789,6 +789,16 @@ fn assert_genesis_source_template_parses_structured_instructions(relative_path: 
                 norito::json::value::from_value::<Parameters>(parameters_value.clone())
                     .expect("decode structured parameters");
             parameter_blocks += 1;
+            assert_eq!(
+                parameters.sumeragi().due_work_max_lag_ms(),
+                iroha_data_model::parameter::system::SumeragiParameters::default()
+                    .due_work_max_lag_ms(),
+                "source templates must declare the canonical committed due-work allowance",
+            );
+            parameters
+                .sumeragi()
+                .validate_clock_policy()
+                .expect("template must preserve combined due-work, cadence and drift bounds");
             let block = parameters.block();
             assert_eq!(block.max_time_trigger_invocations().get(), 512);
             assert_eq!(

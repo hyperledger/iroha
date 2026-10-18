@@ -39,6 +39,9 @@ mod concurrent_gateways;
 mod full_return;
 #[path = "native_payment_network/rejected_payment.rs"]
 mod rejected_payment;
+#[cfg(unix)]
+#[path = "native_payment_network/resource_bound.rs"]
+mod resource_bound;
 
 /// Successfully consume every collection page before treating an absent balance as zero.
 fn account_snapshot(

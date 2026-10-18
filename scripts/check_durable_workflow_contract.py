@@ -71,6 +71,7 @@ SHARED_CODES = (
     "Expired",
     "ReplayRejected",
     "LocalResourceUnavailable",
+    "EvidenceUnavailable",
     "SubmissionOutcomeUnknown",
     "FinalityPending",
     "Rejected",

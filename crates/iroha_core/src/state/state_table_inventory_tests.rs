@@ -1659,8 +1659,8 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
         domains: &[],
         evidence: &[
             (
-                "crates/iroha_core/src/private_settlement/state.rs",
-                "pub(crate) struct PrivateSettlementPoolStateV1 {",
+                "crates/iroha_data_model/src/nexus/private_settlement/context.rs",
+                "pub struct PrivateSettlementPoolStateV1 {",
             ),
             (
                 "crates/iroha_core/src/private_settlement/state.rs",
@@ -7268,7 +7268,7 @@ fn builder(
 fn table_slot(
     name: &'static str,
     mutate: impl Fn(&mut StorageField<'_, u64, Vec<u8>>),
-) -> Result<[Hash; 3], String> {
+) -> Result<[Hash; 3], crate::state::WorldStateSnapshotError> {
     let index = field_index().as_ref().map_err(Clone::clone)?;
     let storage: Storage<u64, Vec<u8>> = [(7_u64, vec![1_u8])].into_iter().collect();
     let mut committed = builder(index, WorldStateAccumulator::empty(), Direction::Capture);
@@ -7288,7 +7288,7 @@ fn table_slot(
 }
 
 /// The same for a cell slot whose value changes.
-fn cell_slot(name: &'static str) -> Result<[Hash; 3], String> {
+fn cell_slot(name: &'static str) -> Result<[Hash; 3], crate::state::WorldStateSnapshotError> {
     let index = field_index().as_ref().map_err(Clone::clone)?;
     let cell = mv::cell::Cell::new(vec![1_u8]);
     let mut committed = builder(index, WorldStateAccumulator::empty(), Direction::Capture);

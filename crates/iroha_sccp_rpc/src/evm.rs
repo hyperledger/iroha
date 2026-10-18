@@ -839,6 +839,33 @@ impl EvmClient {
         Ok(proof)
     }
 
+    /// Rebuild the block's transaction trie from opaque raw transaction envelopes and
+    /// return the proof at `target`. Requires `eth_getRawTransactionByHash`; there is no
+    /// receipt-metadata or transaction-reconstruction fallback.
+    ///
+    /// The caller must hold an active [`crate::PollBudget`] for the entire operation.
+    /// Acquisition and trie construction check that original deadline without extending
+    /// or clearing it. Every response keeps its route/transport limits; transaction count
+    /// is bounded by the hash-only block response cap, and retained raw envelopes plus
+    /// encoded keys are bounded by [`crate::HttpConfig::max_response_bytes`]. Native trie
+    /// construction also allocates temporary nodes within those finite input bounds.
+    /// The selected envelope is fetched first and must fit the caller's proof limit;
+    /// the returned proof additionally passes all native MPT node/count/byte limits.
+    ///
+    /// The block header and reconstructed root are checked, but the caller must separately
+    /// authenticate that header and compare the opened target bytes to its submission.
+    /// # Errors
+    /// Refuses missing/expired budgets, unsupported endpoints, incomplete or substituted
+    /// raw transactions, inconsistent block headers/roots, and exceeded resource bounds.
+    pub fn block_transaction_proof(
+        &self,
+        block: &EvmBlock,
+        target: u64,
+        max_proof_bytes: usize,
+    ) -> Result<iroha_sccp::ethereum_source::EthereumNativeMptProofV1, RpcError> {
+        crate::transaction_proof::build(&self.transport, block, target, max_proof_bytes)
+    }
+
     /// `eth_getProof` of `address` and `storage_keys` at `block`.
     ///
     /// # Errors

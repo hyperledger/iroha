@@ -804,3 +804,171 @@ fn native_closure_exit_keeps_original_entry_callbacks_and_decoder_recipe() {
     evidence.unchanged();
     assert_eq!(fixture.native.chain.height(), 4);
 }
+
+#[test]
+fn successor_binding_coalesces_only_the_same_target_scan_and_keeps_late_budget_recipe() {
+    let _resources = crate::managed::native_test_guard();
+    let (fixture, history) = shared_snapshot_tests::history_with_bodies(2);
+    let head = history.current_history().unwrap();
+    let previous = head.test_oldest_retained_history();
+    let successor = history.successor(0).unwrap().unwrap();
+    // This is the production closure-phase shape: the successor snapshot extends beyond
+    // the current body's snapshot, so its actual native scan cannot borrow prefix coverage.
+    let snapshot = SnapshotReadPass {
+        head: &history.bodies[0].snapshots,
+    };
+    assert!(!snapshot.covers(&successor.target.snapshots));
+    let (single, single_work) = shared_snapshot_tests::snapshot_work(|| successor.revalidate());
+    single.unwrap();
+    assert!(single_work.0 > 0 && single_work.1 > 0);
+    snapshot.head.revalidate().unwrap();
+    EnrollmentReadPass::run(&snapshot, |pass| {
+        let measured = |original| {
+            History::test_original_successor_validation(original, || {
+                shared_snapshot_tests::snapshot_work(|| {
+                    previous.test_successor_binding(&successor, Some(pass))
+                })
+            })
+        };
+        let (old, old_work) = measured(true);
+        let (new, new_work) = measured(false);
+        old?;
+        new?;
+        assert_eq!(old_work, (single_work.0 * 2, single_work.1 * 2));
+        assert_eq!(new_work, single_work);
+
+        // Construct both immutable owners and the lexical pass before installing the
+        // caller's decoder. Its original physical and allocation recipes remain intact.
+        for allocation in [0, 1, 64 * 1024 * 1024] {
+            let ((old, old_work), old_usage) =
+                norito::core::with_decode_limits_measured(limits(allocation), || measured(true));
+            let ((new, new_work), new_usage) =
+                norito::core::with_decode_limits_measured(limits(allocation), || measured(false));
+            assert_eq!(old_work, new_work);
+            assert_eq!(old_usage, new_usage);
+            assert_eq!(
+                old.as_ref().err().map(ToString::to_string),
+                new.as_ref().err().map(ToString::to_string)
+            );
+            if old.is_ok() {
+                assert_eq!(old_work, (single_work.0 * 2, single_work.1 * 2));
+            }
+        }
+        Ok(())
+    })
+    .unwrap();
+    snapshot.head.revalidate().unwrap();
+    assert_eq!(fixture.native.chain.height(), 4);
+}
+
+#[test]
+fn successor_binding_keeps_native_wallets_receipt_and_graph_closure() {
+    let _resources = crate::managed::native_test_guard();
+    let (fixture, history) = shared_snapshot_tests::history_with_bodies(2);
+    let head = history.current_history().unwrap();
+    let original = history.bodies[0].original.as_ref().unwrap();
+    let successor = history.successor(0).unwrap().unwrap();
+    let account = fixture.owner.wallet().unwrap();
+    let evidence = Evidence::capture(&history);
+    let mut inspect = NativeClosureInspector::new(original, &account, fixture.options.deadline);
+    let (single, single_work) = shared_snapshot_tests::snapshot_work(|| successor.revalidate());
+    single.unwrap();
+    let mut outcomes = Vec::new();
+    for original in [true, false] {
+        let owned = head.test_owned_predecessor_closure_history().unwrap();
+        let ((result, calls, work, graphs), snapshots) =
+            History::test_original_successor_validation(original, || {
+                shared_snapshot_tests::snapshot_work(|| {
+                    run(owned, &successor, &mut inspect, true, None)
+                })
+            });
+        outcomes.push((complete(result), calls, work, graphs, snapshots));
+    }
+    let (old, old_calls, old_work, old_graphs, old_snapshots) = outcomes.remove(0);
+    let (new, calls, work, graphs, snapshots) = outcomes.remove(0);
+    same_receipt(&new, &old);
+    assert_eq!(
+        calls,
+        Calls {
+            native: 2,
+            retired: 2
+        }
+    );
+    assert_eq!(calls, old_calls);
+    assert_eq!(work, old_work);
+    assert_eq!(graphs, old_graphs);
+    assert_eq!(
+        old_snapshots,
+        (snapshots.0 + single_work.0, snapshots.1 + single_work.1)
+    );
+    evidence.unchanged();
+    assert_eq!(fixture.native.chain.height(), 4);
+}
+
+#[test]
+fn successor_binding_closes_changed_successor_before_binding_error_or_wallet_access() {
+    struct Restore {
+        directory: Arc<PrivateDirectory>,
+        bytes: zeroize::Zeroizing<Vec<u8>>,
+    }
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            self.directory
+                .write_atomic("reserved.nrt", &self.bytes, PublishMode::Replace)
+                .unwrap();
+        }
+    }
+    let _resources = crate::managed::native_test_guard();
+    let (fixture, history) = shared_snapshot_tests::history_with_bodies(2);
+    let head = history.current_history().unwrap();
+    let original = history.bodies[0].original.as_ref().unwrap();
+    let account = fixture.owner.wallet().unwrap();
+    let mut inspect = NativeClosureInspector::new(original, &account, fixture.options.deadline);
+    for (change_source, change_binding) in [(false, true), (true, false), (true, true)] {
+        let mut errors = Vec::new();
+        for original in [true, false] {
+            // Parse the real current predecessor before corruption; the next body is beyond
+            // that phase's snapshot prefix and is admitted by the actual target scan.
+            let owned = head.test_owned_predecessor_closure_history().unwrap();
+            let mut successor = history.successor(0).unwrap().unwrap();
+            if change_binding {
+                successor.target.outer[0] ^= 1;
+                assert_ne!(successor.target.outer, [0; 32]);
+            }
+            let restore = change_source.then(|| {
+                let directory = Arc::clone(&history.bodies[1].directory);
+                let bytes = directory.read("reserved.nrt", MAX_BODY_BYTES).unwrap();
+                directory
+                    .write_atomic(
+                        "reserved.nrt",
+                        b"changed exact successor reservation",
+                        PublishMode::Replace,
+                    )
+                    .unwrap();
+                Restore { directory, bytes }
+            });
+            let (result, calls, _, _) =
+                History::test_original_successor_validation(original, || {
+                    run(owned, &successor, &mut inspect, true, None)
+                });
+            assert_eq!(
+                calls,
+                Calls::default(),
+                "no wallet may follow target refusal"
+            );
+            let error = result.err().expect("changed target must refuse");
+            if change_source {
+                assert!(matches!(&error, crate::managed::Error::Invalid(message)
+                    if message == "retained enrollment body material changed"));
+            } else {
+                assert!(matches!(&error, crate::managed::Error::Invalid(message)
+                    if message == "unsigned closure selected another body successor"));
+            }
+            errors.push(error.to_string());
+            drop(restore);
+        }
+        assert_eq!(errors[0], errors[1]);
+    }
+    history.read_current(&fixture.owner).unwrap();
+    assert_eq!(fixture.native.chain.height(), 4);
+}

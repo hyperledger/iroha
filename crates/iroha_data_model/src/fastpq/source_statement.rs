@@ -30,6 +30,7 @@ use norito::{NoritoDeserialize, NoritoSerialize};
     name = "iroha_data_model::fastpq::source_statement::FastpqSourceStatementContextV1",
     frame = "iroha_data_model::fastpq::FastpqSourceStatementContextV1"
 )]
+#[norito(decode_fields)]
 pub struct FastpqSourceStatementContextV1 {
     /// Exact genesis-derived deployment identity, independently authenticated.
     pub network_id: NetworkId,
@@ -53,6 +54,7 @@ pub struct FastpqSourceStatementContextV1 {
     name = "iroha_data_model::fastpq::source_statement::FastpqSourceLaneV1",
     frame = "iroha_data_model::fastpq::FastpqSourceLaneV1"
 )]
+#[norito(decode_fields)]
 pub struct FastpqSourceLaneV1 {
     /// Source execution lane.
     pub lane_id: LaneId,
@@ -124,6 +126,7 @@ pub enum FastpqSourceExecutionKindV1 {
     name = "iroha_data_model::fastpq::source_statement::FastpqSourceExecutionEntryV1",
     frame = "iroha_data_model::fastpq::FastpqSourceExecutionEntryV1"
 )]
+#[norito(decode_fields)]
 pub struct FastpqSourceExecutionEntryV1 {
     /// Actual execution-call or typed native protocol-purpose identity.
     pub entry_hash: Hash,
@@ -193,6 +196,7 @@ pub fn fastpq_source_execution_entries_digest_v1(
     name = "iroha_data_model::fastpq::source_statement::FastpqOrdinarySourceStatementLeafV1",
     frame = "iroha_data_model::fastpq::FastpqOrdinarySourceStatementLeafV1"
 )]
+#[norito(decode_fields)]
 pub struct FastpqOrdinarySourceStatementLeafV1 {
     /// Source context repeated in each leaf to prevent cross-manifest reuse.
     pub source: FastpqSourceStatementContextV1,
@@ -264,6 +268,7 @@ pub enum FastpqSourceEffectCoverageV1 {
     name = "iroha_data_model::fastpq::source_statement::FastpqOrdinarySourceStatementManifestV1",
     frame = "iroha_data_model::fastpq::FastpqOrdinarySourceStatementManifestV1"
 )]
+#[norito(decode_fields)]
 pub struct FastpqOrdinarySourceStatementManifestV1 {
     /// Source network and height.
     pub source: FastpqSourceStatementContextV1,
@@ -455,6 +460,29 @@ pub fn build_fastpq_ordinary_source_statement_manifest_v1(
 /// Maximum complete canonical manifest bytes; all fields have fixed bounded shapes.
 pub const FASTPQ_SOURCE_STATEMENT_MANIFEST_MAX_BYTES_V1: usize = 2_048;
 
+/// Check the bounded canonical manifest shape without granting source authority.
+///
+/// A caller must separately authenticate the complete ordinary write or its proof.
+/// Empty statement roots are accepted only with an exact zero statement count.
+#[must_use]
+pub fn validate_fastpq_ordinary_source_statement_manifest_v1(
+    manifest: &FastpqOrdinarySourceStatementManifestV1,
+    expected_source: FastpqSourceStatementContextV1,
+    max_executed_entries: u32,
+    max_statements: u32,
+) -> bool {
+    manifest.source == expected_source
+        && manifest.source.height != 0
+        && manifest.executed_entry_count <= max_executed_entries
+        && manifest.statement_count <= max_statements
+        && manifest.statement_count <= manifest.executed_entry_count
+        && (manifest.executed_entry_count != 0
+            || Some(manifest.source_entries_digest)
+                == fastpq_source_execution_entries_digest_v1(&[], 0))
+        && (manifest.statement_count == 0)
+            == (manifest.statement_root == fastpq_ordinary_source_statement_empty_root_v1())
+}
+
 /// Check a fixed manifest write against a separately authenticated root.
 /// This authenticates inclusion relative to that root, not the root's finality.
 pub fn verify_fastpq_ordinary_source_statement_manifest_write_v1(
@@ -465,17 +493,12 @@ pub fn verify_fastpq_ordinary_source_statement_manifest_write_v1(
     max_executed_entries: u32,
     max_statements: u32,
 ) -> bool {
-    if manifest.source != expected_source
-        || manifest.source.height == 0
-        || manifest.executed_entry_count > max_executed_entries
-        || manifest.statement_count > max_statements
-        || manifest.statement_count > manifest.executed_entry_count
-        || (manifest.executed_entry_count == 0
-            && Some(manifest.source_entries_digest)
-                != fastpq_source_execution_entries_digest_v1(&[], 0))
-        || (manifest.statement_count == 0)
-            != (manifest.statement_root == fastpq_ordinary_source_statement_empty_root_v1())
-        || siblings.len() != 256
+    if !validate_fastpq_ordinary_source_statement_manifest_v1(
+        manifest,
+        expected_source,
+        max_executed_entries,
+        max_statements,
+    ) || siblings.len() != 256
     {
         return false;
     }
@@ -615,6 +638,40 @@ mod tests {
                 tx_set_hash: Hash::new(b"original ordered transaction wires").into(),
             })
             .collect()
+    }
+
+    #[test]
+    fn empty_manifest_shape_preserves_exact_root_inventory_and_bounds() {
+        let source = leaves()[0].source;
+        let empty = build_test_manifest(source, 0, &[], 0, 0).unwrap();
+        assert!(validate_fastpq_ordinary_source_statement_manifest_v1(
+            &empty, source, 0, 0
+        ));
+        let entries_without_effects = build_test_manifest(source, 2, &[], 2, 0).unwrap();
+        assert!(validate_fastpq_ordinary_source_statement_manifest_v1(
+            &entries_without_effects,
+            source,
+            2,
+            0
+        ));
+        assert!(!validate_fastpq_ordinary_source_statement_manifest_v1(
+            &entries_without_effects,
+            source,
+            1,
+            0
+        ));
+        for mutation in 0..4 {
+            let mut invalid = empty;
+            match mutation {
+                0 => invalid.statement_root = Hash::new(b"forged empty root"),
+                1 => invalid.source_entries_digest = Hash::new(b"forged empty inventory"),
+                2 => invalid.statement_count = 1,
+                _ => invalid.source.height = 0,
+            }
+            assert!(!validate_fastpq_ordinary_source_statement_manifest_v1(
+                &invalid, source, 2, 2
+            ));
+        }
     }
 
     #[test]

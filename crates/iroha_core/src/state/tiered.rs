@@ -2457,12 +2457,9 @@ mod measured_bytes_impls {
             PrivacyPgcAccountProvenanceV1, PrivacyPgcAccountStateV1, PrivacyPgcPoolInvariantV1,
             PrivacyRootHeadRecordV1, PrivacyRootProvenanceV1, PrivacyStateItemRecordV1,
         },
-        private_settlement::{
-            global_state::{
-                PrivateSettlementFinalizationReferenceV1, PrivateSettlementOutputRecordV1,
-                PrivateSettlementRootProvenanceV1, PrivateSettlementStagedLockRecordV1,
-            },
-            state::{PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1},
+        private_settlement::global_state::{
+            PrivateSettlementFinalizationReferenceV1, PrivateSettlementOutputRecordV1,
+            PrivateSettlementRootProvenanceV1, PrivateSettlementStagedLockRecordV1,
         },
         smartcontracts::code::ContractSubjectBinding,
         state::{
@@ -2512,6 +2509,7 @@ mod measured_bytes_impls {
             AxtAssetIncarnationV1, AxtHandleBudgetRecord, AxtHandleCounterRecord, AxtPolicyEntry,
             AxtReplayRecord, AxtSourceTransferReplayRecordV1, LanePrivacyMerkleWitness,
             LanePrivacyProof, LanePrivacyWitness, PrivateSettlementAbortReceiptV1,
+            PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1,
             PrivateSettlementReceiptV1, UniversalAccountId,
         },
         nft::NftData,
@@ -4260,15 +4258,11 @@ pub(crate) enum TieredKeyHandle {
     PrivacyRoot(crate::privacy_state::PrivacyRootKeyV1),
     PrivacyRootHead(crate::privacy_state::PrivacyRootHeadKeyV1),
     KagemushaWalletLedger(iroha_data_model::kagemusha::KagemushaWalletLedgerKeyV1),
-    PrivateSettlementGovernance(
-        crate::private_settlement::global_state::PrivateSettlementPoolKeyV1,
-    ),
-    PrivateSettlementPool(crate::private_settlement::global_state::PrivateSettlementPoolKeyV1),
+    PrivateSettlementGovernance(iroha_data_model::nexus::PrivateSettlementPoolKeyV1),
+    PrivateSettlementPool(iroha_data_model::nexus::PrivateSettlementPoolKeyV1),
     PrivateSettlementRoot(crate::private_settlement::global_state::PrivateSettlementRootKeyV1),
-    PrivateSettlementNullifier(
-        crate::private_settlement::global_state::PrivateSettlementNullifierKeyV1,
-    ),
-    PrivateSettlementOutput(crate::private_settlement::global_state::PrivateSettlementOutputKeyV1),
+    PrivateSettlementNullifier(iroha_data_model::nexus::PrivateSettlementNullifierKeyV1),
+    PrivateSettlementOutput(iroha_data_model::nexus::PrivateSettlementOutputKeyV1),
     PrivateSettlementStagedLock(
         crate::private_settlement::global_state::PrivateSettlementStagedLockKeyV1,
     ),

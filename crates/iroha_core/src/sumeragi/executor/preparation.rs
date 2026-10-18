@@ -256,7 +256,6 @@ pub(super) fn validation_failure(
             | StateStorageAdmissionError::SccpEvidence(
                 EvidencePreparationError::Admission(_)
                 | EvidencePreparationError::Allocator { .. }
-                | EvidencePreparationError::DecodeScope { .. }
                 | EvidencePreparationError::DecodeResource(_),
             )
             | StateStorageAdmissionError::AmxDecode(_)
@@ -273,7 +272,6 @@ pub(super) fn validation_failure(
             }
             EvidencePreparationError::Admission(_)
             | EvidencePreparationError::Allocator { .. }
-            | EvidencePreparationError::DecodeScope { .. }
             | EvidencePreparationError::DecodeResource(_) => {
                 PublicationDeferral::EvidencePreparation(original)
             }

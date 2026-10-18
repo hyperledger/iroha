@@ -91,7 +91,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             &self.scheme_id,
             &self.wallet_id,
         )?;
-        compose(
+        let claim = compose(
             &scheme,
             *amount,
             charge.as_ref(),
@@ -100,7 +100,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             package,
             account,
             beneficiary_original,
-        )
+        )?;
+        self.require_retained_output(&operation, &retained)?;
+        Ok(claim)
     }
 }
 

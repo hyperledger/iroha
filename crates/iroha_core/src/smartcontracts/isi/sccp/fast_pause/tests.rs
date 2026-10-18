@@ -224,3 +224,78 @@ fn sccp_pause_lift_compares_original_height_position_and_removes_only_the_matchi
         3
     );
 }
+
+#[test]
+fn sccp_pause_original_account_refusal_survives_scope_retirement_and_carrier_mapping() {
+    use crate::state::{
+        EvidencePreparationError as Preparation, StateStorageAdmissionError as Storage,
+    };
+    use norito::core::{DecodeLimits, DecodeLocalRefusalKind, with_decode_limits_scope};
+    let original = panel(&[10]);
+    let budget = iroha_allocation::AllocationBudget::new(1 << 20);
+    let error = with_decode_limits_scope(
+        DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || accepted_panel(&original, &original.drawn[2], &budget),
+    )
+    .err()
+    .expect("actual nested account copy requires decoder allocation");
+    let PauseRecordError::Account(attempt) = &error else {
+        panic!("expected the original account-copy attempt: {error:?}");
+    };
+    let captured = attempt.local_refusal().expect("original enclosing refusal");
+    assert_eq!(captured.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+    assert_eq!(
+        budget.reserved_bytes(),
+        0,
+        "partial graph refunds its original charges"
+    );
+    let state = blank_state();
+    let mut block = state.block(header(2));
+    let mut tx = block.transaction();
+    let _ = construction_error(&mut tx, error);
+    let Err(Storage::SccpEvidence(Preparation::DecodeResource(retained))) =
+        tx.require_storage_admission()
+    else {
+        panic!("carrier must retain the exact local refusal");
+    };
+    assert_eq!(retained, captured);
+    drop(tx);
+    assert!(
+        block.require_storage_admission().is_err(),
+        "discard must not erase original refusal"
+    );
+    let restored = accepted_panel(&original, &original.drawn[2], &budget).unwrap();
+    assert!(restored.accepted.contains(&original.drawn[2]));
+    drop(restored);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn sccp_pause_protocol_and_replayed_account_diagnostics_do_not_poison_carrier() {
+    use norito::core::{
+        DecodeLimits, classify_decode_attempt, reserve_decode_allocation, with_decode_limits_scope,
+    };
+    let limits = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let captured = with_decode_limits_scope(limits, || {
+        classify_decode_attempt(|| reserve_decode_allocation(1))
+    })
+    .unwrap_err();
+    let diagnostic = captured.error().decode_resource_error().unwrap();
+    let errors = [
+        classify_decode_attempt(|| {
+            with_decode_limits_scope(limits, || reserve_decode_allocation(1))
+        })
+        .unwrap_err(),
+        classify_decode_attempt(|| Err::<(), _>(captured.into_error())).unwrap_err(),
+        classify_decode_attempt(|| Err::<(), _>(norito::core::Error::from(diagnostic)))
+            .unwrap_err(),
+    ];
+    for attempt in errors {
+        assert!(attempt.local_refusal().is_none());
+        let state = blank_state();
+        let mut block = state.block(header(2));
+        let mut tx = block.transaction();
+        let _ = construction_error(&mut tx, PauseRecordError::Account(attempt));
+        tx.require_storage_admission().unwrap();
+    }
+}

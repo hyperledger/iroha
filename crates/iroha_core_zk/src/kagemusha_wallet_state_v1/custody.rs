@@ -46,9 +46,9 @@ pub trait Custody {
     /// # Errors
     /// Provider reconciliation, protected storage or key errors.
     fn status(&mut self) -> Result<SlotStatus, ProviderError>;
-    /// Look up the exact retained operation without signing. A `Retained` answer must already
-    /// authenticate its marker/capsule/completion binding and receipt using the source provider;
-    /// the coordinator's retry fast path relies on this contract and never trusts archive bytes.
+    /// Look up a retained operation without signing. The provider binds the current head's
+    /// completion to its Released marker. Historical frames also need the coordinator's
+    /// source-selected StepEntry or frozen-capsule verification before exposing their output.
     ///
     /// # Errors
     /// Provider errors, never converted to absence.

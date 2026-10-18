@@ -448,8 +448,43 @@ positional field walk. Tuple slice decoding keeps its original whole-input
 archived contract; named slice decoding keeps its existing prefix contract.
 Fixed byte-array fields retain their raw-field framing;
 other fields use the canonical child decoder relationship. Generic, skipped,
-flattened and whole-value validation-hook records are rejected by this initial
-opt-in rather than silently changing their contracts. No schema or V1 bytes change.
+and flattened records are rejected rather than silently changing their contracts.
+No schema or V1 bytes change.
+
+Closed enums and records with an original consuming whole-value validation hook
+can also opt into `decode_fields`. They expose `DecodeValueFields` materialization,
+not the `()`-capable `DecodeRecordFields` contract. Every destination returns the
+actual declared field type. The sole generated traversal completes original
+framing, calls the original hook exactly once, and returns its actual, possibly
+normalized value; ordinary owning decoding delegates this same traversal. An enum
+retains its original u32 tag mapping, raw framing for direct byte-array fields,
+and normal canonical child framing for other fields. Unknown tags fail before
+variant callbacks. Hooked records preserve
+the record raw-array specialization and their original named-prefix/tuple-archived
+slice contracts. Span-only destinations cannot produce a validated value, and
+these types cannot enter the old workspace that discards tuple field results.
+
+This materialization API does not authenticate a complete canonical frame, fund a
+whole graph, or retain partially consumed values through an arbitrary hook. A hook
+may consume, normalize, allocate or fail: callers must retain the original source,
+account for the actual returned value, and establish their own complete physical
+custody/refill contract. External structural or authority validators stay at their
+original positions after complete canonical frame checking; this opt-in does not
+move them into reconstruction hooks.
+The sole enum traversal returns each already materialized actual child through
+the required typed `DecodeVariantField::restore_variant_field` method when a
+later sibling returns an error. Final payload framing failure instead returns
+the constructed actual enum through `DecodeValueDestination::restore_value`,
+preserving that enum's own `Drop` and field destruction order. The original
+error is preserved; no clone, replacement source or new ledger is made.
+Sibling failure restores reverse local order. `OwnedFields` explicitly drops
+each returned child or the complete enum on the corresponding path.
+Retaining destinations must use existing admitted storage without allocating or
+panicking. This covers `Result` failures before a consuming whole-value hook;
+it cannot restore children consumed by a failed hook or certify panic custody.
+An enum with no hook may retain its returned actual value privately through
+complete frame verification. Complete graph funding and prepared enum workspace
+integration remain explicit caller obligations.
 The shared positional and Option prefix kernels bound and borrow each declared
 payload without charging its byte length as an allocation. Element-framed
 `[u8; N]` decoding likewise checks borrowed element prefixes while filling fixed
@@ -1634,3 +1669,58 @@ ordinary parsing, framing and logical-quota kernels. A caller can admit an exact
 original-pool string/key destination before copying without replacing a resource
 refusal with syntax. These callbacks do not fund enclosing maps, crypto validation
 scratch or retained retry state, and do not change canonical JSON or binary layouts.
+
+
+### Private pool public context cut
+
+The complete World hash list exposes unrelated row identities and permits dictionary
+recovery of low-entropy values. Its current context route requires all-ledger read
+authority; selected-dataspace permissions are insufficient. This wire format is not
+a privacy-preserving scoped context or complete-State recovery proof.
+
+The sole canonical public private-settlement table records are Model-owned
+`nexus::{PrivateSettlementPoolKeyV1, PrivateSettlementNullifierKeyV1,
+PrivateSettlementOutputKeyV1, PrivateSettlementPoolGovernanceRevisionV1,
+PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1}`.
+Their nominal schema roots use `iroha_data_model::nexus::<Type>`. The first-release
+move preserves each ordered field list, removes the Core definitions and retired
+nominal identities, and changes the affected native World schema commitment.
+Snapshot map keys use one exact uppercase canonical Norito frame; alternate case,
+trailing data and another nominal owner are rejected. Core retains native pool
+frontier mathematics and governance transitions through internal extension traits.
+
+`PrivateSettlementPoolCutProofV1` encodes `(world, governance, pool)` in that order.
+`PrivateSettlementPoolCutProofRefV1` borrows these exact originals and has the same
+nominal frame. Its finite complete-World bound remains 32 MiB; publication retains
+the original World allocation owner and separate request/output charges. Only
+independent finality plus the caller-selected network, native schema, pool key and
+Global height at least two can construct `VerifiedPrivateSettlementPoolCutV1`.
+The opaque token authenticates historical public rows and exact nullifier/output
+absence. It grants no current reservation, restricted policy opening, committee
+assignment, note ownership, proof-generation capability or complete-State recovery.
+
+`PrivateSettlementContextRequestV1` is the bounded ordered unique `pools` vector
+(1..255 entries, canonical frame at most 64 KiB). The sole current-cut endpoint
+returns `PrivateSettlementContextsProofV1 { contexts }`. Each ordered member is
+`PrivateSettlementContextProofV1 { pool, lanes, committee_keys }`; the latter four
+entries are `PrivateSettlementCommitteeKeyProofV1 { index, record }`. Borrowed
+writers share their owned nominal schemas and retain the original World values.
+All members must reconstruct the same independently certified World and exact
+native-lane cell. The entire batch, including repeated preimages, remains within
+the existing 32 MiB complete-World cap. Decode grants no verified context.
+
+`PrivateSettlementProofIntentV1 { version, bundle_id, public_fee_intent, material }`
+contains the existing bundle-ID projection before any proof, ciphertext, delta or
+availability digest exists. It cannot be used as a Register/Finalize manifest.
+The consuming native finalizer joins produced artifacts before constructing the
+provisional manifest; availability certification then uses the existing phase.
+The original bundle-ID/proof-binding domains and projected field order stay with
+their existing owner.
+
+The SDK's private context and prepared artifact files are canonical closed
+payloads encrypted with caller-held AEAD keys and distinct context/prepared AAD
+purposes binding request, round and ordinal. One all-leg context file is durable
+before wallet reservation; every prepared artifact binds its exact digest. The
+codec has no plaintext witness, note secret or membership-path field. Workflow
+journals retain only bounded public digests and references; local decoded files
+must be independently reverified before they can yield a settlement receipt.

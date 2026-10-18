@@ -13,8 +13,8 @@ use iroha_genesis::GenesisBuilder;
 use std::{borrow::Cow, io::Write as _, path::Path, sync::LazyLock};
 use toml::{Table, Value};
 
-pub(super) const CADENCE_MS: u64 = 1_000;
-pub(super) const PRINCIPAL: u32 = 1_000;
+pub(crate) const CADENCE_MS: u64 = 1_000;
+pub(crate) const PRINCIPAL: u32 = 1_000;
 // Match the private-root authoring owner: the canonical SNS dataspace selector
 // supplies the stable catalog manifest_hash, independently of signed child genesis.
 // This is not an inline lane-governance or public Space Directory manifest digest.
@@ -27,7 +27,7 @@ static DATASPACE_MANIFEST_HASHES: LazyLock<[[u8; 32]; 2]> = LazyLock::new(|| {
         selector.name_hash()
     })
 });
-pub(super) static DATASPACES: LazyLock<[DataSpaceId; 2]> =
+pub(crate) static DATASPACES: LazyLock<[DataSpaceId; 2]> =
     LazyLock::new(|| DATASPACE_MANIFEST_HASHES.map(|hash| DataSpaceId::from_hash(&hash)));
 
 fn private_root_catalog(bank: usize) -> Table {
@@ -172,34 +172,34 @@ fn private_root_catalog_is_restricted_full_replica_in_exact_signed_dataspace() {
     }
 }
 
-pub(super) fn key(seed: u8) -> KeyPair {
+pub(crate) fn key(seed: u8) -> KeyPair {
     KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519)
 }
-pub(super) fn account(key: &KeyPair) -> AccountId {
+pub(crate) fn account(key: &KeyPair) -> AccountId {
     AccountId::new(key.public_key().clone())
 }
-pub(super) fn genesis_key(index: usize) -> KeyPair {
+pub(crate) fn genesis_key(index: usize) -> KeyPair {
     key(0x70 + index as u8)
 }
-pub(super) fn payer(index: usize) -> KeyPair {
+pub(crate) fn payer(index: usize) -> KeyPair {
     key(0x81 + index as u8)
 }
-pub(super) fn relay(index: usize) -> KeyPair {
+pub(crate) fn relay(index: usize) -> KeyPair {
     key(0x91 + index as u8)
 }
-pub(super) fn fee_asset() -> AssetDefinitionId {
+pub(crate) fn fee_asset() -> AssetDefinitionId {
     AssetDefinitionId::parse_address_literal(
         &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
     )
     .unwrap()
 }
-pub(super) fn currency(index: usize) -> AssetDefinitionId {
+pub(crate) fn currency(index: usize) -> AssetDefinitionId {
     AssetDefinitionId::derive_from_components(
         DomainId::try_new("money", BANK_ALIASES[index]).unwrap(),
         ["usd", "eur"][index].parse().unwrap(),
     )
 }
-pub(super) fn fee_intent() -> FeePaymentIntent {
+pub(crate) fn fee_intent() -> FeePaymentIntent {
     // All three signed genesis policies select Nexus-only charging. Global
     // commits no accepted PipelineGas asset; banks include gas in Nexus.
     FeePaymentIntent::authority(
@@ -212,7 +212,21 @@ pub(super) fn fee_intent() -> FeePaymentIntent {
     )
 }
 
-pub(super) struct Root {
+pub(crate) fn service_read_role() -> iroha_data_model::role::RoleId {
+    "native_amx_service_read".parse().expect("authored role ID")
+}
+pub(crate) fn service_admin_role() -> iroha_data_model::role::RoleId {
+    "native_amx_service_admin"
+        .parse()
+        .expect("authored role ID")
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum BankFeeProfile {
+    Metered,
+    UnfundedRelay,
+}
+pub(crate) struct Root {
     pub network: Network,
     pub scope: SumeragiRootScope,
     pub pins: SignedGenesisPinsV1,
@@ -225,6 +239,13 @@ pub(super) struct Root {
 }
 impl Root {
     pub fn new(index: usize, parent: Option<(&Root, Vec<u8>, Vec<u8>)>) -> Result<Self> {
+        Self::new_with_fee_profile(index, parent, BankFeeProfile::Metered)
+    }
+    pub fn new_with_fee_profile(
+        index: usize,
+        parent: Option<(&Root, Vec<u8>, Vec<u8>)>,
+        fees: BankFeeProfile,
+    ) -> Result<Self> {
         let chain = ChainId::try_from(format!("native-amx-independent-root-{index}"))?;
         let scope = parent
             .as_ref()
@@ -267,6 +288,9 @@ impl Root {
             .into(),
         ];
         for owner in [account(&genesis_key(index)), account(&relay(index))] {
+            if matches!(fees, BankFeeProfile::UnfundedRelay) && owner == account(&relay(index)) {
+                continue;
+            }
             instructions.push(
                 Mint::asset_quantity(
                     1_000_000_u32,
@@ -276,6 +300,36 @@ impl Root {
             );
         }
         if let Some(bank) = bank {
+            // Explicit privileged full-bank disclosure, isolated from debit consent
+            // and listener credentials. Genesis-only capabilities are revocable by
+            // deleting their dedicated local role, never by reissuing a token.
+            instructions.extend([
+                // The fee audit's ordinary asset-definition query crosses this
+                // restricted route. Full-ledger disclosure and route access are
+                // distinct grants; the audit authority needs both for this bank.
+                Grant::account_permission(
+                    iroha_executor_data_model::permission::query::CanReadRestrictedDataspace {
+                        dataspace: DATASPACES[bank],
+                    },
+                    account(&genesis_key(index)),
+                )
+                .into(),
+                Register::role(
+                    iroha_data_model::role::Role::new(service_read_role(), account(&relay(index)))
+                        .add_permission(
+                            iroha_executor_data_model::permission::query::CanReadAllLedgerData,
+                        ),
+                )
+                .into(),
+                Register::role(
+                    iroha_data_model::role::Role::new(
+                        service_admin_role(),
+                        account(&genesis_key(index)),
+                    )
+                    .add_permission(iroha_executor_data_model::permission::role::CanManageRoles),
+                )
+                .into(),
+            ]);
             for bank_payer in [payer(0), payer(1)] {
                 instructions.push(Register::account(Account::new(account(&bank_payer))).into());
                 instructions.push(
@@ -367,12 +421,7 @@ impl Root {
         }
         // This listener credential exists only in this test run's private custody.
         // It is independent of both the ledger account keys and the other roots.
-        let api_token = iroha::secrecy::SecretString::new(hex::encode(Sha256::digest(
-            KeyPair::try_random_with_algorithm(Algorithm::Ed25519)?
-                .public_key()
-                .to_string()
-                .as_bytes(),
-        )));
+        let api_token = listener_credential()?;
         let selected_chain = chain.clone();
         let selected_key = genesis_key(index);
         let network = NetworkBuilder::new()
@@ -438,6 +487,17 @@ impl Root {
                 }
             })
             .build();
+        Self::from_network(index, network, ConsensusMode::Permissioned, api_token)
+    }
+    pub fn from_network(
+        index: usize,
+        network: Network,
+        mode: ConsensusMode,
+        api_token: iroha::secrecy::SecretString,
+    ) -> Result<Self> {
+        let scope = iroha_genesis::signed_genesis_consensus_metadata(&network.genesis().0)?
+            .sumeragi_context
+            .root_scope;
         let genesis_wire = network.genesis().0.encode_wire()?;
         let mut roster = network
             .topology_entries()
@@ -452,7 +512,7 @@ impl Root {
             signed_genesis_sha256: Sha256::digest(&genesis_wire).into(),
             genesis_public_key: genesis_key(index).public_key().clone(),
             roster,
-            mode: ConsensusMode::Permissioned,
+            mode,
         };
         authenticate_signed_genesis_v1(&genesis_wire, &pins)?;
         let instance = scope
@@ -537,7 +597,11 @@ impl Root {
         // These are the actual retained readiness/diagnostic clients, including
         // the operator signature needed by the consensus-status endpoint.
         for peer in self.network.validators() {
-            ensure!(peer.status().await?.blocks >= 1);
+            let client = peer.client();
+            let status =
+                status_poll::read_once(client.client().torii_request_timeout(), || peer.status())
+                    .await?;
+            ensure!(status.blocks >= 1);
         }
         let client = self.network.validators()[0].client();
         iroha_test_network::read_on_dedicated_thread(move || client.client().get_sumeragi_status())
@@ -574,42 +638,65 @@ impl Root {
             )?,
         })
     }
-    pub async fn restart_service(&self) -> Result<()> {
+    async fn restart_peer_until(
+        &self,
+        with_relay: bool,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
         let peer = &self.network.validators()[0];
-        peer.shutdown().await;
-        peer.start(
-            self.network
-                .config_layers_for_peer(peer)
-                .chain(std::iter::once(Cow::Borrowed(&self.relay_layer))),
-            None,
-        )
-        .await?;
-        Ok(())
+        tokio::time::timeout_at(deadline, async {
+            peer.shutdown().await;
+            // Spawn completion is not HTTP readiness. With no genesis argument,
+            // this existing owner requires ServerStarted for the current run;
+            // its Kura bootstrap fallback cannot authorize a restart.
+            peer.start_checked(
+                self.network
+                    .config_layers_for_peer(peer)
+                    .chain(with_relay.then(|| Cow::Borrowed(&self.relay_layer))),
+                None,
+            )
+            .await
+        })
+        .await
+        .map_err(|error| {
+            eyre!(
+                "root {} peer did not reach HTTP readiness within the restart phase: {error}",
+                self.index
+            )
+        })?
+    }
+    pub async fn restart_service(&self) -> Result<()> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+        self.restart_peer_until(true, deadline).await
+    }
+    pub async fn pause_service(&self) -> Result<()> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+        self.restart_peer_until(false, deadline).await
     }
     pub async fn restart_all(&self) -> Result<()> {
-        let height = self
-            .client(&relay(self.index))
-            .client()
-            .status()
-            .get()
-            .await?
-            .blocks;
+        let client = self.client(&relay(self.index));
+        let height = status_poll::read_once(client.client().torii_request_timeout(), || async {
+            client.client().status().get().await.map_err(Into::into)
+        })
+        .await?
+        .blocks;
         self.network.shutdown().await;
         self.network.start_all().await?;
-        self.restart_service().await?;
+        // Readiness and replay publication share this original finite phase.
+        // A completed relay restart does not grant a fresh polling deadline.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+        self.restart_peer_until(true, deadline).await?;
         // Startup can expose Kura before replay publishes the applied State. This
         // locator only schedules proof reads; the independent verifier remains authority.
-        tokio::time::timeout(Duration::from_secs(120), async {
+        tokio::time::timeout_at(deadline, async {
             loop {
                 let mut ready = true;
                 for peer in self.network.validators() {
-                    match peer.status().await {
-                        Ok(status) if status.blocks >= height => {}
-                        _ => ready = false,
-                    }
+                    let status = status_poll::read_until(deadline, || peer.status()).await?;
+                    ready &= status.blocks >= height;
                 }
                 if ready {
-                    return;
+                    return Ok::<(), eyre::Report>(());
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
@@ -620,7 +707,7 @@ impl Root {
                 "root {} failed to publish original State height {height} after restart: {error}",
                 self.index
             )
-        })?;
+        })??;
         Ok(())
     }
 }
@@ -639,7 +726,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn route(root: &Root, directory: &Path) -> Result<Table> {
+pub(crate) fn route_with_ttl(root: &Root, directory: &Path, ttl_ms: i64) -> Result<Table> {
     let signer = relay(root.index);
     let key_path = directory.join(format!("relay-{}.key", root.index));
     write_private(
@@ -663,7 +750,7 @@ pub(super) fn route(root: &Root, directory: &Path) -> Result<Table> {
             ["account", "private_key_file"],
             key_path.to_string_lossy().into_owned(),
         )
-        .write(["transaction", "time_to_live_ms"], 600_000_i64)
+        .write(["transaction", "time_to_live_ms"], ttl_ms)
         .write(["transaction", "status_timeout_ms"], 120_000_i64)
         .write("torii_request_timeout_ms", 60_000_i64);
     write_private(&account_path, toml::to_string(&account_config)?.as_bytes())?;
@@ -687,14 +774,14 @@ pub(super) fn route(root: &Root, directory: &Path) -> Result<Table> {
         )
         .write(
             "genesis_public_key",
-            genesis_key(root.index).public_key().to_string(),
+            root.pins.genesis_public_key.to_string(),
         )
         .write("fee_payment_json", norito::json::to_json(&fee_intent())?);
     route = route.write("scope_json", norito::json::to_json(&root.scope)?);
     Ok(route)
 }
 
-pub(super) fn service(directory: &Path, index: usize, routes: Vec<Table>) -> Table {
+pub(crate) fn service(directory: &Path, index: usize, routes: Vec<Table>) -> Table {
     Table::new()
         .write(
             ["amx_relay", "journal_dir"],
@@ -710,4 +797,16 @@ pub(super) fn service(directory: &Path, index: usize, routes: Vec<Table>) -> Tab
             ["amx_relay", "routes"],
             routes.into_iter().map(Value::Table).collect::<Vec<_>>(),
         )
+}
+
+// Listener admission is runtime-only, independent of account and consensus keys.
+pub(crate) fn listener_credential() -> Result<iroha::secrecy::SecretString> {
+    Ok(iroha::secrecy::SecretString::new(hex::encode(
+        Sha256::digest(
+            KeyPair::try_random_with_algorithm(Algorithm::Ed25519)?
+                .public_key()
+                .to_string()
+                .as_bytes(),
+        ),
+    )))
 }

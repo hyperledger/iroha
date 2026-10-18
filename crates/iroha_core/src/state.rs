@@ -1,7 +1,13 @@
 //! This module provides the [`State`] — an in-memory representation of the current blockchain state.
 #![allow(clippy::items_after_statements, clippy::used_underscore_binding)]
+use crate::private_settlement::global_state::PrivateSettlementPoolKeyExtV1 as _;
 /// Original finite allocation pool passed from startup into State and restore.
 pub use iroha_allocation::AllocationBudget;
+use iroha_data_model::nexus::{
+    PrivateSettlementNullifierKeyV1, PrivateSettlementOutputKeyV1,
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolKeyV1,
+    PrivateSettlementPoolStateV1,
+};
 /// Read-only access to the original storage views exposed by [`WorldReadOnly`].
 pub use mv::storage::StorageReadOnly;
 
@@ -18,8 +24,7 @@ use crate::private_settlement::{
     carrier::{PrivateSettlementCarrierBindingErrorV1, PrivateSettlementCarrierBindingV1},
     global_state::{
         PrivateSettlementFinalizationReferenceV1, PrivateSettlementGlobalStateErrorV1,
-        PrivateSettlementGlobalStateOutcomeV1, PrivateSettlementNullifierKeyV1,
-        PrivateSettlementOutputKeyV1, PrivateSettlementOutputRecordV1, PrivateSettlementPoolKeyV1,
+        PrivateSettlementGlobalStateOutcomeV1, PrivateSettlementOutputRecordV1,
         PrivateSettlementRootKeyV1, PrivateSettlementRootProvenanceV1,
         PrivateSettlementStagedLockKeyV1, PrivateSettlementStagedLockRecordV1,
         expired_private_settlement_staged_lock_keys_v1, plan_private_settlement_abort_v1,
@@ -30,7 +35,6 @@ use crate::private_settlement::{
     protocol::{
         native_private_settlement_route_v1, validate_private_settlement_committee_authority_v1,
     },
-    state::{PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1},
 };
 use eyre::Result;
 use iroha_config::parameters::actual::{
@@ -2952,19 +2956,10 @@ pub enum EvidencePreparationError {
         /// Exact backing allocation requested by the charged buffer.
         requested_bytes: usize,
     },
-    /// The active Norito decode scope refused cumulative allocation accounting.
-    #[error(
-        "consensus penalty preparation decode scope attempted {attempted_bytes} bytes above {limit_bytes} bytes"
-    )]
-    DecodeScope {
-        /// Cumulative allocation bytes after the attempted clone.
-        attempted_bytes: u64,
-        /// Maximum cumulative bytes permitted by the active decode scope.
-        limit_bytes: u64,
-    },
-    /// Exact local Norito ceiling or allocator refusal while decoding an original proof.
+    /// Original captured local refusal, retaining its actual counter owner.
+    /// Diagnostic fields alone cannot construct this preparation cause.
     #[error("consensus evidence decoder resource refusal: {0}")]
-    DecodeResource(norito::core::DecodeResourceError),
+    DecodeResource(#[source] norito::core::DecodeLocalRefusal),
     /// Original native history or its funded read owner cannot complete yet.
     #[error("original native evidence history is pending")]
     OriginalHistoryPending,
@@ -2983,6 +2978,16 @@ impl From<iroha_allocation::ChargedBufferError> for EvidencePreparationError {
     }
 }
 impl EvidencePreparationError {
+    /// Retain only the original local refusal captured by an actual synchronous decoder.
+    /// Invalid bytes, protocol/default limits and stale or copied diagnostics are
+    /// preparation invariants; numeric fields cannot grant retry or construct custody.
+    pub(crate) fn from_decode_attempt(error: norito::core::DecodeAttemptError) -> Self {
+        match error.into_local_refusal() {
+            Ok(original) => Self::DecodeResource(original),
+            Err(_) => Self::Invariant,
+        }
+    }
+
     /// Original pool release observation, available only for temporary contention.
     pub fn release_wait(&self) -> Option<&iroha_allocation::release::ReleaseWait> {
         match self {
@@ -14384,6 +14389,9 @@ impl<'block, 'state> StateTransaction<'block, 'state> {
 /// [`State::view`] retries if a writer advances the state-view generation while
 /// the component snapshots are being acquired.
 pub struct StateView<'state> {
+    /// Local publication provenance validated by the original acquired-view owner.
+    /// This is not consensus state and is never decoded or supplied by a caller.
+    publication_generation: u64,
     /// Borrowed undo paired with this view under the State generation check.
     pub(crate) canonical_runtime_predecessor: CellView<'state, Option<SnapshotNexusRuntime>>,
     /// Actual MV runtime scope; projected fields never replace its undo authority.
@@ -27651,6 +27659,7 @@ impl State {
         ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
         max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
                 fastpq: iroha_config::parameters::actual::Fastpq {
+                    producer: iroha_config::parameters::actual::FastpqProducer::default(),
                     execution_mode: iroha_config::parameters::actual::FastpqExecutionMode::Cpu,
                     poseidon_mode: iroha_config::parameters::actual::FastpqPoseidonMode::Cpu,
                     proof_sidecar_queue_cap:
@@ -30958,9 +30967,13 @@ impl State {
         }
     }
     /// Attempt one complete nonblocking view acquisition with the original retry source.
-    /// Stable malformed runtime and poisoned reader ownership remain terminal errors.
+    ///
+    /// # Errors
+    /// Returns the exact original release observation when busy. Stable malformed
+    /// runtime, changed custody and poisoned reader ownership remain terminal errors.
+    /// Callers retain their own absolute deadlines; this method never retries.
     #[track_caller]
-    pub(crate) fn try_view_once(&self) -> Result<StateView<'_>, StateViewError> {
+    pub fn try_view_once(&self) -> Result<StateView<'_>, StateViewError> {
         StateViewReleases::new(self).try_view_once()
     }
     #[track_caller]
@@ -31091,6 +31104,7 @@ impl State {
                 world.parameters.get(),
             );
             return Ok(StateView {
+                publication_generation: generation_after,
                 canonical_runtime,
                 canonical_runtime_predecessor,
                 native_execution_tip,
@@ -36177,6 +36191,7 @@ pub fn default_zk_config() -> iroha_config::parameters::actual::Zk {
         ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
         max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
         fastpq: iroha_config::parameters::actual::Fastpq {
+            producer: iroha_config::parameters::actual::FastpqProducer::default(),
             execution_mode: iroha_config::parameters::actual::FastpqExecutionMode::Cpu,
             poseidon_mode: iroha_config::parameters::actual::FastpqPoseidonMode::Cpu,
             proof_sidecar_queue_cap:

@@ -873,3 +873,22 @@ fn private_settlement_promotion_counts_only_three_exact_acknowledgements_after_o
         n * request.0.materials.len()
     );
 }
+
+#[test]
+fn private_settlement_advanced_material_accessor_borrows_exact_public_encrypted_owner() {
+    let client = client_with_base_url(base_url());
+    let (request, _) = prepared(&client);
+    let original = request.0.materials.as_slice();
+    let exposed = request.materials();
+    assert_eq!(exposed.len(), original.len());
+    assert!(
+        std::ptr::eq(exposed.as_ptr(), original.as_ptr()),
+        "advanced inspection must borrow the original encrypted/public material allocation"
+    );
+    assert_eq!(exposed, original);
+    for material in exposed {
+        material.validate().unwrap();
+    }
+    // The closed material type has no wallet witness, spending secret or plaintext audit
+    // field. This accessor does not alter that schema or grant proof/finality authority.
+}

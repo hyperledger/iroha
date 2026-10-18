@@ -7,7 +7,6 @@
 //! paths are decoded only inside Rust and the consumed byte buffer is wiped on
 //! every success or failure path.
 
-#[cfg(any(test, feature = "test-utils"))]
 use super::relation::{
     atomic_private_settlement_dummy_input_memo_digest_v1,
     atomic_private_settlement_output_memo_digests_v1, atomic_private_settlement_program_id_v1,
@@ -29,31 +28,25 @@ use iroha_data_model::nexus::{
     PRIVATE_SETTLEMENT_INPUT_SLOTS_V1, PRIVATE_SETTLEMENT_MAX_PROOF_BYTES_V1,
     PrivateSettlementAuditCapsuleV1, PrivateSettlementAuditPlaintextV1,
     PrivateSettlementAuditPolicyV1, PrivateSettlementCommitteeAuthorityV1,
-    PrivateSettlementDeltaV1, PrivateSettlementProofStatementV1,
+    PrivateSettlementDeltaV1, PrivateSettlementProofIntentV1, PrivateSettlementProofStatementV1,
     PrivateSettlementProvisionalLegMaterialV1, PrivateSettlementSidecarAvailabilityBodyV1,
     private_settlement_proof_digest_v1,
 };
-#[cfg(any(test, feature = "test-utils"))]
 use iroha_data_model::nexus::{
     PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1, PrivateSettlementAuditNoteOpeningV1,
     PrivateSettlementAuditOutputV1,
 };
-#[cfg(any(test, feature = "test-utils"))]
 use iroha_data_model::privacy::{
     PrivacyCommitmentV1, PrivacyEncryptedOutputV1, PrivacyNamespaceScopeV1, PrivacyNamespaceV1,
     PrivacyNullifierV1, PrivacyPoolProgramNamespaceV1, PrivacyProtocolIdV1, PrivacyRootV1,
 };
-#[cfg(any(test, feature = "test-utils"))]
 use rand_core_06::CryptoRng;
-#[cfg(any(test, feature = "test-utils"))]
 use rand_core_06::RngCore;
 use thiserror::Error;
 use zeroize::{Zeroize as _, Zeroizing};
 
 use crate::privacy_engines::ivm_private_note::PRIVATE_NOTE_TREE_DEPTH_V1;
-#[cfg(any(test, feature = "test-utils"))]
 use crate::privacy_engines::ivm_private_note::encrypt_ivm_private_wallet_note_for_commitment_with_opening_v1;
-#[cfg(any(test, feature = "test-utils"))]
 use crate::privacy_engines::ivm_private_note::{
     PrivateNotePlaintextV1, PrivateNoteRelationProfileV1, derive_note_authority_v1,
     derive_note_nullifier_v1, derive_profiled_input_commitment_v1,
@@ -377,62 +370,97 @@ impl core::fmt::Debug for AtomicPrivateSettlementProvisionalBundleV1 {
     }
 }
 
-/// Content-address every proof-complete leg and finalize one provisional bundle.
+/// Consume exact public proof intent with actual proof-complete legs.
 ///
-/// The supplied manifest is the public-intent skeleton used for proof creation.
-/// Its payload, delta, and availability-certificate digests are treated as
-/// untrusted placeholders. This function derives the first two from the exact
-/// restricted material, reserves the certificate digests as zero, enforces
-/// canonical one-to-one leg ordering, and validates every resulting material
-/// against the same all-leg manifest.
-///
+/// Real sidecar and delta commitments are computed before the provisional manifest exists.
+/// No caller placeholder digest or incomplete full manifest crosses this boundary. Availability
+/// certificates are obtained later over these immutable exact materials.
 /// # Errors
-///
-/// Rejects participant-count or order mismatches, invalid public intent,
-/// substituted proof-sidecar material, non-canonical encoding, or sidecars that
-/// exceed the wire length representable by the V1 availability body.
+/// Missing/reordered/cross-intent artifacts, incomplete proof or ciphertext, invalid authority,
+/// non-canonical encoding, or original fixed sidecar bounds.
 pub fn finalize_atomic_private_settlement_provisional_bundle_v1(
-    mut manifest: AtomicPrivateSettlementV1,
+    intent: PrivateSettlementProofIntentV1,
     inputs: Vec<AtomicPrivateSettlementProvisionalLegInputV1>,
 ) -> Result<AtomicPrivateSettlementProvisionalBundleV1, AtomicPrivateSettlementWalletErrorV1> {
-    if inputs.len() != manifest.legs.len() {
+    use iroha_data_model::nexus::{
+        PrivateSettlementLegCommitmentV1, private_settlement_sidecar_material_bytes_len_v1,
+        private_settlement_sidecar_material_digest_v1,
+    };
+    intent
+        .validate()
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+    if inputs.len() != intent.legs.len() {
         return Err(AtomicPrivateSettlementWalletErrorV1::PublicBinding);
     }
-    for leg in &mut manifest.legs {
-        leg.availability_certificate_digest = Hash::prehashed([0; Hash::LENGTH]);
-    }
-
-    let mut materials = Vec::with_capacity(inputs.len());
-    for (index, input) in inputs.into_iter().enumerate() {
+    let mut legs = Vec::with_capacity(inputs.len());
+    let mut bodies = Vec::with_capacity(inputs.len());
+    for (index, input) in inputs.iter().enumerate() {
         input.validate()?;
-        let expected_ordinal =
-            u8::try_from(index).map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-        let leg = manifest
-            .legs
-            .get(index)
-            .ok_or(AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-        let statement = &input.prepared.statement;
-        if statement.leg_ordinal != expected_ordinal
-            || statement.network_id != manifest.network_id
-            || statement.bundle_id != manifest.bundle_id
-            || statement.authority_context_height != manifest.authority_context_height
-            || statement.expiry_height != manifest.expiry_height
-            || statement.route != leg.route
-            || statement.pool_id != leg.pool_id
-            || statement.asset_binding_commitment != leg.asset_binding_commitment
-            || statement.audit_policy_digest != leg.audit_policy_digest
-            || statement.fee_intent_digest != manifest.fee_intent_digest
-            || statement.reimbursement_terms_commitment != manifest.reimbursement_terms_commitment
-            || statement.reimbursement_leg_ordinal != manifest.reimbursement_leg_ordinal
-        {
+        let leg = &intent.legs[index];
+        let prepared = &input.prepared;
+        if usize::from(prepared.statement.leg_ordinal) != index {
             return Err(AtomicPrivateSettlementWalletErrorV1::PublicBinding);
         }
-
-        let authority_digest = input
-            .committee_authority
+        super::relation::validate_public_binding_v1(
+            &intent,
+            &prepared.statement,
+            *intent.network_id.as_genesis_hash().as_ref(),
+            intent.authority_context_height,
+        )
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+        let payload_digest = private_settlement_sidecar_material_digest_v1(
+            &prepared.statement,
+            &prepared.proof,
+            &prepared.delta,
+            &prepared.audit_capsule,
+        )
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+        let payload_bytes = u32::try_from(
+            private_settlement_sidecar_material_bytes_len_v1(
+                &prepared.statement,
+                &prepared.proof,
+                &prepared.delta,
+                &prepared.audit_capsule,
+            )
+            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?,
+        )
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+        let delta_digest = prepared
+            .delta
             .digest()
             .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-        let mut material = PrivateSettlementProvisionalLegMaterialV1 {
+        legs.push(PrivateSettlementLegCommitmentV1 {
+            ordinal: leg.ordinal,
+            route: leg.route,
+            pool_id: leg.pool_id,
+            asset_binding_commitment: leg.asset_binding_commitment,
+            audit_policy_digest: leg.audit_policy_digest,
+            payload_digest,
+            delta_digest,
+            availability_certificate_digest: Hash::prehashed([0; Hash::LENGTH]),
+        });
+        bodies.push(PrivateSettlementSidecarAvailabilityBodyV1 {
+            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
+            network_id: intent.network_id,
+            bundle_id: intent.bundle_id,
+            leg_ordinal: leg.ordinal,
+            route: leg.route,
+            authority_digest: input
+                .committee_authority
+                .digest()
+                .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?,
+            authority_context_height: intent.authority_context_height,
+            payload_digest,
+            payload_bytes,
+            retention_until_height: input.retention_until_height,
+        });
+    }
+    let manifest = intent
+        .bind_provisional_artifacts(legs)
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+    let mut materials = Vec::with_capacity(inputs.len());
+    for (input, availability_body) in inputs.into_iter().zip(bodies) {
+        let material = PrivateSettlementProvisionalLegMaterialV1 {
             version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
             manifest: manifest.clone(),
             audit_policy: input.audit_policy,
@@ -441,47 +469,12 @@ pub fn finalize_atomic_private_settlement_provisional_bundle_v1(
             proof: input.prepared.proof,
             delta: input.prepared.delta,
             audit_capsule: input.prepared.audit_capsule,
-            availability_body: PrivateSettlementSidecarAvailabilityBodyV1 {
-                version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-                network_id: manifest.network_id,
-                bundle_id: manifest.bundle_id,
-                leg_ordinal: expected_ordinal,
-                route: leg.route,
-                authority_digest,
-                authority_context_height: manifest.authority_context_height,
-                payload_digest: Hash::prehashed([1; Hash::LENGTH]),
-                payload_bytes: 1,
-                retention_until_height: input.retention_until_height,
-            },
+            availability_body,
         };
-        let payload_digest = material
-            .payload_digest()
-            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-        let payload_bytes = u32::try_from(
-            material
-                .sidecar_material_bytes_len()
-                .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?,
-        )
-        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-        let delta_digest = material
-            .delta
-            .digest()
-            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-        material.availability_body.payload_digest = payload_digest;
-        material.availability_body.payload_bytes = payload_bytes;
-        manifest.legs[index].payload_digest = payload_digest;
-        manifest.legs[index].delta_digest = delta_digest;
-        materials.push(material);
-    }
-
-    manifest
-        .validate_provisional()
-        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-    for material in &mut materials {
-        material.manifest = manifest.clone();
         material
             .validate()
             .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+        materials.push(material);
     }
     Ok(AtomicPrivateSettlementProvisionalBundleV1 {
         manifest,
@@ -489,12 +482,12 @@ pub fn finalize_atomic_private_settlement_provisional_bundle_v1(
     })
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Canonical origin and successor state for one newly governed settlement pool.
 ///
 /// The membership witnesses remain encapsulated and can only be consumed into
 /// the native owner-bundle encoder.  Public governance receives the sorted
 /// origin commitments and roots, never the spending secrets or paths.
+#[cfg(any(test, feature = "test-utils"))]
 pub struct AtomicPrivateSettlementBootstrapPlanV1 {
     /// Strictly ordered commitments supplied to pool activation.
     pub initial_commitments: [PrivacyCommitmentV1; PRIVATE_SETTLEMENT_INPUT_SLOTS_V1],
@@ -511,7 +504,6 @@ pub struct AtomicPrivateSettlementBootstrapPlanV1 {
 
 #[cfg(any(test, feature = "test-utils"))]
 impl AtomicPrivateSettlementBootstrapPlanV1 {
-    #[cfg(any(test, feature = "test-utils"))]
     /// Consume the plan into the owner-only input witnesses used by the bundle encoder.
     #[must_use]
     pub fn into_input_secrets(
@@ -541,7 +533,6 @@ pub enum AtomicPrivateSettlementWalletErrorV1 {
     Proof(#[from] AtomicPrivateSettlementProofErrorV1),
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 fn validate_preparation_context_v1(
     manifest: &AtomicPrivateSettlementV1,
     statement: &PrivateSettlementProofStatementV1,
@@ -573,7 +564,6 @@ fn validate_preparation_context_v1(
     Ok(())
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Derive a positive funding note before choosing a settlement bundle.
 ///
 /// A funded input commitment is independent of the later bundle, authority
@@ -608,7 +598,6 @@ pub fn prepare_atomic_private_settlement_funding_note_v1(
     Ok(())
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Derive both fixed input commitments under the settlement-only note profile.
 ///
 /// Inactive slots receive their unique bundle-bound dummy memo here.  Active
@@ -626,51 +615,13 @@ pub fn prepare_atomic_private_settlement_input_openings_v1(
     openings: &mut [PrivateSettlementAuditNoteOpeningV1],
 ) -> Result<(), AtomicPrivateSettlementWalletErrorV1> {
     validate_preparation_context_v1(manifest, statement)?;
-    if openings.len() != PRIVATE_SETTLEMENT_INPUT_SLOTS_V1 {
-        return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
-    }
-    // Fixed output memos are immaterial to input-note validation.  Using one
-    // closed non-zero placeholder avoids a circular dependency on the audit
-    // plaintext commitment while retaining the settlement selectors.
-    let profile =
-        PrivateNoteRelationProfileV1::exact_three_output_balanced([[1_u8; 32]; 3], [1; 32]);
-    for (index, opening) in openings.iter_mut().enumerate() {
-        if opening.active != (opening.value != 0)
-            || (opening.active && opening.dummy_domain.is_some())
-        {
-            return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
-        }
-        if !opening.active {
-            let dummy_domain = opening
-                .dummy_domain
-                .ok_or(AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
-            opening.memo_digest = atomic_private_settlement_dummy_input_memo_digest_v1(
-                manifest,
-                statement,
-                index,
-                dummy_domain,
-            )
-            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
-        }
-        let note = PrivateNotePlaintextV1::new_profiled_input_v1(
-            opening.value,
-            opening.spending_authority,
-            opening.rho,
-            opening.blinding,
-            opening.memo_digest,
-            profile,
-        )
-        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
-        opening.commitment = derive_profiled_input_commitment_v1(&note, profile)
-            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
-    }
-    if openings[0].commitment == openings[1].commitment {
-        return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
-    }
-    Ok(())
+    prepare_input_openings_from_bound_context_v1(
+        &manifest.proof_intent(),
+        statement.leg_ordinal,
+        openings,
+    )
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Derive the two stable pool/program nullifiers for prepared input openings.
 ///
 /// # Errors
@@ -691,7 +642,7 @@ pub fn derive_atomic_private_settlement_input_nullifiers_v1(
         openings
             .try_into()
             .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
-    let internal = internal_statement_v1(manifest, statement)
+    let internal = internal_statement_v1(&manifest.proof_intent(), statement)
         .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
     let mut nullifiers = [PrivacyNullifierV1::new([0_u8; 32]); PRIVATE_SETTLEMENT_INPUT_SLOTS_V1];
     for (index, (opening, secret)) in openings.iter().zip(spending_secrets).enumerate() {
@@ -711,7 +662,6 @@ pub fn derive_atomic_private_settlement_input_nullifiers_v1(
     Ok(nullifiers)
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Finalize and encrypt the fixed recipient, change, and reimbursement outputs.
 ///
 /// This operation derives the three role memos from the exact committed audit
@@ -729,46 +679,7 @@ pub fn prepare_atomic_private_settlement_outputs_v1(
     outputs: &mut [PrivateSettlementAuditOutputV1],
 ) -> Result<Vec<PrivacyEncryptedOutputV1>, AtomicPrivateSettlementWalletErrorV1> {
     validate_preparation_context_v1(manifest, statement)?;
-    if outputs.len() != PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1 {
-        return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
-    }
-    let fixed_memos = atomic_private_settlement_output_memo_digests_v1(manifest, statement)
-        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-    let profile = PrivateNoteRelationProfileV1::exact_three_output_balanced(
-        fixed_memos,
-        statement.audit_input_commitment,
-    );
-    let program_id = atomic_private_settlement_program_id_v1()
-        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
-    let mut encrypted = Vec::with_capacity(PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1);
-    for (index, (output, memo)) in outputs.iter_mut().zip(fixed_memos).enumerate() {
-        output.note.memo_digest = memo;
-        let note = PrivateNotePlaintextV1::new_profiled_output_v1(
-            output.note.value,
-            output.note.spending_authority,
-            output.note.rho,
-            output.note.blinding,
-            output.note.memo_digest,
-            index,
-            profile,
-        )
-        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
-        output.note.commitment = derive_profiled_output_commitment_v1(&note, index, profile)
-            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
-        encrypted.push(
-            encrypt_ivm_private_wallet_note_for_commitment_with_opening_v1(
-                rng,
-                statement.pool_id,
-                program_id,
-                &note,
-                output.note.commitment,
-                output.recipient_view_key,
-                &output.encryption_opening.ephemeral_secret,
-            )
-            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?,
-        );
-    }
-    Ok(encrypted)
+    prepare_outputs_from_bound_context_v1(rng, statement, outputs)
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -824,6 +735,91 @@ pub fn plan_atomic_private_settlement_bootstrap_v1(
         new_epoch: 2,
         inputs,
     })
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Reconstruct original membership inputs for a newly activated two-note fixture pool.
+/// This calls the canonical existing frontier planner without appending any outputs. It
+/// constructs no transaction, completed manifest, statement, proof or synthetic authority.
+/// # Errors
+/// Invalid original pool/commitments, reserved secret or unavailable canonical membership path.
+pub fn plan_atomic_private_settlement_initial_inputs_v1(
+    pool_id: iroha_data_model::privacy::PrivacyPoolIdV1,
+    initial_commitments: [PrivacyCommitmentV1; PRIVATE_SETTLEMENT_INPUT_SLOTS_V1],
+    spending_secrets: [[u8; 32]; PRIVATE_SETTLEMENT_INPUT_SLOTS_V1],
+) -> Result<
+    [AtomicPrivateSettlementInputSecretV1; PRIVATE_SETTLEMENT_INPUT_SLOTS_V1],
+    AtomicPrivateSettlementWalletErrorV1,
+> {
+    if pool_id.is_zero() {
+        return Err(AtomicPrivateSettlementWalletErrorV1::PublicBinding);
+    }
+    let namespace = PrivacyNamespaceV1::new(
+        PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1,
+        PrivacyNamespaceScopeV1::PoolProgram(PrivacyPoolProgramNamespaceV1 {
+            pool_id,
+            program_id: atomic_private_settlement_program_id_v1()
+                .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?,
+        }),
+    );
+    let planned = plan_two_leaf_proof_managed_transition_v1(namespace, initial_commitments, &[])
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
+    Ok([
+        AtomicPrivateSettlementInputSecretV1::new(
+            spending_secrets[0],
+            planned.input_positions[0],
+            planned.authentication_paths[0],
+        )?,
+        AtomicPrivateSettlementInputSecretV1::new(
+            spending_secrets[1],
+            planned.input_positions[1],
+            planned.authentication_paths[1],
+        )?,
+    ])
+}
+
+#[cfg(test)]
+mod initial_inputs_tests {
+    use super::*;
+    #[test]
+    fn initial_inputs_reuse_exact_bootstrap_membership_without_output_placeholders() {
+        let pool = iroha_data_model::privacy::PrivacyPoolIdV1::new([9; 32]);
+        let commitments = [
+            PrivacyCommitmentV1::new([2; 32]),
+            PrivacyCommitmentV1::new([1; 32]),
+        ];
+        let secrets = [[3; 32], [4; 32]];
+        let original =
+            plan_atomic_private_settlement_initial_inputs_v1(pool, commitments, secrets).unwrap();
+        let with_outputs = plan_atomic_private_settlement_bootstrap_v1(
+            pool,
+            commitments,
+            [
+                PrivacyCommitmentV1::new([5; 32]),
+                PrivacyCommitmentV1::new([6; 32]),
+                PrivacyCommitmentV1::new([7; 32]),
+            ],
+            secrets,
+        )
+        .unwrap();
+        for (original, later) in original.iter().zip(&with_outputs.inputs) {
+            assert_eq!(original.spending_secret, later.spending_secret);
+            assert_eq!(original.leaf_position, later.leaf_position);
+            assert_eq!(original.authentication_path, later.authentication_path);
+        }
+        assert!(
+            plan_atomic_private_settlement_initial_inputs_v1(pool, [commitments[0]; 2], secrets)
+                .is_err()
+        );
+        assert!(
+            plan_atomic_private_settlement_initial_inputs_v1(
+                pool,
+                commitments,
+                [[0; 32], secrets[1]]
+            )
+            .is_err()
+        );
+    }
 }
 
 struct DecodedOwnerBundleV1 {
@@ -1064,7 +1060,6 @@ fn decode_owner_bundle(
     })
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Encode one owner-only wallet bundle for later isolated proving.
 ///
 /// The result must be written by a native wallet to an owner-only regular file;
@@ -1074,6 +1069,7 @@ fn decode_owner_bundle(
 ///
 /// Rejects malformed public artifacts, a malformed wallet identifier, secret
 /// inputs that do not control the audit-opened notes, or an oversized bundle.
+#[cfg(any(test, feature = "test-utils"))]
 pub fn encode_atomic_private_settlement_wallet_bundle_v1(
     wallet_id: &str,
     manifest: &AtomicPrivateSettlementV1,
@@ -1387,6 +1383,47 @@ mod tests {
     }
 
     #[test]
+    fn preproof_authorization_inputs_match_original_nullifiers_and_reject_changed_secrets() {
+        let fixture = sidecar_fixture();
+        let intent = fixture.sidecar.manifest.proof_intent();
+        let expected = fixture.sidecar.payload.statement.nullifiers.clone();
+        let mut inputs = fixture.plaintext.inputs.clone();
+        let derived = prepare_atomic_private_settlement_authorization_inputs_v1(
+            &intent,
+            0,
+            &mut inputs,
+            &[[0x81; 32], [0x82; 32]],
+        )
+        .unwrap();
+        assert_eq!(derived.as_slice(), expected.as_slice());
+        assert_eq!(inputs, fixture.plaintext.inputs);
+        let mut inputs = fixture.plaintext.inputs.clone();
+        let before = inputs.clone();
+        assert!(
+            prepare_atomic_private_settlement_authorization_inputs_v1(
+                &intent,
+                0,
+                &mut inputs,
+                &[[0x91; 32], [0x82; 32]]
+            )
+            .is_err()
+        );
+        assert_eq!(
+            inputs, before,
+            "substituted secret refuses before mutating input openings"
+        );
+        assert!(
+            prepare_atomic_private_settlement_authorization_inputs_v1(
+                &intent,
+                255,
+                &mut inputs,
+                &[[0x81; 32], [0x82; 32]]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn input_preparation_rejects_noncanonical_activity() {
         let fixture = sidecar_fixture();
         for mutation in 0..3 {
@@ -1417,7 +1454,8 @@ mod tests {
         let mut statement = fixture.sidecar.payload.statement.clone();
         let mut plaintext = fixture.plaintext.clone();
 
-        let internal = internal_statement_v1(&manifest, &statement).expect("internal statement");
+        let internal = internal_statement_v1(&manifest.proof_intent(), &statement)
+            .expect("internal statement");
         let input_commitments = [
             plaintext.inputs[0].commitment,
             plaintext.inputs[1].commitment,
@@ -1439,7 +1477,8 @@ mod tests {
         assert_eq!(first_root, second_root, "adjacent leaves share one root");
         statement.old_root = PrivacyRootV1::new(first_root);
 
-        let internal = internal_statement_v1(&manifest, &statement).expect("root-bound statement");
+        let internal = internal_statement_v1(&manifest.proof_intent(), &statement)
+            .expect("root-bound statement");
         let spending_secrets = [[0x81; 32], [0x82; 32]];
         statement.nullifiers = plaintext
             .inputs
@@ -1806,7 +1845,7 @@ mod tests {
         );
         assert_eq!(
             finalize_atomic_private_settlement_provisional_bundle_v1(
-                material.manifest.clone(),
+                material.manifest.proof_intent(),
                 vec![input.clone()],
             ),
             Err(AtomicPrivateSettlementWalletErrorV1::PublicBinding),
@@ -1814,13 +1853,43 @@ mod tests {
         );
         assert_eq!(
             finalize_atomic_private_settlement_provisional_bundle_v1(
-                material.manifest.clone(),
+                material.manifest.proof_intent(),
                 vec![input.clone(), input],
             ),
             Err(AtomicPrivateSettlementWalletErrorV1::PublicBinding),
             "a duplicate leg cannot occupy the next canonical ordinal"
         );
 
+        for missing in [true, false] {
+            let mut malformed = prepared.clone();
+            if missing {
+                malformed.proof.clear();
+            } else {
+                malformed.statement.encrypted_outputs.clear();
+            }
+            assert!(
+                AtomicPrivateSettlementProvisionalLegInputV1::new(
+                    malformed,
+                    material.audit_policy.clone(),
+                    material.committee_authority.clone(),
+                    material.availability_body.retention_until_height
+                )
+                .is_err(),
+                "missing proof or ciphertext cannot cross the prepared-artifact boundary"
+            );
+        }
+        let mut substituted_ciphertext = prepared.clone();
+        substituted_ciphertext.audit_capsule.ciphertext[0] ^= 1;
+        assert!(
+            AtomicPrivateSettlementProvisionalLegInputV1::new(
+                substituted_ciphertext,
+                material.audit_policy.clone(),
+                material.committee_authority.clone(),
+                material.availability_body.retention_until_height
+            )
+            .is_err(),
+            "ciphertext substitution must fail before bundle assembly"
+        );
         let mut substituted_proof = prepared.clone();
         substituted_proof.proof[0] ^= 1;
         assert_eq!(
@@ -1913,8 +1982,22 @@ mod tests {
             .expect("second canonical input"),
         ];
 
-        let bundle = finalize_atomic_private_settlement_provisional_bundle_v1(manifest, inputs)
-            .expect("two canonical legs compose into one provisional bundle");
+        let mut foreign_intent = manifest.proof_intent();
+        foreign_intent.material.expiry_height += 1;
+        foreign_intent.bundle_id = foreign_intent.computed_bundle_id().unwrap();
+        assert!(
+            finalize_atomic_private_settlement_provisional_bundle_v1(
+                foreign_intent,
+                inputs.clone()
+            )
+            .is_err(),
+            "proof-complete artifacts cannot be reused under another intent"
+        );
+        let bundle = finalize_atomic_private_settlement_provisional_bundle_v1(
+            manifest.proof_intent(),
+            inputs,
+        )
+        .expect("two canonical legs compose into one provisional bundle");
         assert_eq!(bundle.materials.len(), 2);
         assert_ne!(
             bundle.manifest.legs[0].payload_digest,
@@ -1938,4 +2021,104 @@ mod tests {
             material.validate().expect("final material validates");
         }
     }
+}
+
+#[path = "wallet/preparation.rs"]
+mod preparation;
+pub use preparation::*;
+
+fn prepare_input_openings_from_bound_context_v1(
+    manifest: &PrivateSettlementProofIntentV1,
+    leg_ordinal: u8,
+    openings: &mut [PrivateSettlementAuditNoteOpeningV1],
+) -> Result<(), AtomicPrivateSettlementWalletErrorV1> {
+    if openings.len() != PRIVATE_SETTLEMENT_INPUT_SLOTS_V1 {
+        return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
+    }
+    // Fixed output memos are immaterial to input-note validation.  Using one
+    // closed non-zero placeholder avoids a circular dependency on the audit
+    // plaintext commitment while retaining the settlement selectors.
+    let profile =
+        PrivateNoteRelationProfileV1::exact_three_output_balanced([[1_u8; 32]; 3], [1; 32]);
+    for (index, opening) in openings.iter_mut().enumerate() {
+        if opening.active != (opening.value != 0)
+            || (opening.active && opening.dummy_domain.is_some())
+        {
+            return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
+        }
+        if !opening.active {
+            let dummy_domain = opening
+                .dummy_domain
+                .ok_or(AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
+            opening.memo_digest = super::relation::dummy_input_memo_from_bound_leg_v1(
+                manifest,
+                leg_ordinal,
+                index,
+                dummy_domain,
+            )
+            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
+        }
+        let note = PrivateNotePlaintextV1::new_profiled_input_v1(
+            opening.value,
+            opening.spending_authority,
+            opening.rho,
+            opening.blinding,
+            opening.memo_digest,
+            profile,
+        )
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
+        opening.commitment = derive_profiled_input_commitment_v1(&note, profile)
+            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
+    }
+    if openings[0].commitment == openings[1].commitment {
+        return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
+    }
+    Ok(())
+}
+
+fn prepare_outputs_from_bound_context_v1(
+    rng: &mut (impl RngCore + CryptoRng),
+    statement: &PrivateSettlementProofStatementV1,
+    outputs: &mut [PrivateSettlementAuditOutputV1],
+) -> Result<Vec<PrivacyEncryptedOutputV1>, AtomicPrivateSettlementWalletErrorV1> {
+    if outputs.len() != PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1 {
+        return Err(AtomicPrivateSettlementWalletErrorV1::SecretMaterial);
+    }
+    let fixed_memos = super::relation::output_memo_digests_from_bound_preparation_v1(statement)
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+    let profile = PrivateNoteRelationProfileV1::exact_three_output_balanced(
+        fixed_memos,
+        statement.audit_input_commitment,
+    );
+    let program_id = atomic_private_settlement_program_id_v1()
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::PublicBinding)?;
+    let mut encrypted = Vec::with_capacity(PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1);
+    for (index, (output, memo)) in outputs.iter_mut().zip(fixed_memos).enumerate() {
+        output.note.memo_digest = memo;
+        let note = PrivateNotePlaintextV1::new_profiled_output_v1(
+            output.note.value,
+            output.note.spending_authority,
+            output.note.rho,
+            output.note.blinding,
+            output.note.memo_digest,
+            index,
+            profile,
+        )
+        .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
+        output.note.commitment = derive_profiled_output_commitment_v1(&note, index, profile)
+            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?;
+        encrypted.push(
+            encrypt_ivm_private_wallet_note_for_commitment_with_opening_v1(
+                rng,
+                statement.pool_id,
+                program_id,
+                &note,
+                output.note.commitment,
+                output.recipient_view_key,
+                &output.encryption_opening.ephemeral_secret,
+            )
+            .map_err(|_| AtomicPrivateSettlementWalletErrorV1::SecretMaterial)?,
+        );
+    }
+    Ok(encrypted)
 }

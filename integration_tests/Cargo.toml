@@ -104,12 +104,13 @@ iroha_allocation = { workspace = true }
 iroha_core_privacy = { workspace = true, default-features = false }
 iroha_core_timed_ovn = { workspace = true }
 iroha_model_base = { workspace = true }
-tokio = { workspace = true, features = ["fs", "io-util", "process", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "process", "rt-multi-thread", "time", "test-util"] }
 eyre = { workspace = true }
 iroha_test_network = { workspace = true }
 iroha_data_model = { workspace = true, features = ["application-model", "http", "transparent_api"], default-features = false }
 iroha_crypto = { workspace = true, default-features = false, features = ["node-crypto"] }
 iroha_torii_shared = { workspace = true }
+iroha_version = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls-native-roots"] }
 sorafs_car = { workspace = true, features = ["manifest"] }
@@ -122,6 +123,7 @@ iroha = { workspace = true }
 zk_ace_prover = { path = "../crates/zk_ace_prover", optional = true }
 
 [dev-dependencies]
+iroha_fs = { workspace = true }
 kotodama_lang = { workspace = true }
 irohad_lib = { path = "../crates/irohad", default-features = false, features = ["daemon"] }
 zeroize = { workspace = true }

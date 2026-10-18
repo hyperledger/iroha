@@ -163,7 +163,6 @@ async fn handle(
                                 *value,
                                 1024 * 1024,
                                 &budget,
-                                unavailable,
                             )
                             .map_err(|error| error.to_string())?;
                             wires.push_reserved(wire);
@@ -195,7 +194,7 @@ async fn handle(
                             keys,
                             sns.as_slice(),
                         );
-                        encode(&payload, format, max_response, &budget, unavailable)
+                        encode(&payload, format, max_response, &budget)
                             .map_err(|_| "native names state serialization refused".to_owned())
                     },
                 )

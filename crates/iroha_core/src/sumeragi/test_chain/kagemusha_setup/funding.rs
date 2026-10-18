@@ -308,7 +308,9 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
             blocks.push(block_capture(&authenticated));
         }
     }
-    let mut cursor = crate::sumeragi::finality::NativeFinalityCursorV1::new();
+    let mut cursor = crate::sumeragi::finality::NativeFinalityCursorV1::new(
+        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+    );
     let budget = iroha_allocation::AllocationBudget::new(2 << 30);
     let view = setup.chain.state().view();
     let at = cursor

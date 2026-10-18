@@ -4679,7 +4679,7 @@ impl Iroha {
                 iroha_core::fastpq::lane::start_with_backpressure_and_shutdown(
                     &config.zk.fastpq,
                     Some(queue_backpressure),
-                    Some(kura.clone()),
+                    Arc::clone(&state),
                     supervisor.shutdown_signal(),
                 )
             {
@@ -10735,6 +10735,7 @@ mod tests {
         #[test]
         fn maps_metal_overrides_from_config() {
             let cfg = Fastpq {
+                producer: iroha_config::parameters::actual::FastpqProducer::default(),
                 execution_mode: FastpqExecutionMode::Cpu,
                 poseidon_mode: FastpqPoseidonMode::Cpu,
                 proof_sidecar_queue_cap:
@@ -10763,6 +10764,7 @@ mod tests {
         #[test]
         fn poseidon_word_preflight_respects_fastpq_config() {
             let mut cfg = Fastpq {
+                producer: iroha_config::parameters::actual::FastpqProducer::default(),
                 execution_mode: FastpqExecutionMode::Cpu,
                 poseidon_mode: FastpqPoseidonMode::Cpu,
                 proof_sidecar_queue_cap:

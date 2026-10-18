@@ -305,6 +305,129 @@ def store_evidence(directory: Path, evidence: dict, result: dict) -> None:
     put(directory / "rust-result.json", result)
 
 
+def as_cold_fixture(evidence: dict, result: dict) -> None:
+    """Extend synthetic evidence only; report bytes have no cryptographic validity."""
+    req = result["request"]
+    req["kind"] = "cold_one_call"
+    req["request_id"] = M.sha(M.canonical({k: v for k, v in req.items() if k != "request_id"}))
+    result["kind"] = "cold_one_call"
+    result["request_sha256"] = M.sha(M.canonical(req) + b"\n")
+    evidence["request.json"] = req
+    modes = [m for phase in ("checkpoint_0", "unaudited", "checkpoint_1", "checkpoint_2", "checkpoint_3", "finish")
+             for m in ("read_only", phase)] + ["read_only"] * 16
+    children = []
+    for index, mode in enumerate(modes):
+        report = f"synthetic report {index}; not real Norito evidence".encode()
+        stdout = (f"running 1 test\ntest {M.COLD_CHILD_TEST_NAME} ... ok\n"
+                  "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s\n").encode()
+        evidence[f"sdk-child-{index:02}.norito"] = report
+        evidence[f"sdk-child-{index:02}-stdout.log"] = stdout
+        evidence[f"sdk-child-{index:02}-stderr.log"] = b""
+        children.append({"sequence": index, "mode": mode, "pid": 1000 + index,
+            "input_binding": f"{5001 + 2 * index:064x}", "report_sha256": M.sha(report),
+            "report_bytes": len(report), "stdout_sha256": M.sha(stdout), "stderr_sha256": M.sha(b""),
+            "preparation_id": "c" * 64, "settlement_id": "d" * 64 if index else None,
+            "openings": 3 if index == 1 else 0, "reservations": 3 if index == 1 else 0,
+            "read_only_custody_unchanged": mode == "read_only", "original_artifacts_unchanged": index != 0})
+    names = ["encrypted-artifacts/" + "e" * 64 + suffix
+             for suffix in (".contexts", "-000.prepared", "-001.prepared", "-002.prepared")]
+    evidence["sdk-process-custody.json"] = {"version": 1, "operation": "one_call_cold_process",
+        "child_test": M.COLD_CHILD_TEST_NAME, "children": children,
+        "encrypted_originals": [{"name": name, "hash": f"{6001 + 2 * index:064x}"}
+                                for index, name in enumerate(sorted(names))],
+        "original_case_limit_ms": 3_600_000, "original_deadline_unix_ms": 1_000_000_000,
+        "child_report_bound_bytes": M.COLD_REPORT_MAX, "child_log_bound_bytes": M.COLD_LOG_MAX,
+        "read_only_before_every_continuation": True}
+
+
+class ColdSelectionRegressionTests(unittest.TestCase):
+    """A cold request must have its own accepted current discriminator."""
+    def test_cold_request_is_an_explicit_distinct_current_contract(self):
+        request = M.new_request(COMMIT, 0, kind="cold_one_call")
+        self.assertEqual(request["kind"], "cold_one_call")
+        self.assertEqual(M.validate_request(request, COMMIT, 0, kind="cold_one_call"), request)
+        with self.assertRaises(M.release_runner.RunnerError):
+            M.validate_request(request, COMMIT, 0, kind="smoke")
+
+
+class ColdOneCallEvidenceTests(unittest.TestCase):
+    """Adversarial synthetic cold process evidence; no real proofs or network."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="synthetic-cold-validator-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.root.chmod(0o700)
+        self.sha = "b" * 64
+        self.evidence, self.result = evidence_fixture(0, self.sha)
+        as_cold_fixture(self.evidence, self.result)
+
+    def validate(self):
+        store_evidence(self.root, self.evidence, self.result)
+        return M.validate_run(self.root, self.result["request"], self.sha, kind="cold_one_call")
+
+    def test_distinct_complete_cold_contract_preserves_prepared_controls(self):
+        self.assertEqual(self.validate()["continuous_checks"], 64)
+        self.assertEqual(len(M.COLD_ONE_CALL_EVIDENCE_NAMES), len(M.EVIDENCE_NAMES) + 85)
+        self.assertEqual(M.selected_test("cold_one_call"), M.COLD_ONE_CALL_TEST_NAME)
+        M.validate_discovery(f"{M.COLD_ONE_CALL_TEST_NAME}: test\n\n1 test, 0 benchmarks\n", kind="cold_one_call")
+        with self.assertRaises(M.release_runner.RunnerError):
+            M.validate_request(self.result["request"], COMMIT, 0)
+        with self.assertRaises(M.release_runner.RunnerError):
+            M.validate_discovery(f"{M.TEST_NAME}: test\n\n1 test, 0 benchmarks\n", kind="cold_one_call")
+
+    def test_cold_process_mutations_remain_rejected_after_outer_rehash(self):
+        original = copy.deepcopy(self.evidence)
+        cases = [
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(pid=1000),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(mode="finish"),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(input_binding=hash_literal(5005)),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(input_binding="2" * 64),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(sequence=1),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(openings=3),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(reservations=1),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(settlement_id="f" * 64),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(preparation_id="f" * 64),
+            lambda e: e["sdk-process-custody.json"]["children"][2].update(read_only_custody_unchanged=False),
+            lambda e: e["sdk-process-custody.json"].update(original_case_limit_ms=3_600_001),
+            lambda e: e["sdk-process-custody.json"]["encrypted_originals"][0].update(name="../key"),
+            lambda e: e.update({"sdk-child-02.norito": b"substituted"}),
+            lambda e: e.update({"sdk-child-02-stdout.log": b"running 0 tests\n"}),
+        ]
+        for index, mutate in enumerate(cases):
+            with self.subTest(index=index):
+                self.evidence = copy.deepcopy(original)
+                mutate(self.evidence)
+                with self.assertRaises(M.release_runner.RunnerError):
+                    self.validate()
+
+    def test_inner_rehashed_zero_or_duplicate_child_terminal_is_rejected(self):
+        for stdout in (b"running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s\n",
+                       self.evidence["sdk-child-02-stdout.log"] * 2):
+            self.evidence["sdk-child-02-stdout.log"] = stdout
+            self.evidence["sdk-process-custody.json"]["children"][2]["stdout_sha256"] = M.sha(stdout)
+            with self.assertRaises(M.release_runner.RunnerError):
+                self.validate()
+
+    def test_post_settlement_unrelated_height_is_rejected(self):
+        for row in self.evidence["state-replay.json"]["validators"]:
+            raw = M.release_runner.strict_json_loads(bytes.fromhex(row["response_hex"]).decode(), "synthetic response")
+            raw["height"] += 1
+            encoded = M.canonical(raw)
+            row.update(height=raw["height"], response_sha256=M.sha(encoded), response_hex=encoded.hex())
+        with self.assertRaisesRegex(M.CampaignError, "advanced beyond"):
+            self.validate()
+
+    def test_cold_outer_terminal_refuses_prepared_substitution(self):
+        log = f"running 1 test\ntest {M.COLD_ONE_CALL_TEST_NAME} ... APS cold_one_call completed: synthetic\nok\n"
+        log += "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.0s\n"
+        M.terminal_success(log, kind="cold_one_call")
+        for changed in (log.replace(M.COLD_ONE_CALL_TEST_NAME, M.TEST_NAME),
+                        log + "APS smoke completed: substituted\n", log + self.evidence["sdk-child-00-stdout.log"].decode()):
+            with self.assertRaises(M.release_runner.RunnerError):
+                M.terminal_success(changed, kind="cold_one_call")
+
+
 class SmokeEvidenceTests(unittest.TestCase):
     """Mutate bound evidence adversarially, including recomputed outer file hashes."""
 
@@ -1216,11 +1339,17 @@ class SerialCampaignTests(unittest.TestCase):
         self.source_drift_run = None
         self.patchers = [mock.patch.object(M, "source_seal", side_effect=lambda *_: self.seal.copy()),
                          mock.patch.object(M, "__file__", str(self.driver)),
-                         mock.patch.object(M, "new_request", side_effect=lambda _commit, run: request(run)),
+                         mock.patch.object(M, "new_request", side_effect=lambda _commit, run, *, kind="smoke": self.selected_request(run, kind)),
                          mock.patch.object(M, "command", side_effect=self.fake_command)]
         for patcher in self.patchers:
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def selected_request(self, run, kind):
+        req = request(run)
+        req["kind"] = kind
+        req["request_id"] = M.sha(M.canonical({k: v for k, v in req.items() if k != "request_id"}))
+        return req
 
     def fake_command(self, arguments: list[str], _repo: Path, environment: dict, directory: Path,
                      name: str, *, check: bool = True) -> dict:
@@ -1237,7 +1366,7 @@ class SerialCampaignTests(unittest.TestCase):
             output += M.canonical({"reason": "compiler-artifact", "target": {"name": "nexus_and_streaming", "kind": ["test"]},
                                   "executable": str(self.integration)}).decode()+"\n"
         elif name == "discovery":
-            output = f"{M.TEST_NAME}: test\n\n1 test, 0 benchmarks\n"
+            output = f"{arguments[1]}: test\n\n1 test, 0 benchmarks\n"
         elif name == "stdout":
             req = M.read_json(directory / "request.json")
             self.assertEqual(environment["IROHA_TEST_REQUIRE_NETWORK"], "1")
@@ -1250,12 +1379,14 @@ class SerialCampaignTests(unittest.TestCase):
             self.assertEqual(list((directory/"evidence").iterdir()), [])
             M.owner_path(directory/"evidence", directory=True)
             evidence, result = evidence_fixture(req["run"], M.file_digest(self.validator))
+            if req["kind"] == "cold_one_call":
+                as_cold_fixture(evidence, result)
             store_evidence(directory, evidence, result)
             if req["run"] == self.fail_run:
                 exit_code = 101
                 output = "running 1 test\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.0s\n"
             else:
-                output = f"running 1 test\ntest {M.TEST_NAME} ... APS smoke completed: synthetic test only\nok\n"
+                output = f"running 1 test\ntest {arguments[1]} ... APS {req['kind']} completed: synthetic test only\nok\n"
                 output += "".join(
                     "TEST_NETWORK peer exited with status ExitStatus(unix_wait_status(" +
                     ("9" if req["run"] == self.bad_exit_run and index == 0 else "0") + "))\n"
@@ -1277,6 +1408,16 @@ class SerialCampaignTests(unittest.TestCase):
 
     def run_driver(self) -> dict:
         return M.run_campaign(self.repo, self.output, self.target, COMMIT)
+
+    def test_cold_campaign_ten_serial_runs_and_explicit_readonly_selection(self):
+        campaign = M.run_campaign(self.repo, self.output, self.target, COMMIT, kind="cold_one_call")
+        self.assertEqual(campaign["kind"], "cold_one_call_campaign")
+        self.assertEqual(len(campaign["runs"]), 10)
+        self.assertTrue(all(arguments[1] == M.COLD_ONE_CALL_TEST_NAME
+                            for name, arguments in self.invocations if name in ("discovery", "stdout")))
+        M.validate_campaign(self.output, expected_commit=COMMIT, kind="cold_one_call")
+        with self.assertRaises(M.CampaignError):
+            M.validate_campaign(self.output, expected_commit=COMMIT)
 
     def test_ten_serial_fresh_runs_one_build_and_readonly_validation(self) -> None:
         campaign = self.run_driver()
@@ -1321,7 +1462,7 @@ class SerialCampaignTests(unittest.TestCase):
         self.assertEqual(sum(name == "stdout" for name, _ in self.invocations), 1)
 
     def test_reused_request_nonce_prevents_second_network(self) -> None:
-        def reused(_commit: str, run: int) -> dict:
+        def reused(_commit: str, run: int, *, kind: str = "smoke") -> dict:
             value = request(run)
             value["invocation_nonce"] = request(0)["invocation_nonce"]
             value["request_id"] = M.sha(M.canonical({key: item for key, item in value.items() if key != "request_id"}))

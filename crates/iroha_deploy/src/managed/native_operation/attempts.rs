@@ -20,6 +20,8 @@ use std::ffi::OsStr;
 
 #[path = "attempts/generated_read_phase.rs"]
 mod generated_read_phase;
+#[path = "attempts/local_census.rs"]
+mod local_census;
 #[path = "attempts/selection.rs"]
 mod selection;
 pub(in crate::managed) use selection::{
@@ -1176,7 +1178,12 @@ impl History {
         &self,
         pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
     ) -> Result<()> {
-        retained_graph::with_native_read_tree(self, |tree| {
+        retained_graph::with_native_read_tree(self, |mut tree| {
+            if let (Some(snapshot), Some(tree)) = (pass, tree.as_deref_mut())
+                && let Some(census) = local_census::LocalHistoryCensus::admit(self, snapshot)
+            {
+                return census.read(tree);
+            }
             self.require_current_local_in_tree(pass, tree, None, None)
         })
     }
@@ -1184,9 +1191,20 @@ impl History {
     fn require_current_local_in_tree(
         &self,
         pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
+        tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+        originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
+        root_read: Option<&mut GraphRootReadPass<'_, '_>>,
+    ) -> Result<()> {
+        self.require_current_local_admitted(pass, tree, originals, root_read, None)
+    }
+
+    fn require_current_local_admitted(
+        &self,
+        pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
         mut tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
         originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
         mut root_read: Option<&mut GraphRootReadPass<'_, '_>>,
+        census: Option<&local_census::LocalHistoryCensus<'_, '_>>,
     ) -> Result<()> {
         // An inherited decoder always retains the original physical read/allocation recipe,
         // even if a caller entered this native bracket before installing its decode owner.
@@ -1210,9 +1228,31 @@ impl History {
             tree.as_deref_mut(),
             root_read.as_deref_mut(),
         )?;
-        // The inventory begins and ends with fresh native directory checks.
-        let (operation_names, image) =
-            self.require_operation_entry(tree.as_deref_mut(), originals)?;
+        if let (Some(census), Some(tree)) = (census, tree.as_deref_mut())
+            && census.covers(self)
+        {
+            return census.read_contents(tree, originals, root_read);
+        }
+        self.require_current_local_contents(pass, tree, originals, root_read, None)
+    }
+
+    fn require_current_local_contents(
+        &self,
+        pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
+        mut tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+        originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
+        root_read: Option<&mut GraphRootReadPass<'_, '_>>,
+        mut operation_read: Option<&mut local_census::OperationRead<'_, '_>>,
+    ) -> Result<()> {
+        // The same native leaf and inventory recipe runs inside either original brackets
+        // or one admitted, callback-free operation census. No byte or verdict is cached.
+        let (operation_names, image) = match operation_read
+            .as_deref_mut()
+            .filter(|read| read.covers(self))
+        {
+            Some(read) => self.require_operation_entry_in_scope(read.reader(), originals)?,
+            None => self.require_operation_entry(tree.as_deref_mut(), originals)?,
+        };
         match &self.root {
             None => {
                 if operation_names.iter().any(|name| name == "attempts") {
@@ -1296,12 +1336,28 @@ impl History {
                 revalidate_directory_in_tree(root, tree.as_deref_mut())?;
             }
         }
-        if self.require_operation_exit(tree.as_deref_mut(), originals)? != operation_names {
+        let final_names = match operation_read
+            .as_deref_mut()
+            .filter(|read| read.covers(self))
+        {
+            Some(read) => self.require_operation_exit_in_scope(read.reader(), originals)?,
+            None => self.require_operation_exit(tree.as_deref_mut(), originals)?,
+        };
+        if final_names != operation_names {
             return Err(invalid(
                 "dispatch operation inventory changed during inspection",
             ));
         }
-        revalidate_directory_in_tree(&self.operation, tree.as_deref_mut())?;
+        if !operation_read
+            .as_deref()
+            .is_some_and(|read| read.covers(self))
+        {
+            #[cfg(test)]
+            crate::managed::stream_token_custody::body_history::local_census_tests::record(
+                crate::managed::stream_token_custody::body_history::local_census_tests::Point::SeparateOperationValidation,
+            );
+            revalidate_directory_in_tree(&self.operation, tree.as_deref_mut())?;
+        }
         self.scope.validate_local(
             &self.operation,
             self.purpose,
@@ -1340,13 +1396,12 @@ impl History {
         {
             #[cfg(test)]
             operation_scope_tests::bracket();
+            #[cfg(test)]
+            crate::managed::stream_token_custody::body_history::local_census_tests::record(
+                crate::managed::stream_token_custody::body_history::local_census_tests::Point::SeparateOperationBracket,
+            );
             return tree.read_scope(&self.operation, |reader| {
-                let names = operation_inventory_in_scope(reader, self.purpose)?;
-                if !originals.is_some_and(|pass| pass.covers(self)) {
-                    require_semantic_original_in_scope(reader, self.semantic)?;
-                }
-                let image = self.require_metadata_in_scope(reader)?;
-                Ok((names, image))
+                self.require_operation_entry_in_scope(reader, originals)
             });
         }
         let names =
@@ -1366,17 +1421,12 @@ impl History {
         {
             #[cfg(test)]
             operation_scope_tests::bracket();
+            #[cfg(test)]
+            crate::managed::stream_token_custody::body_history::local_census_tests::record(
+                crate::managed::stream_token_custody::body_history::local_census_tests::Point::SeparateOperationBracket,
+            );
             return tree.read_scope(&self.operation, |reader| {
-                let image = self.require_metadata_in_scope(reader)?;
-                if !image.same_bytes(&self.image) {
-                    return Err(invalid(
-                        "operation metadata changed during native operation",
-                    ));
-                }
-                if !originals.is_some_and(|pass| pass.covers(self)) {
-                    require_semantic_original_in_scope(reader, self.semantic)?;
-                }
-                operation_inventory_in_scope(reader, self.purpose)
+                self.require_operation_exit_in_scope(reader, originals)
             });
         }
         let image = self.require_metadata_in_tree(tree.as_deref_mut())?;
@@ -1387,6 +1437,36 @@ impl History {
         }
         require_semantic_original_in_tree(&self.operation, self.semantic, tree.as_deref_mut())?;
         operation_inventory_in_tree(&self.operation, self.purpose, tree)
+    }
+
+    fn require_operation_entry_in_scope(
+        &self,
+        reader: &mut iroha_fs::PrivateReadScope<'_>,
+        originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
+    ) -> Result<(Vec<std::ffi::OsString>, metadata::Image)> {
+        let names = operation_inventory_in_scope(reader, self.purpose)?;
+        if !originals.is_some_and(|pass| pass.covers(self)) {
+            require_semantic_original_in_scope(reader, self.semantic)?;
+        }
+        let image = self.require_metadata_in_scope(reader)?;
+        Ok((names, image))
+    }
+
+    fn require_operation_exit_in_scope(
+        &self,
+        reader: &mut iroha_fs::PrivateReadScope<'_>,
+        originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
+    ) -> Result<Vec<std::ffi::OsString>> {
+        let image = self.require_metadata_in_scope(reader)?;
+        if !image.same_bytes(&self.image) {
+            return Err(invalid(
+                "operation metadata changed during native operation",
+            ));
+        }
+        if !originals.is_some_and(|pass| pass.covers(self)) {
+            require_semantic_original_in_scope(reader, self.semantic)?;
+        }
+        operation_inventory_in_scope(reader, self.purpose)
     }
 
     fn require_metadata_in_scope(

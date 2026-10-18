@@ -47,7 +47,7 @@ fn with_asset_snapshot<T>(
                 value,
             )?;
         }
-        consume(snapshot, definition, incarnation)
+        consume(snapshot, definition, incarnation).map_err(WorldStateSnapshotError::from)
     })
 }
 
@@ -364,6 +364,103 @@ fn complete_cold_snapshot_has_no_replacement_budget_on_refusal() {
 }
 
 #[test]
+fn snapshot_preserves_original_request_capacity_and_release_before_retry() {
+    use iroha_allocation::{AllocationRefusal, ChargedBufferError};
+    use std::task::{Context, Waker};
+
+    let (chain, asset) = asset_chain();
+    let state = chain.state();
+    let tip = chain.committed(chain.height());
+    let request = AllocationBudget::new(32 * 1024 * 1024);
+    let mut registration = crate::unit_test_support::release_registration(&request);
+    let mut context = Context::from_waker(Waker::noop());
+    let occupied = request
+        .try_reserve_bytes(request.limit_bytes() - request.reserved_bytes())
+        .unwrap();
+    let called = Cell::new(false);
+    let error = with_asset_snapshot(state, &tip, &asset, &request, |_, _, _| {
+        called.set(true);
+        Ok(())
+    })
+    .unwrap_err();
+    let WorldStateSnapshotError::Buffer(ChargedBufferError::Admission(refusal)) = error else {
+        panic!("request snapshot must preserve its original buffer refusal: {error}");
+    };
+    let AllocationRefusal::Capacity {
+        requested_bytes,
+        release,
+        ..
+    } = &refusal
+    else {
+        panic!("occupied request capacity was conflated: {refusal}");
+    };
+    assert_eq!(
+        refusal,
+        request.try_reserve_bytes(*requested_bytes).unwrap_err()
+    );
+    assert!(!called.get());
+    assert!(registration.poll_wait(release, &mut context).is_pending());
+    drop(occupied);
+    assert!(registration.poll_wait(release, &mut context).is_ready());
+    registration.cancel();
+    drop(registration);
+    with_asset_snapshot(state, &tip, &asset, &request, |snapshot, _, _| {
+        called.set(true);
+        assert_eq!(
+            snapshot.root().unwrap(),
+            tip.commitment().execution.world_state_root
+        );
+        Ok(())
+    })
+    .unwrap();
+    assert!(called.get());
+    assert_eq!(request.reserved_bytes(), 0);
+}
+
+#[test]
+fn snapshot_collector_retains_field_allocation_refusal_without_adding_a_row() {
+    use iroha_allocation::AllocationRefusal;
+    let request = AllocationBudget::new(1024 * 1024);
+    let mut collector = SnapshotCollector::new(&request, 1, 1).unwrap();
+    let retained = request.reserved_bytes();
+    let occupied = request
+        .try_reserve_bytes(request.limit_bytes() - retained)
+        .unwrap();
+    let error: WorldStateSnapshotError = collector
+        .push(
+            "world.test",
+            WorldStateElementKindV1::Cell,
+            None,
+            Hash::new(b"v"),
+        )
+        .err()
+        .unwrap()
+        .into();
+    let WorldStateSnapshotError::Allocation(refusal @ AllocationRefusal::Capacity { .. }) = error
+    else {
+        panic!("field storage must preserve the original allocation refusal: {error}");
+    };
+    assert_eq!(
+        refusal,
+        request.try_reserve_bytes("world.test".len()).unwrap_err()
+    );
+    assert!(collector.entries.is_empty());
+    drop(occupied);
+    collector
+        .push(
+            "world.test",
+            WorldStateElementKindV1::Cell,
+            None,
+            Hash::new(b"v"),
+        )
+        .unwrap();
+    let snapshot = collector.finish(Hash::new(b"schema")).unwrap();
+    assert_eq!(snapshot.snapshot.entries.len(), 1);
+    drop(snapshot);
+    assert_eq!(request.reserved_bytes(), 0);
+}
+
+#[test]
 fn snapshot_collector_rejects_omission_duplicate_and_excess_elements() {
     let budget = AllocationBudget::new(1024 * 1024);
     let schema = Hash::new(b"schema");
@@ -378,7 +475,13 @@ fn snapshot_collector_rejects_omission_duplicate_and_excess_elements() {
             )
             .unwrap();
     }
-    assert!(duplicate.finish(schema).is_err());
+    assert!(matches!(
+        duplicate
+            .finish(schema)
+            .err()
+            .map(WorldStateSnapshotError::from),
+        Some(WorldStateSnapshotError::Invalid(_))
+    ));
     assert_eq!(budget.reserved_bytes(), 0);
     let mut excess = SnapshotCollector::new(&budget, 1, 1).unwrap();
     excess
@@ -474,7 +577,14 @@ fn snapshot_separates_original_world_pool_from_request_and_response_capacity() {
         called.set(true);
         Ok(())
     });
-    assert!(matches!(result, Err(WorldStateSnapshotError::Invalid(_))));
+    assert!(matches!(
+        result,
+        Err(WorldStateSnapshotError::Buffer(
+            iroha_allocation::ChargedBufferError::Admission(
+                iroha_allocation::AllocationRefusal::ExceedsLimit { limit_bytes: 0, .. }
+            )
+        ))
+    ));
     assert!(
         !called.get(),
         "State capacity cannot fund an empty request pool"
@@ -1129,6 +1239,34 @@ fn cold_reconstruction_rejects_missing_changed_or_foreign_complete_applied_rows(
     block.finish_freeze();
     let capsule = cut.prepare(&block, native, 2, &budget).unwrap();
     let mut applied = capture(&block, block.state_accumulator.get(), &budget).unwrap();
+    let reconstruction_request = AllocationBudget::new(32 * 1024 * 1024);
+    let occupied = reconstruction_request
+        .try_reserve_bytes(reconstruction_request.limit_bytes())
+        .unwrap();
+    let error: WorldStateSnapshotError = reconstruct(&applied, &capsule, &reconstruction_request)
+        .err()
+        .unwrap()
+        .into();
+    let WorldStateSnapshotError::Buffer(iroha_allocation::ChargedBufferError::Admission(
+        refusal @ iroha_allocation::AllocationRefusal::Capacity { .. },
+    )) = error
+    else {
+        panic!("reconstruction must preserve its original request refusal: {error}");
+    };
+    if let iroha_allocation::AllocationRefusal::Capacity {
+        requested_bytes, ..
+    } = &refusal
+    {
+        assert_eq!(
+            refusal,
+            reconstruction_request
+                .try_reserve_bytes(*requested_bytes)
+                .unwrap_err()
+        );
+    }
+    drop(occupied);
+    drop(reconstruct(&applied, &capsule, &reconstruction_request).unwrap());
+    assert_eq!(reconstruction_request.reserved_bytes(), 0);
     let original = applied.snapshot.entries.clone(); // Explicit test-only mutation specimen.
     let position = applied
         .snapshot
@@ -1140,10 +1278,20 @@ fn cold_reconstruction_rejects_missing_changed_or_foreign_complete_applied_rows(
         })
         .unwrap();
     applied.snapshot.entries[position].value_hash = Hash::new(b"substituted post-tail preimage");
-    assert!(reconstruct(&applied, &capsule, &budget).is_err());
+    assert!(matches!(
+        reconstruct(&applied, &capsule, &budget)
+            .err()
+            .map(WorldStateSnapshotError::from),
+        Some(WorldStateSnapshotError::Invalid(_))
+    ));
     applied.snapshot.entries = original;
     applied.snapshot.entries.remove(position);
-    assert!(reconstruct(&applied, &capsule, &budget).is_err());
+    assert!(matches!(
+        reconstruct(&applied, &capsule, &budget)
+            .err()
+            .map(WorldStateSnapshotError::from),
+        Some(WorldStateSnapshotError::Invalid(_))
+    ));
     assert!(reconstruct(&applied, &capsule, &AllocationBudget::new(0)).is_err());
 }
 
@@ -1454,4 +1602,114 @@ fn names_read_root_checks_direct_role_and_revocation_without_inferred_grants() {
         roles.commit();
     }
     assert!(require_names_read_authority(&world.block(), &reader).is_err());
+}
+
+#[test]
+fn snapshot_uses_generation_of_acquired_view_after_real_paid_h3_publication() {
+    use crate::sumeragi::test_chain::native_amx_approval_route_fixture;
+    use iroha_data_model::{isi::Log, prelude::AccountId};
+    use std::{cell::RefCell, rc::Rc, sync::Arc};
+
+    // Both replicas start at the same genuine signed, paid private H2.
+    let (mut source, approval, relay_key) = native_amx_approval_route_fixture();
+    let (replica, replica_approval, _) = native_amx_approval_route_fixture();
+    assert_eq!(approval, replica_approval);
+    assert_eq!(source.network_id(), replica.network_id());
+    assert_eq!(
+        source.committed(2).core_hash(),
+        replica.committed(2).core_hash()
+    );
+    let relay = AccountId::new(relay_key.public_key().clone());
+    let transaction = source.sign(
+        &relay_key,
+        [Log::new(
+            iroha_logger::Level::INFO,
+            "paid generation race boundary".into(),
+        )
+        .into()],
+        2_999,
+    );
+    let transaction_id = transaction.hash_as_entrypoint();
+    assert_eq!(source.commit_at(3_000, vec![transaction]), [true]);
+    let requested = source.committed(3);
+    let input = requested.block().network_entrypoint_at(0).unwrap();
+    assert_eq!(input.hash(), transaction_id);
+    let (_, output) = requested.block().network_output_at(0).unwrap();
+    assert!(output.result.is_ok());
+    let fee = output
+        .result
+        .nexus_fee_receipt()
+        .expect("genuine paid H3 result");
+    fee.validate_for_network_input(input, 3).unwrap();
+    assert!(fee.schedule.gas_used > 0);
+    assert_eq!(
+        fee.fee_amount,
+        iroha_primitives::numeric::Quantity::from(
+            2_u64.checked_add(fee.schedule.gas_used).unwrap()
+        )
+    );
+    assert_eq!(
+        fee.debit_source,
+        iroha_data_model::nexus::FeeDebitSource::Account(relay.clone())
+    );
+
+    let state = Arc::clone(replica.state());
+    let preliminary = state.state_view_generation();
+    let replica = Rc::new(RefCell::new(replica));
+    let publish_replica = Rc::clone(&replica);
+    let publish_state = Arc::clone(&state);
+    SNAPSHOT_BEFORE_FIRST_VIEW.with(|slot| {
+        assert!(
+            slot.borrow_mut()
+                .replace(Box::new(move || {
+                    assert_eq!(publish_state.state_view_generation(), preliminary);
+                    assert_eq!(publish_replica.borrow().height(), 2);
+                    publish_replica.borrow_mut().replay_from(&source).unwrap();
+                    assert_eq!(publish_replica.borrow().height(), 3);
+                    assert_eq!(publish_state.state_view_generation(), preliminary + 2);
+                }))
+                .is_none()
+        );
+    });
+    let budget = AllocationBudget::new(32 * 1024 * 1024);
+    let called = Cell::new(false);
+    state
+        .with_native_amx_debit_approval_snapshot_v1(
+            &requested,
+            &approval,
+            &relay,
+            &budget,
+            |snapshot, _| {
+                called.set(true);
+                assert_eq!(
+                    snapshot.root().unwrap(),
+                    requested.commitment().execution.world_state_root
+                );
+                Ok(())
+            },
+        )
+        .expect("a coherent paid H3 view must not inherit an unrelated H2 pre-view generation");
+    assert!(called.get());
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(replica.borrow().height(), 3);
+    assert!(SNAPSHOT_BEFORE_FIRST_VIEW.with(|slot| slot.borrow().is_none()));
+
+    // Real publication fixed the race, but the old selected H2 still cannot pass.
+    let old = replica.borrow().committed(2);
+    let called_old = Cell::new(false);
+    let error = state
+        .with_native_amx_debit_approval_snapshot_v1(&old, &approval, &relay, &budget, |_, _| {
+            called_old.set(true);
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        WorldStateSnapshotError::CutChanged {
+            requested_height: 2,
+            observed_height: 3
+        }
+    ));
+    assert!(!called_old.get());
+    assert_eq!(budget.reserved_bytes(), 0);
 }

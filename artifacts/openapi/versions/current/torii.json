@@ -3520,6 +3520,64 @@
         ],
         "type": "object"
       },
+      "AmxApprovalReadFailureV1": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_hash": {
+            "type": "string"
+          },
+          "observed_height": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reason": {
+            "additionalProperties": false,
+            "properties": {
+              "details": {
+                "type": "null"
+              },
+              "kind": {
+                "enum": [
+                  "CutChanged",
+                  "Capacity"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "details"
+            ],
+            "type": "object"
+          },
+          "relay_header_hash": {
+            "type": "string"
+          },
+          "requested_height": {
+            "minimum": 2,
+            "type": "integer"
+          },
+          "retry_after_ms": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "approval_hash",
+          "relay_header_hash",
+          "requested_height",
+          "reason",
+          "observed_height",
+          "retry_after_ms"
+        ],
+        "type": "object"
+      },
       "AmxDebitApprovalProofV1": {
         "additionalProperties": false,
         "description": "Data-only complete World preimages and the authenticated caller relay direct permission row at one current certified private-root cut. The client separately verifies the exact genesis-rooted block, World root, participant binding and exact consent. Historical evidence cannot override revocation; Prepare rechecks current permission. Roles do not supply this approval.",
@@ -10006,6 +10064,9 @@
           },
           "alias_setup_report": {
             "$ref": "#/components/schemas/AliasSetupReportV1"
+          },
+          "amx_approval_read_failure": {
+            "$ref": "#/components/schemas/AmxApprovalReadFailureV1"
           },
           "axt": {
             "$ref": "#/components/schemas/AxtErrorDetails"
@@ -34829,6 +34890,27 @@
           "plaintext_transaction_contents": "forbidden"
         }
       },
+      "PrivateSettlementCommitteeKeyProofV1": {
+        "additionalProperties": false,
+        "description": "Exact public-key index and selected original Committee-role key record.",
+        "properties": {
+          "index": {
+            "items": {
+              "$ref": "#/components/schemas/ConsensusKeyId"
+            },
+            "type": "array"
+          },
+          "record": {
+            "$ref": "#/components/schemas/ConsensusKeyRecord"
+          }
+        },
+        "required": [
+          "index",
+          "record"
+        ],
+        "type": "object",
+        "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementCommitteeKeyProofV1"
+      },
       "PrivateSettlementCommitteeProofResponseV1": {
         "additionalProperties": false,
         "description": "Validator-only proof view; capsule bytes and plaintext openings are omitted.",
@@ -34894,6 +34976,74 @@
           "plaintext_audit_openings": "omitted",
           "plaintext_transaction_contents": "forbidden"
         }
+      },
+      "PrivateSettlementContextProofV1": {
+        "additionalProperties": false,
+        "description": "One selected context member. All batch members must carry identical complete World and native-lane preimages.",
+        "properties": {
+          "committee_keys": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateSettlementCommitteeKeyProofV1"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
+          },
+          "lanes": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "Exact original canonical public SumeragiLaneState cell.",
+            "x-iroha-norito-schema": "iroha_data_model::sumeragi_lanes::SumeragiLaneState"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/PrivateSettlementPoolCutProofV1"
+          }
+        },
+        "required": [
+          "pool",
+          "lanes",
+          "committee_keys"
+        ],
+        "type": "object",
+        "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementContextProofV1"
+      },
+      "PrivateSettlementContextRequestV1": {
+        "additionalProperties": false,
+        "description": "Exact unique selectors in independently retained caller order.",
+        "properties": {
+          "pools": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateSettlementPoolKeyV1"
+            },
+            "maxItems": 255,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "pools"
+        ],
+        "type": "object",
+        "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementContextRequestV1"
+      },
+      "PrivateSettlementContextsProofV1": {
+        "additionalProperties": false,
+        "description": "One atomic same-cut batch. The aggregate canonical frame, including repeated World/lane preimages, is limited to the existing 32 MiB complete-World bound. This data is not a verified context, wallet authority or a proof of current absence after the cut.",
+        "properties": {
+          "contexts": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateSettlementContextProofV1"
+            },
+            "maxItems": 255,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "contexts"
+        ],
+        "type": "object",
+        "x-iroha-max-bytes": 33554432,
+        "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementContextsProofV1"
       },
       "PrivateSettlementLegStatusResponseV1": {
         "additionalProperties": false,
@@ -35374,6 +35524,52 @@
             "business_result"
           ]
         }
+      },
+      "PrivateSettlementPoolCutProofV1": {
+        "additionalProperties": false,
+        "description": "Complete bounded World hash preimages and exact public selected pool/governance values; no restricted asset opening.",
+        "properties": {
+          "governance": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "Canonical public governance lineage; restricted openings are excluded.",
+            "x-iroha-norito-schema": "iroha_data_model::nexus::PrivateSettlementPoolGovernanceProjectionV1"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "Canonical compact native pool frontier; no witness plaintext.",
+            "x-iroha-norito-schema": "iroha_data_model::nexus::PrivateSettlementPoolStateV1"
+          },
+          "world": {
+            "$ref": "#/components/schemas/WorldStateSnapshotV1"
+          }
+        },
+        "required": [
+          "world",
+          "governance",
+          "pool"
+        ],
+        "type": "object",
+        "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementPoolCutProofV1"
+      },
+      "PrivateSettlementPoolKeyV1": {
+        "additionalProperties": false,
+        "description": "Canonical private route and opaque governed pool identity; selector data only.",
+        "properties": {
+          "pool_id": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "route": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "Exact dataspace, lane and incarnation.",
+            "x-iroha-norito-schema": "iroha_data_model::nexus::PrivateSettlementRouteV1"
+          }
+        },
+        "required": [
+          "route",
+          "pool_id"
+        ],
+        "type": "object",
+        "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementPoolKeyV1"
       },
       "PrivateSettlementPrepareVoteRequestV1": {
         "additionalProperties": false,
@@ -63029,7 +63225,7 @@
     },
     "/v1/amx/debit-approval/{height}": {
       "post": {
-        "description": "Read-only account-signed POST. The caller relay signs the exact method, canonical URI and canonical Norito AmxDebitApprovalV1 body; API-token possession alone is insufficient. The caller must independently hold CanReadAllLedgerData because this proof contains the complete World hash inventory. Exact debit, account or dataspace grants do not authorize this disclosure. The read grant is checked before projection and again after projection/egress awaits; revocation withholds the buffered response. The decimal height must be at least two and equal the current applied certified private-root height. The response binds the selected participant network, parent network, instance, dataspace, complete transaction and scoped debit balance. At most 65536 request bytes and 33554432 response bytes (or the smaller configured response limit) are admitted. No current authorization is inferred from historical grant evidence: Prepare rechecks the live direct permission after revocation or rotation.",
+        "description": "Read-only account-signed POST. The caller relay signs the exact method, canonical URI and canonical Norito AmxDebitApprovalV1 body; API-token possession alone is insufficient. The caller must independently hold CanReadAllLedgerData because this proof contains the complete World hash inventory. Exact debit, account or dataspace grants do not authorize this disclosure. The read grant is checked before projection and again after projection/egress awaits; revocation withholds the buffered response. The decimal height must be at least two and equal the current applied certified private-root height. The response binds the selected participant network, parent network, instance, dataspace, complete transaction and scoped debit balance. At most 65536 request bytes and 33554432 response bytes (or the smaller configured response limit) are admitted. No current authorization is inferred from historical grant evidence: Prepare rechecks the live direct permission after revocation or rotation. Wrong scope, malformed native publication, failed finality/proof verification and invalid source encoding are terminal. Generic HTTP status alone never grants retryability.",
         "operationId": "amxDebitApprovalProofV1",
         "parameters": [
           {
@@ -63125,7 +63321,7 @@
                 }
               }
             },
-            "description": "Canonical account authentication is absent or invalid; capacity refusal is reported separately as retryable 503.",
+            "description": "Canonical account authentication is absent or invalid; a bounded original capacity refusal is reported separately by the request-bound 429 envelope.",
             "headers": {
               "Cache-Control": {
                 "description": "Account-authenticated data is never shared or retained by caches.",
@@ -63177,6 +63373,36 @@
               }
             }
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "One canonical Norito ErrorEnvelope containing only the request-bound amx_approval_read_failure detail. This unsigned observation is not proof authority.",
+                  "format": "binary",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string",
+                  "x-iroha-norito-schema": "iroha_torii_shared::ErrorEnvelope"
+                }
+              }
+            },
+            "description": "amx_approval_read_failure with reason CutChanged binds the exact request and a valid differing applied cut height. This unsigned observation only schedules another bounded read; it supplies no proof or monetary outcome.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
           "413": {
             "content": {
               "application/json": {
@@ -63208,29 +63434,19 @@
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
                 }
-              }
-            },
-            "description": "Heavy-query admission, rate or exact egress limits refused the read.",
-            "headers": {
-              "Cache-Control": {
-                "description": "Account-authenticated data is never shared or retained by caches.",
-                "required": true,
+              },
+              "application/x-norito": {
                 "schema": {
-                  "const": "private, no-store",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
+                  "description": "One canonical Norito ErrorEnvelope containing only the request-bound amx_approval_read_failure detail. This unsigned observation is not proof authority.",
+                  "format": "binary",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string",
+                  "x-iroha-norito-schema": "iroha_torii_shared::ErrorEnvelope"
                 }
               }
             },
-            "description": "Current certified source, exact approval, response capacity or authentication capacity is unavailable. amx_debit_approval_authentication_capacity and query capacity refusals are retryable and never permission absence or an authorization denial. amx_debit_approval_proof_unavailable supplies no negative evidence.",
+            "description": "amx_approval_read_failure with reason Capacity binds the exact request bytes/account header and the original typed authentication, current-permission, query-admission, allocation/projection or exact-egress refusal. A pre-authentication observation makes no claim of successful authentication. Optional retry_after_ms is the original egress minimum delay. A caller retains one absolute deadline.",
             "headers": {
               "Cache-Control": {
                 "description": "Account-authenticated data is never shared or retained by caches.",
@@ -85997,6 +86213,332 @@
           "authentication": "torii_default",
           "schemaVersion": 1,
           "stableRouteId": "private_settlement.bundle.receipt"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/nexus/private-settlements/context/{height}": {
+      "post": {
+        "description": "Read-only canonical account-signed POST for the exact ordered private pool selectors. The height must be canonical and equal the current certified Global cut, at least two. The account requires current CanReadAllLedgerData; selected-dataspace grants are insufficient because the complete unsalted World hash list exposes unrelated row identities, counts and low-entropy values. Permission is rechecked before egress. Restricted bank context without full-ledger authority is unsupported until a scoped authenticated State proof owner is installed. One physical retained World supplies all requested context and complete hash preimages. The aggregate response remains within 33554432 bytes, or a smaller configured limit; large cuts may be locally unavailable. Independent pinned-genesis finality, schema, exact selector and restricted-opening verification remain mandatory. Persist the entire authenticated context before wallet reservation or proving; this route does not serve historical cuts or acquire monetary authority.",
+        "operationId": "privateSettlementContextsV1",
+        "parameters": [
+          {
+            "description": "Canonical decimal u64 current certified non-genesis height, at least 2; no sign or leading zero.",
+            "in": "path",
+            "name": "height",
+            "required": true,
+            "schema": {
+              "maxLength": 20,
+              "pattern": "^(?:[2-9]|[1-9][0-9]+)$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Canonical account; required for single-signature mode and optional with a subject-identifying witness.",
+            "in": "header",
+            "name": "X-Iroha-Account",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Canonical request signature; mutually exclusive with a witness.",
+            "in": "header",
+            "name": "X-Iroha-Signature",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Signed Unix timestamp; mutually exclusive with a witness.",
+            "in": "header",
+            "name": "X-Iroha-Timestamp-Ms",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Fresh signed nonce; mutually exclusive with a witness.",
+            "in": "header",
+            "name": "X-Iroha-Nonce",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Canonical Norito multisig witness; alternative to the signature quartet.",
+            "in": "header",
+            "name": "X-Iroha-Witness",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-norito": {
+              "schema": {
+                "description": "One canonical Norito frame selecting 1..255 unique exact private pools in caller intent order. Decoding grants no authority.",
+                "format": "binary",
+                "maxLength": 65536,
+                "minLength": 1,
+                "type": "string",
+                "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementContextRequestV1",
+                "x-iroha-norito-schema": "iroha_data_model::nexus::PrivateSettlementContextRequestV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateSettlementContextsProofV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "One aggregate canonical Norito frame for all requested contexts; independent verification grants authority.",
+                  "format": "binary",
+                  "maxLength": 33554432,
+                  "minLength": 1,
+                  "type": "string",
+                  "x-iroha-norito-frame": "iroha_data_model::nexus::PrivateSettlementContextsProofV1",
+                  "x-iroha-norito-schema": "iroha_data_model::nexus::PrivateSettlementContextsProofV1"
+                }
+              }
+            },
+            "description": "Exact selected data from one current certified Global cut; independently verify all originals before use.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Height or exact canonical ordered selector frame is malformed, duplicate or out of bounds.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Canonical account authentication is absent, invalid or replayed. Authentication-source capacity remains a separate retryable 429.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The authenticated account lacks current CanReadAllLedgerData required for complete World hash disclosure, or deployment API-token access is denied.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Accept must permit application/json or application/x-norito.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Request exceeds the 65536-byte finite selector bound.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication-source capacity, heavy-query admission, rate or exact egress limits refused the read.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original certified cut, selected context or response capacity is locally unavailable. This is recoverable read failure and supplies no negative state, permission or execution evidence.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Read every selected private context from one certified Global cut.",
+        "tags": [
+          "Nexus"
+        ],
+        "x-iroha-canonical-auth-v1": {
+          "body_hash_bound": true,
+          "exact_request_target": true,
+          "modes": [
+            {
+              "forbidden_headers": [
+                "X-Iroha-Witness"
+              ],
+              "kind": "single_signature",
+              "required_headers": [
+                "X-Iroha-Account",
+                "X-Iroha-Signature",
+                "X-Iroha-Timestamp-Ms",
+                "X-Iroha-Nonce"
+              ]
+            },
+            {
+              "forbidden_headers": [
+                "X-Iroha-Signature",
+                "X-Iroha-Timestamp-Ms",
+                "X-Iroha-Nonce"
+              ],
+              "kind": "multisig_witness",
+              "optional_headers": [
+                "X-Iroha-Account"
+              ],
+              "required_headers": [
+                "X-Iroha-Witness"
+              ]
+            }
+          ]
+        },
+        "x-iroha-max-request-bytes": 65536,
+        "x-iroha-max-response-bytes": 33554432,
+        "x-iroha-redaction-v1": {
+          "logs_errors_events_must_use_public_allowlist": true,
+          "plaintext_transaction_contents": "forbidden",
+          "request_body_must_not_be_logged": true,
+          "response_allowlisted_public_fields_only": true,
+          "scope": "authenticated_restricted_request_redacted_response"
+        },
+        "x-iroha-route-auth": {
+          "admission": "authenticated_account",
+          "authentication": "canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "private_settlement.context"
         },
         "x-iroha-tool-effect": "read"
       }

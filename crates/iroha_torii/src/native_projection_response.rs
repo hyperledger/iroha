@@ -15,13 +15,83 @@ pub fn capacity() -> Error {
     ))
 }
 
+/// Original producer failure, retained until the route's HTTP or snapshot boundary.
+#[derive(Debug, thiserror::Error)]
+pub enum NativeProjectionError {
+    /// The exact output cannot fit the unchanged response contract.
+    #[error("native response requires {requested} bytes, exceeding its {limit}-byte bound")]
+    ResponseLimit {
+        /// Measured canonical frame extent.
+        requested: usize,
+        /// Original route limit.
+        limit: usize,
+    },
+    /// Exact output backing retains the original admission or allocator refusal.
+    #[error("native response backing: {0}")]
+    Buffer(#[from] iroha_allocation::ChargedBufferError),
+    /// Canonical serialization retains its original classified codec failure.
+    #[error("native response serialization: {0}")]
+    Encoding(#[source] norito::core::DecodeAttemptError),
+    /// The canonical root reader retains its actual local decoding refusal.
+    #[error("native root read: {0}")]
+    RootScope(#[source] iroha_core::execution_attempt::ExecutionDeferred),
+    /// The original certified-chain reader failed without a projected HTTP error.
+    #[error("native current-cut history: {0}")]
+    History(
+        #[source]
+        iroha_core::execution_attempt::ExecutionAttemptError<
+            iroha_data_model::query::error::QueryExecutionFail,
+        >,
+    ),
+    /// Original invalid source limits or impossible committee geometry.
+    #[error("native projection: {0}")]
+    Invalid(String),
+    /// The route's selected source is unavailable or differs from its required binding.
+    #[error("native projection source: {0}")]
+    Unavailable(#[source] Error),
+}
+
+impl From<NativeProjectionError> for Error {
+    fn from(error: NativeProjectionError) -> Self {
+        use iroha_allocation::{AllocationRefusal, ChargedBufferError};
+        use iroha_core::execution_attempt::ExecutionAttemptError;
+        match error {
+            NativeProjectionError::Buffer(
+                ChargedBufferError::Admission(AllocationRefusal::Capacity { .. })
+                | ChargedBufferError::Allocator { .. },
+            )
+            | NativeProjectionError::RootScope(_) => capacity(),
+            NativeProjectionError::Encoding(ref error)
+                if error.kind() != norito::core::DecodeAttemptErrorKind::Invalid =>
+            {
+                capacity()
+            }
+            NativeProjectionError::History(ExecutionAttemptError::Deferred(ref error))
+                if !matches!(
+                    error.allocation_refusal(),
+                    Some(
+                        AllocationRefusal::ExceedsLimit { .. } | AllocationRefusal::DemandOverflow
+                    )
+                ) =>
+            {
+                capacity()
+            }
+            NativeProjectionError::History(ExecutionAttemptError::Rejected(error)) => {
+                Error::Query(iroha_data_model::ValidationFail::QueryFailed(error))
+            }
+            NativeProjectionError::Unavailable(error) => error,
+            error => conversion_error(error.to_string()),
+        }
+    }
+}
+
 // One current-cut acquisition under the request's unchanged decode and source allowance.
 pub fn current_global_tip(
     view: &impl StateReadOnly,
     height: u64,
     limits: NativeFinalityLimits,
     unavailable: fn() -> Error,
-) -> Result<CommittedBlock, Error> {
+) -> Result<CommittedBlock, NativeProjectionError> {
     current_root_tip(
         view,
         height,
@@ -38,49 +108,48 @@ pub(crate) fn current_root_tip(
     scope: iroha_data_model::block::consensus::SumeragiRootScope,
     limits: NativeFinalityLimits,
     unavailable: fn() -> Error,
-) -> Result<CommittedBlock, Error> {
-    limits.validate().map_err(|_| capacity())?;
-    if iroha_core::sumeragi::lanes::routing::committed_root_scope(view.world()) != Some(scope) {
-        return Err(unavailable());
+) -> Result<CommittedBlock, NativeProjectionError> {
+    limits.validate().map_err(NativeProjectionError::Invalid)?;
+    if iroha_core::sumeragi::lanes::routing::read_routing_root_scope(view.world())
+        .map_err(NativeProjectionError::RootScope)?
+        != Some(scope)
+    {
+        return Err(NativeProjectionError::Unavailable(unavailable()));
     }
     if height < 2 || u64::try_from(view.height()).ok() != Some(height) {
-        return Err(unavailable());
+        return Err(NativeProjectionError::Unavailable(unavailable()));
     }
     let index = usize::try_from(height)
         .ok()
         .and_then(std::num::NonZeroUsize::new)
-        .ok_or_else(unavailable)?;
+        .ok_or_else(|| NativeProjectionError::Unavailable(unavailable()))?;
     let mut frames_left = limits.block_count as u64;
     let mut bytes_left = limits.journal_bytes as u64;
+    // These are unchanged per-request source limits, not occupied-pool refusals.
+    let source_limit = || {
+        iroha_core::execution_attempt::ExecutionAttemptError::Rejected(
+            iroha_data_model::query::error::QueryExecutionFail::Conversion(
+                "native current cut exceeds its finite source policy".into(),
+            ),
+        )
+    };
     let mut admit = |frames: u64, bytes: u64| {
         if bytes > limits.block_bytes as u64 {
-            return Err(
-                iroha_core::execution_attempt::ExecutionAttemptError::Deferred(
-                    ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
-                ),
-            );
+            return Err(source_limit());
         }
-        let next_frames = frames_left.checked_sub(frames).ok_or(
-            iroha_core::execution_attempt::ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
-            ),
-        )?;
-        let next_bytes = bytes_left.checked_sub(bytes).ok_or(
-            iroha_core::execution_attempt::ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
-            ),
-        )?;
+        let next_frames = frames_left.checked_sub(frames).ok_or_else(source_limit)?;
+        let next_bytes = bytes_left.checked_sub(bytes).ok_or_else(source_limit)?;
         frames_left = next_frames;
         bytes_left = next_bytes;
         Ok(())
     };
-    let query_error = crate::canonical_history::query_attempt_error;
+    let query_error = NativeProjectionError::History;
     let chain = CertifiedChain::new_with_source_admission(view, &mut admit).map_err(query_error)?;
     let certified = chain
         .certified_from_execution(index, &mut admit)
         .map_err(query_error)?;
     if certified.verification() != QcVerification::Verified {
-        return Err(unavailable());
+        return Err(NativeProjectionError::Unavailable(unavailable()));
     }
     Ok(certified.into_committed())
 }
@@ -159,17 +228,25 @@ pub fn encode_canonical<T: norito::core::NoritoSerialize>(
     payload: &T,
     limit: usize,
     budget: &AllocationBudget,
-    unavailable: fn() -> Error,
-) -> Result<iroha_allocation::ChargedBuffer<u8>, Error> {
-    let length = norito::canonical_frame_len(payload).map_err(|_| unavailable())?;
+) -> Result<iroha_allocation::ChargedBuffer<u8>, NativeProjectionError> {
+    let length = norito::core::classify_decode_attempt(|| norito::canonical_frame_len(payload))
+        .map_err(NativeProjectionError::Encoding)?;
     if length > limit {
-        return Err(capacity());
+        return Err(NativeProjectionError::ResponseLimit {
+            requested: length,
+            limit,
+        });
     }
-    let bytes = iroha_allocation::ChargedBuffer::new(length, budget).map_err(|_| capacity())?;
+    let bytes = iroha_allocation::ChargedBuffer::new(length, budget)?;
     let mut writer = ChargedWriter(bytes);
-    norito::core::write_canonical_to_writer(payload, &mut writer).map_err(|_| unavailable())?;
+    norito::core::classify_decode_attempt(|| {
+        norito::core::write_canonical_to_writer(payload, &mut writer)
+    })
+    .map_err(NativeProjectionError::Encoding)?;
     if writer.0.as_slice().len() != length {
-        return Err(unavailable());
+        return Err(NativeProjectionError::Invalid(
+            "canonical response length changed".into(),
+        ));
     }
     Ok(writer.0)
 }
@@ -179,27 +256,35 @@ pub fn encode<T: norito::core::NoritoSerialize + norito::json::JsonSerialize>(
     format: ResponseFormat,
     limit: usize,
     budget: &AllocationBudget,
-    unavailable: fn() -> Error,
-) -> Result<EncodedBody, Error> {
+) -> Result<EncodedBody, NativeProjectionError> {
     let bytes = match format {
-        ResponseFormat::Norito => encode_canonical(payload, limit, budget, unavailable)?,
+        ResponseFormat::Norito => encode_canonical(payload, limit, budget)?,
         ResponseFormat::Json => {
             let mut count = CountJson {
                 length: 0,
                 limit,
                 depth: 0,
             };
-            payload
-                .json_serialize_to(&mut count)
-                .map_err(|_| capacity())?;
-            let bytes = iroha_allocation::ChargedBuffer::new(count.length, budget)
-                .map_err(|_| capacity())?;
+            // The existing JSON codec conversion retains scoped refusal owners.
+            // Classification occurs before that original serialization scope exits.
+            norito::core::classify_decode_attempt(|| {
+                payload
+                    .json_serialize_to(&mut count)
+                    .map_err(BoundedJsonError::into_core_error)
+            })
+            .map_err(NativeProjectionError::Encoding)?;
+            let bytes = iroha_allocation::ChargedBuffer::new(count.length, budget)?;
             let mut writer = ChargedWriter(bytes);
-            payload
-                .json_serialize_to(&mut writer)
-                .map_err(|_| unavailable())?;
+            norito::core::classify_decode_attempt(|| {
+                payload
+                    .json_serialize_to(&mut writer)
+                    .map_err(BoundedJsonError::into_core_error)
+            })
+            .map_err(NativeProjectionError::Encoding)?;
             if writer.0.as_slice().len() != count.length {
-                return Err(unavailable());
+                return Err(NativeProjectionError::Invalid(
+                    "JSON response length changed".into(),
+                ));
             }
             writer.0
         }
@@ -214,33 +299,35 @@ pub fn encode<T: norito::core::NoritoSerialize + norito::json::JsonSerialize>(
 pub fn native_committee_original_bytes<'a>(
     expected: usize,
     members: impl IntoIterator<Item = (&'a iroha_crypto::PublicKey, &'a [u8])>,
-) -> Result<usize, Error> {
+) -> Result<usize, NativeProjectionError> {
+    let invalid =
+        || NativeProjectionError::Invalid("committee geometry or cardinality is invalid".into());
     // proof_committee retains a tuple Vec; build_proof collects FinalityValidator.
     // Do not assume allocator reuse of two different element layouts. Both Vec
     // geometries and the cloned compact key/PoP backing are prepaid before
     // that backing moves from the intermediate tuples into the final values.
     let tuples = std::alloc::Layout::array::<(iroha_crypto::PublicKey, Vec<u8>)>(expected)
-        .map_err(|_| capacity())?
+        .map_err(|_| invalid())?
         .size();
     let final_values = std::alloc::Layout::array::<
         iroha_data_model::sumeragi_finality::FinalityValidator,
     >(expected)
-    .map_err(|_| capacity())?
+    .map_err(|_| invalid())?
     .size();
-    let mut bytes = tuples.checked_add(final_values).ok_or_else(capacity)?;
+    let mut bytes = tuples.checked_add(final_values).ok_or_else(invalid)?;
     let mut seen = 0usize;
     for (key, pop) in members {
-        seen = seen.checked_add(1).ok_or_else(capacity)?;
+        seen = seen.checked_add(1).ok_or_else(invalid)?;
         if seen > expected {
-            return Err(capacity());
+            return Err(invalid());
         }
         bytes = bytes
             .checked_add(key.retained_allocation_layout().size())
             .and_then(|value| value.checked_add(pop.len()))
-            .ok_or_else(capacity)?;
+            .ok_or_else(invalid)?;
     }
     if seen != expected {
-        return Err(capacity());
+        return Err(invalid());
     }
     Ok(bytes)
 }
@@ -255,9 +342,9 @@ mod tests {
         let payload = 42_u64;
         let length = norito::canonical_frame_len(&payload).unwrap();
         let budget = AllocationBudget::new(length);
-        assert!(encode_canonical(&payload, length - 1, &budget, capacity).is_err());
+        assert!(encode_canonical(&payload, length - 1, &budget).is_err());
         assert_eq!(budget.reserved_bytes(), 0);
-        let bytes = encode_canonical(&payload, length, &budget, capacity).unwrap();
+        let bytes = encode_canonical(&payload, length, &budget).unwrap();
         assert_eq!(bytes.as_slice().len(), length);
         assert_eq!(budget.reserved_bytes(), length);
         drop(bytes);
@@ -345,3 +432,7 @@ mod tests {
         assert!(native_committee_original_bytes(usize::MAX, std::iter::empty()).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "native_projection_response/classification_tests.rs"]
+mod classification_tests;

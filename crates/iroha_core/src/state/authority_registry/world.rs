@@ -1,5 +1,10 @@
 //! Explicit authority declarations for every actual WorldData field.
 
+use iroha_data_model::nexus::{
+    PrivateSettlementNullifierKeyV1, PrivateSettlementOutputKeyV1,
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolKeyV1,
+    PrivateSettlementPoolStateV1,
+};
 pub(in crate::state) mod musubi_availability_policy;
 pub(in crate::state) mod musubi_universal_policy;
 

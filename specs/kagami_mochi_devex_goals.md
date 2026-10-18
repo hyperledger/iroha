@@ -407,6 +407,12 @@ and complete namespace checks, avoiding another cold checkpoint/signature recons
 that already authenticated prefix. A newly supplied mutable head and complete snapshot chain
 replace the previous scope; no historical active flag or snapshot-pass coverage is carried forward.
 Only an already closed History may share its immutable parsed record owner into that new scope.
+An inactive same-owner handoff performs one final full operation/attempt handle census after
+its infallible record/scope clones; the original three adjacent censuses share the exact
+retained handles and cross no callback, source read, decoding or effect. The final census
+retains its complete native entry/exit bracket. A persistent native
+refusal still closes before the handoff returns; a change restored entirely within an omitted
+earlier census may be unseen. Active budgets retain all three censuses.
 The existing fresh current-body census still runs before its first wallet callback, and every
 canonical wallet inspection, callback closure, native-effect absence, selected epoch/claim read
 and full parser exit remains. Ordinary epoch-reference errors also close current source custody
@@ -434,6 +440,12 @@ share adjacent pure binding and wallet-entry checks. Persistent older-sibling fa
 phase, while a sibling changed and restored wholly between its observations may be unobserved.
 No phase conveys an atomic snapshot, currentness or signing authority. Generic inspectors, foreign
 owners and inherited or late active decode budgets retain the original validation recipe.
+The sealed reserved successor and its target are the same immutable owner. An inactive
+successor-binding check performs their adjacent duplicate validation once, at the final
+original position before binding comparisons or wallet access. Its full native source scan
+and entry/exit custody remain; no source verdict crosses a callback or effect. Inherited or
+late active decode owners retain both observations. A source change restored entirely within
+the omitted earlier observation may be unseen.
 The unchanged ten-second body and 64-body campaign gates still require native qualification.
 The concrete generated enrollment worker likewise groups only its empty current-body read
 prefix. Its three original wallet-verification entries cannot call a wallet while the body
@@ -446,12 +458,14 @@ sequence. A late active decoder cannot borrow predecessor coverage. Persistent s
 wins an ordinary phase error; a sibling changed and restored wholly between observations may
 be unobserved. The live origin, authorization checks, term selection and effects retain their
 original positions. This structural reduction does not establish the unchanged latency gates.
-Within an inactive native tree read, each local operation census groups its adjacent inventory,
-Original hash and metadata reads into one scope, and its reverse checks into a second scope.
-Every mutable record read, decoder and full graph check remains independent of wallet or write operations.
-Both scopes close native ownership on ordinary errors; a directory change restored entirely
-inside a scope may be unobserved. Active decode budgets and reads without a tree retain their
-original scope sequence.
+Within an inactive native tree read, an exact snapshot-owned local history census holds its
+original root reader and one operation reader across the forward and reverse checks. Every
+inventory, Original hash, metadata read and decoder remains in its original order. The operation
+reader closes before the root and tree exits and before any wallet callback or write. A persistent
+operation custody failure can supersede an ordinary inner error; a change restored entirely
+inside a scope may be unobserved. Active or newly inherited decode budgets, unmatched owners and
+reads without a tree retain their original scope sequence. Full graph checks remain independent
+of wallet or write operations; no native freshness result survives the census.
 For the exact immutable snapshot layout, the root inventory and its adjacent Original and
 anchor reads share one native scope. The external selection reference remains independently
 checked, and the enclosing tree still closes on every ordinary result. Active budgets and
