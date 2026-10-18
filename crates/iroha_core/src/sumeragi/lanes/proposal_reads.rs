@@ -1,4 +1,4 @@
-//! Cancellation interest for one original local proposal, independent of historical authority.
+//! Cancellation interest for one original global proposal request, independent of historical authority.
 
 use crate::execution_attempt::ExecutionAttemptError as Attempt;
 use iroha_allocation::{AllocationBudget, ChargedShared};
@@ -11,8 +11,8 @@ pub(super) struct Control {
     cancelled: AtomicBool,
 }
 
-/// One non-cloneable local proposal request. Keep it across every retry of that request.
-/// It allocates only when proposal selection first needs a lane, from the exact State pool.
+/// One non-cloneable global proposal request. Keep it across every retry of that request.
+/// It allocates only when selection or incoming execution first needs a lane, from the exact State pool.
 /// Dropping it withdraws only its proposal interest; it cannot revoke historical reads.
 #[derive(Default)]
 pub struct ProposalReadScope {
@@ -115,6 +115,12 @@ impl ReadInterest {
         if let Self::Proposal(control) = self {
             control.cancelled.store(true, Ordering::Release);
         }
+    }
+    /// Only the same original cancellable request may complete its cleanup handoff.
+    /// Historical promotion deliberately cannot match an old proposal control.
+    pub(super) fn same_request(&self, other: &Self) -> bool {
+        matches!((self, other), (Self::Proposal(original), Self::Proposal(other))
+            if ChargedShared::ptr_eq(original, other))
     }
     pub(super) fn cancelled(&self) -> bool {
         matches!(self, Self::Proposal(control) if control.cancelled.load(Ordering::Acquire))

@@ -121,6 +121,32 @@ impl LaneBlockSource for DeferredLaneStores {
             stores.proposal_block(lane, incarnation, height, request)
         })
     }
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &iroha_core::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        iroha_core::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.0.get().map_or(Ok(None), |stores| {
+            stores.execution_block(lane, incarnation, height, request)
+        })
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        request: &iroha_core::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<bool, iroha_core::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        self.0.get().map_or(Ok(false), |stores| {
+            stores.execution_wait_for(lane, incarnation, height, timeout, request)
+        })
+    }
     fn release_cancelled_proposal_reads(&self) {
         if let Some(stores) = self.0.get() {
             stores.release_cancelled_proposal_reads();

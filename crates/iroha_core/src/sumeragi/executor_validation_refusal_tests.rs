@@ -34,6 +34,7 @@ fn original_validation_prefix(worker: &Worker<'_>, block: &AvailableBody) -> usi
                 &proposal,
                 &*worker.context.lane_blocks,
                 Duration::from_millis(schedule.params.exec_budget_ms),
+                &mut crate::sumeragi::lanes::ProposalReadScope::new(),
             )
             .unwrap();
             drop(expansion);
@@ -175,6 +176,7 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
                 &proposal,
                 &*worker.context.lane_blocks,
                 Duration::from_millis(schedule.params.exec_budget_ms),
+                &mut crate::sumeragi::lanes::ProposalReadScope::new(),
             )
             .expect("original merge prefix completes before validation refusal");
             ValidBlock::validate_sumeragi_block(
@@ -824,6 +826,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 &proposal,
                 &*worker.context.lane_blocks,
                 Duration::from_millis(scheduled.params.exec_budget_ms),
+                &mut crate::sumeragi::lanes::ProposalReadScope::new(),
             )
             .unwrap();
             let mut recorded_events = Vec::new();

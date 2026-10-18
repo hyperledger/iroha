@@ -5,7 +5,10 @@ use iroha_core::{
     state::WorldReadOnly,
     sumeragi::{
         crypto::BlsCrypto,
-        lanes::merge::{NoLanes, expand},
+        lanes::{
+            ProposalReadScope,
+            merge::{NoLanes, expand},
+        },
         network_topology::Topology,
         payload::{self, Assembly},
         test_chain::CertifiedTestChain,
@@ -64,7 +67,15 @@ pub(super) fn validate(
     };
     let body = chain.author_payload(header, bytes.clone());
     let header = body.header();
-    let expansion = expand(chain.state(), &proposal, &NoLanes, Duration::ZERO).unwrap();
+    let mut request = ProposalReadScope::new();
+    let expansion = expand(
+        chain.state(),
+        &proposal,
+        &NoLanes,
+        Duration::ZERO,
+        &mut request,
+    )
+    .unwrap();
     let topology = Topology::new(chain.validators().iter().map(|(peer, _)| peer.clone()));
     ValidBlock::validate_sumeragi_block(
         proposal,

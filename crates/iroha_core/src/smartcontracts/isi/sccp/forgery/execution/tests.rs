@@ -5,6 +5,7 @@ use crate::smartcontracts::isi::sccp::{
     forgery::tests::{active_member_chain, future, resign},
     test_support::{blank_state, sample_route},
 };
+use crate::state::WorldReadOnly;
 use iroha_allocation::{AllocationBudget, AllocationRefusal};
 use iroha_data_model::{
     block::{

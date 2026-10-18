@@ -138,7 +138,14 @@ impl NativeValidationFixture {
         header: &NativeHeader,
         bytes: &[u8],
     ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'_>>), Error>> {
-        let expansion = expand(self.chain.state(), &proposal, &NoLanes, Duration::ZERO).unwrap();
+        let expansion = expand(
+            self.chain.state(),
+            &proposal,
+            &NoLanes,
+            Duration::ZERO,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .unwrap();
         self.validate_expanded(proposal, header, bytes, expansion)
     }
     fn validate_expanded<'state>(

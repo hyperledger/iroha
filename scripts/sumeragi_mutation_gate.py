@@ -588,6 +588,21 @@ MUTATIONS = [
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
 CORE_MUTATIONS = [
+    m("HC440", "SCCP forgery events: replace the original event pool with an unbound budget",
+      ["smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader"],
+      causes=(ExpectedFailure("event graph retains the original pool",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/event_graph/tests.rs"),)),
+
+    m("HC441", "SCCP retained record: skip offender-array bounds before nested account decoding",
+      ["sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode"],
+      causes=(ExpectedFailure("oversized SCCP graph is refused before nested decode",
+          "crates/iroha_core/src/sumeragi/evidence/sccp_record/tests.rs"),)),
+
+    m("HC442", "SCCP local execution refusal: allocate replacement diagnostic text before retaining the original cause",
+      ["smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison"],
+      causes=(ExpectedFailure("local SCCP refusal cannot allocate a replacement diagnostic",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/tests.rs"),)),
+
     m("HC400", "SCCP registration: ignore either required launch gate after native validation",
       ["smartcontracts::isi::sccp::governance::installation_tests::registration_requires_both_launch_gates_even_after_native_preconditions"],
       causes=(ExpectedFailure("SCCP registration must require both launch gates after native preconditions pass",
@@ -1616,6 +1631,27 @@ CORE_MUTATIONS = [
       ["sumeragi::lanes::store::refund_tests::busy_original_native_operation_inherits_cancelled_read_cleanup_before_returning"],
       causes=(ExpectedFailure("the original busy native operation must finish cancelled read cleanup before returning",
           "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs"),)),
+
+    m("HC435", "Discarded incoming execution retains its original lane read",
+      ["sumeragi::executor::proposal_read_tests::discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclusion"],
+      causes=(ExpectedFailure("discarded incoming execution must release its own actual lane read without successor traffic", "crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs"),)),
+
+    m("HC436", "Incoming execution replaces rather than transfers its exact local read request",
+      ["sumeragi::executor::proposal_read_tests::authenticated_incoming_execution_moves_the_original_local_lane_request_without_reopening"],
+      causes=(ExpectedFailure("authenticated incoming execution must move the exact original local lane request and continue its native source", "crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs"),)),
+
+    m("HC437", "Read-only parking loses cancellation of the original in-flight frame",
+      ["sumeragi::lanes::registry::tests::proposal_reads::cancelled_read_only_incoming_frame_is_released_when_original_inflight_owner_parks"],
+      causes=(ExpectedFailure("cancelled incoming read-only custody must retire when the original in-flight owner parks", "crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs"),)),
+
+    m("HC438", "Native cleanup loses cancellation after observing the original flag",
+      ["sumeragi::lanes::store::refund_tests::state_read_cancellation_after_cleanup_observation_cannot_be_lost", "sumeragi::lanes::store::refund_tests::batch_read_cancellation_after_cleanup_observation_cannot_be_lost"],
+      causes=(ExpectedFailure("cancellation after the original cleanup observation must release that exact read without successor traffic", "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs"),
+          ExpectedFailure("cancellation after the original cleanup observation must release that exact read without successor traffic", "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs"),)),
+
+    m("HC439", "Final active opening caller abandons acknowledged request cancellation",
+      ["sumeragi::lanes::registry::tests::isolation_tests::final_inflight_incoming_opening_cleans_cancelled_request_but_keeps_historical_recovery"],
+      causes=(ExpectedFailure("the final incoming opening caller must acknowledge cancellation without dropping independent historical recovery", "crates/iroha_core/src/sumeragi/lanes/registry/isolation_tests.rs"),)),
 
     m("HC432", "Lane startup erases the original decode refusal into a bare WouldBlock",
       ["sumeragi::lanes::executor::native_decode_tests::startup_refusal_observation_borrows_the_original_native_recovery_carrier"],
