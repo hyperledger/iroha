@@ -1,0 +1,288 @@
+"""Bounded immutable Boolean SSA blocks with explicit clean kernel interfaces.
+
+Scratch implementation for the IdealFrontierSim machine. This module is not a
+Rust compiler, a whole simulator, or an accepted cryptographic assumption.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+
+def require(condition, message):
+    """Refuse invalid interfaces even under optimized Python."""
+    if not condition:
+        raise ValueError(message)
+
+
+def integer(value, lower, upper, name):
+    """Reject booleans, lossy coercions and invalid widths."""
+    require(type(value) is int and lower <= value <= upper, "invalid " + name)
+    return value
+
+
+@dataclass(frozen=True)
+class Cost:
+    """Separate logical gates from externally supplied XOR-oracle calls."""
+    x: int = 0
+    cx: int = 0
+    ccx: int = 0
+    base_calls: int = 0
+
+    def __post_init__(self):
+        for name in ("x", "cx", "ccx", "base_calls"):
+            integer(getattr(self, name), 0, 1 << 512, name)
+
+    def __add__(self, other):
+        require(type(other) is Cost, "cost operand")
+        return Cost(*(getattr(self, n) + getattr(other, n) for n in ("x", "cx", "ccx", "base_calls")))
+
+    def times(self, repeats):
+        """Repeat a checked circuit; no interpretation as an unknown program."""
+        integer(repeats, 0, 1 << 128, "repeat count")
+        return Cost(*(getattr(self, n) * repeats for n in ("x", "cx", "ccx", "base_calls")))
+
+    def as_dict(self):
+        """Expose exact non-oracle counts and a distinct oracle count."""
+        return dict(x=self.x, cx=self.cx, ccx=self.ccx,
+                    elementary_gates=self.x + self.cx + 5 * self.ccx,
+                    base_xor_oracle_calls=self.base_calls)
+
+
+class CleanKernel(Protocol):
+    """Caller-trusted clean XOR primitive, not proved by the generic compiler.
+
+    A production registry must authenticate each concrete implementation and
+    its semantics. Generic block checks can validate shape but cannot certify
+    arbitrary caller-supplied cost/implementation claims.
+    """
+    name: str
+    inputs: int
+    outputs: int
+    work: int
+    cost: Cost
+
+    def evaluate(self, inputs: tuple[int, ...]) -> tuple[int, ...]: ...
+    def emit(self, inputs: tuple[int, ...], outputs: tuple[int, ...], work: tuple[int, ...]): ...
+
+
+@dataclass(frozen=True)
+class Node:
+    """One operation whose fresh target range is assigned by Block validation."""
+    kind: str
+    args: tuple[int, ...]
+    width: int = 1
+    kernel: str = ""
+
+
+@dataclass(frozen=True)
+class Block:
+    """Immutable SSA wiring; kernel objects come from an explicit registry."""
+    inputs: int
+    nodes: tuple[Node, ...]
+    outputs: tuple[int, ...]
+    kernels: tuple[CleanKernel, ...] = ()
+
+    def __post_init__(self):
+        integer(self.inputs, 1, 1 << 32, "block input width")
+        require(type(self.nodes) is tuple and type(self.outputs) is tuple and type(self.kernels) is tuple,
+                "block containers must be immutable tuples")
+        registry = {k.name: k for k in self.kernels}
+        require(len(registry) == len(self.kernels), "duplicate kernel names")
+        for k in self.kernels:
+            require(type(k.name) is str and k.name, "kernel name")
+            integer(k.inputs, 1, 1 << 32, "kernel inputs")
+            integer(k.outputs, 1, 1 << 32, "kernel outputs")
+            integer(k.work, 0, 1 << 32, "kernel work")
+            require(type(k.cost) is Cost, "kernel cost")
+        cursor = self.inputs
+        for node in self.nodes:
+            require(type(node) is Node and type(node.args) is tuple, "invalid node")
+            integer(node.width, 1, 1 << 32, "node width")
+            for wire in node.args:
+                integer(wire, 0, cursor - 1, "node source wire")
+            if node.kind == "kernel":
+                require(node.kernel in registry, "unregistered kernel")
+                k = registry[node.kernel]
+                require(len(node.args) == k.inputs and node.width == k.outputs, "kernel width mismatch")
+                require(len(set(node.args)) == len(node.args), "kernel source wire aliases")
+            else:
+                arity = {"zero": 0, "one": 0, "copy": 1, "not": 1, "xor": 2, "and": 2}
+                require(node.kind in arity and not node.kernel and node.width == 1,
+                        "unsupported Boolean node")
+                require(len(node.args) == arity[node.kind], "Boolean node arity")
+                require(node.kind not in ("and", "xor") or node.args[0] != node.args[1],
+                        "duplicate operands must be normalized")
+            cursor += node.width
+        for wire in self.outputs:
+            integer(wire, 0, cursor - 1, "output source wire")
+
+    @property
+    def derived(self):
+        """All intermediate/output bits, retained until inverse traversal."""
+        return sum(n.width for n in self.nodes)
+
+    @property
+    def work(self):
+        """Scratch reused only across kernels which return it clean."""
+        return max((k.work for k in self.kernels), default=0)
+
+    @property
+    def cost(self):
+        """Forward computation, including authenticated kernel costs once."""
+        registry = {k.name: k for k in self.kernels}
+        basics = {"zero": Cost(), "one": Cost(x=1), "copy": Cost(cx=1),
+                  "not": Cost(x=1, cx=1), "xor": Cost(cx=2), "and": Cost(ccx=1)}
+        out = Cost()
+        for n in self.nodes:
+            out += registry[n.kernel].cost if n.kind == "kernel" else basics[n.kind]
+        return out
+
+    def clean_resources(self):
+        """Compute, copy the output, reverse; caller input and output additional."""
+        return dict(gates=(self.cost.times(2) + Cost(cx=len(self.outputs))).as_dict(),
+                    input_bits=self.inputs, output_bits=len(self.outputs),
+                    history_bits=self.derived, clean_kernel_work_bits=self.work,
+                    total_clean_work_bits=self.derived + self.work,
+                    conditional_on_registered_kernel_contracts=True)
+
+    def evaluate(self, values):
+        """Finite classical interpreter; production semantics need kernel proofs."""
+        require(type(values) in (list, tuple) and len(values) == self.inputs, "input width")
+        require(all(type(b) is int and b in (0, 1) for b in values), "nonbit input")
+        memory = list(values)
+        registry = {k.name: k for k in self.kernels}
+        for n in self.nodes:
+            args = tuple(memory[i] for i in n.args)
+            if n.kind == "kernel":
+                result = registry[n.kernel].evaluate(args)
+                require(type(result) is tuple and len(result) == n.width
+                        and all(type(b) is int and b in (0, 1) for b in result), "kernel result")
+                memory.extend(result)
+            else:
+                if n.kind == "zero": value = 0
+                elif n.kind == "one": value = 1
+                elif n.kind == "copy": value = args[0]
+                elif n.kind == "not": value = args[0] ^ 1
+                elif n.kind == "xor": value = args[0] ^ args[1]
+                else: value = args[0] & args[1]
+                memory.append(value)
+        return tuple(memory[i] for i in self.outputs)
+
+    def emit(self, *, inverse=False):
+        """Forward/inverse over contiguous input/history/shared clean-work wires.
+
+        All kernels promise a response-XOR map with clean scratch; thus a
+        second kernel invocation is its inverse on that invariant. The
+        compiler does not claim this for arbitrary unknown scratch contents.
+        """
+        require(type(inverse) is bool, "inverse flag")
+        registry = {k.name: k for k in self.kernels}
+        work_start = self.inputs + self.derived
+        starts, cursor = [], self.inputs
+        for n in self.nodes:
+            starts.append(cursor)
+            cursor += n.width
+        pairs = zip(self.nodes, starts)
+        if inverse:
+            pairs = zip(reversed(self.nodes), reversed(starts))
+        for n, start in pairs:
+            if n.kind == "kernel":
+                k = registry[n.kernel]
+                yield from k.emit(n.args, tuple(range(start, start + n.width)),
+                                  tuple(range(work_start, work_start + k.work)))
+                continue
+            if n.kind == "zero": gates = ()
+            elif n.kind == "one": gates = (("x", start),)
+            elif n.kind == "copy": gates = (("cx", n.args[0], start),)
+            elif n.kind == "not": gates = (("x", start), ("cx", n.args[0], start))
+            elif n.kind == "xor": gates = (("cx", n.args[0], start), ("cx", n.args[1], start))
+            else: gates = (("ccx", *n.args, start),)
+            yield from reversed(gates) if inverse else gates
+
+    def emit_clean(self):
+        """Emit an actual clean output-XOR embedding, including duplicate outputs."""
+        yield from self.emit()
+        output_start = self.inputs + self.derived + self.work
+        for i, source in enumerate(self.outputs):
+            yield ("cx", source, output_start + i)
+        yield from self.emit(inverse=True)
+
+
+class Builder:
+    """Construct immutable SSA blocks; handles are static circuit wire labels."""
+    def __init__(self, inputs, kernels=()):
+        self.inputs = integer(inputs, 1, 1 << 32, "builder inputs")
+        self.nodes = []
+        self.kernels = tuple(kernels)
+        self.cursor = inputs
+
+    def node(self, kind, *args, kernel="", width=1):
+        """Allocate fresh targets; final Block validation enforces all references."""
+        integer(width, 1, 1 << 32, "node width")
+        for wire in args:
+            integer(wire, 0, self.cursor - 1, "node source wire")
+        n = Node(kind, tuple(args), width, kernel)
+        start = self.cursor
+        self.nodes.append(n)
+        self.cursor += width
+        return tuple(range(start, start + width))
+
+    def bit(self, kind, *args):
+        """Normalize equal controls before generating reversible gates."""
+        # Validate before x XOR x -> 0, which otherwise hides an invalid source.
+        for wire in args:
+            integer(wire, 0, self.cursor - 1, "bit source wire")
+        if kind == "and" and len(args) == 2 and args[0] == args[1]:
+            return self.node("copy", args[0])[0]
+        if kind == "xor" and len(args) == 2 and args[0] == args[1]:
+            return self.node("zero")[0]
+        return self.node(kind, *args)[0]
+
+    def select(self, flag, when_one, when_zero):
+        """Bitwise mux: zero XOR (flag AND (one XOR zero)); no memory oracle."""
+        require(len(when_one) == len(when_zero), "mux width mismatch")
+        return tuple(self.bit("xor", z, self.bit("and", flag, self.bit("xor", o, z)))
+                     for o, z in zip(when_one, when_zero))
+
+    def increment(self, word, flag):
+        """Little-endian addition of a bit, modulo the explicit finite width."""
+        require(len(word) > 0, "empty increment")
+        carry, out = flag, []
+        for i, w in enumerate(word):
+            out.append(self.bit("xor", w, carry))
+            if i + 1 < len(word):
+                carry = self.bit("and", w, carry)
+        return tuple(out)
+
+    def finish(self, outputs):
+        """Snapshot every mutable builder container before validation/use."""
+        return Block(self.inputs, tuple(self.nodes), tuple(outputs), self.kernels)
+
+
+def bits(value, width):
+    """Canonical little-endian fixed-width bit encoding."""
+    integer(width, 1, 1 << 20, "bit width")
+    integer(value, 0, (1 << width) - 1, "encoded value")
+    return tuple((value >> i) & 1 for i in range(width))
+
+
+def unpack(values):
+    """Decode a finite low-bit-first bit sequence."""
+    require(all(type(b) is int and b in (0, 1) for b in values), "nonbit word")
+    return sum(b << i for i, b in enumerate(values))
+
+
+def apply_gates(state, gates):
+    """Small finite basis interpreter, not a quantum simulator or resource model."""
+    require(type(state) is list and all(type(b) is int and b in (0, 1) for b in state), "bit state")
+    for gate in gates:
+        arity = {"x": 1, "cx": 2, "ccx": 3}
+        require(type(gate) is tuple and gate[0] in arity and len(gate) == arity[gate[0]] + 1,
+                "unsupported elementary gate")
+        wires = gate[1:]
+        require(len(set(wires)) == len(wires), "gate aliases")
+        for wire in wires:
+            integer(wire, 0, len(state) - 1, "gate wire")
+        state[wires[-1]] ^= int(all(state[w] for w in wires[:-1]))
+    return state

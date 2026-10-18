@@ -98,12 +98,7 @@ impl PreparationV1<'_> {
             KagemushaWalletCreditedEvidenceV1::Receive { package } => self
                 .installed
                 .verifier()
-                .verify_package_proofs_cancellable(
-                    package,
-                    Some(&request.body),
-                    budget,
-                    self.cancellation,
-                )?,
+                .verify_package_proofs_cancellable(package, budget, self.cancellation)?,
             KagemushaWalletCreditedEvidenceV1::Status { status } => self
                 .installed
                 .verifier()

@@ -68,26 +68,13 @@ fn original(
     inputs.next().is_some_and(|input| input.bytes == bytes) && inputs.next().is_none()
 }
 
-fn policy_original(
-    body: &KagemushaWalletRecoveryBodyV1,
-    kind: KagemushaWalletPolicyUpdateKindV1,
-    complete: &[u8],
-) -> bool {
+// Every signed policy update is retained inline as its exact complete original.
+fn policy_original(body: &KagemushaWalletRecoveryBodyV1, complete: &[u8]) -> bool {
     let mut inputs = body
         .retained_inputs
         .iter()
         .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::PolicyUpdate);
-    let Some(input) = inputs.next() else {
-        return false;
-    };
-    inputs.next().is_none()
-        && super::super::verify_policy_update_original(
-            kind,
-            &body.scheme_id,
-            &input.bytes,
-            complete,
-        )
-        .is_ok()
+    inputs.next().is_some_and(|input| input.bytes == complete) && inputs.next().is_none()
 }
 
 fn require_frozen(
@@ -133,7 +120,7 @@ fn require_frozen(
                 update,
                 certificates,
             } => {
-                policy_original(frozen.capsule.body(), *kind, update)
+                policy_original(frozen.capsule.body(), update)
                     && original(frozen, R::CertificateSet, certificates)
                     && matches!(capsule.body().statement.effect, KagemushaWalletEffectV1::RefreshPolicy { update_kind: actual, .. } if actual == *kind)
             }
@@ -686,6 +673,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 manifest.issued_requests,
                 manifest.direct_anchors,
                 manifest.finality_epochs,
+                manifest.blacklist.clone(),
             )?;
             let prepared =
                 self.proofs
@@ -774,7 +762,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kagemusha_wallet_state_v1::{BlacklistOriginalReferenceV1, tests::fixture};
+    use crate::kagemusha_wallet_state_v1::tests::fixture;
 
     #[test]
     fn permanent_preparation_pair_is_complete_nonzero_and_fits_existing_index() {
@@ -822,34 +810,6 @@ mod tests {
     }
 
     #[test]
-    fn prepared_blacklist_binds_the_complete_original_through_its_retained_reference() {
-        let blacklist: KagemushaWalletBlacklistV1 = fixture("KagemushaWalletBlacklistV1");
-        let complete = blacklist.to_canonical_bytes().unwrap();
-        let reference =
-            BlacklistOriginalReferenceV1::for_original(&blacklist.body.scheme_id, &complete)
-                .unwrap()
-                .to_canonical_bytes()
-                .unwrap();
-        let mut body =
-            fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
-                .body()
-                .clone();
-        // This test checks original binding only, not capsule or issuer admission.
-        body.scheme_id = blacklist.body.scheme_id;
-        body.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
-            role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
-            bytes: reference,
-        }];
-        let kind = KagemushaWalletPolicyUpdateKindV1::Blacklist;
-        assert!(policy_original(&body, kind, &complete));
-        let mut changed = complete.clone();
-        *changed.last_mut().unwrap() ^= 1;
-        assert!(!policy_original(&body, kind, &changed));
-        body.retained_inputs[0].bytes = complete.clone();
-        assert!(!policy_original(&body, kind, &complete));
-    }
-
-    #[test]
     fn prepared_policy_original_requires_one_exact_retained_input() {
         let complete = vec![1, 2, 3];
         let mut body =
@@ -860,23 +820,11 @@ mod tests {
             role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
             bytes: complete.clone(),
         }];
-        for kind in [
-            KagemushaWalletPolicyUpdateKindV1::Credential,
-            KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
-            KagemushaWalletPolicyUpdateKindV1::TimeAnchor,
-            KagemushaWalletPolicyUpdateKindV1::QuotaShare,
-        ] {
-            assert!(policy_original(&body, kind, &complete));
-            assert!(!policy_original(&body, kind, &[1, 2, 4]));
-            body.retained_inputs.push(body.retained_inputs[0].clone());
-            assert!(!policy_original(&body, kind, &complete));
-            body.retained_inputs.pop();
-        }
+        assert!(policy_original(&body, &complete));
+        assert!(!policy_original(&body, &[1, 2, 4]));
+        body.retained_inputs.push(body.retained_inputs[0].clone());
+        assert!(!policy_original(&body, &complete));
         body.retained_inputs.clear();
-        assert!(!policy_original(
-            &body,
-            KagemushaWalletPolicyUpdateKindV1::Credential,
-            &complete,
-        ));
+        assert!(!policy_original(&body, &complete));
     }
 }

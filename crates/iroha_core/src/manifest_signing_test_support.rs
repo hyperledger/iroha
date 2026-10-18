@@ -8,7 +8,7 @@ use norito::core::DecodeBudgetContext;
 /// The fixture already owns its manifest graph. This owner separately retains a finite
 /// physical grant for the canonical signing frame and signer clone; accounting limits
 /// are never treated as an independent allocation or release authority.
-pub(crate) struct ManifestSigningFixture {
+pub struct ManifestSigningFixture {
     context: DecodeBudgetContext,
     _scratch: AllocationReservation,
     #[cfg_attr(

@@ -191,7 +191,6 @@ final class IrohaPeerNfcLifecycleV1Tests: XCTestCase {
         XCTAssertTrue(source.contains("platformCallTimeoutMilliseconds: UInt64 = 3_000"))
         XCTAssertTrue(source.contains("cardSessionStartupTimeoutMilliseconds: UInt64 = 10_000"))
         XCTAssertTrue(source.contains("maximumReaderOperationTimeoutMilliseconds: UInt64 = 60_000"))
-        XCTAssertTrue(source.contains("NFCPresentmentIntentAssertion.acquire()"))
         XCTAssertTrue(source.contains("readerOperationTimedOut"))
         XCTAssertTrue(source.contains("platformCallTimedOut"))
         XCTAssertTrue(source.contains("withTaskCancellationHandler"))

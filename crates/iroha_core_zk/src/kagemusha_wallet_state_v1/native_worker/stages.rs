@@ -1,12 +1,66 @@
 //! One genuine native A/W task with complete ordered source restoration.
+//!
+//! The family session is prepared from the step's complete inputs, or resumed from the
+//! previous sub-proof of the same step (D6a/D6b) together with the A and W checkpoints that
+//! sub-proof restored. Either way, every durable checkpoint beyond those is restored strictly
+//! from its bytes before the next proof uses it, and only the session and restored checkpoints
+//! are retained afterwards, never the proof this task produced.
 
 use super::*;
+
+/// The family session of a step and the latest A and W checkpoints restored from durable
+/// bytes into it, detached between two sub-proofs. Never a produced checkpoint.
+pub(super) struct ChainStateV1<S, A, W> {
+    session: S,
+    a: Option<A>,
+    w: Option<W>,
+}
+
+/// Bootstrap's session. Its one unsplit A has no W and its only checkpoint, the
+/// terminal, is restored straight into the Omega input, so no checkpoint is retained.
+pub(super) struct BootstrapStateV1 {
+    session: bootstrap::RetainedSession,
+}
+
+/// The retained family session of one route, by native family.
+pub(super) enum FamilyStateV1 {
+    Bootstrap(Box<BootstrapStateV1>),
+    Load(Box<ChainStateV1<load::RetainedSession, load::ACheckpoint, load::WCheckpoint>>),
+    Send(Box<ChainStateV1<send::RetainedSession, send::ACheckpoint, send::WCheckpoint>>),
+    Receive(
+        Box<ChainStateV1<receive::RetainedSession, receive::ACheckpoint, receive::WCheckpoint>>,
+    ),
+    Archive(
+        Box<ChainStateV1<archive::RetainedSession, archive::ACheckpoint, archive::WCheckpoint>>,
+    ),
+    Consuming(
+        Box<
+            ChainStateV1<
+                consuming::RetainedSession,
+                consuming::ACheckpoint,
+                consuming::WCheckpoint,
+            >,
+        >,
+    ),
+    Refresh(
+        Box<ChainStateV1<refresh::RetainedSession, refresh::ACheckpoint, refresh::WCheckpoint>>,
+    ),
+}
+
+/// Where a family session comes from.
+pub(super) enum SessionSourceV1 {
+    /// The step's complete inputs, verified again by the family `prepare`.
+    Prepare(Box<OperationInputsV1>),
+    /// The session the previous sub-proof of this step retained, re-admitted by the locked
+    /// prepare on this installed prover instance.
+    Resume(FamilyStateV1),
+}
 
 // The native families deliberately retain their typed source capabilities. This
 // macro shares the scheduler only; every proof/restore dispatch remains static.
 macro_rules! chain {
-    ($worker:expr, $route:expr, $owner:expr, $inputs:expr, $checkpoints:expr,
-     $cancel:expr, $public:expr, $order:ident) => {{
+    ($worker:expr, $route:expr, $owner:expr, $session:expr, $restored:expr, $checkpoints:expr,
+     $cancel:expr, $public:expr, $order:ident, $family:ident) => {{
         let owner = $owner;
         #[cfg(test)]
         eprintln!(
@@ -14,19 +68,52 @@ macro_rules! chain {
             $route,
             $checkpoints.len()
         );
-        let session = proof(owner.prepare_cancellable(
-            $inputs,
-            $worker.budget,
-            Some($cancel.prover_token()),
-        ))?;
+        let (session, mut a, mut w, restored) = match $session {
+            SessionSourceV1::Prepare(inputs) => match *inputs {
+                OperationInputsV1::$family(input) => (
+                    proof(owner.prepare_cancellable(
+                        input,
+                        $worker.budget,
+                        Some($cancel.prover_token()),
+                    ))?,
+                    None,
+                    None,
+                    0,
+                ),
+                _ => return Err(Error::Proof("native route/input mismatch")),
+            },
+            SessionSourceV1::Resume(FamilyStateV1::$family(state)) => {
+                let ChainStateV1 { session, a, w } = *state;
+                // The locked prepare re-admitted this session on this same installed prover
+                // instance, which every job reaches through the shared sources, so this
+                // resume cannot refuse. A refusal is never a proof verdict: the turn ends
+                // unpublished and the next one runs cold. Tests count it, and the genuine
+                // fold helper requires zero.
+                let Ok(session) = owner.resume(session) else {
+                    #[cfg(test)]
+                    super::retention::count(|counts| counts.refusals += 1);
+                    return Err(Error::Cancelled);
+                };
+                #[cfg(test)]
+                super::retention::count(|counts| counts.resumes += 1);
+                (session, a, w, $restored)
+            }
+            SessionSourceV1::Resume(_) => {
+                return Err(Error::Proof("native route/input mismatch"));
+            }
+        };
         let layouts = proof(owner.checkpoint_layouts())?;
         let checkpoints = $checkpoints;
         if checkpoints.len() > layouts.len() {
             return Err(Error::Proof("extra native checkpoint"));
         }
-        let mut a = None;
-        let mut w = None;
-        for (position, original) in checkpoints.iter().enumerate() {
+        if restored > checkpoints.len() {
+            // The locked prepare admitted the retained payloads as a prefix of this list.
+            #[cfg(test)]
+            super::retention::count(|counts| counts.refusals += 1);
+            return Err(Error::Cancelled);
+        }
+        for (position, original) in checkpoints.iter().enumerate().skip(restored) {
             #[cfg(test)]
             eprintln!(
                 "NATIVE_FOLD_STAGE route={:?} phase=restore position={position}",
@@ -57,6 +144,8 @@ macro_rules! chain {
                     Some($cancel.prover_token()),
                 ))?);
             }
+            #[cfg(test)]
+            super::retention::count(|counts| counts.restores += 1);
         }
         $cancel.check()?;
         let position = checkpoints.len();
@@ -71,19 +160,22 @@ macro_rules! chain {
                 $worker.budget,
                 Some($cancel.prover_token()),
             ))?;
-            NativeStageProgressV1::Terminal(omega::Input {
-                key: proof($worker.sources.route($route))?
-                    .terminal()
-                    .key()
-                    .clone(),
-                proof: terminal.proof,
-                frame: terminal
-                    .instances
-                    .try_into()
-                    .map_err(|_| Error::Proof("terminal frame"))?,
-                public: $public,
-                pallas: terminal.pallas,
-            })
+            (
+                NativeStageProgressV1::Terminal(omega::Input {
+                    key: proof($worker.sources.route($route))?
+                        .terminal()
+                        .key()
+                        .clone(),
+                    proof: terminal.proof,
+                    frame: terminal
+                        .instances
+                        .try_into()
+                        .map_err(|_| Error::Proof("terminal frame"))?,
+                    public: $public,
+                    pallas: terminal.pallas,
+                }),
+                None,
+            )
         } else {
             let fold = $worker.fold_config($cancel);
             let config = $worker.prover_config($cancel);
@@ -153,9 +245,18 @@ macro_rules! chain {
                 return Err(Error::Proof("native output length"));
             }
             $cancel.check()?;
-            NativeStageProgressV1::Checkpoint(PrivateArchiveBytes::from_guarded(
-                zeroize::Zeroizing::new(encoded),
-            ))
+            (
+                NativeStageProgressV1::Checkpoint(PrivateArchiveBytes::from_guarded(
+                    zeroize::Zeroizing::new(encoded),
+                )),
+                // Only the session and the checkpoints restored from durable bytes are kept;
+                // the proof produced above enters the next sub-proof through its bytes.
+                Some(FamilyStateV1::$family(Box::new(ChainStateV1 {
+                    session: session.into_retained(),
+                    a,
+                    w,
+                }))),
+            )
         }
     }};
 }
@@ -208,241 +309,270 @@ impl NativeFoldWorkerV1 {
     /// Restore all prior A/W sources and produce exactly one next proof with the A or W
     /// source whose originals the locked prepare revalidated. Once the terminal checkpoint
     /// exists, return its verified source to the separate Omega task.
-    pub(crate) fn stage(
+    ///
+    /// A resumed session already holds the first `restored` durable checkpoints of
+    /// `checkpoints`; only the later ones are restored. With a checkpoint, the session and the
+    /// checkpoints restored from durable bytes are returned for the next sub-proof of the step.
+    pub(super) fn stage(
         &self,
         route: OperationRoute,
-        inputs: OperationInputsV1,
-        public: [Fp; 18],
+        session: SessionSourceV1,
+        public: &[Fp; 18],
         checkpoints: &[PrivateArchiveBytes],
+        restored: usize,
         cancellation: &Cancellation,
-    ) -> Result<NativeStageProgressV1, Error> {
+    ) -> Result<(NativeStageProgressV1, Option<FamilyStateV1>), Error> {
+        let public = *public;
         cancellation.check()?;
         fold_metrics::enter(FoldPhaseV1::Restore);
         let selected = proof(self.sources.route(route))?;
-        Ok(match (selected.owner(), inputs) {
-            (QualifiedOperationOwnerV1::Bootstrap(owner), OperationInputsV1::Bootstrap(input)) => {
+        Ok(match selected.owner() {
+            QualifiedOperationOwnerV1::Bootstrap(owner) => {
                 let owner = owner.prover();
-                let layouts = proof(owner.checkpoint_layouts())?;
-                if checkpoints.len() > layouts.len() {
+                // One unsplit terminal A: its checkpoint is the whole A schedule.
+                let [layout] = proof(owner.checkpoint_layouts())?;
+                if checkpoints.len() > 1 {
                     return Err(Error::Proof("extra Bootstrap checkpoint"));
                 }
-                let session = proof(owner.prepare_cancellable(
-                    input,
-                    self.budget,
-                    Some(cancellation.prover_token()),
-                ))?;
-                let mut first = None;
-                let mut wrapper = None;
-                let mut terminal = None;
-                for (position, original) in checkpoints.iter().enumerate() {
-                    cancellation.check()?;
-                    if original.len() != layouts[position].payload_bytes() {
-                        return Err(Error::Proof("Bootstrap checkpoint length"));
+                let session = match session {
+                    SessionSourceV1::Prepare(inputs) => match *inputs {
+                        OperationInputsV1::Bootstrap(input) => proof(owner.prepare_cancellable(
+                            input,
+                            self.budget,
+                            Some(cancellation.prover_token()),
+                        ))?,
+                        _ => return Err(Error::Proof("native route/input mismatch")),
+                    },
+                    SessionSourceV1::Resume(FamilyStateV1::Bootstrap(state)) => {
+                        let BootstrapStateV1 { session } = *state;
+                        // Re-admitted by the locked prepare on this same instance; a refusal
+                        // is never a proof verdict. Tests count it.
+                        let Ok(session) = owner.resume(session) else {
+                            #[cfg(test)]
+                            super::retention::count(|counts| counts.refusals += 1);
+                            return Err(Error::Cancelled);
+                        };
+                        #[cfg(test)]
+                        super::retention::count(|counts| counts.resumes += 1);
+                        session
                     }
-                    match position {
-                        0 => {
-                            first = Some(proof(session.restore_first_checkpoint_cancellable(
-                                original,
-                                self.budget,
-                                Some(cancellation.prover_token()),
-                            ))?)
-                        }
-                        1 => {
-                            wrapper = Some(proof(session.restore_wrapper_checkpoint_cancellable(
-                                original,
-                                self.budget,
-                                Some(cancellation.prover_token()),
-                            ))?)
-                        }
-                        2 => {
-                            terminal =
-                                Some(proof(session.restore_terminal_checkpoint_cancellable(
-                                    wrapper.as_ref().ok_or(Error::Proof("Bootstrap W source"))?,
-                                    original,
-                                    self.budget,
-                                    Some(cancellation.prover_token()),
-                                ))?)
-                        }
-                        _ => return Err(Error::Proof("Bootstrap stage")),
+                    SessionSourceV1::Resume(_) => {
+                        return Err(Error::Proof("native route/input mismatch"));
                     }
+                };
+                if restored != 0 {
+                    // A retained Bootstrap session holds no restored checkpoint: the terminal
+                    // is restored straight into the Omega input.
+                    #[cfg(test)]
+                    super::retention::count(|counts| counts.refusals += 1);
+                    return Err(Error::Cancelled);
                 }
                 cancellation.check()?;
-                if let Some(terminal) = terminal {
-                    NativeStageProgressV1::Terminal(omega::Input {
-                        key: selected.terminal().key().clone(),
-                        proof: terminal.proof,
-                        frame: terminal
-                            .instances
-                            .try_into()
-                            .map_err(|_| Error::Proof("Bootstrap terminal frame"))?,
-                        public,
-                        pallas: terminal.pallas,
-                    })
+                if let Some(original) = checkpoints.first() {
+                    if original.len() != layout.payload_bytes() {
+                        return Err(Error::Proof("Bootstrap checkpoint length"));
+                    }
+                    let terminal = proof(session.restore_terminal_checkpoint_cancellable(
+                        original,
+                        self.budget,
+                        Some(cancellation.prover_token()),
+                    ))?;
+                    #[cfg(test)]
+                    super::retention::count(|counts| counts.restores += 1);
+                    cancellation.check()?;
+                    (
+                        NativeStageProgressV1::Terminal(omega::Input {
+                            key: selected.terminal().key().clone(),
+                            proof: terminal.proof,
+                            frame: terminal
+                                .instances
+                                .try_into()
+                                .map_err(|_| Error::Proof("Bootstrap terminal frame"))?,
+                            public,
+                            pallas: terminal.pallas,
+                        }),
+                        None,
+                    )
                 } else {
-                    let position = checkpoints.len();
-                    let fold = self.fold_config(cancellation);
-                    let config = self.prover_config(cancellation);
-                    let encoded = match position {
-                        0 => {
-                            let key = self
-                                .sources
-                                .bind_a_cancellable(
-                                    route,
-                                    0,
-                                    self.read,
-                                    Some(cancellation.prover_token()),
-                                )
-                                .map_err(artifact)?;
-                            cancellation.check()?;
-                            fold_metrics::enter(FoldPhaseV1::Prove);
-                            let source =
-                                proof(session.first(&key, ProverRandomness::os(), config))?;
-                            PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(proof(
-                                session.encode_first_checkpoint_cancellable(
-                                    &source,
-                                    self.budget,
-                                    Some(cancellation.prover_token()),
-                                ),
-                            )?))
-                        }
-                        1 => {
-                            let key = self
-                                .sources
-                                .bind_w_cancellable(
-                                    route,
-                                    0,
-                                    self.read,
-                                    Some(cancellation.prover_token()),
-                                )
-                                .map_err(artifact)?;
-                            cancellation.check()?;
-                            fold_metrics::enter(FoldPhaseV1::Prove);
-                            let source = proof(session.wrapper(
-                                first.as_ref().ok_or(Error::Proof("Bootstrap A source"))?,
-                                &key,
-                                fresh_fold_tape::<Eq>(cancellation.prover_token())?,
-                                &fold,
-                                ProverRandomness::os(),
-                                config,
-                            ))?;
-                            PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(proof(
-                                session.encode_wrapper_checkpoint_cancellable(
-                                    &source,
-                                    self.budget,
-                                    Some(cancellation.prover_token()),
-                                ),
-                            )?))
-                        }
-                        2 => {
-                            let key = self
-                                .sources
-                                .bind_a_cancellable(
-                                    route,
-                                    1,
-                                    self.read,
-                                    Some(cancellation.prover_token()),
-                                )
-                                .map_err(artifact)?;
-                            cancellation.check()?;
-                            fold_metrics::enter(FoldPhaseV1::Prove);
-                            let prior =
-                                wrapper.as_ref().ok_or(Error::Proof("Bootstrap W source"))?;
-                            let tape = fresh_fold_tape::<Ep>(cancellation.prover_token())?;
-                            let source = proof(session.terminal(
-                                prior,
-                                &key,
-                                tape,
-                                &fold,
-                                ProverRandomness::os(),
-                                config,
-                            ))?;
-                            PrivateArchiveBytes::from_witness(proof(
-                                session.encode_terminal_checkpoint_cancellable(
-                                    prior,
-                                    &source,
-                                    self.budget,
-                                    Some(cancellation.prover_token()),
-                                ),
-                            )?)
-                        }
-                        _ => return Err(Error::Proof("Bootstrap stage")),
-                    };
-                    if encoded.len() != layouts[position].payload_bytes() {
+                    let key = self
+                        .sources
+                        .bind_a_cancellable(route, 0, self.read, Some(cancellation.prover_token()))
+                        .map_err(artifact)?;
+                    cancellation.check()?;
+                    fold_metrics::enter(FoldPhaseV1::Prove);
+                    let terminal = proof(session.terminal(
+                        &key,
+                        ProverRandomness::os(),
+                        self.prover_config(cancellation),
+                    ))?;
+                    let encoded = PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(
+                        proof(session.encode_terminal_checkpoint_cancellable(
+                            &terminal,
+                            self.budget,
+                            Some(cancellation.prover_token()),
+                        ))?,
+                    ));
+                    if encoded.len() != layout.payload_bytes() {
                         return Err(Error::Proof("Bootstrap output length"));
                     }
                     cancellation.check()?;
-                    NativeStageProgressV1::Checkpoint(encoded)
+                    (
+                        NativeStageProgressV1::Checkpoint(encoded),
+                        // Only the session is kept; the proof produced above enters the next
+                        // sub-proof through its bytes.
+                        Some(FamilyStateV1::Bootstrap(Box::new(BootstrapStateV1 {
+                            session: session.into_retained(),
+                        }))),
+                    )
                 }
             }
-            (QualifiedOperationOwnerV1::Load(owner), OperationInputsV1::Load(input)) => chain!(
+            QualifiedOperationOwnerV1::Load(owner) => chain!(
                 self,
                 route,
                 owner,
-                input,
+                session,
+                restored,
                 checkpoints,
                 cancellation,
                 public,
-                source_first
+                source_first,
+                Load
             ),
-            (QualifiedOperationOwnerV1::Send(owner), OperationInputsV1::Send(input)) => chain!(
+            QualifiedOperationOwnerV1::Send(owner) => chain!(
                 self,
                 route,
                 owner,
-                input,
+                session,
+                restored,
                 checkpoints,
                 cancellation,
                 public,
-                source_first
+                source_first,
+                Send
             ),
-            (QualifiedOperationOwnerV1::Receive(owner), OperationInputsV1::Receive(input)) => {
-                chain!(
-                    self,
-                    route,
-                    owner,
-                    input,
-                    checkpoints,
-                    cancellation,
-                    public,
-                    key_first
-                )
-            }
-            (QualifiedOperationOwnerV1::Archive(owner), OperationInputsV1::Archive(input)) => {
-                chain!(
-                    self,
-                    route,
-                    owner,
-                    input,
-                    checkpoints,
-                    cancellation,
-                    public,
-                    key_first
-                )
-            }
-            (QualifiedOperationOwnerV1::Consuming(owner), OperationInputsV1::Consuming(input)) => {
-                chain!(
-                    self,
-                    route,
-                    owner,
-                    input,
-                    checkpoints,
-                    cancellation,
-                    public,
-                    source_first
-                )
-            }
-            (QualifiedOperationOwnerV1::Refresh(owner), OperationInputsV1::Refresh(input)) => {
-                chain!(
-                    self,
-                    route,
-                    owner,
-                    input,
-                    checkpoints,
-                    cancellation,
-                    public,
-                    source_first
-                )
-            }
-            _ => return Err(Error::Proof("native route/input mismatch")),
+            QualifiedOperationOwnerV1::Receive(owner) => chain!(
+                self,
+                route,
+                owner,
+                session,
+                restored,
+                checkpoints,
+                cancellation,
+                public,
+                key_first,
+                Receive
+            ),
+            QualifiedOperationOwnerV1::Archive(owner) => chain!(
+                self,
+                route,
+                owner,
+                session,
+                restored,
+                checkpoints,
+                cancellation,
+                public,
+                key_first,
+                Archive
+            ),
+            QualifiedOperationOwnerV1::Consuming(owner) => chain!(
+                self,
+                route,
+                owner,
+                session,
+                restored,
+                checkpoints,
+                cancellation,
+                public,
+                source_first,
+                Consuming
+            ),
+            QualifiedOperationOwnerV1::Refresh(owner) => chain!(
+                self,
+                route,
+                owner,
+                session,
+                restored,
+                checkpoints,
+                cancellation,
+                public,
+                source_first,
+                Refresh
+            ),
         })
+    }
+
+    /// Re-admit a retained family session on the prover instance of `route`: resume it and
+    /// detach it again, which moves nothing and verifies nothing. `None` when another instance
+    /// prepared it, including an identically installed one, or when its family is not the
+    /// route's; the session is then dropped and the caller prepares cold in the same call.
+    pub(super) fn admit_family(
+        &self,
+        route: OperationRoute,
+        family: FamilyStateV1,
+    ) -> Option<FamilyStateV1> {
+        macro_rules! readmit {
+            ($owner:expr, $state:expr, $variant:ident) => {{
+                let ChainStateV1 { session, a, w } = *$state;
+                let session = $owner.resume(session).ok()?.into_retained();
+                FamilyStateV1::$variant(Box::new(ChainStateV1 { session, a, w }))
+            }};
+        }
+        let selected = self.sources.route(route).ok()?;
+        Some(match (selected.owner(), family) {
+            (QualifiedOperationOwnerV1::Bootstrap(owner), FamilyStateV1::Bootstrap(state)) => {
+                let BootstrapStateV1 { session } = *state;
+                let session = owner.prover().resume(session).ok()?.into_retained();
+                FamilyStateV1::Bootstrap(Box::new(BootstrapStateV1 { session }))
+            }
+            (QualifiedOperationOwnerV1::Load(owner), FamilyStateV1::Load(state)) => {
+                readmit!(owner, state, Load)
+            }
+            (QualifiedOperationOwnerV1::Send(owner), FamilyStateV1::Send(state)) => {
+                readmit!(owner, state, Send)
+            }
+            (QualifiedOperationOwnerV1::Receive(owner), FamilyStateV1::Receive(state)) => {
+                readmit!(owner, state, Receive)
+            }
+            (QualifiedOperationOwnerV1::Archive(owner), FamilyStateV1::Archive(state)) => {
+                readmit!(owner, state, Archive)
+            }
+            (QualifiedOperationOwnerV1::Consuming(owner), FamilyStateV1::Consuming(state)) => {
+                readmit!(owner, state, Consuming)
+            }
+            (QualifiedOperationOwnerV1::Refresh(owner), FamilyStateV1::Refresh(state)) => {
+                readmit!(owner, state, Refresh)
+            }
+            _ => return None,
+        })
+    }
+}
+
+/// Countersign Z1(4) one level down, for the retention module's type check: an exhaustive
+/// destructuring of every retained family state with explicit field types, so a new field fails
+/// to compile here. The session and the restored checkpoints are the family's own in-call types
+/// (D6a), opaque outside their crate: the session's verified preparation holds the step's
+/// originals and Q proofs, and each restored checkpoint the proof bytes its restore decoded, as
+/// plain bytes, exactly as during a call. They hold no copy of a durable payload.
+#[cfg(test)]
+pub(super) fn family_state_fields(family: FamilyStateV1) {
+    macro_rules! chain_fields {
+        ($state:expr, $family:ident) => {{
+            let ChainStateV1 { session, a, w } = *$state;
+            let _: $family::RetainedSession = session;
+            let _: Option<$family::ACheckpoint> = a;
+            let _: Option<$family::WCheckpoint> = w;
+        }};
+    }
+    match family {
+        FamilyStateV1::Bootstrap(state) => {
+            let BootstrapStateV1 { session } = *state;
+            let _: bootstrap::RetainedSession = session;
+        }
+        FamilyStateV1::Load(state) => chain_fields!(state, load),
+        FamilyStateV1::Send(state) => chain_fields!(state, send),
+        FamilyStateV1::Receive(state) => chain_fields!(state, receive),
+        FamilyStateV1::Archive(state) => chain_fields!(state, archive),
+        FamilyStateV1::Consuming(state) => chain_fields!(state, consuming),
+        FamilyStateV1::Refresh(state) => chain_fields!(state, refresh),
     }
 }

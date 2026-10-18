@@ -8,7 +8,6 @@ fn fixed_refresh_schedules_require_each_owner_exactly_once() {
     for (v, n) in [
         (Variant::RefreshCredential, 4),
         (Variant::RefreshSchemePolicy, 4),
-        (Variant::RefreshBlacklist, 4),
         (Variant::RefreshQuotaShare, 7),
         (Variant::RefreshTimeAnchor, 4),
     ] {
@@ -49,8 +48,8 @@ fn fixed_refresh_schedules_require_each_owner_exactly_once() {
 
 fn original() -> Inputs {
     let state = StateWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
+        core: [Fp::ZERO; 29],
+        rest: [Fp::ZERO; 6],
         lineage: [Fp::ZERO; 18],
     };
     let state = RefreshWitness {
@@ -85,7 +84,6 @@ fn original() -> Inputs {
         state,
         sigma,
         objects: core::array::from_fn(|_| vec![]),
-        blacklist: None,
         quota: None,
         q: [
             QInput {
@@ -93,7 +91,7 @@ fn original() -> Inputs {
                 instances: vec![
                     bounded,
                     vec![],
-                    vec![Fq::from(14)],
+                    vec![Fq::from(9)],
                     vec![Fq::ONE],
                     vec![Fq::from(12)],
                 ],
@@ -278,12 +276,11 @@ fn refresh_uses_one_shared_sigma_selector_and_rejects_unrelated_variants() {
     for variant in [
         Variant::RefreshCredential,
         Variant::RefreshSchemePolicy,
-        Variant::RefreshBlacklist,
         Variant::RefreshQuotaShare,
         Variant::RefreshTimeAnchor,
     ] {
         assert_eq!(check_sigma_tape(&original(), variant), Ok(()));
-        assert_eq!(sigma_selector(variant), Ok(Fq::from(14)));
+        assert_eq!(sigma_selector(variant), Ok(Fq::from(9)));
     }
     assert_eq!(
         check_sigma_tape(&original(), Variant::Load),
@@ -342,11 +339,6 @@ fn fixed_union_projection_rejects_wrong_kind_each_field_and_original_signature()
             Variant::RefreshSchemePolicy,
             ObjectKind::SchemePolicy,
             RefreshKind::SchemePolicy,
-        ),
-        (
-            Variant::RefreshBlacklist,
-            ObjectKind::Blacklist,
-            RefreshKind::Blacklist,
         ),
         (
             Variant::RefreshQuotaShare,
@@ -420,7 +412,6 @@ fn typed_refresh_context_schema_rejects_foreign_operations_and_cross_kind_update
     for variant in [
         Variant::RefreshCredential,
         Variant::RefreshSchemePolicy,
-        Variant::RefreshBlacklist,
         Variant::RefreshQuotaShare,
         Variant::RefreshTimeAnchor,
     ] {
@@ -455,7 +446,6 @@ fn typed_refresh_context_schema_rejects_foreign_operations_and_cross_kind_update
     let renewal = RefreshObjects::context_specs(Variant::RefreshCredential).unwrap();
     for variant in [
         Variant::RefreshSchemePolicy,
-        Variant::RefreshBlacklist,
         Variant::RefreshQuotaShare,
         Variant::RefreshTimeAnchor,
     ] {

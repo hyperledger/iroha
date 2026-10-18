@@ -1,0 +1,158 @@
+"""B1 ordinary-domain hashing with explicit query preparation and cleanup.
+
+All F:length opcodes restrict ONE immutable response-XOR function on byte strings
+returning 264 bytes. They are not independent functions by message length. This
+is a named provided-oracle interface, not a concrete SHAKE circuit or PRP oracle.
+The shared programmed overlay may only write domain-last bytes9,10,11. Therefore
+H0/H1 addresses, ending0/1, never match a write and equal the immutable base F.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost, integer, require
+
+BASE_RESPONSE_BITS = 264 * 8
+NAMESPACE_BITS = 77 * 8
+
+
+def prefix_query(inputs, output, scratch):
+    """Compute the full base response, copy its prefix, then clean the response.
+
+    Clean scratch is required and restored. Input/output/scratch wire labels are
+    disjoint. A larger response is not treated as a smaller oracle for free.
+    """
+    inputs, output, scratch = tuple(inputs), tuple(output), tuple(scratch)
+    require(len(inputs) % 8 == 0 and len(inputs) > 0, "whole-byte oracle input")
+    require(1 <= len(output) <= BASE_RESPONSE_BITS and len(scratch) == BASE_RESPONSE_BITS,
+            "oracle response geometry")
+    combined = inputs + output + scratch
+    require(all(type(w) is int and w >= 0 for w in combined)
+            and len(set(combined)) == len(combined), "oracle wire alias")
+    opcode = "F:" + str(len(inputs) // 8)
+    yield (opcode, *inputs, *scratch)
+    for a, b in zip(scratch, output):
+        yield ("cx", a, b)
+    yield (opcode, *inputs, *scratch)
+
+
+def scatter(fields, query, domain):
+    """Prepare prefix/message bits and the final domain byte in zero query work."""
+    fields, query = tuple(fields), tuple(query)
+    integer(domain, 0, 255, "domain byte")
+    require(len(query) == len(fields) + 8, "query preparation width")
+    require(all(type(w) is int and w >= 0 for w in fields + query)
+            and len(set(fields + query)) == len(fields) + len(query), "query scatter alias or invalid wire")
+    for source, target in zip(fields, query):
+        yield ("cx", source, target)
+    for bit in range(8):
+        if (domain >> bit) & 1:
+            yield ("x", query[len(fields) + bit])
+
+
+@dataclass(frozen=True)
+class H0:
+    """namespace77 || IV16 || 0x00 -> first128 bytes, source extended H0."""
+    input_bits = NAMESPACE_BITS + 128
+    output_bits = 1024
+    query_bits = input_bits + 8
+    work = query_bits + BASE_RESPONSE_BITS
+
+    def resources(self):
+        return dict(gates=Cost(cx=2*self.input_bits+self.output_bits, base_calls=2).as_dict(),
+                    input_bits=self.input_bits, output_bits=self.output_bits, clean_work_bits=self.work,
+                    domain_last=0, conditional_on_shared_immutable_base_oracle=True,
+                    concrete_SHAKE_implemented=False)
+
+    def emit_clean(self):
+        query = tuple(range(self.input_bits, self.input_bits + self.query_bits))
+        response = tuple(range(self.input_bits + self.query_bits, self.input_bits + self.work))
+        out = tuple(range(self.input_bits + self.work, self.input_bits + self.work + self.output_bits))
+        fields = tuple(range(self.input_bits))
+        yield from scatter(fields, query, 0)
+        yield from prefix_query(query, out, response)
+        # Disjoint CNOTs/X commute and are self-inverse; same order is valid here.
+        yield from scatter(fields, query, 0)
+
+
+@dataclass(frozen=True)
+class H1Aggregation:
+    """Hash all source-order vector commitments, then their digests; clean history.
+
+    Input namespace77 then L records(seed32||com112) in vector/index order.
+    Seed bits are retained but never queried. Only the final commitment64 is an
+    output. Per-vector digest history and the shared framed-query work are cleared.
+    """
+    depths: tuple[int, ...]
+
+    def __post_init__(self):
+        require(type(self.depths) is tuple and 2 <= len(self.depths) <= 64, "H1 vector count")
+        for d in self.depths:
+            integer(d, 1, 12, "H1 vector depth")
+        require(self.leaves <= 61440, "H1 leaves")
+
+    @property
+    def leaves(self):
+        return sum(1 << d for d in self.depths)
+
+    @property
+    def input_bits(self):
+        return NAMESPACE_BITS + self.leaves * 1152
+
+    @property
+    def output_bits(self):
+        return 512
+
+    def layout(self):
+        # Outer message can exceed an individual vector for toy/small shapes.
+        query_bits = NAMESPACE_BITS + max(896 * (1 << max(self.depths)), 512 * len(self.depths)) + 8
+        digest_start = self.input_bits
+        query_start = digest_start + 512 * len(self.depths)
+        response_start = query_start + query_bits
+        output_start = response_start + BASE_RESPONSE_BITS
+        return dict(digest_start=digest_start, query_start=query_start, query_bits=query_bits,
+                    response_start=response_start, output_start=output_start,
+                    size=output_start + self.output_bits)
+
+    def fields(self, p, vector):
+        """Public fixed framing; no secret index nor copy of unused seed bytes."""
+        yield from range(NAMESPACE_BITS)
+        if vector is None:
+            yield from range(p["digest_start"], p["digest_start"] + 512 * len(self.depths))
+        else:
+            integer(vector, 0, len(self.depths) - 1, "H1 vector")
+            start = sum(1 << d for d in self.depths[:vector])
+            for flat in range(start, start + (1 << self.depths[vector])):
+                base = NAMESPACE_BITS + 1152 * flat + 256
+                yield from range(base, base + 896)
+
+    def emit_clean(self):
+        p = self.layout()
+        scratch = tuple(range(p["response_start"], p["response_start"] + BASE_RESPONSE_BITS))
+        def hash_one(vector):
+            fields = tuple(self.fields(p, vector))
+            query = tuple(range(p["query_start"], p["query_start"] + len(fields) + 8))
+            output_start = p["output_start"] if vector is None else p["digest_start"] + 512 * vector
+            output = tuple(range(output_start, output_start + 512))
+            yield from scatter(fields, query, 1)
+            yield from prefix_query(query, output, scratch)
+            yield from scatter(fields, query, 1)
+        for vector in range(len(self.depths)):
+            yield from hash_one(vector)
+        yield from hash_one(None)
+        for vector in reversed(range(len(self.depths))):
+            yield from hash_one(vector)
+
+    def resources(self):
+        tau, leaves = len(self.depths), self.leaves
+        p = self.layout()
+        # Twice each vector's framing/prefix call; one outer framing/prefix call.
+        cost = Cost(x=4*tau+2, cx=3584*leaves+4512*tau+1744, base_calls=4*tau+2)
+        return dict(gates=cost.as_dict(), input_bits=self.input_bits, output_bits=512,
+                    vector_digest_history_bits=512*tau, shared_query_bits=p["query_bits"],
+                    base_response_work_bits=BASE_RESPONSE_BITS,
+                    total_clean_work_bits=p["output_start"]-self.input_bits,
+                    conditional_on_shared_immutable_base_oracle=True,
+                    actual_source_vector_order=True, domain_last=1,
+                    programmed_domain_disjointness_requires_only_writes_9_10_11=True,
+                    concrete_SHAKE_implemented=False, complete_B1_coverage=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    profile_qualified=False, production_gate_changed=False)

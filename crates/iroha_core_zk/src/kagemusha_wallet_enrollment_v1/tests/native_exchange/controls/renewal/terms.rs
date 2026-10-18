@@ -119,7 +119,7 @@ fn fixture_signed_renewal_preserves_enrollment_and_quota_signatures_bind_boundar
     assert_eq!(second.body.regulatory_policy, old.body.regulatory_policy);
     assert!(second.validate_replacement_of(&old).is_err());
     let mut body = first.body;
-    body.regulatory_policy.blacklist_max_age_ms += 1;
+    body.regulatory_policy.time_anchor_max_response_ms += 1;
     let foreign = issue(body, issuer);
     foreign.verify(&f.config.scheme, issuer).unwrap();
     assert!(foreign.validate_replacement_of(&old).is_err());

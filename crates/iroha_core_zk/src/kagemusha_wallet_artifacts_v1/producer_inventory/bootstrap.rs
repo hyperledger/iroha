@@ -1,4 +1,4 @@
-//! Exact Bootstrap A1/W0/A2 source qualification under imported Q sources.
+//! Exact unsplit Bootstrap A source qualification under the imported Q source.
 
 use iroha_kagemusha_proof::a_relation::{
     AProofPlan, QProofPlan,
@@ -24,19 +24,18 @@ pub enum BootstrapQualificationErrorV1 {
     Native(#[from] native::Error),
 }
 
-/// All three strictly imported Bootstrap sources for one authenticated program.
-/// Only metadata is retained; no PK, final Omega or wallet-open capability is owned.
+/// The strictly imported terminal Bootstrap A source for one authenticated program.
+/// Bootstrap is one unsplit A with no W. Only metadata is retained; no PK, final
+/// Omega or wallet-open capability is owned.
 pub struct QualifiedBootstrapProgramV1 {
     installation: ([u8; 32], [u8; 32]),
     program: u32,
     prover: native::Prover,
-    first: InstalledSourceSealV1<Eq>,
-    wrapper: InstalledSourceSealV1<Ep>,
     terminal: InstalledSourceSealV1<Eq>,
     stage_memory: u64,
 }
 impl QualifiedBootstrapProgramV1 {
-    /// Design §5.3 peak proving memory of the largest of the A1, W0 and A2 stages.
+    /// Design §5.3 peak proving memory of the single terminal A stage.
     pub const fn stage_memory_bytes(&self) -> u64 {
         self.stage_memory
     }
@@ -63,7 +62,7 @@ fn metadata<C: PastaCurve>(
 }
 
 // The shared offline/intake factory reconstructs every fixed context word from
-// the already-qualified Q keys and installed root. No signed context is a recipe.
+// the already-qualified Q key and installed root. No signed context is a recipe.
 #[cfg(test)]
 pub(super) fn plan(
     scope: SourceScopeV1,
@@ -83,7 +82,9 @@ pub(super) fn plan_with_parameters(
     if pallas.k() != 16 || vesta.k() != 16 {
         return Err(BootstrapQualificationErrorV1::Source);
     }
-    if recipe.signatures().len() != 1 || recipe.keys().len() != 2 {
+    // Lean lineage: A proves the Bootstrap transition directly, so there is no
+    // sigma source and the hard 2V1F signature leaf is the only Q.
+    if recipe.sigma().is_some() || recipe.signatures().len() != 1 || recipe.keys().len() != 1 {
         return Err(BootstrapQualificationErrorV1::Source);
     }
     let policy = scope.bootstrap()?;
@@ -97,14 +98,8 @@ pub(super) fn plan_with_parameters(
                 .map_err(|_| BootstrapQualificationErrorV1::Source)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let operation = AProofPlan::new(
-        Variant::Bootstrap,
-        recipe.sigma().clone(),
-        keys,
-        None,
-        &pallas,
-    )
-    .map_err(|_| BootstrapQualificationErrorV1::Source)?;
+    let operation = AProofPlan::inline(Variant::Bootstrap, keys, None, &pallas)
+        .map_err(|_| BootstrapQualificationErrorV1::Source)?;
     native::Plan::new(
         operation,
         policy,
@@ -116,9 +111,9 @@ pub(super) fn plan_with_parameters(
 }
 
 impl AuthenticatedProducerInventoryV1 {
-    /// Reconstruct the whole fixed Bootstrap context and strictly import all three
-    /// signed A1/W0/A2 originals sequentially. Intermediate metadata alone never
-    /// bypasses the original source, table, commitment and full VK checks.
+    /// Reconstruct the whole fixed Bootstrap context and strictly import its one
+    /// signed terminal A original. Its metadata alone never bypasses the original
+    /// source, table, commitment and full VK checks.
     /// # Errors
     /// Different installation/program/Q scope, wrong entire context, malformed
     /// metadata, capped or substituted original, or any strict source failure.
@@ -170,8 +165,8 @@ impl AuthenticatedProducerInventoryV1 {
                 .checked_sub(1)
                 .ok_or(Error::Inventory)?,
         ) != Some(&Variant::Bootstrap)
-            || record.a.len() != 2
-            || record.w.len() != 1
+            || record.a.len() != 1
+            || !record.w.is_empty()
         {
             return Err(Error::Inventory.into());
         }
@@ -181,58 +176,24 @@ impl AuthenticatedProducerInventoryV1 {
             installed.verifier().pallas_parameters().as_ref().clone(),
             installed.verifier().vesta_parameters(16)?.as_ref().clone(),
         )?;
-        let schema: Vec<_> = plan
+        let context_fields: Vec<_> = plan
             .context()
             .schema()
             .iter()
             .map(PrimeField::to_repr)
             .collect();
-        if schema != record.context {
+        if context_fields != record.context {
             return Err(BootstrapQualificationErrorV1::Source);
         }
-        let first = metadata(self.read_verifier_metadata(record.a[0], originals, descriptors)?)?;
-        let wrapper =
-            metadata(self.read_verifier_metadata(record.w[0], originals, descriptors)?)?;
         let terminal =
-            metadata(self.read_verifier_metadata(record.a[1], originals, descriptors)?)?;
-        let stage_memory =
-            peak_proving_memory([&first, &terminal])?.max(peak_proving_memory([&wrapper])?);
-        let prover = native::Prover::from_artifacts(plan, first, wrapper, terminal)?;
-        let first = {
+            metadata(self.read_verifier_metadata(record.a[0], originals, descriptors)?)?;
+        let stage_memory = peak_proving_memory([&terminal])?;
+        let prover = native::Prover::from_artifacts(plan, terminal)?;
+        let terminal = {
             let original = self.read_original(record.a[0], originals, config.maximum_bytes)?;
             InstalledSourceSealV1::new(
                 record.a[0],
                 match admission.member(&[3, route_index, 0])? {
-                    Some(member) => prover.import_first_builtin_cancellable(
-                        &original.proving_key,
-                        config,
-                        member,
-                        None,
-                    )?,
-                    None => prover.import_first(&original.proving_key, config)?,
-                },
-            )
-        };
-        let wrapper = {
-            let original = self.read_original(record.w[0], originals, config.maximum_bytes)?;
-            InstalledSourceSealV1::new(
-                record.w[0],
-                match admission.member(&[4, route_index, 0])? {
-                    Some(member) => prover.import_wrapper_builtin_cancellable(
-                        &original.proving_key,
-                        config,
-                        member,
-                        None,
-                    )?,
-                    None => prover.import_wrapper(&original.proving_key, config)?,
-                },
-            )
-        };
-        let terminal = {
-            let original = self.read_original(record.a[1], originals, config.maximum_bytes)?;
-            InstalledSourceSealV1::new(
-                record.a[1],
-                match admission.member(&[3, route_index, 1])? {
                     Some(member) => prover.import_terminal_builtin_cancellable(
                         &original.proving_key,
                         config,
@@ -247,8 +208,6 @@ impl AuthenticatedProducerInventoryV1 {
             installation: identity,
             program,
             prover,
-            first,
-            wrapper,
             terminal,
             stage_memory,
         })
@@ -263,28 +222,12 @@ impl QualifiedBootstrapProgramV1 {
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<iroha_plonk::keys::SourceBoundViewV2<'_, Eq>, BootstrapQualificationErrorV1> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        match stage {
-            0 => Ok(self
-                .prover
-                .bind_first(self.first.seal(expected_member)?, cancellation)?),
-            1 => Ok(self
-                .prover
-                .bind_terminal(self.terminal.seal(expected_member)?, cancellation)?),
-            _ => Err(Error::Inventory.into()),
-        }
-    }
-    pub(super) fn bind_w(
-        &self,
-        stage: usize,
-        expected_member: u32,
-        cancellation: Option<&iroha_pasta::CancellationToken>,
-    ) -> Result<iroha_plonk::keys::SourceBoundViewV2<'_, Ep>, BootstrapQualificationErrorV1> {
-        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        // The one unsplit terminal A is Bootstrap's only stage; no W exists.
         if stage != 0 {
             return Err(Error::Inventory.into());
         }
         Ok(self
             .prover
-            .bind_wrapper(self.wrapper.seal(expected_member)?, cancellation)?)
+            .bind_terminal(self.terminal.seal(expected_member)?, cancellation)?)
     }
 }

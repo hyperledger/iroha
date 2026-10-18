@@ -257,7 +257,10 @@ The build computes registry freshness from actual tracked and unignored inputs,
 including higher-level circuit code, assets, manifests, lockfile and configuration.
 The census includes unknown owners and file formats by default. It omits unrelated
 Python, Swift, Kotlin and JavaScript client owners, Android/iOS examples, and
-Markdown prose under the workspace root, `docs` and `specs`. Every inventoried
+Markdown prose under the workspace root, `docs` and `specs`. Markdown and Rust
+extensions are recognized without regard to ASCII case; exact path spelling
+remains part of the identity, and extensionless dotfiles remain unknown formats.
+Every inventoried
 nested Cargo package takes precedence over these exclusions, so a native package
 inside an SDK or vendor directory retains all its inventoried files. Native crate
 prose, scripts, tests, fixtures, machine-readable specifications and assets remain
@@ -288,8 +291,10 @@ filtering. Thus ignored native modules, binary constants and Cargo configuration
 remain inputs. Generated registry DATA is excluded from the digest to avoid a
 self-hash. The existing Swift generated-framework symlink contributes its exact
 path and link text only. Other included symlinks must resolve to an already
-included regular input inside the workspace. Missing selected tracked inputs,
-incomplete Git inventory or changing inputs disable built-in admission while
+included regular input inside the workspace. Deleted unreferenced tracked files
+are omitted consistently before and after staging. Missing required inputs,
+references to tracked-but-absent inputs, incomplete Git inventory or changing
+inputs disable built-in admission while
 allowing strict compilation/generation. This source identity is not an external
 dependency or toolchain attestation.
 

@@ -60,7 +60,6 @@ pub fn bind<S: StatementView>(
         | Variant::ArchiveStatus
         | Variant::RefreshCredential
         | Variant::RefreshSchemePolicy
-        | Variant::RefreshBlacklist
         | Variant::RefreshQuotaShare
         | Variant::RefreshTimeAnchor => inputs.push(f[18].clone()),
         Variant::Retiring => inputs.push(uint.glue().constant(region, Fp::ZERO)?),

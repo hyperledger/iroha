@@ -318,8 +318,10 @@ pub struct TransitionOwner {
 impl TransitionOwner {
     /// Hold the exact credential already authenticated by the native transition verifier.
     #[must_use]
-    pub fn new(credential: KagemushaWalletCredentialV1) -> Self {
-        Self { credential }
+    pub fn new(credential: &KagemushaWalletCredentialV1) -> Self {
+        Self {
+            credential: *credential,
+        }
     }
 
     fn require(

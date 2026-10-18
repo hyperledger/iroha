@@ -9,7 +9,6 @@ use crate::kagemusha_wallet_preparation_v1::{
     PreparationV1, PreparedOperationV1, ReceiveFoldFieldsV1, ReceiveFoldMapsV1,
 };
 use crate::kagemusha_wallet_state_v1::{FoldCustodyV1, ReleasedStep};
-use ff::Field;
 use iroha_data_model::kagemusha::kagemusha_wallet_v1::*;
 use iroha_kagemusha_proof::{
     operation_relation::objects::ObjectKind,
@@ -17,39 +16,12 @@ use iroha_kagemusha_proof::{
         SigmaSlotWitness,
         native::{IncomingMode, IncomingSigma},
     },
-    tree::{IndexedInsert, IndexedLeaf},
 };
 use iroha_pasta::{Ep, Eq, poseidon::hash_with_domain};
 use iroha_plonk::Protocol;
 use iroha_plonk_gadgets::statement::STATEMENT_DOMAIN;
 use iroha_plonk_recursion::{AccumulatorT, obligation::ledger::Variant};
 
-fn word(bytes: [u8; 32]) -> Result<Fp, Error> {
-    Option::<Fp>::from(Fp::from_repr(bytes)).ok_or(Error::Proof("native incoming field"))
-}
-fn history(
-    leaf: KagemushaWalletIndexedLeafV1,
-    opening: KagemushaWalletIndexedOpeningV1,
-) -> Result<IndexedInsert<Fp>, Error> {
-    let siblings = opening
-        .siblings
-        .into_iter()
-        .map(word)
-        .collect::<Result<Vec<_>, _>>()?
-        .try_into()
-        .map_err(|_| Error::Proof("history depth"))?;
-    Ok(IndexedInsert {
-        leaf: IndexedLeaf {
-            key: word(leaf.key)?,
-            value: word(leaf.value)?,
-            next_key: word(leaf.next_key)?,
-        },
-        leaf_slot: opening.slot,
-        leaf_siblings: siblings,
-        slot: 0,
-        slot_siblings: [Fp::ZERO; 32],
-    })
-}
 fn predecessor_claims(
     predecessor: &FoldedStateV1,
 ) -> Result<(AccumulatorT<Ep>, AccumulatorT<Eq>), Error> {
@@ -146,17 +118,21 @@ pub(super) fn receive(
         &sources.objects[5],
     )?;
     let q = proof(worker.sources.q(route))?;
-    let sigma = proof(q.sigma().incoming_original_cancellable(
-        &slot,
-        selector,
-        worker.budget,
-        Some(cancellation.prover_token()),
-    ))?;
-    let (history_leaf, history_opening) = custody.blacklist_history()?;
+    let sigma = proof(
+        q.sigma()
+            .ok_or(Error::Proof("incoming sigma source"))?
+            .incoming_original_cancellable(
+                &slot,
+                selector,
+                worker.budget,
+                Some(cancellation.prover_token()),
+            ),
+    )?;
     let (pp, pv) = predecessor_claims(predecessor)?;
     let root = worker.sources.scope().root();
     let signatures = super::inputs::receive_signatures(
         &sources.objects,
+        &sources.credential,
         route.variant == Variant::ReceiveRenewed,
         [root.x, root.y],
     )?;
@@ -165,22 +141,14 @@ pub(super) fn receive(
         after: sources.after,
         statement: sources.statement,
         consumed: sources.consumed,
-        blacklist: history(history_leaf, history_opening)?,
         incoming_statement: sources.incoming_statement,
         objects: sources.objects.clone(),
         signatures,
         predecessor_pallas: pp,
         predecessor_vesta: pv,
-        own_selector: route.own,
         incoming_selector: selector,
     }))?;
-    let results = [
-        incoming.valid && sigma.is_some(),
-        bits[0],
-        bits[1],
-        bits[2],
-        bits[3],
-    ];
+    let results = [incoming.valid && sigma.is_some(), bits[0], bits[1], bits[2]];
     let (modes, pc, vc) = super::incoming::modes(
         pallas_params,
         vesta_params,
@@ -221,11 +189,7 @@ pub(super) fn receive(
         predecessor,
         monetary,
         public,
-        ReceiveFoldMapsV1 {
-            credit,
-            history_leaf,
-            history_opening,
-        },
+        ReceiveFoldMapsV1 { credit },
         proposal,
         worker.budget,
     ))?;
@@ -238,10 +202,7 @@ pub(super) fn receive(
     ))
 }
 
-fn retained<'a>(
-    step: &'a ReleasedStep,
-    role: KagemushaWalletRetainedInputRoleV1,
-) -> Result<&'a [u8], Error> {
+fn retained(step: &ReleasedStep, role: KagemushaWalletRetainedInputRoleV1) -> Result<&[u8], Error> {
     let mut found = step
         .frozen
         .capsule
@@ -350,28 +311,41 @@ pub(super) fn archive(
                 .ok_or(Error::Proof("Archive Receive selector"))?;
             let slot = sigma_slot(worker, selector, statement, sigma)?;
             let q = proof(worker.sources.q(route))?;
-            let claim = proof(q.sigma().incoming_original_cancellable(
-                &slot,
-                selector,
-                worker.budget,
-                Some(cancellation.prover_token()),
-            ))?;
+            let claim = proof(
+                q.sigma()
+                    .ok_or(Error::Proof("incoming sigma source"))?
+                    .incoming_original_cancellable(
+                        &slot,
+                        selector,
+                        worker.budget,
+                        Some(cancellation.prover_token()),
+                    ),
+            )?;
             (receipt, Some(slot), claim)
         }
         archive::Evidence::Status { receipt, .. } => (receipt, None, None),
     };
-    let signature = super::inputs::signature(
-        ObjectKind::Receipt,
-        receipt,
-        super::inputs::key(&fields.retained.signed[3], 130)?,
-    )?;
+    // The merged leaf's witnesses in slot order: the own receipt (hard) under the
+    // payment key its current credential opens, then the incoming receipt (soft).
+    let signatures = [
+        super::inputs::signature(
+            ObjectKind::Receipt,
+            &fields.own,
+            super::inputs::key(&fields.credential, 130)?,
+        )?,
+        super::inputs::signature(
+            ObjectKind::Receipt,
+            receipt,
+            super::inputs::key(&fields.retained.signed[3], 130)?,
+        )?,
+    ];
     let (pp, pv) = predecessor_claims(predecessor)?;
     let bits = proof(prover.propose_nonproof(archive::PredicateInputs {
         state: fields.state,
         own: fields.own.clone(),
         retained: fields.retained.clone(),
         evidence: fields.evidence.clone(),
-        signature,
+        signatures,
         predecessor_pallas: pp,
         predecessor_vesta: pv,
         incoming_selector: route.incoming,
@@ -379,7 +353,7 @@ pub(super) fn archive(
     let results = [
         transport
             .as_ref()
-            .map_or(sigma_claim.is_some(), |t| t.valid),
+            .map_or_else(|| sigma_claim.is_some(), |t| t.valid),
         bits[0],
         bits[1],
     ];
@@ -457,26 +431,5 @@ mod tests {
         }
         assert!(sigma_view(&original, 0).is_err());
         assert!(sigma_view(&original, 63).is_err());
-    }
-    #[test]
-    fn history_projection_retains_exact_path_and_rejects_noncanonical_atoms() {
-        let leaf = KagemushaWalletIndexedLeafV1 {
-            key: Fp::from(1).to_repr(),
-            value: Fp::from(2).to_repr(),
-            next_key: Fp::from(9).to_repr(),
-        };
-        let mut opening = KagemushaWalletIndexedOpeningV1 {
-            slot: 17,
-            siblings: core::array::from_fn(|i| Fp::from(i as u64).to_repr()),
-        };
-        let native = history(leaf, opening).unwrap();
-        assert_eq!(native.leaf_slot, 17);
-        assert_eq!(native.leaf.key, Fp::ONE);
-        assert_eq!(native.leaf_siblings[31], Fp::from(31));
-        opening.siblings[12] = [255; 32];
-        assert!(history(leaf, opening).is_err());
-        let mut invalid = leaf;
-        invalid.value = [255; 32];
-        assert!(history(invalid, opening).is_err());
     }
 }

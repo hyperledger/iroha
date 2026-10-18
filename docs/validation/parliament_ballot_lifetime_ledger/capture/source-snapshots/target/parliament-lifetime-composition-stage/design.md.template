@@ -1,0 +1,166 @@
+# Conditional adaptive lifetime composition — design only
+
+This proposes the next integration boundary for the implemented mathematical
+request circuits. It is not an implemented lifetime driver, a new primitive
+assumption, a family-wide maximum, or a complete B6.1 resource certificate.
+No frozen argument, ledger, source, candidate status or production gate changes.
+
+## 1. Explicit finite experiment
+
+Fix M=2^20, an honest typed-request cap T, external combined-oracle call cap Q,
+stored-message capacity W=215150 bytes, response width v=2112 bits, and length
+width b. Fix each external full-message capacity C_j with W<=C_j<2^b; the
+current actual L0 factory additionally requires C_j>=6882996. Query count
+alone gives no length bound. Set N=T*(M+2), k=b+8W and d=max(2,N.bit_length()).
+The array has N*(1+k+v) bits; allocate d counter bits once, even if T=0 leaves
+that counter unused. Current factory bounds require T<=2^64. T here caps ALL
+three typed request families, including rejected calls; if the accepted experiment
+bounds only valid requests, rejected-call counts need separate explicit caps.
+
+Honest requests are classical and atomic. A trusted typed descriptor selects:
+(a) a REG RequestTransition with legal body/context length family;
+(b) a VOTE ContentFamily for actual length3..1000, including all invalid content;
+(c) a RejectedVoteFamily for a fixed other64-bit actual length, including invalid
+vote bytes. The third family does not allocate/read the list or sample coins;
+it borrows and preserves its complete typed input. Descriptor authentication,
+classical family selection and transport/codec work are explicit driver premises
+and separate costs. This proposal gives no coherent request-generation API.
+REG retains its97+proof-bit return; the VOTE family union has253+proof bits.
+Unifying the two role returns requires a further adapter or typed role interface.
+
+External queries use canonical length/full-message registers, an enable bit and
+an arbitrary response target. Every fixed/variable F adapter refers to the same
+immutable source-domain-padded function, including exactly ten native H5 bits.
+Unknown/empty messages and noncanonical encodings require an agreed fixed total
+completion. No new random tails, query validation or base-oracle implementation
+are supplied here. The provided F may be correlated with adversary/reference
+state; its value/register is unchanged by response-XOR calls.
+
+## 2. Exact conditional event-cost vector
+
+For a realized sequence rho of r<=T typed requests and q<=Q external calls,
+let g_i=(X_i,CX_i,CCX_i,F_i) be that selected request family's current resource
+vector, instantiated at the SAME N and b. Rejected-size families make no log
+access. ContentFamily adds96 output wires and no gates to ContentRequest.
+All bounded-content requests, including rejected ones, pay the full generator,
+valid-controlled W, return and inverse. Smaller trial caps are test models only.
+
+For N>0 one external L0 event costs exactly:
+
+```
+l = (4kN+4N+2, 4kN, N*(4k+6+v)+v+2, 2),
+w_L = 2N+k+v+2 clean bits.
+```
+
+For N=0 it costs (0,0,v,2) and v clean bits. Each query also uses b+8C_j
+query bits, one enable bit and v caller-response bits; these are not scratch.
+No second append counter or persistent-log allocation belongs to L0.
+
+The conditional implemented-circuit sum is g_body(rho)=sum_i g_i+q*l.
+Its elementary subtotal is X+CX+5*CCX, keeping F queries separate. Concretely,
+F_body=6200*n_candidate_generating+5960*n_comparator_generating+2q;
+"generating" includes bounded-content rejection, but excludes size-rejected VOTE.
+W/E make no F calls. Honest internal reads use the base directly because their
+complete messages end in0/1/4/5/8 and the log programs only9/10/11. Do NOT charge
+L0 again for these reads or insert the earlier741-read source subtotal into this
+circuit count. Compute/unquery and outer generator inverse are already included.
+
+The full experiment needs the separate addition
+`g_total=g_body+g_adversary+g_input/coin-preparation+g_selection/routing+g_init`.
+A concrete implementation of F would add its actual per-call gate/work costs;
+in an oracle model its calls and retained state stay separate resources. No
+unit cost for F, variable-length routing, adaptive control or quantum RAM is assumed.
+The adversary subtotal excludes the Q lookup invocations already charged; any
+extra verifier/diagnostic/final-comparison calls must enter Q or separate terms.
+For this trace, each event has a specified cost. An accepted uniform worst-case
+certificate still needs bounds over ALL admissible traces/families, or explicit
+per-family quotas/envelopes. The four endpoint observations do not supply them.
+
+## 3. Capacity and adaptive joint-state induction
+
+Start with a zero log and c=0. Every generating request appends at most M+2
+records, including all M primary writes on exhaustion; auxiliary trials never
+write. Bounded-content rejection and size rejection append zero. Therefore before
+request i at most(i-1)*(M+2) slots are used and a generating request has capacity.
+All disabled scans remain charged. L0 leaves log/counter unchanged and returns
+the newest matching active record, preserving arbitrary correlations on disjoint registers (duplicate key bytes
+remain permitted). Canonical query and active-record encodings are a premise
+on the entire quantum support; a total F completion does not validate them.
+
+Use the clean component identity at each entering history, then compose the
+resulting channels/isometries in actual event order. Fresh coins are independent
+of the entering history when drawn, not necessarily independent conditional on
+the COMPLETED adaptive trace: later requests can reveal earlier outcomes. The
+trace labels above are resource bookkeeping, not a change to the sampling law.
+No adversary action occurs between a request's G/W/E/G-inverse or between L0's
+two base calls. Each component restores its clean work before the next event.
+The whole proof must preserve the joint log, F, caller and adversary/reference
+state; equality of returned proof distributions alone is insufficient.
+
+## 4. Storage, retained randomness and initial state
+
+For request i let U_i be its typed public bits, R_i its original private coins,
+O_i its caller output, H_i its retained derived outputs and S_i its shared work.
+Generating R_i=512*M+256*T_open+896*tau+tau*ell+10*g+736*8.
+Rejected-size requests have R_i=H_i=0, S_i=519, U_i=3608+1024*n and the row's
+common VOTE output O_i. Their borrowed list storage is real input storage even
+though none of its bits are read. It is not newly allocated by the rejection map.
+
+One transparent conservative ownership convention retains distinct original
+input/coin/return slots for every request and distinct query/response slots for
+every external event. These slots are supplied directly, never cloned from an
+unknown quantum state. Adversary filling, moving or retaining data in them is
+charged in g_adversary or the explicit routing term. If A excludes these interface
+slots and B_F denotes the supplied oracle state, the allocated logical space is:
+
+```
+B_log + d + A + B_F + D
++ sum_i(U_i+R_i+O_i) + sum_j(b+8C_j+1+v) + E + K,
+K >= max({H_i+S_i}_i union {w_L}).
+```
+
+D names additional driver/control/history storage. E names coin-purification
+or retained environment registers. Empty maxima are0. Clean request history and
+L0 scratch share K because each is zero at event boundaries; original coin and
+caller-output slots do not belong to that reusable workspace. This is exact for
+the stated disjoint allocation, or a bound when budgets exceed used slots. It
+is not automatically a preallocated uniform bound: choosing A,D,E,K and interface
+slot budgets for all adaptive branches is a remaining obligation. If interfaces
+are already included in A, count their union once instead of adding them twice.
+
+In a classical-randomness model, each coin register begins uniformly mixed and
+may be discarded after the atomic request; visible joint evolution is the
+mixture over the same per-tape maps. Safe disposal/reinitialization and histories
+then belong to the classical-environment resource model. They are not a unitary
+reset. In a fully retained purification model, keep every R_i register and its
+purifier: a canonical preparation uses R_i Hadamards and R_i CNOTs from2R_i zero
+bits, with E=sum_i R_i. Those Hadamards/preparation are ADDITIONAL resources absent
+from the current X/CX/CCX subtotal. An arbitrary environment implementation may
+cost more. Freshness/entropy-source acceptance remains separate from this model.
+
+The log, counter and K work wires must initially be clean; returned targets may
+be arbitrary for XOR semantics, or supplied zero to read ordinary result bytes.
+Providing/preparing all these states, public inputs, F and the adversary state
+requires named initial resources. The logical formula measures none of the native
+64 MiB verifier workspace, physical qubits, hardware time or allocation behavior.
+
+## 5. Source anchors and next implementable certificate
+
+The source boundary is the current ignored modules `request_transition.py`,
+`content_request.py`, `request_family.py`, `request_dispatch.py`, `l0_machine.py`,
+`write_machine.py`, `chronological_log.py`, and `cleanup-design.md`; the accepted
+observation SHA is81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c.
+The frozen sampler/log notes define the ideal endpoint and provided-oracle boundary.
+Their actual-input entry bridge and primitive advantages are not consequences of
+this composition. Final machine capture supplies exact module identities separately.
+
+A first scoped implementation is `ledger.py`: it supports only the four exact
+accepted observations, fixed out-of-range VOTE families and external L0 calls.
+It refuses unobserved accepted/content shapes and any full-resource qualification.
+It checks same-N/b/F contracts,
+per-event source-family metadata, capacity and disjoint shared-register maps;
+and emits a conditional vector with explicit unknown external terms. It always
+refuses full qualification; supplying metadata cannot close the external obligations.
+Then prove the accepted adaptive experiment/refinement and derive or validate
+family-wide budgets. Preserve independent-review, primitive-entry, complete-resource,
+current-candidate and production qualification as false until their own requirements pass.

@@ -28,10 +28,6 @@
 //! - **`burned_total`**: the lineage input is checked against the balance
 //!   and bound in the statement, so dropping it to free burned value fails
 //!   the consumer's comparison with the lineage proof.
-//! - **Blacklist age** (owner answer Q5): a stale list is unprovable under
-//!   the blacklist relation, and Ω(pred)'s mask selects that relation, so
-//!   neither the control-free relation nor a rewritten mask or issue time
-//!   escapes it.
 //! - **Self-payment**: payer and receiver wallets must differ.
 //! - **Accepted time**: the successor's floor is the accepted lower time, so
 //!   a later Send cannot accept an earlier time.
@@ -42,13 +38,13 @@
 mod common;
 
 use common::{
-    CHECK_SEED, RELATIONS, SEND_BLACKLIST, check_claim, check_witness, folded, smallest_shape,
+    CHECK_SEED, RELATIONS, SEND_LEASE, check_claim, check_witness, folded, smallest_shape,
 };
 use ff::Field;
 use iroha_kagemusha_proof::{
-    CONTROL_BLACKLIST, ConsumerError, Mutation, RequestBody, SigmaRelation, SigmaShape,
-    StatementV1, StepInputs, StepPublic, StepRelation, StepWitness, Violation, check_receive,
-    check_send, lineage_view_of, sample_witness,
+    ConsumerError, Mutation, RequestBody, SigmaRelation, SigmaShape, StatementV1, StepInputs,
+    StepPublic, StepRelation, StepWitness, Violation, check_receive, check_send, lineage_view_of,
+    sample_witness,
 };
 use iroha_pasta::Fp;
 use iroha_plonk::check::CheckFailure;
@@ -111,7 +107,7 @@ fn identity_edits() -> [IdentityEdit; 4] {
 /// the real head.
 #[test]
 fn identity_substitution_cannot_keep_the_real_head() {
-    for relation in [SigmaRelation::SEND, SEND_BLACKLIST] {
+    for relation in [SigmaRelation::SEND, SEND_LEASE] {
         let honest = honest(relation);
         let view = lineage_view_of(&honest).expect("send witness");
         let shape = shape(relation);
@@ -379,76 +375,6 @@ fn burned_value_cannot_be_spent() {
     claim.lineage_burned_total = 40;
     let accepted = check_send(&view, &request, &claim).expect("consumer view");
     assert!(!check_claim(&shape, &forged, &accepted.public).is_satisfied());
-}
-
-/// Owner answer Q5: a stale blacklist cannot be sent past. Ω(pred)'s mask
-/// selects the blacklist relation, which rejects the list; the control-free
-/// relation refuses the masked core; rewriting the mask or the issue time
-/// moves the head.
-#[test]
-fn a_stale_blacklist_cannot_be_sent_past() {
-    let blacklist = shape(SEND_BLACKLIST);
-    let control_free = shape(SigmaRelation::SEND);
-    let stale = sample_witness::<Fp>(CHECK_SEED, SEND_BLACKLIST, Mutation::StaleBlacklist);
-    let view = lineage_view_of(&stale).expect("send witness");
-    assert_eq!(view.enabled_controls, CONTROL_BLACKLIST);
-    // The consumer selects the blacklist relation from Ω(pred)'s mask.
-    assert_eq!(
-        stale.evaluate(SEND_BLACKLIST).violations,
-        vec![Violation::BlacklistTooOld]
-    );
-    let report = check_witness(&blacklist, &stale);
-    assert!(!report.is_satisfied());
-    assert!(
-        report
-            .failures()
-            .iter()
-            .all(|failure| matches!(failure, CheckFailure::LookupInputMissing { lookup: 0, .. }))
-    );
-    // The control-free relation does not enforce the age, but refuses a
-    // core whose mask enables the control.
-    assert_eq!(
-        stale.evaluate(SigmaRelation::SEND).violations,
-        vec![Violation::ControlsMismatch]
-    );
-    assert!(!check_witness(&control_free, &stale).is_satisfied());
-    // A forger clears the mask (or freshens the issue time): a valid step
-    // from another head, rejected against Ω(pred).
-    let mut unmasked = stale.clone();
-    unmasked.predecessor.core.controls.enabled = 0;
-    let mut fresh = stale.clone();
-    let StepInputs::Send(send) = &stale.inputs else {
-        panic!("send");
-    };
-    fresh.predecessor.core.controls.blacklist_issued_at_ms = send.accepted_upper;
-    for (name, forged, relation, shape) in [
-        ("unmasked", &unmasked, SigmaRelation::SEND, &control_free),
-        ("fresh", &fresh, SEND_BLACKLIST, &blacklist),
-    ] {
-        assert!(forged.evaluate(relation).is_honest(), "{name}");
-        assert!(check_witness(shape, forged).is_satisfied(), "{name}");
-        let own = forged.statement(relation).expect("statement");
-        let request = forged.request_body();
-        assert_eq!(
-            check_send(&view, &request, &own),
-            Err(ConsumerError::Predecessor),
-            "{name}"
-        );
-        // The claim for the real head (and Ω(pred)'s mask) is unprovable.
-        let mut claim = own;
-        claim.predecessor = view.head;
-        claim.enabled_controls = view.enabled_controls;
-        let accepted = check_send(&view, &request, &claim).expect("consumer view");
-        assert_eq!(accepted.relation, SEND_BLACKLIST, "{name}");
-        assert!(
-            !check_claim(shape, forged, &accepted.public).is_satisfied(),
-            "{name}"
-        );
-        assert!(
-            !check_claim(&blacklist, &stale, &accepted.public).is_satisfied(),
-            "{name}"
-        );
-    }
 }
 
 /// Payer and receiver wallets must differ.

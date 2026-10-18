@@ -1,0 +1,119 @@
+"""Restore authenticated frozen inputs, execute scoped checks, and retain evidence.
+
+This runner does not edit shared sources or repin changed inputs. It records
+selected byte identities, not a complete Python/runtime/OS trust closure.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+OUT = HERE/'capture'
+REPLAY = OUT/'source'
+MACHINE = ROOT/'docs/validation/parliament_ballot_request_machine/capture'
+RECEIPT_SHA = 'a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69'
+CONTENT_PATH = 'target/parliament-content-resources-stage/capture/observation.json'
+CONTENT_SOURCE = ROOT/'docs/validation/parliament_ballot_content_resources/record/capture/observation.json'
+CONTENT_SHA = 'c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'
+OWNED = ('arithmetic.py','test_arithmetic.py','census.py','capture.py')
+
+
+def sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def require(value,message):
+    if not value: raise ValueError(message)
+
+
+def invoke(command,label,environment):
+    completed=subprocess.run(command,cwd=REPLAY,env=environment,capture_output=True)
+    (OUT/f'{label}.stdout').write_bytes(completed.stdout)
+    (OUT/f'{label}.stderr').write_bytes(completed.stderr)
+    require(completed.returncode==0,f'{label} exit {completed.returncode}')
+    return dict(command=command,exit_code=completed.returncode,
+                stdout_sha256=sha(completed.stdout),stderr_sha256=sha(completed.stderr))
+
+
+def main():
+    require(not OUT.exists(),'capture already exists; preserve prior outcomes')
+    OUT.mkdir()
+    started=time.time()
+    receipt_bytes=(MACHINE/'receipt.json').read_bytes()
+    require(sha(receipt_bytes)==RECEIPT_SHA,'frozen machine receipt changed')
+    original=json.loads(receipt_bytes)
+    sources=original['source_sha256_before']
+    require(sources==original['source_sha256_after']==original['captured_source_sha256_after'],
+            'frozen capture instability')
+    require(len(sources)==152,'unexpected frozen selected inventory')
+    restored={}
+    for relative,expected in sources.items():
+        raw=(MACHINE/'source'/f'{relative}.template').read_bytes()
+        require(sha(raw)==expected,'frozen snapshot changed: '+relative)
+        target=REPLAY/relative; target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+        restored[relative]=expected
+    content=CONTENT_SOURCE.read_bytes()
+    require(sha(content)==CONTENT_SHA,'frozen content observation changed')
+    target=REPLAY/CONTENT_PATH;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(content)
+    restored[CONTENT_PATH]=CONTENT_SHA
+    own_before={}
+    for name in OWNED:
+        raw=(HERE/name).read_bytes();relative='target/parliament-family-bounds-review/'+name
+        target=REPLAY/relative;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+        own_before[relative]=sha(raw)
+    source_before={relative:sha((REPLAY/relative).read_bytes()) for relative in restored}
+    require(source_before==restored,'restoration drift')
+    current_drift={relative:dict(frozen=expected,current=sha((ROOT/relative).read_bytes()))
+        for relative,expected in restored.items()
+        if not (ROOT/relative).is_file() or sha((ROOT/relative).read_bytes())!=expected}
+    environment=dict(os.environ)
+    for key in ('PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH'): environment.pop(key,None)
+    environment.update(PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTHONDONTWRITEBYTECODE='1')
+    python=Path(sys.executable).resolve();python_before=sha(python.read_bytes())
+    test_path=REPLAY/'target/parliament-family-bounds-review/test_arithmetic.py'
+    prefix=[str(python),'-m','pytest','-c','/dev/null','-o','addopts=',
+            '--noconftest','-p','no:cacheprovider',str(test_path)]
+    commands=[invoke(prefix+['--collect-only','-q'],'collection',environment)]
+    selected=[line.split('::',1)[1] for line in (OUT/'collection.stdout').read_text().splitlines()
+              if '::test_' in line]
+    require(len(selected)==37 and len(set(selected))==37,'collection membership count')
+    commands.append(invoke(prefix+['-q',f'--junitxml={OUT / "junit.xml"}'],'tests',environment))
+    tree=ET.parse(OUT/'junit.xml');calls=tree.findall('.//testcase')
+    require([c.attrib['name'] for c in calls]==selected,'execution membership differs')
+    require(not tree.findall('.//failure') and not tree.findall('.//error')
+            and not tree.findall('.//skipped'),'test result failed or skipped')
+    commands.append(invoke([str(python),str(REPLAY/'target/parliament-family-bounds-review/census.py'),
+                            '--root',str(REPLAY),'--out',str(OUT)],'census',environment))
+    source_after={relative:sha((REPLAY/relative).read_bytes()) for relative in restored}
+    own_after={relative:sha((REPLAY/relative).read_bytes()) for relative in own_before}
+    own_live_after={relative:sha((ROOT/relative).read_bytes()) for relative in own_before}
+    require(source_after==source_before,'frozen source changed during checks')
+    require(own_before==own_after==own_live_after,'review implementation changed during checks')
+    require(sha(python.read_bytes())==python_before,'Python executable changed')
+    result=dict(schema='parliament-component-family-capture-v1',tests_passed=len(calls),
+        exact_collection_execution_membership=True,test_membership=selected,commands=commands,
+        elapsed_seconds=time.time()-started,python=str(python),python_version=sys.version,
+        python_sha256=python_before,selected_source_count=len(restored),
+        frozen_machine_receipt_sha256=RECEIPT_SHA,content_observation_sha256=CONTENT_SHA,
+        source_sha256_before=source_before,source_sha256_after=source_after,
+        review_source_sha256=own_before,current_checkout_differences_at_start=current_drift,
+        selected_frozen_source_stable=True,review_source_stable=True,
+        full_runtime_dependency_closure=False,full_gate_stream_executed=False,
+        full_request_family_bound=False,complete_resource_vector=False,
+        current_production_candidate_qualified=False,native_workspace_qualified=False,
+        independent_cryptographic_review=False,production_gate_changed=False)
+    (OUT/'receipt.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    entries=[p for p in OUT.rglob('*') if p.is_file()]
+    (OUT/'SHA256SUMS').write_text(''.join(f'{sha(p.read_bytes())}  {p.relative_to(OUT)}\n'
+        for p in sorted(entries)))
+    print(json.dumps(dict(tests_passed=len(calls),source_count=len(restored),
+                          receipt_sha256=sha((OUT/'receipt.json').read_bytes()))))
+
+
+if __name__=='__main__': main()

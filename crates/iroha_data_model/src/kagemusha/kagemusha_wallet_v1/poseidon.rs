@@ -20,8 +20,8 @@
 //!
 //! # Indexed Merkle tree (owner answer A2)
 //!
-//! The consumed-credit, pending-outgoing, load/redeem recovery, fee-claim and blacklist-history
-//! maps and the lineage-level credit-digest tree are depth-32 Poseidon indexed Merkle trees
+//! The consumed-credit, pending-outgoing, load/redeem recovery and fee-claim maps and the
+//! lineage-level credit-digest tree are depth-32 Poseidon indexed Merkle trees
 //! ([`KagemushaWalletIndexedTreeV1`]); the quota-usage map is the one exception, a depth-6 array
 //! aligned with the quota-window slots (owner answer B5):
 //!
@@ -69,7 +69,7 @@ pub const KAGEMUSHA_WALLET_CORE_DOMAIN_V1: u64 = domain_v1(*b"kgwcore1");
 pub const KAGEMUSHA_WALLET_REST_DOMAIN_V1: u64 = domain_v1(*b"kgwrest1");
 /// Poseidon domain of the σ public statement digest (§3.2).
 pub const KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1: u64 = domain_v1(*b"kgwstmt1");
-/// Poseidon domain of `credit_id` over the 26 Request body elements (§5.1, owner answers Q1,
+/// Poseidon domain of `credit_id` over the 24 Request body elements (§5.1, owner answers Q1,
 /// A5 and B6).
 pub const KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1: u64 = domain_v1(*b"kgwcrdt1");
 /// Poseidon domain of one `send_chain` append (§3).
@@ -92,8 +92,6 @@ pub const KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwfee_
 pub const KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1: u64 = domain_v1(*b"kgwquse1");
 /// Poseidon domain of a quota-usage array node (§3.3, owner answer B5).
 pub const KAGEMUSHA_WALLET_QUOTA_USAGE_NODE_DOMAIN_V1: u64 = domain_v1(*b"kgwqusn1");
-/// Poseidon domain of blacklist-history map values (§3.3, owner answer B6).
-pub const KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1: u64 = domain_v1(*b"kgwbhst1");
 /// Poseidon domain of the certificate-set digest `P(kgwcset1, [count, digests...])` (owner
 /// answer B1).
 pub const KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1: u64 = domain_v1(*b"kgwcset1");
@@ -140,7 +138,7 @@ pub const KAGEMUSHA_WALLET_CAPSULE_COMMITMENT_DOMAIN_V1: u64 = domain_v1(*b"kgwc
 /// Every Poseidon domain of the wallet other than the signing domains
 /// ([`super::KagemushaWalletSigningDomainV1`]) and the object-digest domains
 /// ([`super::KagemushaWalletObjectDigestDomainV1`]), by use, in table order (wire record §3.2).
-pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 34] = [
+pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 33] = [
     ("core", KAGEMUSHA_WALLET_CORE_DOMAIN_V1),
     ("rest", KAGEMUSHA_WALLET_REST_DOMAIN_V1),
     ("statement", KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1),
@@ -161,10 +159,6 @@ pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 34] = [
     (
         "fee_claim_value",
         KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1,
-    ),
-    (
-        "blacklist_history_value",
-        KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1,
     ),
     (
         "certificate_set",

@@ -1,7 +1,7 @@
-//! Bootstrap source clones release their private fold allocation.
+//! Bootstrap plan admission and witnessless source ownership.
 //!
-//! Constructor-only metadata keys and marked bytes exercise ownership, not an
-//! admitted Bootstrap operation, proof, or physical memory-erasure guarantee.
+//! Constructor-only metadata keys exercise the fixed unsplit plan shape and
+//! source clones, not an admitted Bootstrap operation or proof.
 use super::*;
 use crate::{
     a_relation::QProofPlan,
@@ -13,6 +13,7 @@ use iroha_plonk::{
     cs::InstanceType,
     keys::{KeygenConfigV2, keygen_vk_with_binding_v2},
 };
+use iroha_plonk_gadgets::p256::native::Affine;
 use std::marker::PhantomData;
 
 #[derive(Clone)]
@@ -41,9 +42,150 @@ impl<F: PastaField> Circuit<F> for Metadata<F> {
     }
 }
 
-fn plan_and_wrapper() -> (Arc<Plan>, WKey) {
+fn signatures(mode: VerifyMode) -> QSignaturePlan {
+    QSignaturePlan::new(
+        [
+            SignatureKey::Variable,
+            SignatureKey::Variable,
+            SignatureKey::Fixed(Affine::GENERATOR),
+        ]
+        .into_iter()
+        .map(|key| SignatureSlot { mode, key })
+        .collect(),
+    )
+    .unwrap()
+}
+
+fn q_plan(pallas: &PinnedParams<Ep>, lengths: Vec<usize>, types: Vec<InstanceType>) -> QProofPlan {
+    let (binding, key) = keygen_vk_with_binding_v2(
+        pallas,
+        &Metadata::<Fq>(lengths, PhantomData),
+        &KeygenConfigV2::pipa_r(types),
+    )
+    .unwrap();
+    QProofPlan::new(
+        iroha_plonk_recursion::verifier::VerifierPlan::new(binding, pallas.clone()).unwrap(),
+        key,
+    )
+    .unwrap()
+}
+
+fn signature_q(pallas: &PinnedParams<Ep>) -> QProofPlan {
+    q_plan(
+        pallas,
+        vec![signatures(VerifyMode::Hard).instance_length()],
+        QSignaturePlan::instance_types().to_vec(),
+    )
+}
+
+fn plan() -> Arc<Plan> {
     let pallas = PinnedParams::<Ep>::derive(16).unwrap();
     let vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    let operation = AProofPlan::inline(
+        Variant::Bootstrap,
+        vec![signature_q(&pallas)],
+        None,
+        &pallas,
+    )
+    .unwrap();
+    Arc::new(
+        Plan::new(
+            operation,
+            BootstrapPolicy::new([1, 0], Affine::GENERATOR).unwrap(),
+            signatures(VerifyMode::Hard),
+            pallas,
+            vesta,
+        )
+        .unwrap(),
+    )
+}
+
+#[test]
+fn witnessless_source_clone_shares_plan_and_originals_without_known_values() {
+    let plan = plan();
+    let mut live = StageCircuit::blank(plan.clone()).unwrap();
+    live.known = true;
+    let source = live.without_witnesses();
+    assert!(!source.known);
+    assert!(Arc::ptr_eq(&source.plan, &live.plan));
+    assert!(Arc::ptr_eq(&source.original, &live.original));
+    drop(source);
+    assert!(live.known);
+    // The installation factory reconstructs the same dimensions from the plan alone.
+    let factory = plan.source_circuit().unwrap();
+    assert!(!factory.known);
+    let fixed = plan.context().operation().q(0).unwrap();
+    assert_eq!(
+        factory.original.q[0].proof.len(),
+        fixed.verifier().proof_length()
+    );
+    assert_eq!(
+        factory.original.q[0].instances,
+        vec![vec![
+            Fq::ZERO;
+            signatures(VerifyMode::Hard).instance_length()
+        ]]
+    );
+    assert_eq!(plan.context().stage_count(), 1);
+}
+
+#[test]
+fn plan_admits_only_the_unsplit_single_signature_q_bootstrap() {
+    let pallas = PinnedParams::<Ep>::derive(16).unwrap();
+    let vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    let policy = BootstrapPolicy::new([1, 0], Affine::GENERATOR).unwrap();
+    let q = signature_q(&pallas);
+    let inline =
+        |q: Vec<QProofPlan>| AProofPlan::inline(Variant::Bootstrap, q, None, &pallas).unwrap();
+    let admit = |operation, signatures, pallas: &PinnedParams<Ep>| {
+        Plan::new(operation, policy, signatures, pallas.clone(), vesta.clone()).err()
+    };
+    assert_eq!(
+        admit(
+            inline(vec![q.clone()]),
+            signatures(VerifyMode::Hard),
+            &pallas
+        ),
+        None
+    );
+    // A second Q leaf is not the fixed one-leaf Bootstrap schedule.
+    assert_eq!(
+        admit(
+            inline(vec![q.clone(), q.clone()]),
+            signatures(VerifyMode::Hard),
+            &pallas
+        ),
+        Some(Error::Artifact)
+    );
+    // Every slot stays hard, including the root-fixed certificate.
+    assert_eq!(
+        admit(
+            inline(vec![q.clone()]),
+            signatures(VerifyMode::Soft),
+            &pallas
+        ),
+        Some(Error::Artifact)
+    );
+    // The single Q's public column must be exactly the slot schema.
+    let short = q_plan(
+        &pallas,
+        vec![signatures(VerifyMode::Hard).instance_length() - 1],
+        QSignaturePlan::instance_types().to_vec(),
+    );
+    assert_eq!(
+        admit(inline(vec![short]), signatures(VerifyMode::Hard), &pallas),
+        Some(Error::Artifact)
+    );
+    // Only k16 pinned parameters are admitted.
+    assert_eq!(
+        admit(
+            inline(vec![q.clone()]),
+            signatures(VerifyMode::Hard),
+            &PinnedParams::<Ep>::derive(4).unwrap()
+        ),
+        Some(Error::Artifact)
+    );
+    // The retired own-sigma verifier cannot be reinstated on Bootstrap's route.
     let sigma_params = PinnedParams::<Eq>::derive(crate::admin_sigma::BOOTSTRAP_K).unwrap();
     let (binding, key) = keygen_vk_with_binding_v2(
         &sigma_params,
@@ -62,119 +204,36 @@ fn plan_and_wrapper() -> (Arc<Plan>, WKey) {
         &vesta,
     )
     .unwrap();
-    let root = iroha_plonk_gadgets::p256::native::Affine::GENERATOR;
-    let signatures = QSignaturePlan::new(
-        [
-            SignatureKey::Variable,
-            SignatureKey::Variable,
-            SignatureKey::Fixed(root),
-        ]
-        .into_iter()
-        .map(|key| SignatureSlot {
-            mode: VerifyMode::Hard,
-            key,
-        })
-        .collect(),
-    )
-    .unwrap();
-    let mut q = Vec::new();
-    for (lengths, types) in [
-        (
-            sigma.instance_lengths().to_vec(),
-            QSigmaPlan::instance_types().to_vec(),
-        ),
-        (
-            vec![signatures.instance_length()],
-            QSignaturePlan::instance_types().to_vec(),
-        ),
-    ] {
-        let (binding, key) = keygen_vk_with_binding_v2(
-            &pallas,
-            &Metadata::<Fq>(lengths, PhantomData),
-            &KeygenConfigV2::pipa_r(types),
-        )
-        .unwrap();
-        q.push(
-            QProofPlan::new(
-                iroha_plonk_recursion::verifier::VerifierPlan::new(binding, pallas.clone())
-                    .unwrap(),
-                key,
-            )
-            .unwrap(),
-        );
-    }
-    let operation = AProofPlan::new(Variant::Bootstrap, sigma, q, None, &pallas).unwrap();
-    let plan = Arc::new(
-        Plan::new(
-            operation,
-            BootstrapPolicy::new([1, 0], root).unwrap(),
-            signatures,
-            pallas.clone(),
-            vesta,
-        )
-        .unwrap(),
-    );
-    let (binding, key) = keygen_vk_with_binding_v2(
+    let sigma_q = q_plan(
         &pallas,
-        &Metadata::<Fq>(vec![1, 2, 16], PhantomData),
-        &KeygenConfigV2::pipa_r(crate::omega::OmegaPlan::instance_types().to_vec()),
-    )
-    .unwrap();
-    let wrapper = WKey::from_artifact(plan.context(), 0, binding, pallas, key).unwrap();
-    (plan, wrapper)
+        sigma.instance_lengths().to_vec(),
+        QSigmaPlan::instance_types().to_vec(),
+    );
+    let own = AProofPlan::new(Variant::Bootstrap, sigma, vec![sigma_q, q], None, &pallas).unwrap();
+    assert_eq!(
+        admit(own, signatures(VerifyMode::Hard), &pallas),
+        Some(Error::Artifact)
+    );
 }
 
 #[test]
-fn witnessless_terminal_clone_releases_private_fold_without_changing_live_owner() {
-    let (plan, wrapper) = plan_and_wrapper();
-    let mut live = StageCircuit::blank_terminal(plan.clone(), &wrapper).unwrap();
-    let marked = crate::private_fold::PrivateFoldBytes::from_owned(
-        iroha_plonk_recursion::PrivateWitnessBytes::try_write::<std::io::Error>(
-            iroha_plonk_recursion::FOLD_WITNESS_BYTES,
-            |writer| writer.write_all(&[0xa5; iroha_plonk_recursion::FOLD_WITNESS_BYTES]),
-        )
-        .unwrap(),
-    );
-    live.known = true;
-    let Stage::Last(last) = &mut live.stage else {
-        panic!("terminal source");
-    };
-    last.fold = marked.clone();
-    let source = live.without_witnesses();
-    assert!(!source.known);
-    assert!(Arc::ptr_eq(&source.plan, &live.plan));
-    assert!(Arc::ptr_eq(&source.original, &live.original));
-    assert!(source.carried.is_none());
-    let Stage::Last(source_last) = &source.stage else {
-        panic!("terminal preserved");
-    };
-    let Stage::Last(live_last) = &live.stage else {
-        panic!("live terminal preserved");
-    };
-    assert_eq!(source_last.proof, live_last.proof);
-    assert_eq!(source_last.vesta, live_last.vesta);
-    assert_eq!(
-        source_last.fold.len(),
-        iroha_plonk_recursion::FOLD_WITNESS_BYTES
-    );
-    assert!(source_last.fold.iter().all(|byte| *byte == 0));
-    assert_ne!(
-        source_last.fold.as_slice().as_ptr(),
-        marked.as_slice().as_ptr()
-    );
-    assert_eq!(
-        live_last.fold.as_slice().as_ptr(),
-        marked.as_slice().as_ptr()
-    );
-    assert!(live_last.fold.iter().all(|byte| *byte == 0xa5));
-    drop(source);
-    assert!(live.known);
-    assert_eq!(marked[0], 0xa5);
-
-    let mut first = StageCircuit::blank(plan, Stage::First).unwrap();
-    first.known = true;
-    let first_source = first.without_witnesses();
-    assert!(!first_source.known);
-    assert!(matches!(first_source.stage, Stage::First));
-    assert!(first.known);
+fn preparation_refuses_changed_original_extents_before_any_proof() {
+    let plan = plan();
+    let blank = plan.source_circuit().unwrap();
+    for index in 0..3 {
+        let mut changed = (*blank.original).clone();
+        changed.objects[index].pop();
+        assert_eq!(
+            plan.prepare(changed, MemoryBudget::DEFAULT).err(),
+            Some(Error::Input),
+            "object {index}"
+        );
+        let mut changed = (*blank.original).clone();
+        changed.objects[index].push(0);
+        assert_eq!(
+            plan.prepare(changed, MemoryBudget::DEFAULT).err(),
+            Some(Error::Input),
+            "object {index}"
+        );
+    }
 }

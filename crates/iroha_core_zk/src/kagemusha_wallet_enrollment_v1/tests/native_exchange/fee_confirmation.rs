@@ -230,7 +230,7 @@ fn actual_a_acknowledges_certified_fee_payout_with_restart_and_exact_retry() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&payment.send, Some(&request.body), MemoryBudget::DEFAULT)
+        .verify_package_proofs(&payment.send, MemoryBudget::DEFAULT)
         .unwrap();
     let retained = RetainedFeeClaim {
         payment: payment_bytes,

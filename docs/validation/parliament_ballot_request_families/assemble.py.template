@@ -1,0 +1,130 @@
+"""Assemble a docs-ready request-family package without modifying published files."""
+from pathlib import Path
+import hashlib
+import json
+
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1];OUT=HERE/'publication'
+OWN=ROOT/'target/parliament-request-family-envelope-stage'
+REVIEW=ROOT/'target/parliament-request-family-envelope-review'
+PACKAGES={
+    'parliament_ballot_request_machine':'a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d',
+    'parliament_ballot_lifetime_ledger':'b740ad7f8eae0dd1a236acba38b9ac818fc2c88c53c2cc9ff0c0e1317eadd506',
+    'parliament_ballot_content_resources':'c2349eb9808ecaf6d43abb6a60dc09184b391d0385a7726476c84bb4c6f7c54f',
+}
+CAPTURES=(
+    (OWN/'capture','capture','45aa1b03470958707588f5e09af9ec4047e385813144297b29840add64191293',
+     '66c834fdbccd0818b94bd2428799321d12a08aea644ecbba3ce7b5e9910343c2'),
+    (REVIEW/'capture','review/capture','692e61e2e3234bb5ab598865cf44a3de2628f26a0b515038a52a3a045371502e',
+     '946d8e84c8a8bd676f79d24dc77aa8c5758b762bd06ca040b94e0e14756133a0'),
+)
+def sha(data):return hashlib.sha256(data).hexdigest()
+def require(ok,why):
+    if not ok:raise RuntimeError(why)
+def encoded(value):return (json.dumps(value,indent=2,sort_keys=True)+'\n').encode()
+require(not OUT.exists(),'fresh publication candidate required')
+published={}
+for package,identity in PACKAGES.items():
+    folder=ROOT/'docs/validation'/package;manifest=(folder/'SHA256SUMS').read_bytes()
+    require(sha(manifest)==identity,'dependency manifest drift')
+    for line in manifest.decode().splitlines():
+        expected,relative=line.split('  ',1);data=(folder/relative).read_bytes()
+        require(sha(data)==expected,'dependency member drift')
+        published[(package,relative)]=data
+members={};inventory={};mapping={};logical=[]
+def add(member,data,original=None):
+    if member in members:
+        require(members[member]==data,'conflicting package member');return
+    members[member]=data;inventory[member]=dict(sha256=sha(data),original_path=original)
+for folder,prefix,receipt_identity,manifest_identity in CAPTURES:
+    raw=(folder/'receipt.json').read_bytes();require(sha(raw)==receipt_identity,'capture receipt drift')
+    receipt=json.loads(raw)
+    require(receipt['source_sha256_before']==receipt['source_sha256_after'],'capture selected source stability')
+    raw=(folder/'SHA256SUMS').read_bytes();require(sha(raw)==manifest_identity,'capture manifest drift')
+    add(prefix+'/SHA256SUMS',raw,(folder/'SHA256SUMS').relative_to(ROOT).as_posix())
+    record=dict(manifest_member=prefix+'/SHA256SUMS',manifest_sha256=manifest_identity,files={})
+    for line in raw.decode().splitlines():
+        identity,relative=line.split('  ',1);data=(folder/relative).read_bytes()
+        require(sha(data)==identity,'capture member drift '+relative)
+        if relative.startswith('source/'):
+            path=relative.removeprefix('source/')
+            require(receipt['source_sha256_before'][path]==identity,'capture source membership')
+            if path not in mapping:
+                if path=='target/parliament-lifetime-composition-stage/ledger.py':
+                    package='parliament_ballot_lifetime_ledger';member='capture/source-snapshots/'+path+'.template'
+                elif path=='target/parliament-content-resources-stage/capture/observation.json':
+                    package='parliament_ballot_content_resources';member='record/capture/observation.json'
+                elif ('parliament_ballot_request_machine','capture/source/'+path+'.template') in published:
+                    package='parliament_ballot_request_machine';member='capture/source/'+path+'.template'
+                else:package=None
+                if package:
+                    require(published[(package,member)]==data,'dependency byte identity '+path)
+                    mapping[path]=dict(origin='published-dependency',package=package,member=member,sha256=identity)
+                else:
+                    if path.startswith('target/parliament-request-family-envelope-stage/'):
+                        member='record/'+path.rsplit('/',1)[1]
+                    elif path.startswith('target/parliament-request-family-envelope-review/'):
+                        member='review/'+path.rsplit('/',1)[1]
+                    else:
+                        require(path.startswith('target/parliament-family-bounds-review/'),'known local source inventory')
+                        member='components/'+path.removeprefix('target/parliament-family-bounds-review/')
+                    if member.endswith(('.py','.rs')):member+='.template'
+                    add(member,data,(folder/relative).relative_to(ROOT).as_posix())
+                    mapping[path]=dict(origin='this-package',member=member,sha256=identity)
+            require(mapping[path]['sha256']==identity,'matching capture source identity')
+            record['files'][relative]=dict(origin='replay-input',path=path)
+        else:
+            member=prefix+'/'+relative
+            if member.endswith(('.py','.rs')):member+='.template'
+            add(member,data,(folder/relative).relative_to(ROOT).as_posix())
+            record['files'][relative]=dict(origin='this-package',member=member)
+    logical.append(record)
+require(len(mapping)==167 and sum(m['origin']=='published-dependency' for m in mapping.values())==154,
+    '154 common dependency files and 13 local inputs')
+review_receipt=json.loads((REVIEW/'capture/receipt.json').read_bytes())
+require(review_receipt['tests_passed']==42 and review_receipt['exact_collection_execution_membership'] is True,
+    '42 independent controls')
+review_note=(REVIEW/'README.md').read_bytes()
+require(sha(review_note)=='b33dac4c5bc951957f02ad62d3edb42635cfcd353f085251f1db9e5a97ea207b',
+    'independent review note identity')
+add('review/README.md',review_note,(REVIEW/'README.md').relative_to(ROOT).as_posix())
+top_review=(REVIEW/'SHA256SUMS').read_bytes()
+top_identity='f4fe917579959ae7f1d92a6fc88228f891c35394fde8d4dd246e24fb4613f043'
+require(sha(top_review)==top_identity,'complete independent review manifest identity')
+add('review/SHA256SUMS',top_review,(REVIEW/'SHA256SUMS').relative_to(ROOT).as_posix())
+top_record=dict(manifest_member='review/SHA256SUMS',manifest_sha256=top_identity,files={})
+for line in top_review.decode().splitlines():
+    identity,relative=line.split('  ',1);data=(REVIEW/relative).read_bytes()
+    require(sha(data)==identity,'independent review member drift')
+    if relative.startswith('capture/source/'):
+        path=relative.removeprefix('capture/source/')
+        require(mapping[path]['sha256']==identity,'independent source mapping')
+        top_record['files'][relative]=dict(origin='replay-input',path=path)
+    elif relative in ('capture.py','test_review.py'):
+        path='target/parliament-request-family-envelope-review/'+relative
+        require(mapping[path]['sha256']==identity,'independent script mapping')
+        top_record['files'][relative]=dict(origin='replay-input',path=path)
+    else:
+        member='review/'+relative
+        add(member,data,(REVIEW/relative).relative_to(ROOT).as_posix())
+        top_record['files'][relative]=dict(origin='this-package',member=member)
+logical.append(top_record)
+top=(HERE/'README-candidate.md').read_text().replace('REVIEW_COUNT','42')
+require('REVIEW_COUNT' not in top,'no unresolved README fields')
+add('README.md',top.encode(),(HERE/'README-candidate.md').relative_to(ROOT).as_posix())
+for name in ('restore.py','assemble.py'):
+    add(name+'.template',(HERE/name).read_bytes(),(HERE/name).relative_to(ROOT).as_posix())
+add('dependencies.json',encoded(dict(published_manifest_sha256=PACKAGES,selected_dependency_files=154,
+    source_identity_is_not_runtime_closure=True)))
+add('replay-inputs.json',encoded(dict(replay_file_count=167,catalog_files=161,original_capture_inputs=165,
+    additional_independent_review_inputs=2,files=mapping)))
+add('logical-captures.json',encoded(logical))
+add('inventory.json',encoded(dict(files=inventory,original_capture_receipts_unchanged=True,
+    original_capture_manifests_unchanged=True,owned_tests=44,independent_tests=42,
+    complete_resource_vector=False,current_candidate_qualified=False,production_gate_changed=False)))
+OUT.mkdir()
+for relative,data in members.items():
+    p=OUT/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+manifest=''.join(sha(data)+'  '+relative+'\n' for relative,data in sorted(members.items()))
+(OUT/'SHA256SUMS').write_text(manifest)
+print(json.dumps(dict(package=str(OUT),files=len(members)+1,manifest_entries=len(members),
+    manifest_sha256=sha(manifest.encode()),inventory_sha256=sha(members['inventory.json']))))

@@ -191,6 +191,22 @@ leakage leaves the functionality. Two secret histories with equal earlier
 public carriers may have different permitted scheduling outcomes. This is
 simulation relative to that leakage, not physical zero-leakage noninterference.
 
+The selected process-local verified-opening memo is private derived state,
+bounded to 256 entries per immutable parameter owner. Current statement
+admission precedes lookup of the SHA-256 key binding the complete verifier
+input; returning a hit still checks cancellation. Only successful production
+full verification publishes its own opening, after the final checkpoint. A hit
+reuses that exact k/G/challenge tuple, never a succinct-only acceptance. Under
+the stated binding premises this preserves semantic acceptance; the memo is
+never persisted and grants no monetary authority.
+
+Its inputs may include privately retained proofs. Matching coupled private-owner
+histories determine memo state; public carriers alone need not. Exposed
+hit-dependent timing, cancellation, counters, RSS, contention and eviction
+remain subject to the declared scheduling projection and physical refinement
+below. A hit's cancellation checkpoint does not establish cold/warm equivalence
+under wall-clock cancellation.
+
 The selected transactional intake rule is part of the source invariant: native
 semantic refusal before acknowledged batch retention retains only the fixed
 request binding, without durably retaining variable rejected originals or map

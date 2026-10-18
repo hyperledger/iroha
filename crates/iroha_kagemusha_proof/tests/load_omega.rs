@@ -30,7 +30,7 @@ include!("common/proof_fixtures/load_omega_body.rs");
 use first_load_fixture::first_load_fixture;
 
 #[test]
-#[ignore = "explicit genuine BLS-admitted Load and diagnostic outer proof; not full52 or carried-key continuity"]
+#[ignore = "explicit genuine BLS-admitted Load and diagnostic outer proof; not full22 or carried-key continuity"]
 fn native_load_reaches_complete_outer_predicate_from_bls_receipt() {
     let (fixture, rebuilds) = first_load_fixture(1);
     native_load_reaches_complete_outer_predicate(&fixture);
@@ -38,7 +38,7 @@ fn native_load_reaches_complete_outer_predicate_from_bls_receipt() {
 }
 
 #[test]
-#[ignore = "explicit genuine BLS-admitted Bootstrap/Load two-terminal rekey and outer proofs; not full52"]
+#[ignore = "explicit genuine BLS-admitted Bootstrap/Load two-terminal rekey and outer proofs; not full22"]
 fn common_bootstrap_load_catalog_rebinds_every_proof_and_key_from_bls_receipt() {
     let (fixture, rebuilds) = first_load_fixture(2);
     common_bootstrap_load_catalog_rebinds_every_proof_and_key(&fixture);

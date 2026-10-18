@@ -74,6 +74,12 @@ impl native::ConfidentialUnshieldOutputV3 {
     /// restore it once its ledger position is authenticated. Change belongs to
     /// the wallet's default diversifier, even when the consumed note used a
     /// different diversifier. This conversion checks shape, not membership.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InputIndex` if the index is outside the fixed tree capacity, or
+    /// `InvalidInputAmounts` if the saved change amount is zero. The consumed
+    /// opening is still cleared on failure.
     pub fn into_input(
         mut self,
         leaf_index: usize,
@@ -213,6 +219,11 @@ impl ConfidentialProver {
     /// Returns an error for the reserved all-zero key. No key generation, tree
     /// hashing or proof work occurs here. Obtain the key from secure wallet
     /// storage; never derive production keys from example constants.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidSpendKey` for an all-zero spend key. The rejected owned
+    /// key is cleared when dropped.
     pub fn new(
         network: NetworkId,
         asset: &AssetDefinitionId,
@@ -233,6 +244,15 @@ impl ConfidentialProver {
     /// Amount conservation, ownership and membership are enforced by the native
     /// relation. Circuit IDs, verifier keys and transcript internals are selected
     /// internally. Shape errors reject before preparing the canonical key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a preflight error for invalid tree shape, input indices or paths,
+    /// duplicate inputs, invalid output count, or nonpositive, overflowing or
+    /// unequal amount totals. Returns `KeyPreparation` if the canonical key cannot
+    /// be prepared, or `Proving` if native membership, relation construction,
+    /// proof generation or self-verification fails. Consumed openings are cleared
+    /// on both success and failure.
     pub fn prove_transfer(
         &self,
         tree: ConfidentialTree<'_>,
@@ -294,6 +314,14 @@ impl ConfidentialProver {
     /// Supply `None` when redeeming the entire value. Otherwise supply one change
     /// opening whose amount equals the remainder. This method never invents a
     /// note nonce or requires a dummy input. Native proving checks conservation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a preflight error for invalid tree evidence or inputs, nonpositive
+    /// or overflowing input totals, an invalid public amount, or incorrect change.
+    /// Returns `KeyPreparation` if the selected canonical key cannot be prepared,
+    /// or `Proving` if native membership, relation construction, proof generation
+    /// or self-verification fails. Consumed openings are cleared on either outcome.
     pub fn prove_unshield(
         &self,
         tree: ConfidentialTree<'_>,

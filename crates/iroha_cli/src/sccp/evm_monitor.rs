@@ -45,7 +45,7 @@ impl EvmDestination {
             .ok_or_else(|| eyre!("no latest destination block"))?
             .header
             .number;
-        let from = after.map_or(latest.saturating_sub(2047), |cursor| cursor.block);
+        let from = after.map_or_else(|| latest.saturating_sub(2047), |cursor| cursor.block);
         ensure!(from <= latest, "certificate cursor is ahead of destination");
         let through = from.saturating_add(2047).min(latest);
         let mut logs =

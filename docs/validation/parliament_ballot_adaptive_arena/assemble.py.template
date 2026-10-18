@@ -1,0 +1,134 @@
+"""Archive arena/audit/review evidence with exact published dependency mapping."""
+from pathlib import Path
+import hashlib
+import json
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+OUT=HERE/'publication'
+PACKAGES={
+    'parliament_ballot_request_machine':'a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d',
+    'parliament_ballot_lifetime_ledger':'b740ad7f8eae0dd1a236acba38b9ac818fc2c88c53c2cc9ff0c0e1317eadd506',
+    'parliament_ballot_content_resources':'c2349eb9808ecaf6d43abb6a60dc09184b391d0385a7726476c84bb4c6f7c54f'}
+
+
+def sha(raw):return hashlib.sha256(raw).hexdigest()
+def require(ok,why):
+    if not ok:raise ValueError(why)
+def encoded(value):return (json.dumps(value,indent=2,sort_keys=True)+'\n').encode()
+def read(path,identity):
+    raw=path.read_bytes();require(sha(raw)==identity,'source identity: '+str(path));return raw
+def template(name):return name+'.template' if name.endswith(('.py','.rs','.log')) else name
+
+
+require(not OUT.exists(),'fresh package directory required')
+config=json.loads((HERE/'sealed-inputs.json').read_bytes())
+review=ROOT/config['review_capture']
+receipt=json.loads(read(review/'receipt.json',config['review_receipt_sha256']))
+main_pins=receipt['source_sha256_before']
+require(main_pins==receipt['source_sha256_after'],'final review source stability')
+raw_inputs={p:read(review/'source'/(p+'.template'),h) for p,h in main_pins.items()}
+published={}
+for package,identity in PACKAGES.items():
+    folder=ROOT/'docs/validation'/package
+    manifest=read(folder/'SHA256SUMS',identity)
+    for line in manifest.decode().splitlines():
+        expected,name=line.split('  ',1)
+        published[(package,name)]=read(folder/name,expected)
+members={};inventory={};digest_member={};logical=[];source_sets={}
+
+
+def add(name,raw,original=None):
+    require(name not in members or members[name]==raw,'member conflict')
+    members[name]=raw;inventory[name]=dict(sha256=sha(raw),original_path=original)
+    digest_member.setdefault(sha(raw),name)
+    return name
+
+
+def archive(raw,original):
+    digest=sha(raw)
+    if digest in digest_member:return digest_member[digest]
+    name='inputs/'+str(len(digest_member)).zfill(4)+'-'+Path(original).name
+    if not name.endswith('.template'):name+='.template'
+    return add(name,raw,original)
+
+
+for record in config['records']:
+    folder=ROOT/record['path'];prefix=record['prefix']
+    manifest=read(folder/'SHA256SUMS',record['manifest_sha256'])
+    manifest_member=add(prefix+'/SHA256SUMS',manifest,(folder/'SHA256SUMS').relative_to(ROOT).as_posix())
+    item=dict(manifest_member=manifest_member,manifest_sha256=record['manifest_sha256'],files={})
+    source_map={}
+    for line in manifest.decode().splitlines():
+        expected,relative=line.split('  ',1);raw=read(folder/relative,expected)
+        source=None
+        for rule in record.get('source_rules',[]):
+            if relative.startswith(rule['prefix']) and relative.endswith(rule['suffix']):
+                source=relative[len(rule['prefix']):]
+                if rule['suffix']:source=source[:-len(rule['suffix'])]
+                break
+        if source is not None:
+            source_map[source]=expected
+            if source in main_pins and main_pins[source]==expected:
+                item['files'][relative]=dict(origin='replay-input',path=source)
+            else:
+                member=archive(raw,(folder/relative).relative_to(ROOT).as_posix())
+                item['files'][relative]=dict(origin='this-package',member=member)
+        else:
+            member=add(template(prefix+'/'+relative),raw,(folder/relative).relative_to(ROOT).as_posix())
+            item['files'][relative]=dict(origin='this-package',member=member)
+    logical.append(item)
+    if 'source_set' in record:
+        require(source_map,'nonempty exact source set')
+        source_sets[record['source_set']]=source_map
+
+mapping={}
+for path,raw in raw_inputs.items():
+    candidate=None
+    if path=='target/parliament-lifetime-composition-stage/ledger.py':
+        candidate=('parliament_ballot_lifetime_ledger','capture/source-snapshots/'+path+'.template')
+    elif path=='target/parliament-content-resources-stage/capture/observation.json':
+        candidate=('parliament_ballot_content_resources','record/capture/observation.json')
+    elif ('parliament_ballot_request_machine','capture/source/'+path+'.template') in published:
+        candidate=('parliament_ballot_request_machine','capture/source/'+path+'.template')
+    if candidate:
+        require(published[candidate]==raw,'exact published dependency bytes')
+        mapping[path]=dict(origin='published-dependency',package=candidate[0],member=candidate[1],sha256=sha(raw))
+    else:
+        mapping[path]=dict(origin='this-package',member=archive(raw,path),sha256=sha(raw))
+require(sum(m['origin']=='published-dependency' for m in mapping.values())==154,'154 shared dependency inputs')
+sets={}
+for label,pins in source_sets.items():
+    require(set(pins)<=set(mapping),'all historical paths remain in final merged inventory')
+    overrides={}
+    for path,digest in pins.items():
+        if main_pins[path]!=digest:
+            require(digest in digest_member,'historical version archived')
+            overrides[path]=dict(origin='this-package',member=digest_member[digest],sha256=digest)
+    sets[label]=dict(file_count=len(pins),paths=sorted(pins),overrides=overrides)
+audit_inventory=json.loads(raw_inputs['target/parliament-adaptive-arena-review/audit-inputs.json'])
+require(len(audit_inventory)==25 and all(main_pins[p]==h for p,h in audit_inventory.items()),'all25 audit inputs')
+sets['audit']=dict(file_count=25,paths=sorted(audit_inventory),overrides={})
+require(sets['review']['file_count']==len(mapping) and sets['owner']['file_count']==172
+        and sets['prior55']['file_count']==172 and sets['failed-attempt']['file_count']==172,'exact selected sets')
+restore=(HERE/'restore.py').read_bytes()
+top=(HERE/'README-candidate.md').read_text().replace('RESTORE_SHA256',sha(restore))
+top=top.replace('FINAL_REVIEW_COUNT',str(receipt['tests_passed'])).replace('FINAL_INPUT_COUNT',str(len(mapping)))
+add('README.md',top.encode(),'package README')
+for name in ('restore.py','assemble.py','sealed-inputs.json'):
+    add(template(name),(HERE/name).read_bytes(),(HERE/name).relative_to(ROOT).as_posix())
+add('dependencies.json',encoded(dict(published_manifest_sha256=PACKAGES,
+    unpublished_dependencies=[],selected_dependency_files=154,source_identity_is_not_runtime_closure=True)))
+add('replay-inputs.json',encoded(dict(replay_file_count=len(mapping),files=mapping,source_sets=sets)))
+add('logical-manifests.json',encoded(logical))
+add('inventory.json',encoded(dict(files=inventory,all_original_manifests_and_receipts_unchanged=True,
+    owned_current_tests=58,owned_prior_tests=55,independent_current_tests=receipt['tests_passed'],
+    failed_attempt_tests=dict(passed=52,failed=3),complete_resource_vector=False,
+    current_candidate_qualified=False,production_gate_changed=False)))
+OUT.mkdir()
+for name,raw in members.items():
+    path=OUT/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(raw)
+manifest=''.join(sha(raw)+'  '+name+'\n' for name,raw in sorted(members.items()))
+(OUT/'SHA256SUMS').write_text(manifest)
+print(json.dumps(dict(files=len(members)+1,manifest_entries=len(members),replay_files=len(mapping),
+    manifest_sha256=sha(manifest.encode()),restore_sha256=sha(restore),inventory_sha256=sha(members['inventory.json']))))

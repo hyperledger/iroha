@@ -106,7 +106,7 @@ fn serialized_single_sigma_preserves_byte_and_public_bindings() {
         let circuit = QSigmaCircuit::new(
             QSigmaPlan::new(class, None, &params).unwrap(),
             QSigmaWitness {
-                own,
+                own: Some(own),
                 incoming: None,
             },
         )
@@ -131,7 +131,7 @@ fn serialized_single_sigma_preserves_byte_and_public_bindings() {
             result(&circuit, 2, &forged, false);
         }
         let mut forged = circuit.clone();
-        forged.witness.own.length -= 1;
+        forged.witness.own.as_mut().unwrap().length -= 1;
         result(
             &forged,
             2,
@@ -139,7 +139,7 @@ fn serialized_single_sigma_preserves_byte_and_public_bindings() {
             false,
         );
         let mut forged = circuit.clone();
-        forged.witness.own.proof[0] ^= 1;
+        forged.witness.own.as_mut().unwrap().proof[0] ^= 1;
         result(
             &forged,
             2,
@@ -166,7 +166,7 @@ fn serialized_two_sigmas_fold_and_prove_without_default_key_changes() {
             let mut sigma = incoming.clone();
             if !valid { sigma.proof[0] ^= 1; }
             let circuit = QSigmaCircuit::new(plan.clone(), QSigmaWitness {
-                own: own.clone(), incoming: Some(IncomingSigmaWitness { sigma,
+                own: Some(own.clone()), incoming: Some(IncomingSigmaWitness { sigma,
                     mode: [valid,!valid,false], corrected: Eq::from(*trivial.g()), fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_fold(fold) })
             }).unwrap();
             let public = public(&circuit, &part.as_input(), &[3,9], valid);

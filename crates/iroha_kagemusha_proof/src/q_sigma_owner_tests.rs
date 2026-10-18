@@ -85,7 +85,7 @@ fn public(
     indices: &[u64],
     incoming_valid: bool,
 ) -> Vec<Vec<Fq>> {
-    let own = &circuit.witness.own;
+    let own = circuit.witness.own.as_ref().expect("own-slot test witness");
     let mut bounded = vec![scalar(own.statement)];
     let mut bytes = chunks(own);
     let mut verdicts = vec![Fq::ONE];
@@ -198,7 +198,7 @@ fn single_sigma_byte_key_and_forwarded_obligation() {
         let circuit = QSigmaCircuit::new(
             plan,
             QSigmaWitness {
-                own,
+                own: Some(own),
                 incoming: None,
             },
         )
@@ -219,13 +219,13 @@ fn single_sigma_byte_key_and_forwarded_obligation() {
             assert_result(&circuit, &forged, false);
         }
         let mut bad = circuit.clone();
-        bad.witness.own.length -= 1;
+        bad.witness.own.as_mut().unwrap().length -= 1;
         assert_result(&bad, &public(&bad, &claim, &[5], true), false);
         let mut bad = circuit.clone();
-        bad.witness.own.proof[0] ^= 1;
+        bad.witness.own.as_mut().unwrap().proof[0] ^= 1;
         assert_result(&bad, &public(&bad, &claim, &[5], true), false);
         let mut bad = circuit.clone();
-        bad.witness.own.statement += Fp::ONE;
+        bad.witness.own.as_mut().unwrap().statement += Fp::ONE;
         assert_result(&bad, &public(&bad, &claim, &[5], true), false);
         let unauthorized =
             SigmaClass::new(class_copy.verifier().clone(), vec![(5, Fq::from(17))]).unwrap();
@@ -251,7 +251,7 @@ fn single_sigma_byte_key_and_forwarded_obligation() {
             .is_err()
         );
         let mut malformed = circuit.witness.clone();
-        malformed.own.proof.pop();
+        malformed.own.as_mut().unwrap().proof.pop();
         assert!(QSigmaCircuit::new(circuit.plan.clone(), malformed).is_err());
     }
 }
@@ -291,7 +291,7 @@ fn two_sigmas_fold_exact_sources_and_soft_trivial_mode() {
         let circuit = QSigmaCircuit::new(
             plan.clone(),
             QSigmaWitness {
-                own: own.clone(),
+                own: Some(own.clone()),
                 incoming: Some(incoming),
             },
         )
@@ -424,11 +424,11 @@ fn actual_two_sigma_q_proof_verifies() {
         // Installation metadata is created before any prepared operation exists.
         let source = QSigmaSource::new(plan.clone(), own.key.clone(), Some(sigma.key.clone())).unwrap();
         let input = IncomingSigma { sigma, mode: IncomingMode::Accept };
-        let prepared = plan.prepare(own.clone(), Some(input.clone()), &inner_params, QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)), &FoldConfig::default()).unwrap();
+        let prepared = plan.prepare(Some(own.clone()), Some(input.clone()), &inner_params, QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)), &FoldConfig::default()).unwrap();
         assert_eq!(prepared.instances(), public(prepared.circuit(), prepared.part(), &[3,9],true));
         assert!(plan.requires_private_fold());
         let original_fold = prepared.retained_fold().unwrap().clone();
-        let restored = plan.prepare(own.clone(), Some(input.clone()), &inner_params,
+        let restored = plan.prepare(Some(own.clone()), Some(input.clone()), &inner_params,
             QSigmaFoldSource::Retained(&original_fold), &FoldConfig::default()).unwrap();
         assert_eq!(restored.instances(), prepared.instances());
         assert_eq!(restored.part(), prepared.part());
@@ -436,21 +436,21 @@ fn actual_two_sigma_q_proof_verifies() {
         assert_eq!(restored.retained_fold().unwrap().as_slice().as_ptr(), original_fold.as_slice().as_ptr());
         for index in [0, 1056, 2144] {
             let altered = common::mutated_private_fold(&original_fold, index);
-            assert!(plan.prepare(own.clone(), Some(input.clone()), &inner_params,
+            assert!(plan.prepare(Some(own.clone()), Some(input.clone()), &inner_params,
                 QSigmaFoldSource::Retained(&altered), &FoldConfig::default()).is_err());
         }
         let mut wrong_source = input.clone();
         wrong_source.sigma.statement += Fp::ONE;
-        assert!(plan.prepare(own.clone(), Some(wrong_source), &inner_params,
+        assert!(plan.prepare(Some(own.clone()), Some(wrong_source), &inner_params,
             QSigmaFoldSource::Retained(&original_fold), &FoldConfig::default()).is_err());
         assert_eq!(original_fold.as_slice(), prepared.retained_fold().unwrap().as_slice());
 
         let mut invalid_own = own.clone(); invalid_own.length -= 1;
-        assert!(plan.prepare(invalid_own,Some(input.clone()),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
+        assert!(plan.prepare(Some(invalid_own),Some(input.clone()),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
         let mut invalid = input.clone(); invalid.sigma.proof[0] ^= 1;
-        assert!(plan.prepare(own.clone(),Some(invalid.clone()),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
+        assert!(plan.prepare(Some(own.clone()),Some(invalid.clone()),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
         invalid.mode = IncomingMode::Trivial;
-        let burned = plan.prepare(own.clone(),Some(invalid),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).unwrap();
+        let burned = plan.prepare(Some(own.clone()),Some(invalid),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).unwrap();
         assert_eq!(burned.instances()[3],[Fq::ONE,Fq::ZERO,Fq::ZERO,Fq::ONE,Fq::ZERO]);
         assert_result(burned.circuit(),burned.instances(),true);
         // Native total verification must match the circuit for a changed direct
@@ -465,12 +465,12 @@ fn actual_two_sigma_q_proof_verifies() {
                 let end = malformed.sigma.proof.len();
                 malformed.sigma.proof[end - 32..].fill(0xff);
             }
-            let retained = plan.prepare(own.clone(), Some(malformed), &inner_params, QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(79)), &FoldConfig::default()).unwrap();
+            let retained = plan.prepare(Some(own.clone()), Some(malformed), &inner_params, QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(79)), &FoldConfig::default()).unwrap();
             assert_eq!(retained.instances()[3], [Fq::ONE,Fq::ZERO,Fq::ZERO,Fq::ONE,Fq::ZERO]);
             assert_result(retained.circuit(), retained.instances(), true);
         }
         let mut not_correctable = input; not_correctable.mode = IncomingMode::Corrected;
-        assert!(plan.prepare(own,Some(not_correctable),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
+        assert!(plan.prepare(Some(own),Some(not_correctable),&inner_params,QSigmaFoldSource::Fresh(common::public_fixture_tape::<Eq>(73)),&FoldConfig::default()).is_err());
         let params = iroha_plonk::pcs::ipa::PinnedParams::<iroha_pasta::Ep>::derive(16).unwrap();
         // Artifact production is explicit; the runtime owner retains no PK.
         let mut keygen = iroha_plonk::keys::KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec());
@@ -528,10 +528,10 @@ fn actual_two_sigma_q_proof_verifies() {
         // the representative key and descriptor-sized slot shapes are identical.
         let class = plan.class(0).unwrap();
         let changed_class = SigmaClass::new(class.verifier().clone(), vec![(4,
-            prepared.circuit().witness.own.key.kagemusha_digest(class.verifier().binding()).unwrap())]).unwrap();
+            prepared.circuit().witness.own.as_ref().unwrap().key.kagemusha_digest(class.verifier().binding()).unwrap())]).unwrap();
         let changed_plan = QSigmaPlan::new(changed_class, plan.class(1).cloned(), &inner_params).unwrap();
         let changed_source = QSigmaSource::new(changed_plan.clone(),
-            prepared.circuit().witness.own.key.clone(),
+            prepared.circuit().witness.own.as_ref().unwrap().key.clone(),
             prepared.circuit().witness.incoming.as_ref().map(|slot| slot.sigma.key.clone())).unwrap();
         assert!(matches!(QSigmaProver::from_original_artifact(
             &changed_source, params.clone(), descriptor, installed_vk, &original, config,
@@ -604,7 +604,7 @@ fn installed_serialized_q_originals_prove_and_reject_default_profile() {
     let source = QSigmaSource::new(plan.clone(), own.key.clone(), None).unwrap();
     let prepared = plan
         .prepare(
-            own,
+            Some(own),
             None,
             &inner,
             QSigmaFoldSource::NoIncoming,

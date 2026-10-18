@@ -41,7 +41,7 @@ impl PreKeyRecordV1 {
             });
         }
         let role = self.role();
-        let hex: String = id.iter().map(|byte| format!("{byte:02x}")).collect();
+        let hex = hex::encode(id);
         KagemushaWalletEntryNameV1::new(&format!("prekey-{hex}-{role}.norito")).ok_or(
             KagemushaWalletProviderErrorV1::Invalid {
                 field: "pre-key record name",

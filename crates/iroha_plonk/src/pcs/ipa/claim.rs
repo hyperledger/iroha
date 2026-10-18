@@ -88,9 +88,10 @@ impl<C: PastaCurve> GeneratorClaim<C> {
 /// The own opening `G = <s(u), g[0..2^k)>` of a proof that production full
 /// verification accepted, read from the same proof bytes in the same call.
 ///
-/// Only [`crate::verifier::verify_full_opening_cancellable`] constructs this
-/// value, after the opening equation held with the decided `G`; it is not a
-/// transported or prover-supplied claim.
+/// Production full verification constructs this value only after the opening
+/// equation held with the decided `G`. It may be retained for exact-input reuse
+/// by [`crate::verifier::verify_full_opening_cancellable`]; it is not a transported
+/// or prover-supplied claim.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedOpening<C: PastaCurve> {
     k: u32,

@@ -29,6 +29,7 @@ impl IVMHost for LoggingHost {
 }
 #[test]
 fn canonical_executor_runs_without_hidden_host_semantics() {
+    const LENGTH_PREFIX_BYTES: usize = 8;
     let bytes = include_bytes!("../../../defaults/executor.to");
     let mut vm = IVM::new(0);
     vm.load_program(bytes).unwrap();
@@ -38,7 +39,6 @@ fn canonical_executor_runs_without_hidden_host_semantics() {
         curr_block: BlockHeader::new(NonZeroU64::new(1).unwrap(), None, None, 0, 0),
     };
     let payload = norito::to_bytes(&context).unwrap();
-    const LENGTH_PREFIX_BYTES: usize = 8;
     let mut bytes_with_len = Vec::with_capacity(LENGTH_PREFIX_BYTES + payload.len());
     let framed_len = u64::try_from(LENGTH_PREFIX_BYTES + payload.len()).unwrap();
     bytes_with_len.extend_from_slice(&framed_len.to_le_bytes());

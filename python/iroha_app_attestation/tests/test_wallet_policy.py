@@ -40,7 +40,7 @@ def policies(apple=False, roots=None):
                            AndroidAppIdentityV1("org.example.wallet", 7, (b"\5" * 32,)))
     platform = AppleEnrollmentPlatformV1(b"\4" * 32) if apple else AndroidEnrollmentPlatformV1(
         roots or (AndroidRootV1("google_rsa", b"\4" * 32, "google_attestation_status"),), 202608)
-    regulator = RegulatoryPolicyV1(4, 0, 5000) if apple else RegulatoryPolicyV1(0, 0, 0)
+    regulator = RegulatoryPolicyV1(2, 5000) if apple else RegulatoryPolicyV1(0, 0)
     enrollment = WalletEnrollmentPolicyV1(1, b"\1" * 32, b"\2" * 32, app.policy_digest(), platform,
         regulator, 120000, 3600000 if apple else 0)
     return app, enrollment
@@ -80,15 +80,15 @@ class WalletPolicyTests(unittest.TestCase):
         self.assertEqual(document["frame_cap_bytes"], 1024)
         maximal = {row["name"]: row for row in document["cases"]}["android_maximal"]
         app, enrollment = from_inputs(maximal["inputs"])
-        self.assertEqual((len(app.transcript()), len(enrollment.transcript())), (431, 572))
+        self.assertEqual((len(app.transcript()), len(enrollment.transcript())), (431, 564))
 
     def test_android_transcript_sizes_follow_the_policy_contract(self):
         app, enrollment = policies()
         self.assertEqual(len(app.transcript()), 48 + len("org.example.wallet") + 32)
-        self.assertEqual(len(enrollment.transcript()), 140 + 34)
+        self.assertEqual(len(enrollment.transcript()), 132 + 34)
         vendor = AndroidRootV1("vendor", b"\x09" * 32, "operator_denylist", "huawei")
         _, both = policies(roots=(AndroidRootV1("google_rsa", b"\4" * 32, "google_attestation_status"), vendor))
-        self.assertEqual(len(both.transcript()), 140 + 34 + 38 + 6)
+        self.assertEqual(len(both.transcript()), 132 + 34 + 38 + 6)
 
     def test_signer_set_root_set_and_adapter_grammar(self):
         app, enrollment = policies()
@@ -171,7 +171,7 @@ class WalletPolicyTests(unittest.TestCase):
         for candidate in (replace(apple, attestation_lease_lifetime_ms=0),
                           replace(enrollment, attestation_lease_lifetime_ms=1),
                           replace(enrollment, challenge_lifetime_ms=0),
-                          replace(enrollment, regulatory_policy=RegulatoryPolicyV1(8, 0, 0))):
+                          replace(enrollment, regulatory_policy=RegulatoryPolicyV1(4, 0))):
             with self.assertRaises(AttestationRejected):
                 candidate.transcript()
         with self.assertRaises(AttestationRejected):

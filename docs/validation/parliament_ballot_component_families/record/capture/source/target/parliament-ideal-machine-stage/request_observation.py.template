@@ -1,0 +1,77 @@
+"""Source-pinned actual-size structural observations, never native execution.
+
+These four endpoint cases exercise the accepted-request factory, full source
+trial cap and explicit lifetime-sized log. They are observations of the defined
+circuit, not a claimed maximum over every public length/content or a complete
+security-reduction resource vector.
+"""
+from pathlib import Path
+import hashlib
+import json
+import sys
+import time
+
+from bit_ir import require
+from public_machine import PublicShape
+from request_transition import actual_transition
+
+NAMES = ('bit_ir','stage_plan','request_generator','request_transition','request_observation',
+         'schedule','opening','reconstruction','opening_reconstruction','bavc_machine','prg_machine',
+         'leaf_machine','hash_machine','aes_kernel','field_kernel','vole_columns','vole_machine',
+         'vole_reconstruction','mask_fold','crt_machine','public_hash','public_machine','r0_machine',
+         'r1_machine','chronological_log','write_machine','return_machine')
+
+
+def observe(root, destination):
+    """Capture selected immutable inputs around actual generator metadata builds."""
+    root, destination = Path(root).resolve(), Path(destination)
+    stage = Path(__file__).resolve().parent
+    require(not destination.exists(), 'observation destination already exists')
+    sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+    sources = json.loads((stage/'coverage.json').read_text())['source_sha256']
+    modules = {str((stage/(name+'.py')).relative_to(root)):sha(stage/(name+'.py')) for name in NAMES}
+    dependencies = ('target/parliament-aes-machine-stage/aes256.py',
+                    'target/parliament-keccak-machine-stage/keccak1600.py',
+                    'scripts/parliament_ballot_gf_circuit.py')
+    modules.update({p:sha(root/p) for p in dependencies})
+    require(all(sha(root/p) == value for p,value in sources.items()), 'semantic source drift before')
+    rows = []
+    for row in ('candidate','comparator'):
+        for role in ('REG','VOTE'):
+            shape = (PublicShape(role,row,4096,(256,)*6,0) if role == 'REG'
+                     else PublicShape(role,row,0,(0,)*6,1000))
+            start = time.monotonic()
+            request = actual_transition(root,shape,1 << 44)
+            resource = request.resources()
+            fields = request.generator.field_positions()
+            require(resource['components']['generator']['full_source_trial_cap'], 'source trial cap')
+            require(request.writes.capacity == (1 << 44)*((1 << 20)+2), 'lifetime log capacity')
+            require(resource['persistent_counter_bits'] == 65, 'capacity-representing counter')
+            require(resource['components']['writes']['fixed_append_scans'] == (1 << 20)+2, 'full write schedule')
+            require(fields['primary_flags'][1] == 1 << 20 and fields['primary_challenges'][1] == 256*(1 << 20),
+                    'primary flag/tape wiring')
+            require(fields['exhausted'][0] == request.generator.plan.layout()['registers']['S0'][0]+330,
+                    'full source S0 exhaustion offset')
+            require(resource['gates']['base_xor_oracle_calls'] == (6200 if row == 'candidate' else 5960),
+                    'complete accepted forward/inverse F count')
+            require(all(resource[name] is False for name in ('complete_simulator_coverage','complete_resource_vector',
+                    'profile_qualified','production_gate_changed')), 'premature whole qualification')
+            rows.append(dict(row=row,role=role,public_shape=shape.__dict__,elapsed_seconds=time.monotonic()-start,
+                             resources=resource,field_positions=fields))
+            print(json.dumps(dict(row=row,role=role,gates=resource['gates'],logical_bits=resource['total_logical_bits'],
+                                  elapsed_seconds=rows[-1]['elapsed_seconds'])),flush=True)
+    require(all(sha(root/p) == value for p,value in sources.items()), 'semantic source drift after')
+    require(all(sha(root/p) == value for p,value in modules.items()), 'selected implementation drift after')
+    result = dict(scope=__doc__,source_sha256_before=sources,source_sha256_after=sources,
+                  selected_implementation_sha256_before=modules,selected_implementation_sha256_after=modules,
+                  source_cases=rows,full_elementary_streams_executed=False,native_workspace_measurement=False,
+                  family_wide_resource_maximum_proved=False,invalid_request_controller_included=False,
+                  external_oracle_and_adversary_resources_included=False,complete_resource_vector=False,
+                  complete_simulator_coverage=False,profile_qualified=False,production_gate_changed=False)
+    destination.write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+    return result
+
+
+if __name__ == '__main__':
+    require(len(sys.argv)==3,'root and new output path required')
+    observe(sys.argv[1],sys.argv[2])

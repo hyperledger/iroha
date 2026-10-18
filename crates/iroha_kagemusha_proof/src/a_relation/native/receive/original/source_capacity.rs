@@ -54,10 +54,12 @@ fn metadata<C: PastaCurve>(root: &Path, name: &[u8]) -> KeyArtifact<C> {
     let key = VerifyingKey::read(&vk, &binding).unwrap();
     KeyArtifact::new(binding, key).unwrap()
 }
+// Names: the eleven sigma keys, the incoming-only Q_sigma, the merged signature
+// leaf and Omega, in that order.
 fn source(root: &Path, names: &[u8]) -> Plan {
-    assert_eq!(names.len(), 20 * 32);
+    assert_eq!(names.len(), 14 * 32);
     let key = |i| &names[i * 32..(i + 1) * 32];
-    let sigma: [KeyArtifact<Eq>; 16] = core::array::from_fn(|i| metadata(root, key(i)));
+    let sigma: [KeyArtifact<Eq>; 11] = core::array::from_fn(|i| metadata(root, key(i)));
     let policy = bounded(&root.parent().unwrap().join("source-policy.norito"), 4_096);
     let (provider, root_x, root_y): ([u128; 2], [u64; 4], [u64; 4]) =
         norito::decode_canonical_with_limits(
@@ -94,8 +96,8 @@ fn source(root: &Path, names: &[u8]) -> Plan {
         )
         .unwrap()
     };
-    let sigma = QSigmaPlan::new(class(&[10]), Some(class(&[2, 6])), &vesta).unwrap();
-    let q_proofs = (16..19)
+    let sigma = QSigmaPlan::incoming_only(class(&[2, 4]), &vesta).unwrap();
+    let q_proofs = (11..13)
         .map(|i| {
             let key: KeyArtifact<Ep> = metadata(root, key(i));
             QProofPlan::new(
@@ -105,9 +107,9 @@ fn source(root: &Path, names: &[u8]) -> Plan {
             .unwrap()
         })
         .collect();
-    let omega: KeyArtifact<Ep> = metadata(root, key(19));
+    let omega: KeyArtifact<Ep> = metadata(root, key(13));
     let predecessor = VerifierPlan::new(omega.binding().clone(), pallas.clone()).unwrap();
-    let operation = AProofPlan::new(
+    let operation = AProofPlan::inline_with_incoming(
         Variant::ReceiveRenewed,
         sigma,
         q_proofs,
@@ -153,14 +155,14 @@ fn publish<C: PastaCurve>(root: &Path, key: &ProvingKey<C>) {
 }
 
 #[test]
-#[ignore = "explicit exact retained metadata; actual ten-A/nine-W k16 source generation"]
-fn genuine_renewed_schedule_fits_every_stage_and_retains_old_overflow() {
+#[ignore = "explicit exact retained metadata; actual nine-A/eight-W k16 source generation"]
+fn genuine_renewed_schedule_fits_every_stage() {
     let input = std::env::var("KAGEMUSHA_CAPACITY_INPUT").unwrap();
     let original = std::env::var("KAGEMUSHA_DIAGNOSTIC_ORIGINALS").unwrap();
     let output = std::env::var("KAGEMUSHA_CAPACITY_OUTPUT").unwrap();
     let output = Path::new(&output);
     fs::create_dir(output).unwrap();
-    let plan = source(Path::new(&original), &bounded(Path::new(&input), 640));
+    let plan = source(Path::new(&original), &bounded(Path::new(&input), 448));
     let renewed = OperationSchedule::for_variant(Variant::ReceiveRenewed);
     for replacement in [
         None,
@@ -168,11 +170,11 @@ fn genuine_renewed_schedule_fits_every_stage_and_retains_old_overflow() {
     ] {
         let mut tasks = renewed.tasks().to_vec();
         assert_eq!(
-            tasks[7].pop(),
+            tasks[6].pop(),
             Some(crate::a_relation::schedule::OperationTask::ReceiveCreditEffects)
         );
         if let Some(task) = replacement {
-            tasks[7].push(task);
+            tasks[6].push(task);
         }
         let context = ContextPlan::with_schedule(
             plan.context().operation().clone(),
@@ -186,30 +188,6 @@ fn genuine_renewed_schedule_fits_every_stage_and_retains_old_overflow() {
             "moved credit owner is mandatory in exact context"
         );
     }
-    // Retain the exact former semantic partition only in this regression. It is
-    // never an installed or selectable production schedule.
-    let ordinary = OperationSchedule::for_variant(Variant::Receive);
-    let baseline = ContextPlan::with_schedule(
-        plan.context().operation().clone(),
-        ordinary.q_partitions().to_vec(),
-        Some(0),
-        plan.context().object_specs().to_vec(),
-    )
-    .unwrap()
-    .with_operation_tasks(ordinary.tasks().to_vec())
-    .unwrap();
-    let mut old = plan.clone();
-    old.stage = ReceiveStagePlan::new(baseline, plan.policy).unwrap();
-    let circuit = old.source_circuit(0, None).unwrap();
-    assert!(matches!(
-        synthesize(&circuit, 16, None),
-        Err(CircuitError::RowOutOfRange { .. })
-    ));
-    eprintln!(
-        "CAPACITY prior_renewed_A0 diagnostic_k17_rows_total_and_advice={:?} not_admitted=true",
-        rows(&circuit, 17)
-    );
-    drop((old, circuit));
     let mut aconfig = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     aconfig.compress_selectors = false;
     aconfig.coset_cache = CosetCachePolicy::OnDemand;

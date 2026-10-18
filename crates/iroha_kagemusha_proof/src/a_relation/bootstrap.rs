@@ -1,8 +1,10 @@
 //! Bootstrap's fixed trust roots and witness-bound scheme authorization.
 //!
-//! The caller hard-verifies Q sigma and Q signature proofs, retaining their
-//! opening obligations. This component joins their typed outputs to the same
-//! state, statement and object bytes; it does not provide native acceptance.
+//! The caller hard-verifies the single Q signature proof, retaining its opening
+//! obligation. This component joins its typed outputs to the same state,
+//! statement and object bytes; it does not provide native acceptance. A proves
+//! the Bootstrap transition directly (lean lineage): `administrative::bootstrap`
+//! constrains the statement cells themselves, so no sigma proof is verified.
 
 use ff::Field;
 use iroha_pasta::{Ep, Fp};
@@ -10,10 +12,7 @@ use iroha_plonk::frontend::{Error, Region, Value};
 use iroha_plonk_gadgets::{GlueChip, UintChip, bytes::tape::BytesChip, p256::native::Affine};
 use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierChip};
 
-use super::{
-    LineagePublicCells, SigmaBindingCells, SignatureProofCells,
-    context::{ContextObjectCells, ContextObjectSpec},
-};
+use super::{LineagePublicCells, SignatureProofCells, context::ContextObjectSpec};
 use crate::{
     operation_relation::{
         administrative,
@@ -23,6 +22,7 @@ use crate::{
             receipt::{self, ReceiptContext},
         },
         state::StateCells,
+        statement::StatementCells,
     },
     q_signature::SignatureKey,
 };
@@ -52,7 +52,6 @@ impl BootstrapPolicy {
 #[derive(Clone, Debug)]
 pub struct BootstrapObjects {
     objects: [SignedObjectCells; 3],
-    context: [ContextObjectCells; 3],
 }
 
 /// Typed state and proof outputs consumed by Bootstrap object authentication.
@@ -62,13 +61,13 @@ pub struct BootstrapInputs<'a> {
     pub state: &'a StateCells,
     /// Exact successor public lineage prefix.
     pub lineage: &'a LineagePublicCells,
-    /// Statement and same-tape proof digest bound by hard Q sigma verification.
-    pub sigma: &'a SigmaBindingCells,
+    /// Own exact Bootstrap statement, constrained by the same A.
+    pub statement: &'a StatementCells,
     /// Hard Q signature outputs ordered receipt, credential, certificate.
     pub signatures: &'a [SignatureProofCells],
 }
 impl BootstrapObjects {
-    /// The fixed ordered context schema, including raw signatures.
+    /// The fixed ordered object schema of the Bootstrap plan, including raw signatures.
     ///
     /// # Errors
     /// An impossible size conversion for a fixed object schema.
@@ -87,7 +86,7 @@ impl BootstrapObjects {
         specs.try_into().map_err(|_| Error::Synthesis)
     }
 
-    /// Parse exact canonical own objects and bind their complete context tapes.
+    /// Parse exact canonical own objects from their original tapes.
     /// No signature verdict is asserted until `authenticate` consumes Q slots.
     ///
     /// # Errors
@@ -104,8 +103,7 @@ impl BootstrapObjects {
             ObjectKind::Receipt,
         ];
         let mut objects = Vec::new();
-        let mut context = Vec::new();
-        for ((kind, source), spec) in kinds.into_iter().zip(source).zip(Self::context_specs()?) {
+        for (kind, source) in kinds.into_iter().zip(source) {
             let run = bytes.run(
                 region,
                 source,
@@ -113,31 +111,17 @@ impl BootstrapObjects {
                 &kind.secondary_segments(),
             )?;
             let lanes = chip.operation_lanes()?;
-            let object = SignedObjectCells::from_run(
+            objects.push(SignedObjectCells::from_run(
                 &mut UintChip::new(lanes.glue, lanes.range),
                 lanes.hash,
                 region,
                 kind,
                 &run,
-            )?;
-            context.push(ContextObjectCells::from_exact_run(
-                chip,
-                region,
-                spec,
-                object.digest(),
-                &run,
             )?);
-            objects.push(object);
         }
         Ok(Self {
             objects: objects.try_into().map_err(|_| Error::Synthesis)?,
-            context: context.try_into().map_err(|_| Error::Synthesis)?,
         })
-    }
-
-    /// Complete ordered object identities and tapes committed by both split halves.
-    pub const fn context(&self) -> &[ContextObjectCells; 3] {
-        &self.context
     }
 
     /// Authenticate the exact Bootstrap objects against hard-verified Q slots.
@@ -147,8 +131,13 @@ impl BootstrapObjects {
     /// The provider's enrollment-marker identity stays under the adopted issuer
     /// scope; this relation does not recompute its SHA-256 preimage.
     ///
+    /// A proves the Bootstrap transition directly, so the receipt's sigma-only
+    /// `proof_digest` names a proof A does not consume: it is taken from the
+    /// signed receipt body itself, which the signature authenticates, and must
+    /// still be nonzero.
+    ///
     /// # Errors
-    /// Wrong fixed variant, missing sigma digest, slot count/root policy or layout.
+    /// Wrong fixed variant, slot count/root policy or layout.
     /// Bad own evidence, authorization or object bindings are unsatisfiable.
     pub fn authenticate(
         &self,
@@ -160,10 +149,9 @@ impl BootstrapObjects {
         let BootstrapInputs {
             state,
             lineage,
-            sigma,
+            statement,
             signatures: slots,
         } = input;
-        let statement = sigma.hard_statement()?;
         if statement.variant() != Variant::Bootstrap
             || slots.len() != 3
             || slots[2].key_policy() != SignatureKey::Fixed(policy.root)
@@ -221,7 +209,7 @@ impl BootstrapObjects {
                 wallet: &wallet,
                 provider: &provider,
                 statement,
-                proof_digest: sigma.step_digest()?,
+                proof_digest: self.objects[2].word(9)?,
                 payment_digest: &zero,
             },
         )?;

@@ -1,22 +1,18 @@
 //! Measurement harness (M12): native `sigma_send` / `sigma_recv` step proofs
 //! of the G1 layout on Vesta in the KAGEMUSHA step format.
 //!
-//! - `sigma_send` without a control and `sigma_recv` without the blacklist
-//!   bit: at `k = 12` with one lane (the shape within the 3.5 KB budget),
-//!   and at `k = 11` and `k = 10` with the fewest lanes that fit;
-//! - `sigma_recv` with the blacklist bit at `k = 12` (one lane) and `k = 11`
-//!   (its smallest `k`: the 16-node gap path is one lane's site, 1,295
-//!   rows, more than a `k = 10` lane holds), and `sigma_send` with the
-//!   blacklist control at `k = 12`;
-//! - `sigma_send` with every control (the full mask: blacklist gap opening
-//!   and list age, quota windows and usage update, lease): at `k = 14`
-//!   with one lane (the single-lane shape R9 needs), and at `k = 13` and
-//!   `k = 12` with the fewest lanes (no shape at `k <= 11` fits within
-//!   [`iroha_kagemusha_proof::MAX_LANES`]).
+//! - `sigma_send` without a control and `sigma_recv`: at `k = 12` with one
+//!   lane (the shape within the 3.5 KB budget), and at `k = 11` and
+//!   `k = 10` with the fewest lanes that fit;
+//! - `sigma_send` with the lease control at `k = 12`;
+//! - `sigma_send` with every control (the full mask: quota windows and usage
+//!   update, lease): at `k = 14` with one lane (the single-lane shape R9
+//!   needs), and at `k = 13` and `k = 12` with the fewest lanes (no shape at
+//!   `k <= 11` fits within [`iroha_kagemusha_proof::MAX_LANES`]).
 //! - every Send control mask at the native wallet's one-lane shape: masks
-//!   0, 1, 4 and 5 use `k = 12`; quota masks 2, 3, 6 and 7 use `k = 14`.
-//!   Both Receive selectors use `k = 12`. The ordinary coverage test binds
-//!   this complete grid to `wallet_monetary_shape`.
+//!   0 and 2 use `k = 12`; quota masks 1 and 3 use `k = 14`. Receive uses
+//!   `k = 12`. The ordinary coverage test binds this complete grid to
+//!   `wallet_monetary_shape`.
 //!
 //! Each case prints one `M12` line per thread count: the shape, key
 //! generation (parameters excluded), and for its runs (20, or 8 for the
@@ -55,8 +51,8 @@ mod common;
 use std::time::Instant;
 
 use common::{
-    BUDGET_SHAPE, K11_SHAPE, RECEIVE_BLACKLIST, SEND_BLACKLIST, SEND_EVERY, SEND_LEASE,
-    SEND_QUOTAS, SMALLEST_SHAPE, folded, fresh_randomness, pinned_shape, vesta_params,
+    BUDGET_SHAPE, K11_SHAPE, SEND_EVERY, SEND_LEASE, SEND_QUOTAS, SMALLEST_SHAPE, folded,
+    fresh_randomness, pinned_shape, vesta_params,
 };
 use iroha_kagemusha_proof::{
     KeyOptions, Mutation, SigmaProver, SigmaRelation, SigmaShape, sample_witness,
@@ -330,20 +326,8 @@ cases! {
     m12_recv_k12, m12_footprint_recv_k12: SigmaRelation::RECEIVE, "k12", BUDGET_SHAPE;
     m12_recv_k11, m12_footprint_recv_k11: SigmaRelation::RECEIVE, "k11", K11_SHAPE;
     m12_recv_k10, m12_footprint_recv_k10: SigmaRelation::RECEIVE, "k10", SMALLEST_SHAPE;
-    m12_recv_blacklist_k12, m12_footprint_recv_blacklist_k12:
-        RECEIVE_BLACKLIST, "k12", BUDGET_SHAPE;
-    m12_recv_blacklist_k11, m12_footprint_recv_blacklist_k11:
-        RECEIVE_BLACKLIST, "k11", K11_SHAPE;
-    m12_send_blacklist_k12, m12_footprint_send_blacklist_k12:
-        SEND_BLACKLIST, "k12", BUDGET_SHAPE;
     m12_send_lease_k12, m12_footprint_send_lease_k12: SEND_LEASE, "k12", BUDGET_SHAPE;
-    m12_send_blacklist_lease_k12, m12_footprint_send_blacklist_lease_k12:
-        SigmaRelation::send(5), "k12", BUDGET_SHAPE;
     m12_send_quota_k14, m12_footprint_send_quota_k14: SEND_QUOTAS, "k14", FULL_K14_SHAPE;
-    m12_send_blacklist_quota_k14, m12_footprint_send_blacklist_quota_k14:
-        SigmaRelation::send(3), "k14", FULL_K14_SHAPE;
-    m12_send_quota_lease_k14, m12_footprint_send_quota_lease_k14:
-        SigmaRelation::send(6), "k14", FULL_K14_SHAPE;
     m12_send_full_k14, m12_footprint_send_full_k14: SEND_EVERY, "k14", FULL_K14_SHAPE;
     m12_send_full_k13, m12_footprint_send_full_k13: SEND_EVERY, "k13", FULL_K13_SHAPE;
     m12_send_full_k12, m12_footprint_send_full_k12: SEND_EVERY, "k12", FULL_K12_SHAPE;
@@ -462,13 +446,10 @@ fn monetary_measurements_cover_every_native_selector() {
     }
     let expected: BTreeSet<_> = (0..=CONTROLS_DEFINED)
         .map(|mask| SigmaRelation::send(mask).selector())
-        .chain([
-            SigmaRelation::RECEIVE.selector(),
-            RECEIVE_BLACKLIST.selector(),
-        ])
+        .chain([SigmaRelation::RECEIVE.selector()])
         .collect();
     assert_eq!(actual, expected);
-    assert_eq!(actual.len(), 10);
+    assert_eq!(actual.len(), 5);
 }
 
 #[test]
@@ -526,7 +507,7 @@ fn summaries_and_probes() {
         (SigmaRelation::SEND, BUDGET_SHAPE),
         (SigmaRelation::SEND, K11_SHAPE),
         (SigmaRelation::SEND, SMALLEST_SHAPE),
-        (RECEIVE_BLACKLIST, K11_SHAPE),
+        (SigmaRelation::RECEIVE, K11_SHAPE),
         (SEND_EVERY, FULL_K14_SHAPE),
         (SEND_EVERY, FULL_K13_SHAPE),
         (SEND_EVERY, FULL_K12_SHAPE),

@@ -76,6 +76,13 @@ impl Wallet for TestWallet {
         }
         Err(Failure::code(PROOF_REJECTED))
     }
+    fn install_blacklist(&mut self, list: &[u8], certificates: &[u8]) -> Result<Response> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        // Echo the exact originals that reached the owner.
+        completion(Some(state::Completion::Complete(
+            [list, certificates].concat(),
+        )))
+    }
     fn request_status(&mut self, _: &[u8; 32]) -> Result<Response> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(Response {
@@ -729,6 +736,138 @@ fn c_typed_execute_preserves_intake_bounds_and_distinct_preparation_status() {
     assert_eq!(result.length, 0);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     close(id).unwrap();
+}
+
+#[test]
+fn c_selector_five_installs_the_local_list_through_the_owner_and_is_no_operation() {
+    let (id, calls, _) = installed();
+    let zero = [0; 32];
+    let list = [7, 0, 255];
+    let certificates = [8, 1];
+    let mut request = WalletOperationRequest {
+        request_id: zero.as_ptr(),
+        selector: 5,
+        amount: WalletU128::default(),
+        first: list.as_ptr(),
+        first_length: list.len(),
+        second: certificates.as_ptr(),
+        second_length: certificates.len(),
+        third: std::ptr::null(),
+        third_length: 0,
+    };
+    let mut result = WalletResult::default();
+    // The stand-in install owner echoes the exact list and certificate originals; the
+    // stand-in operation owner would refuse as PROOF_REJECTED.
+    assert_eq!(
+        unsafe { connect_norito_kagemusha_wallet_execute_v1(id, &request, &mut result) },
+        0
+    );
+    assert_eq!(result.status, 1);
+    assert_eq!(
+        unsafe { std::slice::from_raw_parts(result.bytes, result.length) },
+        [7, 0, 255, 8, 1]
+    );
+    crate::connect_norito_free(result.bytes);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    // An install has no retry identity, and every other selector needs one.
+    let identity = [1; 32];
+    request.request_id = identity.as_ptr();
+    assert_eq!(
+        unsafe { connect_norito_kagemusha_wallet_execute_v1(id, &request, &mut result) },
+        INVALID
+    );
+    request.selector = 6;
+    request.request_id = zero.as_ptr();
+    assert_eq!(
+        unsafe { connect_norito_kagemusha_wallet_execute_v1(id, &request, &mut result) },
+        INVALID
+    );
+    // The list needs its certificate set.
+    request.selector = 5;
+    request.second = std::ptr::null();
+    request.second_length = 0;
+    assert_eq!(
+        unsafe { connect_norito_kagemusha_wallet_execute_v1(id, &request, &mut result) },
+        INVALID
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    // The typed call reaches Wallet::install_blacklist, never Wallet::execute.
+    let response = execute(
+        id,
+        requests::Call::InstallBlacklist {
+            list: vec![9],
+            certificates: vec![10],
+        },
+    )
+    .unwrap();
+    assert_eq!((response.kind, response.bytes), (1, vec![9, 10]));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    close(id).unwrap();
+    assert_eq!(
+        execute(
+            id,
+            requests::Call::InstallBlacklist {
+                list: vec![9],
+                certificates: vec![10],
+            },
+        )
+        .unwrap_err()
+        .status,
+        CLOSED
+    );
+}
+
+#[test]
+fn a_local_blacklist_refusal_is_its_own_status_never_invalid_or_a_proof_verdict() {
+    assert_eq!(BLOCKED, -15);
+    for field in [
+        "request.payer_account_digest",
+        "request.receiver_account_digest",
+    ] {
+        let failure = Failure::from(state::Error::Blocked(field));
+        assert_eq!(failure, Failure::code(BLOCKED));
+        assert_eq!((failure.reason, failure.platform_code), (-1, 0));
+        assert_ne!(failure.status, INVALID);
+        assert_ne!(failure.status, PROOF_REJECTED);
+    }
+    // The C result carries the status with no bytes and no platform reason.
+    let mut out = WalletResult::default();
+    let returned = unsafe { exports::output(&mut out, || Err(Failure::code(BLOCKED))) };
+    assert_eq!((returned, out.status, out.reason), (BLOCKED, BLOCKED, -1));
+    assert!(out.bytes.is_null());
+    assert_eq!(out.length, 0);
+    // A wallet without a local-list owner refuses the install as invalid input.
+    struct Bare;
+    impl Wallet for Bare {
+        fn setup(&mut self, _: setup::Setup) -> Result<Response> {
+            unreachable!()
+        }
+        fn snapshot(&mut self) -> Result<state::Snapshot> {
+            unreachable!()
+        }
+        fn execute(&mut self, _: state::OperationRequestV1) -> Result<Response> {
+            unreachable!()
+        }
+        fn request_status(&mut self, _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+        fn retry(&mut self, _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+        fn resume(&mut self) -> Result<Response> {
+            unreachable!()
+        }
+        fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
+            unreachable!()
+        }
+        fn credit(&mut self, _: &[u8; 32], _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+    }
+    assert_eq!(
+        Bare.install_blacklist(&[7], &[8]).unwrap_err(),
+        Failure::code(INVALID)
+    );
 }
 
 #[test]

@@ -14,10 +14,11 @@ use super::{
 };
 use crate::{
     a_relation::{
-        SigmaBindingCells, SignatureQCells,
+        SignatureQCells,
         context::{ContextInputs, ContextObjectSpec, ContextPlan},
         own::OwnPolicy,
         schedule::OperationTask,
+        transition::TransitionInputs,
     },
     operation_relation::map_effects::ReceiveMapWitness,
     q_signature::{QSignaturePlan, SignatureKey, SignatureSlot},
@@ -26,9 +27,11 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
-/// Complete fixed Receive task and object plan, including mandatory current C4.
-/// Q0 contains both sigma slots, Q1 own hard2V1F authorization, and Q2 the
-/// original incoming soft2V (ordinary) or soft3V1F (renewed) signatures.
+/// Complete fixed Receive task and object plan (lean lineage). A proves the own
+/// Receive step inline (`ReceiveTransition`); Q0 is the incoming-only `Q_sigma`
+/// over the original Send sigma, and Q1 the merged signature leaf: the own
+/// receipt hard, then the original incoming Send receipt and Request soft, plus
+/// the quoted credential and its fixed-root certificate when renewed.
 ///
 /// This validates a program schema, not artifact admission. Every generated
 /// stage circuit must execute `constrain_stage` and close its exact recursive
@@ -37,7 +40,7 @@ mod tests;
 pub struct ReceiveStagePlan {
     context: ContextPlan,
     policy: OwnPolicy,
-    signatures: [QSignaturePlan; 2],
+    signature: QSignaturePlan,
 }
 
 /// Exact common context and same-source object views consumed by each stage.
@@ -49,12 +52,10 @@ pub struct ReceiveStageInputs<'a> {
     pub proof_digest: Option<&'a ReceiveProofDigest>,
     /// Complete incoming Payment views, only when this stage owns Objects.
     pub objects: Option<&'a ReceiveObjects>,
-    /// Original signed sources, only for Signatures or Blacklist.
+    /// Original signed sources, only for Signatures.
     pub signed: Option<&'a ReceiveSignedObjects>,
-    /// Own/quoted tapes, only for Authorization, Signatures or `OwnProof`.
+    /// Own receipt and quoted tapes, only for Authorization or Signatures.
     pub authorization: Option<&'a ReceiveAuthorizationObjects>,
-    /// Own Q-exported sigma tape, only when this stage owns `OwnProof`.
-    pub own_sigma: Option<&'a SigmaBindingCells>,
 }
 
 /// Inputs present exactly for the named tasks assigned to the current stage.
@@ -62,33 +63,39 @@ pub struct ReceiveStageInputs<'a> {
 pub struct ReceiveStageWitness<'a> {
     /// Actual incoming verifier inputs, only in the Proofs owner.
     pub proofs: Option<ReceiveProofInputs<'a>>,
-    /// Hard current credential/certificate/receipt Q, only in Authorization.
+    /// The merged signature Q1 verified in this stage, only in Authorization,
+    /// which owns its hard own-receipt slot.
     pub own_signatures: Option<&'a SignatureQCells>,
-    /// Soft original signatures Q, only in Signatures.
+    /// The incoming soft slots of the same Q1, only in Signatures.
     pub incoming_signatures: Option<&'a ReceiveSignatureQProjection>,
     /// Unique consumed-credit search route, only in Nonmembership.
     pub nonmembership: Option<&'a OpeningCells<Fp>>,
-    /// Unique Request-recorded history route, only in Blacklist.
-    pub blacklist: Option<&'a OpeningCells<Fp>>,
     /// Exact OQ-3/credit-record paths, only in the consumed/credit effect owners.
     pub effects: Option<&'a ReceiveMapWitness>,
+    /// The σ_recv step relation, only in the Transition owner.
+    pub transition: Option<TransitionInputs<'a>>,
 }
 
 impl ReceiveStagePlan {
-    /// Require all fixed task owners, exact eleven tapes and both signature schemas.
+    /// Fixed Q index of the merged signature leaf; Q0 is the incoming-only `Q_sigma`.
+    pub const SIGNATURE_Q: usize = 1;
+
+    /// Require all fixed task owners, exact nine tapes and the merged signature schema.
     /// # Errors
-    /// Wrong variant/Q count/schema, absent tasks, wrong signature-Q partition
-    /// or invalid fixed capacities/root key.
+    /// Wrong variant/Q count/schema, an own sigma verifier, absent tasks, wrong
+    /// signature-Q partition or invalid fixed capacities/root key.
     pub fn new(context: ContextPlan, policy: OwnPolicy) -> Result<Self, Error> {
         let variant = context.operation().frame().variant();
         if !matches!(variant, Variant::Receive | Variant::ReceiveRenewed)
-            || context.operation().q_count() != 3
+            || context.operation().q_count() != 2
+            || !context.operation().is_inline()
+            || !context.operation().has_incoming_sigma()
             || context.receive_results().is_none()
         {
             return Err(Error::Synthesis);
         }
         let specs = context.object_specs();
-        if specs.len() != 11
+        if specs.len() != 9
             || specs
                 != Self::context_specs(
                     variant,
@@ -98,21 +105,19 @@ impl ReceiveStagePlan {
         {
             return Err(Error::Synthesis);
         }
-        let signatures = Self::signature_schemas(variant, policy)?;
-        for (offset, schema) in signatures.iter().enumerate() {
-            let descriptor = context
-                .operation()
-                .q(offset + 1)
-                .ok_or(Error::Synthesis)?
-                .verifier()
-                .binding()
-                .descriptor();
-            if descriptor.instance_lengths
-                != [u32::try_from(schema.instance_length()).map_err(|_| Error::BoundsFailure)?]
-                || descriptor.instance_types.as_deref() != Some(&QSignaturePlan::instance_types())
-            {
-                return Err(Error::Synthesis);
-            }
+        let signature = Self::signature_schema_for(variant, policy)?;
+        let descriptor = context
+            .operation()
+            .q(Self::SIGNATURE_Q)
+            .ok_or(Error::Synthesis)?
+            .verifier()
+            .binding()
+            .descriptor();
+        if descriptor.instance_lengths
+            != [u32::try_from(signature.instance_length()).map_err(|_| Error::BoundsFailure)?]
+            || descriptor.instance_types.as_deref() != Some(&QSignaturePlan::instance_types())
+        {
+            return Err(Error::Synthesis);
         }
         for stage in 0..context.stage_count() {
             let tasks = context.operation_tasks(stage).ok_or(Error::Synthesis)?;
@@ -127,9 +132,12 @@ impl ReceiveStagePlan {
             {
                 return Err(Error::Synthesis);
             }
-            for (task, q) in [
-                (OperationTask::ReceiveAuthorization, 1),
-                (OperationTask::ReceiveSignatures, 2),
+            // Authorization verifies Q1 in its own stage; Signatures projects the
+            // same Q1 in that stage or a later one.
+            let q = Self::SIGNATURE_Q;
+            for task in [
+                OperationTask::ReceiveAuthorization,
+                OperationTask::ReceiveSignatures,
             ] {
                 let earlier = task == OperationTask::ReceiveSignatures
                     && (0..stage).any(|i| {
@@ -145,43 +153,34 @@ impl ReceiveStagePlan {
         Ok(Self {
             context,
             policy,
-            signatures,
+            signature,
         })
     }
 
-    /// Exact own hard2V1F and incoming soft2V/3V1F schemas in their fixed order.
+    /// The merged signature leaf: the own receipt hard (1V), then the incoming
+    /// Send receipt and Request soft (2V), plus the quoted credential and its
+    /// fixed-root certificate soft when renewed (1V1F).
     /// # Errors
     /// Non-Receive variant or invalid pinned root key.
-    pub fn signature_schemas(
+    pub fn signature_schema_for(
         variant: Variant,
         policy: OwnPolicy,
-    ) -> Result<[QSignaturePlan; 2], Error> {
+    ) -> Result<QSignaturePlan, Error> {
         if !matches!(variant, Variant::Receive | Variant::ReceiveRenewed) {
             return Err(Error::Synthesis);
         }
-        let own = QSignaturePlan::new(vec![
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Variable,
-            },
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Variable,
-            },
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Fixed(policy.root),
-            },
-        ])?;
-        let mut incoming = vec![
-            SignatureSlot {
+        let mut slots = vec![SignatureSlot {
+            mode: VerifyMode::Hard,
+            key: SignatureKey::Variable,
+        }];
+        slots.extend(
+            [SignatureSlot {
                 mode: VerifyMode::Soft,
-                key: SignatureKey::Variable
-            };
-            2
-        ];
+                key: SignatureKey::Variable,
+            }; 2],
+        );
         if variant == Variant::ReceiveRenewed {
-            incoming.extend([
+            slots.extend([
                 SignatureSlot {
                     mode: VerifyMode::Soft,
                     key: SignatureKey::Variable,
@@ -192,10 +191,10 @@ impl ReceiveStagePlan {
                 },
             ]);
         }
-        Ok([own, QSignaturePlan::new(incoming)?])
+        QSignaturePlan::new(slots)
     }
 
-    /// Fixed incoming six-slot prefix and mandatory own/quoted five-slot suffix.
+    /// Fixed incoming six-slot prefix and mandatory own-receipt/quoted three-slot suffix.
     /// # Errors
     /// Wrong variant or invalid active carrier capacities.
     pub fn context_specs(
@@ -213,9 +212,9 @@ impl ReceiveStagePlan {
         &self.context
     }
 
-    /// Fixed signature schema for Q1 or Q2; Q0 is the separate sigma program.
+    /// Fixed signature schema of Q1; Q0 is the separate sigma program.
     pub fn signature_schema(&self, index: usize) -> Option<&QSignaturePlan> {
-        index.checked_sub(1).and_then(|i| self.signatures.get(i))
+        (index == Self::SIGNATURE_Q).then_some(&self.signature)
     }
 
     /// Execute exactly this stage's named tasks on its context-bound sources.
@@ -246,28 +245,19 @@ impl ReceiveStagePlan {
                 input.objects.is_some(),
             ),
             (
-                tasks.iter().any(|task| {
-                    matches!(
-                        task,
-                        OperationTask::ReceiveSignatures | OperationTask::ReceiveBlacklist
-                    )
-                }),
+                tasks
+                    .iter()
+                    .any(|task| matches!(task, OperationTask::ReceiveSignatures)),
                 input.signed.is_some(),
             ),
             (
                 tasks.iter().any(|task| {
                     matches!(
                         task,
-                        OperationTask::ReceiveAuthorization
-                            | OperationTask::ReceiveSignatures
-                            | OperationTask::ReceiveOwnProof
+                        OperationTask::ReceiveAuthorization | OperationTask::ReceiveSignatures
                     )
                 }),
                 input.authorization.is_some(),
-            ),
-            (
-                tasks.contains(&OperationTask::ReceiveOwnProof),
-                input.own_sigma.is_some(),
             ),
         ] {
             if needed != present {
@@ -288,7 +278,10 @@ impl ReceiveStagePlan {
                 OperationTask::ReceiveNonmembership,
                 witness.nonmembership.is_some(),
             ),
-            (OperationTask::ReceiveBlacklist, witness.blacklist.is_some()),
+            (
+                OperationTask::ReceiveTransition,
+                witness.transition.is_some(),
+            ),
         ] {
             if tasks.contains(&task) != present {
                 return Err(Error::Synthesis);
@@ -305,7 +298,7 @@ impl ReceiveStagePlan {
         }
         if witness
             .own_signatures
-            .is_some_and(|bundle| bundle.verified().index != 1)
+            .is_some_and(|bundle| bundle.verified().index != Self::SIGNATURE_Q)
         {
             return Err(Error::Synthesis);
         }
@@ -355,20 +348,10 @@ impl ReceiveStagePlan {
                     input.context,
                     witness.nonmembership.ok_or(Error::Synthesis)?,
                 )?,
-                OperationTask::ReceiveBlacklist => {
-                    input.signed.ok_or(Error::Synthesis)?.constrain_blacklist(
-                        chip,
-                        region,
-                        &self.context,
-                        stage,
-                        input.context,
-                        witness.blacklist.ok_or(Error::Synthesis)?,
-                    )?
-                }
                 OperationTask::ReceiveAuthorization => input
                     .authorization
                     .ok_or(Error::Synthesis)?
-                    .constrain_current(
+                    .constrain_own_receipt(
                         chip,
                         region,
                         &self.context,
@@ -376,17 +359,10 @@ impl ReceiveStagePlan {
                         input.context,
                         (self.policy, witness.own_signatures.ok_or(Error::Synthesis)?),
                     )?,
-                OperationTask::ReceiveOwnProof => input
-                    .authorization
+                OperationTask::ReceiveTransition => witness
+                    .transition
                     .ok_or(Error::Synthesis)?
-                    .constrain_own_proof(
-                        chip,
-                        region,
-                        &self.context,
-                        stage,
-                        input.context,
-                        input.own_sigma.ok_or(Error::Synthesis)?,
-                    )?,
+                    .constrain(chip, region, input.context.own_statement)?,
                 OperationTask::ReceiveConsumedEffects | OperationTask::ReceiveCreditEffects => {
                     maps::constrain_map_effects(
                         chip,

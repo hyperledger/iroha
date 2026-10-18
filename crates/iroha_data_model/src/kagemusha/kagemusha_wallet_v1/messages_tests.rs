@@ -43,13 +43,11 @@ fn compact_payment_does_not_replace_any_signed_derived_field() {
 
 use super::*;
 use crate::kagemusha::kagemusha_wallet_v1::{
-    KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1, KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1,
-    KAGEMUSHA_WALLET_SESSION_TEXT_MAX_BYTES_V1, KagemushaWalletBlacklistBodyV1,
-    KagemushaWalletBlacklistEntryV1, KagemushaWalletBlacklistHistoryLeafV1,
+    KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1, KAGEMUSHA_WALLET_SESSION_TEXT_MAX_BYTES_V1,
+    KagemushaWalletBlacklistBodyV1, KagemushaWalletBlacklistEntryV1,
     KagemushaWalletCredentialBodyV1, KagemushaWalletEvidenceKindV1, KagemushaWalletFeeRoundingV1,
     KagemushaWalletFeeScheduleBodyV1, KagemushaWalletLifecycleV1, KagemushaWalletPolicyUpdateV1,
-    KagemushaWalletRegulatoryPolicyV1, KagemushaWalletSchemePolicyBodyV1,
-    KagemushaWalletStatementV1,
+    KagemushaWalletSchemePolicyBodyV1, KagemushaWalletStatementV1,
     codec_tests::{assert_every_flip_rejected_or_rebound, norito_tag, payload_range},
     digest::{kagemusha_wallet_field_from_u128_v1, kagemusha_wallet_is_canonical_field_v1},
     identity::identity_tests::{
@@ -147,7 +145,7 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn message_fixture() -> MessageFix
     }
 }
 
-/// Receiver head state under its current `credential`, holding no blacklist.
+/// Receiver head state under its current `credential`.
 pub(in crate::kagemusha::kagemusha_wallet_v1) fn receiver_head_state(
     credential: &KagemushaWalletCredentialV1,
 ) -> KagemushaWalletStateV1 {
@@ -304,8 +302,6 @@ impl MessageFixture {
             policy_epoch: 1,
             scheme_policy: policy.scheme_policy_digest(),
             receiver_accepted_time_ms: ACCEPTED_MS,
-            receiver_blacklist_version: 0,
-            receiver_blacklist_root: [0; 32],
             certificates: certificates.digest().expect("set digest"),
             nonce: [0x6e; 32],
         };
@@ -445,7 +441,6 @@ impl MessageFixture {
                 &self.held_request(payment),
                 credential,
                 &receiver_head_state(credential),
-                None,
             )
             .expect("receive effect");
         KagemushaWalletStatementV1 {
@@ -847,7 +842,7 @@ fn sample_messages(f: &MessageFixture) -> [KagemushaWalletMessageV1; 7] {
 #[test]
 fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
     assert_eq!(KAGEMUSHA_WALLET_OFFER_BODY_TRANSCRIPT_BYTES_V1, 194);
-    assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1, 458);
+    assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1, 418);
     assert_eq!(KAGEMUSHA_WALLET_PAYMENT_TRANSCRIPT_BYTES_V1, 163);
     assert_eq!(KAGEMUSHA_WALLET_CREDIT_STATUS_TRANSCRIPT_BYTES_V1, 162);
     assert_eq!(KAGEMUSHA_WALLET_CREDITED_TRANSCRIPT_BYTES_V1, 99);
@@ -878,8 +873,8 @@ fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
         offer.body.signing_message(),
         kagemusha_wallet_signing_message_v1(Domain::Offer, &offer.body.transcript())
     );
-    assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1, 458);
-    assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1, 26);
+    assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1, 418);
+    assert_eq!(KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1, 24);
     let request = f.request(true);
     let transcript = request.body.transcript();
     assert_eq!(
@@ -892,13 +887,13 @@ fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
     assert_eq!(&transcript[98..130], &request.body.payer_account_digest);
     assert_eq!(&transcript[130..162], &request.body.receiver_wallet_id);
     assert_eq!(&transcript[162..194], &request.body.receiver_account_digest);
+    // The certificate-set digest directly follows the receiver's accepted time.
     assert_eq!(
-        &transcript[354..362],
-        &request.body.receiver_blacklist_version.to_le_bytes()
+        &transcript[346..354],
+        &request.body.receiver_accepted_time_ms.to_le_bytes()
     );
-    assert_eq!(&transcript[362..394], &request.body.receiver_blacklist_root);
-    assert_eq!(&transcript[394..426], &request.body.certificates);
-    assert_eq!(&transcript[426..458], &request.body.nonce);
+    assert_eq!(&transcript[354..386], &request.body.certificates);
+    assert_eq!(&transcript[386..418], &request.body.nonce);
     assert_eq!(
         request.body.payer_account_digest,
         f.payer.credential.body.account_digest
@@ -907,7 +902,7 @@ fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
         request.body.receiver_account_digest,
         f.receiver.credential.body.account_digest
     );
-    // credit_id binds the 26 current Request elements, including the recorded decision.
+    // credit_id binds the 24 current Request elements.
     let items = request.body.field_items();
     assert_eq!(items.len(), KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1);
     assert_eq!(items[0], kagemusha_wallet_field_from_u128_v1(1));
@@ -932,10 +927,8 @@ fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
         items[20],
         kagemusha_wallet_field_from_u128_v1(u128::from(ACCEPTED_MS))
     );
-    assert_eq!(items[21], kagemusha_wallet_field_from_u128_v1(0));
-    assert_eq!(items[22], request.body.receiver_blacklist_root);
-    assert_eq!(items[23], request.body.certificates);
-    assert_eq!(items[24..26], limbs(&request.body.nonce));
+    assert_eq!(items[21], request.body.certificates);
+    assert_eq!(items[22..24], limbs(&request.body.nonce));
     for (index, account) in [(7, 0), (11, 1)] {
         let mut other = request.body;
         if account == 0 {
@@ -962,20 +955,6 @@ fn kagemusha_wallet_v1_message_transcript_lengths_are_pinned() {
             &request.signature
         )
     );
-    let mut recorded = request.body;
-    recorded.receiver_blacklist_version = 1;
-    recorded.receiver_blacklist_root = field_value(0x39);
-    recorded.validate().expect("recorded pair");
-    assert_ne!(recorded.credit_id(), request.credit_id());
-    assert_ne!(recorded.signing_message(), request.body.signing_message());
-    let mut changed_record = request.signed();
-    changed_record.body = recorded;
-    assert!(matches!(
-        changed_record.verify(&request.receiver_credential),
-        Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            domain: Domain::Request
-        })
-    ));
     assert_eq!(request.signed().request_digest(), request.request_digest());
     assert_eq!(request.signed().credit_id(), request.credit_id());
 
@@ -1158,7 +1137,7 @@ fn kagemusha_wallet_v1_request_fee_and_certificate_rules() {
     // 25 bp of 1,000 is 2.5, rounded up to 3, plus the fixed 3.
     assert_eq!(f.fee_schedule().fee(1_000).expect("fee"), 6);
 
-    let body_mutations: [(RequestBodyMutation, &str); 13] = [
+    let body_mutations: [(RequestBodyMutation, &str); 10] = [
         (|body| body.amount = 0, "request.amount"),
         (
             |body| body.payer_wallet_id = body.receiver_wallet_id,
@@ -1167,18 +1146,6 @@ fn kagemusha_wallet_v1_request_fee_and_certificate_rules() {
         (|body| body.fee = u128::MAX, "request.gross"),
         (|body| body.policy_epoch = 0, "request.scheme_policy"),
         (|body| body.nonce = [0; 32], "request.nonce"),
-        (
-            |body| body.receiver_blacklist_version = 1,
-            "request.receiver_blacklist",
-        ),
-        (
-            |body| body.receiver_blacklist_root = field_value(0x39),
-            "request.receiver_blacklist",
-        ),
-        (
-            |body| body.receiver_blacklist_root = [0xff; 32],
-            "request.receiver_blacklist_root",
-        ),
         (
             |body| body.receiver_wallet_id = [0x0c; 32],
             "request.receiver_wallet_id",
@@ -1663,7 +1630,6 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
                     &request,
                     &f.receiver.credential,
                     &receiver_head_state(&f.receiver.credential),
-                    None,
                 )
                 .expect("receive"),
             KagemushaWalletEffectV1::Receive {
@@ -1698,10 +1664,10 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
     let receiver_state = receiver_head_state(&f.receiver.credential);
     assert_eq!(
         payment
-            .receive_effect(&request, &renewed, &receiver_head_state(&renewed), None)
+            .receive_effect(&request, &renewed, &receiver_head_state(&renewed))
             .expect("renewed receiver"),
         payment
-            .receive_effect(&request, &f.receiver.credential, &receiver_state, None)
+            .receive_effect(&request, &f.receiver.credential, &receiver_state)
             .expect("receiver")
     );
     assert_invalid(
@@ -1709,22 +1675,16 @@ fn kagemusha_wallet_v1_payment_digests_and_bindings() {
             &request,
             &f.payer.credential,
             &receiver_head_state(&f.payer.credential),
-            None,
         ),
         "payment.receiver_wallet_id",
     );
     assert_invalid(
-        payment.receive_effect(
-            &f.request(false),
-            &f.receiver.credential,
-            &receiver_state,
-            None,
-        ),
+        payment.receive_effect(&f.request(false), &f.receiver.credential, &receiver_state),
         "payment.request",
     );
     // The receiver state must be the receiver credential's own head.
     assert_invalid(
-        payment.receive_effect(&request, &renewed, &receiver_state, None),
+        payment.receive_effect(&request, &renewed, &receiver_state),
         "state.core.credential_digest",
     );
 
@@ -2391,7 +2351,7 @@ fn kagemusha_wallet_v1_receiver_matching_survives_credential_renewal() {
 
     // Receive after the renewal: the statement runs under the renewed credential.
     let effect = payment
-        .receive_effect(&request, &renewed, &receiver_head_state(&renewed), None)
+        .receive_effect(&request, &renewed, &receiver_head_state(&renewed))
         .expect("receivable after renewal");
     let receive = f.receive_package_under(&payment, &renewed, 48);
     assert_eq!(receive.statement.effect, effect);
@@ -3351,17 +3311,12 @@ fn kagemusha_wallet_v1_stand_in_helpers() {
     );
 }
 
-/// `identity`'s credential reissued with the BLACKLIST control permitted (no list-age rule).
-fn blacklist_permitted(identity: &IdentityFixture) -> KagemushaWalletCredentialV1 {
-    let mut body = identity.credential.body;
-    body.regulatory_policy = KagemushaWalletRegulatoryPolicyV1 {
-        permitted_controls: KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1,
-        blacklist_max_age_ms: 0,
-        time_anchor_max_response_ms: 0,
-    };
-    identity
-        .issue(&body)
-        .expect("blacklist-permitted credential")
+#[track_caller]
+fn assert_blocked<T: core::fmt::Debug>(result: WalletResult<T>, expected: &str) {
+    match result {
+        Err(KagemushaWalletValidationErrorV1::BlockedAccount { field }) if field == expected => {}
+        other => panic!("expected blocked `{expected}`, got {other:?}"),
+    }
 }
 
 impl MessageFixture {
@@ -3389,101 +3344,36 @@ impl MessageFixture {
             entries_root: kagemusha_wallet_blacklist_root_v1(&entries).expect("root"),
             signer_certificate: self.regulator_certificate.certificate_digest(),
         };
-        KagemushaWalletBlacklistV1::sign(
+        let list = KagemushaWalletBlacklistV1::sign(
             body,
             entries,
             &self.regulator_certificate,
             raw_output(&self.regulator, &body.signing_message()),
         )
-        .expect("blacklist")
-    }
-
-    /// `state` with BLACKLIST enabled and the optional signed list installed in real history.
-    fn with_blacklist(
-        &self,
-        mut state: KagemushaWalletStateV1,
-        fee_schedule: [u8; 32],
-        list: Option<&KagemushaWalletBlacklistV1>,
-    ) -> (KagemushaWalletStateV1, KagemushaWalletIndexedTreeV1) {
-        let policy = self.scheme_policy(2, KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1, fee_schedule);
-        policy
-            .verify(&self.payer.scheme, &self.regulator_certificate)
-            .expect("policy signature");
-        let refresh = state
-            .refresh_policy(KagemushaWalletPolicyUpdateV1::SchemePolicy { policy: &policy })
-            .expect("refresh policy");
-        state.core = refresh.core;
-        state.rest = refresh.rest;
-        let mut history = KagemushaWalletIndexedTreeV1::new();
-        assert_eq!(state.rest.blacklist_history_root, history.root());
-        if let Some(list) = list {
-            state = self.commit_blacklist(state, &mut history, list);
-        }
-        assert!(state.is_active(KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1));
-        (state, history)
-    }
-
-    /// Install a verified newer list with its original predecessor-history insertion witness.
-    fn commit_blacklist(
-        &self,
-        mut state: KagemushaWalletStateV1,
-        history: &mut KagemushaWalletIndexedTreeV1,
-        list: &KagemushaWalletBlacklistV1,
-    ) -> KagemushaWalletStateV1 {
-        assert_eq!(state.rest.blacklist_history_root, history.root());
+        .expect("blacklist");
         list.verify(&self.payer.scheme, &self.regulator_certificate)
             .expect("list signature");
-        let insertion = KagemushaWalletBlacklistHistoryLeafV1 {
-            list_version: list.body.list_version,
-            entries_root: list.body.entries_root,
-        }
-        .insert_into(history)
-        .expect("history insertion");
-        let refresh = state
-            .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
-                list,
-                history: &insertion,
-            })
-            .expect("newer list");
-        state.core = refresh.core;
-        state.rest = refresh.rest;
-        assert_eq!(state.rest.blacklist_history_root, history.root());
-        state
+        list
     }
 
-    /// Candidate body records exactly the receiver's current decision before Request issuance.
-    fn request_body_at(&self, receiver: &KagemushaWalletStateV1) -> KagemushaWalletRequestBodyV1 {
-        let (mut body, _, _) = self.request_parts(true, 1_000);
-        (
-            body.receiver_blacklist_version,
-            body.receiver_blacklist_root,
-        ) = receiver.request_blacklist_decision();
-        body
-    }
-
-    /// Issue only after the actual Request rule; retain its payer gap for later Receive.
+    /// Issue only after the actual Request rule under the receiver's local `list`.
     fn issue_request_at(
         &self,
         receiver: &KagemushaWalletStateV1,
         list: Option<&KagemushaWalletBlacklistV1>,
-    ) -> WalletResult<(
-        KagemushaWalletRequestV1,
-        Option<KagemushaWalletBlacklistGapOpeningV1>,
-    )> {
-        let (_, slot, certificates) = self.request_parts(true, 1_000);
-        let body = self.request_body_at(receiver);
-        let gap = body.check_request_rule(
+    ) -> WalletResult<KagemushaWalletRequestV1> {
+        let (body, slot, certificates) = self.request_parts(true, 1_000);
+        body.check_request_rule(
             &self.payer.scheme,
             &self.offer(),
             &self.receiver.credential,
             receiver,
             list,
         )?;
-        let request = self.sign_request(&body, slot, certificates)?;
-        Ok((request, gap))
+        self.sign_request(&body, slot, certificates)
     }
 
-    /// Run the current complete public Send path for these blacklist-only fixture heads.
+    /// Run the current complete public Send path under the payer's local `list`.
     fn checked_send_at(
         &self,
         request: &KagemushaWalletRequestV1,
@@ -3505,29 +3395,12 @@ impl MessageFixture {
     }
 }
 
-/// Retained Request gap joined to a fresh opening in the receiver head's real history store.
-fn recorded_blacklist_proof(
-    request: &KagemushaWalletRequestV1,
-    history: &KagemushaWalletIndexedTreeV1,
-    gap: &KagemushaWalletBlacklistGapOpeningV1,
-) -> KagemushaWalletRecordedBlacklistProofV1 {
-    let key =
-        kagemusha_wallet_field_from_u128_v1(u128::from(request.body.receiver_blacklist_version));
-    let (history_leaf, history_opening) = history.membership(&key).expect("recorded history");
-    KagemushaWalletRecordedBlacklistProofV1 {
-        history_leaf,
-        history_opening,
-        gap: *gap,
-    }
-}
-
-/// Each phone enforces its own list at Request/Send. Receive authenticates the signed
-/// Request's original decision through the receiving head's history and retained payer gap.
+/// Each phone enforces only its own local list (owner decision 2026-10-17): the receiver
+/// before it issues a Request and again before it accepts a Payment, the payer before Send.
+/// With no list held nothing is refused, and no list is committed, proved or sent.
 #[test]
-fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive() {
-    let mut f = message_fixture();
-    f.payer.credential = blacklist_permitted(&f.payer);
-    f.receiver.credential = blacklist_permitted(&f.receiver);
+fn kagemusha_wallet_v1_local_blacklist_blocks_at_request_send_and_receive() {
+    let f = message_fixture();
     let payer_account = f.payer.credential.body.account_digest;
     let receiver_account = f.receiver.credential.body.account_digest;
     let other_account = kagemusha_wallet_account_digest_v1(&test_account(0x77)).expect("other");
@@ -3536,46 +3409,32 @@ fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive(
     let baseline = f.request(true);
     assert_eq!(baseline.body.payer_account_digest, payer_account);
     assert_eq!(baseline.body.receiver_account_digest, receiver_account);
-    let fee_schedule = baseline.body.fee_schedule;
     let receiver_credential = f.receiver.credential;
-    let receiver_base = receiver_head_state(&receiver_credential);
+    let receiver_state = receiver_head_state(&receiver_credential);
     let lists_payer = f.signed_blacklist(1, &[payer_account, other_account]);
     let lists_receiver = f.signed_blacklist(1, &[receiver_account, other_account]);
     let lists_other = f.signed_blacklist(1, &[other_account]);
-    let (receiver_listing_payer, foreign_history) =
-        f.with_blacklist(receiver_base, fee_schedule, Some(&lists_payer));
-    assert_invalid(
-        f.issue_request_at(&receiver_listing_payer, Some(&lists_payer)),
-        "blacklist.listed",
+
+    // Request: the receiver refuses to quote for a payer its held list contains.
+    assert_blocked(
+        f.issue_request_at(&receiver_state, Some(&lists_payer)),
+        "request.payer_account_digest",
     );
-    assert_invalid(
-        f.issue_request_at(&receiver_listing_payer, None),
-        "blacklist.missing",
-    );
-    let (mut receiver_listing_other, mut history) =
-        f.with_blacklist(receiver_base, fee_schedule, Some(&lists_other));
-    let (request, gap) = f
-        .issue_request_at(&receiver_listing_other, Some(&lists_other))
-        .expect("allowed Request");
-    let gap = gap.expect("enforced");
-    gap.verify(&receiver_listing_other.core.blacklist_root, &payer_account)
-        .expect("payer gap");
-    let (receiver_no_list, _) = f.with_blacklist(receiver_base, fee_schedule, None);
     assert_eq!(
-        f.issue_request_at(&receiver_no_list, None)
-            .expect("no held list")
-            .1,
-        None
+        f.issue_request_at(&receiver_state, None)
+            .expect("no held list"),
+        baseline
     );
-    assert_invalid(
-        baseline.body.check_request_rule(
-            &scheme,
-            &offer,
-            &receiver_credential,
-            &receiver_listing_other,
-            Some(&lists_other),
-        ),
-        "request.receiver_blacklist",
+    assert_eq!(
+        f.issue_request_at(&receiver_state, Some(&lists_other))
+            .expect("unlisted payer"),
+        baseline
+    );
+    // The receiver's list judges only the payer.
+    assert_eq!(
+        f.issue_request_at(&receiver_state, Some(&lists_receiver))
+            .expect("only the receiver's own account listed"),
+        baseline
     );
     let mutations: [(RequestBodyMutation, &str); 3] = [
         (
@@ -3595,16 +3454,24 @@ fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive(
         let mut body = baseline.body;
         mutate(&mut body);
         assert_invalid(
-            body.check_request_rule(
-                &scheme,
-                &offer,
-                &receiver_credential,
-                &receiver_no_list,
-                None,
-            ),
+            body.check_request_rule(&scheme, &offer, &receiver_credential, &receiver_state, None),
             field,
         );
     }
+    // The account bindings are checked before the list: a body naming a listed account that
+    // is not the Offer's payer is invalid, not blocked.
+    let mut listed_stranger = baseline.body;
+    listed_stranger.payer_account_digest = other_account;
+    assert_invalid(
+        listed_stranger.check_request_rule(
+            &scheme,
+            &offer,
+            &receiver_credential,
+            &receiver_state,
+            Some(&lists_other),
+        ),
+        "request.payer_account_digest",
+    );
     assert_invalid(
         baseline.body.check_request_rule(
             &scheme,
@@ -3616,38 +3483,35 @@ fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive(
         "state.core.wallet_id",
     );
 
-    let payer_state = f.payer_state(&request);
+    // Send: the payer refuses to pay a receiver account its held list contains, after the
+    // Send rule and before any debit.
+    let payer_state = f.payer_state(&baseline);
+    assert_blocked(
+        f.checked_send_at(&baseline, &payer_state, Some(&lists_receiver)),
+        "request.receiver_account_digest",
+    );
+    let unheld = f
+        .checked_send_at(&baseline, &payer_state, None)
+        .expect("no held list");
+    assert_eq!(
+        f.checked_send_at(&baseline, &payer_state, Some(&lists_other))
+            .expect("unlisted receiver"),
+        unheld
+    );
+    // The payer's list judges only the receiver.
+    assert_eq!(
+        f.checked_send_at(&baseline, &payer_state, Some(&lists_payer))
+            .expect("only the payer's own account listed"),
+        unheld
+    );
+    let mut ordinal = payer_state;
+    ordinal.core.next_send += 1;
+    assert_invalid(
+        f.checked_send_at(&baseline, &ordinal, Some(&lists_receiver)),
+        "request.send_ordinal",
+    );
     let interval =
         KagemushaWalletTimeIntervalV1::new(ACCEPTED_MS, ACCEPTED_MS + 4_000).expect("interval");
-    let (payer_listing_receiver, _) =
-        f.with_blacklist(payer_state, fee_schedule, Some(&lists_receiver));
-    assert_invalid(
-        f.checked_send_at(&request, &payer_listing_receiver, Some(&lists_receiver)),
-        "blacklist.listed",
-    );
-    let (payer_listing_other, _) = f.with_blacklist(payer_state, fee_schedule, Some(&lists_other));
-    let checked = f
-        .checked_send_at(&request, &payer_listing_other, Some(&lists_other))
-        .expect("Send allowed");
-    checked
-        .blacklist_gap
-        .expect("enforced")
-        .verify(&payer_listing_other.core.blacklist_root, &receiver_account)
-        .expect("receiver gap");
-    let (payer_no_list, _) = f.with_blacklist(payer_state, fee_schedule, None);
-    assert_eq!(
-        f.checked_send_at(&request, &payer_no_list, None)
-            .expect("no held list")
-            .blacklist_gap,
-        None
-    );
-    request
-        .check_send_rule(
-            &f.payer.credential,
-            &payer_listing_other,
-            &f.payer_omega(&payer_listing_other),
-        )
-        .expect("send rule");
     let (mut body, slot, certificates) = f.request_parts(true, 1_000);
     body.payer_account_digest = other_account;
     assert_invalid(
@@ -3672,8 +3536,8 @@ fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive(
     assert_invalid(
         foreign.check_send_rule(
             &f.payer.credential,
-            &payer_listing_other,
-            &f.payer_omega(&payer_listing_other),
+            &payer_state,
+            &f.payer_omega(&payer_state),
         ),
         "request.payer_account_digest",
     );
@@ -3688,192 +3552,58 @@ fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive(
         "request.receiver_account_digest",
     );
 
-    let payment = KagemushaWalletPaymentV1::assemble(
-        &request,
-        &f.payer.credential,
-        f.send_package(&request, PAYMENT_LINEAGE_LEN, 64),
-    )
-    .expect("recorded Payment");
-    let proof = recorded_blacklist_proof(&request, &history, &gap);
+    // Receive: the receiver refuses a Payment whose payer its held list contains, after the
+    // full Payment verification and before any effect.
+    let payment = f.payment(true, 64);
     let payer_set = KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate])
         .expect("payer set");
     let payment_bytes = payment
         .to_canonical_bytes()
         .expect("original Payment bytes");
-    let original_receiver = receiver_listing_other;
-    assert_invalid(
+    let prepare = |list: Option<&KagemushaWalletBlacklistV1>| {
         payment.prepare_receive(
             &scheme,
             &f.payer.credential,
             &payer_set,
-            &request,
+            &baseline,
             &receiver_credential,
-            &receiver_listing_other,
-            None,
-        ),
-        "blacklist.recorded",
+            &receiver_state,
+            list,
+        )
+    };
+    assert_blocked(prepare(Some(&lists_payer)), "request.payer_account_digest");
+    let prepared = prepare(None).expect("no held list");
+    assert_eq!(
+        prepared.effect,
+        payment
+            .receive_effect(&baseline, &receiver_credential, &receiver_state)
+            .expect("receive effect")
     );
-    let mut wrong_version = proof;
-    wrong_version.history_leaf.key = kagemusha_wallet_field_from_u128_v1(2);
+    assert_eq!(
+        prepare(Some(&lists_other)).expect("unlisted payer"),
+        prepared
+    );
+    // The receiver's list judges only the payer.
+    assert_eq!(
+        prepare(Some(&lists_receiver)).expect("only the receiver's own account listed"),
+        prepared
+    );
     assert_invalid(
         payment.prepare_receive(
             &scheme,
-            &f.payer.credential,
+            &renewed_credential(&f.payer),
             &payer_set,
-            &request,
+            &baseline,
             &receiver_credential,
-            &receiver_listing_other,
-            Some(&wrong_version),
+            &receiver_state,
+            Some(&lists_payer),
         ),
-        "blacklist_history.leaf",
+        "payment.payer_credential_digest",
     );
-    let mut wrong_root = proof;
-    wrong_root.history_leaf.value[0] ^= 1;
-    assert_invalid(
-        payment.prepare_receive(
-            &scheme,
-            &f.payer.credential,
-            &payer_set,
-            &request,
-            &receiver_credential,
-            &receiver_listing_other,
-            Some(&wrong_root),
-        ),
-        "blacklist_history.leaf",
-    );
-    let mut foreign_head = receiver_listing_other;
-    foreign_head.rest.blacklist_history_root = foreign_history.root();
-    assert_invalid(
-        payment.prepare_receive(
-            &scheme,
-            &f.payer.credential,
-            &payer_set,
-            &request,
-            &receiver_credential,
-            &foreign_head,
-            Some(&proof),
-        ),
-        "blacklist_history.opening",
-    );
-    let mut listed_gap = proof;
-    listed_gap.gap.lower = payer_account;
-    assert_invalid(
-        payment.prepare_receive(
-            &scheme,
-            &f.payer.credential,
-            &payer_set,
-            &request,
-            &receiver_credential,
-            &receiver_listing_other,
-            Some(&listed_gap),
-        ),
-        "blacklist.listed",
-    );
-    let mut changed_gap = proof;
-    changed_gap.gap.siblings[0] = field_value(0x39);
-    assert_invalid(
-        payment.prepare_receive(
-            &scheme,
-            &f.payer.credential,
-            &payer_set,
-            &request,
-            &receiver_credential,
-            &receiver_listing_other,
-            Some(&changed_gap),
-        ),
-        "blacklist.opening",
-    );
-    assert_eq!(receiver_listing_other, original_receiver);
     assert_eq!(
         payment
             .to_canonical_bytes()
             .expect("retained Payment bytes"),
-        payment_bytes
-    );
-    let prepared = payment
-        .prepare_receive(
-            &scheme,
-            &f.payer.credential,
-            &payer_set,
-            &request,
-            &receiver_credential,
-            &receiver_listing_other,
-            Some(&proof),
-        )
-        .expect("original proof retry");
-    receiver_listing_other
-        .check_recorded_blacklist(
-            request.body.receiver_blacklist_version,
-            &request.body.receiver_blacklist_root,
-            &payer_account,
-            Some(&proof),
-        )
-        .expect("recorded rule");
-
-    // Turning the current control off never excuses a recorded nonzero decision.
-    let off = f.scheme_policy(3, 0, fee_schedule);
-    off.verify(&scheme, &f.regulator_certificate)
-        .expect("off policy signature");
-    let refresh = receiver_listing_other
-        .refresh_policy(KagemushaWalletPolicyUpdateV1::SchemePolicy { policy: &off })
-        .expect("control off");
-    let mut disabled = receiver_listing_other;
-    disabled.core = refresh.core;
-    disabled.rest = refresh.rest;
-    assert_eq!(
-        payment
-            .prepare_receive(
-                &scheme,
-                &f.payer.credential,
-                &payer_set,
-                &request,
-                &receiver_credential,
-                &disabled,
-                Some(&proof)
-            )
-            .expect("original recorded check")
-            .effect,
-        prepared.effect
-    );
-    assert_invalid(
-        payment.prepare_receive(
-            &scheme,
-            &f.payer.credential,
-            &payer_set,
-            &request,
-            &receiver_credential,
-            &disabled,
-            None,
-        ),
-        "blacklist.recorded",
-    );
-
-    // A newer list naming the payer cannot strand already committed original Payment bytes.
-    let later_list = f.signed_blacklist(2, &[payer_account, other_account]);
-    receiver_listing_other = f.commit_blacklist(receiver_listing_other, &mut history, &later_list);
-    let later_proof = recorded_blacklist_proof(&request, &history, &gap);
-    assert_eq!(later_proof.gap, proof.gap);
-    assert_invalid(
-        f.issue_request_at(&receiver_listing_other, Some(&later_list)),
-        "blacklist.listed",
-    );
-    assert_eq!(
-        payment
-            .prepare_receive(
-                &scheme,
-                &f.payer.credential,
-                &payer_set,
-                &request,
-                &receiver_credential,
-                &receiver_listing_other,
-                Some(&later_proof)
-            )
-            .expect("original Payment after newer list")
-            .effect,
-        prepared.effect
-    );
-    assert_eq!(
-        payment.to_canonical_bytes().expect("same original bytes"),
         payment_bytes
     );
     let mut other_body = f.payer.credential.body;
@@ -3883,11 +3613,11 @@ fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive(
         .issue(&other_body)
         .expect("other account credential");
     assert_invalid(
-        payment.verify(&scheme, &other_payer, &payer_set, &request),
+        payment.verify(&scheme, &other_payer, &payer_set, &baseline),
         "request.payer_account_digest",
     );
     payment
-        .verify(&scheme, &f.payer.credential, &payer_set, &request)
+        .verify(&scheme, &f.payer.credential, &payer_set, &baseline)
         .expect("payment");
     payment
         .signed_request()
@@ -3903,83 +3633,68 @@ fn kagemusha_wallet_v1_two_sided_blacklist_at_request_send_and_recorded_receive(
     };
     assert!(payment.signed_request().unwrap().verify(&renamed).is_err());
 
-    // Each row authenticates its own candidate decision before signing. Send enforces its
-    // payer's list independently. The already committed original Payment requires the actual
-    // version-1 history entry; a different receiving history never substitutes its current list.
-    for (payer_list, receiver_list, request_ok, send_ok) in [
+    // Phones hold different lists and each enforces only its own: the receiver's list decides
+    // the Request and the Receive, the payer's list the Send.
+    for (payer_list, receiver_list, receiver_ok, send_ok) in [
         (&lists_receiver, &lists_other, true, false),
         (&lists_other, &lists_payer, false, true),
         (&lists_other, &lists_other, true, true),
     ] {
-        let (receiver, history) =
-            f.with_blacklist(receiver_base, fee_schedule, Some(receiver_list));
-        let (payer, _) = f.with_blacklist(payer_state, fee_schedule, Some(payer_list));
-        let issued = f.issue_request_at(&receiver, Some(receiver_list));
-        assert_eq!(issued.is_ok(), request_ok);
         assert_eq!(
-            f.checked_send_at(&request, &payer, Some(payer_list))
+            f.issue_request_at(&receiver_state, Some(receiver_list))
+                .is_ok(),
+            receiver_ok
+        );
+        assert_eq!(
+            f.checked_send_at(&baseline, &payer_state, Some(payer_list))
                 .is_ok(),
             send_ok
         );
-        let matrix_proof = recorded_blacklist_proof(&request, &history, &gap);
-        let outcome = payment.prepare_receive(
-            &scheme,
-            &f.payer.credential,
-            &payer_set,
-            &request,
-            &receiver_credential,
-            &receiver,
-            Some(&matrix_proof),
-        );
-        assert_eq!(outcome.is_ok(), request_ok);
+        assert_eq!(prepare(Some(receiver_list)).is_ok(), receiver_ok);
     }
 }
 
-/// A Payment issued with no recorded blacklist remains receivable after later lists are
-/// installed. Later lists refuse new Request/Send attempts; completed evidence still verifies.
+/// A list installed later never invalidates a completed payment (owner decision 2026-10-17):
+/// it refuses new Request and Send attempts and the acceptance of a listed payer's Payment,
+/// while completed Credited evidence, `ArchiveSent` and the original Payment bytes still verify.
 #[test]
-fn kagemusha_wallet_v1_later_blacklists_preserve_original_payment_and_evidence() {
-    let mut f = message_fixture();
-    f.payer.credential = blacklist_permitted(&f.payer);
-    f.receiver.credential = blacklist_permitted(&f.receiver);
+fn kagemusha_wallet_v1_later_local_lists_preserve_completed_evidence() {
+    let f = message_fixture();
     let payer_account = f.payer.credential.body.account_digest;
     let receiver_account = f.receiver.credential.body.account_digest;
     let other_account = kagemusha_wallet_account_digest_v1(&test_account(0x77)).expect("other");
     let scheme = f.payer.scheme;
     let request = f.request(true);
     let receiver_credential = f.receiver.credential;
+    let receiver_state = receiver_head_state(&receiver_credential);
     request
         .body
         .check_request_rule(
             &scheme,
             &f.offer(),
             &receiver_credential,
-            &receiver_head_state(&receiver_credential),
+            &receiver_state,
             None,
         )
         .expect("Request issued before any held list");
-    assert_eq!(
-        (
-            request.body.receiver_blacklist_version,
-            request.body.receiver_blacklist_root
-        ),
-        (0, [0; 32])
-    );
-    let fee_schedule = request.body.fee_schedule;
     let earlier = f.signed_blacklist(1, &[other_account]);
-    let (receiver_state, mut receiver_history) = f.with_blacklist(
-        receiver_head_state(&receiver_credential),
-        fee_schedule,
-        Some(&earlier),
-    );
-    let (payer_state, mut payer_history) =
-        f.with_blacklist(f.payer_state(&request), fee_schedule, Some(&earlier));
+    let payer_state = f.payer_state(&request);
     f.checked_send_at(&request, &payer_state, Some(&earlier))
         .expect("Send allowed");
     let payment = f.payment(true, 64);
-    let effect = payment
-        .receive_effect(&request, &receiver_credential, &receiver_state, None)
-        .expect("recorded no-list Receive");
+    let payer_set =
+        KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate]).expect("set");
+    payment
+        .prepare_receive(
+            &scheme,
+            &f.payer.credential,
+            &payer_set,
+            &request,
+            &receiver_credential,
+            &receiver_state,
+            Some(&earlier),
+        )
+        .expect("Receive under the earlier list");
     let payment_bytes = payment
         .to_canonical_bytes()
         .expect("original Payment bytes");
@@ -3987,23 +3702,25 @@ fn kagemusha_wallet_v1_later_blacklists_preserve_original_payment_and_evidence()
     let credited_status = f.credited_status(&payment, PAYMENT_LINEAGE_LEN, OPENING_OTHER_CREDITS);
     let receiver_list = f.signed_blacklist(2, &[payer_account, other_account]);
     let payer_list = f.signed_blacklist(2, &[receiver_account, other_account]);
-    let receiver_later = f.commit_blacklist(receiver_state, &mut receiver_history, &receiver_list);
-    let payer_later = f.commit_blacklist(payer_state, &mut payer_history, &payer_list);
-    assert_eq!(receiver_later.core.blacklist_version, 2);
-    assert_eq!(payer_later.core.blacklist_version, 2);
-    assert_invalid(
-        f.issue_request_at(&receiver_later, Some(&receiver_list)),
-        "blacklist.listed",
+    assert_blocked(
+        f.issue_request_at(&receiver_state, Some(&receiver_list)),
+        "request.payer_account_digest",
     );
-    assert_invalid(
-        f.checked_send_at(&request, &payer_later, Some(&payer_list)),
-        "blacklist.listed",
+    assert_blocked(
+        f.checked_send_at(&request, &payer_state, Some(&payer_list)),
+        "request.receiver_account_digest",
     );
-    assert_eq!(
-        payment
-            .receive_effect(&request, &receiver_credential, &receiver_later, None)
-            .expect("original no-list decision"),
-        effect
+    assert_blocked(
+        payment.prepare_receive(
+            &scheme,
+            &f.payer.credential,
+            &payer_set,
+            &request,
+            &receiver_credential,
+            &receiver_state,
+            Some(&receiver_list),
+        ),
+        "request.payer_account_digest",
     );
     assert_eq!(
         payment
@@ -4020,8 +3737,6 @@ fn kagemusha_wallet_v1_later_blacklists_preserve_original_payment_and_evidence()
             .archive_sent_effect(&scheme, &request, &payment, &pending)
             .expect("ArchiveSent after later lists");
     }
-    let payer_set =
-        KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate]).expect("set");
     payment
         .verify(&scheme, &f.payer.credential, &payer_set, &request)
         .expect("fee claim after later lists");
@@ -4171,7 +3886,7 @@ fn kagemusha_wallet_v1_request_signing_authenticates_offer_before_freezing() {
 fn kagemusha_wallet_v1_payment_proof_roles_cannot_borrow_each_others_capacity() {
     let omega = KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1;
     let sigma = KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1;
-    assert_eq!((omega, sigma), (5_044, 3_520));
+    assert_eq!((omega, sigma), (5_086, 3_520));
     assert_eq!(omega + sigma, KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1);
     for (o, s) in [(0, 0), (omega, 0), (0, sigma), (omega, sigma)] {
         require_payment_proof_sizes_v1(o, s).expect("individual and joint bounds");

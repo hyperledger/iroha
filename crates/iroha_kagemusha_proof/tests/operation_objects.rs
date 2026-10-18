@@ -151,7 +151,7 @@ impl Circuit<Fp> for ObjectCircuit {
                 outputs.push(valid.word().clone());
                 let credit = if self.kind == ObjectKind::Request {
                     let fields: Vec<_> = object.fields().iter().flatten().cloned().collect();
-                    assert_eq!(fields.len(), 26);
+                    assert_eq!(fields.len(), 24);
                     hash.hash_words(&mut region, u64::from_le_bytes(*b"kgwcrdt1"), &fields)?
                 } else {
                     uint.glue().constant(&mut region, Fp::ZERO)?

@@ -353,7 +353,9 @@ fn assert_alias_controls(
             programs.insert(program, owner);
         }
     }
-    assert_eq!(duplicate_count, 16);
+    // One Receive own key and two incoming Send classes (k12, k14): each variant's four
+    // routes share two programs.
+    assert_eq!(duplicate_count, 4);
     assert_eq!(pairs.len(), 2);
     let mut cases = 5;
     for (_, first, second) in pairs {
@@ -1144,7 +1146,7 @@ fn declared_route_reads_count_every_original_a_route_can_read() {
             original(4, 5, 6),
             original(7, 8, 9),
         ],
-        sigma: [0; 16],
+        sigma: [0; 11],
         operations: vec![OperationV1 {
             variant: 1,
             own_class: Vec::new(),
@@ -1475,7 +1477,7 @@ fn qualified_routes(qualified: &QualifiedWalletSourcesV1) -> Vec<&QualifiedOpera
 }
 
 #[test]
-#[ignore = "strict complete52 engineering acceptance from independently pinned persisted originals, then ten strict route stages over an in-memory copy; no key regeneration or deployment authority"]
+#[ignore = "strict complete22 engineering acceptance from independently pinned persisted originals, then ten strict route stages over an in-memory copy; no key regeneration or deployment authority"]
 fn strict_route_workers_match_the_old_order_on_the_pinned_catalog() {
     let output = std::path::PathBuf::from(
         std::env::var_os("KAGEMUSHA_PARALLEL_ROUTES_ACCEPTANCE_OUTPUT").unwrap(),

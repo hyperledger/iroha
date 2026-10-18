@@ -21,11 +21,16 @@ The item order is:
    operation-task count and ordered task codes. Every Q index occurs once.
    `ContextPlan::with_operation_tasks` requires the complete named task set
    exactly once: Bootstrap state/authentication (codes1/2), Load recovery/
-   authentication/current-credential (3/4/8), or Send objects/pending/fee-and-carry/
-   own-authorization/consuming-proof (5/6/7/9/10).
+   authentication (3/4), Unload recovery or Retiring state with own
+   authorization (19 or 20, and 21), Send objects/inline transition/pending/
+   fee-and-carry/own-authorization (5/45/6/7/9), or Receive's ten tasks including
+   its inline transition (46). The retired own-sigma tasks `ReceiveOwnProof` (17)
+   and `ArchiveOwnProof` (34) are removed and their codes are not reused. A
+   single-stage plan is the unsplit terminal A (lean Bootstrap): it has no W,
+   stage digest or continuation.
    `LoadStagePlan` and `SendStagePlan` execute the groups assigned to their fixed
    stage. Each authorization task must share its owning signature-Q stage.
-   Send's consuming-proof task must share the hard predecessor stage. A generic frame
+   Send's inline transition task must share the hard predecessor stage. A generic frame
    component has empty task lists and cannot qualify an operation artifact.
 2. For each Q in descriptor order: complete base-field VK digest, descriptor
    digest low/high128 limbs, instance-column count, and each column length.
@@ -33,16 +38,18 @@ The item order is:
    A complete Receive task plan then appends its active-source representation
    marker `kgwcrcv1,4,3` (fixed object index4, three commitment words), typed-Q
    marker `kgwcqtp1`, and the result namespace `kgwrslt1`,
-   count5 and the five ordered `(tag, zero-based owner stage)` pairs. Owner
+   count4 and the four ordered `(tag, zero-based owner stage)` pairs. Owner
    ordinals are checked u32 constants; this group is absent for other variants
    and generic frame-only components. It also fixes `kgwrpop1,35` for the
-   original incoming Omega opening and `kgwrcls1` followed by the exact Omega,
-   own-sigma and incoming-sigma `(k, descriptor-digest low128, high128)` triples.
+   original incoming Omega opening and `kgwrcls1` followed by the exact Omega
+   and incoming-sigma `(k, descriptor-digest low128, high128)` triples; Receive
+   verifies no own sigma (lean lineage), and the fixed Q_sigma key already in the
+   schema determines which sigma roles exist.
 3. Own statement26, followed by incoming statement26 exactly when that sigma
    slot exists.
-4. Predecessor core33/rest8/public18 and both transported Pallas/Vesta claims
+4. Predecessor core29/rest6/public18 and both transported Pallas/Vesta claims
    when present, then successor
-   core33/rest8/public18. State opening hashes and their public-header binding
+   core29/rest6/public18. State opening hashes and their public-header binding
    are constrained on the shared verifier hash lane.
 5. Incoming original public18, its constrained encoding/version/width validity,
    Pallas claim and Vesta claim, when incoming Omega exists. Non-Receive frames
@@ -86,7 +93,7 @@ The item order is:
    x/y coordinates for incoming Vesta. The sigma correction belongs to the hard
    Q relation and is not an unused A context field.
 
-For a complete Receive task plan, exactly five boolean proposed result values
+For a complete Receive task plan, exactly four boolean proposed result values
 and the 35-word original incoming Omega opening follow the object commitments
 and precede the modes. `ReceiveResultClaims`
 checks their Boolean representation and owner schema but exposes no acceptance
@@ -105,12 +112,11 @@ bit to the complete incoming-mode predicate. The context does not replace that
 predicate or any operation, map, signature, selector or object-to-byte check.
 
 The global four-bit sigma selector is the sorted wire `(tag,mask)` table:
-Bootstrap0, Load1, Send masks0..7 at2..9, Receive masks0/1 at10/11,
-ArchiveSent12, Unload13, the shared constrained RefreshPolicy union14, and
-Retiring15. The five refresh A variants share tag7; separate unconstrained
-refresh aliases do not fit this catalog. The circuit selector constrains the
-same Send control-mask cells or Receive recorded-list predicate used by the
-operation. Earlier Load selector5 diagnostics are not the canonical catalog.
+Bootstrap0, Load1, Send masks0..3 at2..5, Receive6, ArchiveSent7, Unload8,
+the shared constrained RefreshPolicy union9, and Retiring10. The four refresh
+A variants share tag7; separate unconstrained refresh aliases do not fit this
+catalog. The circuit selector constrains the same Send control-mask cells used
+by the operation. Earlier Load selector5 diagnostics are not the canonical catalog.
 
 `ContextPlan::with_schedule` fixes the ordered Q-index partition for each A
 stage and the unique stage owning the hard predecessor P/opening pair. A1
@@ -173,60 +179,103 @@ rebound at terminal closure. The proof source is explicit messages outside the
 complete Receive schema, and its exact active tape triple plus fixed-owner
 opening within that schema.
 
-The Load schedule is A1 (hard predecessor, D32 recovery and exact receipt
-binding), W1, A2 (hard Q_sigma), W2, A3 (hard own receipt signature Q),
-W3, A4 (hard current-credential and Enrollment-certificate signature Q).
-Three signed object tapes and the exact 282-byte ordinary Load receipt enter
-the same context. The receipt digest, scheme, asset, wallet, ordinal, amount
-and charge are constrained to the exact Load effect. No finality source key,
-proof or deferred finality claim enters the circuit.
+The Load schedule is lean (owner decision 2026-10-17): A1 (hard predecessor and
+the Load transition itself: arithmetic, unchanged fields and D32 recovery), W1,
+A2 (hard own receipt signature Q and the exact receipt binding). There is no own
+Q_sigma; A's context still commits the own statement, and the part folded by W1
+is the pinned trivial filler. The credential and Enrollment certificate are
+carried by continuity, so no current-credential leaf exists. One signed object
+tape and the exact 282-byte ordinary Load receipt enter the same context. The
+receipt digest, scheme, asset, wallet, ordinal, amount and charge are constrained
+to the exact Load effect. No finality source key, proof or deferred finality claim
+enters the circuit.
 
 The native owner verifies BLS finality and receipt inclusion before requesting
 the signed Advance. Offline lineage authenticates this decision through that
 credential-bound signature under the selected released-app/uncompromised-OS
 assumption. It does not claim circuit verification of BLS. Current authorization
-remains mandatory on every step. The changed A/W/Omega keys need current-candidate
-qualification; see [native finality goals](kagemusha_native_finality_goals.md).
+remains mandatory on every step whose route still re-verifies the credential; a lean
+step (Load, Send, Unload, Retiring) carries the credential digest and payment key by
+continuity from the step that verified them. The changed A/W/Omega keys need
+current-candidate qualification; see [native finality goals](kagemusha_native_finality_goals.md).
 
-Send likewise
-requires a separate own 2V/1F Q in addition to Q_sigma and its map/object tasks.
-Its mandatory `SendProof` task binds `P_bytes(kgwprf_1, LE32||Ω||LE32||σ)`
-to field9 of the exact receipt body retained by `C`. Ω includes the full
-320-byte public transcript before `πΩ||accP||accV`. This task executes beside
-the hard predecessor and links all original proof messages and both full-k16
-claims. The separate signature-Q stage authenticates that same complete receipt
-tape and enforces its operation/state/provider semantics. Neither task can be
-omitted, and moving `SendProof` away from the predecessor stage is rejected.
+Unload and Retiring are lean in the same way (owner decision 2026-10-17): A1 (hard
+predecessor with `UnloadRecovery` 19 or `RetiringState` 20, the
+`administrative::monetary` transition), W1, A2 (`UnloadAuthorization` 21: the one
+own-receipt signature Q under the carried payment key). The receipt's sigma-only
+proof digest names the `Ω(pred) || σ` carriers the ledger verifies natively; A reads
+it from the signed receipt body, whose signature and nonzero check bind it. The
+former `UnloadProof` task (22) is removed, and its code is not reused.
 
-The canonical mask0 component now proves the five-stage Send schedule with
-genuine Bootstrap and Load predecessors. Under Q_sigma's two-bus profile and
-A's four-bus profile, stage maxima are 50,098/56,018/57,868/61,864/60,051 rows;
-all five source proofs are 8,480 bytes. The predecessor's two-terminal catalog
+Send is lean too (owner decision 2026-10-17): A1 (hard predecessor, `SendObjects` 5
+and `SendTransition` 45), W1, A2 (`SendPending` 6 and `SendFeeAndCarry` 7), W2, A3
+(`SendAuthorization` 9: the one own-receipt signature Q under the carried payment
+key). `SendTransition` lays out σ_send's relation for the installed control mask on A's
+own RP57 lane, from the prepared step witness, and asserts each of its 26 statement
+fields equal to A's statement cell (a word to a word, a fixed field to its constant).
+Equal fields are exactly the digest σ_send certifies, so the relation σ_send proves
+holds of A's own statement and no own `Q_sigma` exists. Each mask's stage keys fix
+that mask's relation. The credential is still decoded and bound to the state's
+credential digest, and its tape still opens the payment key in the predecessor
+lineage, but its signature and the Enrollment certificate are carried by continuity.
+The former `SendProof` task (10) is removed and its code is not reused. The receipt's
+proof digest names the `Ω(pred) || σ` Payment carriers, which the receiver verifies in
+full; A reads it from the signed receipt body, whose signature and nonzero check bind
+it. Installation pins the predecessor's transport to the receiver's uniform Ω cap
+(`OMEGA_TRANSPORT_CAP`), so a Payment with any σ_send up to its maximum fits the joint
+budget Λ_recv enforces.
+
+Lean lineage milestone 2 (owner decision 2026-10-17) applies the same rule to the
+remaining routes. Bootstrap is one unsplit terminal A over its single hard 2V1F
+signature Q (own receipt, current credential, scheme-root certificate), with no W;
+its stage runs σ_bootstrap's constraints itself, and `close_unsplit` forwards the Q
+opening as the Pallas claim with the pinned trivial part. Receive and Receive
+(renewed) run nine stages: A1 (hard predecessor, `ReceiveConsumedEffects` 36 and
+`ReceiveTransition` 46: σ_recv's relation laid out on A's lane and bound field by field
+to A's statement), A2 (Q0, the incoming-only Q_sigma), A3 Proofs 11, A4 ProofDigest 23,
+A5 Objects 12, A6 (Q1 and Authorization 16), A7 (Signatures 13 projecting Q1, and
+CreditEffects 37), A8 Nonmembership 14 and the terminal A9 Effects 18. Q1 is one merged
+signature leaf: the own receipt is its hard slot 0 under the predecessor payment key,
+and the Send receipt, the Request and (renewed) the quoted credential and its
+fixed-root certificate are its soft slots. ArchiveSent (i) runs nine stages with an
+incoming-only Q_sigma for σ_recv and a merged 2V leaf (own receipt hard, τ_recv soft);
+ArchiveSent (ii) runs eight with only its merged leaf (own receipt hard, τ(h) soft). A
+already runs σ_archive's constraints in `ArchiveLineagePending`. The current credential
+and certificate leave every one of these routes except Bootstrap; no incoming check is
+removed.
+
+Before the lean schedule, the canonical mask0 component proved the five-stage Send
+schedule with genuine Bootstrap and Load predecessors. Under Q_sigma's two-bus profile and
+A's four-bus profile, stage maxima were 50,098/56,018/57,868/61,864/60,051 rows;
+all five source proofs were 8,480 bytes. The lean schedule's stage rows need new
+measurement. The predecessor's two-terminal catalog
 is rebuilt under its actual Omega digest and both source terminal keys and
 descriptors remain equal. Every pending claim is independently decided.
 This covers complete mask0 operation composition, not a final catalog: the
 new Send terminal key still needs inclusion and root-digest rebuilding, all
 other control masks remain, and the generic Omega transport is oversized.
 
-Receive's task metadata defines eight mandatory groups, including five named
-soft results (proofs, objects, signatures, nonmembership and recorded blacklist).
-The private fixed five-owner plan rejects missing/doubled/relabelled groups;
-its schema, five original Boolean claims and incoming opening enter `C`.
+Receive's task metadata defines its mandatory groups, including four named
+soft results (proofs, objects, signatures and nonmembership).
+The private fixed four-owner plan rejects missing/doubled/relabelled groups;
+its schema, four original Boolean claims and incoming opening enter `C`.
 Typed producers now bind recursive proof verdicts/openings, exact active
-Payment sources, original signature objects, unique consumed-credit/history
-routes, own C4 and receipt authentication, and the terminal OQ-3/iff effects.
+Payment sources, original signature objects, unique consumed-credit
+routes, the inline own transition, own receipt authentication, and the terminal
+OQ-3/iff effects.
 Their genuine complete stage chain and capacity remain unqualified; metadata
 does not certify an allowed key actually executes its assigned producer.
 
 Receive's first six object slots are Request, payer credential, Send receipt,
 Payment, original active Omega and original active sigma. Both ordinary and
-renewed variants then retain current credential/certificate/own receipt and
-the original quoted credential/certificate, giving eleven slots. Payment's
+renewed variants then retain the own receipt and the original quoted
+credential/certificate, giving nine slots. Payment's
 Request, payer-credential and package content addresses are hard links to
 the supplied tapes; the quoted credential and certificate must likewise open
 the Request and credential references. An unrelated preimage cannot force a
-burn. Ordinary versus renewed is hard-determined by the quoted/current
-credential digests. Original signature/semantic/proof failures remain soft.
+burn. Ordinary versus renewed is hard-determined by comparing the quoted
+credential digest with the receiver state's current credential digest.
+Original signature/semantic/proof failures remain soft.
 The own Receive effect is not a freely chosen soft input: credit, payer-wallet
 and amount are hard projections of the exact Request. Own relation/scheme are
 hard-bound to the authenticated receiver and pinned policy. A wrong original
@@ -244,18 +293,18 @@ composition diagnostic. A separate fixed-maximum chain must qualify these
 canonical capacities before total ingestion is claimed. Inputs exceeding the
 10,000-byte canonical envelope are rejected before Advance.
 
-For this fixed eleven-slot Receive schema, continuations may retain opaque
+For this fixed nine-slot Receive schema, continuations may retain opaque
 proposals `(object digest, UInt32 original length, tape commitment)` instead
 of decoding every unrelated object again. These proposals are not verified
 objects or verdicts. The Objects owner derives slots1–6 from the exact original
-tapes; Authorization derives slots7–11. The Proofs owner independently derives
+tapes; Authorization derives slots7–9. The Proofs owner independently derives
 the active Omega/sigma tape commitments and binds every original proof message,
 claim and verifier input. It retains the proposed combined consuming digest in
-slot5; only Objects derives that digest from both active originals. Signature
-and history owners use a typed three-object projection and rebind its complete
+slot5; only Objects derives that digest from both active originals. The
+signature owner uses a typed three-object projection and rebinds its complete
 triples to the same context. Dropping the Objects owner would therefore discard
 a required predicate even if the isolated Proofs projection passed. Exact
-eleven-slot metadata and the complete fixed task/result owner set are mandatory.
+nine-slot metadata and the complete fixed task/result owner set are mandatory.
 
 The genuine Receive stage measurement with the initial full-message context
 passed A1 at 62,160 rows, but A2 (hard Q_sigma plus W) required 84,064 sponge
@@ -271,7 +320,7 @@ out-of-capacity A2 proof was generated. Receive now uses an explicitly framed
 | Original active sigma tape | Fixed slot5 triple and Q chunks | Unchanged |
 | Q instances | Every scalar as low128/high127 | Exact checked Bounded/Bits0..253 as one Fp word; Field/wider values retain both limbs |
 | Fixed keys/classes, statement/state, modes/corrections | Included | Unchanged |
-| Five named results and full incoming opening | Included | Unchanged |
+| Named results and full incoming opening | Included | Unchanged |
 
 `ContextIncomingProof::ReceiveActive` is accepted only for the complete Receive
 owner schema; an explicit message variant is rejected there. Proofs decodes and
@@ -319,13 +368,10 @@ A uniform final Omega catalog must exclude intermediate A/W keys and rebind the
 normal Omega digest throughout the chain. Full-catalog admission, proof size,
 time/RSS and cryptographic qualification remain separate gates.
 
-The separate Bootstrap signature workload is a second Q leaf: its two variable
-keys and one fixed key are not silently included in `Q_sigma`. Unsplit Bootstrap
-with more than one Q hard-folds exactly its ordered Q openings, with no
-predecessor slots. A single-Q component fixture still forwards its opening.
-All Q openings have k16, so this fold needs no full-length filler. The split
-component places `Q_sigma` in A1 and the signature Q in A2, where it is retained
-alongside contextP and W's own opening.
+Lean Bootstrap has exactly one Q, its 2V/1F signature leaf, so its unsplit A
+forwards that opening with no fold and no predecessor slots. A generic frame
+component with more than one Q still hard-folds exactly its ordered Q openings;
+all Q openings have k16, so that fold needs no full-length filler.
 
 Key construction is acyclic: source Q keys → A1 keys → W1 key → A2 keys →
 W2 key → … → terminal A keys. A future W key cannot be an earlier A constant.
@@ -351,21 +397,23 @@ all operation/consumer constraints, independent missing-obligation and splice
 mutations, the final native key-type/admission boundary, resource measurements,
 and the broader cryptographic audit obligations in the soundness record.
 
-The Bootstrap test `actual_split_chain_retains_context_wrapper_and_final_claims`
-generates an actual Bootstrap sigma and recursive Q_sigma proof, then actual
-native A1, W and A2 proofs, and independently decides the retained claims.
-`admin_sigma::BootstrapCircuit` proves the exact initial zero-value state,
+Before lean lineage milestone 2, the Bootstrap test
+`actual_split_chain_retains_context_wrapper_and_final_claims` generated an actual
+Bootstrap sigma and recursive Q_sigma proof, then actual native A1, W and A2 proofs,
+and independently decided the retained claims; the single-stage schedule needs new
+proofs and measurements. `admin_sigma::BootstrapCircuit` (still produced natively)
+proves the exact initial zero-value state,
 empty maps/counters, disabled controls, and state/statement/public bindings at
 k12 with five advice columns (1,453 maximum rows, 6,133 assigned cells and a
 3,296-byte PIPA-R proof). Its fixed sponge and glue phases share four columns;
 the range lane is separate. Rehashed invalid initial states are rejected.
 
-A2 hard-verifies a genuine 2-variable/1-fixed signature Q over the exact
-receipt, credential and root certificate messages. `BootstrapObjects` binds
-those opaque outputs to the same canonical object tapes committed by both
-halves, requires all credential/evidence/current-state and receipt predicates,
-and pins scheme/provider/root policy. The receipt's sigma-only proof digest
-comes from the same length-prefixed chunks bound to Q_sigma. The credential's
+The Bootstrap A hard-verifies a genuine 2-variable/1-fixed signature Q over the
+exact receipt, credential and root certificate messages. `BootstrapObjects` binds
+those opaque outputs to the same canonical object tapes, requires all
+credential/evidence/current-state and receipt predicates, and pins
+scheme/provider/root policy. The receipt's proof digest is its own field, bound by
+its signature and nonzero check (lean lineage). The credential's
 enrollment ID equals the Bootstrap statement's first effect pair. The second
 pair is the nonzero generation-zero enrollment-marker identity: its SHA-256
 preimage and durable one-time installation remain G2/OQ-1 responsibilities.
@@ -377,8 +425,9 @@ known and unknown witness layouts agree. Full incoming-variant proof chains,
 operation partitioning for other variants, final Omega/native admission and
 resource/cryptographic qualification remain open.
 
-This genuine Bootstrap composition occupies at most 38,961 advice rows in
-A1 and 62,158 in A2 with the previous two-stage schema header. A1's other lanes peak at 35,372 sponge, 27,339 ECC and
+The former two-stage Bootstrap composition occupied at most 38,961 advice rows in
+A1 and 62,158 in A2 with the previous two-stage schema header; the single stage is a
+subset of that A2 and needs new measurement. A1's other lanes peaked at 35,372 sponge, 27,339 ECC and
 14,749 foreign-field rows; A2 peaks at 54,688 ECC, 49,543 sponge and 20,006
 foreign-field rows. Both fit k16. These are source-layout inventories, not
 time or RSS qualification. Predecessor/incoming verification and other

@@ -28,7 +28,7 @@ pub enum Command {
     Panel,
     /// Accept the explicitly selected standing panel as a drawn member.
     Accept(AcceptArgs),
-    /// Endorse one explicitly selected current panel and FastHold head.
+    /// Endorse one explicitly selected current panel and `FastHold` head.
     Endorse(EndorseArgs),
     /// Show retained rounds, active hold parts, suspensions and panel observations.
     Status,
@@ -51,7 +51,7 @@ pub struct EndorseArgs {
     /// Primary or backup panel identity, as 32-byte hexadecimal.
     #[arg(long)]
     pub panel_id: String,
-    /// Current FastHold subject revision shown by `governance revisions` (initially zero).
+    /// Current `FastHold` subject revision shown by `governance revisions` (initially zero).
     #[arg(long)]
     pub head: u64,
     /// Nonzero 32-byte hexadecimal digest identifying the public incident.

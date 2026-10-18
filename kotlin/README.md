@@ -606,8 +606,11 @@ signature is ECDSA-P256-SHA256 over the 32-byte Poseidon message of its body, wh
 the native core computes; the SDK checks it only as a canonical σ-field value.
 Only `artifactManifestDigest` hashes a signed object with SHA-256. Circuit-visible
 object, package, statement, operation and nullifier digests use the canonical
-60-domain Poseidon table. Requests bind the recorded receiver blacklist; quota
-usage is a depth-6 array.
+59-domain Poseidon table. Quota usage is a depth-6 array. A signed blacklist is
+local-only: `KagemushaWalletV1.installBlacklist` stores it on the phone (a replacement's
+version must increase), and Native then refuses to pay a listed receiver and to request or
+accept money from a listed payer with `KagemushaWalletExceptionV1.BLOCKED` (-15). No proof,
+wallet state or peer message carries it.
 `KagemushaP256Codec` is the P-256 device-key boundary: uncompressed SEC1 public keys
 and fixed-width low-S `r || s` signatures. The Android payment key
 (`kagemusha-wallet-android`) is a `DIGEST_SHA256` KeyMint key that signs exactly the

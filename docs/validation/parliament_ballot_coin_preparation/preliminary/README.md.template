@@ -1,0 +1,107 @@
+# Explicit retained purification for a fixed sequence
+
+`purification.py` wraps the frozen `Sequence` without changing it. It locates
+each generating call's original private coin inputs, appends fresh retained
+purifier registers, emits `H(coin)` then `CX(coin,purifier)` for every bit, and
+then emits the complete existing sequence. Its inverse runs the body's true
+inverse first and then reverses preparation with `CX` followed by `H`.
+
+The wrapper has two distinct contracts:
+
+- `source_root=...` authenticates twelve selected source/schema files and checks
+  the exact ordered generator input schema, all original offsets, role/row/trial
+  limits and the declared coin width. `iv_pre128` and `salt256` are located in
+  original `public_preparation`; similarly named `Generator.field_positions`
+  entries refer to derived P1 outputs and are not used. The remaining ten named
+  generator inputs are coins; `schedule_tapes` is split into primary/auxiliary
+  intervals. Content wrappers preserve those original inputs.
+- `toy_coin_intervals=...` requires an explicit immutable mapping for every
+  generating call. Its named, disjoint original-input intervals must sum to the
+  declared toy coin count. Synthetic fixtures cannot enter the source-schema
+  contract. This mode never claims source coin semantics.
+
+Source-schema checking authenticates layout definitions and checks structural
+conformance. It does not certify the origin or semantics of arbitrary caller
+supplied generators/kernels, or prove a runtime dependency closure. Those remain
+component premises. Lookup and rejected-size calls allocate no purifiers and
+emit no preparation. Bounded content calls retain the full original coin tape,
+including invalid-content executions that pay for the totalized circuit.
+
+For a source generating call with public width `P`, all coins form the suffix
+`[P,P+R)`, where
+
+```text
+R = 512*M + 896*tau + 256*T_open + tau*ell + 10*g + 5888.
+```
+
+All original coin registers and their purifiers must initially be clean and
+private. The wrapper neither inspects nor resets a quantum state. From these
+zero inputs, preparation creates independent Bell pairs. Tracing each private
+purifier gives the desired uniformly mixed coin marginal. It does not make the
+complete coin/purifier state a product, and purifiers must remain retained and
+inaccessible to the adversary. Applying inverse preparation to the final forward
+state alone generally does not erase coins correlated with transcript outputs.
+
+All preparation happens up front for a classically fixed sequence. Future pairs
+remain fresh at their entering history only when earlier components and external
+operations do not access them. Other initial inputs, output targets and
+adversary/oracle registers may be correlated among themselves, but start in
+product with the fresh private pairs. This does not justify conditioning on the
+completed trace or implement adaptive requests, descriptor entry or routing.
+
+## Accounting and evidence
+
+For total private coin width `R_total`, preparation contributes exactly
+`R_total` Hadamards and `R_total` CNOTs. The existing body vector is retained
+unchanged. The aggregate reports H separately from `X+CX+5*CCX`; it does not
+silently price H as X. It adds `R_total` retained purifier bits to the already
+counted original coins and states the `2*R_total` initially clean coin/purifier
+bits required. Log/counter/work initialization, the private environment and
+physical entropy/reset costs remain explicit premises or unknown terms.
+
+The 31 owned tests cover eight frozen source-observation layouts; malformed
+source schemas, shifted original public coin regions, source drift, interval
+aliases/types/widths and toy contracts; empty and no-coin sequences; and resource
+accounting. Small sparse state-vector controls check Bell coherence, coin partial
+traces, an entangled complementary input/spectator, an untouched future pair,
+actual synthetic request/lookup body outputs, complete inverse recovery and the
+failure of early unpreparation. The interpreter uses a fixed toy F and numerical
+amplitudes. These finite controls are not the complete source joint-state theorem.
+
+`observe.py` reconstructs one full-cap source `ContentFamily` (candidate, list3,
+`M=2^20`, lifetime capacity parameter `T=2^44`), one lookup with full message
+capacity6882996 and one rejected-size list1001 call, using the prior frozen
+159-input execution tree. The body resource report and four gates from each call
+match the prior captured body exactly. It checks all thirteen original coin
+intervals and short forward/inverse preparation prefixes. No full-cap gate stream
+or state vector is allocated or executed.
+
+The observed wrapper adds **538737664 H gates**, **538737664 CNOTs** and that
+many retained purifier bits. Its body retains **6202 oracle calls** and
+**31790791991013480033925054 logical bits**; the wrapper total is
+**31790791991013480572662718 logical bits**. These are logical circuit resources,
+not a native 64 MiB measurement. The one observation is not a family maximum.
+The source observer checked159 frozen inputs before/after; its36 loaded frozen
+repository modules were inside that inventory. Its separate wrapper source files
+were also stable. Runtime and source contracts remain trusted.
+
+Run focused controls with Python3.11 and pytest9.1.0:
+
+```sh
+env PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  /opt/homebrew/bin/pytest -c /dev/null -o addopts= -p no:cacheprovider \
+  --noconftest target/parliament-coin-preparation-stage/test_purification.py -q
+```
+
+Run the metadata/prefix observer against the retained frozen execution tree:
+
+```sh
+python3 -B target/parliament-coin-preparation-stage/observe.py \
+  --source-root target/parliament-sequential-composition-stage/capture/execution-root
+```
+
+TODO: authenticate actual component semantics and descriptors; complete physical
+initialization, adaptive selection/routing, uniform resource bounds, external
+operations and primitive entry; prove the complete joint experiment and obtain
+independent review. All full-qualification flags remain false. No frozen or
+published source file, production schema, integration or activation gate changed.

@@ -174,8 +174,8 @@ pub enum FoldOutcomeV1 {
     Adopted,
     /// This scheduler's signal cancelled the turn; its work was discarded.
     Cancelled(FoldCancelCauseV1),
-    /// The fold fields changed while the sub-proof proved without the wallet owner, so its
-    /// proof was discarded and never published.
+    /// The fold fields or custody changed while the sub-proof was outside the wallet owner,
+    /// so its proof was discarded and never published.
     Discarded,
     /// Any other error, including a cancellation without this scheduler's signal.
     Failed,
@@ -256,7 +256,7 @@ pub struct FoldCountsV1 {
     pub adopted: u64,
     /// Turns that ended with any other error.
     pub failed: u64,
-    /// Proofs discarded because the fold fields changed before their publication.
+    /// Proofs discarded because the fold fields or custody changed before their publication.
     pub discarded: u64,
     /// Cancellations by [`FoldCancelCauseV1::Payment`].
     pub cancelled_by_payment: u64,
@@ -518,7 +518,7 @@ impl FoldTurnV1 {
         self.adopted = true;
     }
 
-    /// The turn discards its proof: the fold fields changed before its publication.
+    /// The turn discards its proof: the fold fields or custody changed before its publication.
     pub(super) fn discarding(&mut self) {
         self.discarded = true;
     }

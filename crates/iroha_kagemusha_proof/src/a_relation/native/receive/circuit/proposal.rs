@@ -10,7 +10,6 @@ use crate::{
 };
 use ff::Field;
 use iroha_plonk::check::{CheckMode, check_circuit};
-use iroha_plonk_gadgets::GlueChip;
 use std::sync::Mutex;
 
 /// Original nonproof Receive witnesses, before Q or any operation-wide mode is chosen.
@@ -25,20 +24,17 @@ pub struct PredicateInputs {
     pub statement: [Fp; 26],
     /// Actual consumed-credit path retained before Advance.
     pub consumed: crate::tree::IndexedInsert<Fp>,
-    /// Source-selected history opening in the same native fixed path representation.
-    pub blacklist: crate::tree::IndexedInsert<Fp>,
     /// Exact Send statement26 from the incoming original package.
     pub incoming_statement: [Fp; 26],
-    /// The same eleven original byte tapes later consumed by native Inputs.
-    pub objects: [Vec<u8>; 11],
-    /// Exact soft signature witnesses for the original incoming Q2 slots.
+    /// The same nine original byte tapes later consumed by native Inputs.
+    pub objects: [Vec<u8>; 9],
+    /// Exact signature witnesses for every slot of the merged Q1: the hard own
+    /// receipt first, then the original incoming soft slots.
     pub signatures: Vec<SignatureWitness>,
     /// Fully source-verified predecessor Pallas claim, not an incoming verdict.
     pub predecessor_pallas: AccumulatorT<Ep>,
     /// Fully source-verified predecessor Vesta claim.
     pub predecessor_vesta: AccumulatorT<Eq>,
-    /// Compiled own selector, bound again to the Request by the Blacklist owner.
-    pub own_selector: u8,
     /// Compiled incoming selector, bound again to decoded lineage by Objects.
     pub incoming_selector: u8,
 }
@@ -132,8 +128,7 @@ impl Circuit<Fp> for Proposal {
                         )?;
                         let sigma_length = plan
                             .operation()
-                            .sigma
-                            .class(1)
+                            .sigma_class(crate::q_sigma::QSigmaPlan::INCOMING)
                             .ok_or(Error::Synthesis)?
                             .verifier()
                             .proof_length();
@@ -208,23 +203,21 @@ impl Circuit<Fp> for Proposal {
                                 &mut region,
                                 plan.operation().frame().variant(),
                                 ReceiveAuthorizationSources {
-                                    current: &values[6],
-                                    certificate: &values[7],
-                                    receipt: &values[8],
-                                    quoted: [&values[9], &values[10]],
+                                    receipt: &values[6],
+                                    quoted: [&values[7], &values[8]],
                                 },
                             )?;
-                            let schemas =
-                                crate::a_relation::receive::ReceiveStagePlan::signature_schemas(
+                            let schema =
+                                crate::a_relation::receive::ReceiveStagePlan::signature_schema_for(
                                     plan.operation().frame().variant(),
                                     self.plan.policy,
                                 )?;
-                            // Genuine native ECDSA exports for the exact installed Q2
-                            // schema. No Q0 column, proof or proposed verdict is present.
-                            let q2 = schemas[1]
+                            // Genuine native ECDSA exports for the exact installed merged
+                            // Q1 schema. No Q0 column, proof or proposed verdict is present.
+                            let q1 = schema
                                 .native_instances(&input.signatures)
                                 .map_err(|_| Error::Synthesis)?;
-                            let q2 = q2
+                            let q1 = q1
                                 .iter()
                                 .map(|column| {
                                     column
@@ -244,8 +237,8 @@ impl Circuit<Fp> for Proposal {
                                 &mut chip,
                                 &mut region,
                                 plan.operation(),
-                                &schemas[1],
-                                &q2,
+                                &schema,
+                                &q1,
                             )?;
                             [
                                 authorization.signature_predicate(
@@ -269,8 +262,6 @@ impl Circuit<Fp> for Proposal {
                         } else {
                             let consumed =
                                 cells.insertion(&mut chip.uint(), &mut region, &input.consumed)?;
-                            let history =
-                                cells.insertion(&mut chip.uint(), &mut region, &input.blacklist)?;
                             let nonmembership = maps::nonmembership_predicate(
                                 &mut chip,
                                 &mut region,
@@ -287,19 +278,12 @@ impl Circuit<Fp> for Proposal {
                                 },
                                 &consumed.low,
                             )?;
-                            let (blacklist, selector) = objects.blacklist_predicate(
-                                &mut chip,
-                                &mut region,
-                                &old,
-                                &pred_public,
-                                &history.low,
-                            )?;
-                            let actual = chip
-                                .uint()
-                                .glue()
-                                .constant(&mut region, Fp::from(u64::from(input.own_selector)))?;
-                            GlueChip::assert_equal(&mut region, &actual, &selector)?;
-                            [nonmembership, blacklist]
+                            [
+                                nonmembership,
+                                chip.uint()
+                                    .glue()
+                                    .boolean(&mut region, Value::known(true))?,
+                            ]
                         }
                     }
                 };
@@ -319,8 +303,8 @@ impl Circuit<Fp> for Proposal {
 }
 
 impl Plan {
-    /// Derive the Objects, Signatures, Nonmembership and Blacklist witness bits
-    /// using those exact circuit predicates, in three bounded k16 assignments.
+    /// Derive the Objects, Signatures and Nonmembership witness bits using those
+    /// exact circuit predicates, in three bounded k16 assignments.
     /// This performs no key generation and produces no proof or acceptance grant.
     /// Actual Q/A/W/Omega verification and every accumulator decide remain mandatory.
     /// # Errors
@@ -329,8 +313,8 @@ impl Plan {
     pub fn propose_nonproof(
         &self,
         input: PredicateInputs,
-    ) -> Result<[bool; 4], super::super::Error> {
-        let mut values = Vec::with_capacity(4);
+    ) -> Result<[bool; 3], super::super::Error> {
+        let mut values = Vec::with_capacity(3);
         let mut input = Some(input);
         for group in [Group::Objects, Group::Signatures, Group::Maps] {
             let observed = Arc::new(Mutex::new(None));
@@ -357,9 +341,6 @@ impl Plan {
                 .map_err(|_| super::super::Error::Input)?
                 .ok_or(super::super::Error::Input)?;
             values.push(bits[0]);
-            if matches!(group, Group::Maps) {
-                values.push(bits[1]);
-            }
         }
         values.try_into().map_err(|_| super::super::Error::Input)
     }

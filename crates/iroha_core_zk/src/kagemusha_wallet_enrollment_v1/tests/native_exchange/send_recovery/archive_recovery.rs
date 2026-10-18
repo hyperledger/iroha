@@ -194,7 +194,7 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(package.statement.sequence, before_a.sequence);
     assert_eq!(package.statement.successor.value, before_a.head);

@@ -71,7 +71,8 @@ use super::{
     provider::{KagemushaWalletProviderV1, KagemushaWalletSlotStatusV1},
     retained::{
         KagemushaWalletLookupV1, KagemushaWalletRetainedStatusV1, KagemushaWalletRetainedV1,
-        KagemushaWalletTombstoneV1, OlderCompletionV1, load_older_completion, read_tombstone,
+        KagemushaWalletTombstoneV1, OlderCompletionV1, TombstoneReadV1, load_older_completion,
+        read_tombstone,
     },
 };
 
@@ -699,11 +700,11 @@ where
         // unlink lost its writeback and later resurfaced. An unreadable or malformed decision
         // never restores delivery authority or makes the operation identity reusable.
         match read_tombstone(&self.store, slot, operation_id)? {
-            Some(Some(tombstone)) => {
+            TombstoneReadV1::Found(tombstone) => {
                 return Ok(KagemushaWalletLookupV1::Archived(Box::new(tombstone)));
             }
-            Some(None) => return Ok(KagemushaWalletLookupV1::DeliveryDataLoss),
-            None => {}
+            TombstoneReadV1::Invalid => return Ok(KagemushaWalletLookupV1::DeliveryDataLoss),
+            TombstoneReadV1::Absent => {}
         }
         let binding = R::marker_binding(current.marker());
         Ok(

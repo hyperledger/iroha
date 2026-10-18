@@ -485,18 +485,23 @@ fn original_source_policy_refusal_is_sticky_without_replenishing_geometry_or_nat
 
 #[test]
 fn original_source_cursor_control_admission_retains_the_exact_pool_refusal() {
-    use crate::state::publication::original_musubi_admission_control_layout_for_test;
+    use crate::state::publication::{
+        original_musubi_admission_control_layout_for_test,
+        original_musubi_admission_live_layout_for_test,
+    };
     use iroha_allocation::ChargedBufferError;
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     prepare(&mut block);
     let budget = state.ivm_execution_budget();
+    let control_layout = original_musubi_admission_control_layout_for_test();
+    let live_layout = original_musubi_admission_live_layout_for_test();
     let retained_credit = budget.reserved_bytes();
     let occupied = budget
         .try_reserve_bytes(budget.limit_bytes() - retained_credit)
         .unwrap();
     let expected = budget
-        .try_reserve_bytes(original_musubi_admission_control_layout_for_test().size())
+        .try_reserve_layouts([control_layout, live_layout])
         .unwrap_err();
     let error = block
         .start_original_musubi_source_admission(limits())
@@ -517,12 +522,13 @@ fn original_source_cursor_control_admission_retains_the_exact_pool_refusal() {
     );
     assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
     drop(occupied);
+    assert_eq!(budget.reserved_bytes(), retained_credit);
     block
         .start_original_musubi_source_admission(limits())
         .unwrap();
     assert_eq!(
         budget.reserved_bytes(),
-        retained_credit + original_musubi_admission_control_layout_for_test().size()
+        retained_credit + control_layout.size() + live_layout.size()
     );
     assert!(
         block
@@ -530,6 +536,103 @@ fn original_source_cursor_control_admission_retains_the_exact_pool_refusal() {
             .unwrap()
             .complete
     );
+}
+
+#[test]
+fn original_source_cursor_control_capacity_refusal_waits_for_external_release() {
+    use crate::state::publication::{
+        original_musubi_admission_control_layout_for_test,
+        original_musubi_admission_live_layout_for_test,
+    };
+    use iroha_allocation::{AllocationRefusal, ChargedBufferError, release::ReleaseRegistration};
+    use std::task::{Context, Poll, Waker};
+    let (state, proposal) = fixture();
+    let mut block = pending(&state, proposal.header(), false);
+    prepare(&mut block);
+    let budget = state.ivm_execution_budget();
+    let control_layout = original_musubi_admission_control_layout_for_test();
+    let live_layout = original_musubi_admission_live_layout_for_test();
+    let requested = control_layout.size() + live_layout.size();
+    let mut waiter_reservation = budget
+        .try_reserve(ReleaseRegistration::allocation_layout())
+        .unwrap();
+    let mut registration = ReleaseRegistration::from_reservation(&mut waiter_reservation).unwrap();
+    drop(waiter_reservation);
+    registration.bind_thread(std::thread::current());
+    let mut context = Context::from_waker(Waker::noop());
+    let retained_credit = budget.reserved_bytes();
+    // A split admission can fund the header, refuse live backing and refund
+    // its own header. That refund must not wake an unchanged capacity retry.
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - retained_credit - control_layout.size())
+        .unwrap();
+    let occupied_credit = budget.reserved_bytes();
+    let before = block.original_musubi_group_read_progress().unwrap();
+    let predecessor_before = block.original_musubi_group_predecessor_progress().unwrap();
+    let mut first_release = None;
+    for _ in 0..2 {
+        let mut attempt = None;
+        let allocations = allocations_during(|| {
+            attempt = Some(block.start_original_musubi_source_admission(limits()));
+        });
+        let error = attempt.unwrap().unwrap_err();
+        let RetainedMusubiGroupReadError::Control(ChargedBufferError::Admission(
+            AllocationRefusal::Capacity {
+                requested_bytes,
+                reserved_bytes,
+                limit_bytes,
+                release,
+            },
+        )) = error
+        else {
+            panic!("combined control backing must retain its original capacity refusal");
+        };
+        // Check the production native-thread wait before accounting assertions:
+        // a partial-charge rollback otherwise returns Ready without outside credit.
+        assert_eq!(
+            registration.poll_wait(&release, &mut context),
+            Poll::Pending
+        );
+        assert_eq!(
+            registration.poll_wait(&release, &mut context),
+            Poll::Pending
+        );
+        assert_eq!(
+            &release,
+            first_release.get_or_insert_with(|| release.clone())
+        );
+        assert_eq!(allocations, 0);
+        assert_eq!(requested_bytes, requested);
+        assert_eq!(reserved_bytes, occupied_credit);
+        assert_eq!(limit_bytes, budget.limit_bytes());
+        assert_eq!(budget.reserved_bytes(), occupied_credit);
+        assert_eq!(block.original_musubi_group_read_progress().unwrap(), before);
+        assert_eq!(
+            block.original_musubi_group_predecessor_progress().unwrap(),
+            predecessor_before
+        );
+        for image in [
+            OriginalMusubiImage::Current,
+            OriginalMusubiImage::Predecessor,
+        ] {
+            assert!(
+                block
+                    .original_musubi_source_admission_progress(image)
+                    .is_none()
+            );
+            assert!(block.original_musubi_live_progress(image).is_none());
+        }
+    }
+    drop(occupied);
+    assert_eq!(budget.reserved_bytes(), retained_credit);
+    assert_eq!(
+        registration.poll_wait(first_release.as_ref().unwrap(), &mut context),
+        Poll::Ready(())
+    );
+    block
+        .start_original_musubi_source_admission(limits())
+        .unwrap();
+    assert_eq!(budget.reserved_bytes(), retained_credit + requested);
 }
 
 #[test]

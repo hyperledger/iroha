@@ -169,7 +169,6 @@ pub fn enrollment_for_schemes(
     body.extend(small_id(51, 52));
     body.extend(0u32.to_le_bytes());
     body.extend(0u64.to_le_bytes());
-    body.extend(0u64.to_le_bytes());
     body.extend(id(w.statement[17], w.statement[18]));
     body.extend(101u64.to_le_bytes());
     body.extend(0u32.to_le_bytes());

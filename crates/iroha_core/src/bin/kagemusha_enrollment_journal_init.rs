@@ -68,7 +68,7 @@ fn scope(text: &str) -> Result<[u8; 32], Failure> {
     }
     Ok(result)
 }
-fn parse(arguments: Vec<OsString>) -> Result<Command, Failure> {
+fn parse(arguments: &[OsString]) -> Result<Command, Failure> {
     if arguments.len() == 1 && arguments[0] == "--help" {
         return Ok(Command::Help);
     }
@@ -136,7 +136,8 @@ fn initialize(options: &Options) -> Result<(), Failure> {
     Ok(())
 }
 fn main() -> ExitCode {
-    let result = match parse(std::env::args_os().skip(1).collect()) {
+    let command = parse(&std::env::args_os().skip(1).collect::<Vec<_>>());
+    let result = match command {
         Ok(Command::Help) => {
             println!("{HELP}");
             return ExitCode::SUCCESS;
@@ -172,15 +173,15 @@ mod tests {
     #[test]
     fn explicit_arguments_reject_defaults_duplicates_and_traversal() {
         let pin = "1a".repeat(32);
-        assert_eq!(parse(vec!["--help".into()]), Ok(Command::Help));
-        assert_eq!(parse(vec![]), Err(Failure::Arguments));
+        assert_eq!(parse(&["--help".into()]), Ok(Command::Help));
+        assert_eq!(parse(&[]), Err(Failure::Arguments));
         assert!(matches!(
-            parse(arguments("/private/root", "issuer-1", &pin)),
+            parse(&arguments("/private/root", "issuer-1", &pin)),
             Ok(Command::Initialize(_))
         ));
         let mut duplicate = arguments("/private/root", "issuer", &pin);
         duplicate[2] = "--parent".into();
-        assert_eq!(parse(duplicate), Err(Failure::Arguments));
+        assert_eq!(parse(&duplicate), Err(Failure::Arguments));
         for path in [
             "relative",
             "/",
@@ -189,7 +190,10 @@ mod tests {
             "/private//root",
             "/private/root/",
         ] {
-            assert_eq!(parse(arguments(path, "issuer", &pin)), Err(Failure::Parent));
+            assert_eq!(
+                parse(&arguments(path, "issuer", &pin)),
+                Err(Failure::Parent)
+            );
         }
         for name in [
             "",
@@ -201,7 +205,7 @@ mod tests {
             "ISSUER",
         ] {
             assert_eq!(
-                parse(arguments("/private/root", name, &pin)),
+                parse(&arguments("/private/root", name, &pin)),
                 Err(Failure::Name)
             );
         }

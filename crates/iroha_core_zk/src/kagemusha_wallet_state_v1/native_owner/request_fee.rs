@@ -115,7 +115,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             )?),
             _ => return Err(Error::Invalid("Request fee PolicyData pair")),
         };
-        self.request(id, offer, fee)
+        self.request(id, offer, fee.as_ref())
     }
 }
 

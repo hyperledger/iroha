@@ -17,7 +17,7 @@ pub(crate) use source_traits::{
 
 #[path = "deserialize_world_musubi_source_full_read.rs"]
 mod full_read;
-pub(crate) use full_read::{KeyWorkCursor, LookupCursor, MusubiRead};
+pub(crate) use full_read::{KeyWorkCursor, LookupCursor, LookupResolution, MusubiRead};
 
 /// An original source acquisition refusal, separate from semantic validity.
 #[derive(Debug, Clone, PartialEq, Eq)]

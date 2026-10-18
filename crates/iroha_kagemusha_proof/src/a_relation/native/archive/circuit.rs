@@ -36,6 +36,7 @@ use crate::{
         incoming_statement::IncomingStatementCells, map_effects::RemoveCells, state::StateCells,
         statement::StatementCells,
     },
+    q_sigma::QSigmaPlan,
     tree::IndexedRemove,
 };
 use ff::PrimeField;
@@ -48,7 +49,6 @@ use iroha_plonk::{
 use iroha_plonk_gadgets::{
     UintChip, Word,
     bytes::{
-        chunk_segments,
         tape::{BytesChip, BytesConfig, SegmentSpec},
         variable::ActiveBytes,
     },
@@ -265,7 +265,7 @@ pub struct Config {
 }
 impl Stage {
     // This fixed safe view is only a proposal until the Proofs owner binds it to
-    // the active original. All bytes outside it remain in exact context slot13.
+    // the active original. All bytes outside it remain in exact context slot11.
     fn status_proof_view(&self) -> Result<Vec<u8>, super::Error> {
         let Evidence::Status { omega, .. } = &self.source.inputs().evidence else {
             return Err(super::Error::Input);
@@ -516,60 +516,22 @@ impl Circuit<Fp> for Stage {
                     vesta_corrections: &vcorrections,
                     receive_results: None,
                 };
-                let own_index = bounded_word(&mut chip, &mut region, &q_instances[0][2][0])?;
-                let incoming_index = if variant == Variant::ArchiveReceive {
-                    Some(bounded_word(&mut chip, &mut region, &q_instances[0][2][1])?)
-                } else {
-                    None
-                };
-                let chunks = |slot| {
-                    plan.operation()
-                        .sigma
-                        .chunk_range(slot)
-                        .ok_or(Error::Synthesis)
-                };
-                let own_chunks = chunks(0)?
-                    .map(|i| bounded_word(&mut chip, &mut region, &q_instances[0][0][i]))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let incoming_chunks = if variant == Variant::ArchiveReceive {
-                    Some(
-                        chunks(1)?
-                            .map(|i| bounded_word(&mut chip, &mut region, &q_instances[0][0][i]))
-                            .collect::<Result<Vec<_>, _>>()?,
-                    )
-                } else {
-                    None
-                };
-                let own_sigma = if tasks.contains(&OperationTask::ArchiveOwnProof) {
-                    let raw = support::frame(&s.sigma).map_err(|_| Error::BoundsFailure)?;
-                    let run = bytes.run(
-                        &mut region,
-                        &cells.bytes(&raw),
-                        &chunk_segments(0, raw.len()),
-                        &[SegmentSpec::little(0, 4)],
-                    )?;
-                    SigmaBindingCells::from_run(
-                        &mut chip,
-                        &mut region,
-                        &statement,
-                        own_index,
-                        &run,
-                    )?
-                } else {
-                    SigmaBindingCells::from_statement(&statement, own_index, own_chunks)
-                };
-                let mut incoming_sigma = None;
+                // Lean: A proves the own step inline, so no own sigma binds. Only
+                // ArchiveReceive verifies a Q_sigma, the incoming-only Q0, whose
+                // index and chunk rows are the incoming role's installed positions.
+                let mut sigmas = Vec::new();
                 let mut transport = None;
                 let mut proof_key = None;
                 if let Evidence::Receive { sigma, .. } = &s.evidence {
                     let incoming_statement = incoming_statement.as_ref().ok_or(Error::Synthesis)?;
-                    let index = incoming_index.ok_or(Error::Synthesis)?;
-                    let view = incoming_chunks.ok_or(Error::Synthesis)?;
+                    let sigma_plan = plan.operation().sigma_plan()?;
+                    let row = sigma_plan
+                        .position(QSigmaPlan::INCOMING)
+                        .ok_or(Error::Synthesis)?;
+                    let index = bounded_word(&mut chip, &mut region, &q_instances[0][2][row])?;
                     let incoming = if tasks.contains(&OperationTask::ArchiveProofs) {
-                        let proof_bytes = plan
-                            .operation()
-                            .sigma
-                            .class(1)
+                        let proof_bytes = sigma_plan
+                            .class(QSigmaPlan::INCOMING)
                             .ok_or(Error::Synthesis)?
                             .verifier()
                             .proof_length();
@@ -578,7 +540,7 @@ impl Circuit<Fp> for Stage {
                             &mut bytes,
                             &mut region,
                             sigma,
-                            plan.object_specs()[13].capacity as usize,
+                            plan.object_specs()[11].capacity as usize,
                             &SigmaBindingCells::incoming_segments(proof_bytes)?,
                         )?;
                         SigmaBindingCells::from_incoming_active(
@@ -590,9 +552,14 @@ impl Circuit<Fp> for Stage {
                             proof_bytes,
                         )?
                     } else {
+                        let view = sigma_plan
+                            .chunk_range(QSigmaPlan::INCOMING)
+                            .ok_or(Error::Synthesis)?
+                            .map(|i| bounded_word(&mut chip, &mut region, &q_instances[0][0][i]))
+                            .collect::<Result<Vec<_>, _>>()?;
                         SigmaBindingCells::from_incoming(incoming_statement, index, view)
                     };
-                    incoming_sigma = Some(incoming);
+                    sigmas.push(incoming);
                 } else if let Evidence::Status { omega, .. } = &s.evidence
                     && tasks.contains(&OperationTask::ArchiveProofs)
                 {
@@ -602,7 +569,7 @@ impl Circuit<Fp> for Stage {
                         &mut bytes,
                         &mut region,
                         omega,
-                        plan.object_specs()[13].capacity as usize,
+                        plan.object_specs()[11].capacity as usize,
                         &decoder.active_segments()?,
                     )?;
                     transport = Some(decoder.decode_active(
@@ -617,32 +584,26 @@ impl Circuit<Fp> for Stage {
                 let proof_source = if tasks.contains(&OperationTask::ArchiveProofs) {
                     Some(match variant {
                         Variant::ArchiveReceive => ArchiveProofSources::receive(
-                            incoming_sigma.as_ref().ok_or(Error::Synthesis)?,
-                            13,
+                            sigmas.first().ok_or(Error::Synthesis)?,
+                            11,
                         )?,
                         Variant::ArchiveStatus => ArchiveProofSources::status(
                             transport.as_ref().ok_or(Error::Synthesis)?,
-                            13,
+                            11,
                         )?,
                         _ => return Err(Error::Synthesis),
                     })
                 } else {
                     None
                 };
-                let mut sigmas = vec![own_sigma.clone()];
-                if let Some(incoming) = incoming_sigma {
-                    sigmas.push(incoming);
-                }
-                let own = if tasks.contains(&OperationTask::ArchiveOwnProof)
-                    || tasks.contains(&OperationTask::ArchiveAuthorization)
-                {
-                    let raw = s.own.each_ref().map(|v| cells.bytes(v));
+                let own = if tasks.contains(&OperationTask::ArchiveAuthorization) {
+                    let raw = cells.bytes(&s.own);
                     Some(ArchiveAuthorizationObjects::decode(
                         &mut chip,
                         &mut bytes,
                         &mut region,
                         variant,
-                        raw.each_ref().map(Vec::as_slice),
+                        [raw.as_slice()],
                     )?)
                 } else {
                     None
@@ -653,7 +614,7 @@ impl Circuit<Fp> for Stage {
                         &mut bytes,
                         &mut region,
                         &s.retained.omega,
-                        plan.object_specs()[9].capacity as usize,
+                        plan.object_specs()[7].capacity as usize,
                         &[],
                     )?;
                     let sigma = cells.active(
@@ -661,7 +622,7 @@ impl Circuit<Fp> for Stage {
                         &mut bytes,
                         &mut region,
                         &s.retained.sigma,
-                        plan.object_specs()[10].capacity as usize,
+                        plan.object_specs()[8].capacity as usize,
                         &[],
                     )?;
                     Some(ArchiveRetainedProofs::from_sources(
@@ -744,11 +705,30 @@ impl Circuit<Fp> for Stage {
                     None
                 };
                 let mut verified = Vec::new();
-                let mut own_signatures = None;
-                let mut incoming_signatures = None;
+                let mut signatures = None;
                 for &index in plan.q_partition(stage).ok_or(Error::Synthesis)? {
                     let proof = cells.proof(&mut chip, &mut region, &s.q[index].proof)?;
-                    if index == 0 {
+                    if index == stage_plan.signature_q() {
+                        let q = verify_q(
+                            &mut chip,
+                            &mut region,
+                            plan.operation(),
+                            index,
+                            &q_instances[index],
+                            &proof,
+                        )?;
+                        let bundle = bind_signature_q(
+                            &mut chip,
+                            &mut region,
+                            plan.operation(),
+                            index,
+                            stage_plan.signature_schema(index).ok_or(Error::Synthesis)?,
+                            &q,
+                        )?;
+                        verified.push(bundle.verified().clone());
+                        signatures = Some(bundle);
+                    } else {
+                        // ArchiveReceive's incoming-only Q_sigma.
                         verified.push(
                             verify_sigma(
                                 &mut chip,
@@ -760,29 +740,6 @@ impl Circuit<Fp> for Stage {
                             )?
                             .0,
                         );
-                    } else {
-                        let q = verify_q(
-                            &mut chip,
-                            &mut region,
-                            plan.operation(),
-                            index,
-                            &q_instances[index],
-                            &proof,
-                        )?;
-                        let signature = bind_signature_q(
-                            &mut chip,
-                            &mut region,
-                            plan.operation(),
-                            index,
-                            stage_plan.signature_schema(index).ok_or(Error::Synthesis)?,
-                            &q,
-                        )?;
-                        verified.push(signature.verified().clone());
-                        if index == 1 {
-                            own_signatures = Some(signature);
-                        } else {
-                            incoming_signatures = Some(signature);
-                        }
                     }
                 }
                 let mut pending: Vec<Option<ArchivePendingWitness>> =
@@ -829,7 +786,7 @@ impl Circuit<Fp> for Stage {
                     };
                 let proof = if tasks.contains(&OperationTask::ArchiveProofs) {
                     Some(if variant == Variant::ArchiveReceive {
-                        ArchiveProofInputs::Receive(&own_sigma)
+                        ArchiveProofInputs::Receive
                     } else {
                         ArchiveProofInputs::Status(proof_key.as_ref().ok_or(Error::Synthesis)?)
                     })
@@ -864,14 +821,10 @@ impl Circuit<Fp> for Stage {
                         retained: retained.as_ref(),
                         retained_proofs: retained_proofs.as_ref(),
                         incoming: incoming.as_ref(),
-                        sigma: tasks
-                            .contains(&OperationTask::ArchiveOwnProof)
-                            .then_some(&own_sigma),
                         proof_source: proof_source.as_ref(),
                     },
                     ArchiveStageWitness {
-                        own_signatures: own_signatures.as_ref(),
-                        incoming_signatures: incoming_signatures.as_ref(),
+                        signatures: signatures.as_ref(),
                         proof,
                         evidence,
                         core_pending: pending[0].as_ref(),
@@ -1116,7 +1069,7 @@ mod tests {
     fn identical_status_proof_views_do_not_collapse_original_tails_or_lengths() {
         const PROOF_LENGTH: usize = 3712;
         let spec = ContextObjectSpec {
-            tag: 14,
+            tag: 12,
             capacity: u32::try_from(MAX_STATUS_OMEGA_RAW_BYTES).unwrap(),
         };
         let original = vec![0x7b; MAX_STATUS_OMEGA_RAW_BYTES];

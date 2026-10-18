@@ -12,9 +12,10 @@ import Foundation
 //
 // Poseidon values (`credit_id`, `proof_digest`, the Payment, lineage, credit-opening,
 // credit-status and credited digests, every signing message, state commitments, chains, map,
-// blacklist, quota-window and credit-digest roots and openings) are computed only by the native
-// Rust core over the bridge. Swift carries them as opaque 32-byte σ-field values and checks only
-// that they are canonical (``KagemushaWalletWireV1/isCanonicalFieldValue(_:)``).
+// quota-window and credit-digest roots and openings, and a signed blacklist's entries root) are
+// computed only by the native Rust core over the bridge. Swift carries them as opaque 32-byte
+// σ-field values and checks only that they are canonical
+// (``KagemushaWalletWireV1/isCanonicalFieldValue(_:)``).
 //
 // TODO(G4): typed Swift decoding and `validate()` of the wallet message bodies (or the shared
 // Rust core over the native bridge); structural envelope
@@ -135,7 +136,7 @@ public enum KagemushaWalletSigningDomainV1: String, CaseIterable, Sendable {
   public var transcriptBytes: Int {
     switch self {
     case .certificate: 108
-    case .credential: 476
+    case .credential: 468
     case .renewalChallenge: 130
     case .renewalKeyBinding: 163
     case .artifactManifest: 290
@@ -148,7 +149,7 @@ public enum KagemushaWalletSigningDomainV1: String, CaseIterable, Sendable {
     case .chargeQuote: 219
     case .offer: 194
     case .sessionControl: 197
-    case .request: 458
+    case .request: 418
     case .ledgerControl: 211
     }
   }
@@ -246,14 +247,14 @@ public enum KagemushaWalletWireV1 {
   /// Lineage.
   public static let messageMaximumBytes = 10_000
   /// `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs.
-  public static let paymentFixedBytes = 1_436
+  public static let paymentFixedBytes = 1_394
   /// Joint budget of the Ω transport proof and σ_send: `10,000 − F_payment`.
   /// Native additionally checks each exact proof length against its frozen verifying key.
   public static let paymentProofBudgetBytes = messageMaximumBytes - paymentFixedBytes
   /// Source role maximum for a Payment's σ_send proof.
   public static let paymentSigmaProofCapBytes = 3_520
   /// Source role maximum for a Payment's Ω predecessor transport proof.
-  public static let paymentOmegaProofCapBytes = 5_044
+  public static let paymentOmegaProofCapBytes = 5_086
   /// Bytes of a Credited::Receive envelope other than its σ proof.
   public static let creditedReceiveFixedBytes = 679
   /// Available σ bytes in a complete Credited::Receive envelope.
@@ -263,9 +264,9 @@ public enum KagemushaWalletWireV1 {
   public static let creditedStatusFixedBytes = 2_188
   /// Cap of the Ω transport proof so that Credited::Status fits: `10,000 − F_status`.
   public static let lineageProofCapBytes = messageMaximumBytes - creditedStatusFixedBytes
-  /// Maximum σ entries of the verifying-key allowlist: one per operation, Send also once per
-  /// supported enabled-controls mask, and Receive also once with the blacklist bit.
-  public static let verifyingKeyEntriesMaximum = 16
+  /// Maximum σ entries of the verifying-key allowlist: one per operation (8), and Send also once
+  /// per supported nonzero enabled-controls mask (3).
+  public static let verifyingKeyEntriesMaximum = 11
   /// Maximum standalone canonical frame of the verifying-key allowlist.
   public static let verifyingKeyAllowlistMaximumBytes = 2_048
   /// Depth of every Poseidon indexed map tree and of the credit-digest tree (owner answer A2):
@@ -686,7 +687,7 @@ public enum KagemushaWalletWireV1 {
   }
 
   /// Require exact structural correspondence for one Request/Payment/Credited exchange.
-  /// Request has five fields and a 19-field body; Payment has three fields. Its unique
+  /// Request has five fields and a 17-field body; Payment has three fields. Its unique
   /// Request fields and Send package reconstruct the exact quoted body and signature.
   /// Credited, when supplied, has three fields and must name that Request's scheme.
   /// These comparisons grant no signature, proof, recipient or monetary authority; Native
@@ -695,7 +696,7 @@ public enum KagemushaWalletWireV1 {
     request: Data, payment: Data, credited: Data? = nil
   ) throws {
     let requestFields = try exchangeMessageFields(request, kind: .request, count: 5)
-    let body = try exchangeRecordFields(requestFields[0], count: 19, label: "request.body")
+    let body = try exchangeRecordFields(requestFields[0], count: 17, label: "request.body")
     let paymentFields = try exchangeMessageFields(payment, kind: .payment, count: 3)
     let (reconstructed, signature) = try paymentSignedRequestFields(paymentFields)
     guard reconstructed == body, signature == requestFields[4] else {
@@ -727,7 +728,7 @@ public enum KagemushaWalletWireV1 {
   /// Neither a decoded amount nor successful framing establishes a payment, a credit or a receipt.
   public static func requestAmountData(_ request: Data) throws -> KagemushaWalletUInt128V1 {
     let fields = try exchangeMessageFields(request, kind: .request, count: 5)
-    let body = try exchangeRecordFields(fields[0], count: 19, label: "request.body")
+    let body = try exchangeRecordFields(fields[0], count: 17, label: "request.body")
     let amount = [UInt8](body[9])
     guard amount.count == 16, amount.contains(where: { $0 != 0 }) else {
       throw KagemushaWalletWireErrorV1.invalidField("request.amount")
@@ -740,7 +741,7 @@ public enum KagemushaWalletWireV1 {
 
   // Reconstruct signed bytes only; Native owns signature, proof and custody checks.
   private static func paymentSignedRequestFields(_ payment: [Data]) throws -> ([Data], Data) {
-    let unique = try exchangeRecordFields(payment[1], count: 12, label: "payment.request")
+    let unique = try exchangeRecordFields(payment[1], count: 10, label: "payment.request")
     let send = try exchangeRecordFields(payment[2], count: 5, label: "payment.send")
     let statement = try exchangeRecordFields(send[1], count: 14, label: "send.statement")
     let effect = try exchangeTaggedFields(statement[13], tag: 3, count: 8, label: "send.effect")
@@ -749,7 +750,7 @@ public enum KagemushaWalletWireV1 {
     let omega = try exchangeRecordFields(lineage[0], count: 13, label: "lineage.public")
     return ([payment[0], statement[1], statement[4], omega[4], unique[0], effect[1],
       unique[1], effect[2], unique[2], effect[3], unique[3], effect[4], unique[4],
-      unique[5], unique[6], unique[7], unique[8], unique[9], unique[10]], unique[11])
+      unique[5], unique[6], unique[7], unique[8]], unique[9])
   }
 
   private static func exchangeTaggedFields(_ data: Data, tag: UInt32, count: Int, label: String) throws -> [Data] {
@@ -765,7 +766,7 @@ public enum KagemushaWalletWireV1 {
   // The retained Request still owns its exact scheme comparison before ACK replay.
   static func requireCreditedScheme(request: Data, credited: Data) throws {
     let requestFields = try exchangeMessageFields(request, kind: .request, count: 5)
-    let body = try exchangeRecordFields(requestFields[0], count: 19, label: "request.body")
+    let body = try exchangeRecordFields(requestFields[0], count: 17, label: "request.body")
     let creditedFields = try exchangeMessageFields(credited, kind: .credited, count: 3)
     guard creditedFields[1] == body[1] else {
       throw KagemushaWalletWireErrorV1.schemeMismatch(field: "credited.scheme_id")

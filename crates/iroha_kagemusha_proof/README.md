@@ -29,8 +29,9 @@ proofs require fresh validation before catalog or device qualification.
 
 ## Protocol layout
 
-The implementation follows G1 revision 4 and owner decisions B1, B5–B8 in
-`specs/kagemusha_wallet_wire_v1.md`. Shared vectors in
+The implementation follows G1 revision 4 and owner decisions B1, B5, B7 and B8 in
+`specs/kagemusha_wallet_wire_v1.md`; the account blacklist is local-only and enters
+no relation. Shared vectors in
 `fixtures/kagemusha/wallet_v1_vectors.json` pin each field and digest.
 
 Wallet framing now pins direct `u128` records/enums to 16-byte archived alignment,
@@ -43,15 +44,14 @@ cover frozen/retained frames, generated vectors and existing codec checks;
 subsequent source changes require fresh validation. ARMv7 compilation, runtime
 and physical-device byte parity remain separate qualification gates.
 
-- The core has 33 fields and the rest has 8. The head is
+- The core has 29 fields and the rest has 6. The head is
   `P(kgwcore1, core || P(kgwrest1, rest))`; σ carries the rest digest.
 - Poseidon digests are single canonical field elements. SHA-256 identifiers
   and byte nonces remain two little-endian `u128` limbs. Noncanonical
   Poseidon bytes are rejected before synthesis or native consumer acceptance.
-- `credit_id = P(kgwcrdt1, Request body)` binds all 26 Request fields,
-  including both account digests and the receiver's recorded blacklist
-  version and root. The public input is the 26-field statement digest under
-  `kgwstmt1`; its effect union has 9 fields.
+- `credit_id = P(kgwcrdt1, Request body)` binds all 24 Request fields,
+  including both account digests. The public input is the 26-field statement
+  digest under `kgwstmt1`; its effect union has 9 fields.
 - Send chains have 8 fields: prior chain, credit, receiver wallet limbs,
   ordinal, amount, fee, Request digest. Receive chains have 5 fields: prior
   chain, credit, payer wallet limbs, amount.
@@ -89,6 +89,14 @@ or full-catalog authority.
 
 ## Bootstrap composition
 
+Lean lineage milestone 2 (owner decision 2026-10-17): Bootstrap is one unsplit
+terminal A over the 2-variable/1-fixed signature Q, with no W and no `Q_sigma`
+(three sub-proofs: Q, A, Ω). The stage runs σ_bootstrap's constraints itself;
+σ_bootstrap is still produced natively, and the receipt's proof digest is its own
+field, bound by its signature and nonzero check. The credential and certificate are
+checked here, at the start of the chain. The captures below describe the former
+sigma → Q_sigma → A1 → W → A2 chain and do not qualify the new keys.
+
 `admin_sigma::BootstrapCircuit` proves the exact zero-value initial G1 state,
 empty maps/counters and statement binding at k12 with five advice columns;
 its PIPA-R proof is 3,296 bytes. A authenticates the state credential and the
@@ -122,17 +130,18 @@ final Omega/artifact, hardware and wallet acceptance qualification remain open.
 
 `a_relation::native::bootstrap::Prover::from_artifacts` installs shared exact
 `KeyArtifact` descriptor/VK metadata without retaining any proving key or
-original PK bytes. `import_first`, `import_wrapper` and `import_terminal`
-reconstruct the exact unknown A1/W0/A2 sources and return compact opaque source
-seals without constructing proving FFTs, masks or caches. Each proof reconstructs
-its admitted stage buffers and releases them afterward. W0 binds the complete
-installed A1 key digest, and A2 binds the installed W0 identity. Existing
+original PK bytes. `import_terminal` reconstructs the exact unknown terminal A
+source and returns a compact opaque source seal without constructing proving FFTs,
+masks or caches. Each proof reconstructs its admitted buffers and releases them
+afterward. Existing
 `PIPACPK1` import reconstructs source tables and checks their fingerprint, copy
 mapping, selectors and every original VK commitment;
 every import and borrowed proof boundary checks the full installed descriptor
 and VK. Metadata consistency alone is not source or catalog authority.
-Preparation verifies both Q proofs and openings, binds the original sigma tape
-and decides its part claim. Native checkpoint verification uses verifier metadata
+Preparation verifies the signature Q proof in full and decides its opening, which
+A forwards unfolded as its Pallas claim. The single terminal checkpoint retains
+only the original A proof; its frame and both claims are rederived and fully
+verified on restore. Native checkpoint verification uses verifier metadata
 only. The captured Bootstrap original-import, borrowed-key, exact-proof-byte
 and canonical-checkpoint replay passes1/1 in1,359.45 s
 (`target/qualification/native-bootstrap-borrowed*`), including same-descriptor
@@ -175,9 +184,9 @@ composition harness. Changed A/W/Omega artifacts and real funded wallet exchange
 require current-candidate qualification; see
 [`kagemusha_native_finality_goals.md`](../../specs/kagemusha_native_finality_goals.md).
 
-The Core artifact inventory also qualifies all sixteen sigma originals against
+The Core artifact inventory also qualifies all eleven sigma originals against
 fixed compiled sources, one original PK at a time. Quota-enabled Send uses the
-one-lane folded k14 recipe; other Send masks and both Receive selectors use k12,
+one-lane folded k14 recipe; other Send masks and the Receive selector use k12,
 and administrative selectors use their typed k12 sources. These recipes are part
 of the sole native profile. Actual source generation, wrong-selector/changed-PK
 rejection and public strict import under a genuinely signed inventory pass
@@ -191,7 +200,7 @@ The artifact namespace passes17 cases with6explicit expensive ignores (3.44 s),
 including the independent14,513-byte native-profile preimage. The loader now
 reconstructs each logical operation route, including fixed Send masks and the
 native-authorized receipt binding for Load, then checks every A/W original.
-Final Omega intake requires all52 qualified routes, exact terminal D/VK deduplication
+Final Omega intake requires all22 qualified routes, exact terminal D/VK deduplication
 in signed program order, common predecessor identity and the canonical compact
 source. Its compiled placement recipe is part of the sole native profile. Complete
 catalog runtime qualification and native wallet admission remain open.
@@ -254,12 +263,12 @@ Descriptor equality alone does not establish source equality. Fresh merged-wire
 size tests retain the 1,723-byte Payment overhead: structural
 3,456-byte sigma plus 4,800-byte Omega encode to 9,979 bytes, leaving 21 bytes
 under the 10,000-byte envelope cap. This checks encoding, not proof admission.
-These are three-terminal component results. The other seven control masks, full
+These are three-terminal component results. The other three control masks, full
 uniform catalog and loaded-host/physical-device qualification remain open.
 
 `a_relation::native::send` assembles each fixed-mask five-stage chain with
 fixed Tagged3 columns and installed A/W keys. Its immutable catalog requires one
-source for every mask0..7 and an authorized sigma selector for each; repeated
+source for every mask0..3 and an authorized sigma selector for each; repeated
 mask0 keys never establish catalog completeness. It checks the original predecessor,
 both Q proofs and all carried claims, frames the complete consuming tape, and
 retains source-bound proof/claim checkpoints for exact restoration. Its signature
@@ -295,13 +304,13 @@ exact checkpoint replay and the original mutations complete successfully. The
 failed capture remains retained; this is a component result under the captured
 keys, not complete-catalog or wallet qualification.
 The current proof library and five selected funded integration targets compile.
-This ownership change grants no memory gate or wallet authority. The other seven
+This ownership change grants no memory gate or wallet authority. The other three
 control masks and complete authenticated catalog remain required before admission.
 
 Receive, Archive, Unload and Retiring preparation now also joins the wallet's own
-Credential, Enrollment certificate and Receipt to the exact hard Q1 exports.
-Receive and Archive bind their own statement and sigma tape to Q0 before costly
-proof work. Incoming soft evidence keeps its existing circuit policy. These are
+Receipt to its exact hard signature-Q slot (slot 0 of the merged leaf for Receive
+and Archive) before costly proof work, and Receive evaluates its step witness to the
+exact own statement. Incoming soft evidence keeps its existing circuit policy. These are
 early admission checks; the mandatory circuit owners still enforce the complete
 relation. Five new unit controls and mutations in the existing genuine
 regressions are applied but await the next compiler capture and execution.
@@ -310,9 +319,13 @@ Incoming lineage decoding now preserves the original byte source and derives
 the canonical/header/claim verdicts together. Exact active-byte ingestion
 separates a padded verifier view from the original short or overlong input;
 its total Receive composition and operation qualification remain open.
-Receive now has fixed owners for all five soft results, hard current-credential
-and receipt authorization, original signature tapes, and terminal map/mode
-constraints. Content addresses are mandatory: substituted Request, package,
+Receive now has fixed owners for all four soft results, the inline own transition,
+hard own-receipt authorization, original signature tapes, and terminal map/mode
+constraints. Lean lineage milestone 2 (owner decision 2026-10-17) makes Receive and
+Receive (renewed) 2 Q (incoming-only `Q_sigma` and one merged signature leaf with the
+own receipt as hard slot 0), 9 A, 8 W and Ω: A1 proves the Receive transition beside
+the hard predecessor, and the current credential and certificate are carried by
+continuity. The ten-A/nine-W captures below describe the former schedule. Content addresses are mandatory: substituted Request, package,
 credential or certificate preimages cannot manufacture a burn. Captured complete ten-A/nine-W chains cover accepted, renewed and corrected-burn
 branches under the earlier continuation source. The corrected carried-scheme
 source now passes Bootstrap-only malformed-sigma Receive through final Omega in
@@ -354,7 +367,7 @@ The output directory must not exist. Passing one component case would not qualif
 the complete installed catalog, ledger-backed exchange or physical phones.
 The `a_receive_native_bounds` target also registers
 `funded_generic_omega_is_rejected_by_receive_payment_cap` against the same fixture.
-It proves an oversized generic predecessor and Send source to exercise native
+It proves an oversized generic predecessor and the Send sigma to exercise native
 joint-bound rejection; it is not an accepted Payment. Its compilation and
 execution remain pending, with the same fresh-directory requirement.
 
@@ -452,9 +465,13 @@ separately authenticates both removals and selects the adjusted pending root fro
 the actual evidence verdict. Exhaustive rehashed core/rest mutations reject in
 both evidence variants and both verdict branches.
 
-Archive now declares ten mandatory operation owners and a separate hard Q0 stage. The hard own owner binds the current
-credential, direct Enrollment certificate, receipt and exact tag5 sigma tape.
-Two own-authorization component tests pass with genuine sigma/Q0/Q1 proofs and
+Lean Archive declares nine mandatory owners in nine (ArchiveReceive) or eight
+(ArchiveStatus) A stages. A proves the own step inline (LineagePending runs the
+administrative archive rule); the own receipt is hard slot 0 of the merged
+signature leaf, whose soft slot 1 is the incoming receipt; ArchiveReceive keeps an
+incoming-only Q_sigma. The former owner set bound the current credential, direct
+Enrollment certificate, receipt and exact tag5 sigma tape; its two
+own-authorization component tests passed with genuine sigma/Q0/Q1 proofs and
 original-byte mutations. Two result-context tests bind every proposed bit and
 all original Status-opening limbs to the fixed complete owner set.
 Typed result claims commit all three evidence verdicts and, for CreditStatus,
@@ -473,7 +490,8 @@ signed sources, exact opaque proof bytes and lengths, Send statement and pending
 descriptor. Those fixtures explicitly do not claim historical proof validity.
 
 The fixed Archive stage dispatcher requires every owner, the complete original
-source schema, and Q1/Q2 at their authorization/signature owners. Constructor
+source schema, and the merged signature leaf at the stage owning Authorization
+and Signatures. Constructor
 tests reject missing or duplicate tasks, substituted categories and misplaced
 Q verifiers. Incoming-source tests enforce the held Request's quoted credential
 while retaining malformed incoming receipt bodies and signatures for their soft
@@ -489,8 +507,8 @@ result proposal, context ordering, proof bytes/length and stage assignment all
 reject, including after recomputing original object digests. Known/unknown
 layouts match. These local Q2 proofs are not the transmitted terminal Ω.
 
-The context-proposal regression passes for both the17-slot Receive and19-slot
-Status schemas, including known/unknown layout equality, all three commitment
+The context-proposal regression covers both the 15-slot Receive and 17-slot
+Status schemas (17 and 19 before lean lineage), including known/unknown layout equality, all three commitment
 words, UInt32 overflow and missing-owner/schema rejection. These are untrusted
 proposals until the fixed owners recompute their original sources. Native indexed
 removal now emits both authenticated relink/clear paths, with both-field tests
@@ -504,8 +522,8 @@ are removed. This keeps context-hash work fixed per continuation. All staged
 source keys change and require fresh qualification; prior captured runs below
 remain evidence only for their recorded executables.
 
-`a_relation::native::archive` now implements the shared ten-A/nine-W producer
-for both evidence forms. It preserves all original bytes and soft proposals,
+`a_relation::native::archive` now implements the shared nine-A/eight-W
+(ArchiveReceive) and eight-A/seven-W (ArchiveStatus) producer for both evidence forms. It preserves all original bytes and soft proposals,
 checks hard predecessor/Q proofs, admits one original against its exact
 unknown compiled source without constructing proving buffers, and retains only
 its compact source-admission seal. Proving
@@ -519,7 +537,11 @@ Q metadata: Receive terminal stage6 overflowed, and Status retained stage1
 overflowed. Those failures are retained under `target/qualification/archive-complete`.
 The current split gives opaque retained proof hashing its own mandatory owner,
 and separates unconditional core pending removal from terminal adjusted removal.
-The current schedule has ten A stages and nine W continuations, with tagged4
+Lean lineage milestone 2 (owner decision 2026-10-17) removes the own-proof owner and
+the current credential/certificate re-authentication: Receive evidence runs nine A
+stages (incoming-only `Q_sigma`, merged own-receipt/τ_recv leaf) and Status evidence
+eight (merged own-receipt/τ(h) leaf). The text below describes the former schedule.
+The former schedule had ten A stages and nine W continuations, with tagged4
 internal owners and the common tagged3 terminal. It combines unconditional core
 removal with the first own-proof stage and keeps retained proof hashing, hard Q0,
 incoming proof binding, adjusted pending removal and terminal closure separate.
@@ -580,10 +602,10 @@ The [Archive composition argument](../../specs/kagemusha_recursion_soundness_v1.
 has passed independent internal source review, conditional on executing all
 fixed owners and closing every obligation. A subsequent capacity review found
 that the earlier 3,456-byte incoming sigma buffer did not cover the declared
-owner capacity. The current Archive context fixes retained raw Omega at 5,364
-bytes and sigma at 3,520 bytes, with an independent 8,884-byte joint raw bound.
+owner capacity. The current Archive context fixes retained raw Omega at 5,406
+bytes and sigma at 3,520 bytes, with an independent 8,926-byte joint raw bound.
 Incoming Receive sigma uses the same 3,520-byte role cap; incoming Status raw
-Omega uses 5,364 bytes. These source limits are stricter than the 9,321-byte
+Omega uses 5,406 bytes. These source limits are stricter than the 9,321-byte
 Receive and 7,812-byte Status envelope budgets. Descriptor-length mismatches
 remain soft proof failures. Pending membership authenticates the seven-word Send
 descriptor, not old proof lengths or bytes.
@@ -624,11 +646,11 @@ CoreZK sources were unchanged throughout build and execution
 (`target/qualification/quota-refresh-custody/results.json`). These conversions
 grant no installed producer or wallet-opening authority.
 
-`PreparationV1::prepare_refresh` derives all five Refresh operations before
+`PreparationV1::prepare_refresh` derives all four Refresh operations before
 Advance from a verified released head, including an unfolded head. It shares
-the folding decoder for exact signed updates, certificate sets, blacklist
-openings and the quota usage frame. It retains those original bytes and the
-source capsule identity, derives sequence/nonce/state/statement, and uses only
+the folding decoder for exact signed updates, certificate sets and the quota
+usage frame. It retains those original bytes and the source capsule identity,
+derives sequence/nonce/state/statement, and uses only
 a private core projection for sigma; it creates no Omega or folded authority.
 The six typed administrative proving adapters require exact installed
 descriptor/VK equality and a matching 26-field statement, then fully verify
@@ -661,8 +683,8 @@ signed engineering inventory and a synthetic retained marker. Full public consum
 preparation through the real producer, recursive admission and Advance custody remain
 open; arithmetic tests do not manufacture a folded-source capability.
 
-`admin_sigma::RefreshCircuit` uses one k12 key for all five tag7 update kinds.
-The kind is constrained to exactly 1 through 5; it does not select a host-side
+`admin_sigma::RefreshCircuit` uses one k12 key for all four tag7 update kinds.
+The kind is constrained to exactly 1 through 4; it does not select a host-side
 circuit or key. Each genuine proof is 3,296 bytes with the same 2,538-row maximum.
 All five proofs verify under one key, and known/unknown fixed columns,
 permutations and assignment footprints agree across kinds. The genuine Q-sigma
@@ -671,8 +693,7 @@ local Q proofs and complete sigma/Q opening decisions. Rehashed changes to
 fields owned only by another kind reject, as do invalid selectors, stale
 counters, changed adjusted lineage, invalid policy intersections and expired
 shares. This leaf binds the exact state effects and statement; A authenticates
-the signed update projections and owns blacklist-history insertion and the
-fixed64 quota rebuild.
+the signed update projections and owns the fixed64 quota rebuild.
 
 The native `RefreshProver` imports the original sigma key against its
 independently authenticated descriptor/VK and compiled source commitments. It
@@ -755,7 +776,7 @@ borrowed stage keys, reproduce every original proof byte and restore all raw and
 canonical checkpoints.
 No phone-memory or RSS gate follows from the ownership design or these busy-host
 component durations. The installed candidate assembles
-all five kinds from actual predecessor/Q proofs and exact signed originals,
+all four kinds from actual predecessor/Q proofs and exact signed originals,
 using the fixed four- or seven-stage schedule. It consumes witnesses for proving,
 self-verifies every A/W proof and restores original bytes with source-bound
 history and full accumulator decisions. The resolved candidate passes ten Refresh preparation/checkpoint tests and all
@@ -785,8 +806,8 @@ before folding. A private proving helper reconstructs the actual circuit's
 witnessless source with `OnDemand` cosets and no commitment tables, checks its
 full previously admitted source fingerprint, consumes the witness, and drops
 the temporary PK before the owner's unchanged full verification and decisions.
-Live witness data and matching D/V alone cannot mint source authority. The three
-Bootstrap `Prepared` proving helpers are private; public Session methods enforce
+Live witness data and matching D/V alone cannot mint source authority. The
+Bootstrap `Prepared` proving helper is private; public Session methods enforce
 the installed role. Public circuit/source builders remain available to producers.
 
 The qualified CoreZk owner retains one seal and signed member index per A/W
@@ -812,16 +833,11 @@ proof/opening/checkpoint parity and pre/post-reconstruction cancellation coverag
 
 ## Controls
 
-Send's verifying key is selected by the opened core mask. Receive's key is
-selected by the Request's recorded version: `(4, 0)` for zero, `(4, 1)` for
-nonzero. Its current core mask is still restricted to defined bits and is
-carried in the statement, but does not select Receive enforcement.
+Send's verifying key is selected by the opened core mask. Receive has one key,
+`(4, 0)`; its current core mask is still restricted to defined bits and is
+carried in the statement. The account blacklist is not a σ control: wallets
+apply their local lists natively, outside every relation.
 
-- **Blacklist:** a depth-16 gap opening in limb order proves the
-  counterparty absent. Send uses the payer's current committed list and
-  enforces its maximum age. Receive uses the receiver's list recorded in
-  the Request, regardless of later list or mask changes. Version zero is
-  valid exactly with root zero.
 - **Quotas:** the depth-6 window tree and the aligned depth-6 usage array
   have exactly 64 slots. A usage leaf is
   `P(kgwquse1, [kind, start, end, used])`; usage nodes use `kgwqusn1`.
@@ -849,16 +865,12 @@ Folded-prefix shapes, fewest lanes that fit:
 | Relation | Permutations | Smallest shape | One-lane budget shape |
 | --- | ---: | --- | --- |
 | Send, no controls or lease | 69 | k10 / 4 lanes, 5,120 B | k12, 3,296 B |
-| Receive, no recorded list | 67 | k10 / 4 lanes, 5,120 B | k12, 3,296 B |
-| Send, blacklist | 106 | k11 / 2 lanes, 3,840 B | k12, 3,296 B |
-| Receive, recorded list | 104 | k11 / 2 lanes, 3,840 B | k12, 3,296 B |
+| Receive | 67 | k10 / 4 lanes, 5,120 B | k12, 3,296 B |
 | Send, quotas | 309 | k12 / 4 lanes, 5,280 B | k14, 3,456 B |
-| Send, all controls | 345 | k12 / 4 lanes, 5,280 B | k14, 3,456 B |
 
-The k14 one-lane quota shapes occupy 12,123 and 13,542 rows respectively.
-Their 3,456-byte proofs fit the current 3,541-byte σ share of the joint
-Payment budget. These are exact descriptor lengths; performance and memory
-qualification are separate gates. `select_shape` synthesizes candidates and
+The k14 one-lane quota shape occupies 12,123 rows. Its 3,456-byte proof fits
+the current 3,541-byte σ share of the joint Payment budget. These are exact
+descriptor lengths; performance and memory qualification are separate gates. `select_shape` synthesizes candidates and
 can impose a byte budget. Keys, descriptors and proof bytes are independent
 of the Rayon pool size and optional commitment tables.
 
@@ -956,9 +968,8 @@ composed operation or runtime qualification.
 - `digest_parity`: every G1 field encoding, named controlled-state positions,
   hashes, packing domains, fixed64 usage roots/openings and in-circuit parity
   on both fields; deterministic known answers.
-- `controls`: blacklist snapshot enforcement, zero version/root agreement,
-  exact expiry/span boundaries, repeated/misaligned/out-of-range slots,
-  forged usage roots and noncanonical Poseidon bytes.
+- `controls`: exact expiry/span boundaries, repeated/misaligned/out-of-range
+  slots, forged usage roots and noncanonical Poseidon bytes.
 - `relation_checks` and `forgeries`: arithmetic boundaries, every step rule,
   wrong-head and consistent-forgery attacks, and release per-cell tampering.
 - `shapes`: exact shapes, row counts, joint byte budget and verifier rebuilds.

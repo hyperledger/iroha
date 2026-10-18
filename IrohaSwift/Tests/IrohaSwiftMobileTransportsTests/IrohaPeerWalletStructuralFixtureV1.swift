@@ -109,7 +109,7 @@ func irohaPeerWalletExchangeEnvelopeV1(
         fields.flatMap { irohaPeerWalletField([UInt8]($0)) }
     }
     let version = Data([1, 0])
-    let bodyFields = [version, schemeID, Data([requestBodyByte])] + Array(repeating: Data(), count: 16)
+    let bodyFields = [version, schemeID, Data([requestBodyByte])] + Array(repeating: Data(), count: 14)
     let body = Data(record(bodyFields))
     let signature = Data(repeating: requestSignatureByte, count: 64)
     let fields: [Data]
@@ -157,11 +157,11 @@ func irohaPeerWalletExchangeMessageV1(
 
 /// Structural Payment DATA with each signed Request field in its sole canonical owner.
 func irohaPeerWalletPaymentFieldsV1(body: [Data], signature: Data, proof: Data) -> [Data] {
-    precondition(body.count == 19)
+    precondition(body.count == 17)
     func record(_ fields: [Data]) -> Data {
         Data(fields.flatMap { irohaPeerWalletField(Array($0)) })
     }
-    let unique = [4, 6, 8, 10, 12, 13, 14, 15, 16, 17, 18].map { body[$0] } + [signature]
+    let unique = [4, 6, 8, 10, 12, 13, 14, 15, 16].map { body[$0] } + [signature]
     var omega = Array(repeating: Data(), count: 13)
     omega[4] = body[3]
     omega[5] = Data(repeating: 0x24, count: 32)

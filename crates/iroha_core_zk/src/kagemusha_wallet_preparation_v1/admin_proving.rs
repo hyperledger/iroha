@@ -196,7 +196,7 @@ impl PreparationV1<'_> {
         self.admin_original(
             kind,
             prover.binding().encoded(),
-            &prover.verifying_key().to_bytes(),
+            prover.verifying_key().to_bytes(),
         )?;
         let proof = prover
             .prove(

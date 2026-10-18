@@ -130,7 +130,6 @@ fn typed_templates_bind_app_platform_scheme_and_control_lifetime() {
     };
     let controls = Controls {
         permitted_controls: 0,
-        blacklist_max_age_ms: 0,
         time_anchor_max_response_ms: 0,
         challenge_lifetime_ms: 60_000,
         attestation_lease_lifetime_ms: 0,
@@ -218,7 +217,7 @@ fn transport_requires_exact_catalog_addresses_and_extents() {
             verifying_key: b,
             proving_key: c,
         }],
-        sigma: [0; 16],
+        sigma: [0; 11],
         operations: vec![],
         routes: vec![],
         terminals: vec![],

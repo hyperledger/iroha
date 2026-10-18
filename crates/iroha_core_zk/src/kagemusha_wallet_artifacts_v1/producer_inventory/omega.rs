@@ -280,9 +280,10 @@ impl AuthenticatedProducerInventoryV1 {
                 config,
             )?,
         };
-        if owner.binding() != candidate.binding()
-            || owner.verifying_key().to_bytes() != candidate.key().to_bytes()
-        {
+        if owner.binding() != candidate.binding() {
+            return Err(OmegaQualificationErrorV1::Catalog);
+        }
+        if owner.verifying_key().to_bytes() != candidate.key().to_bytes() {
             return Err(OmegaQualificationErrorV1::Catalog);
         }
         let (_, _, seal) = owner.into_metadata().into_parts();

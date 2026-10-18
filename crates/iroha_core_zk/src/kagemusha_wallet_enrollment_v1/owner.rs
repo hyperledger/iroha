@@ -143,6 +143,11 @@ pub struct EnrollmentOwnerV1<F: KagemushaWalletFsV1, P> {
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, P> {
     /// Bind existing exclusive custody to independently provisioned deployment originals.
     /// On refusal, the same provider remains owned by the caller.
+    ///
+    /// # Errors
+    /// Returns the original provider together with an error if the scheme, installed
+    /// selection, Enrollment certificate, session interval, app policy, qualified
+    /// Android profile or Apple root original is invalid or bound to another scheme.
     pub fn new(
         provider: KagemushaWalletProviderV1<F, P>,
         config: EnrollmentConfigV1,
@@ -204,6 +209,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     /// Every installed identity/policy stays exact; only its verified interval changes.
     /// Returned effects and durable E5/E6 remain retained. A fresh `begin` and signed
     /// permit are required before another effect, within the original attempt dates.
+    ///
+    /// # Errors
+    /// Returns an error if any installed identity or policy changes, the replacement
+    /// session interval is invalid, or a pending Apple return cannot be flushed.
+    /// Session fields and live selections are replaced only after that flush succeeds.
     pub fn renew_session(&mut self, config: EnrollmentConfigV1) -> Result<(), Error> {
         if config.scheme != self.config.scheme
             || config.app != self.config.app
@@ -233,6 +243,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     /// Transfer the same exclusive provider to a native loader, restoring every private
     /// enrollment selection if that loader returns custody with an error. This grants no
     /// account or proof admission; the destination must perform its complete own checks.
+    ///
+    /// # Errors
+    /// If `load` returns an error and its provider, returns that exact error alongside
+    /// an enrollment owner reconstructed with the returned provider and every retained
+    /// private selection. This method adds no validation or error conversion.
     pub fn try_handoff<T, E>(
         self,
         load: impl FnOnce(
@@ -266,6 +281,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
 
     /// Recover source status without foreign liveness, client time or key-regeneration authority.
+    ///
+    /// # Errors
+    /// Returns an error when no slot is selected, selected pre-key originals are lost
+    /// or changed, or the provider cannot reconcile or read the selected slot status.
     pub fn progress(&mut self) -> Result<EnrollmentProgressV1, Error> {
         let (scope, slot) = self.selected.clone().ok_or(Error::Phase)?;
         // Authenticate the retained pre-key originals and the durable phase before any
@@ -331,6 +350,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     /// Permanently release an Accepted E1 attempt under an issuer-authenticated expiry proof.
     /// This path is valid only before Slot/E2 selection; ordinary `abandon` remains refusal-safe
     /// for every Accepted attempt.
+    ///
+    /// # Errors
+    /// Returns an error without a resumable accepted dispatch, for an invalid or
+    /// differently bound signed expiry proof, selected/cancelled or lost custody,
+    /// or unavailable original reads or terminal-marker publication.
     pub fn abandon_expired(&mut self, proof: &[u8]) -> Result<EnrollmentAbandonmentV1, Error> {
         self.abandon_expired_accepted(proof)
     }
@@ -367,9 +391,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             .provider
             .read_intent(slot)?
             .ok_or(Error::Original("selected enrollment intent"))?;
-        if intent.challenge != scope.challenge
-            || intent.dates != scope.dates
-            || marker.marker().scheme_id != scope.challenge.scheme_id
+        if intent.challenge != scope.challenge || intent.dates != scope.dates {
+            return Err(Error::Original("selected enrollment marker"));
+        }
+        if marker.marker().scheme_id != scope.challenge.scheme_id
             || marker.marker().asset_digest != scope.challenge.asset_digest
             || marker.marker().wallet_id != scope.challenge.wallet_id(marker.payment_key())
         {
@@ -392,6 +417,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     /// Exact authenticated retained E5, if already durable. A begun dispatch with no
     /// selected slot can establish request absence only from its actual pre-key records;
     /// this is not payment-key absence, freshness or permission to generate anything.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid recovery phase, missing or changed selected
+    /// pre-key/marker/request originals, invalid account-authorized request bindings,
+    /// lost payment-key custody, or unavailable provider reads or durable adoption.
     pub fn retained_request(&mut self) -> Result<Option<Vec<u8>>, Error> {
         if let Some((scope, slot)) = &self.selected {
             self.require_selected_prekey(scope, slot)?;
@@ -503,6 +533,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
     /// Recover the exact verified durable E6 winner without issuer/network input.
     /// A credential without its selected result remains custody loss, never absence.
+    ///
+    /// # Errors
+    /// Returns an error if request recovery fails, a credential exists without its
+    /// selected result, the retained result fails issuer/original authentication, or
+    /// provider reads, result publication or credential selection fail.
     pub fn retained_result(&mut self) -> Result<Option<Vec<u8>>, Error> {
         let Some(request) = self.retained_request()? else {
             return Ok(None);
@@ -524,6 +559,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
 
     /// Select exact E5 evidence before exposing its existing-account challenge. Retained requests always win.
+    ///
+    /// # Errors
+    /// Returns an error if retained-request recovery fails, the slot is not ready for
+    /// evidence, platform evidence is invalid or differs from retained Apple returns,
+    /// or account-challenge validation/encoding exceeds the request bounds.
     pub fn prepare_request(&mut self, evidence: &[u8]) -> Result<RequestPreparationV1, Error> {
         if let Some(bytes) = self.retained()? {
             return Ok(RequestPreparationV1::Retained(bytes));
@@ -557,6 +597,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         Ok(RequestPreparationV1::AccountChallenge(message))
     }
     /// Retain the exact account-authorized E5 request durably before returning network bytes.
+    ///
+    /// # Errors
+    /// Returns an error if retained-request recovery fails, no request is prepared,
+    /// the signature or request is invalid, Apple liveness has expired, or durable
+    /// publication fails or returns a different concurrent request.
     pub fn retain_request(&mut self, signature: &[u8]) -> Result<Vec<u8>, Error> {
         if let Some(bytes) = self.retained()? {
             return Ok(bytes);
@@ -586,6 +631,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
     /// Authenticate and durably retain E6 before selecting credential zero.
     /// Existing exact result bytes win on every retry, including after uncertain delivery.
+    ///
+    /// # Errors
+    /// Returns an error without an authenticated retained request, if selected result
+    /// custody is lost, if issuer credentials, evidence, policy, dates or marker
+    /// bindings fail verification, or if result/credential publication is unavailable.
     pub fn accept_credential(&mut self, supplied: &[u8]) -> Result<Vec<u8>, Error> {
         let request_bytes = self.retained()?.ok_or(Error::Phase)?;
         let request = RequestV1::decode(&request_bytes).map_err(Error::Original)?;
@@ -609,6 +659,10 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     }
     /// Exact retained originals for the separate account-admission boundary. This verifies
     /// and adopts E6 again; it grants no account or Bootstrap authority.
+    ///
+    /// # Errors
+    /// Returns an error if the selected E6 cannot be authenticated and durably adopted,
+    /// its retained E5 cannot be recovered, or account/asset canonical encoding fails.
     pub fn open_originals(&mut self) -> Result<[Vec<u8>; 4], Error> {
         let selected = self.accept_credential(&[])?;
         let result = ResultV1::decode(&selected).map_err(Error::Original)?;

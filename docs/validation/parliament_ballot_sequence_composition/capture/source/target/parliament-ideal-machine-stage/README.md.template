@@ -1,0 +1,318 @@
+# B6 bounded IdealFrontierSim machine — work in progress
+
+This ignored scratch project is building the entire mathematical public
+simulator in explicit stages. Completed stages do not yet establish a complete
+resource bound for the full program. It is not a deployed Rust simulator.
+No production gate, frozen argument, accepted primitive premise, or previous
+evidence is modified. **Full coverage and qualification remain false.**
+
+The exact coverage registry is `coverage.json`. Its source hashes are a selected
+correspondence inventory, not an automatic Rust semantic proof or full build
+dependency closure. An unresolved stage remains unresolved even when the IR
+compiler and all completed stages pass their own tests.
+
+## Boundary and invariants
+
+The intended entry is the frozen `IdealFrontierSim` proposal in
+`specs/parliament_ballot_b6_ideal_public_sampler.md`, section 6: valid bounded
+typed public requests, candidate/comparator rows, registration/vote roles,
+vote list size 3 through 1,000, and classical atomic requests. The machine
+must generate the same public proof or exhaustion error and the same
+chronological programming history. No adversary acts inside one request.
+Malformed raw envelopes, arbitrary governance-preimage construction, and a
+new superposition proof-request API are not this entry.
+
+The fixed base backend function uses a response-XOR oracle. Its full message
+register, namespace/domain encoding, response padding and explicit finite
+length width follow the frozen oracle-log proposal. Programming means explicit
+log-state updates, not changing an invisible external function. Every coherent
+lookup reads the whole immutable base input and the current chronological log.
+The existing construction's two unconditional base calls are charged as two,
+including any reverse traversal added by a surrounding clean embedding.
+
+Fresh sampler bits are independent input registers with their preparation and
+retained size counted separately. Classical sampling is a mixture of those
+basis states. Retaining old inputs/coins/private history is permissible only
+after proving equality of the public projection. A unitary cannot erase an
+unknown register for free. Likewise, clean input/output registers and disjoint
+wire regions are explicit preconditions; primitive outputs are never supplied
+for free by calling them an interface.
+
+## Complete coverage map and implementation order
+
+The following is the complete intended algorithm boundary, not a claim that
+all rows below are implemented. The JSON registry resolves every listed source
+and records dependencies, outputs, and unresolved obligations.
+
+| Stage | Required operation and source correspondence | Current milestone |
+|---|---|---|
+| P0 | Typed public shape, bounded fields/list, profile/CRT descriptor and role namespace; `profile.rs`, `framing.rs`, `registration.rs`, `vote.rs`, `sealed_list.rs` | Unimplemented. Distinguish supplied valid typed inputs from derived digests and actual public validation. |
+| P1 | Concrete SHA3/Keccak public frames, relation public block, backend H_mu/H4; `proving::message_digest`, statement `instance`, `hash.rs`, `transcript.rs` | Unimplemented. Backend reads and concrete permutations must stay separate. |
+| S0 | Fixed bounded primary/auxiliary schedule, first admissible challenge, exact primary prefix writes, fallback zero, success/error counter | Implemented pending review in `schedule.py`. It returns prefix flags; it does not itself append anything. |
+| B0 | Selected challenge decode, interleaved hidden marks and source-ordered frontier; canonical sampled hidden commitments/frontier keys/zero padding | Implemented pending review in `opening.py`. Ordered frontier flags are returned; B0-to-B1 wire composition remains open. |
+| B1 | One nested BAVC reconstruction, unmarked parent AES expansion, nonhidden affine leaves, actual H0/H1 order and aliases | Clean supplied-material composition implemented in `reconstruction.py`, pending review. Source-equivalent public AES dummy work is included; no fabricated root is used. |
+| V0 | Revealed-row AES/PRG, source hidden-index XOR folding, correction application and low-mask shares; `vole/convert.rs`, `vole.rs` | Implemented at supplied typed material in `vole_columns.py`, pending final review. Fixed original-seed scan and retained zero columns avoid secret RAM. |
+| V1 | Actual CRT G/W_CRT/W_TREE/W_GATE products, labels, ordinary visible H5, gamma corrections, qbar and Q transpose | Implemented with exact pinned table bits in `crt_machine.py`; `vole_reconstruction.py` joins V0/V1 with complete cleanup. Whole-request join remains open. |
+| R0 | Prescribed challenge/responses and d; one VOLEHash on ell+6 fields, four Delta*Utilde terms | Unimplemented. Supplied-field framing is not response generation. |
+| R1 | QuickSilver degree tracking, Booleanity, full role relation, ZKHash, six mask/coefficients, A0 | Unimplemented. All relation loops, stream error flags and routing must be covered. |
+| W0 | Actual challenge frames and chronological writes, including all primary writes on exhaustion and none from auxiliary draws | Existing framing/append circuits available; controller/log composition not yet implemented here. |
+| E0 | Success proof layout/encoding or typed exhaustion result, exact retained output/log state and discarded private material | Unimplemented. Serialization and cleanup are not implicit. |
+| L0 | T adaptive requests, every external coherent query, persistent log capacity and full input/message lengths | Existing coherent lookup available; whole lifetime interface/resource composition not yet implemented. |
+
+Implementation priorities are (1) a validated compositional bit IR and bounded
+schedule, (2) direct opening/BAVC/VOLE reconstruction with real oracle/address
+traces, (3) full public response/relation continuation and serialization,
+(4) persistent log/framing/lifetime composition, and (5) semantic and resource
+crosschecks of *all* stages. P0/P1 must be included before claiming complete
+entry resources, even if prototype tests temporarily supply prepared fields.
+Every temporary supplied-field boundary will remain an unresolved registry
+entry and is not a substitute for completing that stage.
+
+## Reversible compilation rule
+
+A Boolean SSA block has explicit immutable input wires and fresh zero targets
+for AND, XOR, NOT, COPY and literal nodes. AND has one Toffoli; XOR has two
+CNOTs; NOT has one X and one CNOT; COPY has one CNOT; a one literal has one X.
+Repeated operands are simplified before emitting any gate with aliased
+controls. Wire metadata and generator execution are not confused with actual
+data movement: static rewiring is free circuit wiring, while data-dependent
+selection is compiled to gates over every possible entry.
+
+Let `(a,x,n,c,u)` count these nodes, where `u` counts one literals, and let
+`g = 5a + 2x + 2n + c + u`. Let `o` be output bits, with duplicates allowed.
+Compute all nodes, CNOT the designated outputs into disjoint arbitrary output
+targets, then reverse every node. This implements
+
+```
+|input, z, 0_history, 0_kernel_work>
+ -> |input, z XOR f(input), 0_history, 0_kernel_work>.
+```
+
+It costs `2g+o` elementary gates plus the separately doubled counts for
+declared clean response-XOR kernels/oracles. History has one fresh bit per
+Boolean node and each kernel output bit, plus the maximum simultaneously used
+clean kernel workspace. Inputs, random tape and caller output targets are
+additional. These exact formulas describe an actual emitted circuit, not a
+conversion of mixed AES/loop counts into elementary gates.
+
+For compositional loops, every iteration's fresh node/output wires are kept
+until reverse traversal. Thus history grows with the full unrolled count;
+reusing a scratch register is permitted only for a kernel that proves it
+returns that register to zero. Fixed loop bounds and the offset mapping of
+random-tape segments are public circuit structure. Resource summaries are
+derived from checked block structure and repeat counts, never accepted as
+caller assertions about unknown code.
+
+A fixed response-XOR oracle can be called again to uncompute its result.
+An external *classical* PRP challenge interface is not such an inverse oracle:
+an entry reduction must retain that interaction's transcript and separately
+price it. This machine does not silently promote the proposed PRP interface
+to coherent access. Public AES and concrete Keccak implementations also need
+their own executable circuits or explicit unresolved resource parameters.
+
+## Schedule semantics and projection
+
+For a public cap M, fixed input tapes contain M primary and M auxiliary
+256-bit values. Compute all predicates and the first accepted position with
+fixed loops. The actual source's early stopping is recovered by an active
+prefix flag: primary writes use exactly that prefix, auxiliary values never
+produce writes, and no auxiliary selection is enabled after primary success.
+The selected challenge starts at zero, so two exhausted scans yield the frozen
+zero fallback. An unused random-tape suffix is independent private material
+and has no public effect; presampling it changes no output/log distribution.
+Nevertheless its full random preparation and wire inventory are charged.
+
+The primary zero-based trial counter is a separate 32-bit value from both the
+attempt count and the log append counter. The count of attempted primary or
+auxiliary draws may equal M and needs `ceil(log2(M+1))` bits. Exhaustion returns
+an error, never a proof carrying a fabricated counter. Canonical zero values
+in fields unused by that error branch are internal conventions only.
+
+`Schedule.emit_clean` is a lazy emitter for every admitted cap through 2^20.
+It computes each iteration's input/output wire labels from public offsets;
+it does not store a million frame descriptions or random-tape wire lists.
+Only `wiring()`, the optional materialized finite-test view, restricts its cap
+to 32. The production gate counts refer to the same lazy emitter. Both
+templates produce fresh state-output wires, an invariant checked before using
+the closed-form repeat mapping. A full clean scheduler uses 4M invocations of
+the clean admissibility kernel: 2M while computing and 2M during reversal.
+
+Presampling is an exact private-state extension, not equality of consumed RNG
+byte offsets. For every fixed selected row and entering external state, the
+first admissible prefix of the primary tape has the original stopping-time
+law. Its unused suffix is independent conditional on that prefix. If primary
+exhausts, the independent auxiliary tape has the same bounded stopping/fallback
+law. If it succeeds, no auxiliary bit influences the outputs. Coins for later
+fields use separate independent slots. Averaging over and tracing the unused
+private coins therefore preserves the joint external state, not only a
+standalone proof distribution: no scheduler instruction reads or modifies the
+base oracle or adversary registers. This local fact still needs composition
+with W0's prefix-enabled writes; it is not a claim that W0 is implemented.
+
+## Direct opening phase
+
+`opening.py` takes the selected admissible challenge, 112*tau fresh commitment
+bytes and T_open fixed 32-byte key slots. It computes all heap marks and the
+frontier count r using the pinned predicate helper's compute/inverse routines.
+It copies the marks, count, and child-XOR flags in descending parent order,
+then reverses that geometry computation. The predicate-only target is never
+used. Thus each geometry call returns its scratch to zero. This is a new
+explicit composition of reviewed routines, requiring its own local review.
+
+For each public slot j, a Boolean comparator computes j<r. Each of that key
+slot's 256 bits is ANDed with the comparator, so the opening is the sampled
+commitments followed by the first r supplied keys and zero padding. Hidden
+indices use their source low-bit-first slices with zero extension to 16 bits.
+There is no secret memory address: comparators and key gates use static wire
+indices. For each fixed admissible opening, projecting away the independent
+unused key suffix gives exactly the frozen direct material sampler's coins.
+
+Let n=L and d=ceil(log2 L). The clean geometry kernel computes and reverses
+the source-shaped marks/count work once each, with
+
+```
+Toffoli = 2*sum_i 2^depth_i*(2*depth_i-3)
+          + 2*(n-1)*(1+(d-1)^2),
+CNOT = 14*(n-1) + (2*n-1) + d + 2*(n-1),
+X = 2*sum_i 2^depth_i*depth_i.
+```
+
+The added CNOT terms copy marks, count and two child bits for each frontier
+flag. Its clean-work allocation is the predicate's marks/count/flag/ladder
+region; the unused predicate target is excluded. The complete opening block
+then applies the same SSA clean-embedding rule, including all comparators,
+key masks, opening bytes, decoded indices and intermediate geometry outputs.
+Its current counts are 21,358,067 candidate and 308,370,886 comparator elementary
+gates; these include this block's own compute/copy/uncompute, not surrounding
+whole-machine composition. No base-oracle calls occur here.
+
+These outputs are **internal stage registers**, not an additional adversarial
+interface. In particular, the final exhausted request must not expose its
+selected challenge, opening, geometry or count history. The separately implemented B1 stage routes the source-order keys into their
+actual heap slots. B0-to-B1 wiring and the E0 projection exposing only the
+defined proof or error are still required; constructing registers alone does
+not establish either composition.
+
+The finite tests cover the implemented stage boundaries. It exhaustively checks small schedule
+acceptance patterns and comparisons, directly interprets emitted reversible
+gates with arbitrary output targets, checks cleanup/inversion/counts, and
+checks both real zero-fallback openings (11/12 keys and 11,024/9,664 bytes).
+The full simulator, full resource vector and cryptographic entry remain open.
+
+## B1 supplied-material reconstruction
+
+`bavc_machine.py` scans every parent in descending order and selects the next
+frontier key by comparing its secret rank with each fixed slot. Both zero and
+duplicate key values are legal. `prg_machine.py` then scans every parent in
+ascending order, reading its key from its earlier parent's fresh output.
+It computes four AES blocks using source little-endian low32+counter and
+high32+parent additions, with no carry across either word. A marked parent
+retains its initial children. All otherwise-unused AES computations are charged
+and uncomputed. The kernel is the separately reviewed **concrete public AES**
+circuit; this extra work is not valid for an external classical PRP challenge.
+
+`leaf_machine.py` follows source vector/index order and interleaved heap
+positions. It computes all nine AES blocks, splits seed32/b0[96]/b1[16], and
+uses the authenticated GF(2^768) and GF(2^256) kernels for the actual affine
+commitment. Marked leaves select their cached hidden commitment and a zero
+seed. Their dummy public computations are also charged and cleaned. Its H0
+input must originate from the same invocation; the surrounding composition
+supplies it, rather than treating it as free randomness.
+
+`hash_machine.py` uses fixed-length restrictions of **one shared immutable**
+byte-string response-XOR function F with a 264-byte response. Different
+`F:length` opcodes do not denote independent functions. Preparing input bytes,
+including the final domain byte, is explicit CNOT/X work. Producing a shorter
+response prefix costs two full F calls, the prefix-copy CNOTs, and 2,112 clean
+response bits. No concrete SHAKE permutation is included in these oracle calls.
+H0/H1 addresses end in 0/1, so they cannot match the IdealPublic chronological
+writes ending in 9/10/11. This exact disjointness permits the base interface in
+these two domains; it does not remove the overlay from external queries.
+
+H0's clean map costs 2 F calls and 2,512 CNOT, with 2,864 clean work bits.
+H1 stores the tau vector digests, constructs the outer digest in source order,
+then reverses the vector computations. Its exact clean cost is
+`F=4*tau+2`, `X=4*tau+2`, and `CNOT=3584*L+4512*tau+1744`.
+It retains `512*tau` digest bits, 2,112 response bits and one maximum-sized
+query frame; these are all returned to zero. Seed bytes never enter H1.
+
+`reconstruction.py` joins the complete B1 algorithm at the supplied canonical
+material boundary. Inputs are namespace77, IV16, source hidden marks, canonical
+frontier key slots and the tau cached hidden commitments. It retains the routed
+heap, expanded heap, H0 result and ordered seed/commitment records, but shares
+the maximum clean workspace of the component circuits. It computes routing,
+tree expansion, H0 and leaf records; H1 writes the final commitment output;
+seeds are copied; leaf/H0/tree/routing are reversed in that order. Its output is
+`commitment64 || vector-ordered seeds32*L`, XORed into an arbitrary disjoint
+target. All intermediate state returns to zero. The clean cost is exactly
+`2*(R+T+H0+Leaf)+H1+256*L CNOT`, with `4*tau+6` full base queries.
+
+This identity is conditional on the canonical admissible input relation, the
+concrete kernel contracts, one immutable base function, and atomic requests.
+It follows as a joint permutation on source/output/base/adversary registers;
+source basis labels are preserved while their reduced state may become
+entangled with the output. The reverse calls use the unchanged function and
+source registers. No intervening log mutation or adversary query is hidden
+inside the clean embedding. B0-to-B1 wiring, later VOLE/relation work, persistent
+log history and final public projection are still open full-machine stages.
+
+## V0/V1 supplied-material composition
+
+The derivation and exact component formulas are in `V0-design.md`. V0 scans
+all original seed slots, reconstructs the source hidden-index column fold with
+controlled XORs, applies c_1 through c_(tau-1) only to the first ell bits, and
+uses the actual tree moduli for the ten low-mask shares. Every row expansion
+is the charged concrete AES circuit, including unused hidden-seed work. No
+secret input controls an unpriced memory address.
+
+V1 uses the literal pinned G, W_CRT, W_TREE and W_GATE bits. It emits every
+selected linear CNOT, creates each actual 162-byte H5 address, reads the low
+ten bits via the shared full-response F, applies the gamma-selected correction,
+adds the gate contribution, then clears the correction and hash response.
+The source mask order0..9 is retained: indices0..5 feed QuickSilver and the
+VOLE folded head; indices6..9 are the four additive VOLE final masks.
+
+`vole_reconstruction.py` computes V0 into retained zero columns/shares, runs
+V1 into the arbitrary caller Delta||Q||q_masks XOR targets, then repeats V0 to
+clear the retained columns/shares. Its exact cost is `2*V0+V1`; work is the
+retained V0 output plus the maximum component workspace. The unchanged F and
+input labels guarantee the clean reverse. H5 final byte5 is disjoint from
+programmed writes9/10/11. Full request wiring must establish that the hidden
+u16 indices decode the same selector, that its grinding tail is zero, and
+that all supplied seed/correction/namespace/IV material belongs to this request.
+The component does not itself validate these cross-stage input relations.
+
+Finite tests cover full small-shape joint maps, arbitrary targets, cleanup,
+source fold references, both actual table orientations and every selected
+residue basis image. Actual-row emitter resource traversal is a static circuit
+count, not execution of the huge production circuit. The report lists the
+V0/V1 composition separately for each role and retains every full-coverage,
+primitive-entry and qualification flag as false.
+
+## What a completed machine would and would not establish
+
+Complete IR coverage could give a conservative, finite, source-bound resource
+vector for this mathematical simulator relative to its named base oracle.
+It would not establish that a concrete SHAKE oracle is an independent QROM,
+that the actual-input AES hybrids embed in an accepted premise, that this
+simulator replaces the frozen real-root Sim+ in its application premise, or
+that any primitive retains security at the resulting driver resources.
+
+The frozen linear-scan overlay alone has an illustrative elementary upper
+bound around 2^153.761 at T=2^44 and Q_ext=2^64. Completing a possibly still
+larger conservative bound can close an unknown-resource item without making
+that bound useful for a 2^128 attack assessment. It is an upper bound for one
+construction, not a lower bound or a proof of insecurity. Efficient structures
+would need their own coherent implementation, without assuming quantum RAM.
+
+The complete adversary, advice/preprocessing, chosen-input entry drivers,
+earlier game transitions and final comparisons remain separate obligations.
+Independent cryptographic review, owner acceptance and exact required hardware
+qualification remain external to local circuit/source proofs. This proposal
+does not claim physical 64 MiB verifier workspace or any runtime measurement.
+
+Primary context: Bennett's reversible simulation is a construction after a
+machine and its time/space bounds are supplied; its asymptotic theorem is not
+a concrete compiler-cost certificate for this Rust source. See
+https://epubs.siam.org/doi/10.1137/0218053 . The explicit SSA rule above states
+its own gate accounting and will be checked on finite circuits.

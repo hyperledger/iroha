@@ -264,6 +264,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
 
     /// Retain native client identity before issuer E1 and sample a fresh live dispatch.
     /// Repeated request IDs preserve exact originals/client nonce across uncertainty/restart.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid request identity or account/asset frame, lost
+    /// or changed retained pre-key originals, invalid resumed permit bindings,
+    /// failed nonce generation, unavailable storage or live clock, or failed dispatch
+    /// encoding. Any pending Apple return must be flushed before a new dispatch begins.
     pub fn begin(
         &mut self,
         request_id: &[u8],
@@ -379,6 +385,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
 
     /// Admit an issuer-signed permit for this live dispatch, then expose the exact existing-
     /// account signing challenge. No decoded permit or persisted clock becomes live authority.
+    ///
+    /// # Errors
+    /// Returns an error without a valid pending dispatch, for an invalid or differently
+    /// bound permit, expired session/elapsed authorization, lost or changed retained
+    /// originals, or provider refusal. Provider errors retain the pending dispatch;
+    /// invalid authenticated inputs consume it.
     pub fn accept_permit(&mut self, bytes: &[u8]) -> Result<[u8; 32], Error> {
         self.require_pending_uncancelled()?;
         let retained = self.pending.clone();
@@ -512,9 +524,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         if read(PreKeyRecordV1::Expired)?.is_some() {
             return Err(lost("expired pre-key selection"));
         }
-        let client = read(PreKeyRecordV1::Client)?.ok_or(lost("selected pre-key client"))?;
-        let accepted = read(PreKeyRecordV1::Accepted)?.ok_or(lost("selected pre-key permit"))?;
-        let selected = read(PreKeyRecordV1::Slot)?.ok_or(lost("selected pre-key slot"))?;
+        let client =
+            read(PreKeyRecordV1::Client)?.ok_or_else(|| lost("selected pre-key client"))?;
+        let accepted =
+            read(PreKeyRecordV1::Accepted)?.ok_or_else(|| lost("selected pre-key permit"))?;
+        let selected = read(PreKeyRecordV1::Slot)?.ok_or_else(|| lost("selected pre-key slot"))?;
         let dispatch = PreKeyDispatchV1::decode(&client).map_err(Error::Original)?;
         if dispatch.purpose != KagemushaEnrollmentPermitPurposeV1::Fresh
             || dispatch.previous_permit.is_some()
@@ -690,6 +704,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         Ok(())
     }
     /// Consume exact account authorization and recheck the permit at actual key generation.
+    ///
+    /// # Errors
+    /// Returns an error without a valid pending account challenge, for an invalid
+    /// account signature, expired permit/session, changed retained originals, or a
+    /// provider custody, storage, clock or key-generation refusal. Provider errors
+    /// retain the pending challenge; invalid authenticated inputs consume it.
     pub fn authorize(&mut self, signature: &[u8]) -> Result<EnrollmentProgressV1, Error> {
         self.require_pending_uncancelled()?;
         let retained = self.pending.clone();

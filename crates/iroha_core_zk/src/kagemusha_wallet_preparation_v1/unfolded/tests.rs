@@ -81,11 +81,11 @@ fn local_projection_preserves_all_fields_and_never_contains_adjusted_evidence() 
     let w = project(&credential, &state, previous.relation_id);
     assert_eq!(
         w.core,
-        fields::<33>(state.core_field_items().unwrap()).unwrap()
+        fields::<29>(state.core_field_items().unwrap()).unwrap()
     );
     assert_eq!(
         w.rest,
-        fields::<8>(state.rest_field_items().unwrap()).unwrap()
+        fields::<6>(state.rest_field_items().unwrap()).unwrap()
     );
     assert_eq!(w.lineage[5].to_repr(), state.commitment().unwrap().value);
     assert_eq!(w.lineage[14], Fp::from_u128(state.core.burned_total));

@@ -32,6 +32,18 @@ pub struct KeyWorkCursor {
     pub(crate) pending: usize,
 }
 
+/// Completion of an exact query over its retained original source.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum LookupResolution {
+    /// Source work remains before a presence or absence result is known.
+    #[default]
+    Pending,
+    /// The complete query proved that the original source has no matching row.
+    Absent,
+    /// The complete query identified this original row ordinal.
+    Present(usize),
+}
+
 /// Original query progress, scoped by its enclosing immutable semantic row/substep.
 /// The owner resets this cursor only when changing the query or finishing that row.
 #[derive(Clone, Copy, Debug, Default)]
@@ -49,7 +61,7 @@ pub struct LookupCursor {
     /// Retained geometry of the current original midpoint key.
     pub(crate) candidate: KeyWorkCursor,
     /// Exact resolved ordinal or proved absence, if complete.
-    pub(crate) resolved: Option<Option<usize>>,
+    pub(crate) resolved: LookupResolution,
 }
 impl LookupCursor {
     /// A fresh query on the enclosing original source; no work has been granted.
@@ -73,7 +85,7 @@ impl LookupCursor {
                 units: 0,
                 pending: 0,
             },
-            resolved: None,
+            resolved: LookupResolution::Pending,
         }
     }
     /// Start the next fixed query site after its previous semantic row completed.

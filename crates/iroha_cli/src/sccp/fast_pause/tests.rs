@@ -22,7 +22,7 @@ fn fixture() -> (SccpFastPauseViewV1, EndorseSccpFastPauseV1) {
             seated_at_ms: 100,
             accept_until_ms: 200,
             term_ends_at_ms: 1_000,
-            accepted: Default::default(),
+            accepted: std::collections::BTreeSet::default(),
             primary_id: [2; 32],
             backup_id: [3; 32],
             drawn: drawn.clone(),

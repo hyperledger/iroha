@@ -244,7 +244,7 @@ fn actual_same_a_absorbs_charged_load_once_after_pending_unload_with_restart() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&claim.package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&claim.package, MemoryBudget::DEFAULT)
         .unwrap();
 
     let target_path = selected_path("KAGEMUSHA_NATIVE_LOAD_TARGET");
@@ -610,7 +610,7 @@ fn actual_same_a_absorbs_charged_load_once_after_pending_unload_with_restart() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     let after_signatures = device.platform.with(|state| state.sign_calls);
     assert_eq!(after_signatures, signatures + 1);

@@ -1,5 +1,6 @@
 //! Recursive obligation ownership, with genuine Bootstrap state and signed-object
-//! composition through sigma, Q, A1, W and A2. Send tests still isolate its frame.
+//! composition through the signature Q and the unsplit terminal A. Send tests still
+//! isolate its frame.
 
 #[path = "common/bootstrap.rs"]
 mod bootstrap;
@@ -7,8 +8,6 @@ mod bootstrap;
 #[allow(dead_code)] // Shared payer/receiver helpers are consumed by distinct test binaries.
 mod bootstrap_objects;
 mod common;
-#[path = "common/native_source_factory_checks.rs"]
-mod native_source_factory_checks;
 use iroha_kagemusha_proof::a_relation::AFramePlan;
 
 include!("common/proof_fixtures/a_recursive_body.rs");
@@ -117,7 +116,7 @@ fn send_frame_binds_predecessor_key_and_both_generator_obligations() {
     .unwrap();
     let opening = FoldInput::from_opening(*proof.opening.g(), proof.opening.challenges()).unwrap();
     let inputs = [trivial.clone(), opening, base.q_opening];
-    let (fold, output) = create_fold(
+    let (fold, output) = iroha_plonk_recursion::create_fold(
         &base.params,
         &inputs,
         common::public_fixture_tape(29),
@@ -210,7 +209,7 @@ fn split_context_rebinds_state_statement_all_q_fields_and_original_tape() {
         match kind {
             0 => bad.statement[17] += Fp::ONE,
             1 => bad.core[8] += Fp::ONE,
-            2 => bad.rest[7] += Fp::ONE,
+            2 => bad.rest[5] += Fp::ONE,
             3 => bad.public[17] += Fp::ONE,
             4 => bad.q[0][0][0] += Fq::ONE,
             5 => bad.object[0] ^= 1,
@@ -233,8 +232,8 @@ fn split_context_rebinds_state_statement_all_q_fields_and_original_tape() {
 }
 
 #[test]
-#[ignore = "actual Bootstrap sigma/Q, A1/W/A2 and authenticated 2V1F objects; run optimized"]
-fn actual_split_chain_retains_context_wrapper_and_final_claims() {
+#[ignore = "actual Bootstrap signature Q, unsplit A and authenticated 2V1F objects; run optimized"]
+fn actual_unsplit_chain_forwards_its_q_opening_and_final_claims() {
     let _ = authenticated_bootstrap(true);
 }
 
@@ -248,7 +247,6 @@ fn bootstrap_keys_are_scheme_independent_and_signed_foreign_scope_rejects() {
             SourceProfile::Tagged {
                 buses: iroha_kagemusha_proof::a_relation::native::bootstrap::SOURCE_RANGE_BUSES,
             },
-            None,
             BootstrapIdentity::Payer,
             scheme,
             certificate_scheme,
@@ -261,23 +259,22 @@ fn bootstrap_keys_are_scheme_independent_and_signed_foreign_scope_rejects() {
     assert_eq!(first.binding, second.binding);
     assert_eq!(
         first.source_keys, second.source_keys,
-        "carried SchemeID must not change sigma/Q/A/W original keys"
+        "carried SchemeID must not change sigma/Q/A original keys"
     );
     assert!(run([1, 2], [101, 102]).is_none());
     eprintln!(
-        "BOOTSTRAP_SCHEME_KEYS actual_chains=2 exact_source_keys=6 foreign_signed_scope_rejected=true full_catalog=false"
+        "BOOTSTRAP_SCHEME_KEYS actual_chains=2 exact_source_keys=3 foreign_signed_scope_rejected=true full_catalog=false"
     );
 }
 
 #[test]
-#[ignore = "genuine common-Q2/Tagged3 production A1/W/A2, source mutation and artifact differential"]
-fn production_native_bootstrap_stages_preserve_the_genuine_installed_relation() {
+#[ignore = "genuine Tagged3 production unsplit A, source mutation and artifact differential"]
+fn production_native_bootstrap_terminal_preserves_the_genuine_installed_relation() {
     let _ = authenticated_bootstrap_with_profile(
         true,
         Fp::from(91),
         SourceProfile::Tagged {
             buses: iroha_kagemusha_proof::a_relation::native::bootstrap::SOURCE_RANGE_BUSES,
         },
-        Some(2),
     );
 }

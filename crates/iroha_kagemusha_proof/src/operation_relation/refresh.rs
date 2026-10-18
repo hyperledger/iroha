@@ -2,10 +2,10 @@
 //!
 //! The update words must come from A's signed-object transcript constraints.
 //! These effects alone do not authenticate a credential, issuer or update.
-//! Blacklist history insertion and quota-array rebuilding are separate hard
-//! relations; their changed roots are not accepted solely by this module.
+//! Quota-array rebuilding is a separate hard relation; its changed root is not
+//! accepted solely by this module.
 
-/// Fixed-layout effects for the single five-kind RefreshPolicy sigma source.
+/// Fixed-layout effects for the single four-kind RefreshPolicy sigma source.
 pub mod selected;
 
 use ff::Field;
@@ -44,23 +44,10 @@ pub enum RefreshUpdate<'a> {
         asset: &'a [Word<Fp>; 2],
         /// Strictly increasing policy epoch.
         epoch: &'a Word<Fp>,
-        /// Three-bit controls mask before credential permission intersection.
+        /// Two-bit controls mask before credential permission intersection.
         controls: &'a Word<Fp>,
         /// Fee-schedule digest, or zero.
         fee: &'a Word<Fp>,
-    },
-    /// New blacklist whose version/root is also inserted into history.
-    Blacklist {
-        /// Signed list digest.
-        digest: &'a Word<Fp>,
-        /// Scheme identity.
-        scheme: &'a [Word<Fp>; 2],
-        /// Strictly increasing list version.
-        version: &'a Word<Fp>,
-        /// Nonzero canonical gap-tree root.
-        root: &'a Word<Fp>,
-        /// Signed list issue time.
-        issued: &'a Word<Fp>,
     },
     /// New quota share whose windows and usage array A also rebuilds.
     QuotaShare {
@@ -99,7 +86,6 @@ impl<'a> RefreshUpdate<'a> {
         match self {
             Self::Credential { .. } => Variant::RefreshCredential,
             Self::SchemePolicy { .. } => Variant::RefreshSchemePolicy,
-            Self::Blacklist { .. } => Variant::RefreshBlacklist,
             Self::QuotaShare { .. } => Variant::RefreshQuotaShare,
             Self::TimeAnchor { .. } => Variant::RefreshTimeAnchor,
         }
@@ -108,7 +94,6 @@ impl<'a> RefreshUpdate<'a> {
         match self {
             Self::Credential { digest, .. }
             | Self::SchemePolicy { digest, .. }
-            | Self::Blacklist { digest, .. }
             | Self::QuotaShare { digest, .. }
             | Self::TimeAnchor { digest, .. } => digest,
         }
@@ -119,8 +104,8 @@ impl<'a> RefreshUpdate<'a> {
 ///
 /// This checks the exact monotone floor, policy permission intersection,
 /// object identity, increasing counters, expiry and lineage preservation.
-/// Credential identity/renewal authentication, blacklist history insertion
-/// and quota rebuilding remain hard obligations of the consuming relation.
+/// Credential identity/renewal authentication and quota rebuilding remain
+/// hard obligations of the consuming relation.
 ///
 /// # Errors
 /// Mismatched fixed variant or layout failure. Stale counters, a repeated
@@ -174,8 +159,8 @@ pub fn constrain(
             GlueChip::assert_equal(region, fee, &new_rest[rest::FEE_SCHEDULE])?;
             let policy = mask(uint, region, controls)?;
             let permitted = mask(uint, region, &old_rest[rest::PERMITTED])?;
-            let mut enabled = Vec::with_capacity(3);
-            for i in 0..3 {
+            let mut enabled = Vec::with_capacity(2);
+            for i in 0..2 {
                 enabled.push(
                     uint.glue()
                         .mul(region, policy[i].word(), permitted[i].word())?,
@@ -183,34 +168,11 @@ pub fn constrain(
             }
             let intersection = uint.glue().linear(
                 region,
-                &[
-                    (Fp::ONE, &enabled[0]),
-                    (Fp::from(2), &enabled[1]),
-                    (Fp::from(4), &enabled[2]),
-                ],
+                &[(Fp::ONE, &enabled[0]), (Fp::from(2), &enabled[1])],
                 Fp::ZERO,
             )?;
             GlueChip::assert_equal(region, &intersection, &after[core::ENABLED_CONTROLS])?;
             &before[core::TIME_FLOOR]
-        }
-        RefreshUpdate::Blacklist {
-            digest,
-            scheme,
-            version,
-            root,
-            issued,
-        } => {
-            bind_pair(region, scheme, &before[core::SCHEME..=core::SCHEME + 1])?;
-            increasing(uint, region, &before[core::BLACKLIST_VERSION], version)?;
-            for (word, index) in [
-                (version, core::BLACKLIST_VERSION),
-                (root, core::BLACKLIST_ROOT),
-                (issued, core::BLACKLIST_ISSUED_AT),
-            ] {
-                GlueChip::assert_equal(region, word, &after[index])?;
-            }
-            GlueChip::assert_equal(region, digest, &new_rest[rest::BLACKLIST])?;
-            issued
         }
         RefreshUpdate::QuotaShare {
             digest,
@@ -266,10 +228,6 @@ pub fn constrain(
                 Variant::RefreshSchemePolicy => {
                     matches!(i, core::POLICY_EPOCH | core::ENABLED_CONTROLS)
                 }
-                Variant::RefreshBlacklist => matches!(
-                    i,
-                    core::BLACKLIST_VERSION | core::BLACKLIST_ROOT | core::BLACKLIST_ISSUED_AT
-                ),
                 Variant::RefreshQuotaShare => matches!(
                     i,
                     core::QUOTA_WINDOWS_ROOT | core::QUOTA_SHARE_EXPIRY | core::QUOTA_USAGE_ROOT
@@ -283,7 +241,6 @@ pub fn constrain(
     for (i, old) in old_rest.iter().enumerate() {
         let changed = match variant {
             Variant::RefreshSchemePolicy => matches!(i, rest::SCHEME_POLICY | rest::FEE_SCHEDULE),
-            Variant::RefreshBlacklist => matches!(i, rest::BLACKLIST | rest::BLACKLIST_HISTORY),
             Variant::RefreshQuotaShare => matches!(i, rest::QUOTA_SHARE | rest::QUOTA_SHARE_ID),
             Variant::RefreshTimeAnchor => i == rest::TIME_ANCHOR,
             _ => false,
@@ -328,10 +285,10 @@ pub(crate) fn mask(
     uint: &mut UintChip<'_, Fp>,
     region: &mut Region<'_, Fp>,
     word: &Word<Fp>,
-) -> Result<[iroha_plonk_gadgets::Bit<Fp>; 3], Error> {
-    let integer = uint.range_check::<3>(region, word)?;
-    let mut bits = Vec::with_capacity(3);
-    for i in 0..3 {
+) -> Result<[iroha_plonk_gadgets::Bit<Fp>; 2], Error> {
+    let integer = uint.range_check::<2>(region, word)?;
+    let mut bits = Vec::with_capacity(2);
+    for i in 0..2 {
         bits.push(
             uint.glue()
                 .boolean(region, integer.value().map(|v| v & (1 << i) != 0))?,
@@ -339,11 +296,7 @@ pub(crate) fn mask(
     }
     let composed = uint.glue().linear(
         region,
-        &[
-            (Fp::ONE, bits[0].word()),
-            (Fp::from(2), bits[1].word()),
-            (Fp::from(4), bits[2].word()),
-        ],
+        &[(Fp::ONE, bits[0].word()), (Fp::from(2), bits[1].word())],
         Fp::ZERO,
     )?;
     GlueChip::assert_equal(region, &composed, word)?;

@@ -128,7 +128,7 @@ fn sign(key: &SigningKey, message: &[u8]) -> KagemushaWalletSignerOutputV1<'stat
     KagemushaWalletSignerOutputV1::Raw(signature.to_bytes().into())
 }
 
-/// Generate genuine native V2 keys and signed authority for all sixteen selectors and Omega.
+/// Generate genuine native V2 keys and signed authority for all eleven selectors and Omega.
 /// The public fixture root is scalar0x11 repeated; it is never an installed release key.
 /// These circuits qualify only the installation/immutable-custody code under test.
 #[must_use]
@@ -156,7 +156,7 @@ pub(crate) fn signed_inventory_with_step_originals(
 }
 
 /// Install a test-generated genuine k16 Pallas key as the lineage original before any
-/// allowlist or authority derivation. The sixteen sigma selectors stay engineering fixtures;
+/// allowlist or authority derivation. The eleven sigma selectors stay engineering fixtures;
 /// the replacement key must have the installed Omega profile, and it is no wallet relation.
 #[cfg(test)]
 pub(crate) fn signed_inventory_with_lineage(
@@ -181,7 +181,7 @@ fn build_inventory(
     lineage: Option<ArtifactOriginalV1>,
     catalog: impl FnOnce(&VerifierPackV1) -> Option<Vec<u8>>,
 ) -> (VerifierPackV1, InstallationV1, Option<Vec<u8>>) {
-    let mut selected: [Option<StepOriginalV1>; 16] = core::array::from_fn(|_| None);
+    let mut selected: [Option<StepOriginalV1>; 11] = core::array::from_fn(|_| None);
     for replacement in replacements {
         let index = SIGMA_CATALOG_V1
             .iter()

@@ -1196,7 +1196,7 @@ where
             })?;
         let record = KagemushaWalletMarkerRecordV1::new(
             *slot,
-            marker,
+            &marker,
             anchor,
             None,
             kagemusha_wallet_boot_stamp_v1(&self.boot()),

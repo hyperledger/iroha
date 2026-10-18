@@ -40,25 +40,22 @@ fn request() -> KagemushaWalletRequestV1 {
         .unwrap();
     let envelope: KagemushaWalletEnvelopeV1 =
         archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()).unwrap();
-    let KagemushaWalletMessageV1::Request { mut request } = envelope.message else {
+    let KagemushaWalletMessageV1::Request { request } = envelope.message else {
         panic!("Request fixture")
     };
-    request.body.receiver_blacklist_version = 0;
-    request.body.receiver_blacklist_root = [0; 32];
-    request.signature = signature(&key("receiver_payment"), &request.body.signing_message());
     request.validate().unwrap();
     request
 }
 
 #[test]
-fn exact_requests_keep_their_original_gap_and_survive_reopening() {
+fn exact_requests_keep_their_original_and_survive_reopening() {
     let mut store = MemoryArchive::new();
-    let mut request = request();
+    let request = request();
     let empty = IndexRoot::default();
-    let off = retain_request(&mut store, empty, &request, None).unwrap();
+    let issued = retain_request(&mut store, empty, &request).unwrap();
     assert_eq!(
-        off,
-        retain_request(&mut store, off, &request, None).unwrap()
+        issued,
+        retain_request(&mut store, issued, &request).unwrap()
     );
     assert!(
         empty
@@ -66,12 +63,11 @@ fn exact_requests_keep_their_original_gap_and_survive_reopening() {
             .unwrap()
             .is_none()
     );
-    let value = off
+    let value = issued
         .get(&mut store, &request.request_digest())
         .unwrap()
         .unwrap();
     let record: IssuedRequestCustodyV1 = archive::decode(&value).unwrap();
-    assert!(record.gap.is_none());
     let (restored, original) = record
         .read(
             &mut store,
@@ -82,7 +78,6 @@ fn exact_requests_keep_their_original_gap_and_survive_reopening() {
         .unwrap();
     assert_eq!(original, archive::encode(&request).unwrap());
     assert_eq!(restored, request);
-    assert!(record.gap(&mut store, &restored).unwrap().is_none());
     assert!(matches!(
         record.read(
             &mut store,
@@ -117,43 +112,6 @@ fn exact_requests_keep_their_original_gap_and_survive_reopening() {
             .unwrap(),
         archive::encode(&request).unwrap()
     );
-
-    let list: KagemushaWalletBlacklistV1 = fixture("KagemushaWalletBlacklistV1");
-    let gap = list
-        .gap_opening(&request.body.payer_account_digest)
-        .unwrap();
-    request.body.receiver_blacklist_version = list.body.list_version;
-    request.body.receiver_blacklist_root = list.body.entries_root;
-    request.signature = signature(&key("receiver_payment"), &request.body.signing_message());
-    assert!(retain_request(&mut store, off, &request, None).is_err());
-    let on = retain_request(&mut store, off, &request, Some(&gap)).unwrap();
-    let value = on
-        .get(&mut store, &request.request_digest())
-        .unwrap()
-        .unwrap();
-    let record: IssuedRequestCustodyV1 = archive::decode(&value).unwrap();
-    assert_eq!(record.gap(&mut store, &request).unwrap(), Some(gap));
-    assert_eq!(
-        store
-            .read_object(
-                &record.gap.unwrap(),
-                KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1
-            )
-            .unwrap(),
-        gap.transcript()
-    );
-    assert!(
-        off.get(&mut store, &request.request_digest())
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(
-        on,
-        retain_request(&mut store, on, &request, Some(&gap)).unwrap()
-    );
-    let mut corrupt = gap;
-    corrupt.lower[0] ^= 1;
-    assert!(retain_request(&mut store, on, &request, Some(&corrupt)).is_err());
     store.remove(ArchiveKey::Object(record.request)).unwrap();
     assert!(matches!(
         store.read_object(&record.request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1),

@@ -332,7 +332,7 @@ fn retained_original_trust_replays_genuine_proof_and_preserves_checkpoint_identi
     assert_eq!(retained.verification_time_ms, now);
     assert_eq!(retained.checkpoints, initial.checkpoints);
     let replay = LightClientReplayV1::new(
-        &SccpChainProfilesV1::genesis(),
+        SccpChainProfilesV1::genesis(),
         retained.network,
         retained.light_client,
         retained.sets.clone(),
@@ -347,13 +347,17 @@ fn retained_original_trust_replays_genuine_proof_and_preserves_checkpoint_identi
     );
     retained.sets[0].set_bytes[0] ^= 1;
     let forged = LightClientReplayV1::new(
-        &SccpChainProfilesV1::genesis(),
+        SccpChainProfilesV1::genesis(),
         retained.network,
         retained.light_client,
         retained.sets.clone(),
         retained.checkpoints.clone(),
     );
     assert!(forged.verify_evidence(&proof, now).is_err());
-    retained.sets[0].set_bytes = vec![255; iroha_sccp_wallet::journal::MAX_RECORD_BYTES as usize];
+    retained.sets[0].set_bytes = vec![
+        255;
+        usize::try_from(iroha_sccp_wallet::journal::MAX_RECORD_BYTES)
+            .expect("bounded journal records fit usize")
+    ];
     assert!(super::super::retain_source_trust(retained).is_err());
 }

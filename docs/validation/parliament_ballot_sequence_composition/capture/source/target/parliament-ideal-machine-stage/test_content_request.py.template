@@ -1,0 +1,83 @@
+"""Joint content-controller wiring controls, using an explicitly synthetic P0.
+
+P0's real source tests are separate; this fixture supplies canonical public
+results to expose relocation, write enable, output union and cleanup mistakes.
+"""
+from collections import Counter
+from dataclasses import replace
+import random
+
+import pytest
+
+from bit_ir import Builder, apply_gates, bits, unpack
+from content_request import ContentRequest, content_generator
+from public_machine import PublicShape
+from stage_plan import CleanMap, Invocation, RetainedPlan
+from test_request_transition import synthetic
+
+
+def fixture():
+    base = synthetic(); g = base.generator
+    b = Builder(60)
+    p0 = Invocation('P0',CleanMap.block(b.finish(tuple(range(60)))),(('public_error',0,60),))
+    plan = RetainedPlan((*g.plan.inputs,('public_error',60)),(p0,*g.plan.stages))
+    generator = replace(g,plan=plan,shape=PublicShape('VOTE',list_count=3),
+                        fields=(*g.fields,('public_validation',('P0',0,60)),('public_valid',('P0',0,1))))
+    return ContentRequest(replace(base,generator=generator))
+
+
+@pytest.mark.parametrize('valid,exhausted,previous',[(1,0,0),(1,1,0),(1,0,2),(1,1,2),
+                                                  (0,0,0),(0,1,0),(0,0,6),(0,1,6)])
+def test_full_joint_transition_errors_exhaustion_log_identity_and_inverse(valid,exhausted,previous):
+    c = fixture(); p = c.layout(); rng = random.Random(811)
+    fields = {name:(off,n) for name,(_,off,n) in c.base.generator.fields if name not in ('public_validation','public_valid')}
+    state = [rng.randrange(2) for _ in range(p['original_input_bits'])]+[0]*(p['size']-p['original_input_bits'])
+    error_start = c.generator.plan.layout()['registers']['public_error'][0]
+    # Valid or the canonical VoteValue(255) public error; no other payload bits.
+    payload = [*bits(1,3), *([0]*48), *bits(255,8)]
+    state[error_start:error_start+60] = [valid]+([0]*59 if valid else payload)
+    off,_ = fields['exhausted']; state[off] = exhausted
+    off,_ = fields['primary_flags']; state[off:off+2] = [1,exhausted]
+    state[p['counter']:p['output']] = bits(previous,p['counter_bits'])
+    width = 1+c.writes.append().record_bits
+    for i in range(previous):
+        start = p['log']+i*width
+        state[start:start+width] = [1]+[rng.randrange(2) for _ in range(width-1)]
+    state[p['output']:p['retained']] = [rng.randrange(2) for _ in range(p['output_bits'])]
+    state += [1,0,1]; before = state[:]; census = Counter()
+    for gate in c.emit():
+        census[gate[0]] += 1
+        state[gate[-1]] ^= int(all(state[w] for w in gate[1:-1]))
+    assert state[:p['log']] == before[:p['log']] and state[-3:] == before[-3:]
+    assert not any(state[p['retained']:-3])
+    result = [a^b for a,b in zip(state[p['output']:p['retained']],before[p['output']:p['retained']])]
+    assert unpack(result[:2]) == (2 if not valid else exhausted)
+    assert result[2:61] == ([0]*59 if valid else payload)
+    if not valid:
+        assert state[p['log']:p['output']] == before[p['log']:p['output']]
+        assert not any(result[61:])
+    else:
+        assert unpack(state[p['counter']:p['output']]) == previous+3+exhausted
+        assert state[p['log']:p['log']+previous*width] == before[p['log']:p['log']+previous*width]
+        assert unpack(result[61:93]) == exhausted*((1<<20)-1)
+        assert unpack(result[93:157]) == (1-exhausted)*5
+        expected = []
+        for name in ('challenge','counter'):
+            off,n = fields[name]; expected.extend(before[off:off+n])
+        assert result[157:] == [bit*(1-exhausted) for bit in expected]
+    assert census == {k:c.resources()['gates'][k] for k in ('x','cx','ccx')}
+    apply_gates(state,c.emit(inverse=True)); assert state == before
+
+
+def test_controller_resources_and_missing_field_or_shape_refusals():
+    c = fixture(); p = c.layout(); r = c.resources()
+    assert r['total_logical_bits'] == sum(r[k] for k in ('original_input_bits','persistent_log_bits',
+        'persistent_counter_bits','caller_output_bits','retained_derived_bits','shared_work_bits'))
+    assert p['work_bits'] == max(p['generator']['scratch_bits'],p['write_work_bits'],p['return_work_bits'])
+    assert r['bounded_content_invalid_controller_implemented'] and not r['profile_qualified']
+    with pytest.raises(ValueError):list(c.emit(inverse=1))
+    with pytest.raises(ValueError):c.source_pieces('unknown')
+    with pytest.raises(ValueError):replace(c,base=replace(c.base,generator=replace(c.generator,fields=c.generator.fields[:-1])))
+    with pytest.raises(ValueError):replace(c,base=replace(c.base,generator=replace(c.generator,shape=PublicShape('REG'))))
+    for shape in (PublicShape('REG'),PublicShape('VOTE',list_count=2),PublicShape('VOTE',list_count=1001)):
+        with pytest.raises(ValueError):content_generator('/must-not-be-read',shape)

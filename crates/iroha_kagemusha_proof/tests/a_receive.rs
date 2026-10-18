@@ -1,7 +1,8 @@
-//! Genuine Receive sigma/Q and depth32 accept/burn map composition.
+//! Genuine Receive step relation, incoming-only sigma Q, merged signature leaf and
+//! depth32 accept/burn map composition (lean lineage: A proves the own step inline).
 //!
 //! These are source and map components. They do not authenticate a predecessor
-//! Omega or authorize the terminal branch without the five fixed A result owners.
+//! Omega or authorize the terminal branch without the four fixed A result owners.
 
 #[path = "common/bootstrap.rs"]
 mod bootstrap;
@@ -20,11 +21,15 @@ mod send_objects;
 
 use ff::Field;
 use iroha_kagemusha_proof::{
-    SigmaProver, SigmaRelation,
-    a_relation::{LineagePublicCells, QProofPlan, schedule::sigma_selector},
+    Mutation, PrefixMode, RelationShape, SigmaProver, SigmaRelation, StepWitness,
+    a_relation::{
+        LineagePublicCells, QProofPlan, own::OwnPolicy, receive::ReceiveStagePlan,
+        schedule::sigma_selector, transition::TransitionInputs,
+    },
     admin_sigma::StateWitness,
     operation_relation::{
         map_effects::{InsertCells, MapEffectsChip, MapState, MapTransition, ReceiveMapWitness},
+        objects::ObjectKind,
         state::StateCells,
         statement::StatementCells,
     },
@@ -32,20 +37,26 @@ use iroha_kagemusha_proof::{
         QSigmaPlan, SigmaClass, SigmaSlotWitness,
         native::{IncomingMode, IncomingSigma, QSigmaProver},
     },
+    q_signature::{QSignatureCircuit, SLOT_WORDS, SignatureKey, SignatureSlot, SignatureWitness},
+    sample_witness,
     tree::IndexedInsert,
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     ProverConfig,
     check::{CheckMode, check_circuit},
     cs::{Column, ConstraintSystem, Instance},
-    frontend::{Circuit, Error, Layouter, Region, SimpleFloorPlanner, Value, synthesize},
+    frontend::{
+        AssignedTables, Circuit, Error, Layouter, Region, SimpleFloorPlanner, Value, synthesize,
+    },
     pcs::ipa::PinnedParams,
     verifier::accumulate_generator,
 };
 use iroha_plonk_gadgets::{
     UintChip,
     imt::{LeafCells, OpeningCells, PathCells},
+    p256::VerifyMode,
+    statement::STATEMENT_DOMAIN,
 };
 use iroha_plonk_recursion::{
     FoldConfig, FoldInput,
@@ -227,7 +238,7 @@ impl Circuit<Fp> for Maps {
                     },
                 };
                 // This component exposes the terminal verdict publicly. Full A must
-                // derive it from the five fixed result owners before calling receive.
+                // derive it from the four fixed result owners before calling receive.
                 let mut maps = MapEffectsChip::new(lanes.glue, lanes.range, lanes.hash);
                 maps.receive(&mut region, &transition, &witness, &verdict)?;
                 Ok([statement.digest().clone(), verdict.word().clone()])
@@ -312,14 +323,371 @@ fn real_request_receive_accept_and_burn_preserve_core_and_adjusted_maps() {
     }
 }
 
-/// Real own Receive and incoming Send sigma Q source; its global mode remains
-/// subject to A's complete five-result rule, not selected by this constructor.
+/// The own Receive step relation A1 lays out inline (`ReceiveTransition`) against
+/// the validated own statement, whose digest is the only public input. Without
+/// the relation only the statement's self-contained field rules remain.
+#[derive(Clone)]
+struct InlineStep {
+    variant: Variant,
+    statement: [Fp; 26],
+    step: StepWitness<Fp>,
+    known: bool,
+    relation: bool,
+}
+impl InlineStep {
+    fn new(variant: Variant, fixture: &receive_objects::ReceiveFixture) -> Self {
+        Self {
+            variant,
+            statement: fixture.statement,
+            step: fixture.step.clone(),
+            known: true,
+            relation: true,
+        }
+    }
+    fn public(&self) -> Vec<Vec<Fp>> {
+        vec![vec![hash_with_domain(STATEMENT_DOMAIN, &self.statement)]]
+    }
+    fn satisfied(&self) -> bool {
+        check_circuit(self, 16, &self.public(), CheckMode::Strict).is_ok_and(|r| r.is_satisfied())
+    }
+}
+impl Circuit<Fp> for InlineStep {
+    type Config = Config;
+    type Params = ();
+    type FloorPlanner = SimpleFloorPlanner;
+    fn without_witnesses(&self) -> Self {
+        Self {
+            known: false,
+            ..self.clone()
+        }
+    }
+    fn configure(meta: &mut ConstraintSystem<Fp>) -> Config {
+        let verifier = VerifierConfig::configure_serialized_foreign_tagged(meta, 3).unwrap();
+        let public = meta.instance_column(1);
+        meta.enable_equality(public);
+        Config { verifier, public }
+    }
+    fn synthesize(&self, config: Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
+        let mut chip = VerifierChip::new(config.verifier);
+        chip.load_tables(&mut layouter)?;
+        // The native evaluation the A1 source retains beside its step; key
+        // generation lays out the same relation without either.
+        let native = self.step.evaluate(SigmaRelation::RECEIVE);
+        let digest = layouter.assign_region(
+            || "inline Receive step relation",
+            |mut region| {
+                let values = self.statement.map(|v| {
+                    if self.known {
+                        Value::known(v)
+                    } else {
+                        Value::unknown()
+                    }
+                });
+                let fields = chip
+                    .uint()
+                    .glue()
+                    .witnesses(&mut region, &values)?
+                    .try_into()
+                    .map_err(|_| Error::Synthesis)?;
+                let statement = StatementCells::constrain_with_verifier(
+                    &mut chip,
+                    &mut region,
+                    self.variant,
+                    &fields,
+                )?;
+                if self.relation {
+                    TransitionInputs {
+                        shape: RelationShape::new(SigmaRelation::RECEIVE, PrefixMode::Absorbed),
+                        witness: self.known.then_some((&self.step, &native)),
+                    }
+                    .constrain(&mut chip, &mut region, &statement)?;
+                }
+                Ok(statement.digest().clone())
+            },
+        )?;
+        layouter.constrain_instance(digest.cell(), config.public, 0)
+    }
+}
+fn max_rows(tables: &AssignedTables<Fp>) -> usize {
+    tables
+        .advice_assigned()
+        .iter()
+        .map(|column| column.iter().rposition(|v| *v).map_or(0, |r| r + 1))
+        .max()
+        .unwrap_or(0)
+}
+/// A genuine own Receive step. Ordinary Receive quotes the receiver's current
+/// credential and accepts with a consumed insertion; renewed quotes the
+/// re-signed credential and burns without one, so both statement shapes occur.
+fn step_fixture(variant: Variant) -> receive_objects::ReceiveFixture {
+    let (payer, _, _) = bootstrap_objects::enrollment();
+    let (loaded, _, _) = load_objects::funded(&payer);
+    let renewed = variant == Variant::ReceiveRenewed;
+    let send = if renewed {
+        send_objects::from_load_with_receiver_credential(
+            &loaded.successor,
+            &receive_objects::renewed_credential(),
+        )
+    } else {
+        send_objects::from_load(&loaded.successor)
+    };
+    let (receiver, _, _) = receive_objects::receiver();
+    receive_objects::from_send(
+        &send,
+        &StateWitness::from(&receiver),
+        Fp::from(401),
+        !renewed,
+        !renewed,
+    )
+}
+
+/// A1's inline relation proves exactly the statement σ_recv certifies, for
+/// genuine ordinary and renewed witnesses; it lays out the same cells without
+/// a witness, and refuses another honest step, an overflowing step and a Send step.
+#[test]
+fn receive_transition_binds_the_genuine_own_statement_inline() {
+    let shape = common::pinned_shape(common::folded(SigmaRelation::RECEIVE), (12, 1));
+    for variant in [Variant::Receive, Variant::ReceiveRenewed] {
+        let fixture = step_fixture(variant);
+        let native = fixture.step.evaluate(SigmaRelation::RECEIVE);
+        assert!(native.is_honest(), "{variant:?} {:?}", native.violations);
+        assert_eq!(native.statement, fixture.statement);
+        // σ_recv's single public input is the digest of exactly these fields.
+        assert_eq!(
+            native.public().instance(),
+            [hash_with_domain(STATEMENT_DOMAIN, &fixture.statement)]
+        );
+        assert!(common::check_witness(&shape, &fixture.step).is_satisfied());
+        let circuit = InlineStep::new(variant, &fixture);
+        let report = check_circuit(&circuit, 16, &circuit.public(), CheckMode::Strict).unwrap();
+        assert!(
+            report.is_satisfied(),
+            "{variant:?} {:?}",
+            &report.failures()[..report.failures().len().min(8)]
+        );
+        let known = synthesize(&circuit, 16, None).unwrap();
+        let unknown = synthesize(&circuit.without_witnesses(), 16, None).unwrap();
+        assert_eq!(known.tables.fixed(), unknown.tables.fixed());
+        assert_eq!(known.tables.permutation(), unknown.tables.permutation());
+        assert_eq!(
+            known.tables.advice_assigned(),
+            unknown.tables.advice_assigned()
+        );
+        let bare = InlineStep {
+            relation: false,
+            ..circuit.clone()
+        };
+        let bare = synthesize(&bare, 16, None).unwrap();
+        eprintln!(
+            "RECEIVE_TRANSITION {variant:?} rows_with_relation={} rows_statement_only={} known_unknown_layout_equal=true",
+            max_rows(&known.tables),
+            max_rows(&bare.tables)
+        );
+        for (case, step) in [
+            (
+                "another honest Receive step",
+                sample_witness::<Fp>(99, SigmaRelation::RECEIVE, Mutation::None),
+            ),
+            (
+                "an overflowing receiver balance",
+                sample_witness::<Fp>(1, SigmaRelation::RECEIVE, Mutation::Overflow),
+            ),
+            (
+                "a Send step",
+                sample_witness::<Fp>(5, SigmaRelation::SEND, Mutation::None),
+            ),
+        ] {
+            let wrong = InlineStep {
+                step,
+                ..circuit.clone()
+            };
+            assert!(!wrong.satisfied(), "{variant:?} accepted {case}");
+        }
+    }
+}
+
+/// Every single own-statement field substitution is refused by A1's inline
+/// relation, while the statement rules alone accept a substituted credential,
+/// predecessor or successor commitment or credit id: only the relation binds them.
+#[test]
+#[ignore = "all 26 own-statement fields of both Receive variants at k16; run optimized"]
+fn receive_transition_rejects_every_single_statement_field_mutation() {
+    for variant in [Variant::Receive, Variant::ReceiveRenewed] {
+        let circuit = InlineStep::new(variant, &step_fixture(variant));
+        assert!(circuit.satisfied(), "{variant:?} genuine");
+        for field in 0..circuit.statement.len() {
+            let mut changed = circuit.clone();
+            changed.statement[field] += Fp::ONE;
+            assert!(!changed.satisfied(), "{variant:?} statement field{field}");
+        }
+        for field in [7, 14, 15, 17] {
+            let mut bare = InlineStep {
+                relation: false,
+                ..circuit.clone()
+            };
+            bare.statement[field] += Fp::ONE;
+            assert!(
+                bare.satisfied(),
+                "{variant:?} statement rules alone, field{field}"
+            );
+        }
+        eprintln!(
+            "RECEIVE_TRANSITION {variant:?} all_26_single_field_mutations_rejected=true relation_only_fields=[7,14,15,17]"
+        );
+    }
+}
+
+/// Genuine signatures for every slot of the merged Receive Q1, own receipt
+/// first: the own receipt under the receiver payment key, the Send receipt
+/// under the payer key and the Request under the quoted receiver key; renewed
+/// adds the quoted credential under its issuer key and the certificate under
+/// the root. Slot semantics are bound by A's owners, not by these bodies.
+fn merged_signatures(variant: Variant) -> Vec<SignatureWitness> {
+    let sign = |kind: ObjectKind, fill: u8, secret: u64, nonce: u64| {
+        bootstrap_objects::sign(kind, vec![fill; kind.body_len()], secret, nonce).signature
+    };
+    let receiver = bootstrap_objects::Identity::Receiver.secret();
+    let payer = bootstrap_objects::Identity::Payer.secret();
+    let mut signatures = vec![
+        sign(ObjectKind::Receipt, 1, receiver, 73),
+        sign(ObjectKind::Receipt, 2, payer, 71),
+        sign(ObjectKind::Request, 3, receiver, 59),
+    ];
+    if variant == Variant::ReceiveRenewed {
+        let (_, certificate, _) = receive_objects::receiver();
+        signatures.extend([
+            receive_objects::renewed_credential().signature,
+            certificate.signature,
+        ]);
+    }
+    signatures
+}
+
+/// Merged Q1 keeps the own receipt hard in slot 0: a malformed own receipt has
+/// no native Q1 export at all, while each malformed incoming slot exports only
+/// its own false soft verdict.
+#[test]
+fn merged_signature_leaf_refuses_a_bad_own_receipt_and_keeps_incoming_slots_soft() {
+    let policy = OwnPolicy::new([31, 32], bootstrap_objects::key(23)).unwrap();
+    for (variant, slots) in [(Variant::Receive, 3), (Variant::ReceiveRenewed, 5)] {
+        let schema = ReceiveStagePlan::signature_schema_for(variant, policy).unwrap();
+        assert_eq!(schema.slots().len(), slots);
+        assert_eq!(
+            schema.slots()[0],
+            SignatureSlot {
+                mode: VerifyMode::Hard,
+                key: SignatureKey::Variable,
+            }
+        );
+        assert!(
+            schema.slots()[1..]
+                .iter()
+                .all(|slot| slot.mode == VerifyMode::Soft)
+        );
+        let witnesses = merged_signatures(variant);
+        let verdicts = |witnesses: &[SignatureWitness]| {
+            schema.native_instances(witnesses).map(|[public]| {
+                public
+                    .chunks_exact(SLOT_WORDS)
+                    .map(|slot| slot[SLOT_WORDS - 1])
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert_eq!(verdicts(&witnesses[..]).unwrap(), vec![Fq::ONE; slots]);
+        let mut forged = witnesses.clone();
+        forged[0].signature[1][0] ^= 1;
+        assert!(
+            verdicts(&forged[..]).is_err(),
+            "{variant:?} malformed own receipt in merged slot 0"
+        );
+        for slot in 1..slots {
+            let mut malformed = witnesses.clone();
+            malformed[slot].signature[1][0] ^= 1;
+            let mut expected = vec![Fq::ONE; slots];
+            expected[slot] = Fq::ZERO;
+            assert_eq!(
+                verdicts(&malformed[..]).unwrap(),
+                expected,
+                "{variant:?} soft incoming slot{slot}"
+            );
+        }
+    }
+}
+
+/// The k16 merged leaves constrain the same split: no claimed verdict satisfies
+/// a malformed own receipt, and a malformed incoming slot is satisfiable only
+/// with its false soft verdict.
+#[test]
+#[ignore = "merged 3V and 4V1F Receive signature leaves at k16; run optimized"]
+fn merged_signature_leaf_circuit_constrains_the_own_slot_hard_and_incoming_slots_soft() {
+    let policy = OwnPolicy::new([31, 32], bootstrap_objects::key(23)).unwrap();
+    for variant in [Variant::Receive, Variant::ReceiveRenewed] {
+        let schema = ReceiveStagePlan::signature_schema_for(variant, policy).unwrap();
+        let witnesses = merged_signatures(variant);
+        let satisfied = |witnesses: &[SignatureWitness], verdicts: &[bool]| {
+            let circuit = QSignatureCircuit::new(schema.clone(), witnesses.to_vec()).unwrap();
+            let public = circuit.instances(verdicts).unwrap().to_vec();
+            check_circuit(&circuit, 16, &public, CheckMode::Strict).is_ok_and(|r| r.is_satisfied())
+        };
+        let genuine = vec![true; witnesses.len()];
+        assert!(
+            satisfied(&witnesses[..], &genuine[..]),
+            "{variant:?} genuine leaf"
+        );
+        let mut forged = witnesses.clone();
+        forged[0].signature[1][0] ^= 1;
+        let mut disowned = genuine.clone();
+        disowned[0] = false;
+        for claimed in [&genuine, &disowned] {
+            assert!(
+                !satisfied(&forged[..], &claimed[..]),
+                "{variant:?} malformed own receipt in merged slot 0"
+            );
+        }
+        let mut malformed = witnesses.clone();
+        malformed[1].signature[1][0] ^= 1;
+        let mut soft = genuine.clone();
+        soft[1] = false;
+        assert!(
+            satisfied(&malformed[..], &soft[..]),
+            "{variant:?} malformed Send receipt stays soft"
+        );
+        assert!(
+            !satisfied(&malformed[..], &genuine[..]),
+            "{variant:?} malformed Send receipt cannot claim true"
+        );
+        let rows = synthesize(
+            &QSignatureCircuit::new(schema.clone(), witnesses.clone()).unwrap(),
+            16,
+            None,
+        )
+        .unwrap()
+        .tables
+        .advice_assigned()
+        .iter()
+        .map(|column| column.iter().rposition(|v| *v).map_or(0, |r| r + 1))
+        .max()
+        .unwrap_or(0);
+        eprintln!(
+            "RECEIVE_MERGED_Q1 {variant:?} slots={} rows={rows} own_slot_hard=true incoming_slots_soft=true",
+            witnesses.len()
+        );
+    }
+}
+
+/// Real own Receive step and incoming-only Send sigma Q source; its global mode
+/// remains subject to A's complete four-result rule, not selected by this
+/// constructor. A proves the own step inline (`ReceiveTransition`); the own
+/// σ_recv is still produced from the same step, because the own receipt signs
+/// its digest and the payer's ArchiveReceive verifies it.
 #[allow(dead_code)]
 pub(crate) struct ReceiveQ {
     pub(crate) witness: receive_objects::ReceiveFixture,
     pub(crate) send: send_objects::SendFixture,
+    /// Actual own σ_recv, retained but never verified by the Receive A.
     pub(crate) sigma: Vec<u8>,
     pub(crate) incoming_sigma: Vec<u8>,
+    /// Incoming-only `Q_sigma`: one soft Send slot folded with the pinned trivial claim.
     pub(crate) sigma_plan: QSigmaPlan,
     pub(crate) q: QProofPlan,
     pub(crate) key: iroha_plonk::VerifyingKey<Ep>,
@@ -423,6 +791,8 @@ fn genuine_receive_source_for_send(
     let witness = receive_objects::from_send(&send, before, Fp::from(401), valid, insert);
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let vparams = common::vesta_params(16);
+    // The wallet still proves σ_recv natively: the own receipt signs its digest
+    // and the payer's ArchiveReceive verifies it. Receive A never verifies it.
     let own = SigmaProver::<Eq>::keygen_with_params(
         common::pinned_shape(common::folded(SigmaRelation::RECEIVE), (12, 1)),
         common::vesta_params(12),
@@ -436,6 +806,12 @@ fn genuine_receive_source_for_send(
     let own_proof = own
         .prove(&witness.step, common::fresh_randomness())
         .unwrap();
+    // σ_recv certifies exactly the statement digest whose fields A1's inline
+    // relation binds, so dropping its re-verification loses no own constraint.
+    assert_eq!(
+        own_proof.public.instance(),
+        [hash_with_domain(STATEMENT_DOMAIN, &witness.statement)]
+    );
     let incoming_proof = incoming
         .prove(&send.step, common::fresh_randomness())
         .unwrap();
@@ -445,25 +821,18 @@ fn genuine_receive_source_for_send(
         // the total incoming verifier must export false, not a deferred claim.
         incoming_sigma[..32].fill(0xff);
     }
-    let own_verifier = own.verifier();
     let incoming_verifier = incoming.verifier();
-    let sigma_plan = QSigmaPlan::new(
-        SigmaClass::from_verifiers(&[(sigma_selector(4, 0).unwrap(), &own_verifier)]).unwrap(),
-        Some(
-            SigmaClass::from_verifiers(&[(sigma_selector(3, 0).unwrap(), &incoming_verifier)])
-                .unwrap(),
-        ),
+    let sigma_plan = QSigmaPlan::incoming_only(
+        SigmaClass::from_verifiers(&[(sigma_selector(3, 0).unwrap(), &incoming_verifier)]).unwrap(),
         &vparams,
     )
     .unwrap();
+    assert!(!sigma_plan.has_own());
+    assert_eq!(sigma_plan.position(QSigmaPlan::INCOMING), Some(0));
+    assert_eq!(sigma_plan.part_source_k(), 16);
     let prepared = sigma_plan
         .prepare(
-            SigmaSlotWitness {
-                key: own.proving_key().vk().clone(),
-                statement: own_proof.public.instance()[0],
-                length: own_proof.bytes.len().try_into().unwrap(),
-                proof: own_proof.bytes.clone(),
-            },
+            None,
             Some(IncomingSigma {
                 sigma: SigmaSlotWitness {
                     key: incoming.proving_key().vk().clone(),
@@ -502,11 +871,22 @@ fn genuine_receive_source_for_send(
         .part()
         .decide(&vparams, MemoryBudget::DEFAULT)
         .unwrap();
-    assert_eq!(proof.instances[2], [Fq::from(10), Fq::from(2)]);
-    assert_eq!(proof.instances[3][0], Fq::ONE);
-    assert_eq!(proof.instances[3][1], Fq::from(u64::from(incoming_valid)));
+    // One incoming slot: its Send selector, then its soft verdict and the
+    // one-hot Accept/Trivial/Corrected mode. No own row precedes it.
+    assert_eq!(proof.instances[2], [Fq::from(2)]);
+    let mut verdict_and_mode = vec![Fq::from(u64::from(incoming_valid))];
+    verdict_and_mode.extend(
+        match mode {
+            IncomingMode::Accept => [1_u64, 0, 0],
+            IncomingMode::Trivial => [0, 1, 0],
+            IncomingMode::Corrected => [0, 0, 1],
+        }
+        .map(Fq::from),
+    );
+    assert_eq!(proof.instances[3], verdict_and_mode);
+    assert_eq!(proof.instances[4], [Fq::from(16)]);
     eprintln!(
-        "Receive genuine sigma={} incoming_sigma={} Q={} sourcek={} mode={mode:?}",
+        "Receive genuine own_sigma={} (retained, inline in A) incoming_sigma={} Q={} sourcek={} mode={mode:?}",
         own_proof.bytes.len(),
         incoming_sigma.len(),
         proof.bytes.len(),
@@ -546,14 +926,13 @@ impl ReceiveQ {
 }
 
 #[test]
-#[ignore = "actual own sigma and altered incoming Send sigma under the complete soft Q verifier"]
+#[ignore = "actual own step and altered incoming Send sigma under the complete soft Q verifier"]
 fn altered_send_sigma_has_false_q_verdict_and_no_spendable_credit() {
     let (receiver, _, _) = receive_objects::receiver();
     let source = genuine_receive_source_with_invalid_sigma(&StateWitness::from(&receiver));
-    assert_eq!(
-        source.instances[3],
-        [Fq::ONE, Fq::ZERO, Fq::ZERO, Fq::ONE, Fq::ZERO]
-    );
+    // The only Q0 slot is the incoming one: its soft verdict is false and the
+    // global mode is Trivial. No own sigma verdict exists to be forced true.
+    assert_eq!(source.instances[3], [Fq::ZERO, Fq::ZERO, Fq::ONE, Fq::ZERO]);
     assert_eq!(source.witness.before.core[8], Fp::ZERO);
     assert_eq!(
         source.witness.after.core[8] - source.witness.after.lineage[14],
@@ -576,17 +955,32 @@ fn altered_send_sigma_has_false_q_verdict_and_no_spendable_credit() {
 }
 
 #[test]
-#[ignore = "actual Receive/Send sigma and two-slot Q proof; run optimized"]
-fn actual_receive_and_incoming_send_q_retains_both_opening_obligations() {
+#[ignore = "actual incoming Send sigma and incoming-only Q proof; run optimized"]
+fn actual_incoming_only_send_q_binds_every_incoming_export() {
     for (valid, insert, mode) in [
         (true, true, IncomingMode::Accept),
         (false, false, IncomingMode::Trivial),
     ] {
         let source = genuine_receive_source(valid, insert, mode);
         let params = source.q.verifier().params();
-        for column in [0, 2, 3] {
+        let row = source.sigma_plan.position(QSigmaPlan::INCOMING).unwrap();
+        let chunk = source
+            .sigma_plan
+            .chunk_range(QSigmaPlan::INCOMING)
+            .unwrap()
+            .start;
+        // Incoming statement, first proof chunk, selector, soft verdict, first
+        // mode bit and the folded part's source k are all hard Q public inputs.
+        for (column, index) in [
+            (0, row),
+            (0, chunk),
+            (2, row),
+            (3, row),
+            (3, row + 1),
+            (4, 0),
+        ] {
             let mut changed = source.instances.clone();
-            changed[column][1] += Fq::ONE;
+            changed[column][index] += Fq::ONE;
             assert!(
                 accumulate_generator(
                     params,

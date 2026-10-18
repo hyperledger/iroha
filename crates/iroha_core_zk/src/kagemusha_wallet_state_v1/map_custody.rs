@@ -17,24 +17,15 @@ pub enum PreparationMapV1 {
     Recovery,
     /// Fee-claim recovery map.
     Fee,
-    /// Permanent Request-recorded blacklist-version history.
-    BlacklistHistory,
 }
 impl PreparationMapV1 {
-    const ALL: [Self; 5] = [
-        Self::Consumed,
-        Self::Pending,
-        Self::Recovery,
-        Self::Fee,
-        Self::BlacklistHistory,
-    ];
+    const ALL: [Self; 4] = [Self::Consumed, Self::Pending, Self::Recovery, Self::Fee];
     const fn index(self) -> usize {
         match self {
             Self::Consumed => 0,
             Self::Pending => 1,
             Self::Recovery => 2,
             Self::Fee => 3,
-            Self::BlacklistHistory => 4,
         }
     }
     fn state_root(self, state: &KagemushaWalletStateV1) -> [u8; 32] {
@@ -43,7 +34,6 @@ impl PreparationMapV1 {
             Self::Pending => state.core.pending_outgoing_root,
             Self::Recovery => state.core.load_redeem_recovery_root,
             Self::Fee => state.core.fee_claim_root,
-            Self::BlacklistHistory => state.rest.blacklist_history_root,
         }
     }
 }
@@ -52,7 +42,7 @@ impl PreparationMapV1 {
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::SourceMapsV1")]
 pub(super) struct SourceMapsV1 {
     version: u16,
-    maps: [PersistentMapV1; 5],
+    maps: [PersistentMapV1; 4],
     quota_slots: [Option<KagemushaWalletQuotaUsageLeafV1>; 64],
 }
 impl Default for SourceMapsV1 {
@@ -65,9 +55,6 @@ impl Default for SourceMapsV1 {
     }
 }
 impl SourceMapsV1 {
-    pub(super) fn history(&self) -> &PersistentMapV1 {
-        &self.maps[PreparationMapV1::BlacklistHistory.index()]
-    }
     pub(super) fn pending(&self) -> &PersistentMapV1 {
         &self.maps[PreparationMapV1::Pending.index()]
     }
@@ -216,9 +203,6 @@ impl<'a> PreparationMapsV1<'a> {
             (K::Receive, PreparationMapV1::Consumed)
             | (K::Send, PreparationMapV1::Pending | PreparationMapV1::Fee)
             | (K::Load | K::Unload, PreparationMapV1::Recovery) => true,
-            (K::RefreshPolicy, PreparationMapV1::BlacklistHistory) => {
-                self.refresh == Some(KagemushaWalletPolicyUpdateKindV1::Blacklist)
-            }
             _ => false,
         };
         if !allowed {

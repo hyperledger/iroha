@@ -1,0 +1,182 @@
+"""Independent full-source metadata checks of conditional request family bounds."""
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import sys
+from unittest.mock import patch
+
+import pytest
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+sys.path[:0]=[str(ROOT/'target/parliament-request-family-envelope-stage'),
+             str(ROOT/'target/parliament-ideal-machine-stage'),
+             str(ROOT/'target/parliament-family-bounds-review')]
+import envelope as e
+from arithmetic import p0,p1,R1_PER_ITEM
+
+
+@pytest.fixture(scope='module')
+def catalog(): return e.Catalog(ROOT)
+
+
+@pytest.mark.parametrize('row,role,body,contexts,count,t,b',[
+    ('candidate','REG',37,(0,1,7,63,255,256),0,3,23),
+    ('comparator','VOTE',0,(0,)*6,257,7,4096),
+])
+def test_new_interior_shape_matches_complete_frozen_factory(catalog,row,role,body,contexts,count,t,b):
+    from public_machine import PublicShape
+    from request_transition import actual_transition
+    from content_request import actual_content_request
+    from request_family import ContentFamily
+    shape=PublicShape(role,row,body,contexts,count)
+    if role=='REG':
+        model=actual_transition(ROOT,shape,t,length_bits=b)
+    else:
+        model=ContentFamily(actual_content_request(ROOT,shape,t,length_bits=b))
+    actual=model.resources()
+    calculated=e.request(catalog,row,role,t,b,body=body,contexts=contexts,count=count)
+    assert actual['gates']==calculated['gates']
+    for key in ('retained_derived_bits','shared_work_bits','persistent_log_bits',
+                'persistent_counter_bits','caller_output_bits','total_logical_bits'):
+        assert actual[key]==calculated[key]
+    assert actual['original_private_coin_bits']==calculated['original_coin_bits']
+    assert actual['original_input_bits']==calculated['original_coin_bits']+calculated['public_input_bits']
+    for source,key in (('generator','generator_forward_and_inverse_gates'),
+                       ('writes','writes_gates'),('returns','returns_gates')):
+        component=actual['components'][source]
+        name='forward_and_inverse_gates' if source=='generator' else 'gates'
+        assert component[name]==calculated[key]
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('role',['REG','VOTE'])
+@pytest.mark.parametrize('t,b',[(1,23),(1 << 64,4096)])
+def test_W_rebase_matches_actual_frozen_single_mutation_emitter(catalog,row,role,t,b):
+    from write_machine import actual_writes
+    from validated_request import ValidatedWrites
+    model=actual_writes(ROOT,row,'registration' if role=='REG' else 'vote',t,b)
+    if role=='VOTE':model=ValidatedWrites(model)
+    actual=model.resources()
+    value=e.request(catalog,row,role,t,b,count=17 if role=='VOTE' else 0)
+    assert value['writes_gates']==actual['gates']
+    assert value['write_clean_work_bits']==actual['clean_work_bits']
+    assert value['persistent_log_bits']==actual['persistent_log_bits']
+    assert value['persistent_counter_bits']==actual['persistent_counter_bits']
+    assert actual['fixed_append_scans']==(1 << 20)+2
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+def test_all_vote_counts_recomputed_without_using_envelope_csv(catalog,row):
+    from public_machine import table_bytes
+    table=table_bytes(ROOT,row)
+    observed=json.loads((ROOT/e.CONTENT_PATH).read_bytes())
+    first=next(c for c in observed['cases'] if (c['row'],c['list_count'])==(row,3))['family_resources']
+    zero0=p0(3);zero1=p1(row,table,'VOTE',count=3)
+    shared=e.interface(1 << 44,64)
+    previous=None
+    for n in range(3,1001):
+        actual=e.compute(catalog,row,'VOTE',shared,count=n)
+        c0=p0(n);c1=p1(row,table,'VOTE',count=n)
+        for key in first['gates']:
+            delta=c0['gates'][key]-zero0['gates'][key]+c1['gates'][key]-zero1['gates'][key]
+            delta+=(n-3)*R1_PER_ITEM[key]
+            assert actual['gates'][key]==first['gates'][key]+2*delta
+        assert actual['retained_derived_bits']==first['retained_derived_bits']+1024*(n-3)
+        assert actual['shared_work_bits']==first['shared_work_bits']
+        assert actual['total_logical_bits']==first['total_logical_bits']+2048*(n-3)
+        assert actual['caller_output_bits']==first['caller_output_bits']
+        if previous is not None:
+            assert actual['gates']['elementary_gates']>previous['gates']['elementary_gates']
+        previous=actual
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+def test_REG_simultaneous_upper_vector_is_not_exact_elementary_maximum(catalog,row):
+    result=e.envelope(catalog,row,'REG',1,23)
+    exact=result['maximum_elementary_witness']
+    other=result['maximum_x_witness']
+    upper=result['coordinatewise_gate_upper_vector']
+    assert other['gates']['x']-exact['gates']['x']==468
+    assert exact['gates']['cx']-other['gates']['cx']==1024
+    assert exact['gates']['elementary_gates']-other['gates']['elementary_gates']==556
+    assert exact['total_logical_bits']-other['total_logical_bits']==56
+    assert upper['elementary_gates']==exact['gates']['elementary_gates']+468
+    assert result['exact_coordinate_maxima']['elementary_gates']==exact['gates']['elementary_gates']
+    assert upper['elementary_gates']==upper['x']+upper['cx']+5*upper['ccx']
+    assert result['maximum_total_logical_bits']==exact['total_logical_bits']
+
+
+@pytest.mark.parametrize('row',['candidate','comparator'])
+@pytest.mark.parametrize('n',[0,2,1001,(1 << 64)-1])
+def test_rejected_u64_descriptor_matches_frozen_header_family(row,n):
+    from request_family import actual_rejected_vote
+    actual=actual_rejected_vote(ROOT,row,n).resources()
+    calculated=e.rejected_size(row,n)
+    assert calculated['gates']==actual['gates']
+    assert calculated['public_input_bits']==actual['borrowed_typed_input_bits']
+    assert calculated['caller_output_bits']==actual['caller_output_bits']
+    assert calculated['clean_work_bits']==actual['clean_work_bits']
+    assert calculated['local_logical_bits']==actual['local_logical_bits']
+    assert calculated['physical_Vec_reachability_attested'] is False
+    assert calculated['invalid_invocation_budget'] is None
+
+
+@pytest.mark.parametrize('row,role,t,b,kwargs',[
+    ('other','REG',1,64,{}),('candidate','other',1,64,{}),
+    ('candidate','REG',True,64,{}),('candidate','REG',1,True,{}),
+    ('candidate','REG',0,64,{}),('candidate','REG',(1 << 64)+1,64,{}),
+    ('candidate','REG',1,22,{}),('candidate','REG',1,4097,{}),
+    ('candidate','REG',1,64,dict(body=-1)),('candidate','REG',1,64,dict(body=4097)),
+    ('candidate','REG',1,64,dict(contexts=(256,)*5)),
+    ('candidate','REG',1,64,dict(contexts=(True,0,0,0,0,0))),
+    ('candidate','VOTE',1,64,dict(count=2)),('candidate','VOTE',1,64,dict(count=1001)),
+    ('candidate','VOTE',1,64,dict(count=3,body=1)),('candidate','VOTE',1,64,dict(count=3.0)),
+])
+def test_invalid_shape_and_geometry_refused(catalog,row,role,t,b,kwargs):
+    with pytest.raises(ValueError):e.request(catalog,row,role,t,b,**kwargs)
+
+
+@pytest.mark.parametrize('when',[1,2])
+def test_source_change_refused_at_both_accounting_boundaries(catalog,when):
+    original=Path.read_bytes;selected=ROOT/e.COMPONENT/'census.json';calls=0
+    def changed(path):
+        nonlocal calls
+        raw=original(path)
+        if path==selected:
+            calls+=1
+            if calls==when:return raw+b'\n'
+        return raw
+    with patch.object(Path,'read_bytes',changed):
+        with pytest.raises(ValueError,match='source drift'):
+            e.envelope(catalog,'candidate','REG',1,23)
+    assert calls==when
+
+
+def test_fixed_stage_scratch_dominates_all_variable_and_W_E_widths(catalog):
+    for row in ('candidate','comparator'):
+        peak=max(s.work for s in dict(catalog.fixed_votes)[row])
+        maxcase=e.request(catalog,row,'VOTE',1 << 64,4096,count=1000)
+        assert maxcase['generator_clean_work_bits']==peak
+        assert maxcase['write_clean_work_bits']<peak and maxcase['return_clean_work_bits']<peak
+        for n in range(3,1001):
+            assert max(s.work for s in catalog.vote(row,n).stages)<peak
+        reg=e.envelope(catalog,row,'REG',1 << 64,4096)['maximum_storage_witness']
+        assert dict(catalog.reg_p1)[row].work<reg['generator_clean_work_bits']
+        assert reg['write_clean_work_bits']<reg['generator_clean_work_bits']
+        assert reg['return_clean_work_bits']<reg['generator_clean_work_bits']
+
+
+def test_no_entry_adversary_or_native_terms_silently_closed(catalog):
+    for role in ('REG','VOTE'):
+        result=e.envelope(catalog,'candidate',role,1,23)
+        assert result['conditional_full_typed_request_body_family_bound'] is True
+        for key in ('full_adaptive_driver_executed','complete_experiment_resource_vector',
+                    'complete_resource_vector','input_or_coin_preparation_priced',
+                    'primitive_bridge_proved','physical_workspace_bound','current_candidate_qualified',
+                    'independent_cryptographic_review','profile_qualified','production_gate_changed'):
+            assert result[key] is False
+        assert all(v is None for v in result['unknown_external_terms'].values())
+        assert result['source_theorem_valid_request_bound'] is None
+        assert result['log_capacity_parameter_is_not_an_invalid_request_budget'] is True

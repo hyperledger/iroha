@@ -18,19 +18,9 @@ pub fn rooted_bootstrap_omega_with_layout(
     diagnostics: bool,
     source_buses: usize,
 ) -> RootedBootstrapOmega {
-    rooted_bootstrap_omega_with_q_layout(diagnostics, source_buses, None)
-}
-
-/// Explicit candidate Q/source profile, identically used before and after rebinding.
-pub fn rooted_bootstrap_omega_with_q_layout(
-    diagnostics: bool,
-    source_buses: usize,
-    q_buses: Option<usize>,
-) -> RootedBootstrapOmega {
     rooted_bootstrap_omega_with_profile(
         diagnostics,
         bootstrap_chain::SourceProfile::ordinary(source_buses),
-        q_buses,
     )
 }
 
@@ -38,12 +28,10 @@ pub fn rooted_bootstrap_omega_with_q_layout(
 pub fn rooted_bootstrap_omega_with_profile(
     diagnostics: bool,
     profile: bootstrap_chain::SourceProfile,
-    q_buses: Option<usize>,
 ) -> RootedBootstrapOmega {
     rooted_bootstrap_omega_with_identity(
         diagnostics,
         profile,
-        q_buses,
         bootstrap_chain::BootstrapIdentity::Payer,
     )
 }
@@ -52,14 +40,12 @@ pub fn rooted_bootstrap_omega_with_profile(
 pub fn rooted_bootstrap_omega_with_identity(
     diagnostics: bool,
     profile: bootstrap_chain::SourceProfile,
-    q_buses: Option<usize>,
     identity: bootstrap_chain::BootstrapIdentity,
 ) -> RootedBootstrapOmega {
     let first = bootstrap_chain::authenticated_bootstrap_with_identity(
         false,
         Fp::from(91),
         profile,
-        q_buses,
         identity,
     );
     let (first_circuit, _, _) = wrapper(&first);
@@ -80,7 +66,6 @@ pub fn rooted_bootstrap_omega_with_identity(
         false,
         omega_digest,
         profile,
-        q_buses,
         identity,
     );
     assert_eq!(first.binding, bootstrap.binding);
@@ -132,7 +117,7 @@ pub fn rooted_bootstrap_omega_with_identity(
     .unwrap();
     verified.decide(&params, MemoryBudget::DEFAULT).unwrap();
     eprintln!(
-        "AUTHENTICATED_BOOTSTRAP_OMEGA source_A2_bytes={source_bytes} lanes={lanes:?} actual_proof_bytes={} transport_bytes={} source_operation_authenticated=true actual_omega_key_bound=true production_size_pass={} release_qualified=false",
+        "AUTHENTICATED_BOOTSTRAP_OMEGA source_A_bytes={source_bytes} lanes={lanes:?} actual_proof_bytes={} transport_bytes={} source_operation_authenticated=true actual_omega_key_bound=true production_size_pass={} release_qualified=false",
         proof.proof.len(),
         proof.proof.len() + 1088,
         proof.proof.len() + 1088 <= 4821

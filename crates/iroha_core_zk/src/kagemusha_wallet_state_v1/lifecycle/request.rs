@@ -4,17 +4,11 @@ use iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1;
 
 use super::*;
 
-/// Largest online finality or administrative original plus companion and request metadata.
-/// This local intake bound leaves the 10,000-byte peer Payment limit unchanged.
-pub const REQUEST_MAX_BYTES: usize = {
-    let original =
-        if KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 > KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1 {
-            KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1
-        } else {
-            KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1
-        };
-    original + KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1024
-};
+/// Largest original, the online Load finality, plus companion and request metadata.
+/// This local intake bound leaves the 10,000-byte peer Payment limit unchanged. A locally
+/// installed blacklist is not an operation request and has its own bound.
+pub const REQUEST_MAX_BYTES: usize =
+    KAGEMUSHA_WALLET_LOAD_FINALITY_MAX_BYTES_V1 + KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1024;
 
 /// Exact signed online-charge originals; the caller cannot supply an accepted charge value.
 #[derive(Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -52,7 +46,7 @@ pub enum OperationActionV1 {
         /// Original payer certificate set.
         certificates: Vec<u8>,
     },
-    /// Apply one of the five existing signed update classes.
+    /// Apply one of the four existing signed update classes.
     Refresh {
         /// Exact existing fixed update class; no new proof profile is selected here.
         kind: KagemushaWalletPolicyUpdateKindV1,
@@ -177,12 +171,6 @@ impl OperationRequestV1 {
                     K::SchemePolicy => {
                         read_model_original(
                             || KagemushaWalletSchemePolicyV1::decode_canonical(update, &id),
-                            Error::Invalid("G1 validation"),
-                        )?;
-                    }
-                    K::Blacklist => {
-                        read_model_original(
-                            || KagemushaWalletBlacklistV1::decode_canonical(update, &id),
                             Error::Invalid("G1 validation"),
                         )?;
                     }

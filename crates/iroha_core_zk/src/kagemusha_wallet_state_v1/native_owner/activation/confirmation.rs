@@ -367,12 +367,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 let checkpoint = checkpoint.ok_or(Error::Invalid("activation ledger absent"))?;
                 (verifier, checkpoint)
             };
-        let verified = verifier
+        let decision = verifier
             .verify_retained_decision(checkpoint.tip())
             .map_err(|error| {
                 finality_read_error(error, Error::Proof("activation selected native decision"))
             })?;
-        let progress = successful_inclusion(&verified, network, signed)?;
+        let progress = successful_inclusion(&decision, network, signed)?;
         let confirmation = Confirmation {
             version: 1,
             activation: plan

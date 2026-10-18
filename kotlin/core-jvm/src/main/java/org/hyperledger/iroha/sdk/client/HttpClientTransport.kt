@@ -675,6 +675,14 @@ class HttpClientTransport private constructor(
         selection: ToriiKagemushaWalletLoadSelectionV1,
         canonicalAuth: ToriiCanonicalRequestAuth,
         requireCurrentOwner: Runnable,
+    ): CompletableFuture<ToriiKagemushaWalletLoadIssuanceOriginalV1> =
+        readKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth, requireCurrentOwner) { it }
+
+    private fun readKagemushaWalletLoadIssuanceOriginalV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+        httpFailure: (ToriiApiException) -> Throwable,
     ): CompletableFuture<ToriiKagemushaWalletLoadIssuanceOriginalV1> {
         requireCurrentOwner.run()
         val expectedNetwork = config.requireLocalSigningContext().networkId()
@@ -711,9 +719,9 @@ class HttpClientTransport private constructor(
                 }
                 requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA load issuance")
                 if (response.statusCode != 200) {
-                    throw ToriiApiException.fromResponse(
+                    throw httpFailure(ToriiApiException.fromResponse(
                         response.statusCode, response.headers, body, "KAGEMUSHA load issuance",
-                    )
+                    ))
                 }
                 requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA load issuance")
                 requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA load issuance")
@@ -855,9 +863,13 @@ class HttpClientTransport private constructor(
         canonicalAuth: ToriiCanonicalRequestAuth,
         requireCurrentOwner: Runnable,
     ): CompletableFuture<ToriiKagemushaWalletLoadOriginalsV1> {
-        val issuance = getKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth, requireCurrentOwner)
+        val issuance = readKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth, requireCurrentOwner) {
+            ToriiKagemushaWalletLoadReadExceptionV1(ToriiKagemushaWalletLoadReadExceptionV1.Stage.ISSUANCE, it)
+        }
         val finality = try {
-            getKagemushaWalletLoadFinalityOriginalV1(selection, canonicalAuth, requireCurrentOwner)
+            readKagemushaWalletLoadFinalityOriginalV1(selection, canonicalAuth, requireCurrentOwner) {
+                ToriiKagemushaWalletLoadReadExceptionV1(ToriiKagemushaWalletLoadReadExceptionV1.Stage.FINALITY, it)
+            }
         } catch (failure: Throwable) {
             issuance.cancel(false)
             throw failure
@@ -889,11 +901,19 @@ class HttpClientTransport private constructor(
         selection: ToriiKagemushaWalletLoadSelectionV1,
         canonicalAuth: ToriiCanonicalRequestAuth,
         requireCurrentOwner: Runnable,
+    ): CompletableFuture<ByteArray> =
+        readKagemushaWalletLoadFinalityOriginalV1(selection, canonicalAuth, requireCurrentOwner) { it }
+
+    private fun readKagemushaWalletLoadFinalityOriginalV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+        httpFailure: (ToriiApiException) -> Throwable,
     ): CompletableFuture<ByteArray> {
         requireCurrentOwner.run()
         config.requireLocalSigningContext()
         val request = buildKagemushaWalletLedgerOriginalRequestV1(selection.path + "/finality", 256 * 1024, canonicalAuth)
-        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner)
+        return readKagemushaWalletLedgerOriginalV1(request, requireCurrentOwner, httpFailure)
     }
 
     /** One boundary selected by Native's authenticated epoch progress. Only Native's
@@ -927,7 +947,8 @@ class HttpClientTransport private constructor(
     }
 
     private fun readKagemushaWalletLedgerOriginalV1(request: TransportRequest,
-        requireCurrentOwner: Runnable): CompletableFuture<ByteArray> {
+        requireCurrentOwner: Runnable,
+        httpFailure: (ToriiApiException) -> Throwable = { it }): CompletableFuture<ByteArray> {
         val result = CompletableFuture<ByteArray>()
         val upstream = try {
             requireCurrentOwner.run()
@@ -949,8 +970,8 @@ class HttpClientTransport private constructor(
                 val body = response.body
                 require(body.isNotEmpty() && body.size.toLong() <= requireNotNull(request.maximumResponseBytes))
                 requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA ledger original")
-                if (response.statusCode != 200) throw ToriiApiException.fromResponse(
-                    response.statusCode, response.headers, body, "KAGEMUSHA ledger original")
+                if (response.statusCode != 200) throw httpFailure(ToriiApiException.fromResponse(
+                    response.statusCode, response.headers, body, "KAGEMUSHA ledger original"))
                 requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA ledger original")
                 requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA ledger original")
                 notifyResponse(request, ClientResponse(response.statusCode, body, response.message))

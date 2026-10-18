@@ -17,7 +17,9 @@
 //!   and the SHA-256 of its bytes, every length-framed instance value and the
 //!   exact proof bytes. Only production `verify_full` inserts, after it returned
 //!   `Ok`; it still runs every structural check and its cancellation checkpoint
-//!   on a hit.
+//!   on a hit. Folded-generator proofs also retain the opening from that same
+//!   accepted read, so recursive consumers can reuse its exact k, G and challenges.
+//!   This adds no independent cache and never memoizes a succinct-only result.
 //!
 //! Rejections, undecidable claims and cancelled or failed computations are never
 //! inserted. Prover-side MSMs, batch decisions and caller-supplied points, digests
@@ -46,7 +48,9 @@ use iroha_pasta::{
     msm::{MemoryBudget, SharedMemoryBudget},
 };
 
-use super::{IpaError, PinnedParams, commit::msm_complete_cancellable, fold_scalars};
+use super::{
+    IpaError, PinnedParams, VerifiedOpening, commit::msm_complete_cancellable, fold_scalars,
+};
 
 // A Receive fold restores about a hundred distinct claims per curve and verifies
 // a few dozen distinct proofs; both bounds keep that working set resident.
@@ -54,14 +58,14 @@ const GENERATOR_ENTRIES: usize = 256;
 const PROOF_ENTRIES: usize = 256;
 
 /// Least-recently-used bounded map.
-struct Lru<K: Ord + Clone, V: Copy> {
+struct Lru<K: Ord + Clone, V: Clone> {
     entries: BTreeMap<K, (V, u64)>,
     recency: BTreeMap<u64, K>,
     tick: u64,
     capacity: usize,
 }
 
-impl<K: Ord + Clone, V: Copy> Lru<K, V> {
+impl<K: Ord + Clone, V: Clone> Lru<K, V> {
     const fn new(capacity: usize) -> Self {
         Self {
             entries: BTreeMap::new(),
@@ -88,7 +92,7 @@ impl<K: Ord + Clone, V: Copy> Lru<K, V> {
             recency.insert(*tick, owned);
         }
         *used = *tick;
-        Some(*value)
+        Some(value.clone())
     }
 
     fn insert(&mut self, key: K, value: V) {
@@ -114,7 +118,7 @@ impl<K: Ord + Clone, V: Copy> Lru<K, V> {
 /// The memos of one parameter owner (see the module documentation).
 pub(super) struct VerificationMemo<C: PastaCurve> {
     generators: Lru<Arc<[u8]>, C::AffineExt>,
-    proofs: Lru<[u8; 32], ()>,
+    proofs: Lru<[u8; 32], Option<Arc<VerifiedOpening<C>>>>,
 }
 
 impl<C: PastaCurve> Default for VerificationMemo<C> {
@@ -264,10 +268,30 @@ impl<C: PastaCurve> PinnedParams<C> {
             .is_some()
     }
 
-    /// Remember that production full verification accepted the exact inputs behind `key`.
-    pub(crate) fn remember_verified_proof(&self, key: [u8; 32]) {
+    /// The opening retained by full verification of these exact inputs, if present.
+    /// Only the Arc is cloned under the lock; callers copy any challenge vector afterwards.
+    pub(crate) fn remembered_verified_opening(
+        &self,
+        key: &[u8; 32],
+    ) -> Option<Arc<VerifiedOpening<C>>> {
+        self.verification_memo
+            .lock()
+            .ok()
+            .and_then(|mut memo| memo.proofs.get(key))
+            .flatten()
+    }
+
+    /// Remember full acceptance and its optional decided opening from the same read.
+    /// An absent suffix has no opening. A folded proof always supplies one, so an exact
+    /// concurrent insertion cannot replace a marker with a different opening.
+    pub(crate) fn remember_verified_proof(
+        &self,
+        key: [u8; 32],
+        opening: Option<VerifiedOpening<C>>,
+    ) {
+        let opening = opening.map(Arc::new);
         if let Ok(mut memo) = self.verification_memo.lock() {
-            memo.proofs.insert(key, ());
+            memo.proofs.insert(key, opening);
         }
     }
 

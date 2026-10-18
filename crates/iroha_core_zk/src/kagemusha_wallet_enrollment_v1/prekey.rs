@@ -70,6 +70,11 @@ struct StableSelectionV1 {
 
 impl PreKeyDispatchV1 {
     /// Validate canonical DATA and self-consistency, without choosing trust or freshness.
+    ///
+    /// # Errors
+    /// Returns an error for invalid identities, scheme, app policy, Enrollment
+    /// certificate, account or asset selection, or an inconsistent fresh/resume purpose.
+    /// A resumed dispatch also rejects an invalid or differently bound retained permit.
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.version != 1
             || [
@@ -133,6 +138,10 @@ impl PreKeyDispatchV1 {
 
     /// Canonical stable DATA shared with the issuer journal. It excludes exactly purpose,
     /// native dispatch nonce and previous permit; it is never a signature or trust selection.
+    ///
+    /// # Errors
+    /// Returns an error if [`Self::validate`] rejects the dispatch or canonical
+    /// encoding of its stable selection fails.
     pub fn stable_selection(&self) -> Result<Vec<u8>, &'static str> {
         self.validate()?;
         norito::encode_canonical(&StableSelectionV1 {
@@ -158,6 +167,11 @@ impl PreKeyDispatchV1 {
     }
 
     /// Exact seven-frame commitment using the sole data-model grammar, including issuer E1.
+    ///
+    /// # Errors
+    /// Returns an error for a challenge with different policy/account/asset bindings,
+    /// failed canonical encoding of any of the seven originals, or a rejected
+    /// originals-commitment frame.
     pub fn originals_digest(
         &self,
         challenge: &KagemushaWalletEnrollmentChallengeV1,
@@ -191,6 +205,11 @@ impl PreKeyDispatchV1 {
 
     /// Check signed permit selection against these DATA originals. Actual native nonce and
     /// clock checks and independent server configuration remain the respective owners' duty.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid permit signature, different platform or scope
+    /// identities, a different originals commitment, or a zero, overflowing or
+    /// policy-exceeding permit interval. Native nonce and live-clock checks are separate.
     pub fn require_permit_selection(
         &self,
         permit: &KagemushaEnrollmentPermitV1,
@@ -221,6 +240,10 @@ impl PreKeyDispatchV1 {
     }
 
     /// Encode bounded canonical DATA for issuer transport; this creates no capability.
+    ///
+    /// # Errors
+    /// Returns an error if dispatch validation or canonical encoding fails, or if the
+    /// encoded dispatch exceeds [`PREKEY_DISPATCH_MAX_BYTES`].
     pub fn encode(&self) -> Result<Vec<u8>, &'static str> {
         self.validate()?;
         let bytes = norito::encode_canonical(self).map_err(|_| "pre-key dispatch encoding")?;
@@ -230,6 +253,10 @@ impl PreKeyDispatchV1 {
         Ok(bytes)
     }
     /// Decode bounded canonical DATA. Independent scope and current eligibility checks follow.
+    ///
+    /// # Errors
+    /// Returns an error for empty, oversized or noncanonical input, or if the decoded
+    /// dispatch fails [`Self::validate`].
     pub fn decode(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.is_empty() || bytes.len() > PREKEY_DISPATCH_MAX_BYTES {
             return Err("pre-key dispatch bound");

@@ -23,7 +23,7 @@ pub enum WalletSourcesErrorV1 {
     /// Wrong installation, route, member or original content address.
     #[error(transparent)]
     Original(#[from] Error),
-    /// One of the sixteen compiled sigma sources did not qualify.
+    /// One of the eleven compiled sigma sources did not qualify.
     #[error(transparent)]
     Sigma(#[from] SigmaQualificationErrorV1),
     /// The native signed genesis does not authorize this wallet installation.

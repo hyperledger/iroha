@@ -52,7 +52,7 @@ pub struct ProveMintArgs {
     /// Quarantined destination revision with an open reconciliation window.
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
     revision: u32,
-    /// Norito JSON SccpForgedMintProofV1 file with source proof and canonical payload preimage.
+    /// Norito JSON `SccpForgedMintProofV1` file with source proof and canonical payload preimage.
     #[arg(long)]
     proof: PathBuf,
 }

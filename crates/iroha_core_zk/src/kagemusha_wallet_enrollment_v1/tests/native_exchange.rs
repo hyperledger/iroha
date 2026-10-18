@@ -352,19 +352,135 @@ fn action(id: u8, action: OperationActionV1) -> OperationRequestV1 {
 }
 fn fold(wallet: &mut Wallet) {
     wallet.scheduler().set_activity(true, false);
+    // D6b on every genuine fold of these flows (deploy-pipeline §7.4 tests 1 and 10, reviews
+    // G4, G9 and K6). A sub-proof that derives its step's inputs cold restores the whole
+    // durable list; every later sub-proof of that step in this loop resumes warm: it restores
+    // only the checkpoint its predecessor published, draws no σ coins, prepares σ again only
+    // after a predecessor whose σ came from fresh coins (from durable checkpoint 0), and
+    // verifies no Ω, except that the warm Ω turn verifies the new Ω exactly once, as the
+    // coordinator's check. For a step folded from its first sub-proof here, that is k
+    // restores and one derivation. No turn may reach a prove-time refusal of an admitted
+    // state, which the locked prepare makes unreachable (DEC-18 review r1). Per step: whether
+    // its last sub-proof drew fresh σ coins.
+    let mut warm = std::collections::BTreeMap::<u128, bool>::new();
     // Fixed operation schedules are bounded; a broken scheduler must fail, not spin forever.
     for _ in 0..1024 {
-        let result = wallet.fold_once().unwrap();
-        eprintln!("NATIVE_EXCHANGE_FOLD {result:?}");
+        let ((result, retention), verified) =
+            crate::kagemusha_wallet_proofs_v1::KagemushaWalletVerificationCountsV1::observe(|| {
+                state::FoldRetentionCountsV1::observe(|| wallet.fold_once())
+            });
+        assert_eq!(
+            retention.refusals, 0,
+            "an admitted retained state was refused at prove time: {result:?} {retention:?}"
+        );
+        let result = result.unwrap();
+        eprintln!("NATIVE_EXCHANGE_FOLD {result:?} {retention:?}");
         if result == FoldStatus::CaughtUp {
             let snapshot = wallet.snapshot().unwrap();
             assert_eq!(snapshot.fold_backlog, 0);
             assert_eq!(snapshot.folded_balance, Some(snapshot.owned_balance));
             return;
         }
-        assert_ne!(result, FoldStatus::Idle);
+        let (sequence, durable) = match result {
+            FoldStatus::Checkpoint { sequence, ordinal } => (sequence, Some(ordinal)),
+            FoldStatus::Folded(sequence) => (sequence, None),
+            FoldStatus::Idle | FoldStatus::CaughtUp => panic!("unexpected fold status {result:?}"),
+        };
+        if retention.derivations + retention.warm == 0 {
+            // An adopted interrupted publication prepares and restores nothing.
+            assert_eq!(retention.restores, 0);
+            continue;
+        }
+        if retention.derivations == 1 {
+            assert_eq!((retention.warm, retention.resumes), (0, 0), "{retention:?}");
+            assert!(
+                !warm.contains_key(&sequence),
+                "a warm chain derives its step's inputs once: {retention:?}"
+            );
+            if let Some(durable) = durable {
+                assert_eq!(
+                    retention.restores,
+                    u64::from(durable),
+                    "a cold sub-proof restores its whole durable list"
+                );
+            }
+        } else {
+            assert_eq!(
+                (retention.derivations, retention.warm),
+                (0, 1),
+                "{retention:?}"
+            );
+            assert!(retention.resumes <= 1, "{retention:?}");
+            assert_eq!(
+                retention.restores, 1,
+                "a warm sub-proof restores only its predecessor's checkpoint"
+            );
+            assert_eq!(
+                retention.fresh_sigmas, 0,
+                "a warm sub-proof draws no σ coins"
+            );
+            if let Some(&fresh) = warm.get(&sequence) {
+                assert_eq!(
+                    retention.sigmas,
+                    u64::from(fresh),
+                    "σ from fresh coins is never retained; any other σ is"
+                );
+            }
+            assert_eq!(
+                verified.verify_lineage,
+                u64::from(durable.is_none()),
+                "a warm sub-proof verifies no Ω but its new one, exactly once"
+            );
+        }
+        warm.insert(sequence, retention.fresh_sigmas == 1);
     }
     panic!("bounded native fold schedule did not complete");
+}
+/// Deploy-pipeline §7.4 tests 4 and 11 and reviews T2/K14 through the genuine worker: after a
+/// step's first sub-proof, one bit of the retained preparation identity in the ready value's
+/// key is flipped (the test hook of §7.4 test 11), so the next sub-proof must take the same
+/// call's cold path: one derivation, its whole durable list restored, no resume and no
+/// refusal. `fold` then completes the step warm from the cold turn's retention, and its Ω turn
+/// verifies the new Ω once. Used for C's Bootstrap in the A to B to C flow; A's Bootstrap in
+/// the target export and B's in that flow fold unchanged.
+fn fold_after_a_changed_key(wallet: &mut Wallet) {
+    wallet.scheduler().set_activity(true, false);
+    let (first, retention) = state::FoldRetentionCountsV1::observe(|| wallet.fold_once());
+    eprintln!("NATIVE_EXCHANGE_FOLD {first:?} {retention:?}");
+    assert_eq!(retention.refusals, 0, "{retention:?}");
+    let first = first.unwrap();
+    let FoldStatus::Checkpoint { sequence, .. } = first else {
+        panic!("a step starts with a durable sub-proof: {first:?}");
+    };
+    assert!(
+        wallet
+            .scheduler()
+            .change_ready_for_test(state::perturb_retained_key_for_test),
+        "a checkpoint publication leaves a ready retained state"
+    );
+    let (result, retention) = state::FoldRetentionCountsV1::observe(|| wallet.fold_once());
+    eprintln!("NATIVE_EXCHANGE_FOLD changed-key {result:?} {retention:?}");
+    assert_eq!(retention.refusals, 0, "{retention:?}");
+    let result = result.unwrap();
+    let FoldStatus::Checkpoint {
+        sequence: next,
+        ordinal,
+    } = result
+    else {
+        panic!("the step continues with a durable sub-proof: {result:?}");
+    };
+    assert_eq!(next, sequence);
+    assert_eq!(
+        (retention.derivations, retention.warm, retention.resumes),
+        (1, 0, 0),
+        "a changed key takes the same call's cold path: {retention:?}"
+    );
+    assert_eq!(
+        retention.restores,
+        u64::from(ordinal),
+        "the cold path restores the whole durable list"
+    );
+    fold(wallet);
 }
 
 const SOURCE_PINS: [&str; 7] = [
@@ -401,7 +517,7 @@ fn executable_hash() -> String {
 }
 
 #[test]
-#[ignore = "requires the genuine complete52 source grant; exports a target, never a finalized receipt"]
+#[ignore = "requires the genuine complete22 source grant; exports a target, never a finalized receipt"]
 fn export_actual_a_load_target_with_retained_native_custody() {
     let output = fresh_output("KAGEMUSHA_NATIVE_LOAD_TARGET_OUTPUT");
     let sources = Sources::admit(&output.join("source-admission"));
@@ -594,7 +710,7 @@ fn require_payment_bound(bytes: &[u8], scheme: &[u8; 32]) {
 }
 
 #[test]
-#[ignore = "requires exported SAME A custody, genuine full52 grant and an independently pinned finalized Load for its exact target"]
+#[ignore = "requires exported SAME A custody, genuine full22 grant and an independently pinned finalized Load for its exact target"]
 fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     let output = fresh_output("KAGEMUSHA_NATIVE_EXCHANGE_OUTPUT");
     let sources = Sources::requalify(&output.join("source-admission"));
@@ -715,7 +831,8 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
     retain_frames(&device_c, &frames_c);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
     complete(c.bootstrap().unwrap());
-    fold(&mut c);
+    // B's Bootstrap above folds unchanged; C's runs one sub-proof through a changed key.
+    fold_after_a_changed_key(&mut c);
     assert_ne!(
         a.snapshot().unwrap().wallet_id,
         b.snapshot().unwrap().wallet_id
@@ -1141,7 +1258,7 @@ fn finish_unload(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&claim.package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&claim.package, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(
         (payout.amount, payout.account_payout, payout.online_charge),

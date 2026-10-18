@@ -253,6 +253,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                     manifest.issued_requests,
                     manifest.direct_anchors,
                     manifest.finality_epochs,
+                    manifest.blacklist.clone(),
                 )?;
                 let (native, prepared) =
                     self.proofs
@@ -309,6 +310,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 manifest.issued_requests,
                 manifest.direct_anchors,
                 manifest.finality_epochs,
+                manifest.blacklist.clone(),
             )?;
             let prepared =
                 self.proofs

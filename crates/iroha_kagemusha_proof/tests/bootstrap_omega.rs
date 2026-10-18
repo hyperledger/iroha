@@ -1,5 +1,6 @@
-//! Actual authenticated Bootstrap sigma/Q/A1/W/A2 wrapped by the complete Omega
-//! predicate. Layout diagnostics do not establish the production transport cap.
+//! Actual authenticated Bootstrap signature Q and unsplit terminal A wrapped by the
+//! complete Omega predicate. Layout diagnostics do not establish the production
+//! transport cap.
 
 /// Shared authenticated Bootstrap proof-chain fixture.
 #[path = "common/proof_fixtures/a_recursive.rs"]
@@ -23,7 +24,6 @@ fn authenticated_receiver_bootstrap_binds_its_actual_rooted_outer_key() {
     let artifact = rooted_bootstrap_omega_with_identity(
         false,
         bootstrap_chain::SourceProfile::Tagged { buses: 3 },
-        Some(2),
         bootstrap_chain::BootstrapIdentity::Receiver,
     );
     assert_eq!(
@@ -49,49 +49,29 @@ fn five_bus_bootstrap_source_and_outer_inventory() {
 }
 
 #[test]
-#[ignore = "actual explicit two-bus Q and three-bus A profiles, then full compact Omega; run optimized"]
-fn reduced_q_three_bus_bootstrap_source_and_outer_inventory() {
-    let bootstrap = bootstrap_chain::authenticated_bootstrap_with_q_layout(
-        false,
-        iroha_pasta::Fp::from(91),
-        3,
-        Some(2),
-    );
-    source_outer_inventory(&bootstrap, 3);
+#[ignore = "actual signature Q and three-bus A profile, then full compact Omega; run optimized"]
+fn three_bus_bootstrap_source_and_outer_inventory() {
+    serialized_foreign_inventory(3);
 }
 
 #[test]
-#[ignore = "actual Q2/tagged A3 profile and complete compact Omega predicate; run optimized"]
+#[ignore = "actual signature Q and tagged A3 profile with complete compact Omega predicate; run optimized"]
 fn tagged_three_bus_bootstrap_source_and_outer_inventory() {
     let bootstrap = bootstrap_chain::authenticated_bootstrap_with_profile(
         false,
         iroha_pasta::Fp::from(91),
         bootstrap_chain::SourceProfile::Tagged { buses: 3 },
-        Some(2),
     );
     source_outer_inventory(&bootstrap, 3);
 }
 
 #[test]
-#[ignore = "actual explicit two-bus Q and four-bus A profiles, then full compact Omega; run optimized"]
-fn reduced_q_four_bus_bootstrap_source_and_outer_inventory() {
-    let bootstrap = bootstrap_chain::authenticated_bootstrap_with_q_layout(
-        false,
-        iroha_pasta::Fp::from(91),
-        4,
-        Some(2),
-    );
-    source_outer_inventory(&bootstrap, 4);
-}
-
-#[test]
-#[ignore = "genuine Q2/tagged A3 source and strict k16 secondary replay; no outer proof"]
+#[ignore = "genuine signature Q and tagged A3 source with strict k16 secondary replay; no outer proof"]
 fn tagged_three_bus_bootstrap_secondary_strict_and_unknown_inventory() {
     let bootstrap = bootstrap_chain::authenticated_bootstrap_with_profile(
         false,
         Fp::from(91),
         bootstrap_chain::SourceProfile::Tagged { buses: 3 },
-        Some(2),
     );
     let (circuit, public, _) = wrapper(&bootstrap);
     let (spans, plan) = compact_layout(&circuit, &public, false)

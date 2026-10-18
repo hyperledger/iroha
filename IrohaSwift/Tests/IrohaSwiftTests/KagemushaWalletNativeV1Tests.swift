@@ -44,8 +44,9 @@ final class KagemushaWalletNativeV1Tests: XCTestCase {
     XCTAssertEqual(value.sequenceHigh, UInt64.max)
   }
   func testTypedLifecycleInputsHaveExactOriginalBoundsAndScalarProjection() throws {
-    let identity = Data(repeating: 1, count: 32)
     for selector in [UInt32(0), 2, 3, 4, 5, 6, 7, 9, 10] {
+      // Only the local list install (selector 5) has no retry identity.
+      let identity = Data(repeating: selector == 5 ? 0 : 1, count: 32)
       let limits: [Int] = selector == 0 ? [512, 256 * 1024, 0]
         : selector == 2 ? [10_000, 1_024, 10_000] : selector == 5 ? [65_536 * 34 + 512, 10_000, 0]
         : selector == 6 ? [512, 10_000, 0] : selector == 7 ? [8_192, 10_000, 0]
@@ -68,7 +69,10 @@ final class KagemushaWalletNativeV1Tests: XCTestCase {
         XCTAssertThrowsError(try KagemushaWalletOperationInputV1(requestId: identity, selector: selector, amount: amount, first: changed[0], second: changed[1], third: changed[2]))
       }
     }
+    let identity = Data(repeating: 1, count: 32)
     XCTAssertThrowsError(try KagemushaWalletOperationInputV1(requestId: Data(repeating: 0, count: 32), selector: 9))
+    XCTAssertThrowsError(try KagemushaWalletOperationInputV1(requestId: identity, selector: 5, first: Data([1]), second: Data([1])))
+    XCTAssertEqual(KagemushaWalletErrorV1.blockedStatus, -15)
     XCTAssertThrowsError(try KagemushaWalletOperationInputV1(requestId: identity, selector: 10))
     XCTAssertThrowsError(try KagemushaWalletOperationInputV1(requestId: identity, selector: 8))
     XCTAssertThrowsError(try KagemushaWalletOperationInputV1(requestId: identity, selector: 8, amount: .init(low: 1, high: 0), first: Data([1])))

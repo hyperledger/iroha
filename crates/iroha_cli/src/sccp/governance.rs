@@ -85,7 +85,7 @@ pub struct DriveArgs {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum DriveStep {
     /// Create the first attempt of an admissible proposal.
-    CreateAttempt(ProposalKind),
+    CreateAttempt(Box<ProposalKind>),
     /// Permissionless manager intents advised for one candidate, in one transaction.
     Due(GovernanceAttemptId, Vec<ParliamentLifecycleTransitionV1>),
 }
@@ -163,7 +163,7 @@ fn step_instructions(step: &DriveStep) -> Vec<InstructionBox> {
     match step {
         DriveStep::CreateAttempt(kind) => vec![
             CreateParliamentGovernanceAttemptV1 {
-                proposal: kind.clone(),
+                proposal: kind.as_ref().clone(),
                 attempt_sequence: 0,
             }
             .into(),
@@ -235,7 +235,7 @@ fn drive<C: RunContext>(context: &mut C, args: &DriveArgs) -> Result<()> {
         let proposals = client.sccp().governance_proposals()?;
         let mut steps: Vec<_> = proposals_to_attempt(&proposals)
             .into_iter()
-            .map(DriveStep::CreateAttempt)
+            .map(|kind| DriveStep::CreateAttempt(Box::new(kind)))
             .collect();
         for attempt in proposals
             .iter()
@@ -291,7 +291,7 @@ pub struct ProposeArgs {
 ///
 /// # Errors
 /// Returns the first failed static check.
-pub(crate) fn build_proposal(
+pub fn build_proposal(
     network_id: NetworkId,
     revisions: &[SccpGovernanceBaseRevisionV1],
     actions: Vec<SccpGovernanceActionV1>,
@@ -415,6 +415,24 @@ mod tests {
                 proposal: Box::new(fresh.proposal.clone()),
             })
         );
+    }
+
+    #[test]
+    fn queued_create_attempt_preserves_canonical_fingerprint_and_instruction() {
+        let proposal = open_proposal(true, None);
+        let kind = proposals_to_attempt(&[proposal])
+            .pop()
+            .expect("one proposal");
+        let expected_key = format!("create:{}", hex::encode(kind.fingerprint()));
+        let expected: InstructionBox = CreateParliamentGovernanceAttemptV1 {
+            proposal: kind.clone(),
+            attempt_sequence: 0,
+        }
+        .into();
+        let step = DriveStep::CreateAttempt(Box::new(kind));
+        assert_eq!(step.key(), expected_key);
+        assert_eq!(step_instructions(&step), vec![expected]);
+        assert_eq!(step.key(), expected_key);
     }
 
     #[test]

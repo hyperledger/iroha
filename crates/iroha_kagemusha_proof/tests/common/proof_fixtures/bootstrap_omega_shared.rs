@@ -539,4 +539,3 @@ pub struct RootedBootstrapOmega {
     pub(crate) opening: iroha_plonk_recursion::FoldInput<Ep>,
     pub(crate) vesta: AccumulatorT<Eq>,
 }
-

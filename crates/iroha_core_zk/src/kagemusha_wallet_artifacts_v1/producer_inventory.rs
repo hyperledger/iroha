@@ -12,6 +12,18 @@ use iroha_plonk_recursion::obligation::ledger::Variant;
 
 use super::*;
 
+// Keep the existing original-read and zstd-write geometry when moving I/O scratch off stack.
+const ORIGINAL_STREAM_CHUNK_BYTES: usize = 64 * 1024;
+
+fn original_stream_buffer() -> std::io::Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(ORIGINAL_STREAM_CHUNK_BYTES)
+        .map_err(std::io::Error::other)?;
+    buffer.resize(ORIGINAL_STREAM_CHUNK_BYTES, 0);
+    Ok(buffer)
+}
+
 #[path = "producer_inventory/directory.rs"]
 mod directory;
 pub use directory::DirectoryOriginalsV1;
@@ -195,8 +207,8 @@ pub struct ProducerInventoryV1 {
     pub native_profile: [u8; 32],
     /// Unique original references, all consumed by this inventory.
     pub originals: Vec<OriginalV1>,
-    /// All sixteen sigma originals in global selector order.
-    pub sigma: [u32; 16],
+    /// All eleven sigma originals in global selector order.
+    pub sigma: [u32; 11],
     /// Compiled operation programs, each referenced by at least one logical route.
     pub operations: Vec<OperationV1>,
     /// Program index for every compiled logical selector route, in that exact order.
@@ -215,8 +227,10 @@ fn variant(tag: u8) -> Result<Variant, Error> {
 }
 fn selectors(values: &[u8], empty: bool) -> Result<(), Error> {
     if (!empty && values.is_empty())
-        || values.len() > 16
-        || values.iter().any(|i| *i >= 16)
+        || values.len() > SIGMA_CATALOG_V1.len()
+        || values
+            .iter()
+            .any(|i| usize::from(*i) >= SIGMA_CATALOG_V1.len())
         || values.windows(2).any(|w| w[0] >= w[1])
     {
         return Err(Error::Inventory);
@@ -346,7 +360,7 @@ impl ProducerInventoryV1 {
         bounded(&bytes, CATALOG_MAX_BYTES_V1)?;
         Ok(bytes)
     }
-    /// Exact domain-separated commitment included in the signed seventeen-verifier inventory.
+    /// Exact domain-separated commitment included in the signed twelve-verifier inventory.
     /// # Errors
     /// The complete bounded canonical inventory cannot be encoded.
     pub fn digest(&self) -> Result<[u8; 32], Error> {
@@ -554,6 +568,10 @@ fn read_cancellable(
 
 // Both collecting and hash-only callers consume the same bounded retained reader.
 // A successful scan authenticates exact bytes only; it grants no source capability.
+#[expect(
+    clippy::large_stack_arrays,
+    reason = "the fixed 64 KiB buffer preserves read/cancellation geometry without introducing an allocation refusal into the tag-only artifact error API"
+)]
 fn scan_cancellable<T>(
     source: &mut dyn OriginalSourceV1,
     blob: BlobV1,

@@ -168,7 +168,7 @@ fn structural_inventory() -> ProducerInventoryV1 {
             verifying_key: BlobV1::of(&[2]),
             proving_key: BlobV1::of(&[3, 4, 5]),
         }],
-        sigma: [0; 16],
+        sigma: [0; 11],
         operations,
         routes: routes
             .iter()
@@ -276,7 +276,7 @@ fn canonical_inventory_covers_all_routes_and_rejects_missing_or_foreign_members(
         changed.operations[i].own_class.clear();
         assert_eq!(changed.validate(), Err(Error::Inventory));
         let mut changed = source.clone();
-        let foreign = (0..16)
+        let foreign = (0..11)
             .find(|selector| !changed.operations[i].own_class.contains(selector))
             .unwrap();
         changed.operations[i].own_class.push(foreign);
@@ -292,7 +292,7 @@ fn canonical_inventory_covers_all_routes_and_rejects_missing_or_foreign_members(
     changed.originals.push(source.originals[0]);
     assert_eq!(changed.validate(), Err(Error::Inventory));
     let mut changed = source.clone();
-    changed.sigma[15] = 1;
+    changed.sigma[10] = 1;
     assert_eq!(changed.validate(), Err(Error::Inventory));
     let mut changed = source.clone();
     changed.terminals.push(0);
@@ -663,7 +663,7 @@ fn shared_descriptor_memo_decodes_each_exact_address_once_across_workers() {
 }
 
 #[test]
-#[ignore = "actual signed seventeen-verifier inventory; run optimized explicitly"]
+#[ignore = "actual signed twelve-verifier inventory; run optimized explicitly"]
 fn signed_inventory_authenticates_exact_producer_preimage_without_source_admission() {
     let (pack, installation, bytes) = engineering_fixture::signed_inventory_with_catalog(|pack| {
         let mut inventory = structural_inventory();
@@ -680,7 +680,7 @@ fn signed_inventory_authenticates_exact_producer_preimage_without_source_admissi
             })
             .collect();
         inventory.sigma = core::array::from_fn(|i| u32::try_from(i).unwrap());
-        inventory.omega = 16;
+        inventory.omega = 11;
         Some(inventory.to_canonical_bytes().unwrap())
     });
     let bytes = bytes.unwrap();

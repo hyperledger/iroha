@@ -286,14 +286,45 @@ impl ContinuationCells {
         Ok(words)
     }
 }
+/// Bind the context's statements to the sigma verifier's exact instances: the
+/// own statement when the plan verifies an own sigma, then any incoming one. A
+/// plan without `Q_sigma` proves its own step directly and consumes no incoming
+/// sigma: it accepts no sigma binding and retains the pinned trivial part, which
+/// the first W folds exactly where a verified part would otherwise go.
+fn bind_stage_sigma(
+    chip: &mut VerifierChip<Ep>,
+    region: &mut Region<'_, Fp>,
+    operation: &super::AProofPlan,
+    inputs: &ContextInputs<'_>,
+    sigma: &[SigmaBindingCells],
+) -> Result<BoundSigmaCells, Error> {
+    let Some(plan) = operation.sigma() else {
+        if !sigma.is_empty() || inputs.incoming_statement.is_some() {
+            return Err(Error::Synthesis);
+        }
+        return Ok(BoundSigmaCells {
+            part: VestaClaimCells::trivial(chip, region)?,
+            incoming_valid: None,
+            incoming_mode: None,
+        });
+    };
+    bind_statements(region, inputs, plan.has_own(), sigma)?;
+    bind_sigma(chip, region, plan, &inputs.q_instances[0], sigma)
+}
+/// Copy-binds each sigma binding's statement to the context statement in the
+/// plan's slot order: the own statement only when `own` (the plan verifies an
+/// own sigma), then the incoming statement when the context carries one.
 pub(super) fn bind_statements(
     region: &mut Region<'_, Fp>,
     inputs: &ContextInputs<'_>,
+    own: bool,
     bindings: &[SigmaBindingCells],
 ) -> Result<(), Error> {
-    let statements = std::iter::once(inputs.own_statement.fields())
+    let statements = own
+        .then(|| inputs.own_statement.fields())
+        .into_iter()
         .chain(inputs.incoming_statement.map(StatementView::fields));
-    if bindings.len() != 1 + usize::from(inputs.incoming_statement.is_some()) {
+    if bindings.len() != usize::from(own) + usize::from(inputs.incoming_statement.is_some()) {
         return Err(Error::Synthesis);
     }
     for (statement, binding) in statements.zip(bindings) {
@@ -328,14 +359,7 @@ pub fn close_first(
         return Err(Error::Synthesis);
     }
     context.bind_q_partition(region, inputs, q, 0)?;
-    bind_statements(region, inputs, sigma)?;
-    let sigma = bind_sigma(
-        chip,
-        region,
-        &context.operation().sigma,
-        &inputs.q_instances[0],
-        sigma,
-    )?;
+    let sigma = bind_stage_sigma(chip, region, context.operation(), inputs, sigma)?;
     let mut claims = Vec::new();
     if let Some(pred) = predecessor {
         let expected = inputs.predecessor.as_ref().ok_or(Error::Synthesis)?;
@@ -548,14 +572,7 @@ pub fn resume_context(
         proof.length(),
         VerificationMode::Hard,
     )?;
-    bind_statements(region, inputs, sigma)?;
-    let sigma = bind_sigma(
-        chip,
-        region,
-        &plan.context.operation().sigma,
-        &inputs.q_instances[0],
-        sigma,
-    )?;
+    let sigma = bind_stage_sigma(chip, region, plan.context.operation(), inputs, sigma)?;
     if let Some(mode) = &sigma.incoming_mode {
         let expected = inputs.modes.last().ok_or(Error::Synthesis)?;
         bind_mode(region, mode, expected)?;

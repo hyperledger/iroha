@@ -679,7 +679,7 @@ fn native_contract_upload_enforces_shape_quota_and_owner_cancellation() {
         UploadSmartContractCodeChunk {
             artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
                 iroha_model_base::topology::DataSpaceId::UNIVERSAL,
-                iroha_crypto::Hash::new(&[index]),
+                iroha_crypto::Hash::new([index]),
             ),
             total_size: 1,
             chunk_index: 0,

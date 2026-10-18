@@ -1,11 +1,12 @@
 //! Production-shaped Archive Q verifier metadata for source-only capacity checks.
 //!
-//! All sigma and Q identities are derived from their actual unknown circuits,
-//! using k12/k14 folded Receive and the serialized-two-bus Q sources of the
-//! genuine Archive fixture and native importers. The predecessor is either an
-//! explicitly constructor-only metadata circuit or bounded descriptor/VK bytes
-//! from a separately captured genuine Bootstrap proof. Neither path produces
-//! operation proofs, a funded wallet, artifact admission or chain qualification.
+//! The lean plans verify no own sigma. The incoming sigma and every Q identity
+//! are derived from their actual unknown circuits, using k12/k14 folded Receive
+//! and the serialized-two-bus Q sources of the genuine Archive fixture and
+//! native importers. The predecessor is either an explicitly constructor-only
+//! metadata circuit or bounded descriptor/VK bytes from a separately captured
+//! genuine Bootstrap proof. Neither path produces operation proofs, a funded
+//! wallet, artifact admission or chain qualification.
 
 use ff::Field;
 use iroha_pasta::{Ep, Eq, Fp};
@@ -27,7 +28,6 @@ use crate::{
         AProofPlan, QProofPlan, archive::authorization::ArchiveAuthorizationObjects,
         own::OwnPolicy, schedule::sigma_selector,
     },
-    admin_sigma::{ArchiveCircuit, ArchiveWitness, StateWitness},
     limb_bits_for,
     omega::OmegaPlan,
     q_sigma::{
@@ -35,7 +35,6 @@ use crate::{
         SigmaSlotWitness,
     },
     q_signature::{QSignatureCircuit, QSignaturePlan, SignatureWitness},
-    witness::{CORE_FIELDS, REST_FIELDS},
 };
 use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierPlan};
 
@@ -80,35 +79,10 @@ fn with_predecessor(
     let policy = OwnPolicy::new([31, 32], root).unwrap();
     let pallas = PinnedParams::<Ep>::derive(Q_K).unwrap();
     let vesta = PinnedParams::<Eq>::derive(Q_K).unwrap();
-    let leaf_params = PinnedParams::<Eq>::derive(SIGMA_K).unwrap();
-    // Values below are discarded before synthesis. They supply only fixed
-    // witness buffer shapes and are never checked or passed to a prover.
-    let empty = StateWitness {
-        core: [Fp::ZERO; CORE_FIELDS],
-        rest: [Fp::ZERO; REST_FIELDS],
-        lineage: [Fp::ZERO; 18],
-    };
-    let own = ArchiveCircuit::new(&ArchiveWitness {
-        predecessor: empty,
-        successor: empty,
-        statement: [Fp::ZERO; 26],
-    })
-    .without_witnesses();
-    let (own_binding, own_key) = keygen_vk_with_binding_v2(
-        &leaf_params,
-        &own,
-        &KeygenConfigV2::pipa_r(ArchiveCircuit::instance_types().to_vec()),
-    )
-    .unwrap();
-    let own_class = SigmaClass::new(
-        VerifierPlan::new(own_binding.clone(), leaf_params.clone()).unwrap(),
-        vec![(
-            sigma_selector(5, 0).unwrap(),
-            own_key.kagemusha_digest(&own_binding).unwrap(),
-        )],
-    )
-    .unwrap();
-    let incoming = (variant == Variant::ArchiveReceive).then(|| {
+    // Lean: A proves the own step inline, so no own sigma class exists. Only
+    // ArchiveReceive keeps a Q_sigma, for its incoming Receive sigma alone.
+    let mut qs = Vec::new();
+    let sigma = if variant == Variant::ArchiveReceive {
         let incoming_params = PinnedParams::<Eq>::derive(incoming_k).unwrap();
         let params = SigmaParams::new(
             RelationShape::new(SigmaRelation::RECEIVE, PrefixMode::Folded),
@@ -131,73 +105,76 @@ fn with_predecessor(
             )],
         )
         .unwrap();
-        (class, key)
-    });
-    let sigma = QSigmaPlan::new(
-        own_class,
-        incoming.as_ref().map(|(class, _)| class.clone()),
-        &vesta,
-    )
-    .unwrap();
-    // Same structural source construction as QSigmaSource::circuit in the
-    // native importer. No PreparedQSigma or proof verification is invoked.
-    let slot = |index: usize, key: &VerifyingKey<Eq>| {
-        let length = sigma.class(index).unwrap().verifier().proof_length();
+        let sigma = QSigmaPlan::incoming_only(class, &vesta).unwrap();
+        // Same structural source construction as QSigmaSource::circuit in the
+        // native importer. Values below are discarded before synthesis; no
+        // PreparedQSigma or proof verification is invoked.
+        let length = sigma
+            .class(QSigmaPlan::INCOMING)
+            .unwrap()
+            .verifier()
+            .proof_length();
         assert!(
             length <= 10_000,
-            "fixed k12 sigma bound before tape allocation"
+            "fixed incoming sigma bound before tape allocation"
         );
-        SigmaSlotWitness {
-            key: key.clone(),
-            statement: Fp::ZERO,
-            proof: vec![0; length],
-            length: u32::try_from(length).unwrap(),
-        }
-    };
-    let own = slot(0, &own_key);
-    let incoming = incoming.as_ref().map(|(_, key)| IncomingSigmaWitness {
-        sigma: slot(1, key),
-        mode: [false; 3],
-        corrected: Eq::from(decode_point::<Eq>(&VESTA_TRIVIAL_GENERATOR).unwrap()),
-        fold: crate::private_fold::PrivateFoldBytes::unknown(),
-    });
-    let circuit = QSigmaCircuit::new(sigma.clone(), QSigmaWitness { own, incoming })
+        let incoming = IncomingSigmaWitness {
+            sigma: SigmaSlotWitness {
+                key,
+                statement: Fp::ZERO,
+                proof: vec![0; length],
+                length: u32::try_from(length).unwrap(),
+            },
+            mode: [false; 3],
+            corrected: Eq::from(decode_point::<Eq>(&VESTA_TRIVIAL_GENERATOR).unwrap()),
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
+        };
+        let circuit = QSigmaCircuit::new(
+            sigma.clone(),
+            QSigmaWitness {
+                own: None,
+                incoming: Some(incoming),
+            },
+        )
         .unwrap()
         .without_witnesses()
         .with_serialized_foreign(Q_RANGE_BUSES)
         .unwrap();
-    let (binding, key) = keygen_vk_with_binding_v2(
-        &pallas,
-        &circuit,
-        &KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec()),
-    )
-    .unwrap();
-    let mut qs =
-        vec![QProofPlan::new(VerifierPlan::new(binding, pallas.clone()).unwrap(), key).unwrap()];
-    for schema in ArchiveAuthorizationObjects::signature_schemas(policy).unwrap() {
-        let count = schema.slots().len();
-        assert!(matches!(count, 1 | 3));
-        let circuit = QSignatureCircuit::new(
-            schema,
-            vec![
-                SignatureWitness {
-                    digest: Fp::ZERO,
-                    key: [[0; 4]; 2],
-                    signature: [[0; 4]; 2],
-                };
-                count
-            ],
-        )
-        .unwrap()
-        .without_witnesses();
         let (binding, key) = keygen_vk_with_binding_v2(
             &pallas,
             &circuit,
-            &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
+            &KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec()),
         )
         .unwrap();
         qs.push(QProofPlan::new(VerifierPlan::new(binding, pallas.clone()).unwrap(), key).unwrap());
-    }
+        Some(sigma)
+    } else {
+        None
+    };
+    // The merged signature leaf: own receipt hard, incoming receipt soft.
+    let schema = ArchiveAuthorizationObjects::signature_schema().unwrap();
+    let count = schema.slots().len();
+    assert_eq!(count, 2);
+    let circuit = QSignatureCircuit::new(
+        schema,
+        vec![
+            SignatureWitness {
+                digest: Fp::ZERO,
+                key: [[0; 4]; 2],
+                signature: [[0; 4]; 2],
+            };
+            count
+        ],
+    )
+    .unwrap()
+    .without_witnesses();
+    let (binding, key) = keygen_vk_with_binding_v2(
+        &pallas,
+        &circuit,
+        &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
+    )
+    .unwrap();
+    qs.push(QProofPlan::new(VerifierPlan::new(binding, pallas.clone()).unwrap(), key).unwrap());
     // The predecessor has no operation relation or proof. It supplies only
     // constructor-compatible framing for source-only A/W layout planning.
     let (binding, predecessor) = captured.unwrap_or_else(|| {
@@ -208,9 +185,12 @@ fn with_predecessor(
         )
         .unwrap()
     });
-    let omega = VerifierPlan::new(binding, pallas.clone()).unwrap();
-    let operation = AProofPlan::new(variant, sigma, qs, Some(omega), &pallas).unwrap();
-    (operation, policy, predecessor)
+    let omega = Some(VerifierPlan::new(binding, pallas.clone()).unwrap());
+    let operation = match sigma {
+        Some(sigma) => AProofPlan::inline_with_incoming(variant, sigma, qs, omega, &pallas),
+        None => AProofPlan::inline(variant, qs, omega, &pallas),
+    };
+    (operation.unwrap(), policy, predecessor)
 }
 
 /// Strict bounded diagnostic parsing; acceptance authenticates no source.

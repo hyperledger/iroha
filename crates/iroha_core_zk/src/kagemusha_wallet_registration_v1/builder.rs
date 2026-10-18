@@ -20,10 +20,16 @@ fn input(
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<Vec<u8>, RegistrationErrorV1> {
     let mut bytes = Vec::new();
-    let mut chunk = [0_u8; 65536];
+    let mut chunk = Vec::new();
     loop {
         if cancelled() {
             return Err(RegistrationErrorV1::Cancelled);
+        }
+        if chunk.is_empty() {
+            chunk
+                .try_reserve_exact(65536)
+                .map_err(|error| RegistrationErrorV1::Unavailable(io::Error::other(error)))?;
+            chunk.resize(65536, 0_u8);
         }
         let count = reader
             .read(&mut chunk)

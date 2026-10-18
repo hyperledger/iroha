@@ -1,0 +1,268 @@
+"""Finite-sequence wiring tests; reduced generators are explicitly synthetic."""
+from collections import Counter
+from dataclasses import FrozenInstanceError, replace
+import hashlib
+from itertools import islice
+from pathlib import Path
+import random
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT/'target/parliament-ideal-machine-stage'))
+
+from bit_ir import bits, unpack
+from l0_machine import OverlayLookup, actual_lookup
+from request_family import ContentFamily, RejectedVoteFamily, actual_rejected_vote
+from sequence import Call, Description, Geometry, Relocation, Segment, Sequence, describe, natural
+from test_content_request import fixture as content_fixture
+from test_request_transition import synthetic
+
+
+def base(message):
+    return int.from_bytes(hashlib.shake_256(b'sequence test\0'+message).digest(264), 'little')
+
+
+def execute(state, stream):
+    """Independent interpreter; capacities and widths are never wire numbers."""
+    census = Counter()
+    for gate in stream:
+        op, *wires = gate
+        census[op] += 1
+        if op == 'F:variable':
+            length, width, message, capacity, response, values = wires
+            count = unpack(state[length:length+width])
+            assert count <= capacity
+            raw = bytes(unpack(state[message+8*i:message+8*i+8]) for i in range(count))
+            value = base(raw)
+            for j in range(values):
+                state[response+j] ^= (value >> j)&1
+        elif op.startswith('F:'):
+            count = int(op[2:])
+            raw = bytes(sum(state[wires[8*i+j]] << j for j in range(8)) for i in range(count))
+            value = base(raw)
+            for j, wire in enumerate(wires[8*count:]):
+                state[wire] ^= (value >> j)&1
+        else:
+            assert op in ('x', 'cx', 'ccx')
+            assert len(set(wires)) == len(wires)
+            assert all(type(w) is int and 0 <= w < len(state) for w in wires)
+            state[wires[-1]] ^= int(all(state[w] for w in wires[:-1]))
+    return census
+
+
+def allocation(sequence, name):
+    return next((start, width) for label, start, width in sequence.allocations if label == name)
+
+
+def query_input(sequence, state, name, raw, enabled, target):
+    start, width = allocation(sequence, 'event.'+name+'.query')
+    b = sequence.geometry.length_bits
+    state[start:start+b] = bits(len(raw), b)
+    encoded = [bit for byte in raw for bit in bits(byte, 8)]
+    state[start+b:start+width] = encoded+[0]*(width-b-len(encoded))
+    start, _ = allocation(sequence, 'event.'+name+'.enable')
+    state[start] = enabled
+    start, width = allocation(sequence, 'event.'+name+'.output')
+    state[start:start+width] = bits(target, width)
+
+
+def request_input(sequence, state, name, value, valid=True):
+    call = next(call for call in sequence.calls if call.name == name)
+    c = call.machine.request if type(call.machine) is ContentFamily else call.machine
+    g = c.generator
+    start, width = allocation(sequence, 'event.'+name+'.input')
+    state[start:start+width] = [0]*width
+    # Synthetic generator has identity source fields except namespace bit0^bit1.
+    fields = {name: (offset, width) for name, (_, offset, width) in g.fields
+              if name not in ('public_validation', 'public_valid')}
+    for field, value in (('namespace_digest', 1), ('mu', 2), ('challenge_1', value),
+                         ('primary_flags', 1), ('challenge', value)):
+        offset, size = fields[field]
+        state[start+offset:start+offset+size] = bits(value, size)
+    if type(call.machine) is ContentFamily:
+        offset, size = g.plan.layout()['registers']['public_error']
+        error = [*bits(1, 3), *([0]*48), *bits(255, 8)]
+        state[start+offset:start+offset+size] = [int(valid)]+([0]*59 if valid else error)
+
+
+def fixture():
+    a = synthetic()
+    a = replace(a, writes=replace(a.writes, capacity=12))
+    content = content_fixture()
+    content = ContentFamily(replace(content, base=replace(content.base,
+        writes=replace(content.base.writes, capacity=12))))
+    q = OverlayLookup(12, 4, 8, 12, 256)
+    geometry = Geometry(12, 4, 8, 256, 'same synthetic F', 'fixed completion')
+    calls = (Call('q0', q), Call('first', a), Call('q1', q), Call('invalid', content),
+             Call('q2', q), Call('second', a), Call('q3', q),
+             Call('badsize', RejectedVoteFamily(2, 5)), Call('disabled', q))
+    return Sequence(geometry, calls)
+
+
+@pytest.mark.parametrize('seed', [11, 29])
+def test_joint_stream_hit_miss_last_write_invalid_identity_and_true_inverse(seed):
+    s = fixture()
+    rng = random.Random(seed)
+    state = [0]*s.size+[1, 0, 1]
+    for name, start, width in s.allocations:
+        if name.endswith('.output'):
+            state[start:start+width] = [rng.randrange(2) for _ in range(width)]
+    for name in ('q0', 'q1', 'q2', 'q3'):
+        query_input(s, state, name, b'P\x01\x02\x09', 1, 17)
+    query_input(s, state, 'disabled', b'longer-query', 0, 21)
+    request_input(s, state, 'first', 13)
+    request_input(s, state, 'invalid', 99, valid=False)
+    request_input(s, state, 'second', 29)
+    start, _ = allocation(s, 'event.badsize.input')
+    # Valid vote byte0 means the earlier size error is returned for n2.
+    before = state[:]
+    log, log_bits = allocation(s, 'persistent.log')
+    counter, counter_bits = allocation(s, 'persistent.counter')
+    scratch, scratch_bits = allocation(s, 'reusable.clean')
+    census = Counter()
+    for index, call in enumerate(s.calls):
+        old_persistent = state[log:counter+counter_bits]
+        census += execute(state, s.emit_call(index))
+        assert not any(state[scratch:scratch+scratch_bits])
+        if call.name in ('invalid', 'badsize') or type(call.machine) is OverlayLookup:
+            assert state[log:counter+counter_bits] == old_persistent
+    assert unpack(state[counter:counter+counter_bits]) == 6
+    expected = {'q0': base(b'P\x01\x02\x09')&((1 << 256)-1), 'q1': 13, 'q2': 13, 'q3': 29}
+    for name, wanted in expected.items():
+        start, width = allocation(s, 'event.'+name+'.output')
+        assert unpack(state[start:start+width]) == 17^wanted
+    start, width = allocation(s, 'event.disabled.output')
+    assert unpack(state[start:start+width]) == 21
+    for name, start, width in s.allocations:
+        if name.endswith(('.input', '.query', '.enable')):
+            assert state[start:start+width] == before[start:start+width]
+    assert state[-3:] == before[-3:]
+    r = s.resources()
+    assert census == {**{k: r['gates'][k] for k in ('x', 'cx', 'ccx')}, 'F:variable': 10}
+    assert r['reserved_append_slots'] == 12 and r['actual_log_occupancy'] is None
+    execute(state, s.emit(inverse=True))
+    assert state == before
+    # Repeating the forward request is demonstrably not an inverse of log append.
+    execute(state, s.emit_call(1))
+    execute(state, s.emit_call(1))
+    assert unpack(state[counter:counter+counter_bits]) == 6
+    assert state != before
+
+
+def test_whole_stream_matches_atomic_calls_and_shared_layout():
+    s = fixture()
+    first = [0]*s.size
+    for name in ('first', 'second'):
+        request_input(s, first, name, 13)
+    request_input(s, first, 'invalid', 99, False)
+    second = first[:]
+    execute(first, s.emit())
+    for index in range(len(s.calls)):
+        execute(second, s.emit_call(index))
+    assert first == second
+    assert sum(width for _, _, width in s.allocations) == s.size
+    assert len([name for name, _, _ in s.allocations if name == 'persistent.log']) == 1
+    assert allocation(s, 'reusable.clean')[1] == max(
+        width for d in s.descriptions for name, _, width in d.regions if name == 'reusable.clean')
+    with pytest.raises(FrozenInstanceError):
+        s.size = 1
+    with pytest.raises(FrozenInstanceError):
+        s.descriptions[0].coin_bits = 1
+
+
+def test_nontrivial_interval_relocation_keeps_widths_and_fixed_F_semantics():
+    mapping = Relocation(2147, (Segment(0, 3, 7000), Segment(3, 32, 3000), Segment(35, 2112, 100)))
+    source = ('F:variable', 0, 3, 3, 4, 35, 2112)
+    relocated = mapping.gate(source)
+    assert relocated == ('F:variable', 7000, 3, 3000, 4, 100, 2112)
+    local = [0]*2147
+    local[0:3] = bits(2, 3)
+    local[3:19] = [*bits(9, 8), *bits(11, 8)]
+    global_state = [0]*7003
+    for part in mapping.segments:
+        global_state[part.global_start:part.global_start+part.bits] = local[part.local:part.local+part.bits]
+    execute(local, [source])
+    execute(global_state, [relocated])
+    for part in mapping.segments:
+        assert global_state[part.global_start:part.global_start+part.bits] == local[part.local:part.local+part.bits]
+    fixed = ('F:2', *range(3, 19), *range(35, 2147))
+    assert mapping.gate(fixed) == ('F:2', *range(3000, 3016), *range(100, 2212))
+    execute(local, [fixed])
+    execute(global_state, [mapping.gate(fixed)])
+    assert not any(local[35:]) and not any(global_state[100:2212])
+
+
+@pytest.mark.parametrize('bad', [
+    ('F:variable', 0, 1, 1, 2, 17, 1),  # capacity cannot fit encoded length
+    ('F:variable', 0, 3, 2, 4, 35, 2112),  # overlapping length/message
+    ('F:variable', 0, 3, 3, 4, 34, 2112),  # output crosses split
+    ('F:variable', 0, True, 3, 4, 35, 2112),
+    ('F:variable', 0, 3, 3, 4, 35, 2112, 0),
+    ('F:01',), ('F:1', 0), ('y', 0), ('cx', 0, 0), ('ccx', 1, 2),
+    ('x', True), ('x', -1), ('x', 2147), ['x', 0],
+])
+def test_malformed_gate_and_interval_refusals(bad):
+    mapping = Relocation(2147, (Segment(0, 3, 7000), Segment(3, 32, 3000), Segment(35, 2112, 100)))
+    with pytest.raises(ValueError):
+        mapping.gate(bad)
+
+
+@pytest.mark.parametrize('parts', [
+    (Segment(1, 3, 0),), (Segment(0, 2, 0),),
+    (Segment(0, 2, 0), Segment(1, 2, 5)),
+    (Segment(0, 2, 0), Segment(2, 2, 1)),
+])
+def test_malformed_partition_refused(parts):
+    with pytest.raises(ValueError):
+        Relocation(4, parts)
+
+
+def test_zero_capacity_source_lookup_and_rejected_size_without_materialized_input():
+    q = actual_lookup(ROOT, 0, 6882996, 64)
+    rejected = actual_rejected_vote(ROOT, 'candidate', (1 << 64)-1)
+    s = Sequence(Geometry(0, 64, 215150, 2112, 'F', 'agreed'),
+                 (Call('query', q), Call('rejected', rejected)))
+    r = s.resources()
+    assert r['gates']['base_xor_oracle_calls'] == 2
+    assert r['logical_bits'] > 1 << 64  # borrowed input is counted, not allocated here
+    assert 'persistent.log' not in dict((n, w) for n, _, w in s.allocations)
+    assert len(tuple(islice(s.emit_call(0), 3))) == 3
+    assert len(tuple(islice(s.emit_call(1), 3))) == 3
+    assert not r['full_cap_stream_executed'] and not r['complete_resource_vector']
+    assert not r['profile_qualified'] and not r['production_gate_changed']
+
+
+def test_type_caps_shape_and_inverse_refusals():
+    s = fixture()
+    with pytest.raises(ValueError):
+        Sequence(s.geometry, list(s.calls))
+    with pytest.raises(ValueError):
+        Sequence(s.geometry, (s.calls[0], s.calls[0]))
+    with pytest.raises(ValueError):
+        Sequence(s.geometry, tuple(Call(str(i), s.calls[1].machine) for i in range(4)))
+    with pytest.raises(ValueError):
+        Sequence(replace(s.geometry, capacity=13), s.calls)
+    with pytest.raises(ValueError):
+        Call('unknown', object())
+    with pytest.raises(ValueError):
+        Geometry(1, 2, 4, 2112, 'F', 'C')
+    with pytest.raises(ValueError):
+        Geometry(True, 4, 8, 256, 'F', 'C')
+    with pytest.raises(ValueError):
+        Geometry(1, 4, 8, 256, '', 'C')
+    with pytest.raises(ValueError):
+        Segment(0, 0, 0)
+    with pytest.raises(ValueError):
+        natural(False, 'test')
+    for index in (-1, True, len(s.calls)):
+        with pytest.raises(ValueError):
+            next(s.emit_call(index))
+    with pytest.raises(ValueError):
+        next(s.emit(inverse=1))
+    with pytest.raises(ValueError):
+        next(s.emit_call(0, inverse=1))
+    assert type(describe(s.calls[0], s.geometry)) is Description
+    empty = Sequence(s.geometry, ())
+    assert tuple(empty.emit()) == () and empty.resources()['gates']['elementary_gates'] == 0

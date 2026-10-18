@@ -594,6 +594,59 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
             }),
         )?;
 
+        // A separate, explicitly adversarial certificate exercises the destination's
+        // V1 latch. Genuine Torii certificates above keep their original bytes.
+        let latch_qc = QcFixedV1::parse(&normal.qc)?;
+        let mut latch_fields = SccpFinalityHeaderV1::parse(&normal.header)?.fields();
+        latch_fields.timestamp_ms = latch_fields
+            .timestamp_ms
+            .checked_add(1)
+            .ok_or_else(|| eyre!("conflicting checkpoint timestamp overflow"))?;
+        ensure!(
+            latch_fields.timestamp_ms < heartbeat_header.timestamp_ms()
+                && latch_fields.timestamp_ms < initial_generation.deadline_ms
+        );
+        let latch_header = SccpFinalityHeaderV1::from_fields(&latch_fields)?;
+        let latch_preimage = commit_preimage(
+            &instance,
+            &latch_qc,
+            normal_height,
+            &outer_result(&latch_header, &latch_qc.result_body).0,
+        );
+        let latch_digest = ConsensusDigest::from_preimage(&latch_preimage)
+            .ok_or_else(|| eyre!("canonical conflicting checkpoint preimage required"))?;
+        let latch_shares = keys
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| latch_qc.signers & (1_u32 << index) != 0)
+            .map(|(_, key)| {
+                let pair = network
+                    .peers()
+                    .iter()
+                    .filter_map(|peer| peer.bls_key_pair())
+                    .find(|pair| {
+                        pair.public_key()
+                            .try_to_bytes()
+                            .is_ok_and(|(_, bytes)| bytes == key.as_slice())
+                    })
+                    .ok_or_else(|| eyre!("original latch-test signing key missing"))?;
+                Ok(sign(pair.private_key(), &latch_digest)?)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut latch_certificate = normal.clone();
+        latch_certificate.header = *latch_header.as_bytes();
+        latch_certificate.aggregate_signature = aggregate(latch_shares)?;
+        ensure!(latch_certificate.header != normal.header);
+        let checked_latch = verify_certificate(
+            &instance,
+            &latch_certificate.qc,
+            &latch_certificate.header,
+            &latch_certificate.aggregate_signature,
+            &keys,
+        )?;
+        ensure!(checked_latch.qc.signers.count_ones() == 3);
+        ensure!(checked_latch.header.height() == normal_height);
+
         // Publish once, before the longer anchor sequence. Destination consumers
         // replay these exact original bytes while the source network continues.
         let export = norito::json!({
@@ -602,6 +655,10 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
             "signed_genesis_wire": (genesis.0.encode_wire()?), "initial_generation": initial_generation,
             "certificates": [normal, heartbeat, successor],
             "certificate_roles": ["normal", "heartbeat", "successor"],
+            "destination_latch": {
+                "version": 1, "provenance": "runtime_test_quorum_not_chain_output",
+                "rule": "V1", "certificate": latch_certificate,
+            },
             "generations": [ended_generation, next_generation],
             "idle": {"start_ms": idle_start_ms, "end_ms": idle_end_ms, "deadline_ms": deadline_ms,
                 "required_elapsed_ms": required_idle_ms, "initial_height": normal_height, "observations": observations},

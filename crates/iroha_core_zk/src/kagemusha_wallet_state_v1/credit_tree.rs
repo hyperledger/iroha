@@ -2,7 +2,7 @@
 
 use super::{map_tree::PersistentMapV1, *};
 
-#[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[derive(Debug, Clone, Default, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::CreditTree")]
 pub(super) struct CreditTree {
     map: PersistentMapV1,
@@ -14,14 +14,6 @@ pub(super) struct CreditTree {
 struct Identity {
     payment_digest: [u8; 32],
     burned: bool,
-}
-impl Default for CreditTree {
-    fn default() -> Self {
-        Self {
-            map: PersistentMapV1::default(),
-            identities: IndexRoot::default(),
-        }
-    }
 }
 impl CreditTree {
     pub fn root(&self) -> [u8; 32] {

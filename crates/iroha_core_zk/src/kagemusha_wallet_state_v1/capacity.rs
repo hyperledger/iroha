@@ -113,6 +113,32 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             })
     }
 
+    /// Admit a local blacklist install only while one operation still fits after it: the
+    /// list's two archive copies come on top of [`Self::require_runtime_capacity`]'s storage
+    /// bound, so installing a list never makes the next payment fail for storage.
+    pub(super) fn require_blacklist_capacity(&mut self, original: usize) -> Result<(), Error> {
+        let relations = self.proofs.runtime_capacity()?;
+        let list = u64::try_from(original)
+            .ok()
+            .and_then(|bytes| bytes.checked_add(archive::METADATA_BOUND as u64))
+            .and_then(|bytes| bytes.checked_mul(2))
+            .ok_or(Error::Invalid("blacklist storage bound"))?;
+        let required = KagemushaWalletRuntimeCapacityV1 {
+            storage_bytes: relations
+                .storage_bytes
+                .checked_add(OPERATION_RESERVATION_BYTES)
+                .and_then(|bytes| bytes.checked_add(list))
+                .ok_or(Error::Invalid("blacklist storage bound"))?,
+            memory_bytes: 0,
+        };
+        required
+            .check(&self.custody.runtime_resources()?)
+            .map_err(|shortfall| match shortfall {
+                KagemushaWalletCapacityShortfallV1::Storage => Error::NotEnoughStorage,
+                KagemushaWalletCapacityShortfallV1::Memory => Error::NotEnoughMemory,
+            })
+    }
+
     /// Check this phone now against the operation's design §5.3 bounds.
     ///
     /// Storage must cover [`OPERATION_RESERVATION_BYTES`] plus the installed relations' largest

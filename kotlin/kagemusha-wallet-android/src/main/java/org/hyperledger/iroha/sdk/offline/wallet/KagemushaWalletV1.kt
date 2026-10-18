@@ -24,6 +24,12 @@ class KagemushaWalletExceptionV1(
          * relations' peak proving memory. Refused before commit; never a device verdict.
          */
         const val NOT_ENOUGH_MEMORY = -14
+        /**
+         * The wallet's locally installed blacklist lists the counterparty: a payer refusing to pay
+         * a listed receiver, or a receiver refusing to request or accept money from a listed payer.
+         * Refused before any mutation; nothing debited, issued or credited.
+         */
+        const val BLOCKED = -15
         /** Native output violates the fixed status/payload contract. */
         const val INVALID_NATIVE_OUTPUT = -100
         /** Missing, stale or unauthenticated native bridge library. */
@@ -447,6 +453,14 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
     /** Refresh from exact signed originals; Native derives maps and all effective values. */
     fun refresh(requestId: ByteArray, kind: KagemushaWalletRefreshKindV1, update: ByteArray, certificates: ByteArray): KagemushaWalletCallV1 =
         execute(KagemushaWalletOperationInputV1(requestId, kind.selector, first = update, second = certificates))
+    /** Install a signed blacklist locally; a replacement's list version must increase and
+     * reinstalling the held list is idempotent. The wallet then refuses to pay a listed receiver
+     * and to request or accept money from a listed payer ([KagemushaWalletExceptionV1.BLOCKED]).
+     * Nothing is sent to peers or proved; this is no wallet operation and has no retry identity.
+     * COMPLETE carries the held list's 32-byte object digest.
+     */
+    fun installBlacklist(list: ByteArray, certificates: ByteArray): KagemushaWalletCallV1 =
+        execute(KagemushaWalletOperationInputV1(ByteArray(32), 5, first = list, second = certificates))
     /** Authenticate the exact payout, signed charge and canonical beneficiary before confirmation. */
     fun reviewUnload(amount: KagemushaWalletUInt128V1, quote: ByteArray? = null, certificates: ByteArray? = null,
         chargeBeneficiary: ByteArray? = null): KagemushaWalletReviewV1 {
@@ -588,7 +602,7 @@ internal object KagemushaWalletNativeV1 {
 
 /** Existing signed policy classes; these selectors never choose proof keys or state roots. */
 enum class KagemushaWalletRefreshKindV1(internal val selector: Int) {
-    CREDENTIAL(3), SCHEME_POLICY(4), BLACKLIST(5), TIME_ANCHOR(6), QUOTA_SHARE(7),
+    CREDENTIAL(3), SCHEME_POLICY(4), TIME_ANCHOR(6), QUOTA_SHARE(7),
 }
 
 /** Allocation-bounded copies for the fixed JNI request. Validation is not monetary admission. */
@@ -612,7 +626,9 @@ internal class KagemushaWalletOperationInputV1(
             10 -> intArrayOf(10_000, 10_000, 0)
             else -> throw IllegalArgumentException("unknown lifecycle operation")
         }
-        require(requestId.size == 32 && requestId.any { it != 0.toByte() }) { "nonzero request identity must be exactly 32 bytes" }
+        require(requestId.size == 32 && requestId.any { it != 0.toByte() } != (selector == 5)) {
+            "request identity must be exactly 32 bytes, nonzero except for the local list install"
+        }
         val nonzero = amount.low != 0L || amount.high != 0L
         require(!nonzero) { "ordinary operations have no caller amount" }
         val inputs = listOf(first, second, third)

@@ -133,11 +133,11 @@ impl<C: PastaCurve> CompiledKeyV1<C> {
 
 /// Fixed global selector order established only by the compiled sigma constructors.
 pub struct CompiledSigmasV1 {
-    keys: [CompiledKeyV1<Eq>; 16],
+    keys: [CompiledKeyV1<Eq>; 11],
 }
 impl CompiledSigmasV1 {
-    /// The exact ordered sixteen source originals; callers cannot reorder this owner.
-    pub const fn keys(&self) -> &[CompiledKeyV1<Eq>; 16] {
+    /// The exact ordered eleven source originals; callers cannot reorder this owner.
+    pub const fn keys(&self) -> &[CompiledKeyV1<Eq>; 11] {
         &self.keys
     }
 }
@@ -434,7 +434,7 @@ impl<'a> OfflineCompilerV1<'a> {
         Ok(expected.clone())
     }
 
-    /// Build and reimport the fixed sixteen sigma sources, one original at a time.
+    /// Build and reimport the fixed eleven sigma sources, one original at a time.
     /// # Errors
     /// Any fixed source capacity, publication, key generation or exact import failure.
     pub fn sigmas(&mut self) -> Result<CompiledSigmasV1, CompilationErrorV1> {
@@ -453,15 +453,15 @@ impl<'a> OfflineCompilerV1<'a> {
             true,
             self.config,
         );
-        let mut keys = Vec::with_capacity(16);
-        for selector in 0..16 {
+        let mut keys = Vec::with_capacity(11);
+        for selector in 0..11 {
             let key = match selector {
                 0 => self.key(&BootstrapProver::source_circuit(), &p12, &cfg)?,
                 1 => self.key(&LoadProver::source_circuit(), &p12, &cfg)?,
-                12 => self.key(&ArchiveProver::source_circuit(), &p12, &cfg)?,
-                13 => self.key(&UnloadProver::source_circuit(), &p12, &cfg)?,
-                14 => self.key(&RefreshProver::source_circuit(), &p12, &cfg)?,
-                15 => self.key(&RetiringProver::source_circuit(), &p12, &cfg)?,
+                7 => self.key(&ArchiveProver::source_circuit(), &p12, &cfg)?,
+                8 => self.key(&UnloadProver::source_circuit(), &p12, &cfg)?,
+                9 => self.key(&RefreshProver::source_circuit(), &p12, &cfg)?,
+                10 => self.key(&RetiringProver::source_circuit(), &p12, &cfg)?,
                 _ => {
                     let shape = sigma::monetary_shape(selector)?;
                     self.key(
@@ -525,12 +525,16 @@ impl<'a> OfflineCompilerV1<'a> {
             16,
             CompilationPhaseV1::QParameters,
         )?;
-        let circuit = source(q.source_circuit(), CompilationPhaseV1::SigmaQSource)?;
-        let mut keys = vec![self.key(
-            &circuit,
-            &params,
-            &config(QSigmaPlan::instance_types().to_vec(), true, self.config),
-        )?];
+        // A route whose A proves the own step directly has no Q_sigma key.
+        let mut keys = Vec::with_capacity(signatures.len() + 1);
+        if let Some(q) = &q {
+            let circuit = source(q.source_circuit(), CompilationPhaseV1::SigmaQSource)?;
+            keys.push(self.key(
+                &circuit,
+                &params,
+                &config(QSigmaPlan::instance_types().to_vec(), true, self.config),
+            )?);
+        }
         for signature in &signatures {
             keys.push(self.key(
                 &source(
@@ -543,7 +547,7 @@ impl<'a> OfflineCompilerV1<'a> {
         }
         let recipe = source(
             QProgramRecipeV1::from_metadata(
-                q.plan().clone(),
+                q.as_ref().map(|q| q.plan().clone()),
                 signatures,
                 keys.iter().map(|k| k.metadata.clone()).collect(),
             ),
@@ -589,7 +593,10 @@ impl<'a> OfflineCompilerV1<'a> {
         if operation.scope != self.scope
             || operation.own != q.own
             || operation.incoming != q.incoming
-            || operation.q.len() != q.keys.len()
+        {
+            return Err(CompilationErrorV1::Closure);
+        }
+        if operation.q.len() != q.keys.len()
             || operation
                 .q
                 .iter()
@@ -712,13 +719,31 @@ impl<'a> OfflineCompilerV1<'a> {
             }};
         }
         let (context, a, w) = if route.variant == Variant::Bootstrap {
-            if omega.is_some() {
+            // Bootstrap is one unsplit terminal A: no W source follows it.
+            if omega.is_some() || originals.is_some_and(|old| old.a.len() != 1 || !old.w.is_empty())
+            {
                 return Err(CompilationErrorV1::Closure);
             }
-            stages!(source(
+            let plan = source(
                 bootstrap::plan_with_parameters(self.scope, &q.recipe, ep.clone(), eq.clone()),
-                CompilationPhaseV1::BootstrapRecipe
-            )?)
+                CompilationPhaseV1::BootstrapRecipe,
+            )?;
+            let circuit = source(plan.source_circuit(), CompilationPhaseV1::ASource)?;
+            let key = if let Some(old) = originals {
+                self.import(&old.a[0], &circuit, &eq)?
+            } else {
+                self.key(&circuit, &eq, &acfg)
+                    .map_err(|error| stage_error(error, route, 0, false))?
+            };
+            (
+                plan.context()
+                    .schema()
+                    .iter()
+                    .map(PrimeField::to_repr)
+                    .collect(),
+                vec![key],
+                Vec::new(),
+            )
         } else {
             let key = omega.ok_or(CompilationErrorV1::Closure)?;
             let plan = source(

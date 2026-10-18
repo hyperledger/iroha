@@ -44,7 +44,7 @@ fn input(capsule: &KagemushaWalletRecoveryCapsuleV1) -> CapsuleFields<'_> {
 fn private_receive_assembly_preserves_all_originals_and_derives_identity_and_output() {
     let original = capsule();
     let frozen = assemble(
-        credential(&original),
+        &credential(&original),
         input(&original),
         original.body().step_proof.clone(),
     )
@@ -67,16 +67,16 @@ fn private_assembly_rejects_missing_role_and_wrong_payment_source_or_credential(
     let owner = credential(&original);
     let mut fields = input(&original);
     fields.retained.clear();
-    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
+    assert!(assemble(&owner, fields, original.body().step_proof.clone()).is_err());
     let mut fields = input(&original);
     fields.payment = [0; 32];
-    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
+    assert!(assemble(&owner, fields, original.body().step_proof.clone()).is_err());
     let mut fields = input(&original);
     fields.source = [0; 32];
-    assert!(assemble(owner, fields, original.body().step_proof.clone()).is_err());
+    assert!(assemble(&owner, fields, original.body().step_proof.clone()).is_err());
     let mut wrong = owner;
     wrong.body.wallet_id[0] ^= 1;
-    assert!(assemble(wrong, input(&original), original.body().step_proof.clone()).is_err());
+    assert!(assemble(&wrong, input(&original), original.body().step_proof.clone()).is_err());
 }
 #[test]
 fn prepared_native_insertions_retain_exact_low_and_intermediate_empty_openings() {
@@ -134,8 +134,8 @@ fn zero_send_fee_noop_preserves_exact_canonical_body_bytes() {
         let leaf = fee_tree.leaf_at(slot).unwrap();
         let opening = fee_tree.opening(slot);
         let (_, transient) =
-            monetary::send_fee_map(&root, fee, SendFeeMapV1::Preserve { leaf, opening }).unwrap();
-        let insertions = monetary::send_insertions(&pending, fee.fee, transient).unwrap();
+            monetary::send_fee_map(&root, fee, &SendFeeMapV1::Preserve { leaf, opening }).unwrap();
+        let insertions = monetary::send_insertions(&pending, fee.fee, &transient).unwrap();
         assert_eq!(insertions.len(), 1);
         let mut regenerated = original_body.clone();
         regenerated.map_openings = map_openings(&insertions);
@@ -169,8 +169,8 @@ fn positive_send_fee_retains_both_exact_canonical_insertions() {
     let inserted = fee_tree
         .insert(fee.key(), fee.leaf_value().unwrap())
         .unwrap();
-    let (_, witness) = monetary::send_fee_map(&root, fee, SendFeeMapV1::Insert(inserted)).unwrap();
-    let actual = map_openings(&monetary::send_insertions(&pending, fee.fee, witness).unwrap());
+    let (_, witness) = monetary::send_fee_map(&root, fee, &SendFeeMapV1::Insert(inserted)).unwrap();
+    let actual = map_openings(&monetary::send_insertions(&pending, fee.fee, &witness).unwrap());
     let expected = vec![
         pending.low_opening.leaf_transcript(&pending.low),
         pending.slot_opening.empty_transcript(),

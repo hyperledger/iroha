@@ -1,0 +1,9 @@
+{
+  "published_manifest_sha256": {
+    "parliament_ballot_content_resources": "c2349eb9808ecaf6d43abb6a60dc09184b391d0385a7726476c84bb4c6f7c54f",
+    "parliament_ballot_lifetime_ledger": "b740ad7f8eae0dd1a236acba38b9ac818fc2c88c53c2cc9ff0c0e1317eadd506",
+    "parliament_ballot_request_machine": "a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d"
+  },
+  "selected_dependency_files": 154,
+  "source_identity_is_not_runtime_closure": true
+}

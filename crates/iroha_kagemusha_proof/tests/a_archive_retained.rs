@@ -174,10 +174,10 @@ impl Retained {
             digest(ObjectKind::Receipt, &self.signed[2]),
             digest(ObjectKind::Credential, &self.signed[3]),
             p_bytes_native(u64::from_le_bytes(*b"kgwpay_1"), &self.payment),
-            internal(9, &self.statement),
+            internal(7, &self.statement),
             proof,
             proof,
-            internal(12, &self.statement[17..24]),
+            internal(10, &self.statement[17..24]),
         ]
     }
     fn accepts(&self, public: &[Fp]) -> bool {
@@ -306,7 +306,7 @@ impl Circuit<Fp> for Retained {
 #[test]
 fn retained_payment_binds_original_bytes_lengths_credential_field_and_send_descriptor() {
     let c = Retained::fixture();
-    assert_ne!(&c.signed[0][210..242], &c.signed[0][394..426]);
+    assert_ne!(&c.signed[0][210..242], &c.signed[0][354..386]);
     let public = c.public();
     assert!(c.accepts(&public));
     for mutation in 0..13 {
@@ -331,7 +331,7 @@ fn retained_payment_binds_original_bytes_lengths_credential_field_and_send_descr
             11 => wrong.payment[131] ^= 1,
             _ => {
                 let credential = wrong.signed[0][210..242].to_vec();
-                wrong.signed[0][394..426].copy_from_slice(&credential);
+                wrong.signed[0][354..386].copy_from_slice(&credential);
                 wrong.signed[0][210] ^= 1;
             }
         }
@@ -433,7 +433,8 @@ fn retained_full_payment_capacities_have_witness_independent_layout() {
 #[test]
 fn retained_schema_pins_all_nine_original_categories_and_capacities() {
     let specs = ArchiveRetainedPayment::context_specs(65, 97).unwrap();
-    assert_eq!(specs.map(|s| s.tag), [4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    // Tags 2..10 follow the own receipt at tag 1.
+    assert_eq!(specs.map(|s| s.tag), [2, 3, 4, 5, 6, 7, 8, 9, 10]);
     assert_eq!(specs[4].capacity, 163);
     assert_eq!(specs[5].capacity, 26 * 32);
     assert_eq!(specs[6].capacity, 65);
@@ -546,7 +547,7 @@ fn incoming_sources_pin_quoted_credential_and_preserve_malformed_receipt() {
     };
     assert!(incoming.accepts(&incoming.public(true)));
     let specs = ArchiveIncomingObjects::context_specs().unwrap();
-    assert_eq!(specs.map(|s| s.tag), [4, 7, 13]);
+    assert_eq!(specs.map(|s| s.tag), [2, 5, 11]);
     assert_eq!(specs.map(|s| s.capacity), [522, 540, 402]);
     // Incoming evidence is soft, including noncanonical original fields. Its
     // digest must still be derived from the complete original bytes.
@@ -587,8 +588,9 @@ fn incoming_sources_pin_quoted_credential_and_preserve_malformed_receipt() {
             "quote{index}:{offset}"
         );
     }
-    // The receipt signature remains an opaque original here. Only mandatory
-    // Q2 can derive its signature verdict; decoding may not reject it early.
+    // The receipt signature remains an opaque original here. Only the soft slot
+    // of the mandatory merged signature leaf can derive its verdict; decoding may
+    // not reject it early.
     let mut signature = incoming.clone();
     signature.signed[2][ObjectKind::Receipt.body_len()..].fill(0);
     assert!(signature.accepts(&signature.public(true)));

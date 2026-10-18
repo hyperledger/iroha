@@ -1,0 +1,162 @@
+"""Complete clean B1 BAVC reconstruction on supplied canonical direct material.
+
+The interface is a mathematical source-level circuit, relative to one immutable
+264-byte-response base oracle. Actual-input entry, whole simulator composition,
+physical resources and cryptographic qualification remain separate and open.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost, require
+from bavc_machine import FrontierRouting
+from prg_machine import TreeExpansion
+from leaf_machine import LeafScan
+from hash_machine import H0, H1Aggregation
+
+
+@dataclass(frozen=True)
+class Reconstruction:
+    """Joint clean map: input retained; output XOR commitment64||ordered seeds."""
+    geometry: object
+    aes: object
+    tripled: object
+    field: object
+
+    def components(self):
+        """Concrete public kernels must satisfy their authenticated contracts."""
+        g = self.geometry
+        return dict(route=FrontierRouting(g.leaves, g.opening_limit),
+                    tree=TreeExpansion(g.leaves, self.aes), h0=H0(),
+                    leaf=LeafScan(g, self.aes, self.tripled, self.field), h1=H1Aggregation(g.depths))
+
+    def input_regions(self):
+        """Public namespace, IV and source-canonical opening material input slots."""
+        g, cursor, result = self.geometry, 0, {}
+        for name, width in (("namespace", 616), ("iv", 128), ("marks", 2*g.leaves-1),
+                            ("keys", 256*g.opening_limit), ("hidden", 896*g.tau)):
+            result[name] = (cursor, width)
+            cursor += width
+        return result, cursor
+
+    @property
+    def input_bits(self):
+        return self.input_regions()[1]
+
+    @property
+    def output_bits(self):
+        return 512 + 256*self.geometry.leaves
+
+    def layout(self):
+        """All intermediate outputs coexist, but clean component scratch is shared."""
+        components = self.components()
+        plans = {name: (c.layout() if name != "h0" else
+                        dict(output_start=c.input_bits+c.work, size=c.input_bits+c.work+c.output_bits))
+                 for name, c in components.items()}
+        inputs, cursor = self.input_regions()
+        retained = {}
+        for name in ("route", "tree", "h0", "leaf"):
+            retained[name] = (cursor, components[name].output_bits)
+            cursor += components[name].output_bits
+        scratch_start = cursor
+        scratch_bits = max(plans[name]["output_start"]-components[name].input_bits for name in components)
+        output_start = scratch_start+scratch_bits
+        return dict(components=components, plans=plans, inputs=inputs, retained=retained,
+                    scratch_start=scratch_start, scratch_bits=scratch_bits,
+                    output_start=output_start, size=output_start+self.output_bits)
+
+    def sources(self, p, name):
+        """Static contiguous pieces of each component's logical input; no RAM."""
+        source = p["inputs"]
+        heap_bits = (2*self.geometry.leaves-1)*256
+        route, tree, h0, leaf = (p["retained"][n] for n in ("route", "tree", "h0", "leaf"))
+        mappings = dict(route=(source["marks"], source["keys"]),
+                        tree=(source["marks"], (route[0], heap_bits), source["iv"]),
+                        h0=(source["namespace"], source["iv"]),
+                        leaf=(source["marks"], (tree[0], heap_bits), source["iv"], h0, source["hidden"]),
+                        h1=(source["namespace"], leaf))
+        pieces = mappings[name]
+        require(sum(width for _, width in pieces) == p["components"][name].input_bits,
+                "component source mapping width")
+        # Check disjoint intervals without constructing millions of wire integers.
+        ordered = sorted(pieces)
+        require(all(start >= 0 and width > 0 for start, width in pieces)
+                and all(a+width <= b for (a, width), (b, _) in zip(ordered, ordered[1:])),
+                "component source mapping aliases")
+        return pieces
+
+    def mapped_wire(self, p, name, wire):
+        """Map source, clean scratch or XOR output into the composed disjoint layout."""
+        component = p["components"][name]
+        local_out = p["plans"][name]["output_start"]
+        require(type(wire) is int and 0 <= wire < p["plans"][name]["size"], "component wire")
+        if wire < component.input_bits:
+            cursor = wire
+            for start, width in self.sources(p, name):
+                if cursor < width: return start+cursor
+                cursor -= width
+            raise ValueError("unreachable component source")
+        if wire < local_out:
+            return p["scratch_start"]+wire-component.input_bits
+        output_start = p["output_start"] if name == "h1" else p["retained"][name][0]
+        return output_start+wire-local_out
+
+    def emit_clean(self):
+        """Keep oracle immutable; reverse in dependency order with original inputs."""
+        p = self.layout()
+        def run(name):
+            # No component changes source basis labels. Its XOR output and clean
+            # scratch contract make repeating it the required inverse on this state.
+            component = p["components"][name]
+            local_inputs = component.input_bits
+            local_out = p["plans"][name]["output_start"]
+            local_size = p["plans"][name]["size"]
+            global_out = p["output_start"] if name == "h1" else p["retained"][name][0]
+            # Validate and snapshot the tiny public segment map once, rather than
+            # rebuilding/sorting it for every elementary gate's wire label.
+            boundaries, cursor = [], 0
+            for start, width in self.sources(p, name):
+                boundaries.append((cursor+width, start-cursor))
+                cursor += width
+            boundaries = tuple(boundaries)
+            def mapped(local):
+                require(type(local) is int and 0 <= local < local_size, "component wire")
+                if local < local_inputs:
+                    for end, delta in boundaries:
+                        if local < end: return local+delta
+                    raise ValueError("unreachable component input")
+                if local < local_out: return p["scratch_start"]+local-local_inputs
+                return global_out+local-local_out
+            for gate in component.emit_clean():
+                yield (gate[0], *(mapped(wire) for wire in gate[1:]))
+        for name in ("route", "tree", "h0", "leaf", "h1"):
+            yield from run(name)
+        leaf_start = p["retained"]["leaf"][0]
+        for flat in range(self.geometry.leaves):
+            for bit in range(256):
+                yield ("cx", leaf_start+1152*flat+bit, p["output_start"]+512+256*flat+bit)
+        for name in ("leaf", "h0", "tree", "route"):
+            yield from run(name)
+
+    def resources(self):
+        """Compose actual clean circuits; no source call subtotal is multiplied."""
+        p = self.layout()
+        vectors = {name: c.resources() for name, c in p["components"].items()}
+        def cost(name):
+            row = vectors[name]
+            value = row["gates"] if name in ("h0", "h1") else row["clean_gates"]
+            return Cost(value["x"], value["cx"], value["ccx"], value["base_xor_oracle_calls"])
+        total = cost("h1") + Cost(cx=256*self.geometry.leaves)
+        for name in ("route", "tree", "h0", "leaf"):
+            total += cost(name).times(2)
+        require(total.base_calls == 4*self.geometry.tau+6, "B1 base query census")
+        return dict(gates=total.as_dict(), input_bits=self.input_bits, output_bits=self.output_bits,
+                    retained_intermediate_bits=sum(n for _, n in p["retained"].values()),
+                    shared_clean_scratch_bits=p["scratch_bits"],
+                    total_clean_work_bits=p["output_start"]-self.input_bits,
+                    components=vectors, source_B1_algorithm_covered=True,
+                    canonical_input_premises_checked_by_caller=True,
+                    conditional_on_concrete_kernel_and_shared_base_contracts=True,
+                    exact_for_defined_lazy_emitter=True,
+                    B0_to_B1_or_whole_request_composition_implemented=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    actual_input_entry_bridge=False, primitive_advantage_assumed=False,
+                    profile_qualified=False, production_gate_changed=False)

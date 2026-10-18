@@ -11,7 +11,9 @@
 //! returned references borrow the original map, and actual reborrows stay charged.
 
 use super::{OriginalTableRead, RetainedPackageReadError, admit, key_work::ComparisonKey};
-use crate::state::deserialize::musubi_source_read::{KeyWorkCursor, LookupCursor};
+use crate::state::deserialize::musubi_source_read::{
+    KeyWorkCursor, LookupCursor, LookupResolution,
+};
 use std::cmp::Ordering;
 
 // Bounds test, midpoint, branch and next bound of a single binary-search step.
@@ -29,14 +31,16 @@ fn lookup<'read, K: ComparisonKey, V: mv::Value>(
         usize,
     ) -> Result<(&'read K, &'read V), RetainedPackageReadError>,
 ) -> Result<Option<(&'read K, &'read V)>, RetainedPackageReadError> {
-    if let Some(resolved) = query.resolved {
-        return resolved.map(|index| row(index, work, limit)).transpose();
+    match query.resolved {
+        LookupResolution::Present(index) => return row(index, work, limit).map(Some),
+        LookupResolution::Absent => return Ok(None),
+        LookupResolution::Pending => {}
     }
     if query.phase == 0 {
         admit(work, 1, limit)?;
         query.end = count;
         if count == 0 {
-            query.resolved = Some(None);
+            query.resolved = LookupResolution::Absent;
             return Ok(None);
         }
         query.phase = 1;
@@ -78,7 +82,7 @@ fn lookup<'read, K: ComparisonKey, V: mv::Value>(
         match candidate.cmp(key) {
             Ordering::Less => query.first = query.middle + 1,
             Ordering::Equal => {
-                query.resolved = Some(Some(query.middle));
+                query.resolved = LookupResolution::Present(query.middle);
                 return Ok(Some((candidate, value)));
             }
             Ordering::Greater => query.end = query.middle,
@@ -86,7 +90,7 @@ fn lookup<'read, K: ComparisonKey, V: mv::Value>(
         query.candidate = KeyWorkCursor::default();
         query.phase = 2;
     }
-    query.resolved = Some(None);
+    query.resolved = LookupResolution::Absent;
     Ok(None)
 }
 

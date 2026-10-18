@@ -1,0 +1,52 @@
+"""Record exact package-control test membership and restored helper identities."""
+import hashlib
+import json
+from pathlib import Path
+import platform
+import sys
+
+import pytest
+
+
+class Membership:
+    def __init__(self):
+        self.collected = []
+        self.reports = []
+
+    def pytest_collection_finish(self, session):
+        self.collected = [item.nodeid for item in session.items]
+
+    def pytest_runtest_logreport(self, report):
+        self.reports.append(dict(nodeid=report.nodeid, when=report.when, outcome=report.outcome))
+
+
+def main():
+    root = Path(sys.argv[1]).absolute()
+    output = Path(sys.argv[2]).absolute()
+    names = ('restore.py', 'replay.py', 'test_restore.py')
+    before = {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in names}
+    plugin = Membership()
+    result = pytest.main(['-q', '-c', '/dev/null', '-o', 'addopts=', '--noconftest', '-p', 'no:cacheprovider',
+        '--rootdir', str(root), '--basetemp', str(output/'temporary'), '--junitxml='+str(output/'tests.xml'),
+        str(root/'test_restore.py')], plugins=[plugin])
+    loaded = {}
+    for module in tuple(sys.modules.values()):
+        filename = getattr(module, '__file__', None)
+        if filename:
+            path = Path(filename).resolve()
+            if path.is_file() and path.is_relative_to(root):
+                loaded[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    after = {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in names}
+    calls = [r['nodeid'] for r in plugin.reports if r['when'] == 'call']
+    passed = result == 0 and len(calls) == 42 and calls == plugin.collected and all(
+        r['outcome'] == 'passed' for r in plugin.reports) and before == after and loaded == before
+    report = dict(status='PASS' if passed else 'FAIL', exit_code=int(result), tests=42,
+        exact_ordered_membership=plugin.collected, reports=plugin.reports,
+        source_sha256_before=before, source_sha256_after=after, loaded_control_modules=loaded,
+        runtime=dict(python=platform.python_version(), pytest=pytest.__version__, executable=sys.executable))
+    (output/'receipt.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
+    raise SystemExit(0 if passed else 1)
+
+
+if __name__ == '__main__':
+    main()

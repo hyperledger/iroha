@@ -31,7 +31,7 @@ runtime or admitted wallet per opaque handle. Trusted embedding-app initializati
 calls `kagemusha_wallet_ffi::start_native_wallet` with independently deployed
 `NativeInstallationConfigV1`, an authenticated native genesis owner, the signed
 verifier pack/inventory, the exclusive Advance provider and its sole original-key
-source. The loader qualifies the complete 52-route graph before registering a
+source. The loader qualifies the complete 22-route graph before registering a
 runtime; no default trust root or environment-selected installation exists.
 
 C/JNI `open_begin` accepts only bounded credential, Enrollment CertificateSet,

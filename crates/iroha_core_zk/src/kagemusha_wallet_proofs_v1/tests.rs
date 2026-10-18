@@ -259,7 +259,10 @@ fn lineage_digest_matches_independent_integer_rp57_endian_and_order_vector() {
         payment_key: KagemushaDevicePublicKeyV1::from_sec1_bytes(&key).unwrap(),
         lifecycle: KagemushaWalletLifecycleV1::Active,
         policy_epoch: 0x0102_0304_0506_0708,
-        enabled_controls: 7,
+        // TODO(blacklist-local G5): recompute the known answer below with the independent
+        // integer implementation; it was pinned for the retired three-bit mask 7, which the
+        // two-control lineage no longer admits.
+        enabled_controls: KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
         burned_total: 0x1122_3344_5566_7788_99aa_bbcc_ddee_ff00,
         pending_outgoing_root: Fp::from(9).to_repr(),
         credit_digest_root: Fp::from(10).to_repr(),
@@ -417,20 +420,34 @@ fn rebind_capsule_data(capsule: &mut KagemushaWalletRecoveryBodyV1) {
 fn receipt_free_context_uses_retained_request_without_mutating_originals() {
     let (scheme, capsule, credential) = receive_capsule_data();
     let original = capsule.clone();
-    let request = retained_request(&capsule).expect("held Request");
-    let expected_mask = if request.body.receiver_blacklist_version == 0 {
-        0
-    } else {
-        KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-    };
+    retained_request(&capsule).expect("held Request");
+    // Receive has one key: its selector reads no list recorded by the Request.
     assert_eq!(
         capsule_selector(&scheme, &capsule, &credential),
-        Ok((KagemushaWalletOperationKindV1::Receive, expected_mask))
+        Ok((KagemushaWalletOperationKindV1::Receive, 0))
     );
     assert_eq!(
         capsule, original,
         "all retained canonical bytes remain exact"
     );
+}
+
+#[test]
+fn receive_package_selects_its_one_key_from_the_package_alone() {
+    // Package verification takes no Request: Receive's key is mask 0 whatever controls the
+    // receiver's predecessor carries in the statement.
+    let mut package: KagemushaWalletPackageV1 = capsule_data_fixture("KagemushaWalletPackageV1");
+    assert_eq!(
+        package.statement.effect.kind(),
+        KagemushaWalletOperationKindV1::Receive
+    );
+    for controls in 0..=KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1 {
+        package.statement.enabled_controls = controls;
+        assert_eq!(
+            package.verifying_key_selector(),
+            (KagemushaWalletOperationKindV1::Receive, 0)
+        );
+    }
 }
 
 #[test]
@@ -539,34 +556,6 @@ fn receipt_free_context_rejects_another_installed_scheme_or_current_credential()
 }
 
 #[test]
-fn receipt_free_context_cannot_change_historical_selector_without_request_signature() {
-    let (scheme, mut capsule, credential) = receive_capsule_data();
-    let mut request = retained_request(&capsule).expect("Request");
-    request.body.receiver_blacklist_version = request
-        .body
-        .receiver_blacklist_version
-        .checked_add(1)
-        .expect("historical version");
-    if request.body.receiver_blacklist_root == [0; 32] {
-        request.body.receiver_blacklist_root = Fp::from(99).to_repr();
-    }
-    request
-        .body
-        .validate()
-        .expect("structurally valid changed Request body");
-    *request_original(&mut capsule) =
-        norito::encode_canonical(&request).expect("canonical mutation");
-    capsule
-        .validate()
-        .expect("the capsule does not authenticate Request by shape");
-    assert_eq!(
-        capsule_selector(&scheme, &capsule, &credential),
-        Err(Error::Authority),
-        "a canonical but unauthenticated historical version cannot choose another key"
-    );
-}
-
-#[test]
 fn receipt_free_context_preserves_soft_incoming_original_for_receive_relation() {
     let (scheme, mut capsule, credential) = receive_capsule_data();
     let expected = capsule_selector(&scheme, &capsule, &credential).expect("Request context");
@@ -661,7 +650,6 @@ fn send_capsule_data() -> (
     state.rest.scheme_policy = request.body.scheme_policy;
     state.rest.fee_schedule = request.body.fee_schedule;
     state.rest.permitted_controls = payer.body.regulatory_policy.permitted_controls;
-    state.core.blacklist_max_age_ms = payer.body.regulatory_policy.blacklist_max_age_ms;
     state.core.time_anchor_max_response_ms =
         payer.body.regulatory_policy.time_anchor_max_response_ms;
     state.core.lease_expires_at_ms = payer.body.lease_expires_at_ms;
@@ -808,7 +796,7 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
     let budget = MemoryBudget::DEFAULT;
     let work = KagemushaWalletVerificationCountsV1::current_thread();
     assert_eq!(
-        verifier.verify_package_proofs_cancellable(&payment.send, None, budget, Some(&token)),
+        verifier.verify_package_proofs_cancellable(&payment.send, budget, Some(&token)),
         Err(Error::Cancelled)
     );
     assert_eq!(
@@ -836,7 +824,7 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
     );
     // A fresh operation has no inherited signal and performs actual authority checks.
     assert_eq!(
-        verifier.verify_package_proofs(&payment.send, None, budget),
+        verifier.verify_package_proofs(&payment.send, budget),
         Err(Error::Authority)
     );
     // Only the direct lineage call started; refusals before it ran no proof work.

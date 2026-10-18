@@ -359,7 +359,7 @@ in-circuit verifiers must accept exactly the same set for every object that
 `Λ` verifies after a native check: run differential and fuzz tests, in the
 relation owners' CI, over `Ω` including its deferred values, `σ`, `τ`, the
 Request, Credited evidence, ordinary Load receipt bindings, fee schedules,
-certificates, credentials, and policy, list, time and credential updates. Load's
+certificates, credentials, and policy, time and credential updates. Load's
 BLS certificate and counted event inclusion are verified natively before Advance
 signing under the accepted [design §6.1](kagemusha_single_design_proposal.md#61-load-and-unload)
 trust boundary; exercise their native mutation and pre-signing refusal cases

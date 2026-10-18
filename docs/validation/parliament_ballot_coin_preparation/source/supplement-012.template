@@ -1,0 +1,135 @@
+"""Capture fixed-sequence controls against a separately restored frozen source tree.
+
+The source inventory and execution inputs are selected, not a runtime closure.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+OUT = HERE/'capture'
+MACHINE = ROOT/'docs/validation/parliament_ballot_request_machine'
+MANIFEST_SHA = 'a1d8a09dbe677b4eee0eb230ab8f998f4e80f90b2546dde1c9faa6b46679923d'
+RECEIPT_SHA = 'a2461d6bc5b1ee066dcaa6a48bf3fe5639d0b886da6512358e5dd0c6eb835e69'
+OBS = 'target/parliament-content-resources-stage/capture/observation.json'
+OBS_SHA = 'c2f75e568d9b9192940fd53d4974ea71094d1ce7b48a69d194b7914a0857803e'
+OWN = tuple('target/parliament-sequential-composition-stage/'+name
+            for name in ('sequence.py', 'test_sequence.py', 'observe.py', 'README.md', 'capture.py'))
+REVIEW = 'target/parliament-sequential-composition-review/test_independent.py'
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def require(condition, why):
+    if not condition:
+        raise ValueError(why)
+
+
+def checked(path, expected):
+    data = path.read_bytes()
+    require(digest(data) == expected, 'source identity: '+str(path))
+    return data
+
+
+def safe(name):
+    relative = Path(name)
+    require(not relative.is_absolute() and '..' not in relative.parts, 'relative snapshot path')
+    return relative
+
+
+def save_json(path, value):
+    path.write_text(json.dumps(value, indent=2, sort_keys=True)+'\n')
+
+
+def main():
+    require(not OUT.exists(), 'capture destination already exists')
+    manifest = checked(MACHINE/'SHA256SUMS', MANIFEST_SHA)
+    for line in manifest.decode().splitlines():
+        h, name = line.split('  ', 1)
+        checked(MACHINE/safe(name), h)
+    receipt_bytes = checked(MACHINE/'capture/receipt.json', RECEIPT_SHA)
+    prior = json.loads(receipt_bytes)
+    require(len(prior['source_sha256_before']) == 152, 'frozen input membership')
+    inputs = {}
+    for name, expected in prior['source_sha256_before'].items():
+        inputs[name] = checked(MACHINE/'capture/source'/(name+'.template'), expected)
+    inputs[OBS] = checked(ROOT/OBS, OBS_SHA)
+    for name in (*OWN, REVIEW):
+        inputs[name] = (ROOT/name).read_bytes()
+    pins = {name: digest(data) for name, data in inputs.items()}
+    live_before = {name: digest((ROOT/name).read_bytes()) for name in inputs}
+    drift = {name: dict(expected=pins[name], actual=h) for name, h in live_before.items() if h != pins[name]}
+    require(set(drift) <= {'crates/iroha_parliament_ballot_proof/Cargo.toml'}, 'unexpected live source drift')
+    OUT.mkdir()
+    execution = OUT/'execution-root'
+    for name, data in inputs.items():
+        destination = execution/safe(name)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        snapshot = OUT/'source'/(name+'.template')
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.write_bytes(data)
+    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+        PYTEST_ADDOPTS='', PYTEST_PLUGINS='', PYTHONPATH='')
+    commands = []
+    def run(name, command):
+        result = subprocess.run(command, cwd=execution, env=environment, capture_output=True)
+        (OUT/(name+'.stdout')).write_bytes(result.stdout)
+        (OUT/(name+'.stderr')).write_bytes(result.stderr)
+        commands.append(dict(name=name, command=command, exit_code=result.returncode))
+        require(result.returncode == 0, 'command failed: '+name)
+        return result.stdout
+    tests = run('tests', ['/opt/homebrew/bin/pytest', '-q', '-c', '/dev/null', '--noconftest',
+        '-p', 'no:cacheprovider', '-k', '', '-m', '', '--maxfail=0',
+        '--basetemp', str(OUT/'test-temp'), '--junitxml', str(OUT/'tests.xml'),
+        'target/parliament-sequential-composition-stage/test_sequence.py', REVIEW])
+    xml = ET.parse(OUT/'tests.xml').getroot()
+    cases = xml.findall('.//testcase')
+    require(len(cases) == 75, 'exact test count: '+str(len(cases)))
+    require(not any(e.tag in ('failure', 'error', 'skipped') for e in xml.iter()), 'all tests pass')
+    observed = run('observation', [sys.executable, '-B', 'target/parliament-sequential-composition-stage/observe.py'])
+    report = json.loads(observed)
+    require(report['status'] == 'PASS' and report['source_sha256_before'] == prior['source_sha256_before']
+            and report['source_sha256_after'] == report['source_sha256_before'], 'observation source scope')
+    for key in ('full_stream_executed', 'adaptive_controller_executed', 'quantum_joint_state_theorem',
+                'full_family_bound', 'complete_resource_vector', 'native_workspace_qualification',
+                'current_candidate_qualified', 'profile_qualified', 'production_gate_changed'):
+        require(report[key] is False, 'qualification flag: '+key)
+    restored_after = {name: digest((execution/name).read_bytes()) for name in inputs}
+    snapshot_after = {name: digest((OUT/'source'/(name+'.template')).read_bytes()) for name in inputs}
+    live_after = {name: digest((ROOT/name).read_bytes()) for name in inputs}
+    require(pins == restored_after == snapshot_after, 'frozen execution input drift')
+    require(live_before == live_after, 'live inputs changed during capture')
+    outputs = {p.name: digest(p.read_bytes()) for p in OUT.iterdir() if p.is_file()}
+    receipt = dict(scope='fixed classical sequence composition on frozen component sources',
+        prior_machine_manifest_sha256=MANIFEST_SHA, prior_machine_receipt_sha256=RECEIPT_SHA,
+        selected_frozen_component_count=152, input_count=len(pins),
+        source_sha256_before=pins, captured_source_sha256_after=restored_after,
+        live_source_sha256_before=live_before, live_source_sha256_after=live_after,
+        live_source_differences=drift, execution_inputs_stable=True, live_inputs_stable=True,
+        commands=commands, parent_tests=len(cases), failures=0, errors=0, skips=0,
+        test_membership=[dict(classname=e.attrib.get('classname'), name=e.attrib.get('name')) for e in cases],
+        output_sha256=outputs, python=sys.executable, python_version=sys.version,
+        pytest_launcher_sha256=digest(Path('/opt/homebrew/bin/pytest').read_bytes()),
+        selected_inventory_not_runtime_closure=True, full_stream_executed=False,
+        full_adaptive_driver=False, complete_resource_vector=False,
+        independent_cryptographic_review=False, physical_workspace_qualification=False,
+        current_candidate_qualified=False, profile_qualified=False, production_gate_changed=False)
+    save_json(OUT/'receipt.json', receipt)
+    files = sorted(p for p in OUT.rglob('*') if p.is_file()
+                   and p.relative_to(OUT).parts[0] not in ('execution-root', 'test-temp'))
+    (OUT/'SHA256SUMS').write_text(''.join(digest(p.read_bytes())+'  '+p.relative_to(OUT).as_posix()+'\n' for p in files))
+    print(json.dumps(dict(tests=len(cases), source_inputs=len(pins),
+        receipt_sha256=digest((OUT/'receipt.json').read_bytes()),
+        manifest_sha256=digest((OUT/'SHA256SUMS').read_bytes()))))
+
+
+if __name__ == '__main__':
+    main()

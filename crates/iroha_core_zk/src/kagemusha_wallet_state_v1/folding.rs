@@ -9,7 +9,7 @@ use std::ops::ControlFlow;
 
 use super::fold_custody::FoldSourcesV1;
 use super::fold_metrics::FoldTurnV1;
-use super::scheduling::FoldGuard;
+use super::scheduling::{FoldGuard, FoldPublicationV1};
 use super::*;
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1 as digest;
 
@@ -39,7 +39,8 @@ impl FoldSeed {
 /// Result of one cooperative background scheduling turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoldStatus {
-    /// Background work is disabled, a payment holds priority or another sub-proof is proving.
+    /// Background work is disabled, a payment holds priority, custody is Pending or another
+    /// sub-proof is proving.
     Idle,
     /// Every released head is folded.
     CaughtUp,
@@ -99,12 +100,15 @@ pub struct FoldJobV1 {
 }
 
 /// A proved sub-proof awaiting its locked publication. It no longer holds the background
-/// slot; its publication re-checks the fold fields and discards a stale proof.
+/// slot; its publication re-checks the fold fields and discards a stale proof. It holds no
+/// retained native state either, only the publication identity that settles the value its
+/// sub-proof parked in the scheduler: dropping it unpublished discards that value.
 pub struct ProvedFoldV1 {
     turn: FoldTurnV1,
     ingests: u32,
     prepared: Prepared,
     progress: FoldProgress,
+    publication: FoldPublicationV1,
 }
 
 /// The selected manifest and fold fields one sub-proof was prepared from.
@@ -139,19 +143,23 @@ impl FoldJobV1 {
             native,
         } = self;
         fold_metrics::enter(FoldPhaseV1::Prove);
-        let proved = native.prove(&guard.token).and_then(|progress| {
+        let proved = native.prove(&guard.token).and_then(|proved| {
             guard.token.check()?;
-            Ok(progress)
+            Ok(proved)
         });
         match proved {
-            Ok(progress) => {
+            Ok((progress, retained)) => {
                 // The wait for the wallet owner belongs to the publication.
                 fold_metrics::enter(FoldPhaseV1::Publish);
+                // What the native owner retained is parked under this attempt as the slot is
+                // released; the proved job keeps only its publication identity.
+                let (ingests, publication) = guard.release(retained);
                 Ok(ProvedFoldV1 {
-                    ingests: guard.release(),
+                    ingests,
                     turn,
                     prepared,
                     progress,
+                    publication,
                 })
             }
             Err(error) => {
@@ -457,10 +465,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             ingests,
             mut prepared,
             progress,
+            publication,
         } = job.prove()?;
         // This caller held the coordinator since prepare, so the prepared manifest is still
         // the selected one: its compare-and-publish needs no re-check or rebase.
         let result = self.publish_progress(&mut prepared, progress, None, None, None);
+        publication.settle(result.as_ref().copied());
         self.scheduler
             .report(turn, result.as_ref().copied(), None, ingests);
         result
@@ -482,8 +492,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let Some(guard) = self.scheduler.start() else {
             return Ok(ControlFlow::Break(FoldTurnStatusV1::IDLE));
         };
+        // What the previous sub-proof's checkpoint publication retained. Only the native
+        // owner reads it, for the same key and a byte-exact durable prefix; every turn that
+        // proves nothing drops it.
+        let retained = guard.take_retained();
         let mut turn = FoldTurnV1::start();
-        let result = match self.fold_turn(&guard, &mut turn) {
+        let result = match self.fold_turn(&guard, &mut turn, retained) {
             Ok(ControlFlow::Continue((prepared, native))) => {
                 return Ok(ControlFlow::Continue(FoldJobV1 {
                     guard,
@@ -502,11 +516,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     /// The locked last phase of a sub-proof proved without the wallet owner. It publishes only
     /// if the fold fields the proof was prepared from are unchanged: the folded head, the
     /// checkpoint count and digest, the step's capsule, the predecessor Ω and an empty
-    /// publication slot. Unrelated Advance and ingest writes are rebased onto the selected
-    /// manifest; otherwise the proof is discarded, never published, and the next turn resumes
-    /// from durable state. Index roots and exact Ω identity become durable under the source
-    /// marker before success. The turn is reported to the scheduler's fold observer; its
-    /// backlog is that of the published manifest.
+    /// publication slot. A head that became Pending discards this proof and parks the next
+    /// prepare until its frozen operation finishes. Unrelated released Advance and ingest writes
+    /// are rebased onto the selected manifest; otherwise the proof is discarded, never published,
+    /// and the next turn resumes from durable state. Index roots and exact Ω identity become
+    /// durable under the source marker before success. The turn is reported to the scheduler's
+    /// fold observer; its backlog is that of the published manifest.
     ///
     /// # Errors
     /// `Cancelled` for a discarded proof, missing witnesses, a rejected Ω or uncertain archive
@@ -517,8 +532,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             ingests,
             mut prepared,
             progress,
+            publication,
         } = proved;
         let result = self.publish_rebased(&mut prepared, progress, &mut turn);
+        publication.settle(result.as_ref().copied());
         self.scheduler
             .report(turn, result.as_ref().copied(), None, ingests);
         result.map(|status| FoldTurnStatusV1::of(status, &prepared.manifest))
@@ -528,8 +545,16 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         &mut self,
         guard: &FoldGuard,
         turn: &mut FoldTurnV1,
+        retained: Option<FoldRetentionV1>,
     ) -> Result<ControlFlow<FoldTurnStatusV1, (Prepared, Box<dyn NativeFoldJobV1>)>, Error> {
-        let (manifest_digest, manifest) = self.sync_manifest()?;
+        let (manifest_digest, manifest) = match self.sync_manifest() {
+            Ok(selected) => selected,
+            // Selected custody must finish its frozen operation before any fold can start.
+            // Park without a worker error or another wake; the completing payment guard
+            // wakes the owner again. Do not mask provider/storage uncertainty as Pending.
+            Err(Error::Pending) => return Ok(ControlFlow::Break(FoldTurnStatusV1::IDLE)),
+            Err(error) => return Err(error),
+        };
         let Some(last) = manifest.indexed else {
             return Ok(ControlFlow::Break(FoldTurnStatusV1::of(
                 FoldStatus::CaughtUp,
@@ -656,6 +681,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     prepared.predecessor.as_ref(),
                     checkpoints,
                     view.as_mut(),
+                    retained,
                     &guard.token,
                 )?
             };
@@ -683,7 +709,17 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         progress: FoldProgress,
         turn: &mut FoldTurnV1,
     ) -> Result<FoldStatus, Error> {
-        let (manifest_digest, manifest) = self.sync_manifest()?;
+        let (manifest_digest, manifest) = match self.sync_manifest() {
+            Ok(selected) => selected,
+            // The proof released its scheduler slot before taking the owner again. A
+            // payment may have selected Pending custody in that gap. Discard this proof;
+            // the worker's next prepare parks until that frozen operation is released.
+            Err(Error::Pending) => {
+                turn.discarding();
+                return Err(Error::Cancelled);
+            }
+            Err(error) => return Err(error),
+        };
         let selected = &prepared.manifest;
         let unchanged = manifest.folded == selected.folded
             && manifest.checkpoint_count == selected.checkpoint_count

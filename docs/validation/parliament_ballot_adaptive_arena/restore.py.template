@@ -1,0 +1,93 @@
+"""Authenticate and restore selected historical arena evidence into an absent root."""
+from pathlib import Path, PurePosixPath
+import argparse
+import hashlib
+import json
+import sys
+
+
+def sha(raw):return hashlib.sha256(raw).hexdigest()
+def require(ok,why):
+    if not ok:raise ValueError(why)
+def safe(name):
+    require(type(name) is str and bool(name),'relative path required')
+    path=PurePosixPath(name)
+    require(not path.is_absolute() and '..' not in path.parts and path.as_posix()==name,'unsafe path')
+    return name
+def members(folder,identity):
+    raw=(folder/'SHA256SUMS').read_bytes()
+    require(sha(raw)==identity,'manifest identity: '+str(folder))
+    result={}
+    for line in raw.decode().splitlines():
+        expected,name=line.split('  ',1);safe(name)
+        require(name not in result,'duplicate manifest member')
+        data=(folder/name).read_bytes()
+        require(sha(data)==expected,'member identity: '+str(folder/name))
+        result[name]=data
+    return result
+
+
+def restore(package,repository,destination,identity,source_set):
+    require(not destination.exists(),'destination must be absent')
+    own=members(package,identity)
+    dependencies=json.loads(own['dependencies.json'])
+    loaded={name:members(repository/'docs/validation'/safe(name),digest)
+            for name,digest in dependencies['published_manifest_sha256'].items()}
+    index=json.loads(own['replay-inputs.json'])
+    def resolve(item):
+        if item['origin']=='this-package':data=own[safe(item['member'])]
+        else:
+            require(item['origin']=='published-dependency','known replay origin')
+            data=loaded[item['package']][safe(item['member'])]
+        require(sha(data)==item['sha256'],'replay input identity')
+        return data
+    buffers={safe(name):resolve(item) for name,item in index['files'].items()}
+    require(len(buffers)==index['replay_file_count'],'exact full replay inventory')
+    for capture in json.loads(own['logical-manifests.json']):
+        raw=own[safe(capture['manifest_member'])]
+        require(sha(raw)==capture['manifest_sha256'],'original manifest identity')
+        seen=set()
+        for line in raw.decode().splitlines():
+            digest,name=line.split('  ',1);safe(name)
+            require(name not in seen,'duplicate original manifest member');seen.add(name)
+            item=capture['files'][name]
+            if item['origin']=='replay-input':data=buffers[safe(item['path'])]
+            else:
+                require(item['origin']=='this-package','known original member origin')
+                data=own[safe(item['member'])]
+            require(sha(data)==digest,'original manifest member identity: '+name)
+        require(seen==set(capture['files']),'complete original manifest membership')
+    audit=json.loads(own['audit/source-pins.json'])['sha256']
+    require(len(audit)==21 and all(sha(buffers[safe(p)])==h for p,h in audit.items()),'all21 audit source pins')
+    selected=index['source_sets'][source_set]
+    require(len(set(selected['paths']))==len(selected['paths']),'unique selected paths')
+    wanted={safe(name):buffers[name] for name in selected['paths']}
+    for name,item in selected['overrides'].items():
+        require(name in wanted,'override is a selected input')
+        wanted[name]=resolve(item)
+    require(len(wanted)==selected['file_count'],'exact selected input count')
+    destination.mkdir(parents=True,exist_ok=False)
+    for name,data in wanted.items():
+        path=destination/name;path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open('xb') as handle:handle.write(data)
+    after={name:sha((destination/name).read_bytes()) for name in wanted}
+    require(after=={name:sha(data) for name,data in wanted.items()},'restored source stability')
+    return dict(status='PASS',source_set=source_set,restored_files=len(wanted),source_sha256=after,
+        historical_source_only=True,complete_resource_vector=False,current_candidate_qualified=False,
+        production_gate_changed=False)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    for name in ('package','repository','destination'):parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--manifest-sha256',required=True)
+    parser.add_argument('--source-set',default='review',help='named exact input set in replay-inputs.json')
+    args=parser.parse_args()
+    try:
+        print(json.dumps(restore(args.package.resolve(),args.repository.resolve(),args.destination.resolve(),
+            args.manifest_sha256,args.source_set),sort_keys=True));return 0
+    except (ValueError,KeyError,TypeError,OSError) as error:
+        print(str(error),file=sys.stderr);return 1
+
+
+if __name__=='__main__':sys.exit(main())

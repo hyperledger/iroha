@@ -47,7 +47,7 @@ fn inventory(value: &norito::json::Value) {
         .collect::<BTreeSet<_>>();
     assert_eq!(names, expected);
     assert_eq!(value["final_owned_atomic"], norito::json!(["0", "100"]));
-    assert_eq!(value["last_policy_epochs"], norito::json!([10, 1]));
+    assert_eq!(value["last_policy_epochs"], norito::json!([6, 1]));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -163,7 +163,7 @@ fn archive_current(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     assert!(matches!(
         package.statement.effect,
@@ -224,11 +224,7 @@ fn send_received_balance(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(
-            &payment.send,
-            Some(&request_value.body),
-            MemoryBudget::DEFAULT,
-        )
+        .verify_package_proofs(&payment.send, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(payment.send.statement.enabled_controls, mask);
     assert_eq!(payment.send.statement.next_load, 0);
@@ -286,7 +282,7 @@ fn continuation_inventory_rejects_missing_duplicate_and_foreign_originals() {
         .flat_map(|party| FRAME_NAMES.map(|name| format!("{party}-{name}")))
         .map(|name| norito::json!({"name":name,"bytes":1,"sha256":(hex::encode([1;32]))}))
         .collect::<Vec<_>>();
-    let value = norito::json!({"schema":"iroha.kagemusha.native-controls-result.v1","continuation_originals":rows,"final_owned_atomic":["0","100"],"last_policy_epochs":[10,1]});
+    let value = norito::json!({"schema":"iroha.kagemusha.native-controls-result.v1","continuation_originals":rows,"final_owned_atomic":["0","100"],"last_policy_epochs":[6,1]});
     inventory(&value);
     for mode in 0..3 {
         let mut changed = value.clone();
@@ -435,7 +431,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         .unwrap();
     original_b.verify(&f_b.config.scheme, &issuer).unwrap();
     let mut records = Vec::new();
-    let mut id = 100_u8; // Prior all-masks journey uses20..97; Load uses202/203.
+    let mut id = 100_u8; // Prior all-masks journey uses IDs 20..<100; Load uses202/203.
     set_policy(
         &mut a,
         &device_a,
@@ -456,7 +452,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         &original_b,
         &regulator,
         12,
-        4,
+        KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1,
         &mut id,
         &output,
         "b-lease-only",
@@ -493,7 +489,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     skipped_body.renewal_sequence = 2;
     let skipped = terms::issue(skipped_body, &issuer);
     let mut foreign_body = renewed1.body;
-    foreign_body.regulatory_policy.blacklist_max_age_ms += 1;
+    foreign_body.regulatory_policy.time_anchor_max_response_ms += 1;
     let foreign = terms::issue(foreign_body, &issuer);
     for (label, credential) in [
         ("skipped-renewal", skipped),
@@ -551,7 +547,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         &renewed1,
         &regulator,
         13,
-        6,
+        ALL,
         &mut id,
         &output,
         "b-quota-and-lease",
@@ -591,7 +587,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         &sources,
         &frames_b,
         &request30,
-        6,
+        ALL,
         &mut id,
         &output,
         "daily-straddle",
@@ -693,7 +689,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&renewed_package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&renewed_package, MemoryBudget::DEFAULT)
         .unwrap();
     assert!(matches!(
         renewed_package.statement.effect,
@@ -777,7 +773,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&retirement, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&retirement, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(
         retirement.statement.effect,
@@ -814,7 +810,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     );
     let retiring_route = OperationRoute {
         variant: Variant::Retiring,
-        own: 15,
+        own: 10,
         incoming: None,
     };
     let QualifiedOperationOwnerV1::Consuming(retiring_owner) =
@@ -933,10 +929,9 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     let receive30_intent = receive(&payment30, &historical_b, id);
     let receive_renewed_route = OperationRoute {
         variant: Variant::ReceiveRenewed,
-        own: 10,
-        incoming: Some(8),
+        own: 6,
+        incoming: Some(5),
     };
-    assert_eq!(request30_value.body.receiver_blacklist_version, 0);
     let incoming30: KagemushaWalletPaymentV1 = decode(&payment30);
     assert_eq!(
         incoming30
@@ -946,7 +941,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
             .unwrap()
             .public
             .enabled_controls,
-        6
+        ALL
     );
     let QualifiedOperationOwnerV1::Receive(receive_owner) = sources
         .qualified
@@ -1074,7 +1069,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
                 &sources,
                 &frames_b,
                 &request,
-                6,
+                ALL,
                 &mut id,
                 &output,
                 $label,
@@ -1302,11 +1297,11 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         "source_pins":(source_pins()),"producer_sha256":(sha(&bytes)),
         "target_sha256":(prior["target_sha256"].clone()),"receipt_sha256":(prior["receipt_sha256"].clone()),
         "scheme_id":(hex::encode(f_a.config.scheme.scheme_id())),"manifest_digest":(hex::encode(sources.qualified.installation().1)),
-        "credential_renewals":[1,2],"receiver_credential_renewals":[1],"send_mask":6,"receive_mask":0,"payer_next_load":0,
+        "credential_renewals":[1,2],"receiver_credential_renewals":[1],"send_mask":3,"receive_mask":0,"payer_next_load":0,
         "receive_renewed_count":1,"retiring_count":1,"retiring_send_count":4,
         "required_route_traces":[
-            {"case":"retiring","variant":"Retiring","own":15,"incoming":null,"terminal_position":retiring_stages},
-            {"case":"receive-renewed","variant":"ReceiveRenewed","own":10,"incoming":8,"terminal_position":receive_stages}
+            {"case":"retiring","variant":"Retiring","own":10,"incoming":null,"terminal_position":retiring_stages},
+            {"case":"receive-renewed","variant":"ReceiveRenewed","own":6,"incoming":5,"terminal_position":receive_stages}
         ],
         "payments":5,"received_total":"100","final_owned_atomic":["100","0"],"fee_atomic":"0","burned_atomic":"0",
         "daily_monthly_expected_usage":balances,"records":records,

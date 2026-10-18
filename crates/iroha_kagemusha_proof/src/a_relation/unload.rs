@@ -1,9 +1,13 @@
-//! Unload and Retiring's complete fixed operation-task composition.
+//! Unload and Retiring's complete fixed operation-task composition (lean lineage).
 //!
-//! Both consume an already folded predecessor. Their receipt commits the
-//! original `Omega(pred) || sigma` carriers, and every step reauthenticates the
-//! current credential and its direct Enrollment certificate. Stage keys must
-//! additionally close their exact recursive obligation ledger before admission.
+//! Both consume an already folded predecessor. A proves the transition directly,
+//! so there is no own sigma verifier, and the own receipt is authenticated under
+//! the predecessor's payment key. The credential digest and payment key are
+//! carried by continuity, so the credential and its certificate are not
+//! re-verified. The receipt's `proof_digest` names the `Omega(pred) || sigma`
+//! carriers the ledger verifies natively; Λ reads it from the signed receipt body,
+//! and `receipt::bind` keeps it nonzero. Stage keys must additionally close their
+//! exact recursive obligation ledger before admission.
 //! TODO: qualify the genuine complete stage chains and admit only their terminal
 //! keys through the final rooted artifact catalog.
 
@@ -14,10 +18,10 @@ use iroha_plonk_gadgets::{GlueChip, UintChip, bytes::tape::BytesChip, p256::Veri
 use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierChip};
 
 use super::{
-    SigmaBindingCells, SignatureQCells,
+    SignatureQCells,
     context::{ContextInputs, ContextObjectCells, ContextObjectSpec, ContextPlan},
-    own::{ConsumingProofCells, CurrentAuthorization, OwnPolicy, authenticate_current},
-    schedule::{OperationTask, sigma_selector},
+    own::OwnPolicy,
+    schedule::OperationTask,
 };
 use crate::{
     operation_relation::{
@@ -31,23 +35,19 @@ use crate::{
     q_signature::{QSignaturePlan, SignatureKey, SignatureSlot},
 };
 
-const KINDS: [ObjectKind; 3] = [
-    ObjectKind::Credential,
-    ObjectKind::Certificate,
-    ObjectKind::Receipt,
-];
+const KINDS: [ObjectKind; 1] = [ObjectKind::Receipt];
 
-/// Exact current credential, direct Enrollment certificate and own receipt tapes.
+/// Exact own receipt tape, the only signed object Λ consumes.
 #[derive(Clone, Debug)]
 pub struct UnloadObjects {
-    objects: [SignedObjectCells; 3],
-    context: [ContextObjectCells; 3],
+    objects: [SignedObjectCells; 1],
+    context: [ContextObjectCells; 1],
 }
 impl UnloadObjects {
     /// Fixed ordered object schema, including each original signature.
     /// # Errors
     /// Impossible fixed-size conversion.
-    pub fn context_specs() -> Result<[ContextObjectSpec; 3], Error> {
+    pub fn context_specs() -> Result<[ContextObjectSpec; 1], Error> {
         KINDS
             .into_iter()
             .enumerate()
@@ -70,7 +70,7 @@ impl UnloadObjects {
         chip: &mut VerifierChip<Ep>,
         bytes: &mut BytesChip<Fp>,
         region: &mut Region<'_, Fp>,
-        sources: [&[Value<u8>]; 3],
+        sources: [&[Value<u8>]; 1],
     ) -> Result<Self, Error> {
         let mut objects = Vec::new();
         let mut context = Vec::new();
@@ -105,7 +105,7 @@ impl UnloadObjects {
     }
 
     /// Same-tape commitments retained by every stage's split context.
-    pub const fn context(&self) -> &[ContextObjectCells; 3] {
+    pub const fn context(&self) -> &[ContextObjectCells; 1] {
         &self.context
     }
 
@@ -138,7 +138,7 @@ impl UnloadObjects {
         signature: &SignatureQCells,
     ) -> Result<(), Error> {
         let slots = signature.slots();
-        let schema = UnloadStagePlan::signature_schema(policy)?;
+        let schema = UnloadStagePlan::signature_schema()?;
         if slots.len() != schema.slots().len()
             || slots.iter().zip(schema.slots()).any(|(actual, expected)| {
                 actual.mode() != expected.mode || actual.key_policy() != expected.key
@@ -147,24 +147,9 @@ impl UnloadObjects {
             return Err(Error::Synthesis);
         }
         let predecessor = input.predecessor.ok_or(Error::Synthesis)?;
-        authenticate_current(
-            chip,
-            region,
-            policy,
-            CurrentAuthorization {
-                credential: &self.objects[0],
-                certificate: &self.objects[1],
-                credential_proof: &slots[1],
-                certificate_proof: &slots[2],
-                current: MapState {
-                    state: predecessor.state,
-                    lineage: predecessor.public,
-                },
-                statement: input.own_statement,
-            },
-        )?;
+        // The payment key is carried by continuity from the predecessor lineage.
         let key = core::array::from_fn(|i| predecessor.public.fields()[9 + i].clone());
-        let valid = self.objects[2].bind_signature(region, &slots[0], &key)?;
+        let valid = self.objects[0].bind_signature(region, &slots[0], &key)?;
         GlueChip::assert_constant(region, valid.word(), Fp::ONE)?;
         let provider = policy.provider(chip, region)?;
         let wallet = core::array::from_fn(|i| predecessor.public.fields()[6 + i].clone());
@@ -174,14 +159,14 @@ impl UnloadObjects {
             &mut UintChip::new(lanes.glue, lanes.range),
             lanes.hash,
             region,
-            &self.objects[2],
+            &self.objects[0],
             &ReceiptContext {
                 wallet: &wallet,
                 provider: &provider,
                 statement: input.own_statement,
-                // The mandatory predecessor-owning task binds this same
-                // committed receipt field to the exact verified proof tapes.
-                proof_digest: self.objects[2].word(9)?,
+                // Λ proves the transition directly, so this sigma-only digest
+                // names carriers Λ does not consume; it is the signed body's own.
+                proof_digest: self.objects[0].word(9)?,
                 payment_digest: &zero,
             },
         )?;
@@ -189,24 +174,13 @@ impl UnloadObjects {
     }
 }
 
-/// Exact consuming proof and sigma views used only by the predecessor-owning task.
-#[derive(Clone, Copy)]
-pub struct UnloadProofInputs<'a> {
-    /// Constructed from the hard predecessor and both original carriers.
-    pub proof: &'a ConsumingProofCells,
-    /// Same own sigma tape verified by the fixed Q0 source.
-    pub sigma: &'a SigmaBindingCells,
-}
-
 /// Private inputs present exactly when the fixed stage owns their task.
 #[derive(Clone, Copy, Default)]
 pub struct UnloadStageWitness<'a> {
     /// Unload's recovery insertion; always absent for Retiring.
     pub recovery: Option<&'a InsertCells>,
-    /// Hard receipt/current credential/Enrollment Q1 signature bundle.
+    /// Hard own-receipt Q0 signature.
     pub signatures: Option<&'a SignatureQCells>,
-    /// Complete predecessor-plus-sigma receipt binding.
-    pub proof: Option<UnloadProofInputs<'a>>,
 }
 
 /// Fixed Unload/Retiring task, object and signature-Q ownership.
@@ -216,43 +190,33 @@ pub struct UnloadStagePlan {
     policy: OwnPolicy,
 }
 impl UnloadStagePlan {
-    /// Mandatory hard 2V1F slots: own receipt, current credential, direct certificate.
+    /// The one mandatory hard slot: the own receipt under the predecessor payment key.
     /// # Errors
-    /// Invalid fixed scheme-root key.
-    pub fn signature_schema(policy: OwnPolicy) -> Result<QSignaturePlan, Error> {
-        QSignaturePlan::new(vec![
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Variable,
-            },
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Variable,
-            },
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Fixed(policy.root),
-            },
-        ])
+    /// Impossible fixed schema.
+    pub fn signature_schema() -> Result<QSignaturePlan, Error> {
+        QSignaturePlan::new(vec![SignatureSlot {
+            mode: VerifyMode::Hard,
+            key: SignatureKey::Variable,
+        }])
     }
 
-    /// Require every task once, exact object/Q schemas and the two owning stages.
-    /// Q0 is own sigma and Q1 is hard own authorization. The proof-digest task
-    /// must execute beside the hard predecessor verifier.
+    /// Require every task once, exact object/Q schemas and the owning stage.
+    /// The plan is inline (no own sigma verifier), and Q0 is the hard own receipt.
     /// # Errors
     /// Wrong variant, missing task, schema mismatch or misplaced owner.
     pub fn new(context: ContextPlan, policy: OwnPolicy) -> Result<Self, Error> {
         let variant = context.operation().frame().variant();
         if !matches!(variant, Variant::Unload | Variant::Retiring)
-            || context.operation().q_count() != 2
+            || !context.operation().is_inline()
+            || context.operation().q_count() != 1
             || context.object_specs() != UnloadObjects::context_specs()?
         {
             return Err(Error::Synthesis);
         }
-        let signature = Self::signature_schema(policy)?;
+        let signature = Self::signature_schema()?;
         let descriptor = context
             .operation()
-            .q(1)
+            .q(0)
             .ok_or(Error::Synthesis)?
             .verifier()
             .binding()
@@ -267,20 +231,21 @@ impl UnloadStagePlan {
             .map(|stage| context.operation_tasks(stage).unwrap_or_default().to_vec())
             .collect::<Vec<_>>();
         OperationTask::validate(variant, &groups)?;
-        for (stage, tasks) in groups.iter().enumerate() {
-            if tasks.contains(&OperationTask::UnloadProof)
-                && context.predecessor_stage() != Some(stage)
-            {
-                return Err(Error::Synthesis);
-            }
-            if tasks.contains(&OperationTask::UnloadAuthorization)
-                && !context
-                    .q_partition(stage)
-                    .ok_or(Error::Synthesis)?
-                    .contains(&1)
-            {
-                return Err(Error::Synthesis);
-            }
+        // A1: the transition beside the hard predecessor; A2: the own receipt on Q0.
+        let effect = if variant == Variant::Unload {
+            OperationTask::UnloadRecovery
+        } else {
+            OperationTask::RetiringState
+        };
+        let partitions = [vec![], vec![0]];
+        if groups != [vec![effect], vec![OperationTask::UnloadAuthorization]]
+            || context.predecessor_stage() != Some(0)
+            || partitions
+                .iter()
+                .enumerate()
+                .any(|(stage, expected)| context.q_partition(stage) != Some(expected.as_slice()))
+        {
+            return Err(Error::Synthesis);
         }
         Ok(Self { context, policy })
     }
@@ -292,8 +257,8 @@ impl UnloadStagePlan {
 
     /// Execute this stage's tasks directly on the committed context cells.
     ///
-    /// No incoming soft verifier or selectable burn branch exists here. All own
-    /// objects, state effects and proof/receipt links are hard requirements.
+    /// No incoming soft verifier or selectable burn branch exists here. The own
+    /// receipt, its signature and the state effects are hard requirements.
     /// # Errors
     /// Wrong stage/variant, missing or extraneous witness, or a failed constraint.
     pub fn constrain_stage(
@@ -312,7 +277,6 @@ impl UnloadStagePlan {
         if input.own_statement.variant() != self.context.operation().frame().variant()
             || tasks.contains(&OperationTask::UnloadRecovery) != witness.recovery.is_some()
             || tasks.contains(&OperationTask::UnloadAuthorization) != witness.signatures.is_some()
-            || tasks.contains(&OperationTask::UnloadProof) != witness.proof.is_some()
         {
             return Err(Error::Synthesis);
         }
@@ -353,45 +317,10 @@ impl UnloadStagePlan {
                     signature.bind_context(
                         region,
                         self.context.operation(),
-                        1,
-                        input.q_instances.get(1).ok_or(Error::Synthesis)?,
+                        0,
+                        input.q_instances.first().ok_or(Error::Synthesis)?,
                     )?;
                     objects.authenticate(chip, region, self.policy, input, signature)?;
-                }
-                OperationTask::UnloadProof => {
-                    let proof = witness.proof.ok_or(Error::Synthesis)?;
-                    for (actual, expected) in proof
-                        .sigma
-                        .hard_statement()?
-                        .fields()
-                        .iter()
-                        .zip(input.own_statement.fields())
-                    {
-                        GlueChip::assert_equal(region, actual, expected)?;
-                    }
-                    let tag = if input.own_statement.variant() == Variant::Unload {
-                        6
-                    } else {
-                        8
-                    };
-                    GlueChip::assert_constant(
-                        region,
-                        proof.sigma.key_index(),
-                        Fp::from(u64::from(sigma_selector(tag, 0).ok_or(Error::Synthesis)?)),
-                    )?;
-                    super::bind_sigma(
-                        chip,
-                        region,
-                        &self.context.operation().sigma,
-                        input.q_instances.first().ok_or(Error::Synthesis)?,
-                        core::slice::from_ref(proof.sigma),
-                    )?;
-                    proof.proof.bind(region, predecessor.public, proof.sigma)?;
-                    GlueChip::assert_equal(
-                        region,
-                        objects.objects[2].word(9)?,
-                        proof.proof.digest(),
-                    )?;
                 }
                 _ => return Err(Error::Synthesis),
             }

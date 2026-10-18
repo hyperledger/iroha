@@ -5,8 +5,8 @@ use iroha_pasta::PastaAffine;
 
 fn original() -> Inputs {
     let state = StateWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
+        core: [Fp::ZERO; 29],
+        rest: [Fp::ZERO; 6],
         lineage: [Fp::ZERO; 18],
     };
     let state = LoadWitness {
@@ -14,19 +14,8 @@ fn original() -> Inputs {
         successor: state,
         statement: [Fp::ZERO; 26],
     };
-    let sigma = (0..64).collect::<Vec<u8>>();
-    let mut raw = u32::try_from(sigma.len()).unwrap().to_le_bytes().to_vec();
-    raw.extend(&sigma);
-    let statement = hash_with_domain(
-        iroha_plonk_gadgets::statement::STATEMENT_DOMAIN,
-        &state.statement,
-    );
-    let mut bounded = vec![Fq::from_repr(statement.to_repr()).unwrap()];
-    bounded.extend(raw.chunks(31).map(|chunk| le_value::<Fq>(chunk).unwrap()));
-    bounded.extend([Fq::ONE; K]);
     Inputs {
         state,
-        sigma,
         receipt: [0; LoadReceiptCells::BYTES],
         objects: core::array::from_fn(|_| vec![]),
         insertion: IndexedInsert {
@@ -36,26 +25,10 @@ fn original() -> Inputs {
             slot: 1,
             slot_siblings: [Fp::ZERO; 32],
         },
-        q: [
-            QInput {
-                proof: vec![],
-                instances: vec![
-                    bounded,
-                    vec![],
-                    vec![Fq::ONE],
-                    vec![Fq::ONE],
-                    vec![Fq::from(12)],
-                ],
-            },
-            QInput {
-                proof: vec![],
-                instances: vec![],
-            },
-            QInput {
-                proof: vec![],
-                instances: vec![],
-            },
-        ],
+        q: [QInput {
+            proof: vec![],
+            instances: vec![],
+        }],
         predecessor: PredecessorInput {
             proof: vec![],
             pallas: [0; 544],
@@ -86,85 +59,25 @@ fn exact_load_receipt_tape_matches_bound_statement_digest() {
 }
 
 #[test]
-fn exact_load_sigma_tape_statement_length_and_selector_are_bound() {
-    let source = original();
-    assert_eq!(check_sigma_tape(&source), Ok(()));
-    for mutation in 0..6 {
-        let mut bad = source.clone();
-        match mutation {
-            0 => bad.sigma[40] ^= 1,
-            1 => bad.sigma.push(7),
-            2 => bad.q[0].instances[0][1] += Fq::ONE,
-            3 => bad.q[0].instances[2][0] = Fq::ZERO,
-            4 => bad.q[0].instances[2][0] = Fq::from(2),
-            _ => bad.state.statement[20] += Fp::ONE,
-        }
-        assert_eq!(
-            check_sigma_tape(&bad),
-            Err(Error::Input),
-            "mutation{mutation}"
-        );
-    }
+fn lean_load_forwards_the_pinned_trivial_part_without_a_sigma_verifier() {
+    // Λ proves the Load transition in A1; the part W0 folds is the pinned trivial claim.
+    let part = trivial_vesta_claim().unwrap();
+    assert_eq!(part.source_k(), 16);
+    assert_eq!(part.challenges(), &[Fp::ONE; K]);
+    assert_eq!(
+        *part.g(),
+        iroha_plonk::transcript::decode_point::<Eq>(
+            &iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR
+        )
+        .unwrap()
+    );
+    assert_eq!(vesta_words(&part), trivial_vesta_words().unwrap());
 }
 
 #[test]
-fn load_q_sigma_normalization_rejects_wrong_selector_source_or_scalar_alias() {
-    let mut input = original().q[0].clone();
-    let point = iroha_plonk::transcript::decode_point::<Eq>(
-        &iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR,
-    )
-    .unwrap();
-    let (x, y) = Option::<(Fq, Fq)>::from(point.coordinates()).unwrap();
-    input.instances[1] = vec![x, y];
-    let n = input.instances[0].len();
-    input.instances[0][n - K..n - K + 4].fill(Fq::ZERO);
-    let finite = q_sigma_part(&input, 12).unwrap();
-    let mut identity_input = input.clone();
-    identity_input.instances[1] = vec![Fq::ZERO; 2];
-    let identity = q_sigma_part(&identity_input, 12).unwrap();
-    assert_eq!(identity.source_k(), finite.source_k());
-    assert_eq!(identity.challenges(), finite.challenges());
-    assert_eq!(
-        *identity.g(),
-        iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap()
-    );
-    for mutation in 0..6 {
-        let mut bad = input.clone();
-        match mutation {
-            0 => bad.instances[0][n - K] = Fq::ONE,
-            1 => bad.instances[0][n - 1] = Fq::ZERO,
-            2 => bad.instances[1] = vec![Fq::ZERO, Fq::ONE],
-            3 => bad.instances[3][0] = Fq::ZERO,
-            4 => bad.instances[4][0] = Fq::from(16),
-            _ => bad.instances[2][0] = Fq::ZERO,
-        }
-        assert!(q_sigma_part(&bad, 12).is_err(), "mutation{mutation}");
-    }
-    let p = [
-        0x992d_30ed_0000_0001_u64,
-        0x2246_98fc_094c_f91b,
-        0,
-        0x4000_0000_0000_0000,
-    ];
-    let mut repr = [0; 32];
-    for (to, word) in repr.chunks_exact_mut(8).zip(p) {
-        to.copy_from_slice(&word.to_le_bytes());
-    }
-    let mut alias = input;
-    alias.instances[0][n - 1] = Fq::from_repr(repr).unwrap();
-    assert!(q_sigma_part(&alias, 12).is_err());
-}
-
-#[test]
-fn all_three_signed_originals_bind_body_and_each_raw_signature_limb() {
-    assert_eq!(
-        object_kinds(),
-        [
-            ObjectKind::Receipt,
-            ObjectKind::Certificate,
-            ObjectKind::Credential
-        ]
-    );
+fn own_receipt_original_binds_body_and_each_raw_signature_limb() {
+    // The credential and certificate are carried by continuity, not re-verified (R10).
+    assert_eq!(object_kinds(), [ObjectKind::Receipt]);
     for kind in object_kinds() {
         let raw = (0..kind.body_len() + 64)
             .map(|i| u8::try_from(i % 256).unwrap())
@@ -256,8 +169,9 @@ fn original_key_bounds_reject_empty_oversized_and_excess_domain() {
 }
 
 #[test]
-fn fourth_checkpoint_is_terminal_and_out_of_range_source_is_rejected() {
-    assert_eq!(A_STAGE_COUNT, 4);
+fn second_checkpoint_is_terminal_and_out_of_range_source_is_rejected() {
+    assert_eq!(A_STAGE_COUNT, 2);
+    assert_eq!(W_STAGE_COUNT, 1);
     assert_eq!(
         crate::a_relation::schedule::compiled::OperationSchedule::for_variant(Variant::Load)
             .stage_count(),

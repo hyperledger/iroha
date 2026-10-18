@@ -480,9 +480,11 @@ fn verified_bounded_word(
 /// Private to A: callers pass cells hard-verified using the fixed five-column
 /// types, or context-committed cells whose identical values must be verified by
 /// the continuation before it can close. An intermediate A1/W is not accepted.
-/// The statement's original semantic verdict and incoming proof verdict stay
-/// soft. Computed statement digests, deterministic selectors and chunk bindings
-/// are hard: selecting different verifier inputs cannot justify a burn.
+/// Bindings follow the plan's slots: the own statement first when the plan
+/// verifies an own sigma, then the incoming statement when it has one. The
+/// statement's original semantic verdict and incoming proof verdict stay soft.
+/// Computed statement digests, deterministic selectors and chunk bindings are
+/// hard: selecting different verifier inputs cannot justify a burn.
 ///
 /// # Errors
 /// Fixed metadata/shape mismatch or layout errors.
@@ -504,7 +506,14 @@ pub(super) fn bind_sigma(
     }
     let mut incoming_valid = None;
     for (slot, binding) in bindings.iter().enumerate() {
-        if (slot == 0) != matches!(binding.statement, BoundStatement::Own(_)) {
+        let role = if slot == 0 && plan.has_own() {
+            QSigmaPlan::OWN
+        } else {
+            QSigmaPlan::INCOMING
+        };
+        if plan.position(role) != Some(slot)
+            || (role == QSigmaPlan::OWN) != matches!(binding.statement, BoundStatement::Own(_))
+        {
             return Err(Error::Synthesis);
         }
         let digest = binding.statement().digest();
@@ -522,7 +531,7 @@ pub(super) fn bind_sigma(
             .glue()
             .and(region, &digest_matches, &index_matches)?;
         let valid = chip.uint().glue().and(region, &both, &verdict)?;
-        if slot == 0 {
+        if role == QSigmaPlan::OWN {
             GlueChip::assert_constant(region, valid.word(), Fp::ONE)?;
         } else {
             let BoundStatement::Incoming(statement) = &binding.statement else {
@@ -535,7 +544,7 @@ pub(super) fn bind_sigma(
             GlueChip::assert_constant(region, index_matches.word(), Fp::ONE)?;
             incoming_valid = Some(chip.uint().glue().and(region, &valid, statement.valid())?);
         }
-        let chunks = plan.chunk_range(slot).ok_or(Error::Synthesis)?;
+        let chunks = plan.chunk_range(role).ok_or(Error::Synthesis)?;
         if chunks.len() != binding.proof_chunks.len() {
             return Err(Error::Synthesis);
         }
@@ -544,9 +553,10 @@ pub(super) fn bind_sigma(
             GlueChip::assert_equal(region, &actual, expected)?;
         }
     }
-    let incoming_mode = if plan.slot_count() == 2 {
+    let incoming_mode = if plan.class(QSigmaPlan::INCOMING).is_some() {
+        let count = plan.slot_count();
         let mut modes = Vec::with_capacity(3);
-        for scalar in &instances[3][2..5] {
+        for scalar in &instances[3][count..count + 3] {
             modes.push(verified_bounded_word(chip, region, scalar)?);
         }
         Some(ModeCells::constrain(

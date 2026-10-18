@@ -19,8 +19,8 @@
 //!   identity (bound by the statement, which a consumer compares with the
 //!   lineage proof and the scheme).
 //!
-//! - a control opening (a blacklist gap, a quota-window slot, a usage-array
-//!   leaf or sibling), bound by the head-committed root it must reach
+//! - a control opening (a quota-window slot, a usage-array leaf or sibling),
+//!   bound by the head-committed root it must reach
 //!   (`crate::control_circuit`).
 //!
 //! The scheme, asset and own-wallet limbs of the Request and of the
@@ -32,17 +32,21 @@
 use iroha_pasta::poseidon::PoseidonField;
 use iroha_plonk::frontend::{Error, Region, Value};
 use iroha_plonk_gadgets::{
-    AbsorbInput, GlueChip, RunningSumChip, SpongeChip, U64, U128, UintChip, Word,
-    statement::{StatementCells, StepRelation, digest_fields, statement_digest},
+    AbsorbInput, GlueChip, RunningSumChip, SpongeChip, U64, U128, UintChip, Word, WordHasher,
+    pow5_fq::DuplexChip,
+    statement::{
+        EFFECT_UNION_FIELDS, STATEMENT_FIELDS, STATEMENT_VERSION, StatementCells, StepRelation,
+        digest_fields, statement_digest,
+    },
 };
 
 use crate::{
     circuit::{HashSite, Inventory, LanePlan, RelationOutput, RelationShape},
     control_circuit::ControlChips,
     witness::{
-        CONTROL_ATTESTATION_LEASE, CONTROL_BLACKLIST, CONTROL_QUOTAS, CORE_FIELDS, CoreState,
-        LIFECYCLE_ACTIVE, NativeStep, REQUEST_VERSION, RequestTerms, StepDigests, StepInputs,
-        StepWitness, core_index, field_value,
+        CONTROL_ATTESTATION_LEASE, CONTROL_QUOTAS, CORE_FIELDS, CoreState, LIFECYCLE_ACTIVE,
+        NativeStep, REQUEST_VERSION, RequestTerms, StepDigests, StepInputs, StepWitness,
+        core_index, field_value,
     },
 };
 
@@ -54,6 +58,115 @@ pub struct Chips<F: PoseidonField> {
     pub range: RunningSumChip<F>,
     /// One sponge per lane.
     pub sponges: Vec<SpongeChip<F>>,
+}
+
+/// Where a step relation's hash sites run.
+///
+/// The σ circuit spreads its sites over Pow5 lanes by a static plan. A lean-lineage
+/// A stage runs the same relation on its one RP57 operation lane. Both hash
+/// `[domain, len, inputs]` identically ([`WordHasher`]), so every digest is equal.
+pub enum RelationLanes<'s, F: PoseidonField> {
+    /// One sponge per lane, each site on its planned lane.
+    Sigma {
+        /// One sponge per lane.
+        sponges: &'s mut [SpongeChip<F>],
+        /// The lane of every hash site.
+        plan: &'s LanePlan,
+    },
+    /// One lane for every site.
+    Single(&'s mut DuplexChip<F>),
+}
+
+impl<F: PoseidonField> RelationLanes<'_, F> {
+    /// The hasher of `site`'s lane.
+    pub(crate) fn site(&mut self, site: HashSite) -> Result<&mut dyn WordHasher<F>, Error> {
+        let lane: &mut dyn WordHasher<F> = match self {
+            Self::Sigma { sponges, plan } => sponges
+                .get_mut(plan.lane_of(site))
+                .ok_or(Error::Synthesis)?,
+            Self::Single(lane) => &mut **lane,
+        };
+        Ok(lane)
+    }
+}
+
+/// The relation's statement before any lane hashes it: the σ circuit hashes it into
+/// its public digest, and a lean A stage binds its fields to A's own statement.
+pub struct RelationStatement<F: PoseidonField> {
+    step: StepRelation,
+    relation_id: [Word<F>; 2],
+    scheme_id: [Word<F>; 2],
+    asset_digest: [Word<F>; 2],
+    credential_digest: Word<F>,
+    lifecycle: Word<F>,
+    sequence: Word<F>,
+    next_load: Word<F>,
+    predecessor: Word<F>,
+    successor: Word<F>,
+    enabled_controls: Word<F>,
+    lineage_burned_total: Option<Word<F>>,
+    lineage_pending_outgoing_root: Option<Word<F>>,
+    effect: Vec<Word<F>>,
+    credit: Word<F>,
+    chain: Word<F>,
+}
+
+impl<F: PoseidonField> RelationStatement<F> {
+    /// The cells [`statement_digest`] hashes.
+    fn cells(&self) -> StatementCells<'_, F> {
+        StatementCells {
+            relation_id: [&self.relation_id[0], &self.relation_id[1]],
+            scheme_id: [&self.scheme_id[0], &self.scheme_id[1]],
+            asset_digest: [&self.asset_digest[0], &self.asset_digest[1]],
+            credential_digest: &self.credential_digest,
+            lifecycle: &self.lifecycle,
+            sequence: &self.sequence,
+            next_load: &self.next_load,
+            predecessor: &self.predecessor,
+            successor: &self.successor,
+            enabled_controls: &self.enabled_controls,
+            lineage_burned_total: self.lineage_burned_total.as_ref(),
+            lineage_pending_outgoing_root: self.lineage_pending_outgoing_root.as_ref(),
+            effect: &self.effect,
+        }
+    }
+
+    /// The [`STATEMENT_FIELDS`] statement inputs in digest order, constants included:
+    /// exactly what [`statement_digest`] hashes under the statement domain.
+    ///
+    /// # Errors
+    /// More than [`EFFECT_UNION_FIELDS`] effect elements.
+    pub fn fields(&self) -> Result<Vec<AbsorbInput<'_, F>>, Error> {
+        if self.effect.len() > EFFECT_UNION_FIELDS {
+            return Err(Error::Synthesis);
+        }
+        fn optional<F: PoseidonField>(cell: Option<&Word<F>>) -> AbsorbInput<'_, F> {
+            cell.map_or(AbsorbInput::Constant(F::ZERO), AbsorbInput::Word)
+        }
+        let word = AbsorbInput::Word;
+        let mut inputs = vec![
+            AbsorbInput::Constant(F::from(STATEMENT_VERSION)),
+            word(&self.relation_id[0]),
+            word(&self.relation_id[1]),
+            word(&self.scheme_id[0]),
+            word(&self.scheme_id[1]),
+            word(&self.asset_digest[0]),
+            word(&self.asset_digest[1]),
+            word(&self.credential_digest),
+            word(&self.lifecycle),
+            word(&self.sequence),
+            word(&self.next_load),
+            word(&self.enabled_controls),
+            optional(self.lineage_burned_total.as_ref()),
+            optional(self.lineage_pending_outgoing_root.as_ref()),
+            word(&self.predecessor),
+            word(&self.successor),
+            AbsorbInput::Constant(F::from(u64::from(self.step.effect_tag()))),
+        ];
+        inputs.extend(self.effect.iter().map(AbsorbInput::Word));
+        inputs.resize(STATEMENT_FIELDS, AbsorbInput::Constant(F::ZERO));
+        Ok(inputs)
+    }
 }
 
 /// A value of the witness (unknown during key generation).
@@ -101,10 +214,9 @@ fn check_digest<F: PoseidonField>(digest: &Word<F>, expected: Option<F>) -> Resu
 
 /// Hashes `inputs` under the domain of `site` on the site's lane.
 fn hash_site<F: PoseidonField>(
-    sponges: &mut [SpongeChip<F>],
+    lanes: &mut RelationLanes<'_, F>,
     region: &mut Region<'_, F>,
     shape: RelationShape,
-    plan: &LanePlan,
     site: HashSite,
     inputs: &[AbsorbInput<'_, F>],
 ) -> Result<Word<F>, Error> {
@@ -114,10 +226,7 @@ fn hash_site<F: PoseidonField>(
     if inputs.len() != arity {
         return Err(Error::Synthesis);
     }
-    sponges
-        .get_mut(plan.lane_of(site))
-        .ok_or(Error::Synthesis)?
-        .hash(region, domain, inputs)
+    lanes.site(site)?.hash_inputs(region, domain, inputs)
 }
 
 /// The words of `words`, as absorbed inputs.
@@ -151,11 +260,6 @@ struct CoreSlots {
     enabled_controls: usize,
     quota_windows_root: usize,
     quota_bounds: Option<[usize; 2]>,
-    blacklist_version: usize,
-    blacklist_root: usize,
-    /// The blacklist issue time and maximum age, unless the blacklist
-    /// control range-checks them.
-    blacklist_age: Option<[usize; 2]>,
     /// The lease expiry, unless the lease control range-checks it.
     lease_expiry: Option<usize>,
     state_nonce: usize,
@@ -176,8 +280,6 @@ struct TermSlots {
     request_time: Option<usize>,
     certificates: usize,
     nonce: [usize; 2],
-    receiver_blacklist_version: usize,
-    receiver_blacklist_root: usize,
 }
 
 /// The range-checked fields of `sigma_send`.
@@ -191,9 +293,6 @@ struct SendChecked<F: PoseidonField> {
     request_time: U64<F>,
     lower: U64<F>,
     upper: U64<F>,
-    /// The blacklist issue time and maximum age, with the blacklist
-    /// control.
-    blacklist_age: Option<[U64<F>; 2]>,
     /// The lease expiry, with the lease control.
     lease: Option<U64<F>>,
     quota_bounds: Option<[U64<F>; 2]>,
@@ -209,41 +308,6 @@ struct StepCells<'a, F: PoseidonField> {
     request_time: &'a Word<F>,
 }
 
-/// The maximum-age rule of the blacklist control (owner answer Q5; the
-/// native G1 `check_blacklist` age check). With `active = [version != 0
-/// and max_age != 0]`, the gated slacks `active (upper - issued)` and
-/// `active (issued + max_age - upper)` are range-checked to 64 and 65 bits:
-/// with `issued`, `max_age` and `upper` below `2^64`, a negative slack is a
-/// field element above `p - 2^65` and fails its check, and an inactive rule
-/// gates both slacks to zero.
-fn blacklist_age_rule<F: PoseidonField>(
-    uint: &mut UintChip<'_, F>,
-    region: &mut Region<'_, F>,
-    version: &Word<F>,
-    [issued, max_age]: &[U64<F>; 2],
-    upper: &U64<F>,
-) -> Result<(), Error> {
-    let glue = uint.glue();
-    let product = glue.mul(region, version, max_age.word())?;
-    let inactive = glue.is_zero(region, &product)?;
-    let active = glue.not(region, &inactive)?;
-    let age = glue.sub(region, upper.word(), issued.word())?;
-    let gated_age = glue.mul(region, active.word(), &age)?;
-    let headroom = glue.linear(
-        region,
-        &[
-            (F::ONE, issued.word()),
-            (F::ONE, max_age.word()),
-            (-F::ONE, upper.word()),
-        ],
-        F::ZERO,
-    )?;
-    let gated_headroom = glue.mul(region, active.word(), &headroom)?;
-    uint.range().range_check(region, &gated_age, 64)?;
-    uint.range().range_check(region, &gated_headroom, 65)?;
-    Ok(())
-}
-
 /// Lays out one step relation and returns its public output, in-circuit
 /// digests and inventory.
 #[allow(
@@ -257,6 +321,119 @@ pub fn assign<F: PoseidonField>(
     plan: &LanePlan,
     witness: Option<(&StepWitness<F>, &NativeStep<F>)>,
 ) -> Result<RelationOutput<F>, Error> {
+    let digests = witness.map(|(_, native)| native.digests);
+    let Chips {
+        glue,
+        range,
+        sponges,
+    } = chips;
+    let glue_start = glue.next_row();
+    let mut uint = UintChip::new(glue, range);
+    let body = relate(
+        &mut uint,
+        &mut RelationLanes::Sigma {
+            sponges: sponges.as_mut_slice(),
+            plan,
+        },
+        region,
+        shape,
+        witness,
+    )?;
+
+    // The statement digest.
+    let statement_lane = plan.lane_of(HashSite::Statement);
+    let statement = statement_digest(
+        sponges.get_mut(statement_lane).ok_or(Error::Synthesis)?,
+        region,
+        body.step,
+        &body.cells(),
+    )?;
+    check_digest(&statement, digests.map(|digests| digests.statement))?;
+
+    let in_circuit = statement
+        .value()
+        .zip(body.predecessor.value())
+        .zip(body.successor.value())
+        .zip(body.credit.value())
+        .zip(body.chain.value())
+        .map(
+            |((((statement, predecessor), successor), credit), chain)| StepDigests {
+                predecessor,
+                successor,
+                credit,
+                chain,
+                statement,
+            },
+        );
+    let public = vec![statement];
+    let glue_end = uint.glue().next_row();
+    let range_rows = uint.range().next_row();
+    let glue_rows = glue_end
+        .checked_sub(glue_start)
+        .ok_or(Error::BoundsFailure)?;
+    let lane_permutations: Vec<usize> = sponges
+        .iter()
+        .map(|sponge| sponge.lane().next_block())
+        .collect();
+    let mut lane_rows: Vec<usize> = sponges
+        .iter()
+        .map(|sponge| sponge.lane().rows_used())
+        .collect();
+    if let Some(rows) = lane_rows.get_mut(plan.glue_lane()) {
+        *rows = glue_end.max(*rows);
+    }
+    let cells = lane_permutations
+        .iter()
+        .sum::<usize>()
+        .checked_mul(iroha_plonk_gadgets::poseidon::CELLS_PER_PERMUTATION)
+        .and_then(|cells| cells.checked_add(glue_rows.checked_mul(4)?))
+        .and_then(|cells| cells.checked_add(range_rows))
+        .ok_or(Error::BoundsFailure)?;
+    Ok(RelationOutput {
+        public,
+        digests: in_circuit,
+        inventory: Inventory {
+            lane_permutations,
+            lane_rows,
+            glue_rows,
+            range_rows,
+            cells,
+        },
+    })
+}
+
+/// Lays out the relation on one RP57 lane and returns its statement, unhashed.
+///
+/// A lean-lineage A stage proves its own step this way instead of verifying the
+/// step's σ: binding every [`RelationStatement::fields`] input to its own statement
+/// field yields exactly the statement digest σ would have certified.
+///
+/// # Errors
+/// As [`assign`].
+pub fn assign_single<F: PoseidonField>(
+    uint: &mut UintChip<'_, F>,
+    lane: &mut DuplexChip<F>,
+    region: &mut Region<'_, F>,
+    shape: RelationShape,
+    witness: Option<(&StepWitness<F>, &NativeStep<F>)>,
+) -> Result<RelationStatement<F>, Error> {
+    relate(
+        uint,
+        &mut RelationLanes::Single(lane),
+        region,
+        shape,
+        witness,
+    )
+}
+
+/// The step relation on any lane set, up to its unhashed statement.
+fn relate<F: PoseidonField>(
+    uint: &mut UintChip<'_, F>,
+    lanes: &mut RelationLanes<'_, F>,
+    region: &mut Region<'_, F>,
+    shape: RelationShape,
+    witness: Option<(&StepWitness<F>, &NativeStep<F>)>,
+) -> Result<RelationStatement<F>, Error> {
     let relation = shape.relation;
     if witness.is_some_and(|(witness, _)| witness.relation() != relation.step()) {
         return Err(Error::Synthesis);
@@ -266,13 +443,6 @@ pub fn assign<F: PoseidonField>(
     }
     let digests = witness.map(|(_, native)| native.digests);
     let witness = witness.map(|(witness, _)| witness);
-    let Chips {
-        glue,
-        range,
-        sponges,
-    } = chips;
-    let glue_start = glue.next_row();
-    let mut uint = UintChip::new(glue, range);
     let state = witness.map(|witness| &witness.predecessor);
     let core = state.map(|state| &state.core);
     let send = witness.and_then(|witness| match &witness.inputs {
@@ -285,16 +455,13 @@ pub fn assign<F: PoseidonField>(
     });
     let terms = witness.map(|witness| witness.inputs.terms());
     let is_send = relation.step() == StepRelation::Send;
-    let blacklist = relation.enforces(CONTROL_BLACKLIST);
-    let send_blacklist = is_send && blacklist;
     let lease = is_send && relation.enforces(CONTROL_ATTESTATION_LEASE);
     let quota = is_send && relation.enforces(CONTROL_QUOTAS);
 
     // Range-checked fields: the balance, the sequence and the amount always;
     // the send ordinal, policy epoch, accepted-time floor, lineage
     // `burned_total`, fee, Request epoch and times where `sigma_send`
-    // compares them, and the blacklist issue time and maximum age where the
-    // blacklist control compares them.
+    // compares them.
     let balance: U128<F> = uint.assign_u128(region, value(core, |core| core.balance))?;
     let sequence: U128<F> = uint.assign_u128(region, value(core, |core| core.sequence))?;
     let amount: U128<F> = uint.assign_u128(region, value(terms, |terms| terms.amount))?;
@@ -310,20 +477,6 @@ pub fn assign<F: PoseidonField>(
             request_time: uint.assign_u64(region, value(terms, |terms| terms.request_time))?,
             lower: uint.assign_u64(region, value(send, |send| send.accepted_lower))?,
             upper: uint.assign_u64(region, value(send, |send| send.accepted_upper))?,
-            blacklist_age: if send_blacklist {
-                Some([
-                    uint.assign_u64(
-                        region,
-                        value(controls, |controls| controls.blacklist_issued_at_ms),
-                    )?,
-                    uint.assign_u64(
-                        region,
-                        value(controls, |controls| controls.blacklist_max_age_ms),
-                    )?,
-                ])
-            } else {
-                None
-            },
             quota_bounds: if quota {
                 Some([
                     uint.assign_u64(
@@ -387,14 +540,6 @@ pub fn assign<F: PoseidonField>(
                 batch.push(core_field(core_index::TIME_ANCHOR_MAX_RESPONSE)),
             ]
         }),
-        blacklist_version: batch.push(core_field(core_index::BLACKLIST_VERSION)),
-        blacklist_root: batch.push(core_field(core_index::BLACKLIST_ROOT)),
-        blacklist_age: (!send_blacklist).then(|| {
-            [
-                batch.push(core_field(core_index::BLACKLIST_ISSUED_AT)),
-                batch.push(core_field(core_index::BLACKLIST_MAX_AGE)),
-            ]
-        }),
         lease_expiry: (!lease).then(|| batch.push(core_field(core_index::LEASE_EXPIRY))),
         state_nonce: batch.push(core_field(core_index::STATE_NONCE)),
         unchecked: (!is_send).then(|| {
@@ -433,7 +578,7 @@ pub fn assign<F: PoseidonField>(
         StepInputs::Receive(receive) => digest_fields::<F>(&receive.payer_wallet),
     }));
     // Both account digests of the Request (owner answer A5): terms bound by
-    // `credit_id`; the counterparty's is the one a blacklist control opens.
+    // `credit_id`.
     let payer_account = batch.pair(value(witness, |witness| match &witness.inputs {
         StepInputs::Send(send) => digest_fields::<F>(&send.payer_account_digest),
         StepInputs::Receive(receive) => digest_fields::<F>(&receive.payer_account_digest),
@@ -470,10 +615,6 @@ pub fn assign<F: PoseidonField>(
             .then(|| batch.push(value(terms, |terms| F::from(terms.request_time)))),
         certificates: term(&mut batch, |terms| &terms.certificates),
         nonce: batch.pair(value(terms, |terms| digest_fields::<F>(&terms.nonce))),
-        receiver_blacklist_version: batch.push(value(terms, |terms| {
-            F::from(terms.receiver_blacklist_version)
-        })),
-        receiver_blacklist_root: term(&mut batch, |terms| &terms.receiver_blacklist_root),
     };
     let words = uint.glue().witnesses(region, &batch.values)?;
     let word = |index: usize| at(&words, index);
@@ -507,16 +648,8 @@ pub fn assign<F: PoseidonField>(
     let nonce = pair_at(&words, term_slots.nonce)?;
     let payer_account = pair_at(&words, payer_account)?;
     let receiver_account = pair_at(&words, receiver_account)?;
-    let blacklist_version = word(slots.blacklist_version)?;
-    let blacklist_root = word(slots.blacklist_root)?;
     let quota_windows_root = word(slots.quota_windows_root)?;
     let quota_usage = word(slots.roots[4])?;
-    let recorded_version = word(term_slots.receiver_blacklist_version)?;
-    let recorded_root = word(term_slots.receiver_blacklist_root)?;
-    let no_recorded_list = uint.glue().is_zero(region, recorded_version)?;
-    let zero_recorded_root = uint.glue().is_zero(region, recorded_root)?;
-    GlueChip::assert_equal(region, no_recorded_list.word(), zero_recorded_root.word())?;
-    let recorded_list = uint.glue().not(region, &no_recorded_list)?;
     let (quota_expiry, response_bound) = match (&checked_send, slots.quota_bounds) {
         (
             Some(SendChecked {
@@ -542,17 +675,6 @@ pub fn assign<F: PoseidonField>(
             word(policy)?.clone(),
             word(floor)?.clone(),
         ),
-        _ => return Err(Error::Synthesis),
-    };
-    let (issued_at, max_age) = match (&checked_send, slots.blacklist_age) {
-        (
-            Some(SendChecked {
-                blacklist_age: Some([issued, max_age]),
-                ..
-            }),
-            None,
-        ) => (issued.word().clone(), max_age.word().clone()),
-        (_, Some([issued, max_age])) => (word(issued)?.clone(), word(max_age)?.clone()),
         _ => return Err(Error::Synthesis),
     };
     let mut next_send_after = next_send.clone();
@@ -590,23 +712,6 @@ pub fn assign<F: PoseidonField>(
         uint.assert_le(region, &checked.request_time, &checked.lower)?;
         uint.assert_le(region, &checked.lower, &checked.upper)?;
         time_floor_after = checked.lower.word().clone();
-        // The blacklist control: the maximum list age at the upper time, and
-        // the receiver's account absent from the held list.
-        if let Some(age) = &checked.blacklist_age {
-            blacklist_age_rule(&mut uint, region, blacklist_version, age, &checked.upper)?;
-            ControlChips {
-                uint: &mut uint,
-                sponges,
-                plan,
-            }
-            .blacklist(
-                region,
-                blacklist_version,
-                blacklist_root,
-                receiver_account,
-                send.map(|send| &send.blacklist),
-            )?;
-        }
         // The lease control: the upper time is before the lease expiry.
         if let Some(lease) = &checked.lease {
             uint.assert_lt(region, &checked.upper, lease)?;
@@ -619,9 +724,8 @@ pub fn assign<F: PoseidonField>(
             let span = uint.checked_sub(region, &checked.upper, &checked.lower)?;
             uint.assert_le(region, &span, bound)?;
             quota_usage_after = ControlChips {
-                uint: &mut uint,
-                sponges,
-                plan,
+                uint: &mut *uint,
+                lanes: &mut *lanes,
             }
             .quota(
                 region,
@@ -642,10 +746,9 @@ pub fn assign<F: PoseidonField>(
             request_time: checked.request_time.word(),
         }
     } else {
-        // The core mask still has only defined bits. The Request's recorded
-        // version independently selects the Receive relation (B6).
+        // The core mask still has only defined bits.
         let controls = core.map(|core| core.controls.enabled);
-        let bits: Vec<_> = (0..3)
+        let bits: Vec<_> = (0..2)
             .map(|bit| {
                 uint.glue().boolean(
                     region,
@@ -655,35 +758,10 @@ pub fn assign<F: PoseidonField>(
             .collect::<Result<_, _>>()?;
         let recomposed = uint.glue().linear(
             region,
-            &[
-                (F::ONE, bits[0].word()),
-                (F::from(2_u64), bits[1].word()),
-                (F::from(4_u64), bits[2].word()),
-            ],
+            &[(F::ONE, bits[0].word()), (F::from(2_u64), bits[1].word())],
             F::ZERO,
         )?;
         GlueChip::assert_equal(region, &recomposed, enabled_controls)?;
-        GlueChip::assert_constant(
-            region,
-            recorded_list.word(),
-            F::from(u64::from(relation.enabled_controls())),
-        )?;
-        // The receiver's blacklist: the payer's account absent from the
-        // held list.
-        if blacklist {
-            ControlChips {
-                uint: &mut uint,
-                sponges,
-                plan,
-            }
-            .blacklist(
-                region,
-                recorded_version,
-                recorded_root,
-                payer_account,
-                receive.map(|receive| &receive.blacklist),
-            )?;
-        }
         // balance + amount < 2^128.
         successor_balance = uint.checked_add(region, &balance, &amount)?.word().clone();
         burned_after = word(slots.burned_total)?.clone();
@@ -720,13 +798,11 @@ pub fn assign<F: PoseidonField>(
         request_cells.request_epoch,
         scheme_policy,
         request_cells.request_time,
-        recorded_version,
-        recorded_root,
         certificates,
         nonce[0],
         nonce[1],
     ]));
-    let credit = hash_site(sponges, region, shape, plan, HashSite::Credit, &request)?;
+    let credit = hash_site(lanes, region, shape, HashSite::Credit, &request)?;
     check_digest(&credit, digests.map(|digests| digests.credit))?;
 
     // The chain append and the effect.
@@ -744,7 +820,7 @@ pub fn assign<F: PoseidonField>(
             checked.fee.word(),
             request_digest,
         ]);
-        let chain = hash_site(sponges, region, shape, plan, HashSite::Chain, &entry)?;
+        let chain = hash_site(lanes, region, shape, HashSite::Chain, &entry)?;
         let effect = [
             &credit,
             counterparty[0],
@@ -767,7 +843,7 @@ pub fn assign<F: PoseidonField>(
             counterparty[1],
             amount.word(),
         ]);
-        let chain = hash_site(sponges, region, shape, plan, HashSite::Chain, &entry)?;
+        let chain = hash_site(lanes, region, shape, HashSite::Chain, &entry)?;
         let effect = [&credit, counterparty[0], counterparty[1], amount.word()]
             .map(Clone::clone)
             .to_vec();
@@ -823,10 +899,6 @@ pub fn assign<F: PoseidonField>(
         enabled_controls,
         quota_windows_root,
         &quota_expiry,
-        blacklist_version,
-        blacklist_root,
-        &issued_at,
-        &max_age,
         &response_bound,
         lease_expiry,
         &policy_epoch,
@@ -870,10 +942,6 @@ pub fn assign<F: PoseidonField>(
         enabled_controls,
         quota_windows_root,
         &quota_expiry,
-        blacklist_version,
-        blacklist_root,
-        &issued_at,
-        &max_age,
         &response_bound,
         lease_expiry,
         &policy_epoch,
@@ -881,100 +949,43 @@ pub fn assign<F: PoseidonField>(
         successor_nonce,
     ];
     let predecessor = hash_site(
-        sponges,
+        lanes,
         region,
         shape,
-        plan,
         HashSite::Predecessor,
         &commitment(&predecessor_core, rest_digest),
     )?;
     check_digest(&predecessor, digests.map(|digests| digests.predecessor))?;
     let successor = hash_site(
-        sponges,
+        lanes,
         region,
         shape,
-        plan,
         HashSite::Successor,
         &commitment(&successor_core, rest_digest),
     )?;
     check_digest(&successor, digests.map(|digests| digests.successor))?;
 
-    // The statement digest.
+    // The unhashed statement.
     let pending_in = pending_in.map(word).transpose()?;
-    let cells = StatementCells {
-        relation_id: pair_at(&words, relation_id)?,
-        scheme_id: scheme,
-        asset_digest: asset,
-        credential_digest: credential,
-        lifecycle,
-        sequence: sequence_after.word(),
-        next_load,
-        predecessor: &predecessor,
-        successor: &successor,
-        enabled_controls,
+    let [relation_lo, relation_hi] = pair_at(&words, relation_id)?;
+    Ok(RelationStatement {
+        step: relation.step(),
+        relation_id: [relation_lo.clone(), relation_hi.clone()],
+        scheme_id: [scheme[0].clone(), scheme[1].clone()],
+        asset_digest: [asset[0].clone(), asset[1].clone()],
+        credential_digest: credential.clone(),
+        lifecycle: lifecycle.clone(),
+        sequence: sequence_after.word().clone(),
+        next_load: next_load.clone(),
+        predecessor,
+        successor,
+        enabled_controls: enabled_controls.clone(),
         lineage_burned_total: checked_send
             .as_ref()
-            .map(|checked| checked.burned_in.word()),
-        lineage_pending_outgoing_root: pending_in,
-        effect: &effect,
-    };
-    let statement_lane = plan.lane_of(HashSite::Statement);
-    let statement = statement_digest(
-        sponges.get_mut(statement_lane).ok_or(Error::Synthesis)?,
-        region,
-        relation.step(),
-        &cells,
-    )?;
-    check_digest(&statement, digests.map(|digests| digests.statement))?;
-
-    let in_circuit = statement
-        .value()
-        .zip(predecessor.value())
-        .zip(successor.value())
-        .zip(credit.value())
-        .zip(chain.value())
-        .map(
-            |((((statement, predecessor), successor), credit), chain)| StepDigests {
-                predecessor,
-                successor,
-                credit,
-                chain,
-                statement,
-            },
-        );
-    let public = vec![statement];
-    let glue_end = uint.glue().next_row();
-    let range_rows = uint.range().next_row();
-    let glue_rows = glue_end
-        .checked_sub(glue_start)
-        .ok_or(Error::BoundsFailure)?;
-    let lane_permutations: Vec<usize> = sponges
-        .iter()
-        .map(|sponge| sponge.lane().next_block())
-        .collect();
-    let mut lane_rows: Vec<usize> = sponges
-        .iter()
-        .map(|sponge| sponge.lane().rows_used())
-        .collect();
-    if let Some(rows) = lane_rows.get_mut(plan.glue_lane()) {
-        *rows = glue_end.max(*rows);
-    }
-    let cells = lane_permutations
-        .iter()
-        .sum::<usize>()
-        .checked_mul(iroha_plonk_gadgets::poseidon::CELLS_PER_PERMUTATION)
-        .and_then(|cells| cells.checked_add(glue_rows.checked_mul(4)?))
-        .and_then(|cells| cells.checked_add(range_rows))
-        .ok_or(Error::BoundsFailure)?;
-    Ok(RelationOutput {
-        public,
-        digests: in_circuit,
-        inventory: Inventory {
-            lane_permutations,
-            lane_rows,
-            glue_rows,
-            range_rows,
-            cells,
-        },
+            .map(|checked| checked.burned_in.word().clone()),
+        lineage_pending_outgoing_root: pending_in.cloned(),
+        effect,
+        credit,
+        chain,
     })
 }

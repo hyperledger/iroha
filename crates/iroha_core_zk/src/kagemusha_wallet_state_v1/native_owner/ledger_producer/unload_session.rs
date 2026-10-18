@@ -29,7 +29,7 @@ impl Session {
         let verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             &genesis.initial_epoch().network_id,
-            &genesis.chain_id(),
+            genesis.chain_id(),
         )
         .map_err(|error| {
             finality_read_error(
@@ -112,16 +112,16 @@ impl UnloadInclusion<'_> {
         let verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             checkpoint,
             &genesis.initial_epoch().network_id,
-            &genesis.chain_id(),
+            genesis.chain_id(),
         )
         .map_err(|error| finality_read_error(error, Error::Proof("Unload selected prefix")))?;
-        let verified = verifier
+        let decision = verifier
             .verify_retained_decision(checkpoint.tip())
             .map_err(|error| {
                 finality_read_error(error, Error::Proof("Unload selected native decision"))
             })?;
         if !contains_successful_unload(
-            &verified,
+            &decision,
             &genesis.initial_epoch().network_id,
             self.scheme,
             self.transaction,

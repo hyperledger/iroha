@@ -188,8 +188,8 @@ final class IrohaPeerNfcAsyncOperationGateV1: @unchecked Sendable {
     }
 }
 
-/// A monotonic, non-extending timeout budget used across assertion acquisition,
-/// CardSession construction, and initial emulation startup.
+/// A monotonic, non-extending timeout budget used across CardSession
+/// construction and initial emulation startup.
 struct IrohaPeerNfcDeadlineBudgetV1: Sendable {
     private let deadlineNanoseconds: UInt64
 
@@ -319,12 +319,25 @@ final class IrohaPeerNfcReaderProgressReporterV1: @unchecked Sendable {
     private let trace = UUID().uuidString
         .replacingOccurrences(of: "-", with: "")
         .lowercased()
-    private let startedAt = ProcessInfo.processInfo.systemUptime
+    private let startedAt: TimeInterval
+    private let now: () -> TimeInterval
+    private let terminalHandler: (IrohaPeerNfcReaderTerminalDiagnosticV1) -> Void
+    private var lastStage: IrohaPeerNfcProgressStageV1?
+    private var lastOperation: IrohaPeerNfcOperationV1?
     private let lock = NSRecursiveLock()
     private var publicationPolicy = IrohaPeerNfcProgressPublicationPolicyV1()
     private var active = true
 
-    init(handler: ((IrohaPeerNfcProgressEventV1) -> Void)?) {
+    init(
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        terminalHandler: @escaping (IrohaPeerNfcReaderTerminalDiagnosticV1) -> Void = {
+            NSLog("%@", $0.logLine)
+        },
+        handler: ((IrohaPeerNfcProgressEventV1) -> Void)?
+    ) {
+        self.now = now
+        self.startedAt = now()
+        self.terminalHandler = terminalHandler
         self.handler = handler
     }
 
@@ -339,7 +352,7 @@ final class IrohaPeerNfcReaderProgressReporterV1: @unchecked Sendable {
               let attempt = publicationPolicy.attempt(for: stage) else {
             return
         }
-        let elapsed = max(ProcessInfo.processInfo.systemUptime - startedAt, 0)
+        let elapsed = max(now() - startedAt, 0)
         let event = IrohaPeerNfcProgressEventV1(
             trace: trace,
             stage: stage,
@@ -348,14 +361,37 @@ final class IrohaPeerNfcReaderProgressReporterV1: @unchecked Sendable {
             bytes: max(bytes, 0),
             chunk: max(chunk, 0)
         )
+        lastStage = stage
         NSLog("iroha_kagemusha_nfc_ios_reader %@", event.logLine)
         handler?(event)
     }
 
-    func invalidate() {
+    /// Records only the closed command name, never its associated APDU data.
+    func record(operation: IrohaPeerNfcOperationV1) {
         lock.lock()
-        active = false
+        if active { lastOperation = operation }
         lock.unlock()
+    }
+
+    /// The same delivery barrier owns progress retirement and the one terminal
+    /// diagnostic. Success and subsequent stale failures publish nothing.
+    func finish(error: Error? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard active else { return }
+        active = false
+        guard let error else { return }
+        let elapsed = max(now() - startedAt, 0)
+        terminalHandler(IrohaPeerNfcReaderTerminalDiagnosticV1(
+            error: error,
+            operation: lastOperation,
+            lastStage: lastStage,
+            elapsedMilliseconds: UInt64(elapsed * 1_000)
+        ))
+    }
+
+    func invalidate() {
+        finish()
     }
 }
 

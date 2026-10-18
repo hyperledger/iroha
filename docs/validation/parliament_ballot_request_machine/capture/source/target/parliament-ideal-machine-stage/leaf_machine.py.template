@@ -1,0 +1,195 @@
+"""Fixed-order extended leaf commitments with retained H0 input supplied.
+
+H0 evaluation, H1 aggregation, and complete B1 composition remain unimplemented.
+The raw public AES and field arithmetic are computed even on hidden leaves and
+then discarded by the clean inverse; that cost is explicitly included.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Builder, Cost, bits, integer, require, unpack
+from prg_machine import add_words
+
+
+def leaf_block(aes, tripled, field):
+    """Source affine leaf plus marked-leaf selection, with fixed concrete kernels.
+
+    Input key256 || IV128 || tweak32 || H0key1024 || marked1 || hiddencom896.
+    Output seed256 || com896, choosing zero seed and cached com when marked.
+    """
+    require((aes.inputs, aes.outputs) == (384, 128) and aes.cost.base_calls == 0, "concrete AES shape")
+    require((tripled.inputs, tripled.outputs) == (1024, 768), "tripled field shape")
+    require((field.inputs, field.outputs) == (512, 256), "base field shape")
+    require(tripled.cost.base_calls == field.cost.base_calls == 0, "concrete field kernels")
+    b = Builder(2337, (aes, tripled, field))
+    key, iv, tweak = tuple(range(256)), tuple(range(256, 384)), tuple(range(384, 416))
+    h0, h1 = tuple(range(416, 1184)), tuple(range(1184, 1440))
+    marked, hidden = 1440, tuple(range(1441, 2337))
+    high = add_words(b, iv[96:], tweak)
+    one, low, raw = b.bit("one"), iv[:32], []
+    for counter in range(9):
+        raw.extend(b.node("kernel", *(key + low + iv[32:96] + high), kernel=aes.name, width=128))
+        if counter != 8:
+            low = b.increment(low, one)
+    raw = tuple(raw)
+    seed = raw[:256]
+    c0product = b.node("kernel", *(seed + h0), kernel=tripled.name, width=768)
+    c1product = b.node("kernel", *(seed + h1), kernel=field.name, width=256)
+    com = tuple(b.bit("xor", a, c) for a, c in zip(c0product, raw[256:1024]))
+    com += tuple(b.bit("xor", a, c) for a, c in zip(c1product[:128], raw[1024:]))
+    not_hidden = b.bit("not", marked)
+    selected_seed = tuple(b.bit("and", not_hidden, v) for v in seed)
+    selected_com = b.select(marked, hidden, com)
+    return b.finish((*selected_seed, *selected_com))
+
+
+@dataclass(frozen=True)
+class LeafScan:
+    """Public vector/index scan, with source interleaved heap positions.
+
+    Each leaf computation has an independent fresh history segment; clean kernel
+    scratch is shared sequentially. Supplied H0 and the heap must come from the
+    corresponding same invocation; this class does not establish that provenance.
+    """
+    geometry: object
+    aes: object
+    tripled: object
+    field: object
+
+    def __post_init__(self):
+        # The authenticated source geometry owns actual row validation. Structural
+        # checks still refuse malformed callers rather than truncating a scan.
+        g = self.geometry
+        integer(g.tau, 1, 256, "tau")
+        integer(g.tau1, 0, g.tau, "tau1")
+        require(len(g.depths) == g.tau, "depth count")
+        integer(g.k, 2, 16, "maximum depth")
+        require(g.depths == tuple(g.k if i < g.tau1 else g.k - 1 for i in range(g.tau)), "mixed vector geometry")
+        require(g.leaves == sum(1 << d for d in g.depths), "leaf count")
+        require(g.leaves <= 61440, "leaf scan size")
+
+    @property
+    def input_bits(self):
+        """Full marks, final heap, IV, H0 and tau hidden commitments."""
+        g = self.geometry
+        return (2 * g.leaves - 1) * 257 + 128 + 1024 + 896 * g.tau
+
+    @property
+    def output_bits(self):
+        """Vector/index ordered seed32||com112 for every leaf."""
+        return 1152 * self.geometry.leaves
+
+    def block(self):
+        return leaf_block(self.aes, self.tripled, self.field)
+
+    def layout(self):
+        """Static source geometry and a public per-vector constant tweak region."""
+        g, b = self.geometry, self.block()
+        require(all(w >= b.inputs for w in b.outputs), "fresh leaf outputs")
+        tweaks_start = self.input_bits
+        start = tweaks_start + 32 * g.tau
+        work_start = start + g.leaves * b.derived
+        output_start = work_start + b.work
+        return dict(block=b, tweaks_start=tweaks_start, start=start, work_start=work_start,
+                    output_start=output_start, size=output_start + self.output_bits)
+
+    def coordinates(self, flat):
+        """Resolve a public loop index into source vector/index/heap position."""
+        g = self.geometry
+        integer(flat, 0, g.leaves - 1, "flat leaf index")
+        offset = 0
+        for vector, depth in enumerate(g.depths):
+            if flat < offset + (1 << depth):
+                index, half = flat - offset, 1 << (g.k - 1)
+                position = (g.leaves - 1 + g.tau * index + vector if index < half else
+                            g.leaves - 1 + g.tau * half + g.tau1 * (index - half) + vector)
+                return vector, index, position
+            offset += 1 << depth
+        raise ValueError("unreachable leaf index")
+
+    def frame(self, p, flat):
+        """No witness-dependent addressing: all loop geometry is public."""
+        g, b = self.geometry, p["block"]
+        vector, _, node = self.coordinates(flat)
+        count = 2 * g.leaves - 1
+        key = tuple(range(count + 256 * node, count + 256 * (node + 1)))
+        iv_start = count * 257
+        iv = tuple(range(iv_start, iv_start + 128))
+        h0 = tuple(range(iv_start + 128, iv_start + 1152))
+        hidden = tuple(range(iv_start + 1152 + 896 * vector, iv_start + 1152 + 896 * (vector + 1)))
+        tweak = tuple(range(p["tweaks_start"] + 32 * vector, p["tweaks_start"] + 32 * (vector + 1)))
+        inputs = key + iv + tweak + h0 + (node,) + hidden
+        start = p["start"] + flat * b.derived
+        require(len(inputs) == b.inputs and len(set(inputs)) == len(inputs), "leaf frame aliases")
+        require(max(inputs) < start, "leaf forward reference")
+        return inputs, start
+
+    def emit_clean(self):
+        """Initialize fixed tweaks; compute/copy/reverse; clear every tweak."""
+        p, g = self.layout(), self.geometry
+        b = p["block"]
+        def constants(reverse=False):
+            vectors = reversed(range(g.tau)) if reverse else range(g.tau)
+            for vector in vectors:
+                indices = reversed(range(32)) if reverse else range(32)
+                for bit in indices:
+                    if ((g.leaves - 1 + vector) >> bit) & 1:
+                        yield ("x", p["tweaks_start"] + 32 * vector + bit)
+        def emit_frame(flat, inverse):
+            inputs, start = self.frame(p, flat)
+            def wire(local):
+                if local < b.inputs: return inputs[local]
+                if local < b.inputs + b.derived: return start + local - b.inputs
+                return p["work_start"] + local - b.inputs - b.derived
+            for gate in b.emit(inverse=inverse):
+                yield (gate[0], *(wire(w) for w in gate[1:]))
+        yield from constants()
+        for flat in range(g.leaves):
+            yield from emit_frame(flat, False)
+        for flat in range(g.leaves):
+            start = p["start"] + flat * b.derived
+            for i, source in enumerate(b.outputs):
+                yield ("cx", start + source - b.inputs, p["output_start"] + 1152 * flat + i)
+        for flat in reversed(range(g.leaves)):
+            yield from emit_frame(flat, True)
+        yield from constants(True)
+
+    def resources(self):
+        g, b = self.geometry, self.block()
+        initialize = Cost(x=sum((g.leaves - 1 + v).bit_count() for v in range(g.tau)))
+        forward = b.cost.times(g.leaves) + initialize
+        return dict(forward_gates=forward.as_dict(),
+                    clean_gates=(forward.times(2) + Cost(cx=self.output_bits)).as_dict(),
+                    input_bits=self.input_bits, output_bits=self.output_bits,
+                    constant_tweak_bits=32 * g.tau, ssa_history_bits=g.leaves * b.derived,
+                    clean_kernel_work_bits=b.work,
+                    total_clean_work_bits=32 * g.tau + g.leaves * b.derived + b.work,
+                    forward_concrete_aes_calls=9 * g.leaves, clean_concrete_aes_calls=18 * g.leaves,
+                    forward_field_tripled_calls=g.leaves, clean_field_tripled_calls=2 * g.leaves,
+                    forward_field_mul_calls=g.leaves, clean_field_mul_calls=2 * g.leaves,
+                    includes_hidden_leaf_dummy_evaluations=True,
+                    supplied_H0_origin_unchecked=True, H0_H1_oracle_integration_implemented=False,
+                    conditional_on_registered_kernel_contracts=True,
+                    exact_for_defined_lazy_emitter=True, complete_B1_coverage=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    profile_qualified=False, production_gate_changed=False)
+
+    def evaluate(self, marks, keys, iv, h0, hidden_coms):
+        """Finite supplied-state meaning, with seeds zero at hidden leaves."""
+        g = self.geometry
+        count = 2 * g.leaves - 1
+        require(type(marks) in (tuple, list) and len(marks) == count
+                and all(type(v) is int and v in (0, 1) for v in marks), "hidden marks")
+        require(type(keys) in (tuple, list) and len(keys) == count, "heap keys")
+        require(type(hidden_coms) in (tuple, list) and len(hidden_coms) == g.tau, "hidden commitments")
+        for key in keys: integer(key, 0, (1 << 256) - 1, "heap key")
+        for com in hidden_coms: integer(com, 0, (1 << 896) - 1, "hidden commitment")
+        integer(iv, 0, (1 << 128) - 1, "IV")
+        integer(h0, 0, (1 << 1024) - 1, "H0 output")
+        out, b = [], self.block()
+        for flat in range(g.leaves):
+            vector, _, node = self.coordinates(flat)
+            values = (bits(keys[node], 256) + bits(iv, 128) + bits(g.leaves - 1 + vector, 32)
+                      + bits(h0, 1024) + (marks[node],) + bits(hidden_coms[vector], 896))
+            row = b.evaluate(values)
+            out.append((unpack(row[:256]), unpack(row[256:])))
+        return out

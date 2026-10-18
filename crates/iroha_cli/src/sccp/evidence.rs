@@ -37,7 +37,7 @@ pub struct BuildArgs {
     /// Independently selected genesis and complete certified World cut.
     #[command(flatten)]
     origin: origin::OriginArgs,
-    /// Norito JSON SubmitSccpForgeryEvidenceV1; any supplied anchor is replaced from the node.
+    /// Norito JSON `SubmitSccpForgeryEvidenceV1`; any supplied anchor is replaced from the node.
     #[arg(long)]
     certificate: PathBuf,
 }

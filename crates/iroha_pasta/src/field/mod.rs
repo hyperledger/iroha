@@ -19,6 +19,10 @@
 //!   public data only;
 //! - square roots use the table method of `pasta_curves`, see `sqrt`.
 
+// The multiplication and squaring wrappers below are `#[inline(always)]`;
+// see `impl_pasta_field`.
+#![allow(clippy::inline_always)]
+
 pub(crate) mod cios;
 pub(crate) mod fp;
 pub(crate) mod fq;
@@ -291,14 +295,18 @@ macro_rules! impl_pasta_field {
             }
 
             /// Constant-time multiplication.
-            #[inline]
+            // Always inlined, like the `Mul`/`MulAssign` and `Field::square`
+            // wrappers: the CIOS body exceeds LLVM's `#[inline]` cost limit,
+            // which otherwise leaves an out-of-line call in the NTT,
+            // quotient-row and curve loops. Proof bytes are unchanged.
+            #[inline(always)]
             #[must_use]
             pub const fn mul(&self, rhs: &Self) -> Self {
                 Self(cios::mont_mul(&self.0, &rhs.0, &MODULUS))
             }
 
             /// Constant-time squaring.
-            #[inline]
+            #[inline(always)]
             #[must_use]
             pub const fn square(&self) -> Self {
                 Self(cios::mont_square(&self.0, &MODULUS))
@@ -448,9 +456,9 @@ macro_rules! impl_pasta_field {
             }
         }
 
-        crate::field::impl_pasta_field!(@binop $name, Add, add, AddAssign, add_assign);
-        crate::field::impl_pasta_field!(@binop $name, Sub, sub, SubAssign, sub_assign);
-        crate::field::impl_pasta_field!(@binop $name, Mul, mul, MulAssign, mul_assign);
+        crate::field::impl_pasta_field!(@binop $name, Add, add, AddAssign, add_assign, #[inline]);
+        crate::field::impl_pasta_field!(@binop $name, Sub, sub, SubAssign, sub_assign, #[inline]);
+        crate::field::impl_pasta_field!(@binop $name, Mul, mul, MulAssign, mul_assign, #[inline(always)]);
 
         impl<T: core::borrow::Borrow<$name>> core::iter::Sum<T> for $name {
             fn sum<I: Iterator<Item = T>>(iter: I) -> Self {
@@ -480,7 +488,7 @@ macro_rules! impl_pasta_field {
                 Self::from_u512(limbs)
             }
 
-            #[inline]
+            #[inline(always)]
             fn square(&self) -> Self {
                 $name::square(self)
             }
@@ -608,10 +616,10 @@ macro_rules! impl_pasta_field {
             }
         }
     };
-    (@binop $name:ident, $tr:ident, $method:ident, $tr_assign:ident, $method_assign:ident) => {
+    (@binop $name:ident, $tr:ident, $method:ident, $tr_assign:ident, $method_assign:ident, #[$inline:meta]) => {
         impl $tr<$name> for $name {
             type Output = $name;
-            #[inline]
+            #[$inline]
             fn $method(self, rhs: $name) -> $name {
                 $name::$method(&self, &rhs)
             }
@@ -619,7 +627,7 @@ macro_rules! impl_pasta_field {
 
         impl<'b> $tr<&'b $name> for $name {
             type Output = $name;
-            #[inline]
+            #[$inline]
             fn $method(self, rhs: &'b $name) -> $name {
                 $name::$method(&self, rhs)
             }
@@ -627,7 +635,7 @@ macro_rules! impl_pasta_field {
 
         impl $tr<$name> for &$name {
             type Output = $name;
-            #[inline]
+            #[$inline]
             fn $method(self, rhs: $name) -> $name {
                 $name::$method(self, &rhs)
             }
@@ -635,21 +643,21 @@ macro_rules! impl_pasta_field {
 
         impl<'b> $tr<&'b $name> for &$name {
             type Output = $name;
-            #[inline]
+            #[$inline]
             fn $method(self, rhs: &'b $name) -> $name {
                 $name::$method(self, rhs)
             }
         }
 
         impl $tr_assign<$name> for $name {
-            #[inline]
+            #[$inline]
             fn $method_assign(&mut self, rhs: $name) {
                 *self = $name::$method(self, &rhs);
             }
         }
 
         impl<'b> $tr_assign<&'b $name> for $name {
-            #[inline]
+            #[$inline]
             fn $method_assign(&mut self, rhs: &'b $name) {
                 *self = $name::$method(self, rhs);
             }

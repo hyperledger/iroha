@@ -2517,6 +2517,14 @@ multisignature witness end to end.
 The `canonical-request` subpath ships standalone DOM declarations, so browser
 TypeScript consumers do not need ambient Node types.
 
+`withCanonicalReadRetry({ method, path, signal, operation })` retries known
+read-only Torii routes after typed HTTP 429 capacity or rate refusals. Build and
+sign the request inside `operation(attempt)` so every attempt has fresh nonce
+and timestamp headers, and pass `signal` to the transport. The helper permits
+three retries within ten seconds, honors `retryAfter` HTTP header text or
+`retryAfterSeconds` on the thrown error, and preserves the final error. Writes,
+unknown routes, authentication errors and transport failures execute once.
+
 > **Recipe:** run `node javascript/iroha_js/recipes/iso_alias.mjs` to exercise
 > the lookup endpoints from the CLI. The script accepts `ISO_ALIAS_LABEL` and
 > `ISO_ALIAS_INDEX` so ISO bridge gate jobs can confirm deterministic account

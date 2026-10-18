@@ -12,7 +12,7 @@ use iroha_plonk_recursion::{codec::ScalarCells, verifier::VerifierConfig};
 
 fn groups() -> Vec<Vec<OperationTask>> {
     vec![
-        vec![OperationTask::ArchiveOwnProof],
+        vec![],
         vec![OperationTask::ArchiveProofs],
         vec![
             OperationTask::ArchiveRetainedPayment,

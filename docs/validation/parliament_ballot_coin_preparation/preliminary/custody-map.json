@@ -1,0 +1,30 @@
+{
+  "preliminary/README.md.template": {
+    "original": "target/parliament-coin-preparation-stage/preliminary-sources/README.md.template",
+    "sha256": "af55b7df095fb7deaa35aa72d49dc2b9ad8d46607b8b4a955df312d920c626ca"
+  },
+  "preliminary/capture_tests.py.template": {
+    "original": "target/parliament-coin-preparation-stage/preliminary-sources/capture_tests.py.template",
+    "sha256": "34b9df7a521214b5a2afe563b63e4d98b0c21d8d8d8a8981c8d8b708662bbed5"
+  },
+  "preliminary/observation.json": {
+    "original": "target/parliament-coin-preparation-stage/observation.json",
+    "sha256": "29d21dac23d01776e3e9aa6b0a2a1187ab0e510eeec78c1ef1f3447e79404508"
+  },
+  "preliminary/observation.stderr": {
+    "original": "target/parliament-coin-preparation-stage/observation.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "preliminary/observe.py.template": {
+    "original": "target/parliament-coin-preparation-stage/preliminary-sources/observe.py.template",
+    "sha256": "96df69027c950cc080649bf997a8e260149d7fb25acc99f9daacc7299a5f9766"
+  },
+  "preliminary/pytest.stdout": {
+    "original": "target/parliament-coin-preparation-stage/test-capture/pytest.log",
+    "sha256": "2b05ad19de683730a1025e7c8c9da8b18b68f6aaaf34049eb4d1f425562a6cc2"
+  },
+  "preliminary/test-receipt.json": {
+    "original": "target/parliament-coin-preparation-stage/test-capture/receipt.json",
+    "sha256": "e23aba743bf8d7fbc0e7b7aa62e0c0fe7597c6b2b43c334ddc9bc1efddb95807"
+  }
+}

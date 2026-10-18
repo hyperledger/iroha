@@ -105,6 +105,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
             manifest.issued_requests,
             manifest.direct_anchors,
             manifest.finality_epochs,
+            manifest.blacklist.clone(),
         )
         .unwrap()
     }
@@ -222,8 +223,6 @@ fn setup_quote(source: &FrozenTransition) -> (KagemushaWalletOfferV1, KagemushaW
         policy_epoch: state.core.policy_epoch,
         scheme_policy: state.rest.scheme_policy,
         receiver_accepted_time_ms: state.core.accepted_time_floor_ms,
-        receiver_blacklist_version: 0,
-        receiver_blacklist_root: [0; 32],
         certificates: request.certificates.digest().unwrap(),
         nonce: [73; 32],
     };
@@ -268,13 +267,7 @@ fn request_and_setup_output_publish_together_and_replay_exactly_after_a_new_head
         wallet.custody.fail_publication = Some(selected_before_error);
         assert!(
             wallet
-                .finish_setup(
-                    [74; 32],
-                    &action,
-                    &mut plan,
-                    &original,
-                    Some((&request, None))
-                )
+                .finish_setup([74; 32], &action, &mut plan, &original, Some(&request))
                 .is_err()
         );
         let (_, manifest) = wallet.manifest().unwrap();
@@ -286,8 +279,8 @@ fn request_and_setup_output_publish_together_and_replay_exactly_after_a_new_head
                 .is_some(),
             selected_before_error
         );
-        // The exact production helper can never select a signed output without the
-        // associated historical Request decision in the same manifest generation.
+        // The exact production helper can never select a signed output without its issued
+        // Request in the same manifest generation.
         let recovered = wallet.setup([74; 32], &action).unwrap();
         assert_eq!(recovered.output.is_some(), selected_before_error);
         assert_eq!(recovered.nonce, plan.nonce);
@@ -302,13 +295,7 @@ fn request_and_setup_output_publish_together_and_replay_exactly_after_a_new_head
         let mut plan = wallet.setup([74; 32], &action).unwrap();
         if plan.output.is_none() {
             wallet
-                .finish_setup(
-                    [74; 32],
-                    &action,
-                    &mut plan,
-                    &original,
-                    Some((&request, None)),
-                )
+                .finish_setup([74; 32], &action, &mut plan, &original, Some(&request))
                 .unwrap();
         }
         assert_eq!(wallet.issued_setup_request(&request).unwrap(), original);
@@ -372,7 +359,7 @@ fn a_new_setup_request_cannot_be_published_from_a_different_selected_head() {
             &action,
             &mut plan,
             &archive::encode(&request).unwrap(),
-            Some((&request, None))
+            Some(&request)
         ),
         Err(Error::Invalid(_))
     ));
@@ -399,7 +386,7 @@ fn retiring_preserves_outgoing_offers_and_exact_requests_but_refuses_new_quotes(
             &request_action,
             &mut request_plan,
             &original,
-            Some((&request, None)),
+            Some(&request),
         )
         .unwrap();
     let (_, manifest) = wallet.manifest().unwrap();

@@ -1,0 +1,138 @@
+"""Fail-closed coverage/resource report for the incomplete scratch machine.
+
+This deliberately cannot report complete simulator coverage yet. It guards the
+selected source map and executing draft artifacts around the completed-stage
+reports. Source identity is not automatic source-semantic equivalence.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+from bit_ir import require
+from schedule import AdmissibilityKernel, Schedule, MAX_TRIALS, load_predicate
+from opening import GeometryKernel, Opening
+from reconstruction import Reconstruction
+from vole_columns import VoleColumns
+from mask_fold import load_moduli
+from crt_machine import CrtReconstruction, load_matrices
+from vole_reconstruction import VoleReconstruction
+from aes_kernel import load_aes, AES_PATH, AES_SHA256
+from field_kernel import load_field, FieldKernel, HELPER, HELPER_SHA256
+
+STAGES = ("P0", "P1", "S0", "B0", "B1", "V0", "V1", "R0", "R1", "W0", "E0", "L0")
+IMPLEMENTED = ("S0", "B0", "B1", "V0", "V1")
+EXECUTING = ("machine.py", "bit_ir.py", "schedule.py", "opening.py", "coverage.json", "README.md", "test_machine.py",
+             "bavc_machine.py", "prg_machine.py", "field_kernel.py", "leaf_machine.py", "hash_machine.py",
+             "aes_kernel.py", "reconstruction.py", "test_prg_machine.py", "test_leaf_machine.py",
+             "test_hash_machine.py", "test_reconstruction.py", "vole_machine.py", "mask_fold.py",
+             "vole_columns.py", "crt_machine.py", "vole_reconstruction.py", "test_vole_machine.py",
+             "test_vole_columns.py", "test_crt_machine.py", "test_vole_reconstruction.py", "V0-design.md")
+
+
+def digest(path):
+    """Hash exact bytes without evaluating source or normalizing text."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def verify_coverage(root, directory):
+    """Validate the complete intended stage graph and all 38 selected pins."""
+    value = json.loads((directory / "coverage.json").read_text())
+    require(type(value) is dict and value.get("schema") == 1, "coverage schema")
+    rows = value.get("stages")
+    require(type(rows) is list and tuple(r.get("id") for r in rows) == STAGES, "coverage stage inventory")
+    merged, seen = {}, set()
+    for row in rows:
+        expected = "implemented_pending_review" if row["id"] in IMPLEMENTED else "open"
+        require(row.get("status") == expected, "unimplemented or unreviewed stage relabeled")
+        require(type(row.get("depends_on")) is list and set(row["depends_on"]) <= seen,
+                "coverage missing dependency, ordering or cycle")
+        seen.add(row["id"])
+        pins = row.get("source_sha256")
+        require(type(pins) is dict and pins, "empty source scope")
+        for path, expected_sha in pins.items():
+            require(type(path) is str and not Path(path).is_absolute() and ".." not in Path(path).parts,
+                    "unsafe coverage path")
+            require(type(expected_sha) is str and len(expected_sha) == 64, "source digest shape")
+            require(path not in merged or merged[path] == expected_sha, "inconsistent repeated source identity")
+            merged[path] = expected_sha
+    require(value.get("source_sha256") == merged and len(merged) == 38, "source inventory mismatch")
+    for name in ("complete_simulator_coverage", "complete_resource_vector", "profile_qualified", "production_gate_changed"):
+        require(value.get(name) is False, "premature coverage qualification flag")
+    actual = {path: digest(root / path) for path in merged}
+    require(actual == merged, "coverage source changed; no automatic repinning")
+    return value
+
+
+def report(root, directory=None):
+    """Emit stage vectors, never their sum labeled as a whole machine."""
+    root = Path(root).resolve()
+    directory = Path(directory).resolve() if directory is not None else Path(__file__).resolve().parent
+    for name in ("bit_ir", "schedule", "opening", "bavc_machine", "prg_machine", "field_kernel", "leaf_machine", "hash_machine", "aes_kernel", "reconstruction",
+                 "vole_machine", "mask_fold", "vole_columns", "crt_machine", "vole_reconstruction"):
+        require(Path(sys.modules[name].__file__).resolve() == directory / (name + ".py"),
+                "loaded machine dependency does not match watched source: " + name)
+    require(Path(__file__).resolve() == directory / "machine.py", "report executing path mismatch")
+    executing_before = {p: digest(directory / p) for p in EXECUTING}
+    coverage = verify_coverage(root, directory)
+    dependency_pins = {AES_PATH: AES_SHA256, HELPER: HELPER_SHA256}
+    dependency_before = {p: digest(root / p) for p in dependency_pins}
+    require(dependency_before == dependency_pins, "concrete kernel implementation changed")
+    predicate = load_predicate(root)
+    aes, fields = load_aes(root), load_field(root)
+    dependency_pins.update(fields.PINS)
+    dependency_before = {p: digest(root / p) for p in dependency_pins}
+    require(dependency_before == dependency_pins, "concrete kernel source premises changed")
+    rows = {}
+    for row in ("candidate", "comparator"):
+        geometry = predicate.row(row)
+        rows[row] = dict(schedule=Schedule(AdmissibilityKernel(predicate, geometry), MAX_TRIALS).resources(),
+                         direct_opening=Opening(GeometryKernel(predicate, geometry)).resources(),
+                         supplied_material_reconstruction=Reconstruction(geometry, aes,
+                             FieldKernel(fields, "gf256_mul_tripled"), FieldKernel(fields, "gf256_mul")).resources())
+        matrices = load_matrices(root,row)
+        role_vectors = {}
+        for role,ell in (("registration",35840),("vote",53504)):
+            columns = VoleColumns(geometry,ell,load_moduli(root,row),aes)
+            crt = CrtReconstruction(ell,columns.width_bits,matrices["G"],matrices["W_CRT"],
+                                    matrices["W_TREE"],matrices["W_GATE"])
+            role_vectors[role] = VoleReconstruction(columns,crt).resources()
+        rows[row]["supplied_V0_V1_composition_by_role"] = role_vectors
+    after = verify_coverage(root, directory)
+    executing_after = {p: digest(directory / p) for p in EXECUTING}
+    dependency_after = {p: digest(root / p) for p in dependency_pins}
+    require(dependency_after == dependency_before, "concrete kernel dependency changed")
+    require(after == coverage and executing_after == executing_before, "machine capture identity drift")
+    return dict(scope="Five implemented conditional algorithm stages; their whole-request wire composition is incomplete",
+                source_sha256_before=coverage["source_sha256"], source_sha256_after=after["source_sha256"],
+                executing_sha256_before=executing_before, executing_sha256_after=executing_after,
+                component_dependency_sha256_before=dependency_before, component_dependency_sha256_after=dependency_after,
+                implemented_pending_review=list(IMPLEMENTED),
+                unimplemented=[s for s in STAGES if s not in IMPLEMENTED], rows=rows,
+                no_stage_sum_claim=True, complete_simulator_coverage=False,
+                complete_resource_vector=False, actual_input_entry_bridge=False,
+                primitive_advantage_assumed=False, independent_cryptographic_review=False,
+                profile_qualified=False, production_gate_changed=False)
+
+
+def main():
+    """Keep ordinary diagnostics distinct from a deliberately refused completion."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--require-complete", action="store_true")
+    args = parser.parse_args()
+    try:
+        print(json.dumps(report(args.root), sort_keys=True, indent=2))
+        return 2 if args.require_complete else 0
+    except (ValueError, OSError) as error:
+        print(json.dumps(dict(error=str(error), complete_resource_vector=False,
+                              complete_simulator_coverage=False, profile_qualified=False,
+                              production_gate_changed=False)))
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

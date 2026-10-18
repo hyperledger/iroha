@@ -283,7 +283,7 @@ impl EvmTransport<'_> {
     }
     /// Sign without network dispatch; the caller must persist these exact bytes first.
     pub(super) fn prepare(&self, key: &EvmSigningKey, data: Vec<u8>) -> Result<Vec<u8>> {
-        prepare_transaction(&self.client, self.network, key, Some(self.contract), data)
+        prepare_transaction(self.client, self.network, key, Some(self.contract), data)
             .map(|(raw, _)| raw)
     }
 
@@ -707,7 +707,7 @@ mod tests {
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
             });
             let config = iroha_sccp_wallet::config::SccpClientConfig::from_user(
-                Default::default(),
+                iroha::config::sccp::SccpClientConfigUser::default(),
                 Path::new("target/sccp-continuation/export-test-journal"),
             )
             .unwrap();

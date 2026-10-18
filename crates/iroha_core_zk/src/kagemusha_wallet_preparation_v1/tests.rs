@@ -19,7 +19,7 @@ fn public() -> KagemushaWalletLineagePublicV1 {
             .expect("canonical test public key"),
         lifecycle: KagemushaWalletLifecycleV1::Retiring,
         policy_epoch: 0x0102_0304_0506_0708,
-        enabled_controls: 7,
+        enabled_controls: KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
         burned_total: u128::MAX,
         pending_outgoing_root: Fp::from(13).to_repr(),
         credit_digest_root: Fp::from(17).to_repr(),

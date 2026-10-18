@@ -250,8 +250,6 @@ impl PreparationV1<'_> {
             policy_epoch: 0,
             scheme_policy: [0; 32],
             receiver_accepted_time_ms: 0,
-            receiver_blacklist_version: 0,
-            receiver_blacklist_root: [0; 32],
             certificates: certificates.digest().unwrap(),
             nonce: [0x43; 32],
         };
@@ -276,8 +274,6 @@ impl PreparationV1<'_> {
             policy_epoch: b.policy_epoch,
             scheme_policy: b.scheme_policy,
             receiver_accepted_time_ms: b.receiver_accepted_time_ms,
-            receiver_blacklist_version: b.receiver_blacklist_version,
-            receiver_blacklist_root: b.receiver_blacklist_root,
             certificates: b.certificates,
             nonce: b.nonce,
             signature: request.signature,
@@ -383,7 +379,7 @@ impl PreparationV1<'_> {
                     &payer_bytes,
                     &cert_bytes,
                     None,
-                    maps,
+                    &maps,
                     Fp::from(203).to_repr(),
                     MemoryBudget::DEFAULT
                 )
@@ -397,8 +393,7 @@ impl PreparationV1<'_> {
                     &bytes,
                     &payer_bytes,
                     &cert_bytes,
-                    None,
-                    maps,
+                    &maps,
                     Fp::from(203).to_repr(),
                     MemoryBudget::DEFAULT,
                 )
@@ -418,6 +413,59 @@ impl PreparationV1<'_> {
             assert_eq!(&projected.omega[320..], [0xff, 0]);
             assert_receipt_decode(&projected, !objects_invalid);
         }
+        // The receiver's local list refuses a listed payer with its own outcome, and only
+        // after the complete Payment verification: an invalid Payment keeps its ordinary
+        // refusal. No list, or a list without the payer, leaves this Payment to its proof
+        // verdict. Preparation reads the list custody already authenticated at install.
+        let list = |account_digest: [u8; 32]| {
+            let entries = vec![KagemushaWalletBlacklistEntryV1 { account_digest }];
+            KagemushaWalletBlacklistV1 {
+                body: KagemushaWalletBlacklistBodyV1 {
+                    version: 1,
+                    scheme_id: scheme.scheme_id(),
+                    list_version: 1,
+                    issued_at_ms: 1,
+                    entry_count: 1,
+                    entries_root: kagemusha_wallet_blacklist_root_v1(&entries).unwrap(),
+                    signer_certificate: owner.certificate.certificate_digest(),
+                },
+                signature: signature(receiver_signer, b"local list custody stand-in"),
+                entries,
+            }
+        };
+        let listed = list(payer.body.account_digest);
+        let unrelated = list([0x42; 32]);
+        let prepare = |payment: &[u8], blacklist: Option<&KagemushaWalletBlacklistV1>| {
+            self.prepare_receive(
+                owner,
+                source,
+                &request_bytes,
+                payment,
+                &payer_bytes,
+                &cert_bytes,
+                blacklist,
+                &maps,
+                Fp::from(203).to_repr(),
+                MemoryBudget::DEFAULT,
+            )
+        };
+        let verified = norito::to_bytes(&incoming).unwrap();
+        assert!(matches!(
+            prepare(&verified, Some(&listed)),
+            Err(Error::Blocked("request.payer_account_digest"))
+        ));
+        for blacklist in [None, Some(&unrelated)] {
+            assert!(matches!(
+                prepare(&verified, blacklist),
+                Err(error) if !matches!(error, Error::Blocked(_))
+            ));
+        }
+        let mut unverified = incoming.clone();
+        unverified.version = 19;
+        assert!(matches!(
+            prepare(&norito::to_bytes(&unverified).unwrap(), Some(&listed)),
+            Err(error) if !matches!(error, Error::Blocked(_))
+        ));
         // Incoming softness cannot suppress source-custody failures.
         let mut changed_source = source.clone();
         changed_source.retained.frame[0] ^= 1;
@@ -429,8 +477,7 @@ impl PreparationV1<'_> {
                 &norito::to_bytes(&incoming).unwrap(),
                 &payer_bytes,
                 &cert_bytes,
-                None,
-                maps,
+                &maps,
                 Fp::from(203).to_repr(),
                 MemoryBudget::DEFAULT
             )

@@ -218,7 +218,7 @@ impl Plan {
         binding: &DescriptorBinding,
         key: &VerifyingKey<Eq>,
     ) -> Result<WCircuit, Error> {
-        if stage >= A_STAGE_COUNT - 1
+        if stage >= self.context().stage_count().saturating_sub(1)
             || binding
                 != &crate::a_relation::native::artifact::source_descriptor::<StageCircuit>(
                     INTERNAL_RANGE_BUSES,
@@ -260,7 +260,7 @@ impl Plan {
         stage: usize,
         previous: Option<WKey>,
     ) -> Result<StageCircuit, Error> {
-        if stage >= A_STAGE_COUNT || (stage == 0) != previous.is_none() {
+        if stage >= self.context().stage_count() || (stage == 0) != previous.is_none() {
             return Err(Error::Artifact);
         }
         let source = Prepared::unknown_source(self)?;

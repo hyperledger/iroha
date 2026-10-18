@@ -172,9 +172,13 @@ fn wallet_advance_v1_retained_highest_generation_scan() {
         highest_retained_generation::<_, KagemushaWalletCompletionRecordV1>(&store, &slot),
         Ok(Some(3))
     );
-    provider
+    let tombstone = provider
         .prune_completion(&slot, &bootstrap_op, 1)
         .expect("prune");
+    assert_eq!(
+        read_tombstone(&store, &slot, &bootstrap_op),
+        Ok(TombstoneReadV1::Found(tombstone))
+    );
     assert_eq!(
         kagemusha_wallet_list_tombstones_v1(&store, &slot),
         Ok(vec![bootstrap_op])
@@ -193,8 +197,32 @@ fn wallet_advance_v1_retained_highest_generation_scan() {
         highest_retained_generation::<_, KagemushaWalletCompletionRecordV1>(&store, &slot),
         Ok(Some(3))
     );
-    assert_eq!(read_tombstone(&store, &slot, &[7; 32]), Ok(Some(None)));
-    assert_eq!(read_tombstone(&store, &slot, &[8; 32]), Ok(None));
+    assert_eq!(
+        read_tombstone(&store, &slot, &[7; 32]),
+        Ok(TombstoneReadV1::Invalid)
+    );
+    assert_eq!(
+        read_tombstone(&store, &slot, &[8; 32]),
+        Ok(TombstoneReadV1::Absent)
+    );
+    device.fs.place_unsynced(
+        &kagemusha_wallet_ops_dir_v1(&slot),
+        kagemusha_wallet_tombstone_name_v1(&[9; 32]).as_str(),
+        &[0; KAGEMUSHA_WALLET_TOMBSTONE_MAX_BYTES_V1 + 1],
+    );
+    assert_eq!(
+        read_tombstone(&store, &slot, &[9; 32]),
+        Ok(TombstoneReadV1::Invalid)
+    );
+    device.fs.place_unsynced(
+        &kagemusha_wallet_ops_dir_v1(&slot),
+        kagemusha_wallet_tombstone_name_v1(&[10; 32]).as_str(),
+        &tombstone.encode().expect("canonical tombstone"),
+    );
+    assert_eq!(
+        read_tombstone(&store, &slot, &[10; 32]),
+        Ok(TombstoneReadV1::Invalid)
+    );
     device
         .fs
         .place_unsynced(&kagemusha_wallet_ops_dir_v1(&slot), "foreign", b"x");

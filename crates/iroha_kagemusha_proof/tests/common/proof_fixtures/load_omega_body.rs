@@ -33,7 +33,6 @@ pub(crate) fn diagnostic_load_omega(
     let predecessor = load_chain::bootstrap_outer::rooted_bootstrap_omega_with_profile(
         false,
         load_chain::bootstrap_outer::bootstrap_chain::SourceProfile::Tagged { buses: 3 },
-        Some(2),
     );
     let load = load_chain::authenticated_load(&predecessor, fixture);
     let params = PinnedParams::<Eq>::derive(16).unwrap();
@@ -267,7 +266,6 @@ pub(crate) fn two_terminal_load_omega(fixture: &LoadFixture) -> TwoTerminalLoadO
     let initial_predecessor = load_chain::bootstrap_outer::rooted_bootstrap_omega_with_profile(
         false,
         bootstrap_chain::SourceProfile::Tagged { buses: 3 },
-        Some(2),
     );
     let initial_load = load_chain::authenticated_load(&initial_predecessor, fixture);
     let initial_bootstrap = &initial_predecessor.source;
@@ -303,7 +301,7 @@ pub(crate) fn two_terminal_load_omega(fixture: &LoadFixture) -> TwoTerminalLoadO
         "catalog size1→2 must retain the exact predecessor program descriptor",
     );
     eprintln!(
-        "TWO_TERMINAL_PROFILE source_range_buses=3 q_range_buses=2 outer_compress_selectors=false catalog_size1_to2_descriptor_equal=true outer_shape={:?} compact_production_profile=false",
+        "TWO_TERMINAL_PROFILE source_range_buses=3 outer_compress_selectors=false catalog_size1_to2_descriptor_equal=true outer_shape={:?} compact_production_profile=false",
         iroha_plonk::Protocol::new(outer_key.binding().descriptor())
             .unwrap()
             .shape(),
@@ -316,7 +314,6 @@ pub(crate) fn two_terminal_load_omega(fixture: &LoadFixture) -> TwoTerminalLoadO
         false,
         digest,
         bootstrap_chain::SourceProfile::Tagged { buses: 3 },
-        Some(2),
     );
     assert_eq!(initial_bootstrap.binding, bootstrap.binding);
     assert_eq!(initial_bootstrap.key.to_bytes(), bootstrap.key.to_bytes());

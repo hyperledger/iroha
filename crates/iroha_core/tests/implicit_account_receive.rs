@@ -49,13 +49,6 @@ fn seeded_account(seed_byte: u8) -> (AccountId, KeyPair) {
     let account_id = AccountId::new(key_pair.public_key().clone());
     (account_id, key_pair)
 }
-fn build_account_in_domain(
-    account_id: AccountId,
-    _domain_id: DomainId,
-    authority: &AccountId,
-) -> Account {
-    Account::new(account_id.clone()).build(authority)
-}
 fn block_header(height: u64, timestamp_ms: u64) -> BlockHeader {
     BlockHeader::new(
         NonZeroU64::new(height).expect("height"),
@@ -99,7 +92,7 @@ fn prepare_state(
     .build(&alice_id);
     let alice_asset_id = AssetId::new(asset_def_id.clone(), alice_id.clone());
     let alice_asset = Asset::new(alice_asset_id.clone(), alice_balance);
-    let alice_account = build_account_in_domain(alice_id.clone(), domain_id, &alice_id);
+    let alice_account = Account::new(alice_id.clone()).build(&alice_id);
     let world = World::with_assets([domain], [alice_account], [asset_def], [alice_asset], []);
     let state = test_state(world);
     if let Some(policy) = policy {

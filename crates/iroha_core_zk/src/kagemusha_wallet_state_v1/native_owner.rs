@@ -72,6 +72,7 @@ fn proof<T>(value: Result<T, ProofError>) -> Result<T, Error> {
         ProofError::DecodeResource(original) => Error::DecodeResource(original),
         ProofError::Unavailable => Error::ArtifactsUnavailable("native operation artifact"),
         ProofError::Cancelled => Error::Cancelled,
+        ProofError::Blocked(field) => Error::Blocked(field),
         ProofError::Entropy => {
             crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
                 crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Platform(0),
@@ -377,7 +378,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             KagemushaWalletCreditedEvidenceV1::Receive { package } => {
                 proof(self.installed.verifier().verify_package_proofs_cancellable(
                     package,
-                    Some(&request.body),
                     self.budget,
                     None,
                 ))
@@ -422,6 +422,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
         checkpoints: Vec<PrivateArchiveBytes>,
         custody: Option<&mut FoldCustodyV1<'_>>,
+        retained: Option<FoldRetentionV1>,
         cancellation: &Cancellation,
     ) -> Result<Box<dyn NativeFoldJobV1>, Error> {
         // The original store is lent to the locked prepare only; the job never holds it.
@@ -433,6 +434,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             witness,
             predecessor,
             checkpoints,
+            retained,
             cancellation,
             &mut *originals,
             custody.ok_or(Error::WitnessLost("native fold custody"))?,

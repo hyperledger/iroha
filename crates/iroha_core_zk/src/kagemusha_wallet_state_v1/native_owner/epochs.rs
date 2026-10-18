@@ -118,7 +118,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let (_, manifest) = self.sync_manifest()?;
         let epoch = manifest
             .finality_epoch
-            .unwrap_or(genesis.initial_epoch().authorization.epoch);
+            .unwrap_or_else(|| genesis.initial_epoch().authorization.epoch);
         let (_, checkpoint) = self.selected_commit_epoch(&manifest, genesis, epoch)?;
         Ok(progress(&checkpoint))
     }
@@ -142,7 +142,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let (root, mut manifest) = self.sync_manifest()?;
         let current = manifest
             .finality_epoch
-            .unwrap_or(genesis.initial_epoch().authorization.epoch);
+            .unwrap_or_else(|| genesis.initial_epoch().authorization.epoch);
         let (mut reader, incumbent) =
             self.selected_commit_epoch(&manifest, genesis, expected_epoch)?;
         if certificate.epoch_id().map_err(|error| {

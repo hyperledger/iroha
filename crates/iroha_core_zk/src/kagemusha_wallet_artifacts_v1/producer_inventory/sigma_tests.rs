@@ -23,8 +23,8 @@ fn config() -> ReadConfig {
 #[test]
 fn sigma_policy_has_all_exact_selector_recipes_and_bounded_intake() {
     let policy = compiled_sigma_policy().unwrap();
-    assert_eq!(&policy[..6], &[1, 0, 16, 0, 0, 0]);
-    assert_eq!(policy.len(), 166);
+    assert_eq!(&policy[..6], &[1, 0, 11, 0, 0, 0]);
+    assert_eq!(policy.len(), 116);
     for (i, ((kind, mask), item)) in SIGMA_CATALOG_V1
         .iter()
         .zip(policy[6..].chunks_exact(10))
@@ -32,8 +32,8 @@ fn sigma_policy_has_all_exact_selector_recipes_and_bounded_intake() {
     {
         assert_eq!(item[0], *kind);
         assert_eq!(&item[1..5], &mask.to_le_bytes());
-        let recipe = if (2..=11).contains(&i) {
-            let k = if *kind == 3 && mask & 2 != 0 { 14 } else { 12 };
+        let recipe = if (2..=6).contains(&i) {
+            let k = if *kind == 3 && mask & 1 != 0 { 14 } else { 12 };
             [1, k, 1, k - 1, 1]
         } else {
             [0, 12, 0, 0, 0]
@@ -80,15 +80,15 @@ fn key(selector: usize, params: &PinnedParams<Eq>) -> ProvingKey<Eq> {
     match selector {
         0 => admin(&BootstrapProver::source_circuit(), params),
         1 => admin(&LoadProver::source_circuit(), params),
-        12 => admin(&ArchiveProver::source_circuit(), params),
-        13 => admin(&UnloadProver::source_circuit(), params),
-        14 => admin(&RefreshProver::source_circuit(), params),
-        15 => admin(&RetiringProver::source_circuit(), params),
-        2..=11 => {
-            let relation = if selector < 10 {
+        7 => admin(&ArchiveProver::source_circuit(), params),
+        8 => admin(&UnloadProver::source_circuit(), params),
+        9 => admin(&RefreshProver::source_circuit(), params),
+        10 => admin(&RetiringProver::source_circuit(), params),
+        2..=6 => {
+            let relation = if selector < 6 {
                 iroha_kagemusha_proof::SigmaRelation::send(u32::try_from(selector - 2).unwrap())
             } else {
-                iroha_kagemusha_proof::SigmaRelation::receive(u32::try_from(selector - 10).unwrap())
+                iroha_kagemusha_proof::SigmaRelation::RECEIVE
             };
             let shape = iroha_kagemusha_proof::wallet_monetary_shape(relation).unwrap();
             admin(
@@ -130,7 +130,7 @@ fn real_sigma_store() -> (Disk, Vec<OriginalV1>, Vec<StepOriginalV1>) {
     let mut originals = Vec::new();
     let mut steps = Vec::new();
     for (selector, (tag, mask)) in SIGMA_CATALOG_V1.into_iter().enumerate() {
-        let params = if tag == 3 && mask & 2 != 0 {
+        let params = if tag == 3 && mask & 1 != 0 {
             &params14
         } else {
             &params12
@@ -161,7 +161,7 @@ fn real_sigma_store() -> (Disk, Vec<OriginalV1>, Vec<StepOriginalV1>) {
             verifying_key,
             proving_key,
         };
-        let wrong = (selector + 1) % 16;
+        let wrong = (selector + 1) % 11;
         assert!(
             sigma::import(wrong, &original, &params12, &params14, config()).is_err(),
             "foreign selector {selector}->{wrong}"
@@ -184,7 +184,7 @@ fn real_sigma_store() -> (Disk, Vec<OriginalV1>, Vec<StepOriginalV1>) {
 }
 
 #[test]
-#[ignore = "actual sixteen-source key generation and strict imports; run optimized explicitly"]
+#[ignore = "actual eleven-source key generation and strict imports; run optimized explicitly"]
 fn signed_sixteen_sigmas_qualify_exact_sources_and_reject_substitutions() {
     let (mut disk, originals, steps) = real_sigma_store();
     let (pack, installation, catalog) =
@@ -198,7 +198,7 @@ fn signed_sixteen_sigmas_qualify_exact_sources_and_reject_substitutions() {
                 proving_key: BlobV1::of(&[1]),
             });
             inventory.sigma = core::array::from_fn(|i| u32::try_from(i).unwrap());
-            inventory.omega = 16;
+            inventory.omega = 11;
             Some(inventory.to_canonical_bytes().unwrap())
         });
     let installed =
@@ -208,13 +208,13 @@ fn signed_sixteen_sigmas_qualify_exact_sources_and_reject_substitutions() {
         .unwrap();
     let qualified = authenticated.qualify_sigmas(&mut disk, config()).unwrap();
     assert_eq!(qualified.installation(), authenticated.installation());
-    assert_eq!(disk.opens, 48, "one descriptor/VK/PK read per selector");
+    assert_eq!(disk.opens, 33, "one descriptor/VK/PK read per selector");
     for (selector, step) in pack.steps.iter().enumerate() {
         let key = qualified.key(u8::try_from(selector).unwrap()).unwrap();
         assert_eq!(key.binding().encoded(), step.artifact.descriptor);
         assert_eq!(key.key().to_bytes(), step.artifact.verifying_key);
     }
-    assert!(qualified.key(16).is_none());
+    assert!(qualified.key(11).is_none());
     // Real source-qualified sigmas cannot upgrade framing-only operations or
     // a foreign native genesis into the complete wallet capability.
     let native = iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture::new_with_explicit_parameters();
@@ -228,23 +228,23 @@ fn signed_sixteen_sigmas_qualify_exact_sources_and_reject_substitutions() {
         foreign.qualify_wallet(&installed, &native.verifier(), &mut disk, config(),),
         Err(WalletSourcesErrorV1::Original(Error::Authority))
     ));
-    assert_eq!(disk.opens, 48, "installation mismatch must precede reads");
+    assert_eq!(disk.opens, 33, "installation mismatch must precede reads");
     assert!(matches!(
         authenticated.qualify_wallet(&installed, &native.verifier(), &mut disk, config(),),
         Err(WalletSourcesErrorV1::Finality(
             FinalityQualificationErrorV1::AnchorMismatch
         ))
     ));
-    assert_eq!(disk.opens, 48, "native genesis mismatch must precede reads");
+    assert_eq!(disk.opens, 33, "native genesis mismatch must precede reads");
     eprintln!(
-        "SIGMA_SOURCES_QUALIFIED count=16 signed_inventory=true one_active_original=true wallet_grant=false"
+        "SIGMA_SOURCES_QUALIFIED count=11 signed_inventory=true one_active_original=true wallet_grant=false"
     );
 }
 
 fn signed_sources(
     steps: Vec<StepOriginalV1>,
     originals: Vec<OriginalV1>,
-    program_q: Option<(usize, [OriginalV1; 2])>,
+    program_q: Option<(usize, Vec<OriginalV1>)>,
 ) -> (InstalledVerifierPackV1, AuthenticatedProducerInventoryV1) {
     let (pack, installation, catalog) =
         engineering_fixture::signed_inventory_with_sources(steps, |pack| {
@@ -256,10 +256,13 @@ fn signed_sources(
                 proving_key: BlobV1::of(&[1]),
             });
             inventory.sigma = core::array::from_fn(|i| u32::try_from(i).unwrap());
-            inventory.omega = 16;
+            inventory.omega = 11;
             if let Some((program, q)) = program_q {
+                let start = inventory.originals.len();
+                inventory.operations[program].q = (start..start + q.len())
+                    .map(|index| u32::try_from(index).unwrap())
+                    .collect();
                 inventory.originals.extend(q);
-                inventory.operations[program].q = vec![17, 18];
             }
             Some(inventory.to_canonical_bytes().unwrap())
         });
@@ -275,7 +278,7 @@ fn signed_sources(
 // the signed originals under current limits and rebuilds from the compiled source of
 // that selector, as Q/A/W/Omega do. No strict re-import exists to fall back to.
 #[test]
-#[ignore = "actual sixteen-source sealed sigma rebuilds; run optimized explicitly"]
+#[ignore = "actual eleven-source sealed sigma rebuilds; run optimized explicitly"]
 fn qualified_sigma_seals_rebuild_exact_originals_and_refuse_every_foreign_use() {
     use iroha_kagemusha_proof::SigmaError;
     use iroha_plonk::keys::{RebuildError, SourceBoundViewV2};
@@ -304,9 +307,9 @@ fn qualified_sigma_seals_rebuild_exact_originals_and_refuse_every_foreign_use() 
     let cancelled = iroha_pasta::CancellationToken::new();
     cancelled.cancel();
     let mut stale_sources = 0;
-    for selector in 0..16 {
+    for selector in 0..11 {
         let selected = u8::try_from(selector).unwrap();
-        let foreign = (selector + 1) % 16;
+        let foreign = (selector + 1) % 11;
         let expected = qualified.key(selected).unwrap();
         // A seal is authority only for its own signed member; binding precedes I/O.
         let before = disk.opens;
@@ -319,7 +322,7 @@ fn qualified_sigma_seals_rebuild_exact_originals_and_refuse_every_foreign_use() 
             Err(Error::Cancelled)
         ));
         assert!(matches!(
-            qualified.bind(16, member(selector), None),
+            qualified.bind(11, member(selector), None),
             Err(Error::Inventory)
         ));
         assert_eq!(disk.opens, before, "seal binding precedes source I/O");
@@ -429,7 +432,7 @@ fn qualified_sigma_seals_rebuild_exact_originals_and_refuse_every_foreign_use() 
     .unwrap();
     drop(rebuild(2, view, params, None).unwrap());
     eprintln!(
-        "SIGMA_SEALS_REBUILT count=16 exact_originals=true foreign_member=refused foreign_circuit=refused stale_source_pairs={stale_sources} changed_original=refused strict_reimport=false"
+        "SIGMA_SEALS_REBUILT count=11 exact_originals=true foreign_member=refused foreign_circuit=refused stale_source_pairs={stale_sources} changed_original=refused strict_reimport=false"
     );
 }
 
@@ -464,9 +467,6 @@ fn real_q_fixture(
     )
     .unwrap();
     let params = PinnedParams::<Ep>::derive(16).unwrap();
-    let mut cfg = KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec());
-    cfg.coset_cache = CosetCachePolicy::OnDemand;
-    let key = keygen_pk_v2(&params, &source.source_circuit().unwrap(), &cfg).unwrap();
     let persist = |key: ProvingKey<Ep>| {
         let metadata = OriginalV1 {
             descriptor: disk.put(key.binding().encoded()),
@@ -476,13 +476,19 @@ fn real_q_fixture(
         drop(key);
         metadata
     };
-    let sigma_q = persist(key);
-    cfg = KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec());
+    // A lean route proves its own step inline: its only Q is the signature leaf.
+    let sigma_q = source.as_ref().map(|source| {
+        let mut cfg = KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec());
+        cfg.coset_cache = CosetCachePolicy::OnDemand;
+        persist(keygen_pk_v2(&params, &source.source_circuit().unwrap(), &cfg).unwrap())
+    });
+    let mut cfg = KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec());
     cfg.coset_cache = CosetCachePolicy::OnDemand;
     let key = keygen_pk_v2(&params, &signatures[0].source_circuit().unwrap(), &cfg).unwrap();
     let signature_q = persist(key);
+    let originals_q: Vec<_> = sigma_q.into_iter().chain([signature_q]).collect();
     let (installed2, authenticated2) =
-        signed_sources(steps, originals, Some((program, [sigma_q, signature_q])));
+        signed_sources(steps, originals, Some((program, originals_q.clone())));
     let mut read = config();
     read.maximum_rows = 1 << 16;
     let before = disk.opens;
@@ -501,11 +507,14 @@ fn real_q_fixture(
         qualified.identity(),
         (authenticated2.installation(), program_index)
     );
-    assert_eq!(qualified.keys().len(), 2);
-    assert_eq!(qualified.sigma().slot_count(), 1);
+    assert_eq!(qualified.keys().len(), originals_q.len());
+    assert_eq!(qualified.sigma().is_some(), sigma_q.is_some());
+    if let Some(sigma) = qualified.sigma() {
+        assert_eq!(sigma.slot_count(), 1);
+    }
     assert_eq!(qualified.signatures()[0].slots(), signatures[0].slots());
-    assert_eq!(disk.opens - before, 6);
-    for (metadata, key) in [sigma_q, signature_q].into_iter().zip(qualified.keys()) {
+    assert_eq!(disk.opens - before, 3 * originals_q.len());
+    for (metadata, key) in originals_q.iter().zip(qualified.keys()) {
         assert_eq!(metadata.descriptor, BlobV1::of(key.binding().encoded()));
         assert_eq!(metadata.verifying_key, BlobV1::of(key.key().to_bytes()));
     }
@@ -519,32 +528,44 @@ fn real_q_fixture(
             .qualify_q_program(&installed2, &sigmas2, u32::MAX, &mut disk, read)
             .is_err()
     );
-    let bytes = authenticated2
-        .read_original(18, &mut disk, read.maximum_bytes)
+    let signature_index = authenticated2.inventory.operations[program]
+        .q
+        .last()
+        .copied()
         .unwrap();
-    let mut slots = signatures[0].slots().to_vec();
-    let SignatureKey::Fixed(root) = slots[2].key else {
-        panic!("fixed original root");
-    };
-    slots[2].key = SignatureKey::Fixed(root.neg());
-    let changed = QSignaturePlan::new(slots).unwrap();
-    assert!(
-        QSignatureProver::from_original_artifact(
-            changed,
-            params.clone(),
-            &bytes.descriptor,
-            &bytes.verifying_key,
-            &bytes.proving_key,
-            read
-        )
-        .is_err()
-    );
+    let bytes = authenticated2
+        .read_original(signature_index, &mut disk, read.maximum_bytes)
+        .unwrap();
+    let slots = signatures[0].slots().to_vec();
+    // Only a route that verifies a certificate has a fixed policy root to substitute.
+    if let Some(index) = slots
+        .iter()
+        .position(|slot| matches!(slot.key, SignatureKey::Fixed(_)))
+    {
+        let mut slots = slots.clone();
+        let SignatureKey::Fixed(root) = slots[index].key else {
+            panic!("fixed original root");
+        };
+        slots[index].key = SignatureKey::Fixed(root.neg());
+        let changed = QSignaturePlan::new(slots).unwrap();
+        assert!(
+            QSignatureProver::from_original_artifact(
+                changed,
+                params.clone(),
+                &bytes.descriptor,
+                &bytes.verifying_key,
+                &bytes.proving_key,
+                read
+            )
+            .is_err()
+        );
+    }
     let changed = QSignaturePlan::new(vec![
         SignatureSlot {
             mode: VerifyMode::Soft,
             key: SignatureKey::Variable
         };
-        3
+        slots.len()
     ])
     .unwrap();
     assert!(
@@ -562,7 +583,7 @@ fn real_q_fixture(
     let path = disk
         .directory
         .path()
-        .join(hex::encode(sigma_q.proving_key.sha256));
+        .join(hex::encode(originals_q[0].proving_key.sha256));
     let mut changed = std::fs::read(&path).unwrap();
     let last = changed.pop().unwrap();
     std::fs::write(&path, &changed).unwrap();
@@ -574,7 +595,9 @@ fn real_q_fixture(
     changed.push(last);
     std::fs::write(&path, &changed).unwrap();
     eprintln!(
-        "QUALIFIED_PROGRAM_Q program={program} count=2 actual16sigma=true serialized2=true fixed_root=true one_active_original=true wallet_grant=false"
+        "QUALIFIED_PROGRAM_Q program={program} count={} own_sigma={} one_active_original=true wallet_grant=false",
+        originals_q.len(),
+        sigma_q.is_some()
     );
     (disk, installed2, authenticated2, qualified)
 }
@@ -586,12 +609,9 @@ fn signed_bootstrap_q_qualifies_originals_and_rejects_foreign_installation_and_r
 }
 
 #[test]
-#[ignore = "actual complete Bootstrap Q/A/W strict originals; run optimized explicitly"]
-fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
-    use iroha_kagemusha_proof::{
-        a_relation::{native::artifact::KeyArtifact, split::WKey},
-        omega::OmegaPlan,
-    };
+#[ignore = "actual complete Bootstrap Q/A strict originals; run optimized explicitly"]
+fn signed_bootstrap_program_qualifies_whole_context_and_its_original_stage() {
+    use iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact;
     use iroha_plonk::cs::InstanceType;
     let (mut disk, installed, authenticated, qualified_q) = real_q_fixture(0);
     let plan = bootstrap::plan(
@@ -606,12 +626,9 @@ fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
         .map(PrimeField::to_repr)
         .collect();
     let eq = PinnedParams::<Eq>::derive(16).unwrap();
-    let ep = PinnedParams::<Ep>::derive(16).unwrap();
     let mut acfg = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     acfg.compress_selectors = false;
     acfg.coset_cache = CosetCachePolicy::OnDemand;
-    let mut wcfg = KeygenConfigV2::pipa_r(OmegaPlan::instance_types().to_vec());
-    wcfg.coset_cache = CosetCachePolicy::OnDemand;
     fn persist<C: PastaCurve>(disk: &Disk, key: ProvingKey<C>) -> (OriginalV1, KeyArtifact<C>) {
         let reference = OriginalV1 {
             descriptor: disk.put(key.binding().encoded()),
@@ -622,42 +639,21 @@ fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
         drop(key);
         (reference, metadata)
     }
-    let (first, first_key) = persist(
-        &disk,
-        keygen_pk_v2(&eq, &plan.source_circuit(0, None).unwrap(), &acfg).unwrap(),
-    );
-    let (wrapper, wrapper_key) = persist(
-        &disk,
-        keygen_pk_v2(
-            &ep,
-            &plan
-                .wrapper_source(0, first_key.binding(), first_key.key())
-                .unwrap(),
-            &wcfg,
-        )
-        .unwrap(),
-    );
-    let previous = WKey::from_artifact(
-        plan.context(),
-        0,
-        wrapper_key.binding().clone(),
-        ep,
-        wrapper_key.key().clone(),
-    )
-    .unwrap();
+    // Lean Bootstrap is one unsplit terminal A: no A1 or W0 original exists.
     let (terminal, terminal_key) = persist(
         &disk,
-        keygen_pk_v2(&eq, &plan.source_circuit(1, Some(previous)).unwrap(), &acfg).unwrap(),
+        keygen_pk_v2(&eq, &plan.source_circuit().unwrap(), &acfg).unwrap(),
     );
     let (pack, installation, catalog) =
         engineering_fixture::signed_inventory_with_sources(installed.pack.steps.clone(), |_| {
             let mut inventory = authenticated.inventory.clone();
-            assert_eq!(inventory.originals.len(), 19);
-            inventory.originals.extend([first, wrapper, terminal]);
-            inventory.operations[0].a = vec![19, 21];
-            inventory.operations[0].w = vec![20];
+            // Eleven sigma originals, the framing Omega and the one signature Q.
+            assert_eq!(inventory.originals.len(), 13);
+            inventory.originals.push(terminal);
+            inventory.operations[0].a = vec![13];
+            inventory.operations[0].w = Vec::new();
             inventory.operations[0].context = schema.clone();
-            inventory.terminals = vec![21, 0];
+            inventory.terminals = vec![13, 0];
             Some(inventory.to_canonical_bytes().unwrap())
         });
     let installed2 =
@@ -685,43 +681,30 @@ fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
     assert_eq!(qualified.identity(), (authenticated2.installation(), 0));
     assert_eq!(
         disk.opens - before,
-        15,
-        "six metadata reads plus nine bounded original reads"
+        5,
+        "two metadata reads plus three bounded original reads"
     );
-    for (role, expected) in [(19, &first_key), (21, &terminal_key)] {
-        let original = authenticated2
-            .read_original(role, &mut disk, read.maximum_bytes)
-            .unwrap();
-        let actual = if role == 19 {
-            qualified
-                .prover()
-                .import_first(&original.proving_key, read)
-                .unwrap()
-        } else {
-            qualified
-                .prover()
-                .import_terminal(&original.proving_key, read)
-                .unwrap()
-        };
-        let view = if role == 19 {
-            qualified.prover().bind_first(&actual, None).unwrap()
-        } else {
-            qualified.prover().bind_terminal(&actual, None).unwrap()
-        };
-        expected.require_source_bound(&view).unwrap();
-    }
+    let original = authenticated2
+        .read_original(13, &mut disk, read.maximum_bytes)
+        .unwrap();
+    let actual = qualified
+        .prover()
+        .import_terminal(&original.proving_key, read)
+        .unwrap();
+    let view = qualified.prover().bind_terminal(&actual, None).unwrap();
+    terminal_key.require_source_bound(&view).unwrap();
     // Acquisition reuses only the exact prior strict-origin seal; every selected
     // original remains mandatory, even though no PK import is repeated here.
     let before = disk.opens;
-    assert!(qualified.bind_a(0, 21, None).is_err());
-    assert!(qualified.bind_w(0, 19, None).is_err());
+    assert!(qualified.bind_a(0, 12, None).is_err());
+    assert!(qualified.bind_a(1, 13, None).is_err());
     assert_eq!(
         disk.opens, before,
-        "member mismatch must precede source I/O"
+        "member and stage mismatch must precede source I/O"
     );
     let acquire = |disk: &mut Disk, cap: ReadConfig, cancellation| {
-        let view = qualified.bind_a(0, 19, cancellation).unwrap();
-        wallet::revalidate_stage(&authenticated2, 19, view, disk, cap, cancellation)
+        let view = qualified.bind_a(0, 13, cancellation).unwrap();
+        wallet::revalidate_stage(&authenticated2, 13, view, disk, cap, cancellation)
     };
     let too_few_rows = ReadConfig {
         maximum_rows: (1 << 16) - 1,
@@ -745,13 +728,13 @@ fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
     ));
     assert_eq!(disk.opens, before, "a tighter byte cap precedes source I/O");
     let view = acquire(&mut disk, read, None).unwrap();
-    first_key.require_source_bound(&view).unwrap();
+    terminal_key.require_source_bound(&view).unwrap();
     assert_eq!(
         disk.opens - before,
         3,
         "every acquisition streams D, VK and PK"
     );
-    let selected = authenticated2.inventory.originals[19];
+    let selected = authenticated2.inventory.originals[13];
     for blob in [
         selected.descriptor,
         selected.verifying_key,
@@ -778,12 +761,12 @@ fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
     let before = disk.opens;
     let token = iroha_pasta::CancellationToken::new();
     token.cancel();
-    assert!(qualified.bind_a(0, 19, Some(&token)).is_err());
-    let admitted = qualified.bind_a(0, 19, None).unwrap();
+    assert!(qualified.bind_a(0, 13, Some(&token)).is_err());
+    let admitted = qualified.bind_a(0, 13, None).unwrap();
     assert!(
         wallet::revalidate_stage(
             &authenticated2,
-            19,
+            13,
             admitted,
             &mut disk,
             too_few_rows,
@@ -835,8 +818,9 @@ fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
         disk.opens, before,
         "whole context checked before any original read"
     );
+    // A genuine foreign original, the Pallas signature Q, cannot import as the terminal A.
     let original = changed
-        .read_original(19, &mut disk, read.maximum_bytes)
+        .read_original(12, &mut disk, read.maximum_bytes)
         .unwrap();
     assert!(
         qualified
@@ -845,7 +829,7 @@ fn signed_bootstrap_program_qualifies_whole_context_and_all_original_stages() {
             .is_err()
     );
     eprintln!(
-        "QUALIFIED_BOOTSTRAP_PROGRAM q=2 a=2 w=1 context_words={} all_originals=true metadata_only=true omega_grant=false",
+        "QUALIFIED_BOOTSTRAP_PROGRAM q=1 a=1 w=0 context_words={} all_originals=true metadata_only=true omega_grant=false",
         schema.len()
     );
 }
@@ -941,16 +925,17 @@ fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualifie
         engineering_fixture::signed_inventory_with_sources(installed.pack.steps.clone(), |_| {
             let mut inventory = authenticated.inventory.clone();
             let start = inventory.originals.len();
+            let (a_count, w_count) = (a.len(), w.len());
             inventory.originals.extend(a);
             inventory.originals.extend(w);
-            inventory.operations[program].a = (start..start + 4)
+            inventory.operations[program].a = (start..start + a_count)
                 .map(|i| u32::try_from(i).unwrap())
                 .collect();
-            inventory.operations[program].w = (start + 4..start + 7)
+            inventory.operations[program].w = (start + a_count..start + a_count + w_count)
                 .map(|i| u32::try_from(i).unwrap())
                 .collect();
             inventory.operations[program].context = schema.clone();
-            inventory.terminals = vec![0, u32::try_from(start + 3).unwrap()];
+            inventory.terminals = vec![0, u32::try_from(start + a_count - 1).unwrap()];
             Some(inventory.to_canonical_bytes().unwrap())
         });
     let installed2 =
@@ -979,10 +964,12 @@ fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualifie
         qualified.identity(),
         (authenticated2.installation(), route_index, program_index)
     );
+    // Lean Retiring: 2 A and 1 W. Each costs 2 metadata and 3 strict original reads.
+    let stages = 2 * plan.context().stage_count() - 1;
     assert_eq!(
         disk.opens - before,
-        37,
-        "2 Omega + 14 A/W metadata + 21 strict original reads"
+        2 + 5 * stages,
+        "2 Omega + A/W metadata + strict original reads"
     );
     assert!(matches!(
         qualified.owner(),
@@ -1020,6 +1007,6 @@ fn signed_retiring_route_imports_each_stage_and_keeps_candidate_omega_unqualifie
     ));
     assert_eq!(disk.opens, before);
     eprintln!(
-        "QUALIFIED_RETIRING_ROUTE q=2 a=4 w=3 all_originals=true candidate_omega_unqualified=true complete_catalog=false"
+        "QUALIFIED_RETIRING_ROUTE q=1 a=2 w=1 all_originals=true candidate_omega_unqualified=true complete_catalog=false"
     );
 }

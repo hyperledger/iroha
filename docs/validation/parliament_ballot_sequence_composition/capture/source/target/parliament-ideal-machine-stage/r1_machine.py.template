@@ -1,0 +1,292 @@
+"""Explicit QuickSilver verifier relation and public response circuits.
+
+The entering material is Q, Delta, qbar, d and prescribed challenge/coefficients.
+No witness, hidden seed, mask recovery or relation-satisfaction check is used.
+The source relation runs on field keys, not ordinary Boolean Keccak state.
+"""
+from dataclasses import dataclass
+
+from bit_ir import integer, require
+from r0_machine import FieldBuilder, words
+
+DEGREE=7
+REG_ELL=35840
+VOTE_ELL=53504
+REG_RELATION=36736
+VOTE_RELATION=55427
+PERMUTATION_OFFSETS=(640,18240,35840)
+SELECTOR_A=53440
+SELECTOR_B=53472
+RC=(0x1,0x8082,0x800000000000808A,0x8000000080008000,0x808B,0x80000001,
+    0x8000000080008081,0x8000000000008009,0x8A,0x88,0x80008009,0x8000000A,
+    0x8000808B,0x800000000000008B,0x8000000000008089,0x8000000000008003,
+    0x8000000000008002,0x8000000000000080,0x800A,0x800000008000000A,
+    0x8000000080008081,0x8000000000008080,0x80000001,0x8000000080008008)
+ROT=(0,1,62,28,27,36,44,6,55,20,3,10,43,25,39,41,45,15,21,8,18,2,61,56,14)
+
+
+@dataclass(frozen=True)
+class Key:
+    register:int
+    degree:int | str
+
+    def __post_init__(self):
+        integer(self.register,0,1<<48,"key register")
+        require((type(self.degree) is int and 0<=self.degree<=7)
+                or (type(self.degree) is str and self.degree in ("index","overflow")),"key degree")
+
+
+def combined_degree(left,right,product=False):
+    """Exact Degree precedence: BadIndex dominates Overflow, including sums."""
+    if type(left) is int and type(right) is int:
+        value=left+right if product else max(left,right)
+        return value if value<=7 else "overflow"
+    return "index" if "index" in (left,right) else "overflow"
+
+
+def input_regions(ell,public_bits):
+    integer(ell,1,1<<20,"witness coordinates")
+    integer(public_bits,0,1<<24,"relation public bits")
+    cursor=0;regions={}
+    for name,width in (("delta",256),("q",256*ell),("qbar",2560),("challenge2",832),
+                       ("coefficients",1536),("d",ell),("public",public_bits)):
+        regions[name]=(cursor,width);cursor+=width
+    return regions,cursor
+
+
+class VerifierCircuit:
+    """Compile a fixed relation stream; all value arithmetic remains a circuit."""
+    def __init__(self,ell,relation_constraints,public_bits,mul,mul_u64,*,record=True):
+        integer(relation_constraints,0,1<<24,"relation constraints")
+        self.regions,input_bits=input_regions(ell,public_bits)
+        self.ell=ell;self.expected=ell+relation_constraints;self.emitted=0;self.error=None
+        self.b=FieldBuilder(input_bits,mul,mul_u64,record=record)
+        b=self.b;self.zero=b.constant(0);self.one=b.constant(1)
+        delta=self.regions["delta"][0]
+        self.powers=[self.one]
+        for _ in range(7):self.powers.append(b.multiply(self.powers[-1],delta))
+        q,d=self.regions["q"][0],self.regions["d"][0]
+        # Explicitly retained coordinate cache; the source recomputes the same
+        # public key when referenced repeatedly. There are no new oracle reads.
+        self.coordinates=[b.xor(q+256*i,b.select(self.powers[1],d+i)) for i in range(ell)]
+        challenge=self.regions["challenge2"][0]
+        self.r=words(challenge,2);self.s=challenge+512;self.t=challenge+768
+        self.h=[self.zero,self.zero]
+        self.degree_counts={}
+
+    def witness(self,index):
+        if type(index) is not int or not 0<=index<self.ell:return Key(self.zero,"index")
+        return Key(self.coordinates[index],1)
+
+    def constant(self,value):
+        return Key(self.b.constant(value),0)
+
+    def public_bit(self,wire):return Key(self.b.embed(wire),0)
+
+    def add(self,left,right):
+        degree=combined_degree(left.degree,right.degree)
+        if type(degree) is not int:return Key(self.zero,degree)
+        a,b=left.register,right.register
+        if left.degree<right.degree:a=self.b.multiply(a,self.powers[right.degree-left.degree])
+        if right.degree<left.degree:b=self.b.multiply(b,self.powers[left.degree-right.degree])
+        return Key(self.b.xor(a,b),degree)
+
+    def mul(self,left,right):
+        degree=combined_degree(left.degree,right.degree,True)
+        if type(degree) is not int:return Key(self.zero,degree)
+        return Key(self.b.multiply(left.register,right.register),degree)
+
+    def scale(self,value,scalar):
+        return Key(self.b.multiply(value.register,scalar),value.degree)
+
+    def add_one(self,value):
+        # Static constant1 times Delta^degree is exactly the retained power.
+        if type(value.degree) is not int:return Key(self.zero,value.degree)
+        return Key(self.b.xor(value.register,self.powers[value.degree]),value.degree)
+
+    def add_public_bit(self,value,wire):
+        if type(value.degree) is not int:return Key(self.zero,value.degree)
+        term=self.b.select(self.powers[value.degree],wire)
+        return Key(self.b.xor(value.register,term),value.degree)
+
+    def constrain(self,value):
+        # This branching depends only on fixed program structure and public
+        # degree tags, never field values or witness validity.
+        if self.error is not None:return
+        if self.emitted>=self.expected:
+            self.error=("count",self.emitted+1);return
+        if type(value.degree) is not int:
+            self.error=(value.degree,self.emitted);return
+        self.emitted+=1
+        self.degree_counts[value.degree]=self.degree_counts.get(value.degree,0)+1
+        lifted=self.b.multiply(value.register,self.powers[7-value.degree])
+        self.h=[self.b.xor(self.b.multiply(self.h[0],self.s),lifted),
+                self.b.xor(self.b.multiply(self.h[1],self.t,short=True),lifted)]
+
+    def booleanity(self):
+        for register in self.coordinates:
+            value=self.b.multiply(register,self.b.xor(register,self.powers[1]))
+            self.constrain(Key(value,2))
+
+    def finish(self):
+        if self.error is None and self.emitted!=self.expected:self.error=("count",self.emitted)
+        if self.error is not None:
+            value=self.zero
+            code={"count":1,"index":2,"overflow":3}[self.error[0]]
+            ordinal=self.error[1]
+        else:
+            mask=self.zero
+            for index,source in enumerate(words(self.regions["qbar"][0],6)):
+                mask=self.b.xor(mask,self.b.multiply(source,self.powers[index]))
+            value=self.b.xor(self.b.xor(self.b.multiply(self.r[0],self.h[0]),
+                                      self.b.multiply(self.r[1],self.h[1])),mask)
+            for index,source in enumerate(words(self.regions["coefficients"][0],6),1):
+                value=self.b.xor(value,self.b.multiply(source,self.powers[index]))
+            code=ordinal=0
+        error_word=self.b.constant(code | (ordinal<<2))
+        outputs=tuple(range(value,value+256))+tuple(range(error_word,error_word+66))
+        block=self.b.finish(outputs)
+        return block,dict(expected_constraints=self.expected,accepted_constraints=self.emitted,
+                          constraint_degrees=dict(sorted(self.degree_counts.items())),error=self.error,
+                          error_encoding="2bit code0ok1count2index3overflow;64bit source actual count/index",
+                          coordinate_cache_fields=self.ell,ordinary_backend_reads=0,
+                          source_stream_structure_static=True,complete_simulator_coverage=False)
+
+
+def linear_source():
+    """Literal source orientation, destination coordinate to theta source."""
+    return tuple(64*((x+3*y)%5+5*x)+(z+64-ROT[(x+3*y)%5+5*x])%64
+                 for y in range(5) for x in range(5) for z in range(64))
+
+
+LINEAR=linear_source()
+
+
+def relation_round(cs,state,index,limit=1600):
+    """Every source field addition/product, with static rho/pi references."""
+    integer(index,0,23,"relation round");integer(limit,0,1600,"relation round limit")
+    require(len(state)==1600,"relation state length")
+    parity=[]
+    for i in range(320):
+        low=cs.add(cs.add(state[i],state[i+320]),state[i+640])
+        parity.append(cs.add(cs.add(low,state[i+960]),state[i+1280]))
+    column=[cs.add(parity[64*((x+4)%5)+z],parity[64*((x+1)%5)+(z+63)%64])
+            for x in range(5) for z in range(64)]
+    theta=[cs.add(state[t],column[t%320]) for t in range(1600)]
+    out=list(state)
+    for t in range(limit):
+        z,lane=t%64,t//64;x,row=lane%5,lane-lane%5
+        following=64*(row+(x+1)%5)+z;after=64*(row+(x+2)%5)+z
+        product=cs.mul(cs.add_one(theta[LINEAR[following]]),theta[LINEAR[after]])
+        value=cs.add(theta[LINEAR[t]],product)
+        if t<64 and (RC[index]>>t)&1:value=cs.add_one(value)
+        out[t]=value
+    return out
+
+
+def transitions(cs,public_start,witness_offset,output_bits):
+    state=[cs.witness(256+t-160) if 160<=t<544 else cs.public_bit(public_start+t) for t in range(1600)]
+    for group in range(1,12):
+        state=relation_round(cs,state,2*group-2)
+        state=relation_round(cs,state,2*group-1)
+        for t in range(1600):
+            committed=cs.witness(witness_offset+1600*(group-1)+t)
+            cs.constrain(cs.add(committed,state[t]));state[t]=committed
+    state=relation_round(cs,state,22)
+    return relation_round(cs,state,23,output_bits)
+
+
+def selectors(cs,size):
+    integer(size,1,1024,"selector list count")
+    for offset in (SELECTOR_A,SELECTOR_B):
+        prefix=Key(cs.zero,0)
+        for j in range(32):
+            selector=cs.witness(offset+j)
+            cs.constrain(cs.mul(selector,prefix))
+            prefix=cs.add(prefix,selector)
+        cs.constrain(cs.add_one(prefix))
+    total=Key(cs.zero,0);products=[]
+    for i in range(size):
+        product=cs.mul(cs.witness(SELECTOR_A+i//32),cs.witness(SELECTOR_B+i%32))
+        products.append(product);total=cs.add(total,product)
+    cs.constrain(cs.add_one(total))
+    return products
+
+
+def multiplex_at_degree4(cs,output,products,list_start,bit):
+    """Only the exact source use site permits normalized degree-two zero.
+
+    Source skipping all zero public bits returns degree0 zero. Our fixed scan
+    retains degree2 zero. Both align to identical zero when added to degree4,
+    including Delta=0; no other observer receives the intermediate degree tag.
+    """
+    require(output.degree==4,"selector normalization requires degree4 consumer")
+    total=cs.zero
+    for i,product in enumerate(products):
+        require(product.degree==2,"selector product degree")
+        total=cs.b.xor(total,cs.b.select(product.register,list_start+1024*i+bit))
+    return cs.add(output,Key(total,2))
+
+
+def relation_shape(role,list_count=0):
+    """Accepted source public shape; generic selector tests use their own bounds."""
+    require(type(role) is str and role in ("registration","vote"),"relation role")
+    if role=="registration":
+        require(type(list_count) is int and list_count==0,"registration list count")
+        return REG_ELL,REG_RELATION,3200+1024+512
+    integer(list_count,3,1000,"accepted vote list count")
+    return VOTE_ELL,VOTE_RELATION,4800+1024*list_count+1024+512
+
+
+def emit_role(cs,role,list_count=0):
+    ell,constraints,public_bits=relation_shape(role,list_count)
+    require(cs.ell==ell and cs.expected==ell+constraints and cs.regions["public"][1]==public_bits,"source role geometry")
+    start=cs.regions["public"][0]
+    if role=="registration":
+        for permutation,limit in enumerate((1024,512)):
+            state=transitions(cs,start+1600*permutation,PERMUTATION_OFFSETS[permutation],limit)
+            expected=start+3200+(1024 if permutation else 0)
+            for t in range(limit):cs.constrain(cs.add_public_bit(state[t],expected+t))
+    else:
+        products=selectors(cs,list_count)
+        for permutation,limit in enumerate((1024,1024,512)):
+            state=transitions(cs,start+1600*permutation,PERMUTATION_OFFSETS[permutation],limit)
+            for t in range(limit):
+                if permutation==0:value=multiplex_at_degree4(cs,state[t],products,start+4800,t)
+                else:
+                    expected=start+4800+1024*list_count+(1024 if permutation==2 else 0)
+                    value=cs.add_public_bit(state[t],expected+t)
+                cs.constrain(value)
+
+
+@dataclass(frozen=True)
+class QuickSilverResponse:
+    """Actual role relation on supplied canonical typed public material."""
+    role:str
+    list_count:int
+    mul:object
+    mul_u64:object
+
+    def __post_init__(self):
+        relation_shape(self.role,self.list_count)
+
+    def build(self,*,record=True):
+        ell,constraints,width=relation_shape(self.role,self.list_count)
+        cs=VerifierCircuit(ell,constraints,width,self.mul,self.mul_u64,record=record)
+        cs.booleanity();emit_role(cs,self.role,self.list_count)
+        return cs.finish()
+
+    def emit_clean(self):
+        block,_=self.build()
+        yield from block.emit_clean()
+
+    def resources(self):
+        block,metadata=self.build(record=False)
+        out=block.resources();out.update(metadata)
+        out.update(stage="R1",role=self.role,list_count=self.list_count,
+                   supplied_public_input_validation_external=True,
+                   prescribed_challenge2_bits=832,prescribed_coefficient_bits=1536,
+                   source_equation_no_satisfaction_test=True,
+                   selector_zero_degree_normalization="only immediately into degree4 output",
+                   whole_request_composition_implemented=False)
+        return out

@@ -291,9 +291,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let (verifier, checkpoint) =
             self.selected_unload_cursor(&manifest, &transaction, &original_digest)?;
         let checkpoint = checkpoint.ok_or(Error::Invalid("Unload confirmation ledger absent"))?;
-        let verified = selected_unload_decision(&verifier, checkpoint.tip())?;
+        let decision = selected_unload_decision(&verifier, checkpoint.tip())?;
         if !contains_successful_unload(
-            &verified,
+            &decision,
             &genesis.initial_epoch().network_id,
             self.scheme_id,
             &transaction,

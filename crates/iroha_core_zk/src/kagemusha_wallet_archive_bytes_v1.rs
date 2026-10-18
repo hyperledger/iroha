@@ -17,11 +17,6 @@ impl PrivateArchiveBytes {
         Self(PrivateWitnessBytes::from_guarded(bytes))
     }
 
-    /// Retain a private proof owner's exact output without exposing an unguarded buffer.
-    pub fn from_witness(bytes: PrivateWitnessBytes) -> Self {
-        Self(bytes)
-    }
-
     /// Copy borrowed bytes directly into an exact clearing allocation.
     ///
     /// # Errors
@@ -135,9 +130,5 @@ mod tests {
             )
             .is_err()
         );
-        let witness =
-            PrivateWitnessBytes::try_write::<std::io::Error>(1, |writer| writer.write_all(&[7]))
-                .unwrap();
-        assert_eq!(PrivateArchiveBytes::from_witness(witness).as_slice(), &[7]);
     }
 }

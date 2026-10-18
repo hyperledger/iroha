@@ -4285,6 +4285,9 @@ fn emit_musubi_event(event: MusubiEvent, state_transaction: &mut StateTransactio
         .emit_events(Some(DataEvent::Musubi(event)));
 }
 #[cfg(test)]
+mod rejection_allocation_tests;
+
+#[cfg(test)]
 mod tests {
     use iroha_model_base::topology::DataSpaceId;
     include!("musubi/archive_replay_tests.rs");

@@ -1,0 +1,91 @@
+{
+  "experiment": {
+    "requests": 3,
+    "queries": 2,
+    "length_bits": 64,
+    "message_bytes": 6882996,
+    "oracle": "one shared immutable source-padded F",
+    "completion": "experiment-defined total completion",
+    "coins": "classical-retained"
+  },
+  "events": [
+    {
+      "kind": "accepted",
+      "event_id": "candidate-reg",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one shared immutable source-padded F",
+        "completion": "experiment-defined total completion"
+      },
+      "row": "candidate",
+      "role": "REG",
+      "body_bytes": 4096,
+      "context_bytes": [
+        256,
+        256,
+        256,
+        256,
+        256,
+        256
+      ],
+      "list_count": 0
+    },
+    {
+      "kind": "query",
+      "event_id": "external-1",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one shared immutable source-padded F",
+        "completion": "experiment-defined total completion"
+      },
+      "message_bytes": 6882996
+    },
+    {
+      "kind": "rejected_vote",
+      "event_id": "size-rejected",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one shared immutable source-padded F",
+        "completion": "experiment-defined total completion"
+      },
+      "row": "comparator",
+      "list_count": 1001
+    },
+    {
+      "kind": "accepted",
+      "event_id": "comparator-vote",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one shared immutable source-padded F",
+        "completion": "experiment-defined total completion"
+      },
+      "row": "comparator",
+      "role": "VOTE",
+      "body_bytes": 0,
+      "context_bytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "list_count": 1000
+    },
+    {
+      "kind": "query",
+      "event_id": "external-2",
+      "interface": {
+        "capacity": 3145734,
+        "length_bits": 64,
+        "oracle": "one shared immutable source-padded F",
+        "completion": "experiment-defined total completion"
+      },
+      "message_bytes": 6882996
+    }
+  ]
+}

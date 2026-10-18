@@ -345,6 +345,115 @@ fn restored_external_rust_sources_restore_their_relative_inputs_recursively() {
 }
 
 #[test]
+fn prose_membership_classifies_extensions_without_normalizing_paths() {
+    for (name, included) in [
+        (".md", true),
+        (".MD", true),
+        ("README.md", false),
+        ("README.MD", false),
+        ("docs/.md", true),
+        ("docs/.MD", true),
+        ("docs/案内.md", false),
+        ("docs/案内.MD", false),
+        ("specs/詳細.md", false),
+        ("specs/詳細.mD", false),
+        ("docs/name.md.txt", true),
+        ("docs/案内．md", true),
+    ] {
+        // Separate workspaces keep case variants distinct on every host filesystem.
+        let workspace = Workspace::new();
+        let empty = workspace.digest();
+        workspace.write(name, b"first");
+        let first = snapshot(&workspace.0).unwrap();
+        assert_eq!(
+            first.watched_paths.contains(&workspace.0.join(name)),
+            included,
+            "watched membership for {name}"
+        );
+        assert_eq!(first.digest != empty, included, "added input {name}");
+        workspace.write(name, b"second");
+        assert_eq!(
+            workspace.digest() != first.digest,
+            included,
+            "changed input {name}"
+        );
+    }
+}
+
+#[test]
+fn initial_rust_reference_scan_classifies_extensions() {
+    for (name, scanned) in [
+        (".rs", false),
+        (".RS", false),
+        ("source.rs", true),
+        ("source.RS", true),
+        ("source.rS", true),
+        ("入力.rs", true),
+        ("入力.RS", true),
+        ("入力．rs", false),
+        ("source.rs.txt", false),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(name, b"include_str!(\"docs/suffix_leaf.md\");\n");
+        workspace.write("docs/suffix_leaf.md", b"first");
+        let first = snapshot(&workspace.0).unwrap();
+        assert!(first.watched_paths.contains(&workspace.0.join(name)));
+        assert_eq!(
+            first
+                .watched_paths
+                .contains(&workspace.0.join("docs/suffix_leaf.md")),
+            scanned,
+            "reference restoration from {name}"
+        );
+        workspace.write("docs/suffix_leaf.md", b"second");
+        assert_eq!(
+            workspace.digest() != first.digest,
+            scanned,
+            "referenced input mutation from {name}"
+        );
+    }
+}
+
+#[test]
+fn restored_rust_reference_scan_classifies_extensions() {
+    for (name, scanned) in [
+        (".rs", false),
+        (".RS", false),
+        ("source.rs", true),
+        ("source.RS", true),
+        ("source.rS", true),
+        ("入力.rs", true),
+        ("入力.RS", true),
+        ("入力．rs", false),
+        ("source.rs.txt", false),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(
+            "crates/proof/src/circuit.rs",
+            format!("include!(\"../../../python/./{name}\");\n").as_bytes(),
+        );
+        let restored = format!("python/{name}");
+        workspace.write(&restored, b"include_str!(\"../docs/./suffix_leaf.md\");\n");
+        workspace.write("docs/suffix_leaf.md", b"first");
+        let first = snapshot(&workspace.0).unwrap();
+        assert!(first.watched_paths.contains(&workspace.0.join(&restored)));
+        assert_eq!(
+            first
+                .watched_paths
+                .contains(&workspace.0.join("docs/suffix_leaf.md")),
+            scanned,
+            "recursive restoration from {restored}"
+        );
+        workspace.write("docs/suffix_leaf.md", b"second");
+        assert_eq!(
+            workspace.digest() != first.digest,
+            scanned,
+            "recursive input mutation from {restored}"
+        );
+    }
+}
+
+#[test]
 fn mixed_case_rust_references_restore_recursive_native_inputs() {
     // Exercise both the initial native-source census and the recursive worklist.
     for (source, helper, nested) in [
@@ -486,6 +595,64 @@ fn ignored_native_modules_assets_and_cargo_configuration_remain_inputs() {
         assert_eq!(workspace.digest(), previous);
     }
     assert_eq!(workspace.digest(), before);
+}
+
+#[test]
+fn deleted_unreferenced_tracked_inputs_bind_current_source_membership() {
+    let workspace = Workspace::new();
+    let retired = "crates/proof/src/retired/module.rs";
+    workspace.write(retired, b"pub const RETIRED: u32 = 1;\n");
+    workspace.git(&["add", retired]);
+    let before = workspace.digest();
+    fs::remove_dir_all(workspace.0.join("crates/proof/src/retired")).unwrap();
+    let removed = snapshot(&workspace.0).unwrap();
+    assert_ne!(removed.digest, before);
+    assert!(!removed.watched_paths.contains(&workspace.0.join(retired)));
+    workspace.git(&["add", "-u", "--", retired]);
+    assert_eq!(workspace.digest(), removed.digest);
+    workspace.write(retired, b"pub const RETIRED: u32 = 1;\n");
+    assert_eq!(workspace.digest(), before);
+}
+
+#[test]
+fn deleted_tracked_inputs_still_named_by_native_sources_are_rejected() {
+    for (reference, target) in [
+        ("include!(\"retired.rs\");", "crates/proof/src/retired.rs"),
+        (
+            "const INPUT: &[u8] = include_bytes!(\"retired.bin\");",
+            "crates/proof/src/retired.bin",
+        ),
+        (
+            "#[path = \"retired.rs\"] mod retired;",
+            "crates/proof/src/retired.rs",
+        ),
+        (
+            "const INPUT: &str = include_str!(\"../../../docs/retired.md\");",
+            "docs/retired.md",
+        ),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write("crates/proof/src/circuit.rs", reference.as_bytes());
+        workspace.write(target, b"// retired\n");
+        workspace.git(&["add", "."]);
+        assert!(snapshot(&workspace.0).is_ok());
+        fs::remove_file(workspace.0.join(target)).unwrap();
+        assert!(
+            snapshot(&workspace.0).is_err(),
+            "missing dependency {target}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_ancestor_cannot_disguise_a_tracked_source_as_deleted() {
+    use std::os::unix::fs::symlink;
+    let workspace = Workspace::new();
+    let original = workspace.0.join("crates/proof/src");
+    fs::rename(&original, workspace.0.join("retained-src")).unwrap();
+    symlink("missing", &original).unwrap();
+    assert!(snapshot(&workspace.0).is_err());
 }
 
 #[test]

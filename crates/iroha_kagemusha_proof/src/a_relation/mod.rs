@@ -22,6 +22,7 @@ pub mod results;
 pub mod schedule;
 pub mod send;
 pub mod split;
+pub mod transition;
 pub mod unload;
 pub use incoming_lineage::IncomingLineageCells;
 mod proof;
@@ -36,8 +37,8 @@ pub use binding::{
 pub use frame::{AFramePlan, LINEAGE_DOMAIN, LINEAGE_FIELDS, LineagePublicCells};
 pub use proof::{
     AProofPlan, IncomingOmegaCells, PredecessorCells, ProofMessageCells, QProofPlan,
-    SelectedPallasCells, VerifiedQCells, bind_modes, fold_pallas, select_incoming, verify_incoming,
-    verify_predecessor, verify_q, verify_sigma,
+    SelectedPallasCells, VerifiedQCells, bind_modes, close_unsplit, fold_pallas, select_incoming,
+    verify_incoming, verify_predecessor, verify_q, verify_sigma,
 };
 
 use binding::bind_sigma;

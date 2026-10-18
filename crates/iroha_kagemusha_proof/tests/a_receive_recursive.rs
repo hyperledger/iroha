@@ -1,4 +1,6 @@
-//! Fixed-owner Receive continuation over real sigma, signature-Q and Omega proofs.
+//! Fixed-owner Receive continuation over the inline own step relation, the real
+//! incoming Send sigma (incoming-only `Q_sigma`), the merged signature leaf and
+//! Omega proofs (lean lineage: nine A stages, eight W).
 //!
 //! Burn uses an unrelated but real receiver Omega under a correctly signed
 //! Send package. Accepted credit uses distinct payer Load and receiver Bootstrap
@@ -20,12 +22,13 @@ mod common;
 pub mod compact_catalog;
 #[path = "common/native_source_factory_checks.rs"]
 mod native_source_factory_checks;
-/// Real Receive/Send source proofs and exact depth32 map witnesses.
+/// Real Receive step, incoming Send sigma Q and exact depth32 map witnesses.
 #[path = "a_receive.rs"]
 pub mod receive_components;
 
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
+    NativeStep, PrefixMode, RelationShape, SigmaRelation,
     a_relation::{
         AProofPlan, IncomingLineageCells, LineagePublicCells, ProofMessageCells, QProofPlan,
         SigmaBindingCells, VestaClaimCells,
@@ -48,6 +51,7 @@ use iroha_kagemusha_proof::{
         results::ReceiveResultClaims,
         schedule::{OperationTask, compiled::OperationSchedule},
         split::{SplitPlan, WCircuit, WKey, close_first, close_stage, resume_context},
+        transition::TransitionInputs,
         verify_predecessor, verify_q,
     },
     admin_sigma::StateWitness,
@@ -58,8 +62,8 @@ use iroha_kagemusha_proof::{
         state::StateCells,
         statement::StatementCells,
     },
-    q_sigma::native::IncomingMode,
-    q_signature::{QSignatureCircuit, QSignaturePlan, SignatureWitness},
+    q_sigma::{QSigmaPlan, native::IncomingMode},
+    q_signature::{QSignatureCircuit, QSignaturePlan, SLOT_WORDS, SignatureWitness},
     tree::IndexedInsert,
 };
 use iroha_pasta::{Ep, Eq, EqAffine, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
@@ -76,7 +80,7 @@ use iroha_plonk::{
 use iroha_plonk_gadgets::{
     UintChip, Word,
     bytes::{
-        chunk_segments, p_bytes_native,
+        p_bytes_native,
         tape::{BytesChip, BytesConfig, SegmentSpec},
         variable::ActiveBytes,
     },
@@ -126,6 +130,8 @@ impl From<bootstrap_outer::RootedBootstrapOmega> for Head {
 }
 struct Source {
     own: receive_components::ReceiveQ,
+    /// Native evaluation of the own step that A1's `ReceiveTransition` lays out.
+    step: NativeStep<Fp>,
     predecessor: Head,
     incoming_head: Head,
     accept: bool,
@@ -133,8 +139,11 @@ struct Source {
     corrected_vesta: bool,
     vesta_correction: EqAffine,
     plan: ReceiveStagePlan,
+    /// Q0 incoming-only `Q_sigma`, Q1 merged signature leaf.
     q: Vec<QSource>,
-    objects: [Vec<u8>; 11],
+    /// Request, payer credential, Send receipt, Payment, raw Omega, raw sigma,
+    /// own receipt, quoted credential, quoted certificate.
+    objects: [Vec<u8>; 9],
     commitments: Vec<[Fp; 3]>,
     incoming: Vec<u8>,
     params: PinnedParams<Ep>,
@@ -143,7 +152,8 @@ impl Source {
     fn proofs_valid(&self) -> bool {
         // Every fixture Omega is an actual succinct proof. The combined proof
         // result therefore follows the already verified Q0 incoming verdict.
-        self.own.instances[3][1] == Fq::ONE
+        let row = self.own.sigma_plan.position(QSigmaPlan::INCOMING).unwrap();
+        self.own.instances[3][row] == Fq::ONE
     }
     fn variant(&self) -> Variant {
         self.plan.context().operation().frame().variant()
@@ -315,16 +325,15 @@ fn receipt(
     body.extend(payment.to_repr());
     bootstrap_objects::sign(ObjectKind::Receipt, body, secret, nonce)
 }
+/// Prove one signature leaf. Native verification derives every exported verdict
+/// (and refuses a failing hard slot) before the circuit proves the same bits.
 fn signature_q(
     params: &PinnedParams<Ep>,
     schema: &QSignaturePlan,
     witnesses: Vec<SignatureWitness>,
 ) -> QSource {
+    let instances = schema.native_instances(&witnesses).unwrap().to_vec();
     let circuit = QSignatureCircuit::new(schema.clone(), witnesses).unwrap();
-    let instances = circuit
-        .instances(&vec![true; schema.slots().len()])
-        .unwrap()
-        .to_vec();
     let key = keygen_pk_v2(
         params,
         &circuit,
@@ -478,6 +487,12 @@ fn source_with_correction(
     );
     let payment_digest = p_bytes_native(u64::from_le_bytes(*b"kgwpay_1"), &payment);
     own.bind_payment(payment_digest, accept, insert);
+    // A1 lays out exactly this evaluation of the own step (`ReceiveTransition`).
+    let step = own.witness.step.evaluate(SigmaRelation::RECEIVE);
+    assert!(step.is_honest(), "{:?}", step.violations);
+    assert_eq!(step.statement, own.witness.statement);
+    // The own receipt still signs the retained σ_recv digest as its proof digest
+    // (word 9). A binds that word and its nonzero check, not the σ bytes.
     let own_receipt = receipt(
         &own.witness.statement,
         &before.lineage[6..8],
@@ -487,16 +502,6 @@ fn source_with_correction(
         73,
     );
     let policy = OwnPolicy::new([31, 32], bootstrap_objects::key(23)).unwrap();
-    let schemas = ReceiveStagePlan::signature_schemas(variant, policy).unwrap();
-    let q_own = signature_q(
-        &params,
-        &schemas[0],
-        vec![
-            own_receipt.signature,
-            credential.signature,
-            certificate.signature,
-        ],
-    );
     let request_signature = {
         let (_, _, receiver) =
             bootstrap_objects::enrollment_for(bootstrap_objects::Identity::Receiver);
@@ -512,11 +517,19 @@ fn source_with_correction(
         assert_eq!(signed.bytes, request);
         signed.signature
     };
-    let mut incoming_signatures = vec![send_receipt.signature, request_signature];
+    // The merged Q1, own receipt first: hard under the receiver's current
+    // payment key, then the Send receipt and Request soft, plus the quoted
+    // credential and its root certificate soft when renewed. The current
+    // credential and certificate are carried by continuity, not re-signed here.
+    let mut signatures = vec![
+        own_receipt.signature,
+        send_receipt.signature,
+        request_signature,
+    ];
     if variant == Variant::ReceiveRenewed {
-        incoming_signatures.extend([quoted.signature, certificate.signature]);
+        signatures.extend([quoted.signature, certificate.signature]);
     }
-    let q_incoming = signature_q(&params, &schemas[1], incoming_signatures);
+    let schema = ReceiveStagePlan::signature_schema_for(variant, policy).unwrap();
     let q = vec![
         QSource {
             plan: own.q.clone(),
@@ -524,10 +537,9 @@ fn source_with_correction(
             instances: own.instances.clone(),
             opening: own.opening.clone(),
         },
-        q_own,
-        q_incoming,
+        signature_q(&params, &schema, signatures),
     ];
-    let operation = AProofPlan::new(
+    let operation = AProofPlan::inline_with_incoming(
         variant,
         own.sigma_plan.clone(),
         q.iter().map(|q| q.plan.clone()).collect(),
@@ -535,6 +547,7 @@ fn source_with_correction(
         &params,
     )
     .unwrap();
+    assert!(operation.is_inline() && operation.has_incoming_sigma());
     let [omega_capacity, sigma_capacity] =
         capacity.capacities(incoming.len(), own.incoming_sigma.len());
     assert!(incoming.len() <= omega_capacity && own.incoming_sigma.len() <= sigma_capacity);
@@ -542,8 +555,9 @@ fn source_with_correction(
         "RECEIVE_INGESTION {capacity:?} omega_capacity={omega_capacity} sigma_capacity={sigma_capacity}"
     );
     let specs = ReceiveStagePlan::context_specs(variant, omega_capacity, sigma_capacity).unwrap();
-    // Use the native variant's fixed owners: renewed Receive moves the credit
-    // map owner to A8 so the larger signature context still fits k16.
+    // Both variants use the native fixed owners: A1 proves the step beside the
+    // hard predecessor, A6 verifies Q1 for Authorization and A7 projects it for
+    // Signatures beside the credit map owner.
     let context = OperationSchedule::for_variant(variant)
         .bind(operation, specs.clone())
         .unwrap();
@@ -555,8 +569,6 @@ fn source_with_correction(
         payment,
         incoming.clone(),
         own.incoming_sigma.clone(),
-        credential.bytes.clone(),
-        certificate.bytes.clone(),
         own_receipt.bytes,
         quoted.bytes,
         certificate.bytes,
@@ -568,8 +580,6 @@ fn source_with_correction(
         None,
         None,
         None,
-        Some(ObjectKind::Credential),
-        Some(ObjectKind::Certificate),
         Some(ObjectKind::Receipt),
         Some(ObjectKind::Credential),
         Some(ObjectKind::Certificate),
@@ -592,6 +602,7 @@ fn source_with_correction(
         .collect();
     Source {
         own,
+        step,
         predecessor,
         incoming_head,
         accept,
@@ -831,14 +842,22 @@ struct Stage {
 }
 #[derive(Clone, Copy, Debug)]
 enum ContinuationMutation {
-    Object { slot: usize, word: usize },
+    Object {
+        slot: usize,
+        word: usize,
+    },
     SwapObjects,
     Result(usize),
     Opening,
     Mode,
     IncomingStatement,
     QChunk,
-    Q2Verdict,
+    /// Q1 slot 0: the hard own receipt's verdict.
+    OwnReceiptVerdict,
+    /// Q1 slot 1: the soft Send receipt verdict, projected by Signatures.
+    IncomingSignatureVerdict,
+    /// Another step witness for ReceiveTransition, with the statement unchanged.
+    Step,
     CarriedP,
     WPart,
 }
@@ -897,6 +916,25 @@ impl Circuit<Fp> for Stage {
         let stage = self.continuation.as_ref().map_or(0, |c| c.plan.stage());
         let plan = source.plan.context();
         let tasks = plan.operation_tasks(stage).ok_or(Error::Synthesis)?;
+        // A substituted step keeps the own statement and changes only its
+        // successor nonce: nothing but the inline relation can refuse it.
+        let substituted = matches!(self.mutation, Some(ContinuationMutation::Step)).then(|| {
+            let mut step = source.own.witness.step.clone();
+            step.successor_nonce += Fp::ONE;
+            let native = step.evaluate(SigmaRelation::RECEIVE);
+            (step, native)
+        });
+        let (step, native) = substituted.as_ref().map_or(
+            (&source.own.witness.step, &source.step),
+            |(step, native)| (step, native),
+        );
+        // Flip one verdict of the merged Q1: slot 0 is the hard own receipt,
+        // slot 1 the soft Send receipt that Signatures projects.
+        let flipped_verdict = match self.mutation {
+            Some(ContinuationMutation::OwnReceiptVerdict) => Some(SLOT_WORDS - 1),
+            Some(ContinuationMutation::IncomingSignatureVerdict) => Some(2 * SLOT_WORDS - 1),
+            _ => None,
+        };
         let out = layouter.assign_region(
             || "genuine Receive fixed owner stage",
             |mut region| {
@@ -943,7 +981,7 @@ impl Circuit<Fp> for Stage {
                                                 == source
                                                     .own
                                                     .sigma_plan
-                                                    .chunk_range(1)
+                                                    .chunk_range(QSigmaPlan::INCOMING)
                                                     .ok_or(Error::Synthesis)?
                                                     .start
                                             && matches!(
@@ -953,13 +991,9 @@ impl Circuit<Fp> for Stage {
                                         {
                                             value += Fq::ONE;
                                         }
-                                        if q_index == 2
+                                        if q_index == ReceiveStagePlan::SIGNATURE_Q
                                             && column == 0
-                                            && index == 9
-                                            && matches!(
-                                                self.mutation,
-                                                Some(ContinuationMutation::Q2Verdict)
-                                            )
+                                            && Some(index) == flipped_verdict
                                         {
                                             value = Fq::ONE - value;
                                         }
@@ -1035,13 +1069,7 @@ impl Circuit<Fp> for Stage {
                     source.incoming_head.opening.clone()
                 };
                 let opening = cells.pallas(&mut chip, &mut region, &exported)?;
-                let mut verdicts = [
-                    source.proofs_valid(),
-                    source.objects_valid,
-                    true,
-                    true,
-                    true,
-                ];
+                let mut verdicts = [source.proofs_valid(), source.objects_valid, true, true];
                 if let Some(ContinuationMutation::Result(index)) = self.mutation {
                     verdicts[index] = !verdicts[index];
                 }
@@ -1066,36 +1094,24 @@ impl Circuit<Fp> for Stage {
                     .collect::<Vec<_>>();
                 let context =
                     plan.assign_receive_object_claims(&mut chip, &mut region, &commitments)?;
-                // Fixed owner predicates derive both selectors from the original
-                // Request/Send statement. Reuse the hard Q exports here so this
-                // circuit covers every admitted control mask with one schema.
-                let own_index = iroha_kagemusha_proof::a_relation::bounded_word(
-                    &mut chip,
-                    &mut region,
-                    &q_instances[0][2][0],
-                )?;
+                // The fixed Objects owner derives the incoming selector from the
+                // original Send statement. Reuse the hard Q exports here so this
+                // circuit covers every admitted control mask with one schema. A
+                // proves the own step inline, so Q0 carries only the incoming slot.
+                let incoming_row = source
+                    .own
+                    .sigma_plan
+                    .position(QSigmaPlan::INCOMING)
+                    .ok_or(Error::Synthesis)?;
                 let incoming_index = iroha_kagemusha_proof::a_relation::bounded_word(
                     &mut chip,
                     &mut region,
-                    &q_instances[0][2][1],
+                    &q_instances[0][2][incoming_row],
                 )?;
-                let own_chunks = source
-                    .own
-                    .sigma_plan
-                    .chunk_range(0)
-                    .ok_or(Error::Synthesis)?
-                    .map(|i| {
-                        iroha_kagemusha_proof::a_relation::bounded_word(
-                            &mut chip,
-                            &mut region,
-                            &q_instances[0][0][i],
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
                 let incoming_chunks = source
                     .own
                     .sigma_plan
-                    .chunk_range(1)
+                    .chunk_range(QSigmaPlan::INCOMING)
                     .ok_or(Error::Synthesis)?
                     .map(|i| {
                         iroha_kagemusha_proof::a_relation::bounded_word(
@@ -1105,29 +1121,11 @@ impl Circuit<Fp> for Stage {
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let mut own_sigma =
-                    SigmaBindingCells::from_statement(&statement, own_index.clone(), own_chunks);
                 let mut incoming_sigma = SigmaBindingCells::from_incoming(
                     &incoming_statement,
                     incoming_index.clone(),
                     incoming_chunks,
                 );
-                if tasks.contains(&OperationTask::ReceiveOwnProof) {
-                    let raw = frame(&source.own.sigma);
-                    let run = bytes.run(
-                        &mut region,
-                        &cells.bytes(&raw),
-                        &chunk_segments(0, raw.len()),
-                        &[SegmentSpec::little(0, 4)],
-                    )?;
-                    own_sigma = SigmaBindingCells::from_run(
-                        &mut chip,
-                        &mut region,
-                        &statement,
-                        own_index,
-                        &run,
-                    )?;
-                }
                 let needs_transport = tasks.iter().any(|t| {
                     matches!(
                         t,
@@ -1159,7 +1157,7 @@ impl Circuit<Fp> for Stage {
                             source
                                 .own
                                 .sigma_plan
-                                .class(1)
+                                .class(QSigmaPlan::INCOMING)
                                 .ok_or(Error::Synthesis)?
                                 .verifier()
                                 .proof_length(),
@@ -1198,7 +1196,7 @@ impl Circuit<Fp> for Stage {
                         source
                             .own
                             .sigma_plan
-                            .class(1)
+                            .class(QSigmaPlan::INCOMING)
                             .ok_or(Error::Synthesis)?
                             .verifier()
                             .proof_length(),
@@ -1239,12 +1237,10 @@ impl Circuit<Fp> for Stage {
                 } else {
                     None
                 };
-                let signed = if tasks.iter().any(|t| {
-                    matches!(
-                        t,
-                        OperationTask::ReceiveSignatures | OperationTask::ReceiveBlacklist
-                    )
-                }) {
+                let signed = if tasks
+                    .iter()
+                    .any(|t| matches!(t, OperationTask::ReceiveSignatures))
+                {
                     Some(ReceiveSignedObjects::decode(
                         &mut chip,
                         &mut bytes,
@@ -1257,9 +1253,7 @@ impl Circuit<Fp> for Stage {
                 let auth = if tasks.iter().any(|t| {
                     matches!(
                         t,
-                        OperationTask::ReceiveAuthorization
-                            | OperationTask::ReceiveOwnProof
-                            | OperationTask::ReceiveSignatures
+                        OperationTask::ReceiveAuthorization | OperationTask::ReceiveSignatures
                     )
                 }) {
                     Some(ReceiveAuthorizationObjects::decode(
@@ -1268,10 +1262,8 @@ impl Circuit<Fp> for Stage {
                         &mut region,
                         source.variant(),
                         ReceiveAuthorizationSources {
-                            current: &values[6],
-                            certificate: &values[7],
-                            receipt: &values[8],
-                            quoted: [&values[9], &values[10]],
+                            receipt: &values[6],
+                            quoted: [&values[7], &values[8]],
                         },
                     )?)
                 } else {
@@ -1303,7 +1295,7 @@ impl Circuit<Fp> for Stage {
                     vesta_corrections: &vcorrections,
                     receive_results: Some(&results),
                 };
-                let sigma = [own_sigma.clone(), incoming_sigma.clone()];
+                let sigma = [incoming_sigma.clone()];
                 let pred = if stage == 0 {
                     let key = cells.key(&mut chip, &mut region, &source.predecessor.key)?;
                     let proof = cells.proof(&mut chip, &mut region, &source.predecessor.proof)?;
@@ -1333,7 +1325,7 @@ impl Circuit<Fp> for Stage {
                         &q_instances[*index],
                         &proof,
                     )?;
-                    if *index == 1 {
+                    if *index == ReceiveStagePlan::SIGNATURE_Q {
                         let slots = iroha_kagemusha_proof::a_relation::bind_signature_q(
                             &mut chip,
                             &mut region,
@@ -1361,15 +1353,6 @@ impl Circuit<Fp> for Stage {
                     None
                 };
                 let nonmembership = if tasks.contains(&OperationTask::ReceiveNonmembership) {
-                    Some(
-                        cells
-                            .insertion(&mut chip.uint(), &mut region, &source.own.witness.consumed)?
-                            .low,
-                    )
-                } else {
-                    None
-                };
-                let blacklist = if tasks.contains(&OperationTask::ReceiveBlacklist) {
                     Some(
                         cells
                             .insertion(&mut chip.uint(), &mut region, &source.own.witness.consumed)?
@@ -1441,21 +1424,27 @@ impl Circuit<Fp> for Stage {
                         objects: objects.as_ref(),
                         signed: signed.as_ref(),
                         authorization: auth.as_ref(),
-                        own_sigma: tasks
-                            .contains(&OperationTask::ReceiveOwnProof)
-                            .then_some(&own_sigma),
                     },
                     ReceiveStageWitness {
                         proofs: proof_key.as_ref().map(|key| ReceiveProofInputs {
                             sources: proof_sources.as_ref().unwrap(),
                             omega_key: key,
-                            own_sigma: &own_sigma,
                         }),
                         own_signatures: own_signature.as_ref(),
                         incoming_signatures: incoming_signature.as_ref(),
                         nonmembership: nonmembership.as_ref(),
-                        blacklist: blacklist.as_ref(),
                         effects: effects.as_ref(),
+                        // A1 proves the own step relation beside the hard predecessor;
+                        // key generation lays out the same relation without a witness.
+                        transition: tasks.contains(&OperationTask::ReceiveTransition).then(|| {
+                            TransitionInputs {
+                                shape: RelationShape::new(
+                                    SigmaRelation::RECEIVE,
+                                    PrefixMode::Absorbed,
+                                ),
+                                witness: self.known.then_some((step, native)),
+                            }
+                        }),
                     },
                 )?;
                 let fold = cells.proof(&mut chip, &mut region, &self.fold)?;
@@ -1589,7 +1578,6 @@ fn context_digest(source: &Source) -> Fp {
     words.extend([
         Fp::from(u64::from(source.proofs_valid())),
         Fp::from(u64::from(source.objects_valid)),
-        Fp::ONE,
         Fp::ONE,
         Fp::ONE,
     ]);
@@ -1769,7 +1757,7 @@ fn assert_foreign_wrapper_rejects(circuit: &Stage, previous_wrapper: &[u8]) {
     }
 }
 #[test]
-#[ignore = "real receiver Bootstrap, both sigmas, three Qs and ten fixed A/W stages; run optimized"]
+#[ignore = "real receiver Bootstrap, inline own step, incoming sigma, two Qs and nine fixed A with eight W; run optimized"]
 fn genuine_receive_burn_owner_chain_preserves_all_proofs_and_result_claims() {
     receive_owner_chain(IngestionCapacity::Descriptor);
 }
@@ -1781,7 +1769,7 @@ fn canonical_envelope_receive_burn_owner_chain() {
 }
 
 #[test]
-#[ignore = "current genuine Bootstrap, invalid original sigma, full10A9W and strict original-import/custody replay"]
+#[ignore = "current genuine Bootstrap, invalid original sigma, full9A8W and strict original-import/custody replay"]
 fn bootstrap_only_invalid_sigma_burn_imports_all_native_sources_and_checkpoints() {
     let receiver = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap_with_identity(
         bootstrap_outer::bootstrap_chain::BootstrapIdentity::Receiver,
@@ -1797,16 +1785,17 @@ fn bootstrap_only_invalid_sigma_burn_imports_all_native_sources_and_checkpoints(
     );
     let _ = prove_bootstrap_invalid_sigma_source(source);
     eprintln!(
-        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE full10A9W=true incoming_Q_soft_false=true exact_resigned_originals=true all_modes_Trivial=true consumed_root_unchanged=true adjusted_spendable_balance_zero=true no_Load_trust=true strict_original_import_and_canonical_custody_all19=true terminal_omega=false"
+        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE full9A8W=true incoming_Q_soft_false=true exact_resigned_originals=true all_modes_Trivial=true consumed_root_unchanged=true adjusted_spendable_balance_zero=true no_Load_trust=true strict_original_import_and_canonical_custody_all17=true terminal_omega=false"
     );
 }
 
 fn prove_bootstrap_invalid_sigma_source(source: Source) -> AuthenticatedReceive {
     assert!(!source.accept && !source.objects_valid && !source.proofs_valid());
     assert!(!source.own.witness.insert);
+    // Q0's only slot is the incoming sigma: false soft verdict, Trivial mode.
     assert_eq!(
         source.own.instances[3],
-        [Fq::ONE, Fq::ZERO, Fq::ZERO, Fq::ONE, Fq::ZERO]
+        [Fq::ZERO, Fq::ZERO, Fq::ONE, Fq::ZERO]
     );
     for index in 0..4 {
         assert_eq!(source.mode(index), IncomingMode::Trivial);
@@ -1848,7 +1837,7 @@ fn canonical_envelope_receive_burn_inserts_consumed_credit() {
 }
 
 #[test]
-#[ignore = "real renewed Receive soft3V1F Q and every owner at fixed maximum incoming capacities"]
+#[ignore = "real renewed Receive merged 4V1F Q (own receipt hard) and every owner at fixed maximum incoming capacities"]
 fn canonical_envelope_receive_renewed_burn_owner_chain() {
     let receiver = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap_with_identity(
         bootstrap_outer::bootstrap_chain::BootstrapIdentity::Receiver,
@@ -2012,6 +2001,21 @@ fn receive_owner_chain(capacity: IngestionCapacity) {
 /// advice removes no rows: the genuine proof loop separately checks parity and
 /// soundness with the actual authenticated W/source witnesses.
 fn preflight_owner_shapes(source: &Arc<Source>) {
+    let overflow = owner_rows(source)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, rows)| *rows >= 65_529)
+        .map(|(stage, rows)| (stage + 1, rows))
+        .collect::<Vec<_>>();
+    assert!(
+        overflow.is_empty(),
+        "Receive fixed owners exceed k16: {overflow:?}"
+    );
+}
+
+/// The most rows any advice column uses in each fixed owner, in stage order,
+/// from unknown-advice k18 synthesis of the exact stage circuits.
+fn owner_rows(source: &Arc<Source>) -> Vec<usize> {
     let pallas = AccumulatorT::trivial(&source.params, MemoryBudget::DEFAULT).unwrap();
     let vparams = common::vesta_params(16);
     let vesta = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT).unwrap();
@@ -2027,7 +2031,7 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
     let mut config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     config.compress_selectors = false;
     let mut wrapper_template = None;
-    let mut overflow = Vec::new();
+    let mut sizes = Vec::with_capacity(source.plan.context().stage_count());
     for index in 0..source.plan.context().stage_count() {
         let assigned = synthesize(&stage, 18, None).unwrap();
         let rows = assigned
@@ -2041,9 +2045,7 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
             index + 1,
             stage.params()
         );
-        if rows.iter().any(|n| *n >= 65_529) {
-            overflow.push((index + 1, *rows.iter().max().unwrap()));
-        }
+        sizes.push(rows.iter().copied().max().unwrap_or(0));
         drop(assigned);
         if index + 1 == source.plan.context().stage_count() {
             break;
@@ -2113,10 +2115,59 @@ fn preflight_owner_shapes(source: &Arc<Source>) {
             mutation: None,
         };
     }
-    assert!(
-        overflow.is_empty(),
-        "Receive fixed owners exceed k16: {overflow:?}"
+    sizes
+}
+
+/// Size all nine fixed Receive owners at the canonical maximum envelope, over a
+/// genuine receiver Bootstrap predecessor and the real Q keys. Each stage must
+/// fit the unchanged k16 gate; no proof is produced.
+fn every_owner_fits_k16(variant: Variant) {
+    let receiver = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap_with_identity(
+        bootstrap_outer::bootstrap_chain::BootstrapIdentity::Receiver,
     );
+    let source = Arc::new(source_variant(
+        receiver.into(),
+        None,
+        IngestionCapacity::CanonicalEnvelope,
+        variant,
+        None,
+    ));
+    let plan = source.plan.context();
+    assert_eq!(plan.stage_count(), 9);
+    let partitions: [&[usize]; 9] = [&[], &[0], &[], &[], &[], &[1], &[], &[], &[]];
+    for (stage, q) in partitions.into_iter().enumerate() {
+        assert_eq!(plan.q_partition(stage), Some(q));
+    }
+    let rows = owner_rows(&source);
+    assert_eq!(rows.len(), 9);
+    for (stage, rows) in rows.iter().enumerate() {
+        eprintln!(
+            "RECEIVE_CAPACITY {variant:?} A{} tasks={:?} Q={:?} rows={rows} k16_fit={} actual_proof=false",
+            stage + 1,
+            plan.operation_tasks(stage).unwrap(),
+            plan.q_partition(stage).unwrap(),
+            *rows < 65_529
+        );
+    }
+    for (stage, rows) in rows.into_iter().enumerate() {
+        assert!(
+            rows < 65_529,
+            "Receive {variant:?} A{} uses {rows} rows",
+            stage + 1
+        );
+    }
+}
+
+#[test]
+#[ignore = "real receiver Bootstrap predecessor; sizes ordinary Receive A1..A9 at the canonical envelope without proving; run optimized"]
+fn receive_owners_a1_to_a9_fit_k16() {
+    every_owner_fits_k16(Variant::Receive);
+}
+
+#[test]
+#[ignore = "real receiver Bootstrap predecessor; sizes ReceiveRenewed A1..A9 at the canonical envelope without proving; run optimized"]
+fn receive_renewed_owners_a1_to_a9_fit_k16() {
+    every_owner_fits_k16(Variant::ReceiveRenewed);
 }
 
 fn native_inputs(
@@ -2144,11 +2195,10 @@ fn native_inputs(
             statement: source.own.witness.statement,
             consumed: source.own.witness.consumed,
             credit: source.own.witness.credit,
-            blacklist: source.own.witness.consumed,
             insert: source.own.witness.insert,
         },
         incoming_statement: source.own.send.statement,
-        sigma: source.own.sigma.clone(),
+        step: source.own.witness.step.clone(),
         objects: source.objects.clone(),
         q: core::array::from_fn(|i| native::QInput {
             proof: source.q[i].proof.clone(),
@@ -2165,13 +2215,7 @@ fn native_inputs(
             pallas: source.incoming_head.pallas.clone(),
             vesta: source.incoming_head.vesta.clone(),
             opening: source.incoming_head.opening.clone(),
-            results: [
-                source.proofs_valid(),
-                source.objects_valid,
-                true,
-                true,
-                true,
-            ],
+            results: [source.proofs_valid(), source.objects_valid, true, true],
             modes: core::array::from_fn(|i| source.mode(i)),
             pallas_corrections: [*trivial_p.g(); 2],
             vesta_correction: source.vesta_correction,
@@ -2180,10 +2224,40 @@ fn native_inputs(
     (plan, inputs)
 }
 
+/// The Send receipt body of this source signed under a key other than the
+/// payer's, and the transitive Payment rebuilt over that exact receipt: an
+/// authentic incoming package whose receipt signature fails.
+fn wrong_signer_send_receipt(source: &Source) -> (bootstrap_objects::Signed, Vec<u8>) {
+    let proof_digest = p_bytes_native(
+        u64::from_le_bytes(*b"kgwprf_1"),
+        &[frame(&source.incoming), frame(&source.own.incoming_sigma)].concat(),
+    );
+    let wrong = receipt(
+        &source.own.send.statement,
+        &source.own.send.before.lineage[6..8],
+        proof_digest,
+        Fp::ZERO,
+        31,
+        71,
+    );
+    let body = ObjectKind::Receipt.body_len();
+    assert_eq!(&wrong.bytes[..body], &source.objects[2][..body]);
+    assert_ne!(wrong.bytes, source.objects[2]);
+    let payment = payment_transcript(
+        &source.objects[0],
+        &source.objects[1],
+        &source.own.send.statement,
+        proof_digest,
+        wrong.digest(),
+    );
+    (wrong, payment)
+}
+
 fn assert_native_first_relation(source: &Source, first: &Stage) {
     let (plan, inputs) = native_inputs(source);
-    let signature_inputs = inputs.q[2].instances[0]
-        .chunks_exact(10)
+    // Every slot of the merged Q1, own receipt first, then the incoming slots.
+    let signature_inputs = inputs.q[ReceiveStagePlan::SIGNATURE_Q].instances[0]
+        .chunks_exact(SLOT_WORDS)
         .map(|slot| {
             let integer = |lo: Fq, hi: Fq| {
                 let mut bytes = [0u8; 32];
@@ -2193,37 +2267,77 @@ fn assert_native_first_relation(source: &Source, first: &Stage) {
                     u64::from_le_bytes(bytes[8 * i..8 * i + 8].try_into().unwrap())
                 })
             };
-            iroha_kagemusha_proof::q_signature::SignatureWitness {
+            SignatureWitness {
                 digest: Option::<Fp>::from(Fp::from_repr(slot[0].to_repr())).unwrap(),
                 key: [integer(slot[1], slot[2]), integer(slot[3], slot[4])],
                 signature: [integer(slot[5], slot[6]), integer(slot[7], slot[8])],
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    assert_eq!(
+        signature_inputs.len(),
+        if source.variant() == Variant::ReceiveRenewed {
+            5
+        } else {
+            3
+        }
+    );
+    let incoming_row = source
+        .own
+        .sigma_plan
+        .position(QSigmaPlan::INCOMING)
+        .unwrap();
     let predicate_inputs = iroha_kagemusha_proof::a_relation::native::receive::PredicateInputs {
         before: inputs.transition.before,
         after: inputs.transition.after,
         statement: inputs.transition.statement,
         consumed: inputs.transition.consumed,
-        blacklist: inputs.transition.blacklist,
         incoming_statement: inputs.incoming_statement,
         objects: inputs.objects.clone(),
         signatures: signature_inputs,
         predecessor_pallas: AccumulatorT::from_bytes(&inputs.predecessor.pallas).unwrap(),
         predecessor_vesta: AccumulatorT::from_bytes(&inputs.predecessor.vesta).unwrap(),
-        own_selector: inputs.q[0].instances[2][0].to_repr()[0],
-        incoming_selector: inputs.q[0].instances[2][1].to_repr()[0],
+        incoming_selector: inputs.q[0].instances[2][incoming_row].to_repr()[0],
     };
     let proposed = plan.propose_nonproof(predicate_inputs.clone()).unwrap();
-    assert_eq!(proposed, [source.objects_valid, true, true, true]);
+    assert_eq!(proposed, [source.objects_valid, true, true]);
     let mut substituted = predicate_inputs.clone();
     substituted.objects[3][131] ^= 1;
     assert!(
         plan.propose_nonproof(substituted).is_err(),
         "changed transitive Payment package binding"
     );
+    // Merged slot 0 is the hard own receipt: a signature failing there, or a
+    // malformed own receipt tape, leaves no native proposal at all.
+    let mut forged = predicate_inputs.clone();
+    forged.signatures[0].signature[1][0] ^= 1;
+    assert!(
+        plan.propose_nonproof(forged).is_err(),
+        "malformed own receipt signature in merged slot 0"
+    );
+    let mut malformed = predicate_inputs.clone();
+    malformed.objects[6][0] ^= 1;
+    assert!(
+        plan.propose_nonproof(malformed).is_err(),
+        "malformed own receipt tape"
+    );
+    // The incoming slots stay soft: an authentic package whose Send receipt was
+    // signed under another key turns only the Signatures result false.
+    let (wrong, payment) = wrong_signer_send_receipt(source);
+    let mut soft = predicate_inputs.clone();
+    soft.signatures[1] = SignatureWitness {
+        key: soft.signatures[1].key,
+        ..wrong.signature
+    };
+    soft.objects[2] = wrong.bytes;
+    soft.objects[3] = payment;
+    assert_eq!(
+        plan.propose_nonproof(soft).unwrap(),
+        [source.objects_valid, false, true],
+        "malformed incoming Send receipt signature stays soft"
+    );
     eprintln!(
-        "NATIVE_RECEIVE_PREDICATES same_object_signature_map_code=true native_four_results={proposed:?} no_synthetic_Q=true"
+        "NATIVE_RECEIVE_PREDICATES same_object_signature_map_code=true native_three_results={proposed:?} merged_slot0_hard=true incoming_slots_soft=true no_synthetic_Q=true"
     );
     let prepared = plan.prepare(inputs, MemoryBudget::DEFAULT).unwrap();
     let (native, public) = prepared
@@ -2280,22 +2394,31 @@ impl NativeCheckpoints {
             |stage, previous| plan.source_circuit(stage, previous),
             |stage, binding, key| plan.wrapper_source(stage, binding, key),
         );
+        let other = native::Prover::from_artifacts(plan.clone(), a.clone(), w.clone()).unwrap();
         let prover = native::Prover::from_artifacts(plan.clone(), a, w).unwrap();
-        for object in 6..9 {
-            for offset in [0, inputs.objects[object].len() - 1] {
-                let mut bad = inputs.clone();
-                bad.objects[object][offset] ^= 1;
-                assert!(
-                    plan.prepare(bad, MemoryBudget::DEFAULT).is_err(),
-                    "own tape {object}/{offset}"
-                );
-            }
+        // Merged Q1 slot 0 binds the hard own receipt: a changed version or
+        // signature byte of its original tape is refused before any proving.
+        for offset in [0, inputs.objects[6].len() - 1] {
+            let mut bad = inputs.clone();
+            bad.objects[6][offset] ^= 1;
+            assert!(
+                plan.prepare(bad, MemoryBudget::DEFAULT).is_err(),
+                "own receipt tape byte {offset}"
+            );
         }
+        // A1 proves the retained step inline: a step evaluating to another
+        // statement, or a step of the other relation, is refused before proving.
         let mut bad = inputs.clone();
-        bad.sigma[0] ^= 1;
+        bad.step.successor_nonce += Fp::ONE;
         assert!(
             plan.prepare(bad, MemoryBudget::DEFAULT).is_err(),
-            "own sigma differs from Q0"
+            "own step differs from the committed statement"
+        );
+        let mut bad = inputs.clone();
+        bad.step = source.own.send.step.clone();
+        assert!(
+            plan.prepare(bad, MemoryBudget::DEFAULT).is_err(),
+            "Send step under the Receive relation"
         );
         let prepared = plan.prepare(inputs.clone(), MemoryBudget::DEFAULT).unwrap();
         let (first_circuit, _) = prepared
@@ -2395,14 +2518,45 @@ impl NativeCheckpoints {
                 "canonical custody cannot rebind the original Payment"
             );
         }
+        // The quoted credential and certificate are incoming soft objects: native
+        // preparation leaves them to their circuit owners, yet every original byte
+        // stays context-bound and cannot restore the original A1.
+        for object in [7, 8] {
+            let mut changed = inputs.clone();
+            changed.objects[object][0] ^= 1;
+            let rebound = prover
+                .prepare(changed, MemoryBudget::DEFAULT)
+                .expect("an incoming quoted object is soft at native preparation");
+            assert!(
+                rebound
+                    .restore_first(
+                        self.a_proofs[0].clone(),
+                        &self.pallas[0],
+                        MemoryBudget::DEFAULT
+                    )
+                    .is_err(),
+                "changed quoted object {object} cannot restore original A1"
+            );
+        }
+        // D6a (DP §7.4 test 8): a detached session resumes only on the prover
+        // instance that prepared it, never on an identically installed one.
+        let detached = prover
+            .prepare(inputs.clone(), MemoryBudget::DEFAULT)
+            .unwrap()
+            .into_retained();
+        assert!(matches!(other.resume(detached), Err(native::Error::Input)));
+        drop(other);
         // Restart has no surviving opaque checkpoint capability. Recreate a
         // checked session from retained originals and recover the entire chain
         // through canonical bytes under that new session's source identity.
-        let session = prover.prepare(inputs, MemoryBudget::DEFAULT).unwrap();
+        let mut session = prover.prepare(inputs, MemoryBudget::DEFAULT).unwrap();
         checkpoint = session
             .restore_first_checkpoint(&first_original, MemoryBudget::DEFAULT)
             .unwrap();
         for stage in 0..native::A_STAGE_COUNT - 1 {
+            // D6a: each continuation runs on a session detached and resumed between
+            // fold calls; checkpoints restored before detaching keep their source.
+            session = prover.resume(session.into_retained()).unwrap();
             check_native_w_import(&prover, &plan, stage, &parity_keys[stage]);
             let wrapper = session
                 .restore_wrapper(
@@ -2446,7 +2600,7 @@ impl NativeCheckpoints {
                 .unwrap();
             // Reconstruct only this native stage PK and compare its exact VK
             // commitments with the independent A proof's installed metadata.
-            // This checks fixed/permutation commitments without retaining ten PKs.
+            // This checks fixed/permutation commitments without retaining nine PKs.
             let native_seal =
                 import_native_a(&prover, stage + 1, &native_circuit, &parity_keys[stage + 1]);
             let native_key = prover.bind_a(stage + 1, &native_seal, None).unwrap();
@@ -2578,7 +2732,7 @@ impl NativeCheckpoints {
         assert_eq!(terminal.incoming_vesta, source.incoming_head.vesta);
         assert_eq!(terminal.predecessor_vesta, source.predecessor.vesta);
         eprintln!(
-            "NATIVE_RECEIVE_RESTORE all10A_all9W=true all_native_A_verifier_commitments_and_constraints_equal=true strict_original_import_all19=true native_producer_retains_no_PK=true rebuilt_PK_proof_bytes_equal=true canonical_custody_all19_exact_bytes=true fresh_session_from_originals=true wrong_stage_truncated_foreign_session_original_substitution_rejected=true terminal_exports_equal=true final_catalog=false"
+            "NATIVE_RECEIVE_RESTORE all9A_all8W=true all_native_A_verifier_commitments_and_constraints_equal=true strict_original_import_all17=true native_producer_retains_no_PK=true rebuilt_PK_proof_bytes_equal=true canonical_custody_all17_exact_bytes=true fresh_session_from_originals=true own_receipt_slot0_hard=true quoted_objects_soft_but_context_bound=true wrong_stage_truncated_foreign_session_original_substitution_rejected=true terminal_exports_equal=true final_catalog=false"
         );
         terminal
     }
@@ -2686,11 +2840,12 @@ pub(crate) struct AuthenticatedReceive {
     pub(crate) payment_digest: Fp,
     /// Exact accepted-credit verdict constrained by all result and mode owners.
     pub(crate) accepted_credit: bool,
-    /// Actual own sigma proof whose original digest is signed by the receipt.
+    /// Actual own σ_recv whose original digest the own receipt signs. Receive A
+    /// proves the step inline; the payer's ArchiveReceive verifies this proof.
     pub(crate) sigma: Vec<u8>,
     /// Original Request, payer credential, Send receipt, Payment, incoming Omega,
-    /// incoming sigma, own credential/certificate/receipt and quoted credential/certificate.
-    pub(crate) objects: [Vec<u8>; 11],
+    /// incoming sigma, own receipt and quoted credential/certificate.
+    pub(crate) objects: [Vec<u8>; 9],
     /// Authenticated consumed map update (including the original free-slot path).
     pub(crate) consumed: IndexedInsert<Fp>,
     /// Authenticated resulting credit record and its membership path.
@@ -2906,6 +3061,9 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
         assert_native_first_relation(&source, &first);
     }
     let (mut key, mut proof, mut public) = prove_stage(&first);
+    // A1's inline relation alone refuses another step under the same own
+    // statement, context and public frame (`ReceiveTransition`).
+    assert_continuation_rejects(&first, ContinuationMutation::Step);
     let mut native = NativeCheckpoints::default();
     native.a_proofs.push(proof.proof.clone());
     native.pallas.push(pallas.to_bytes());
@@ -3066,7 +3224,7 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
         if stage == 1 {
             // These values are proposals in this Q-only stage, so only the
             // genuine preceding W/context binding can authenticate them here.
-            for slot in 0..11 {
+            for slot in 0..source.objects.len() {
                 for word in 0..3 {
                     assert_continuation_rejects(
                         &continuation,
@@ -3074,7 +3232,7 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
                     );
                 }
             }
-            for index in 0..5 {
+            for index in 0..4 {
                 assert_continuation_rejects(&continuation, ContinuationMutation::Result(index));
             }
             for mutation in [
@@ -3087,20 +3245,32 @@ fn prove_receive_owner_chain(source: Source) -> Option<AuthenticatedReceive> {
                 assert_continuation_rejects(&continuation, mutation);
             }
             eprintln!(
-                "Receive genuine W rejects all33 object words, all5 results, source reorder, opening, mode and statement substitution"
+                "Receive genuine W rejects all{} object words, all4 results, source reorder, opening, mode and statement substitution",
+                3 * source.objects.len()
             );
         }
-        if source
-            .plan
-            .context()
-            .operation_tasks(stage)
-            .unwrap()
-            .contains(&OperationTask::ReceiveSignatures)
-        {
-            assert_continuation_rejects(&continuation, ContinuationMutation::Q2Verdict);
+        let tasks = source.plan.context().operation_tasks(stage).unwrap();
+        if tasks.contains(&OperationTask::ReceiveAuthorization) {
+            // Q1 is verified hard in this stage: the own receipt's hard verdict
+            // and every incoming verdict are exact inputs of that proof.
+            assert_continuation_rejects(&continuation, ContinuationMutation::OwnReceiptVerdict);
+            assert_continuation_rejects(
+                &continuation,
+                ContinuationMutation::IncomingSignatureVerdict,
+            );
+            eprintln!(
+                "Receive Authorization owner rejects a flipped own-receipt or incoming verdict of the merged Q1"
+            );
+        }
+        if tasks.contains(&OperationTask::ReceiveSignatures) {
+            assert_continuation_rejects(
+                &continuation,
+                ContinuationMutation::IncomingSignatureVerdict,
+            );
+            assert_continuation_rejects(&continuation, ContinuationMutation::OwnReceiptVerdict);
             assert_continuation_rejects(&continuation, ContinuationMutation::CarriedP);
             eprintln!(
-                "Receive projected Signatures owner rejects changed Q2 verdict and substituted carried P obligation"
+                "Receive projected Signatures owner rejects changed merged Q1 verdicts and substituted carried P obligation"
             );
         }
         if stage == 3 {

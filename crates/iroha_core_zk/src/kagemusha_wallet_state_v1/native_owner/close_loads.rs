@@ -216,11 +216,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &valid(plan.credential.to_canonical_bytes())?,
             &archive::encode(&plan.certificates)?,
         )?;
-        proof(self.proofs.installed.verifier().verify_package_proofs(
-            &plan.package,
-            None,
-            self.proofs.budget,
-        ))?;
+        proof(
+            self.proofs
+                .installed
+                .verifier()
+                .verify_package_proofs(&plan.package, self.proofs.budget),
+        )?;
         if let Some(bytes) = self.retained_close_loads(&plan)? {
             return Ok(bytes);
         }

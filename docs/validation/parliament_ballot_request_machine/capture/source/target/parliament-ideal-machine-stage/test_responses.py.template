@@ -1,0 +1,248 @@
+"""Independent polynomial/equation, relation order and clean-assembly controls."""
+from pathlib import Path
+from collections import Counter
+import random
+
+import pytest
+
+from bit_ir import Cost,bits,unpack
+from field_kernel import load_field,FieldKernel
+from r0_machine import FieldBuilder,VoleResponse
+from r1_machine import (VerifierCircuit,Key,combined_degree,relation_round,
+                        multiplex_at_degree4,relation_shape,QuickSilverResponse,REG_ELL,VOTE_ELL)
+
+ROOT=Path(__file__).resolve().parents[2]
+MASK=2**256-1
+MOD=(1<<256)|(1<<10)|(1<<5)|(1<<2)|1
+
+
+def mul(a,b):
+    raw=0
+    while b:
+        bit=b&-b;raw^=a<<(bit.bit_length()-1);b^=bit
+    while raw.bit_length()>256:raw^=MOD<<(raw.bit_length()-257)
+    return raw
+
+
+def power(a,n):
+    out=1
+    for _ in range(n):out=mul(out,a)
+    return out
+
+
+def word_input(values,widths):
+    return tuple(bit for value,width in zip(values,widths) for bit in bits(value,width))
+
+
+@pytest.fixture(scope="module")
+def concrete():
+    module=load_field(ROOT)
+    return FieldKernel(module,"gf256_mul"),FieldKernel(module,"gf256_mul_u64")
+
+
+@pytest.mark.parametrize("ell,delta",[(1,0),(1,MASK),(3,17)])
+def test_r0_order_exact_five_horner_lanes_and_delta_products(concrete,ell,delta):
+    rng=random.Random(881+ell)
+    q=[rng.getrandbits(256) for _ in range(ell)]
+    masks=[rng.getrandbits(256) for _ in range(10)]
+    r=[rng.getrandbits(256) for _ in range(4)];s=[rng.getrandbits(256) for _ in range(4)]
+    t=rng.getrandbits(64);u=[rng.getrandbits(256) for _ in range(4)]
+    values=word_input([delta,*q,*masks,*r,*s,t,*u],[256]*(1+ell+10+8)+[64]+[256]*4)
+    y=[0]*5
+    for value in q+masks[:6]:
+        y=[mul(y[j],s[j] if j<4 else t)^value for j in range(5)]
+    expected=[mul(r[j],y[0])^y[j+1]^masks[6+j]^mul(delta,u[j]) for j in range(4)]
+    c=VoleResponse(ell,*concrete).build()
+    assert [unpack(c.evaluate(values)[i:i+256]) for i in range(0,1024,256)]==expected
+    counts=dict(c.operation_counts)
+    assert counts[concrete[0].name]==4*(ell+6)+8
+    assert counts[concrete[1].name]==ell+6
+    assert counts["xor"]==5*(ell+6)+12
+    # Count-only traversal must be the identical schedule and register geometry.
+    counted=VoleResponse(ell,*concrete).build(record=False)
+    assert c.resources()==counted.resources() and c.outputs==counted.outputs
+
+
+def qs_values(cs,delta,rng):
+    values=[0]*cs.b.inputs
+    fields={}
+    for name,(start,width) in cs.regions.items():
+        value=delta if name=="delta" else rng.getrandbits(width)
+        values[start:start+width]=bits(value,width) if width else ()
+        fields[name]=value
+    return tuple(values),fields
+
+
+@pytest.mark.parametrize("delta",[0,1,0x1234567])
+def test_r1_mixed_degrees_masks_and_coefficients_match_equation(concrete,delta):
+    cs=VerifierCircuit(2,3,0,*concrete)
+    values,fields=qs_values(cs,delta,random.Random(981))
+    k=[(fields["q"]>>(256*i)&MASK)^mul((fields["d"]>>i)&1,delta) for i in range(2)]
+    cs.booleanity()
+    cs.constrain(cs.witness(0))
+    cs.constrain(cs.constant(29))
+    cs.constrain(cs.add(cs.mul(cs.witness(0),cs.witness(1)),cs.witness(0)))
+    block,meta=cs.finish()
+    assert meta["error"] is None and meta["constraint_degrees"]=={0:1,1:1,2:3}
+    raw=[(mul(k[0],k[0]^delta),2),(mul(k[1],k[1]^delta),2),(k[0],1),(29,0),
+         (mul(k[0],k[1])^mul(k[0],delta),2)]
+    lifted=[mul(v,power(delta,7-degree)) for v,degree in raw]
+    challenge=fields["challenge2"];r0=challenge&MASK;r1=(challenge>>256)&MASK
+    s=(challenge>>512)&MASK;t=challenge>>768
+    h0=h1=0
+    for value in lifted:h0=mul(h0,s)^value;h1=mul(h1,t)^value
+    expected=mul(r0,h0)^mul(r1,h1)
+    for j in range(6):
+        expected^=mul(fields["qbar"]>>(256*j)&MASK,power(delta,j))
+        expected^=mul(fields["coefficients"]>>(256*j)&MASK,power(delta,j+1))
+    result=block.evaluate(values)
+    assert unpack(result[:256])==expected and not any(result[256:])
+    # Last four qbar entries are not QuickSilver masks.
+    changed=list(values);start=cs.regions["qbar"][0]+6*256
+    for i in range(start,start+4*256):changed[i]^=1
+    assert block.evaluate(changed)==result
+
+
+@pytest.mark.parametrize("fault,code,ordinal",[("short",1,1),("long",1,3),("index",2,1),("overflow",3,1),("index_overflow",2,1)])
+def test_degree_error_precedence_latching_and_materialized_error(concrete,fault,code,ordinal):
+    cs=VerifierCircuit(1,1,0,*concrete);cs.booleanity()
+    if fault=="long":cs.constrain(cs.witness(0));cs.constrain(cs.witness(0))
+    elif fault=="index":cs.constrain(cs.witness(1))
+    elif fault in ("overflow","index_overflow"):
+        value=cs.witness(0)
+        for _ in range(7):value=cs.mul(value,cs.witness(0))
+        if fault=="index_overflow":value=cs.add(value,cs.witness(1))
+        cs.constrain(value)
+    block,meta=cs.finish()
+    assert meta["error"] is not None
+    result=block.evaluate((0,)*block.inputs)
+    assert unpack(result[:256])==0 and unpack(result[256:])==code+(ordinal<<2)
+    # First error is never replaced by later malformed constraints.
+    previous=cs.error;cs.constrain(cs.witness(999));assert cs.error==previous
+
+
+def test_bad_index_dominates_overflow_and_degree_limit():
+    for left,right in [("index","overflow"),("overflow","index"),(7,"index")]:
+        assert combined_degree(left,right)=="index"
+        assert combined_degree(left,right,True)=="index"
+    assert combined_degree(3,4,True)==7
+    assert combined_degree(4,4,True)=="overflow"
+    assert combined_degree(4,4)==4
+
+
+@pytest.mark.parametrize("degree",[-1,8,True,1.0,"unknown"])
+def test_invalid_degree_tags_are_refused(degree):
+    with pytest.raises(ValueError):Key(0,degree)
+
+
+def test_full_stream_count_error_precedes_bad_index(concrete):
+    cs=VerifierCircuit(1,0,0,*concrete);cs.booleanity()
+    cs.constrain(cs.witness(900))
+    assert cs.error==("count",2)
+
+
+def test_missing_reverse_leaves_joint_workspace_dirty():
+    b=FieldBuilder(512,ToyKernel(),ToyKernel(True))
+    square=b.multiply(0,0);out=b.xor(square,256)
+    block=b.finish(range(out,out+256))
+    state=[1]*block.inputs+[0]*(block.history+block.work+256)
+    for gate in block.emit():state[gate[-1]]^=int(all(state[w] for w in gate[1:-1]))
+    for i,source in enumerate(block.outputs):state[block.output_start+i]^=state[source]
+    assert state[block.output_start:]==list(block.evaluate((1,)*block.inputs))
+    assert any(state[block.inputs:block.output_start])
+
+
+class ToyKernel:
+    """Routing-only test kernel; this does not supply field arithmetic evidence."""
+    outputs=256;work=0;cost=Cost(cx=512)
+    def __init__(self,short=False):self.inputs=320 if short else 512;self.name="toy64" if short else "toy256"
+    def evaluate(self,values):return tuple(values[i]^values[256+i%(self.inputs-256)] for i in range(256))
+    def emit(self,inputs,outputs,work):
+        assert not work and len(set(inputs+outputs))==len(inputs+outputs)
+        for i,out in enumerate(outputs):
+            yield ("cx",inputs[i],out)
+            yield ("cx",inputs[256+i%(self.inputs-256)],out)
+
+
+@pytest.mark.parametrize("stage",["r0","r1"])
+def test_full_clean_assembly_arbitrary_targets_counts_and_kernel_alias_copies(stage):
+    kernels=(ToyKernel(),ToyKernel(True))
+    if stage=="r0":block=VoleResponse(2,*kernels).build()
+    else:
+        cs=VerifierCircuit(2,1,0,*kernels);cs.booleanity();cs.constrain(cs.mul(cs.witness(0),cs.witness(0)))
+        block,_=cs.finish()
+    rng=random.Random(995);values=tuple(rng.randrange(2) for _ in range(block.inputs))
+    expected=block.evaluate(values);z=[rng.randrange(2) for _ in expected]
+    state=list(values)+[0]*(block.history+block.work)+z+[1,0,1]
+    original=state.copy();census=Counter()
+    for gate in block.emit_clean():
+        kind,*wires=gate
+        assert len(set(wires))==len(wires)
+        assert all(0<=w<len(state)-3 for w in wires)
+        state[wires[-1]]^=int(all(state[w] for w in wires[:-1]));census[kind]+=1
+    assert state[:block.inputs]==list(values) and state[-3:]==[1,0,1]
+    assert not any(state[block.inputs:block.output_start])
+    assert state[block.output_start:-3]==[a^b for a,b in zip(z,expected)]
+    assert all(census[k]==block.resources()["gates"][k] for k in ("x","cx","ccx"))
+    for gate in block.emit_clean():state[gate[-1]]^=int(all(state[w] for w in gate[1:-1]))
+    assert state==original
+
+
+@pytest.mark.parametrize("delta,public_column",[(0,0),(7,0),(0,3),(13,3)])
+def test_selector_zero_normalization_only_at_degree4_consumer(concrete,delta,public_column):
+    cs=VerifierCircuit(1,0,2048,*concrete)
+    start=cs.regions["public"][0]
+    output=Key(cs.b.constant(31),4)
+    products=[Key(cs.b.constant(7),2),Key(cs.b.constant(9),2)]
+    normalized=multiplex_at_degree4(cs,output,products,start,0)
+    selected=Key(cs.zero,0)
+    for i,p in enumerate(products):
+        if public_column>>i&1:selected=cs.add(selected,p)
+    source=cs.add(output,selected)
+    block=cs.b.finish(tuple(range(normalized.register,normalized.register+256))+tuple(range(source.register,source.register+256)))
+    values=[0]*block.inputs;values[:256]=bits(delta,256)
+    values[start]=public_column&1;values[start+1024]=(public_column>>1)&1
+    result=block.evaluate(values)
+    assert result[:256]==result[256:]
+    with pytest.raises(ValueError):multiplex_at_degree4(cs,Key(output.register,3),products,start,0)
+
+
+def test_public_role_geometry_and_invalid_shapes():
+    assert relation_shape("registration")== (35840,36736,4736)
+    assert relation_shape("vote",3)== (53504,55427,4800+1024*3+1536)
+    assert relation_shape("vote",1000)== (53504,55427,4800+1024*1000+1536)
+    for role,count in [("unknown",0),("registration",1),("vote",0),("vote",1025),("vote",True)]:
+        with pytest.raises(ValueError):relation_shape(role,count)
+
+
+@pytest.mark.parametrize('count',[0,1,2,1001,1024,1025,True,3.0])
+def test_actual_factory_rejects_unaccepted_vote_shape_before_kernel_work(count):
+    with pytest.raises(ValueError,match='accepted vote list count'):
+        QuickSilverResponse('vote',count,None,None)
+
+
+def test_one_relation_round_uses_field_keys_degree_alignment_not_boolean_keccak(concrete):
+    cs=VerifierCircuit(1,0,1600*256,*concrete)
+    base=cs.regions["public"][0]
+    keys=[Key(base+256*i,1) for i in range(1600)]
+    outputs=relation_round(cs,keys,0,8)
+    block=cs.b.finish(tuple(w for key in outputs[:8] for w in range(key.register,key.register+256)))
+    rng=random.Random(620);delta=17;state=[rng.getrandbits(256) for _ in range(1600)]
+    parity=[state[i]^state[i+320]^state[i+640]^state[i+960]^state[i+1280] for i in range(320)]
+    theta=[state[t]^parity[64*((t%320//64+4)%5)+t%64]^parity[64*((t%320//64+1)%5)+(t%64+63)%64] for t in range(1600)]
+    # Derive the rho/pi source through an independent forward coordinate scatter.
+    rotated=[None]*1600;x,y=1,0;offsets={(0,0):0}
+    for index in range(24):offsets[x,y]=(index+1)*(index+2)//2%64;x,y=y,(2*x+3*y)%5
+    for y in range(5):
+        for x in range(5):
+            for z in range(64):rotated[64*(y+5*((2*x+3*y)%5))+(z+offsets[x,y])%64]=theta[64*(x+5*y)+z]
+    expected=[]
+    for z in range(8):
+        value=mul(rotated[z],delta)^mul(rotated[64+z]^delta,rotated[128+z])
+        if z==0:value^=mul(delta,delta)
+        expected.append(value)
+    values=[0]*block.inputs;values[:256]=bits(delta,256)
+    values[base:]=word_input(state,[256]*1600)
+    actual=block.evaluate(values)
+    assert [unpack(actual[i:i+256]) for i in range(0,2048,256)]==expected
+    assert all(k.degree==2 for k in outputs[:8])

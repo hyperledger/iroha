@@ -8,7 +8,7 @@ use iroha_kagemusha_proof::{
         map_effects::{FEE_DOMAIN, PENDING_DOMAIN},
         objects::ObjectKind,
     },
-    tree::{BlacklistGap, IndexedInsert, IndexedLeaf, IndexedTree},
+    tree::{IndexedInsert, IndexedLeaf, IndexedTree},
     witness::{
         Controls, CoreState, Identity, LineageInputs, MapRoots, RequestBody, RequestTerms,
         SendInputs, SigmaRelation, StateRest, StateV1, StepInputs, StepWitness,
@@ -70,26 +70,20 @@ pub fn state(w: &StateWitness) -> StateV1<Fp> {
                 enabled: narrow(c[21]).try_into().unwrap(),
                 quota_windows_root: c[22],
                 quota_share_expires_at_ms: narrow(c[23]),
-                blacklist_version: narrow(c[24]),
-                blacklist_root: c[25],
-                blacklist_issued_at_ms: narrow(c[26]),
-                blacklist_max_age_ms: narrow(c[27]),
-                time_anchor_max_response_ms: narrow(c[28]),
-                lease_expires_at_ms: narrow(c[29]),
+                time_anchor_max_response_ms: narrow(c[24]),
+                lease_expires_at_ms: narrow(c[25]),
             },
-            policy_epoch: narrow(c[30]),
-            accepted_time_floor_ms: narrow(c[31]),
-            state_nonce: c[32],
+            policy_epoch: narrow(c[26]),
+            accepted_time_floor_ms: narrow(c[27]),
+            state_nonce: c[28],
         },
         rest: StateRest {
             permitted_controls: narrow(r[0]).try_into().unwrap(),
             scheme_policy: r[1].to_repr(),
             fee_schedule: r[2].to_repr(),
-            blacklist: r[3].to_repr(),
-            quota_share: r[4].to_repr(),
-            quota_share_id: narrow(r[5]),
-            time_anchor: r[6].to_repr(),
-            blacklist_history_root: r[7].to_repr(),
+            quota_share: r[3].to_repr(),
+            quota_share_id: narrow(r[4]),
+            time_anchor: r[5].to_repr(),
         },
     }
 }
@@ -121,8 +115,6 @@ fn request(body: &RequestBody) -> Signed {
     bytes.extend(body.terms.policy_epoch.to_le_bytes());
     bytes.extend(body.terms.scheme_policy);
     bytes.extend(body.terms.request_time.to_le_bytes());
-    bytes.extend(body.terms.receiver_blacklist_version.to_le_bytes());
-    bytes.extend(body.terms.receiver_blacklist_root);
     bytes.extend(body.terms.certificates);
     bytes.extend(body.terms.nonce);
     sign(ObjectKind::Request, bytes, 43, 59)
@@ -152,7 +144,7 @@ pub fn with_held_fee(before: &StateWitness) -> SendFixture {
     let mut installed = *before;
     installed.rest[1] = Fp::from(94);
     installed.rest[2] = schedule.digest();
-    installed.core[30] = Fp::ONE;
+    installed.core[26] = Fp::ONE;
     installed.lineage[13] += Fp::from(256);
     installed.lineage[5] = state(&installed).commitment();
     build(&installed, Some(&schedule), &receiver_credential())
@@ -170,8 +162,6 @@ fn build(before: &StateWitness, schedule: Option<&Signed>, receiver: &Signed) ->
         policy_epoch: 0,
         scheme_policy: [0; 32],
         request_time: 0,
-        receiver_blacklist_version: 0,
-        receiver_blacklist_root: [0; 32],
         certificates: Fp::from(83).to_repr(),
         nonce: small_id(84, 85).try_into().unwrap(),
     };
@@ -240,7 +230,6 @@ fn build(before: &StateWitness, schedule: Option<&Signed>, receiver: &Signed) ->
             },
             successor_pending_outgoing: pending_tree.root(),
             successor_fee_claim: fee_tree.root(),
-            blacklist: BlacklistGap::unused(),
             quota: Box::new(QuotaWitness::unused()),
         })),
     };

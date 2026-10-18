@@ -1,0 +1,100 @@
+"""Independent level-by-level source fold versus fixed original-order circuit."""
+from collections import Counter
+import random
+import unittest
+
+from bit_ir import bits, unpack, apply_gates
+from vole_machine import RowPRG, VectorFold
+from test_prg_machine import ToyCipher, reference_cipher
+
+
+def source_row(seed, iv, tweak, count):
+    raw, block = b"", iv.to_bytes(16,"little")
+    for i in range((count+127)//128):
+        low = (int.from_bytes(block[:4],"little")+i)&0xffffffff
+        high = (int.from_bytes(block[12:],"little")+tweak)&0xffffffff
+        message = low.to_bytes(4,"little")+block[4:12]+high.to_bytes(4,"little")
+        raw += reference_cipher(seed,int.from_bytes(message,"little")).to_bytes(16,"little")
+    return int.from_bytes(raw,"little")&((1 << count)-1)
+
+
+def source_hidden_fold(seeds, iv, hidden, depth, instance, row_bits, ell, correction):
+    # Directly implements the source's reordered list and level-by-level fold,
+    # without using the alternative original-order selector formula.
+    level = [0]+[source_row(seeds[j ^ hidden],iv,(1 << 31)+instance,row_bits)
+                  for j in range(1,1 << depth)]
+    columns = []
+    while len(level) != 1:
+        column = 0
+        for i in range(1,len(level),2): column ^= level[i]
+        columns.append(column)
+        level = [a^b for a,b in zip(level[::2],level[1::2])]
+    if instance:
+        for c in range(depth):
+            if (hidden >> c)&1: columns[c] ^= correction
+    return columns
+
+
+class VoleMachineTests(unittest.TestCase):
+    def test_row_padding_boundaries_and_source_frame(self):
+        key, iv = (1 << 255)|133, (1 << 128)-2
+        for count in (1,8,13,127,128,129,255,384):
+            row = RowPRG(ToyCipher(),count)
+            for tweak in (0,1 << 31,(1 << 31)+21,0xffffffff):
+                got = unpack(row.evaluate(bits(key,256)+bits(iv,128)+bits(tweak,32)))
+                self.assertEqual(got,source_row(key,iv,tweak,count))
+                self.assertEqual(got >> count,0)
+                self.assertEqual(row.outputs,8*((count+7)//8))
+
+    def test_all_small_hidden_indices_match_source_fold(self):
+        rng = random.Random(23803)
+        for depth in (1,2,3,4):
+            for instance in (0,1,32):
+                c = VectorFold(depth,instance,8,137,ToyCipher())
+                seeds = [0 if i%3 == 0 else rng.getrandbits(256) for i in range(1 << depth)]
+                iv, correction = rng.getrandbits(128), 0 if instance == 0 else 193
+                for hidden in range(1 << depth):
+                    expected = source_hidden_fold(seeds,iv,hidden,depth,instance,137,8,correction)
+                    self.assertEqual(c.evaluate(seeds,iv,hidden,correction),expected)
+                    changed = list(seeds)
+                    changed[hidden] ^= (1 << 256)-1
+                    self.assertEqual(c.evaluate(changed,iv,hidden,correction),expected)
+
+    def test_complete_clean_column_map_count_and_inverse(self):
+        c = VectorFold(2,1,8,13,ToyCipher())
+        p = c.layout()
+        gates = tuple(c.emit_clean())
+        census = Counter(g[0] for g in gates)
+        expected = c.resources()["gates"]
+        for name in ("x","cx","ccx"):
+            self.assertEqual(census[name],expected[name])
+        seeds, iv, correction = [0,1,0,(1 << 255)|21], (1 << 128)-1, 171
+        for hidden in range(4):
+            inputs = (tuple(bit for seed in seeds for bit in bits(seed,256))+bits(iv,128)
+                      +bits(hidden,2)+bits(correction,8))
+            columns = source_hidden_fold(seeds,iv,hidden,2,1,13,8,correction)
+            wanted = tuple(bit for column in columns for bit in bits(column,16))
+            z = (1,0,1,1)*8
+            state = list(inputs+(0,)*(p["output_start"]-len(inputs))+z)
+            before = list(state)
+            apply_gates(state,gates)
+            self.assertEqual(state[:len(inputs)],list(inputs))
+            self.assertEqual(state[len(inputs):p["output_start"]],[0]*(p["output_start"]-len(inputs)))
+            self.assertEqual(tuple(state[p["output_start"]:]),tuple(a^b for a,b in zip(z,wanted)))
+            apply_gates(state,reversed(gates))
+            self.assertEqual(state,before)
+
+    def test_correction_zero_and_invalid_geometry_refused(self):
+        c = VectorFold(2,0,8,13,ToyCipher())
+        with self.assertRaises(ValueError): c.evaluate([0]*4,0,0,1)
+        with self.assertRaises(ValueError): c.evaluate([0]*4,0,4,0)
+        for args in ((0,0,8,13),(13,0,8,13),(2,64,8,13),(2,0,9,13),(2,0,16,13)):
+            with self.assertRaises(ValueError): VectorFold(*args,ToyCipher())
+        with self.assertRaises(ValueError): RowPRG(ToyCipher(),0)
+        row = RowPRG(ToyCipher(),13)
+        with self.assertRaises(ValueError):
+            tuple(row.emit((0,)*row.inputs,tuple(range(416,432)),tuple(range(432,432+row.work))))
+
+
+if __name__ == '__main__':
+    unittest.main()

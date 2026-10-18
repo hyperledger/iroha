@@ -149,6 +149,8 @@ pub(super) fn select_vesta_cancellable(
 
 /// Decode the exact plan-shaped Q accumulator export; the caller verifies Q first.
 /// The fixed plan owns the slot count, source k and normalized challenge interval.
+/// An own sigma is hard, so its verdict must be true; an incoming-only plan's
+/// verdict is the incoming soft result and either value decodes.
 pub(super) fn q_sigma_part(columns: &[Vec<Fq>], plan: &QSigmaPlan) -> Result<FoldInput<Eq>, Error> {
     if columns.len() != plan.instance_lengths().len()
         || columns.iter().map(Vec::len).ne(plan.instance_lengths())
@@ -158,7 +160,9 @@ pub(super) fn q_sigma_part(columns: &[Vec<Fq>], plan: &QSigmaPlan) -> Result<Fol
     let [bounded, point, _, verdicts, source] = columns else {
         return Err(Error::Input);
     };
-    if verdicts[0] != Fq::ONE || source.as_slice() != [Fq::from(u64::from(plan.part_source_k()))] {
+    if (plan.has_own() && verdicts[0] != Fq::ONE)
+        || source.as_slice() != [Fq::from(u64::from(plan.part_source_k()))]
+    {
         return Err(Error::Input);
     }
     let g = iroha_plonk::transcript::generator_from_coordinates::<Eq>(point[0], point[1])
@@ -202,116 +206,75 @@ pub(super) fn object_digest(kind: ObjectKind, raw: &[u8]) -> Result<Fp, Error> {
     Ok(hash_with_domain(kind.object_domain(), &words))
 }
 
-/// Bind the three hard own signed tapes to Q1's exact receipt/credential/certificate exports.
-/// This performs no proof verification or complete semantic admission. The caller
-/// must still verify Q and every mandatory circuit owner. Incoming soft objects
-/// are deliberately excluded from this own-authorization interface.
-pub(super) fn check_hard_own_tapes(
-    objects: [&[u8]; 3],
+/// Bind the one hard own receipt tape to Q0's single slot under the predecessor
+/// payment key. A lean route carries the credential and its certificate by
+/// continuity, so no other own slot exists. This performs no proof verification
+/// or semantic admission; the caller must still verify Q and every circuit owner.
+pub(super) fn check_hard_own_receipt(
+    receipt: &[u8],
     columns: &[Vec<Fq>],
     payment_key: [Fp; 4],
-    root: [[u64; 4]; 2],
 ) -> Result<(), Error> {
-    let kinds = [
-        ObjectKind::Credential,
-        ObjectKind::Certificate,
-        ObjectKind::Receipt,
-    ];
-    for (kind, raw) in kinds.into_iter().zip(objects) {
-        if raw.len() != kind.body_len() + 64 || raw[..2] != 1_u16.to_le_bytes() {
-            return Err(Error::Input);
-        }
+    check_hard_own_receipt_slot(receipt, columns, 1, payment_key)
+}
+
+/// Bind the hard own receipt tape to slot 0 of a merged signature leaf with
+/// `slots` slots under the predecessor payment key. The other slots are incoming
+/// soft objects: their owners bind them to the original tapes in the circuit, and
+/// this own-authorization interface deliberately leaves them untouched.
+pub(super) fn check_hard_own_receipt_slot(
+    receipt: &[u8],
+    columns: &[Vec<Fq>],
+    slots: usize,
+    payment_key: [Fp; 4],
+) -> Result<(), Error> {
+    let kind = ObjectKind::Receipt;
+    if receipt.len() != kind.body_len() + 64 || receipt[..2] != 1_u16.to_le_bytes() {
+        return Err(Error::Input);
     }
     let [public] = columns else {
         return Err(Error::Input);
     };
-    if public.len() != 3 * crate::q_signature::SLOT_WORDS {
-        return Err(Error::Input);
-    }
-    let key = |raw: &[u8], start: usize| -> Result<[Fp; 4], Error> {
-        if raw.get(start) != Some(&4) {
-            return Err(Error::Input);
-        }
-        [17, 1, 49, 33]
-            .map(|offset| {
-                let bytes = raw
-                    .get(start + offset..start + offset + 16)
-                    .ok_or(Error::Input)?;
-                Ok(Fp::from_u128(u128::from_be_bytes(
-                    bytes.try_into().map_err(|_| Error::Input)?,
-                )))
-            })
-            .into_iter()
-            .collect::<Result<Vec<_>, Error>>()?
-            .try_into()
-            .map_err(|_| Error::Input)
-    };
-    // Fixed Credential/Certificate body schemas; these are the same authorized
-    // keys used by authenticate_current and the own Receipt signature circuit.
-    if key(objects[0], 130)? != payment_key || objects[1][34] != 1 {
-        return Err(Error::Input);
-    }
-    let enrollment = key(objects[1], 35)?;
-    let root = core::array::from_fn(|i| {
-        let words = root[i / 2];
-        let offset = 2 * (i % 2);
-        Fp::from_u128(u128::from(words[offset]) | (u128::from(words[offset + 1]) << 64))
-    });
-    for ((kind, raw, authorized), proved) in [
-        (ObjectKind::Receipt, objects[2], payment_key),
-        (ObjectKind::Credential, objects[0], enrollment),
-        (ObjectKind::Certificate, objects[1], root),
-    ]
-    .into_iter()
-    .zip(public.chunks_exact(crate::q_signature::SLOT_WORDS))
+    if slots == 0
+        || slots
+            .checked_mul(crate::q_signature::SLOT_WORDS)
+            .is_none_or(|words| public.len() != words)
     {
-        let end = kind.body_len();
-        let mut expected = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
-        expected.extend(authorized);
-        for offset in [16, 0, 48, 32] {
-            expected.push(Fp::from_u128(u128::from_be_bytes(
-                raw[end + offset..end + offset + 16]
-                    .try_into()
-                    .map_err(|_| Error::Input)?,
-            )));
-        }
-        expected.push(Fp::ONE);
-        // Compare canonical integer representations, never a reducing Fq -> Fp map.
-        if proved
+        return Err(Error::Input);
+    }
+    check_hard_slot(
+        kind,
+        receipt,
+        payment_key,
+        &public[..crate::q_signature::SLOT_WORDS],
+    )
+}
+
+/// One exported hard slot: body digest, authorized key, raw signature limbs, verdict.
+fn check_hard_slot(
+    kind: ObjectKind,
+    raw: &[u8],
+    authorized: [Fp; 4],
+    proved: &[Fq],
+) -> Result<(), Error> {
+    let end = kind.body_len();
+    let mut expected = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+    expected.extend(authorized);
+    for offset in [16, 0, 48, 32] {
+        expected.push(Fp::from_u128(u128::from_be_bytes(
+            raw[end + offset..end + offset + 16]
+                .try_into()
+                .map_err(|_| Error::Input)?,
+        )));
+    }
+    expected.push(Fp::ONE);
+    // Compare canonical integer representations, never a reducing Fq -> Fp map.
+    if proved.len() != expected.len()
+        || proved
             .iter()
             .zip(expected)
             .any(|(a, b)| a.to_repr() != b.to_repr())
-        {
-            return Err(Error::Input);
-        }
-    }
-    Ok(())
-}
-
-/// Bind the own statement and complete LE32-prefixed sigma tape to Q0.
-/// The caller selects the chunk range from its installed plan and still checks
-/// the full Q schema, selector, proof and part. Other Q0 slots remain untouched,
-/// including malformed incoming originals under their mandatory soft policy.
-pub(super) fn check_own_sigma_tape(
-    columns: &[Vec<Fq>],
-    chunks: core::ops::Range<usize>,
-    statement: &[Fp; 26],
-    sigma: &[u8],
-) -> Result<(), Error> {
-    let bounded = columns.first().ok_or(Error::Input)?;
-    let digest = hash_with_domain(iroha_plonk_gadgets::statement::STATEMENT_DOMAIN, statement);
-    if bounded.first().map(PrimeField::to_repr) != Some(digest.to_repr())
-        || chunks.start == 0
-        || chunks.end < chunks.start
     {
-        return Err(Error::Input);
-    }
-    let original = frame(sigma)?;
-    let expected = original
-        .chunks(31)
-        .map(|chunk| le_value::<Fq>(chunk).ok_or(Error::Input))
-        .collect::<Result<Vec<_>, _>>()?;
-    if bounded.get(chunks) != Some(expected.as_slice()) {
         return Err(Error::Input);
     }
     Ok(())

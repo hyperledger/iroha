@@ -1,0 +1,86 @@
+"""Source proof order, conditional typed return, exact counts and cleanup."""
+from collections import Counter
+from dataclasses import replace
+from pathlib import Path
+import random
+
+import pytest
+
+from bit_ir import apply_gates, bits, unpack
+from return_machine import ReturnProjection, actual_return, source_layout
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize('exhausted', [0, 1])
+def test_small_joint_map_arbitrary_targets_and_double_application(exhausted):
+    circuit = ReturnProjection((('first', 2), ('second', 1)), ('second', 'first'), 15)
+    p = circuit.layout()
+    rng = random.Random(861)
+    values = [exhausted]+[rng.randrange(2) for _ in range(circuit.input_bits-1)]
+    target = [rng.randrange(2) for _ in range(circuit.output_bits)]
+    expected = [exhausted, *bits(15*exhausted, 32), *bits(3*(1-exhausted), 64)]
+    for name, count in circuit.fields:
+        start = p['fields'][name][0]
+        expected += [v*(1-exhausted) for v in values[start:start+8*count]]
+    state = values+[0]+target+[1, 0, 1]
+    before = state[:]
+    apply_gates(state, circuit.emit_clean())
+    assert state[:circuit.input_bits] == values and state[circuit.input_bits] == 0
+    assert state[p['output']:-3] == [a^b for a,b in zip(target,expected)]
+    assert state[-3:] == [1, 0, 1]
+    apply_gates(state, circuit.emit_clean())
+    assert state == before
+
+
+@pytest.mark.parametrize('row', ['candidate', 'comparator'])
+@pytest.mark.parametrize('role', ['registration', 'vote'])
+def test_all_actual_layouts_emitted_source_order_exhaustion_and_exact_census(row, role):
+    circuit = actual_return(ROOT, row, role)
+    p = circuit.layout()
+    assert circuit.last_counter == (1 << 20)-1
+    assert circuit.fields[-3:] == (('iv_pre',16),('salt',32),('counter',4))
+    values = {name: bytes((j*71+index*13)%256 for j in range(count))
+              for index,(name,count) in enumerate(circuit.fields)}
+    values['counter'] = ((1 << 20)-1).to_bytes(4, 'little')
+    encoded = b''.join(values[name] for name,_ in circuit.fields)
+    for exhausted in (0, 1):
+        state = [0]*p['size']
+        state[0] = exhausted
+        for name,value in values.items():
+            start,width = p['fields'][name]
+            state[start:start+width] = [(byte>>bit)&1 for byte in value for bit in range(8)]
+        census = Counter()
+        for gate in circuit.emit_clean():
+            kind,*wires = gate
+            assert len(set(wires)) == len(wires)
+            state[wires[-1]] ^= int(all(state[w] for w in wires[:-1]))
+            census[kind] += 1
+        assert state[p['success']] == 0 and state[p['error']] == exhausted
+        assert unpack(state[p['last']:p['last']+32]) == exhausted*((1 << 20)-1)
+        assert unpack(state[p['length']:p['proof']]) == (1-exhausted)*len(encoded)
+        expected = bytes(len(encoded)) if exhausted else encoded
+        actual = bytes(sum(state[p['proof']+8*i+j]<<j for j in range(8)) for i in range(len(encoded)))
+        assert actual == expected
+        assert census == {k:circuit.resources()['gates'][k] for k in ('x','cx','ccx')}
+    assert circuit.resources()['joint_oracle_adversary_projection_proved'] is False
+
+
+def test_source_hashes_are_checked_and_not_replaced(tmp_path):
+    with pytest.raises(OSError): source_layout(tmp_path, 'candidate', 'vote')
+    from return_machine import PINS
+    for path in PINS:
+        target = tmp_path/path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT/path).read_bytes()+b'\n')
+    with pytest.raises(ValueError, match='source changed'): source_layout(tmp_path, 'candidate', 'vote')
+
+
+def test_geometry_and_field_inventory_refusals():
+    base = ReturnProjection((('a', 1), ('b', 1)), ('b', 'a'))
+    for changes in ({'fields': (('a', 1), ('a', 1))}, {'input_order': ('a','a')},
+                    {'input_order': ['a','b']}, {'last_counter': True},
+                    {'fields': (('a', True),)}, {'fields': ()}):
+        with pytest.raises(ValueError): replace(base, **changes)
+    for row,role in [([], 'vote'), ('candidate', {}), ('unknown','vote'), ('candidate','unknown')]:
+        with pytest.raises(ValueError): source_layout(ROOT, row, role)

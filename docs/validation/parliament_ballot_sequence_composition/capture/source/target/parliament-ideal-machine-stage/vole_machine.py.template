@@ -1,0 +1,167 @@
+"""V0 work in progress: clean source-equivalent hidden small-VOLE columns.
+
+For column c, the source reordered fold equals XOR_k (bit_c(k) XOR hidden_c)
+*PRG(seed_k). This permits a fixed original-seed scan with explicit controlled
+XORs. Even the hidden seed may be expanded as charged concrete-public-AES dummy
+work: all its selection flags are zero. No secret-index RAM or PRP challenge
+oracle is substituted. Mask-tail folding and the clean all-vector composition are in mask_fold.py
+and vole_columns.py; whole-request composition remains open.
+"""
+from dataclasses import dataclass, field
+
+from bit_ir import Builder, Cost, bits, integer, require, unpack
+from prg_machine import add_words
+
+
+@dataclass(frozen=True)
+class RowPRG:
+    """Exact padded source fill_bits with concrete AES and explicit PRG framing."""
+    aes: object
+    row_bits: int
+    _block: object = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        integer(self.row_bits, 1, 65536, "row bits")
+        require((self.aes.inputs, self.aes.outputs) == (384, 128)
+                and self.aes.cost.base_calls == 0, "concrete public AES")
+        b = Builder(416, (self.aes,))
+        key, iv, tweak = tuple(range(256)), tuple(range(256, 384)), tuple(range(384, 416))
+        high = add_words(b, iv[96:], tweak)
+        one, low, out = b.bit("one"), iv[:32], []
+        for counter in range(self.blocks):
+            out.extend(b.node("kernel", *(key+low+iv[32:96]+high), kernel=self.aes.name, width=128))
+            if counter+1 != self.blocks:
+                low = b.increment(low, one)
+        out = out[:self.row_bits]
+        if self.row_bits % 8:
+            zero = b.bit("zero")
+            out += [zero] * (8-self.row_bits % 8)
+        object.__setattr__(self, "_block", b.finish(tuple(out)))
+
+    @property
+    def blocks(self): return (self.row_bits+127)//128
+    @property
+    def name(self): return "concrete-row-prg-"+str(self.row_bits)
+    inputs = 416
+    @property
+    def outputs(self): return 8*((self.row_bits+7)//8)
+    @property
+    def work(self): return self._block.derived+self._block.work
+    @property
+    def cost(self): return self._block.cost.times(2)+Cost(cx=self.outputs)
+
+    def evaluate(self, values):
+        return self._block.evaluate(values)
+
+    def emit(self, inputs, outputs, work):
+        inputs, outputs, work = tuple(inputs), tuple(outputs), tuple(work)
+        require((len(inputs),len(outputs),len(work)) == (self.inputs,self.outputs,self.work), "row PRG interface widths")
+        wires = inputs+work+outputs
+        require(all(type(w) is int and w >= 0 for w in wires) and len(set(wires)) == len(wires), "row PRG aliases")
+        for gate in self._block.emit_clean():
+            yield (gate[0], *(wires[w] for w in gate[1:]))
+
+
+@dataclass(frozen=True)
+class VectorFold:
+    """One source vector's hidden fold plus the first-ell correction, XOR cleanly."""
+    depth: int
+    instance: int
+    ell: int
+    row_bits: int
+    aes: object
+
+    def __post_init__(self):
+        integer(self.depth, 1, 12, "vector depth")
+        integer(self.instance, 0, 63, "vector number")
+        integer(self.ell, 1, 65536, "ell")
+        integer(self.row_bits, self.ell, 65536, "row bits")
+        require(self.ell % 8 == 0, "source typed witness byte boundary")
+
+    @property
+    def leaves(self): return 1 << self.depth
+    @property
+    def width_bits(self): return 8*((self.row_bits+7)//8)
+    @property
+    def input_bits(self): return 256*self.leaves+128+self.depth+(self.ell if self.instance else 0)
+    @property
+    def output_bits(self): return self.depth*self.width_bits
+    @property
+    def tweak(self): return (1 << 31)+self.instance
+
+    def layout(self):
+        row = RowPRG(self.aes, self.row_bits)
+        tweak_start = self.input_bits
+        row_start = tweak_start+32
+        work_start = row_start+self.width_bits
+        flag_start = work_start+row.work
+        output_start = flag_start+self.depth
+        return dict(row=row, tweak_start=tweak_start, row_start=row_start, work_start=work_start,
+                    flag_start=flag_start, output_start=output_start, size=output_start+self.output_bits)
+
+    def emit_clean(self):
+        p = self.layout()
+        row = p["row"]
+        iv = tuple(range(256*self.leaves,256*self.leaves+128))
+        hidden_start = 256*self.leaves+128
+        tweak = tuple(range(p["tweak_start"],p["tweak_start"]+32))
+        output = tuple(range(p["row_start"],p["row_start"]+self.width_bits))
+        work = tuple(range(p["work_start"],p["work_start"]+row.work))
+        def constants():
+            for bit in range(32):
+                if (self.tweak >> bit)&1: yield ("x",tweak[bit])
+        def flags(leaf):
+            for c in range(self.depth):
+                yield ("cx",hidden_start+c,p["flag_start"]+c)
+                if (leaf >> c)&1: yield ("x",p["flag_start"]+c)
+        yield from constants()
+        for leaf in range(self.leaves):
+            seed = tuple(range(256*leaf,256*(leaf+1)))
+            yield from row.emit(seed+iv+tweak,output,work)
+            yield from flags(leaf)
+            for c in range(self.depth):
+                for bit in range(self.row_bits):
+                    yield ("ccx",p["flag_start"]+c,p["row_start"]+bit,p["output_start"]+c*self.width_bits+bit)
+            # Each flag's X and CNOT share a target, so they commute.
+            yield from flags(leaf)
+            yield from row.emit(seed+iv+tweak,output,work)
+        if self.instance:
+            correction_start = hidden_start+self.depth
+            for c in range(self.depth):
+                for bit in range(self.ell):
+                    yield ("ccx",hidden_start+c,correction_start+bit,p["output_start"]+c*self.width_bits+bit)
+        yield from constants()
+
+    def resources(self):
+        p = self.layout()
+        row = p["row"]
+        calls = 2*self.leaves
+        extra = Cost(x=self.leaves*self.depth+2*self.tweak.bit_count(), cx=2*self.leaves*self.depth,
+                     ccx=self.leaves*self.depth*self.row_bits+(self.depth*self.ell if self.instance else 0))
+        return dict(gates=(row.cost.times(calls)+extra).as_dict(), input_bits=self.input_bits,
+                    output_bits=self.output_bits, total_clean_work_bits=p["output_start"]-self.input_bits,
+                    concrete_clean_row_calls=calls, concrete_clean_AES_calls=4*self.leaves*row.blocks,
+                    actual_source_row_calls=self.leaves-1,
+                    original_seed_order_without_secret_lookup=True, hidden_seed_dummy_charged=True,
+                    padding_coordinates_return_zero=True, source_equivalence_requires_typed_hidden_index=True,
+                    exact_for_defined_emitter=True, mask_tail_folding_implemented=False,
+                    complete_V0_coverage=False, complete_resource_vector=False,
+                    complete_simulator_coverage=False, profile_qualified=False, production_gate_changed=False)
+
+    def evaluate(self, seeds, iv, hidden, correction=0):
+        require(type(seeds) in (tuple,list) and len(seeds) == self.leaves, "seed slots")
+        for seed in seeds: integer(seed,0,(1 << 256)-1,"seed")
+        integer(iv,0,(1 << 128)-1,"IV")
+        integer(hidden,0,self.leaves-1,"hidden index")
+        integer(correction,0,(1 << self.ell)-1,"correction")
+        require(self.instance != 0 or correction == 0, "c_0 must be zero")
+        row = RowPRG(self.aes,self.row_bits)
+        columns = [0]*self.depth
+        for leaf,seed in enumerate(seeds):
+            value = unpack(row.evaluate(bits(seed,256)+bits(iv,128)+bits(self.tweak,32)))
+            for c in range(self.depth):
+                if ((leaf ^ hidden) >> c)&1: columns[c] ^= value
+        if self.instance:
+            for c in range(self.depth):
+                if (hidden >> c)&1: columns[c] ^= correction
+        return columns

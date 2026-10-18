@@ -447,7 +447,7 @@ fn status() -> Status {
     request.bytes[210..242].copy_from_slice(&receiver_digest.to_repr());
     // The certificate-set digest is a different Request field. Replacing it
     // with the credential digest would hide a wrong circuit field index.
-    assert_ne!(field_at(&request.bytes, 394), receiver_digest);
+    assert_ne!(field_at(&request.bytes, 354), receiver_digest);
     let mut request_words = j["poseidon"]["credit_id"]["poseidon"]["items"]
         .as_array()
         .expect("request fields")

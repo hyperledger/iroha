@@ -1101,7 +1101,7 @@ mod std_fs {
     }
     #[cfg(unix)]
     pub(super) fn root_is_private(uid: u32, mode: u32) -> bool {
-        uid == rustix::process::geteuid().as_raw() && mode & 0o077 == 0
+        uid == rustix::process::geteuid().as_raw() && mode.trailing_zeros() >= 6
     }
     #[cfg(all(unix, test))]
     pub(super) const NOFOLLOW: i32 = {

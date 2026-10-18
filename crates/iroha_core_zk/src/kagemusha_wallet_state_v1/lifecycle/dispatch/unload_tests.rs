@@ -33,7 +33,7 @@ fn canonical_projection_keeps_exact_package_and_rejects_foreign_account_quote_an
                 &scheme,
                 amount,
                 charge,
-                claim.credential,
+                &claim.credential,
                 claim.certificates.clone(),
                 claim.package.clone(),
                 account,

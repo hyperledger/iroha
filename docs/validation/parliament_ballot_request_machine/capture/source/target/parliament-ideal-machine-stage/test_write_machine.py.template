@@ -1,0 +1,132 @@
+"""W0 chronology, explicit framing, disabled traversal and source-order controls."""
+from collections import Counter
+from dataclasses import replace
+from pathlib import Path
+import random
+
+import pytest
+
+from bit_ir import apply_gates, bits, unpack
+from write_machine import Frame, ProgrammedWrites, actual_frames, actual_writes
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def byte_bits(value):
+    return [((byte >> j)&1) for byte in value for j in range(8)]
+
+
+def toy(trials=3, capacity=7):
+    frames = (
+        Frame(b'P', (('namespace_digest', 1), ('mu', 1)), 9, 1),
+        Frame(b'P', (('namespace_digest', 1), ('challenge_1', 1)), 10, 1),
+        Frame(b'P', (('namespace_digest', 1), ('challenge_2', 1), ('counter_u32_le', 4)), 11, 1),
+    )
+    return ProgrammedWrites(frames, trials, capacity, 4, 8, 1)
+
+
+def record(machine, challenge, index, fields, primary):
+    frame = machine.frames[challenge-1]
+    key = frame.prefix+b''.join(index.to_bytes(4, 'little') if name == 'counter_u32_le'
+                               else fields[name] for name, _ in frame.fields)+bytes([frame.domain])
+    value = primary[index] if challenge == 3 else fields['challenge_'+str(challenge)]
+    assert len(key) == frame.key_bytes
+    return [1, *bits(len(key), machine.length_bits),
+            *byte_bits(key), *([0]*(8*(machine.key_capacity-len(key)))),
+            *byte_bits(value), *([0]*(8*(machine.value_capacity-len(value))))]
+
+
+@pytest.mark.parametrize('enabled', [0, 1, 2, 3])
+@pytest.mark.parametrize('previous', [0, 2])
+def test_prefix_chronology_prior_records_disabled_full_cleanup_and_inverse(enabled, previous):
+    machine = toy()
+    p, append = machine.layout(), machine.append()
+    state = [0]*p['size']
+    fields = {name: bytes([19+3*i]) for i, (name, _) in enumerate(machine.field_inventory())}
+    primary = [b'\x71', b'\x82', b'\x93']
+    for name, value in fields.items():
+        start, width = p['fields'][name]
+        state[start:start+width] = bits(int.from_bytes(value, 'little'), width)
+    state[p['primary']:p['flags']] = [b for v in primary for b in bits(v[0], 8)]
+    state[p['flags']:p['input_bits']] = [1]*enabled+[0]*(machine.trials-enabled)
+    width = 1+append.record_bits
+    old_record = record(machine, 1, 0, fields, primary)
+    # Deliberately duplicate an earlier key, preserving each old chronological entry.
+    for i in range(previous):
+        start = p['log']+i*width
+        state[start:start+width] = old_record
+    state[p['counter']:p['enable']] = bits(previous, append.counter_bits)
+    before = state[:]
+    apply_gates(state, machine.emit())
+    wanted = before[:]
+    records = [record(machine, 1, 0, fields, primary), record(machine, 2, 0, fields, primary)]
+    records += [record(machine, 3, i, fields, primary) for i in range(enabled)]
+    for i, value in enumerate(records, previous):
+        wanted[p['log']+i*width:p['log']+(i+1)*width] = value
+    wanted[p['counter']:p['enable']] = bits(previous+2+enabled, append.counter_bits)
+    assert state == wanted
+    assert not any(state[p['enable']:])
+    apply_gates(state, machine.emit(inverse=True))
+    assert state == before
+
+
+@pytest.mark.parametrize('trials', [1, 2, 3, 8])
+def test_full_lazy_emitted_gate_census_forward_and_inverse(trials):
+    machine = toy(trials, trials+2)
+    expected = machine.resources()['gates']
+    for inverse in (False, True):
+        census = Counter(g[0] for g in machine.emit(inverse=inverse))
+        assert census == {k: expected[k] for k in ('x', 'cx', 'ccx')}
+    p, r = machine.layout(), machine.resources()
+    assert p['size'] == r['input_bits']+r['persistent_log_bits']+r['persistent_counter_bits']+r['clean_work_bits']
+    assert expected['base_xor_oracle_calls'] == 0
+    assert r['auxiliary_tape_inputs'] == r['auxiliary_writes'] == 0
+    assert r['complete_W0_source_join'] is False
+
+
+@pytest.mark.parametrize('row', ['candidate', 'comparator'])
+@pytest.mark.parametrize('role', ['registration', 'vote'])
+def test_actual_source_frame_scatter_all_fields_padding_and_trial_endpoints(row, role):
+    frames = actual_frames(ROOT, row, role)
+    # Finite test controller with actual frames, then direct actual largest trial index.
+    machine = ProgrammedWrites(frames, 3, 5, 64, 215150)
+    p = machine.layout()
+    rng = random.Random(2309)
+    fields = {name: rng.randbytes(count) for name, count in machine.field_inventory()}
+    primary = [rng.randbytes(32) for _ in range(3)]
+    for challenge, index in ((1, 0), (2, 0), (3, 2)):
+        state = [0]*p['size']
+        for name, value in fields.items():
+            start, width = p['fields'][name]
+            state[start:start+width] = byte_bits(value)
+        state[p['primary']:p['flags']] = [bit for v in primary for bit in bits(int.from_bytes(v, 'little'), 256)]
+        state[p['trial']:p['trial']+32] = bits(index, 32)
+        before = state[:]
+        apply_gates(state, machine.scatter(challenge, index))
+        assert state[p['staging']:p['append_work']] == record(machine, challenge, index, fields, primary)[1:]
+        apply_gates(state, machine.scatter(challenge, index))
+        assert state == before
+    lifetime = actual_writes(ROOT, row, role, 1 << 44)
+    layout, resource = lifetime.layout(), lifetime.resources()
+    assert lifetime.trials == 1 << 20 and lifetime.append().counter_bits == 65
+    assert lifetime.capacity == (1 << 44)*((1 << 20)+2)
+    assert resource['fixed_append_scans'] == (1 << 20)+2
+    assert next(lifetime.emit_record(3, (1 << 20)-1)) == ('x', layout['trial'])
+    assert resource['primary_random_tape_bits'] == 256*(1 << 20)
+
+
+def test_strict_geometry_and_factories_refuse_malformed_inputs():
+    for kwargs in ({'trials': True}, {'capacity': 4}, {'length_bits': 1},
+                   {'key_capacity': 7}, {'value_capacity': False}):
+        with pytest.raises(ValueError): replace(toy(), **kwargs)
+    for field in ((('a', 1), ('a', 1)), (('a', True),), (['a', 1],)):
+        with pytest.raises(ValueError): Frame(b'p', field, 9, 1)
+    with pytest.raises(ValueError): replace(toy(), frames=list(toy().frames))
+    with pytest.raises(ValueError): replace(toy(), frames=(toy().frames[0],)*3)
+    for bad in (True, -1, 0, 1.0, 22):
+        with pytest.raises(ValueError): actual_writes(ROOT, 'candidate', 'vote', 1, bad)
+    for bad in (True, 0, -1, 1.0):
+        with pytest.raises(ValueError): actual_writes(ROOT, 'candidate', 'vote', bad)
+    with pytest.raises(ValueError): list(toy().emit(inverse=1))
+    with pytest.raises(ValueError): list(toy().emit_record(3, True))
+    with pytest.raises(ValueError): list(toy().scatter(0))

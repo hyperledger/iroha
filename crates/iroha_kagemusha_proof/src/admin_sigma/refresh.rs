@@ -1,9 +1,9 @@
-//! Single-source `RefreshPolicy` sigma with a constrained five-kind update selector.
+//! Single-source `RefreshPolicy` sigma with a constrained four-kind update selector.
 //!
 //! Update projections are private witnesses. Native preparation and A must bind
 //! them to the actual signed object; they grant no authentication or map authority.
 //! The fixed k12 source fits the measured 2,499-row maximum advice lane.
-//! All five kinds use one original key; no runtime shape selection is provided.
+//! All four kinds use one original key; no runtime shape selection is provided.
 
 use super::*;
 use crate::operation_relation::{
@@ -16,7 +16,7 @@ use crate::operation_relation::{
 /// The source uses the existing administrative sigma descriptor class.
 pub const REFRESH_K: u32 = BOOTSTRAP_K;
 
-/// The five canonical update kinds; the value enters the circuit as advice only.
+/// The four canonical update kinds; the value enters the circuit as advice only.
 /// It never selects a different Rust synthesis branch, descriptor or proving key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -25,12 +25,10 @@ pub enum RefreshKind {
     Credential = 1,
     /// Newer scheme policy and its permitted controls intersection.
     SchemePolicy = 2,
-    /// Newer blacklist and its separately authenticated history insertion.
-    Blacklist = 3,
     /// Newer quota share and its separately authenticated usage-array rebuild.
-    QuotaShare = 4,
+    QuotaShare = 3,
     /// A different time anchor for the same wallet.
-    TimeAnchor = 5,
+    TimeAnchor = 4,
 }
 
 /// Canonical fixed-width projection of one update, authenticated separately by A.
@@ -48,15 +46,15 @@ pub struct RefreshUpdateWitness {
     pub asset: [Fp; 2],
     /// Wallet for QuotaShare/TimeAnchor, zero otherwise.
     pub wallet: [Fp; 2],
-    /// Policy epoch, list version or share id; zero for Credential/TimeAnchor.
+    /// Policy epoch or share id; zero for Credential/TimeAnchor.
     pub counter: Fp,
     /// Signed issue/issuer time; zero for `SchemePolicy`, which preserves the floor.
     pub issued_at_ms: Fp,
     /// Credential lease or quota expiry, zero otherwise.
     pub expires_at_ms: Fp,
-    /// Blacklist entries root or quota windows root, zero otherwise.
+    /// Quota windows root, zero otherwise.
     pub root: Fp,
-    /// Scheme policy's three-bit controls, zero otherwise.
+    /// Scheme policy's two-bit controls, zero otherwise.
     pub controls: Fp,
     /// Scheme policy's optional fee-schedule digest, zero otherwise.
     pub fee_schedule: Fp,
@@ -94,7 +92,7 @@ pub struct RefreshWitness {
     pub update: RefreshUpdateWitness,
 }
 
-/// One fixed circuit for all five kinds under selector `(RefreshPolicy, 0)`.
+/// One fixed circuit for all four kinds under selector `(RefreshPolicy, 0)`.
 /// A still owns signatures, immutable renewal identity and exact map/rebuild checks.
 #[derive(Clone, Copy, Debug)]
 pub struct RefreshCircuit {

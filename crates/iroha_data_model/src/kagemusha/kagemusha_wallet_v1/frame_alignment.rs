@@ -139,10 +139,9 @@ mod tests {
     use super::*;
 
     fn vectors() -> Value {
-        norito::json::parse_value(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/kagemusha/wallet_v1_vectors.json"
-        )))
+        norito::json::parse_value(&crate::kagemusha::kagemusha_wallet_v1::test_fixture_read(
+            "fixtures/kagemusha/wallet_v1_vectors.json",
+        ))
         .expect("frozen wallet fixture")
     }
 

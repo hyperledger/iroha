@@ -14,6 +14,7 @@ struct ScriptWallet {
     base: TestWallet,
     fold: FoldScript,
     setup: Option<SetupScript>,
+    resume: Option<Box<dyn FnMut() -> Result<Response> + Send>>,
 }
 impl Wallet for ScriptWallet {
     fn snapshot(&mut self) -> Result<state::Snapshot> {
@@ -35,7 +36,10 @@ impl Wallet for ScriptWallet {
         self.base.retry(id)
     }
     fn resume(&mut self) -> Result<Response> {
-        self.base.resume()
+        match self.resume.as_mut() {
+            Some(run) => run(),
+            None => self.base.resume(),
+        }
     }
     fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
         (self.fold)()
@@ -54,6 +58,7 @@ fn scripted(
     let drops = Arc::new(AtomicUsize::new(0));
     let id = install(
         Box::new(ScriptWallet {
+            resume: None,
             base: TestWallet {
                 calls: Arc::new(AtomicUsize::new(0)),
                 drops: drops.clone(),
@@ -166,6 +171,109 @@ fn payment_priority_resumes_after_expected_cancellation_without_sticky_error() {
 }
 
 #[test]
+fn pending_idle_turn_parks_until_a_payment_guard_wakes_folding() {
+    for discarded_publication in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let released = Arc::new(AtomicBool::new(false));
+        let selected = released.clone();
+        let folding = locked(move || {
+            let attempt = observed.fetch_add(1, Ordering::SeqCst);
+            if discarded_publication && attempt == 0 {
+                // The core test verifies Pending publication is discarded. Its
+                // ordinary cancellation response retries once, then prepare parks.
+                Err(Failure::code(CANCELLED))
+            } else if selected.load(Ordering::SeqCst) {
+                caught_up()
+            } else {
+                // The coordinator regression covers Pending -> Idle. This seam
+                // exercises only production worker scheduling, not proof authority.
+                Ok(Response {
+                    kind: 6,
+                    ..Response::default()
+                })
+            }
+        });
+        let id = install(
+            Box::new(ScriptWallet {
+                base: TestWallet {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    drops: Arc::new(AtomicUsize::new(0)),
+                    expected_request: None,
+                },
+                fold: folding,
+                setup: None,
+                resume: Some(Box::new(move || {
+                    // Inert completion observation; the real Coordinator test proves
+                    // same-capsule custody recovery, not this worker scheduling seam.
+                    released.store(true, Ordering::SeqCst);
+                    completion(Some(state::Completion::Complete(vec![7])))
+                })),
+            }),
+            state::Scheduler::new(),
+        )
+        .unwrap();
+        let owner = owner(id).unwrap();
+        activity(id, true, false).unwrap();
+        wait(&owner, |state| {
+            !state.running && !state.wake && state.started
+        });
+        for _ in 0..3 {
+            let status = owner.background.status().unwrap();
+            assert_eq!((status.kind, status.detail, status.sequence), (29, 5, 0));
+        }
+        let expected = 1 + usize::from(discarded_publication);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            expected,
+            "idle must not schedule itself"
+        );
+        assert!(owner.background.inner.lock().error.is_none());
+
+        // The public Native resume path owns the real payment guard and mutex;
+        // its release must wake the parked worker without another activity call.
+        assert_eq!(resume(id).unwrap().kind, 1);
+        wait(&owner, |state| {
+            state.backlog == Some(0) && !state.running && !state.wake
+        });
+        assert_eq!(calls.load(Ordering::SeqCst), expected + 1);
+        assert_eq!(owner.background.status().unwrap().detail, 13);
+        close(id).unwrap();
+    }
+}
+
+#[test]
+fn actual_uncertain_fold_error_stays_latched_until_observed_and_woken() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let uncertain = Failure::unavailable(UNCERTAIN, advance::KagemushaWalletUnavailableV1::Io(5));
+    let (id, owner, _) = scripted(move || {
+        if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+            Err(uncertain)
+        } else {
+            caught_up()
+        }
+    });
+    activity(id, true, false).unwrap();
+    wait(&owner, |state| state.error.is_some() && !state.running);
+    resume(id).unwrap();
+    activity(id, true, false).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let error = setup(id, setup::Setup::BackgroundStatus).unwrap_err();
+    assert_eq!(
+        (error.status, error.reason, error.platform_code),
+        (uncertain.status, uncertain.reason, uncertain.platform_code)
+    );
+    resume(id).unwrap();
+    wait(&owner, |state| {
+        state.backlog == Some(0) && !state.running && !state.wake
+    });
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(owner.background.status().unwrap().detail, 13);
+    close(id).unwrap();
+}
+
+#[test]
 fn failed_spawn_preserves_custody_and_allows_a_fresh_activity_attempt() {
     let (id, owner, drops) = scripted(caught_up);
     let error = owner
@@ -220,6 +328,7 @@ fn the_worker_keeps_the_backlog_of_each_fold_result_and_takes_no_snapshot() {
     let counted = turns.clone();
     let id = install(
         Box::new(ScriptWallet {
+            resume: None,
             base: TestWallet {
                 calls: calls.clone(),
                 drops: Arc::default(),
@@ -398,6 +507,7 @@ fn collection_dispatch_does_not_reserve_payment_priority_against_itself() {
     let calls = Arc::new(AtomicUsize::new(0));
     let id = install(
         Box::new(ScriptWallet {
+            resume: None,
             base: TestWallet {
                 calls: calls.clone(),
                 drops: Arc::default(),
@@ -494,6 +604,7 @@ fn unlocked_owner(
     let release = Arc::new(AtomicBool::new(false));
     let id = install(
         Box::new(ScriptWallet {
+            resume: None,
             base: TestWallet {
                 calls: Arc::new(AtomicUsize::new(0)),
                 drops: Arc::new(AtomicUsize::new(0)),
@@ -665,6 +776,7 @@ fn an_explicit_fold_resumes_a_background_turn_that_ended_idle_during_its_proof()
     });
     let id = install(
         Box::new(ScriptWallet {
+            resume: None,
             base: TestWallet {
                 calls: Arc::new(AtomicUsize::new(0)),
                 drops: Arc::new(AtomicUsize::new(0)),
@@ -756,6 +868,7 @@ fn fold_telemetry_counts_payment_activity_and_close_cancellations() {
     };
     let id = install(
         Box::new(ScriptWallet {
+            resume: None,
             base: TestWallet {
                 calls: Arc::new(AtomicUsize::new(0)),
                 drops: Arc::new(AtomicUsize::new(0)),

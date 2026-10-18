@@ -49,13 +49,12 @@ impl TairaLightClientView for View<'_> {
 }
 
 pub(super) fn prove_claim(
-    profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+    profiles: &iroha_sccp::light_client::profile::SccpChainProfilesV1,
     client: &BlockingClient,
     authority: &origin::AuthenticatedOrigin,
     network: SccpNetworkV1,
     builder: &dyn SourceChainBuilder,
-    event: &SourceEventRefV1,
-    payload: &[u8],
+    (event, payload): (&SourceEventRefV1, &[u8]),
     max_advances: u16,
 ) -> Result<Evidence> {
     let original = ToriiLightClient::authenticated(client, authority, network, profiles)?;

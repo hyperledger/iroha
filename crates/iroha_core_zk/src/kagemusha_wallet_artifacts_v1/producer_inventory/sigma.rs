@@ -1,4 +1,4 @@
-//! Exact sixteen-source sigma qualification without constructing proving buffers,
+//! Exact eleven-source sigma qualification without constructing proving buffers,
 //! and the sealed per-operation rebuild of one selected sigma proving key.
 
 use super::recipe::InstalledSourceSealV1;
@@ -39,17 +39,17 @@ pub enum SigmaQualificationErrorV1 {
     Metadata(#[from] ArtifactError),
 }
 
-/// All sixteen exact source-qualified sigma verifiers for one authenticated installation,
+/// All eleven exact source-qualified sigma verifiers for one authenticated installation,
 /// each with the private seal its strict or exact closed-registry admission minted.
 /// Every use binds that seal, revalidates the signed originals and rebuilds the key
 /// from compiled source, as Q/A/W/Omega do. This retains no original PK bytes or
 /// proving polynomials. Q/A/W/Omega source qualification and wallet custody are
 /// still required before monetary admission.
 pub struct QualifiedSigmasV1 {
-    keys: [KeyArtifact<Eq>; 16],
+    keys: [KeyArtifact<Eq>; 11],
     // Source authority from this qualification only, keyed by the signed member
     // `inventory.sigma[selector]`. Never serialized, decoded or returned.
-    seals: [InstalledSourceSealV1<Eq>; 16],
+    seals: [InstalledSourceSealV1<Eq>; 11],
     scheme_id: [u8; 32],
     manifest_digest: [u8; 32],
 }
@@ -62,7 +62,7 @@ impl QualifiedSigmasV1 {
     pub fn key(&self, selector: u8) -> Option<&KeyArtifact<Eq>> {
         self.keys.get(usize::from(selector))
     }
-    pub(super) const fn metadata(&self) -> &[KeyArtifact<Eq>; 16] {
+    pub(super) const fn metadata(&self) -> &[KeyArtifact<Eq>; 11] {
         &self.keys
     }
     /// Bind one selector's retained seal to its qualified metadata before any source
@@ -84,10 +84,8 @@ impl QualifiedSigmasV1 {
 
 pub(super) fn monetary_shape(selector: usize) -> Result<SigmaShape, Error> {
     let relation = match selector {
-        2..=9 => SigmaRelation::send(u32::try_from(selector - 2).map_err(|_| Error::Profile)?),
-        10..=11 => {
-            SigmaRelation::receive(u32::try_from(selector - 10).map_err(|_| Error::Profile)?)
-        }
+        2..=5 => SigmaRelation::send(u32::try_from(selector - 2).map_err(|_| Error::Profile)?),
+        6 => SigmaRelation::RECEIVE,
         _ => return Err(Error::Profile),
     };
     iroha_kagemusha_proof::wallet_monetary_shape(relation).map_err(|_| Error::Profile)
@@ -153,7 +151,7 @@ pub(super) fn rebuild_prover(
     Ok(match selector {
         0 => administrative!(BootstrapProver, Bootstrap),
         1 => administrative!(LoadProver, Load),
-        2..=11 => {
+        2..=6 => {
             let shape = monetary_shape(selector)?;
             let params = if shape.k == 12 { k12 } else { k14 };
             ImportedSigmaV1::Monetary(Box::new(SigmaProver::<Eq>::from_source_view_cancellable(
@@ -164,10 +162,10 @@ pub(super) fn rebuild_prover(
                 cancellation,
             )?))
         }
-        12 => administrative!(ArchiveProver, Archive),
-        13 => administrative!(UnloadProver, Unload),
-        14 => administrative!(RefreshProver, Refresh),
-        15 => administrative!(RetiringProver, Retiring),
+        7 => administrative!(ArchiveProver, Archive),
+        8 => administrative!(UnloadProver, Unload),
+        9 => administrative!(RefreshProver, Refresh),
+        10 => administrative!(RetiringProver, Retiring),
         _ => return Err(Error::Profile.into()),
     })
 }
@@ -219,7 +217,7 @@ fn import_with_admission(
     Ok(match selector {
         0 => administrative!(BootstrapProver),
         1 => administrative!(LoadProver),
-        2..=11 => {
+        2..=6 => {
             let shape = monetary_shape(selector)?;
             let params = if shape.k == 12 { k12 } else { k14 };
             match member {
@@ -244,10 +242,10 @@ fn import_with_admission(
                 )?,
             }
         }
-        12 => administrative!(ArchiveProver),
-        13 => administrative!(UnloadProver),
-        14 => administrative!(RefreshProver),
-        15 => administrative!(RetiringProver),
+        7 => administrative!(ArchiveProver),
+        8 => administrative!(UnloadProver),
+        9 => administrative!(RefreshProver),
+        10 => administrative!(RetiringProver),
         _ => return Err(Error::Profile.into()),
     })
 }
@@ -272,7 +270,7 @@ impl AuthenticatedProducerInventoryV1 {
         self.qualify_sigmas_with_params(originals, config, &k12, &k14)
     }
 
-    /// Qualify the same sixteen exact sources using this authenticated
+    /// Qualify the same eleven exact sources using this authenticated
     /// installation's immutable parameter owners. Reuses public computations
     /// across the source graph without changing any source or commitment check.
     /// # Errors
@@ -326,8 +324,8 @@ impl AuthenticatedProducerInventoryV1 {
         if k12.k() != 12 || k14.k() != 14 {
             return Err(SigmaQualificationErrorV1::Parameters);
         }
-        let mut keys = Vec::with_capacity(16);
-        let mut seals = Vec::with_capacity(16);
+        let mut keys = Vec::with_capacity(11);
+        let mut seals = Vec::with_capacity(11);
         for (selector, index) in self.inventory.sigma.iter().copied().enumerate() {
             let original = self.read_original(index, originals, config.maximum_bytes)?;
             let (binding, key, seal) = import_with_admission(
@@ -356,11 +354,11 @@ impl AuthenticatedProducerInventoryV1 {
 // selected by a witness or by fields inside an untrusted original descriptor.
 pub(in crate::kagemusha_wallet_artifacts_v1) fn compiled_sigma_policy() -> Result<Vec<u8>, Error> {
     let mut bytes = 1_u16.to_le_bytes().to_vec();
-    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&11_u32.to_le_bytes());
     for (selector, (kind, mask)) in SIGMA_CATALOG_V1.into_iter().enumerate() {
         bytes.push(kind);
         bytes.extend_from_slice(&mask.to_le_bytes());
-        if (2..=11).contains(&selector) {
+        if (2..=6).contains(&selector) {
             let shape = monetary_shape(selector)?;
             bytes.extend([
                 1,

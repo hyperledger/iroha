@@ -34,7 +34,7 @@ fn retained_archive(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(package.statement.sequence, before.sequence);
     assert_eq!(package.statement.successor.value, before.head);

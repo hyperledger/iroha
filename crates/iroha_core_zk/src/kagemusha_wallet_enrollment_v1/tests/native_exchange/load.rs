@@ -452,12 +452,15 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     }
 }
 
-fn activation_signed_wire<'a>(
-    transactions: impl Iterator<Item = &'a iroha_data_model::transaction::SignedTransaction>,
+fn activation_signed_wire<'a, I>(
+    transactions: I,
     scheme: &[u8; 32],
     account_digest: &[u8; 32],
     original: &[u8],
-) -> Vec<u8> {
+) -> Vec<u8>
+where
+    I: Iterator<Item = &'a iroha_data_model::transaction::SignedTransaction>,
+{
     use iroha_data_model::transaction::Executable;
 
     let mut selected = None;

@@ -87,7 +87,7 @@ impl ZkAssetState {
         self.validate_tree_metadata()?;
         let append = crate::zk::confidential_v2::append_confidential_tree_frontier_v2(
             self.commitments.len(),
-            self.tree_frontier,
+            &self.tree_frontier,
             self.persisted_root,
             &[commitment],
         )?;
@@ -282,7 +282,7 @@ impl ZkAssetState {
         }
         let append = crate::zk::confidential_v2::append_confidential_tree_frontier_v2(
             previous_len,
-            self.tree_frontier,
+            &self.tree_frontier,
             self.persisted_root,
             commitments,
         )?;

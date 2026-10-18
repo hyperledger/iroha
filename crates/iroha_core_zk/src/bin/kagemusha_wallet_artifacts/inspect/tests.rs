@@ -15,7 +15,7 @@ fn inventory() -> ProducerInventoryV1 {
             verifying_key: BlobV1::of(b"verifier"),
             proving_key: BlobV1::of(b"compact original"),
         }],
-        sigma: [0; 16],
+        sigma: [0; 11],
         operations: Vec::new(),
         routes: Vec::new(),
         terminals: Vec::new(),

@@ -1,0 +1,113 @@
+# R0 / R1 response circuit proposal and source boundary
+
+These ignored modules implement mathematical public equations of the frozen
+IdealFrontierSim proposal. They do not sample a witness, recover masks, read a
+hidden seed, condition on witness validity or assume a new high-mask stream.
+Challenges 1/2, four consistency responses, six coefficients and d are retained
+prescribed input coins. They are not ordinary hash queries. W0 separately
+programs those values in the existing chronological overlay. The existing
+single immutable base F contract remains unchanged; R0 and R1 make zero reads.
+
+`r0_machine.VoleResponse(ell,mul,mul_u64)` consumes bit registers in this order:
+Delta256, Q[ell] (256 bits each), qbar[10], challenge1[2112], Utilde[4]. It
+copies Vtilde[4] into an arbitrary separate 1024-bit target and cleans all work.
+The input contains no d because this equation does not use d; the enclosing
+machine retains d and all prescribed fields for R1 and W0.
+
+The exact source mask order matters. `proof.rs::vole_hash` processes Q in row
+order, then qbar[0..6], and passes qbar[6..10] as its four final additive
+terms. Each folded coordinate runs four full-field Horner products and one
+64-bit-point product. Final output j is
+`r_j*y_0 + y_(j+1) + qbar_(6+j) + Delta*Utilde_j`. All eight full-field
+finalization products and every XOR are present. qbar[0..6] are also the six
+QuickSilver mask coefficients; there is no reordering at the V1 interface.
+
+`r1_machine.QuickSilverResponse(role,list_count,mul,mul_u64)` consumes Delta,
+Q[ell], qbar[10], challenge2[832], six transmitted coefficients, d[ell], and
+relation-public bits. The latter match the P0/P1 owner's output order:
+
+- Registration: commitment block200B, authorization block200B, commitment128B,
+  authorization64B.
+- Vote: commitment/nullifier/authorization blocks200B each, list128*S bytes,
+  nullifier128B, authorization64B. S is a fixed accepted public shape from3
+  to1000, matching `VotePublic.has_shape()`. Generic selector helper controls
+  may use synthetic smaller shapes; the actual role factory rejects them.
+
+Its output is A0[256], followed by a two-bit error code and a64-bit source
+count/constraint index. Codes are0=success,1=count,2=bad index,3=degree overflow;
+A0 is zero on the explicitly totalized error branch. The source returns a
+typed error instead of an A0 on that branch. The caller must inspect the tag.
+Internal source degree/count errors depend on the fixed program structure,
+not field values, and their exact precedence and first-error latch are kept.
+Public request validation and invalid VotePublic shape rejection belong to
+P0; a supported R1 factory requires its canonical static shape.
+
+The compiler computes Delta^0..7, explicitly retains Q_i+d_i*Delta once per
+coordinate, and runs every Booleanity constraint followed by the actual
+source relation stream. Registration has35,840 witness coordinates and36,736
+relation constraints, totaling72,576. Vote has53,504 and55,427, totaling108,931.
+The relation includes all320 column parities,320 theta terms,1,600 theta
+applications, source rho/pi mapping and required nonlinear output fields of
+each round. Eleven two-round groups are compared to committed state keys;
+the twelfth group computes the constrained output prefix. This is field-key
+QuickSilver evaluation with degree alignment, not ordinary Boolean Keccak.
+
+Vote selectors include both32-element prefix/sum streams, all S selector
+products, the range constraint and all1,024*S public-bit-controlled product
+copies for the commitment multiplexer. No public-list scan is a free RAM
+lookup. The fixed scan uses a narrowly scoped normalization: source selecting
+no public bits returns degree0 zero; the circuit's sum is degree2 zero. Both
+give identical zero after the immediate addition to a degree4 output, even
+when Delta=0. Nonempty branches retain degree2. The helper requires that exact
+degree4 consumer; no other observer receives the normalized intermediate tag.
+
+Each admitted constraint is lifted to degree7 and fed to both ZKHash Horner
+lanes in source order. Final A0 includes both challenge-weighted accumulators,
+all six qbar_j*Delta^j for j=0..5, and all six transmitted coefficient products
+with Delta^j for j=1..6. Zero challenges, zero Delta and arbitrary field inputs
+are accepted; no nonzero division or retry is used.
+
+The shared `FieldBuilder` emits XOR, bit embedding, conditional field copy,
+constants and registered multiplication kernels. Every kernel invocation
+copies its two operands to separate clean input registers, invokes the pinned
+clean field circuit and reverses the copies. Thus equal/aliased source operands
+do not silently violate the kernel's disjoint interface. Operand copies cost
+1,024 CNOTs for full multiplication and640 for a64-bit multiplier, in addition
+to the previously reviewed field-kernel cost. A single1,023-bit kernel scratch
+region is shared; all256-bit SSA results remain until the outer output copy
+and reverse traversal. Even constants/zero field registers are included in
+retained history. There is no opaque unit-cost field operation.
+
+The count-only builder traverses the same program without retaining operation
+objects. `emit_clean` records and emits the actual schedule; it does not replace
+the circuit by the count. Full actual-size elementary streams have not been
+executed. The exploratory `response-actual-shapes.json` retains exact draft
+hashes and exploratory full structural counts for both role lengths and
+synthetic vote sizes1/1024. Those two vote counts predate the actual-factory
+shape correction and are not accepted source requests. The separate current
+`response-accepted-shapes.json` retains final counts for accepted sizes3/1000;
+it is not final capture or a native measurement.
+
+Tests independently evaluate polynomial products, five-lane VOLEHash order,
+Delta products, key correction, degree lifts, both ZKHash lanes, six mask and
+coefficient terms, error precedence and zero-selector normalization. A field
+round is compared against an independent forward rho/pi coordinate model.
+Clean gate assembly is interpreted with deliberately simple full-width test
+kernels, including arbitrary output targets, aliased source multiplication,
+untouched inputs, every work bit and inverse restoration. Real field arithmetic
+is checked separately using the pinned concrete adapter; toy kernels establish
+no field semantics. Deliberately omitting uncompute leaves dirty work.
+
+Selected Rust source correspondence is bound by the parent machine's existing
+coverage inventory (`proof`, `universal_hash`, `quicksilver` and its verifier,
+role relations, layout, selector, keccak_relation and field sources). The
+generic kernel registry remains an explicit trusted contract; integration must
+use the authenticated `FieldKernel` adapters and watch these executing modules.
+Source hashes are not a Rust compiler equivalence proof or a Python dependency
+closure. Whole-request wiring, input provenance/preparation, chronology and
+retained joint state remain outside these components. All full coverage,
+resource-vector, primitive-advantage, independent-review and qualification
+claims remain false pending their separate requirements.
+
+TODO: finish independent review/capture and wire the exact R0/R1 regions into
+the complete request transition without changing the frozen sampler endpoint.

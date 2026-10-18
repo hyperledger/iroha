@@ -4,7 +4,7 @@ use iroha_kagemusha_proof::{
     a_relation::native::{receive as native_receive, send as native_send},
     controls::{QuotaCharge, QuotaWitness, WindowSegment, WindowSlot},
     proof::SigmaProver,
-    tree::{BlacklistGap, IndexedInsert, IndexedLeaf, QuotaWindow, QuotaWindowTree},
+    tree::{IndexedInsert, IndexedLeaf, QuotaWindow, QuotaWindowTree},
     witness::{
         Controls, CoreState, Identity, LineageInputs, MapRoots, ReceiveInputs, RequestBody,
         RequestTerms, SendInputs, SigmaRelation, StateRest, StateV1, StepInputs, StepWitness,
@@ -30,7 +30,8 @@ pub struct SendControlsV1<'a> {
     /// Actual Native monotonic observation, mandatory for a held time anchor.
     /// The no-anchor floor-only path has no observation.
     pub now: Option<&'a KagemushaWalletMonotonicReadingV1>,
-    /// Held blacklist; its complete digest is checked against the authenticated source state.
+    /// Locally installed blacklist: the payer refuses a listed receiver before the
+    /// irreversible debit. Never a state, proof or peer input.
     pub blacklist: Option<&'a KagemushaWalletBlacklistV1>,
     /// Held signed quota share including all original windows.
     pub quota_share: Option<&'a KagemushaWalletQuotaShareV1>,
@@ -73,15 +74,11 @@ pub struct ReceiveMapsV1 {
     pub consumed: KagemushaWalletIndexedInsertV1,
 }
 
-/// Actual permanent/history openings retained for background Receive folding.
+/// Actual permanent openings retained for background Receive folding.
 /// The native circuit derives the preserve-first/burn verdict from these paths and originals.
 pub struct ReceiveFoldMapsV1 {
     /// Exact preserve-first membership or insertion against the predecessor credit root.
     pub credit: KagemushaWalletCreditDigestRecordV1,
-    /// Exact Request-recorded history route; the fixed safe query is used for version zero.
-    pub history_leaf: KagemushaWalletIndexedLeafV1,
-    /// All32 actual history siblings.
-    pub history_opening: KagemushaWalletIndexedOpeningV1,
 }
 
 /// A prepared real sigma witness and derived canonical G1 successor/statement.
@@ -177,7 +174,7 @@ impl MonetaryStepV1 {
     pub const fn witness(&self) -> &StepWitness<Fp> {
         &self.witness
     }
-    /// Selector fixed by the source controls (Send) or recorded Request version (Receive).
+    /// Selector fixed by the source controls (Send); Receive has one selector.
     #[must_use]
     pub const fn relation(&self) -> SigmaRelation {
         self.relation
@@ -259,13 +256,11 @@ fn request_fields(body: &KagemushaWalletRequestBodyV1) -> Result<RequestBody, Er
             policy_epoch: body.policy_epoch,
             scheme_policy: body.scheme_policy,
             request_time: body.receiver_accepted_time_ms,
-            receiver_blacklist_version: body.receiver_blacklist_version,
-            receiver_blacklist_root: body.receiver_blacklist_root,
             certificates: body.certificates,
             nonce: body.nonce,
         },
     };
-    if out.fields::<Fp>() != fields::<26>(body.field_items())? {
+    if out.fields::<Fp>() != fields::<24>(body.field_items())? {
         return Err(Error::Authority);
     }
     Ok(out)
@@ -304,10 +299,6 @@ fn state_fields(state: &KagemushaWalletStateV1) -> Result<StateV1<Fp>, Error> {
                 quota_windows_root: word(c.quota_windows_root)?,
                 quota_share_expires_at_ms: c.quota_share_expires_at_ms,
                 time_anchor_max_response_ms: c.time_anchor_max_response_ms,
-                blacklist_version: c.blacklist_version,
-                blacklist_root: word(c.blacklist_root)?,
-                blacklist_issued_at_ms: c.blacklist_issued_at_ms,
-                blacklist_max_age_ms: c.blacklist_max_age_ms,
                 lease_expires_at_ms: c.lease_expires_at_ms,
             },
             policy_epoch: c.policy_epoch,
@@ -318,15 +309,13 @@ fn state_fields(state: &KagemushaWalletStateV1) -> Result<StateV1<Fp>, Error> {
             permitted_controls: r.permitted_controls,
             scheme_policy: r.scheme_policy,
             fee_schedule: r.fee_schedule,
-            blacklist: r.blacklist,
             quota_share: r.quota_share,
             quota_share_id: r.quota_share_id,
             time_anchor: r.time_anchor,
-            blacklist_history_root: r.blacklist_history_root,
         },
     };
-    if out.core.fields() != fields::<33>(authority(state.core_field_items())?)?
-        || out.rest.fields::<Fp>() != fields::<8>(authority(state.rest_field_items())?)?
+    if out.core.fields() != fields::<29>(authority(state.core_field_items())?)?
+        || out.rest.fields::<Fp>() != fields::<6>(authority(state.rest_field_items())?)?
         || out.commitment().to_repr() != authority(state.commitment())?.value
     {
         return Err(Error::Authority);
@@ -350,21 +339,6 @@ pub(super) fn insertion(
         slot: witness.slot_opening.slot,
         slot_siblings: fields(witness.slot_opening.siblings.to_vec())?,
     })
-}
-
-fn gap(witness: Option<&KagemushaWalletBlacklistGapOpeningV1>) -> Result<BlacklistGap<Fp>, Error> {
-    match witness {
-        None => Ok(BlacklistGap::unused()),
-        Some(witness) => {
-            authority(witness.root())?;
-            Ok(BlacklistGap {
-                leaf_index: witness.leaf_index,
-                lower: witness.lower,
-                upper: witness.upper,
-                siblings: fields(witness.siblings.to_vec())?,
-            })
-        }
-    }
 }
 
 fn window(window: &KagemushaWalletQuotaWindowV1) -> QuotaWindow {
@@ -448,7 +422,7 @@ fn quota(
 
 fn successor(
     source: &KagemushaWalletStateV1,
-    native: StateV1<Fp>,
+    native: &StateV1<Fp>,
 ) -> Result<KagemushaWalletStateV1, Error> {
     let mut out = *source;
     let c = &mut out.core;
@@ -471,7 +445,7 @@ fn successor(
     c.quota_usage_root = native.core.roots.quota_usage.to_repr();
     c.accepted_time_floor_ms = native.core.accepted_time_floor_ms;
     c.state_nonce = native.core.state_nonce.to_repr();
-    if state_fields(&out)? != native {
+    if state_fields(&out)? != *native {
         return Err(Error::Authority);
     }
     Ok(out)
@@ -487,7 +461,7 @@ fn derive(
     if !native.is_honest() {
         return Err(Error::Authority);
     }
-    let state = successor(source, native.successor_state.ok_or(Error::Authority)?)?;
+    let state = successor(source, &native.successor_state.ok_or(Error::Authority)?)?;
     let lineage = match &witness.inputs {
         StepInputs::Send(input) => (
             input.lineage.burned_total,
@@ -504,8 +478,8 @@ fn derive(
         lifecycle: state.core.lifecycle,
         sequence: state.core.sequence,
         next_load: state.core.next_load,
-        // Receive's sigma selector follows its Request's blacklist version;
-        // the statement still carries the predecessor's complete control mask.
+        // Receive has one sigma selector; the statement still carries the predecessor's
+        // complete control mask.
         enabled_controls: source.core.enabled_controls,
         lineage_burned_total: lineage.0,
         lineage_pending_outgoing_root: lineage.1,
@@ -524,19 +498,18 @@ fn derive(
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
 pub(crate) struct SendFoldFieldsV1 {
     pub(crate) state: native_send::SendState,
-    pub(crate) sigma: Vec<u8>,
-    pub(crate) omega: Vec<u8>,
-    pub(crate) objects: [Vec<u8>; 5],
+    /// The prepared step witness whose relation A1 proves inline.
+    pub(crate) step: StepWitness<Fp>,
+    pub(crate) objects: [Vec<u8>; 4],
     pub(crate) pending: IndexedInsert<Fp>,
     pub(crate) fee: IndexedInsert<Fp>,
     pub(crate) predecessor: native_send::PredecessorInput,
 }
 impl SendFoldFieldsV1 {
-    pub(crate) fn with_q(self, q: [native_send::QInput; 2]) -> native_send::Inputs {
+    pub(crate) fn with_q(self, q: [native_send::QInput; 1]) -> native_send::Inputs {
         native_send::Inputs {
             state: self.state,
-            sigma: self.sigma,
-            omega: self.omega,
+            step: self.step,
             objects: self.objects,
             pending: self.pending,
             fee: self.fee,
@@ -551,10 +524,13 @@ pub(crate) struct ReceiveSourceFieldsV1 {
     pub(crate) before: StateWitness,
     pub(crate) after: StateWitness,
     pub(crate) statement: [Fp; 26],
+    /// The prepared step witness whose relation A1 proves inline.
+    pub(crate) step: StepWitness<Fp>,
     pub(crate) consumed: IndexedInsert<Fp>,
     pub(crate) incoming_statement: [Fp; 26],
-    pub(crate) sigma: Vec<u8>,
-    pub(crate) objects: [Vec<u8>; 11],
+    pub(crate) objects: [Vec<u8>; 9],
+    /// Native source of the payment key for the own-receipt slot; not a circuit object.
+    pub(crate) credential: Vec<u8>,
     pub(crate) predecessor: native_receive::PredecessorInput,
 }
 
@@ -562,17 +538,19 @@ pub(crate) struct ReceiveSourceFieldsV1 {
 pub(crate) struct ReceiveFoldFieldsV1 {
     pub(crate) transition: native_receive::Transition,
     pub(crate) incoming_statement: [Fp; 26],
-    pub(crate) sigma: Vec<u8>,
-    pub(crate) objects: [Vec<u8>; 11],
+    pub(crate) step: StepWitness<Fp>,
+    pub(crate) objects: [Vec<u8>; 9],
+    /// Native source of the payment key for the own-receipt slot; not a circuit object.
+    pub(crate) credential: Vec<u8>,
     pub(crate) incoming: native_receive::IncomingWitness,
     pub(crate) predecessor: native_receive::PredecessorInput,
 }
 impl ReceiveFoldFieldsV1 {
-    pub(crate) fn with_q(self, q: [native_receive::QInput; 3]) -> native_receive::Inputs {
+    pub(crate) fn with_q(self, q: [native_receive::QInput; 2]) -> native_receive::Inputs {
         native_receive::Inputs {
             transition: self.transition,
             incoming_statement: self.incoming_statement,
-            sigma: self.sigma,
+            step: self.step,
             objects: self.objects,
             incoming: self.incoming,
             predecessor: self.predecessor,
@@ -623,7 +601,7 @@ impl PreparationV1<'_> {
         predecessor: &FoldedStateV1,
         request_original: &[u8],
         controls: SendControlsV1<'_>,
-        maps: SendMapsV1,
+        maps: &SendMapsV1,
         successor_nonce: [u8; 32],
     ) -> Result<MonetaryStepV1, Error> {
         let (request, check) =
@@ -651,7 +629,7 @@ impl PreparationV1<'_> {
                 fee: request.body.fee,
                 fee_schedule_digest: request.body.fee_schedule,
             },
-            maps.fee,
+            &maps.fee,
         )?;
         let relation = SigmaRelation::send(source.core.enabled_controls);
         let witness = StepWitness {
@@ -673,7 +651,6 @@ impl PreparationV1<'_> {
                 },
                 successor_pending_outgoing: word(pending_root)?,
                 successor_fee_claim: word(fee_root)?,
-                blacklist: gap(check.blacklist_gap.as_ref())?,
                 quota: Box::new(quota(relation, controls.quota_share, &check)?),
             })),
         };
@@ -688,7 +665,7 @@ impl PreparationV1<'_> {
         authority(statement.validate_for_credential(&owner.credential))?;
         authority(statement.validate_successor_of(&predecessor.source_statement))?;
         authority(statement.validate_against_lineage(&predecessor.lineage.public))?;
-        let native_maps = send_insertions(&maps.pending, request.body.fee, fee_witness)?;
+        let native_maps = send_insertions(&maps.pending, request.body.fee, &fee_witness)?;
         Ok(MonetaryStepV1 {
             manifest_digest: owner.manifest_digest,
             source_capsule_digest: predecessor.source_capsule_digest,
@@ -711,7 +688,8 @@ impl PreparationV1<'_> {
     /// exact Payment plus issuer originals. It does not require a receiver folded head.
     /// Current and quoted credential digests may differ while stable wallet/account/key hold.
     /// # Errors
-    /// Invalid original/signature/native incoming proof, historical list or consumed insertion.
+    /// Invalid original/signature/native incoming proof, a payer on the local blacklist
+    /// ([`Error::Blocked`]) or consumed insertion.
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_receive(
         &self,
@@ -721,8 +699,8 @@ impl PreparationV1<'_> {
         payment_original: &[u8],
         payer_credential_original: &[u8],
         payer_certificate_set_original: &[u8],
-        recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
-        maps: ReceiveMapsV1,
+        blacklist: Option<&KagemushaWalletBlacklistV1>,
+        maps: &ReceiveMapsV1,
         successor_nonce: [u8; 32],
         budget: MemoryBudget,
     ) -> Result<MonetaryStepV1, Error> {
@@ -757,7 +735,7 @@ impl PreparationV1<'_> {
             &request,
             &owner.credential,
             source_state,
-            recorded_blacklist,
+            blacklist,
         ))?;
         let payer_certificate = authority(certificates.certificate(
             &payer.body.issuer_certificate,
@@ -771,7 +749,7 @@ impl PreparationV1<'_> {
         // The post-Advance A producer remains the canonical total soft verifier/burn engine.
         self.installed
             .verifier()
-            .verify_package_proofs_cancellable(&payment.send, None, budget, self.cancellation)?;
+            .verify_package_proofs_cancellable(&payment.send, budget, self.cancellation)?;
         self.derive_receive(
             owner,
             source,
@@ -780,7 +758,6 @@ impl PreparationV1<'_> {
             payment_original,
             payer_owner.into(),
             payer_certificate_set_original,
-            recorded_blacklist,
             maps,
             successor_nonce,
             check.effect,
@@ -798,8 +775,7 @@ impl PreparationV1<'_> {
         payment_original: &[u8],
         payer_original: &[u8],
         payer_certificates: &[u8],
-        recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
-        maps: ReceiveMapsV1,
+        maps: &ReceiveMapsV1,
         nonce: [u8; 32],
         budget: MemoryBudget,
     ) -> Result<MonetaryStepV1, Error> {
@@ -840,7 +816,6 @@ impl PreparationV1<'_> {
             payment_original,
             payer,
             payer_certificates,
-            recorded_blacklist,
             maps,
             nonce,
             effect,
@@ -857,8 +832,7 @@ impl PreparationV1<'_> {
         payment_original: &[u8],
         payer: PayerOriginalV1,
         payer_certificate_set_original: &[u8],
-        recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
-        maps: ReceiveMapsV1,
+        maps: &ReceiveMapsV1,
         successor_nonce: [u8; 32],
         effect: KagemushaWalletEffectV1,
     ) -> Result<MonetaryStepV1, Error> {
@@ -880,11 +854,7 @@ impl PreparationV1<'_> {
             &authority(consumed.leaf_value())?,
         ))?;
         let body = request_fields(&request.body)?;
-        let relation = SigmaRelation::receive(if request.body.receiver_blacklist_version == 0 {
-            0
-        } else {
-            KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-        });
+        let relation = SigmaRelation::RECEIVE;
         let witness = StepWitness {
             relation_id: scheme.relation_id,
             predecessor: state_fields(source_state)?,
@@ -897,11 +867,6 @@ impl PreparationV1<'_> {
                 receiver_credential_digest: body.receiver_credential_digest,
                 request: body.terms,
                 successor_consumed_credit: word(consumed_root)?,
-                blacklist: gap(if request.body.receiver_blacklist_version == 0 {
-                    None
-                } else {
-                    Some(&recorded_blacklist.ok_or(Error::Authority)?.gap)
-                })?,
             })),
         };
         if witness.request_body() != body {
@@ -1018,7 +983,7 @@ impl PreparationV1<'_> {
         predecessor: &FoldedStateV1,
         prepared: &MonetaryStepV1,
         public: &KagemushaWalletLineagePublicV1,
-        q: [native_send::QInput; 2],
+        q: [native_send::QInput; 1],
         budget: MemoryBudget,
     ) -> Result<native_send::Inputs, Error> {
         self.send_fold_fields(owner, step, predecessor, prepared, public, budget)
@@ -1055,8 +1020,9 @@ impl PreparationV1<'_> {
                 after,
                 statement,
             },
-            sigma: step.frozen.capsule.body().step_proof.bytes.clone(),
-            omega: predecessor.lineage.bytes(),
+            // A1 proves this witness's relation; native prepare evaluates it to the
+            // exact committed statement first. σ_send itself travels only in the Payment.
+            step: prepared.witness.clone(),
             objects: [
                 owner.credential_tape.clone(),
                 signed_tape(
@@ -1064,7 +1030,6 @@ impl PreparationV1<'_> {
                     &prepared.request.signature,
                 ),
                 fee,
-                owner.certificate_tape.clone(),
                 receipt,
             ],
             pending,
@@ -1077,9 +1042,10 @@ impl PreparationV1<'_> {
         })
     }
 
-    /// Build all eleven Receive tapes, including both original proof carriers, preserving
-    /// the quoted credential through renewal. The canonical A relation derives every incoming
-    /// validity/correction/burn result and fully checks all history/permanent routes and Qs.
+    /// Build all nine Receive tapes, including both original proof carriers, preserving
+    /// the quoted credential through renewal, and the step witness whose relation A1
+    /// proves inline. The canonical A relation derives every incoming
+    /// validity/correction/burn result and fully checks all permanent routes and Qs.
     /// `incoming_witness` only proposes the total decoder and verifier witnesses; the fixed
     /// source owners constrain every proposal against these exact original tapes.
     /// # Errors
@@ -1093,7 +1059,7 @@ impl PreparationV1<'_> {
         prepared: &MonetaryStepV1,
         public: &KagemushaWalletLineagePublicV1,
         maps: ReceiveFoldMapsV1,
-        q: [native_receive::QInput; 3],
+        q: [native_receive::QInput; 2],
         incoming_witness: native_receive::IncomingWitness,
         budget: MemoryBudget,
     ) -> Result<native_receive::Inputs, Error> {
@@ -1168,9 +1134,11 @@ impl PreparationV1<'_> {
             before: predecessor.witness,
             after,
             statement,
+            // A1 proves this witness's relation; native prepare evaluates it to the
+            // exact committed statement first. σ_recv itself is retained for the payer.
+            step: prepared.witness.clone(),
             consumed,
             incoming_statement: incoming.incoming_statement,
-            sigma: capsule.body().step_proof.bytes.clone(),
             objects: [
                 signed_tape(
                     authority(incoming.payment.signed_request())?
@@ -1183,8 +1151,6 @@ impl PreparationV1<'_> {
                 incoming.compact,
                 incoming.omega,
                 incoming.payment.send.step_proof.bytes.clone(),
-                owner.credential_tape.clone(),
-                owner.certificate_tape.clone(),
                 receipt,
                 signed_tape(quoted.body.transcript(), &quoted.signature),
                 signed_tape(
@@ -1192,6 +1158,7 @@ impl PreparationV1<'_> {
                     &quoted_certificate.signature,
                 ),
             ],
+            credential: owner.credential_tape.clone(),
             predecessor: native_receive::PredecessorInput {
                 proof: predecessor.proof.clone(),
                 pallas: predecessor.pallas,
@@ -1215,13 +1182,12 @@ impl PreparationV1<'_> {
     ) -> Result<ReceiveFoldFieldsV1, Error> {
         let source =
             self.receive_source_fields(owner, step, predecessor, prepared, public, budget)?;
-        // These are witness proposals only. Each of the five fixed native owners
+        // These are witness proposals only. Each of the four fixed native owners
         // independently derives its result, and the terminal relation enforces their
         // conjunction and the absence of corrected claims. Bind this proposal to both adjusted burn and the first record.
         let corrected = incoming_witness
             .modes
-            .iter()
-            .any(|mode| *mode == iroha_kagemusha_proof::q_sigma::native::IncomingMode::Corrected);
+            .contains(&iroha_kagemusha_proof::q_sigma::native::IncomingMode::Corrected);
         let burned = corrected || !incoming_witness.results.iter().all(|result| *result);
         let amount = match prepared.statement.effect {
             KagemushaWalletEffectV1::Receive { amount, .. } => amount,
@@ -1230,7 +1196,7 @@ impl PreparationV1<'_> {
         let expected_burn = proposed_receive_burn(
             predecessor.lineage.public.burned_total,
             amount,
-            &incoming_witness.results,
+            incoming_witness.results,
             corrected,
         )?;
         if public.burned_total != expected_burn {
@@ -1242,7 +1208,7 @@ impl PreparationV1<'_> {
             burned,
         };
         let credit = receive_credit_route(
-            maps.credit,
+            &maps.credit,
             &predecessor.lineage.public.credit_digest_root,
             &public.credit_digest_root,
             &credit_entry,
@@ -1254,23 +1220,14 @@ impl PreparationV1<'_> {
                 statement: source.statement,
                 consumed: source.consumed,
                 credit,
-                blacklist: IndexedInsert {
-                    leaf: IndexedLeaf {
-                        key: word(maps.history_leaf.key)?,
-                        value: word(maps.history_leaf.value)?,
-                        next_key: word(maps.history_leaf.next_key)?,
-                    },
-                    leaf_slot: maps.history_opening.slot,
-                    leaf_siblings: fields(maps.history_opening.siblings.to_vec())?,
-                    ..unused_insert()
-                },
                 // This is the committed consumed-root insertion, not the permanent
                 // credit record's preserve-first branch. Honest preparation always inserts.
                 insert: true,
             },
             incoming_statement: source.incoming_statement,
-            sigma: source.sigma,
+            step: source.step,
             objects: source.objects,
+            credential: source.credential,
             incoming: incoming_witness,
             predecessor: source.predecessor,
         })
@@ -1280,7 +1237,7 @@ impl PreparationV1<'_> {
 fn proposed_receive_burn(
     previous: u128,
     amount: u128,
-    results: &[bool; 5],
+    results: [bool; 4],
     corrected: bool,
 ) -> Result<u128, Error> {
     previous
@@ -1293,7 +1250,7 @@ fn proposed_receive_burn(
 }
 
 fn receive_credit_route(
-    record: KagemushaWalletCreditDigestRecordV1,
+    record: &KagemushaWalletCreditDigestRecordV1,
     old_root: &[u8; 32],
     new_root: &[u8; 32],
     entry: &KagemushaWalletCreditDigestLeafV1,
@@ -1302,7 +1259,7 @@ fn receive_credit_route(
         return Err(Error::Authority);
     }
     match record {
-        KagemushaWalletCreditDigestRecordV1::Inserted { witness } => insertion(&witness),
+        KagemushaWalletCreditDigestRecordV1::Inserted { witness } => insertion(witness),
         KagemushaWalletCreditDigestRecordV1::Present { leaf, opening } => Ok(IndexedInsert {
             leaf: IndexedLeaf {
                 key: word(leaf.key)?,
@@ -1321,11 +1278,11 @@ fn receive_credit_route(
 pub(super) fn send_insertions(
     pending: &KagemushaWalletIndexedInsertV1,
     fee: u128,
-    fee_witness: IndexedInsert<Fp>,
+    fee_witness: &IndexedInsert<Fp>,
 ) -> Result<Vec<IndexedInsert<Fp>>, Error> {
     let mut maps = vec![insertion(pending)?];
     if fee != 0 {
-        maps.push(fee_witness);
+        maps.push(*fee_witness);
     }
     Ok(maps)
 }
@@ -1333,24 +1290,24 @@ pub(super) fn send_insertions(
 pub(super) fn send_fee_map(
     root: &[u8; 32],
     fee: KagemushaWalletFeeClaimLeafV1,
-    witness: SendFeeMapV1,
+    witness: &SendFeeMapV1,
 ) -> Result<([u8; 32], IndexedInsert<Fp>), Error> {
     match (fee.fee != 0, witness) {
         (true, SendFeeMapV1::Insert(insert)) => {
             let new_root =
                 authority(insert.verify(root, &fee.key(), &authority(fee.leaf_value())?))?;
-            Ok((new_root, insertion(&insert)?))
+            Ok((new_root, insertion(insert)?))
         }
         (false, SendFeeMapV1::Preserve { leaf, opening }) => {
-            if authority(opening.leaf_root(&leaf))? != *root {
+            if authority(opening.leaf_root(leaf))? != *root {
                 return Err(Error::Authority);
             }
             // insert_if authenticates both paths even when its insert bit is zero.
             // They must describe the same existing leaf, including after earlier fees.
             let unchanged = KagemushaWalletIndexedInsertV1 {
-                low: leaf,
-                low_opening: opening,
-                slot_opening: opening,
+                low: *leaf,
+                low_opening: *opening,
+                slot_opening: *opening,
             };
             Ok((*root, insertion(&unchanged)?))
         }

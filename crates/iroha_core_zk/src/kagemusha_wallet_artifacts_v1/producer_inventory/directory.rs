@@ -93,7 +93,8 @@ impl DirectoryOriginalsV1 {
     /// Reauthenticate one whole exact original using a bounded 64 KiB stream.
     ///
     /// # Errors
-    /// Changed extent, content address, immutable mode, original file or ancestry.
+    /// Changed extent, content address, immutable mode, original file or ancestry,
+    /// or scratch allocation failure.
     pub fn verify_original(&self, identity: BlobV1) -> io::Result<()> {
         self.require(identity)
     }
@@ -152,7 +153,7 @@ impl DirectoryOriginalsV1 {
         }
         let mut hash = Sha256::new();
         let mut total = 0_u64;
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = super::original_stream_buffer()?;
         loop {
             let count = original.read(&mut buffer)?;
             if count == 0 {
@@ -180,7 +181,8 @@ impl DirectoryOriginalsV1 {
     ///
     /// # Errors
     /// Wrong digest/length, oversized bytes, unsafe custody, conflicting existing original,
-    /// unavailable entropy/storage or uncertain native publication/durability.
+    /// unavailable entropy/storage, scratch allocation failure or uncertain native
+    /// publication/durability.
     pub fn store_original(&mut self, identity: BlobV1, bytes: &[u8]) -> io::Result<()> {
         if bytes.is_empty() || bytes.len() > self.maximum_bytes || BlobV1::of(bytes) != identity {
             return Err(invalid(
@@ -188,9 +190,8 @@ impl DirectoryOriginalsV1 {
             ));
         }
         let final_name = name(identity.sha256)?;
-        match self.reader_optional(identity.sha256)? {
-            Some(_) => return self.require(identity),
-            None => {}
+        if let Some(_original) = self.reader_optional(identity.sha256)? {
+            return self.require(identity);
         }
         let mut nonce = [0_u8; 16];
         rand::rngs::OsRng

@@ -154,7 +154,7 @@ impl NativePackageVerifier for LedgerVerifier {
         let verification_budget = Default::default();
         installed
             .verifier()
-            .verify_package_proofs(package, None, verification_budget)
+            .verify_package_proofs(package, verification_budget)
             .map_err(|_| Error::Proof)
     }
 }

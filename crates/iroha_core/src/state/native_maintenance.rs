@@ -43,7 +43,7 @@ impl StateBlock<'_> {
             .as_ref()
             .ok_or("native Time source quota was not captured")?
             .as_ref()
-            .map_err(|error| error.to_string())?;
+            .map_err(Clone::clone)?;
         let total = u64::from(
             self.fastpq_source_policy_at_block_start()
                 .0

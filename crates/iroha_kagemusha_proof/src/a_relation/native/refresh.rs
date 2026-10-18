@@ -14,6 +14,7 @@ pub use checkpoint::{CheckpointKind, CheckpointLayout};
 #[path = "refresh/original.rs"]
 mod original;
 use super::artifact::KeyArtifact;
+use super::identity::{BoundV1, ProverInstanceV1};
 
 use core::fmt;
 use std::sync::Arc;
@@ -32,7 +33,6 @@ use iroha_plonk_gadgets::{
         le_value, p_bytes_native,
         tape::{BytesChip, BytesConfig, SegmentSpec},
     },
-    imt::{LeafCells, OpeningCells, PathCells},
     statement::foreign_limbs,
 };
 use iroha_plonk_recursion::{
@@ -57,11 +57,10 @@ use crate::{
     admin_sigma::{RefreshWitness, StateWitness},
     omega::OmegaWitness,
     operation_relation::{
-        map_effects::InsertCells, objects::ObjectKind, quota_refresh::QuotaRebuildCells,
-        state::StateCells, statement::StatementCells,
+        objects::ObjectKind, quota_refresh::QuotaRebuildCells, state::StateCells,
+        statement::StatementCells,
     },
     q_signature::QSignaturePlan,
-    tree::IndexedInsert,
 };
 
 impl Prover {
@@ -226,14 +225,12 @@ impl QuotaInput {
 /// Post-Advance originals for the complete fixed Refresh relation.
 #[derive(Clone, Debug)]
 pub struct Inputs {
-    /// Exact predecessor/successor core33/rest8/public18 and own statement26.
+    /// Exact predecessor/successor core29/rest6/public18 and own statement26.
     pub state: RefreshWitness,
     /// Original unframed sigma also exported by Q0.
     pub sigma: Vec<u8>,
     /// Update certificate/update/receipt/current certificate/current credential.
     pub objects: [Vec<u8>; 5],
-    /// Exact history insertion, present only for Blacklist.
-    pub blacklist: Option<IndexedInsert<Fp>>,
     /// Exact arrays and signed issue/count, present only for Quota.
     pub quota: Option<QuotaInput>,
     /// Own sigma Q, update/receipt/certificate Q, current credential/certificate Q.
@@ -269,10 +266,9 @@ impl Plan {
         if operation.frame().part_source_k() != 12
             || operation.q_count() != 3
             || !operation.frame().has_predecessor()
-            || operation.sigma.slot_count() != 1
+            || operation.sigma_slots() != 1
             || operation
-                .sigma
-                .class(0)
+                .sigma_class(0)
                 .ok_or(Error::Artifact)?
                 .verifier()
                 .binding()
@@ -351,16 +347,13 @@ impl Plan {
         let class = self
             .context
             .operation()
-            .sigma
-            .class(0)
+            .sigma_class(0)
             .ok_or(Error::Artifact)?;
         if input.sigma.len() != class.verifier().proof_length() {
             return Err(Error::Input);
         }
         let variant = self.context.operation().frame().variant();
-        if input.blacklist.is_some() != (variant == Variant::RefreshBlacklist)
-            || input.quota.is_some() != (variant == Variant::RefreshQuotaShare)
-        {
+        if input.quota.is_some() != (variant == Variant::RefreshQuotaShare) {
             return Err(Error::Input);
         }
         check_update_projection(variant, &input.state.update, &input.objects[1])?;
@@ -472,7 +465,6 @@ impl Plan {
         });
         let maps = Maps {
             witness: input.state,
-            blacklist: input.blacklist,
             quota: input.quota,
             known: true,
         };
@@ -538,13 +530,11 @@ impl SignedTape {
     }
 }
 struct AssignedMaps {
-    blacklist: Option<InsertCells>,
     quota: Option<QuotaRebuildCells>,
 }
 #[derive(Clone)]
 struct Maps {
     witness: RefreshWitness,
-    blacklist: Option<IndexedInsert<Fp>>,
     quota: Option<QuotaInput>,
     known: bool,
 }
@@ -590,46 +580,6 @@ impl Maps {
         r: &mut Region<'_, Fp>,
         task: &[OperationTask],
     ) -> Result<AssignedMaps, LayoutError> {
-        let blacklist = if task.contains(&OperationTask::RefreshBlacklist) {
-            let proof = self.blacklist.ok_or(LayoutError::Synthesis)?;
-            let fields = [proof.leaf.key, proof.leaf.value, proof.leaf.next_key];
-            let leaf = LeafCells::from_words(
-                chip.uint()
-                    .glue()
-                    .witnesses(r, &fields.map(|v| self.value(v)))?
-                    .try_into()
-                    .map_err(|_| LayoutError::Synthesis)?,
-            );
-            let mut paths = Vec::new();
-            for (index, siblings) in [
-                (proof.leaf_slot, proof.leaf_siblings),
-                (proof.slot, proof.slot_siblings),
-            ] {
-                let index = chip
-                    .uint()
-                    .glue()
-                    .witness(r, self.value(Fp::from(u64::from(index))))?;
-                let siblings = chip
-                    .uint()
-                    .glue()
-                    .witnesses(r, &siblings.map(|v| self.value(v)))?
-                    .try_into()
-                    .map_err(|_| LayoutError::Synthesis)?;
-                paths.push(PathCells::from_words(
-                    &mut chip.uint(),
-                    r,
-                    &index,
-                    siblings,
-                )?);
-            }
-            let [low, slot] = paths.try_into().map_err(|_| LayoutError::Synthesis)?;
-            Some(InsertCells {
-                low: OpeningCells { leaf, path: low },
-                slot,
-            })
-        } else {
-            None
-        };
         let quota = if task.iter().any(|task| {
             matches!(
                 task,
@@ -664,7 +614,7 @@ impl Maps {
         } else {
             None
         };
-        Ok(AssignedMaps { blacklist, quota })
+        Ok(AssignedMaps { quota })
     }
 }
 #[derive(Clone)]
@@ -1168,7 +1118,6 @@ impl FirstCircuit {
                             .contains(&OperationTask::RefreshUpdateAuthorization)
                             .then_some(&sigma),
                         signatures: signatures.as_ref(),
-                        blacklist: maps.blacklist.as_ref(),
                         quota: maps.quota.as_ref(),
                     },
                 )?;
@@ -1379,6 +1328,8 @@ pub struct Prover {
     a: Vec<KeyArtifact<Eq>>,
     w: Vec<KeyArtifact<Ep>>,
     wrappers: Vec<WKey>,
+    // Process-local instance identity; only this instance resumes its sessions.
+    identity: ProverInstanceV1,
 }
 impl Prover {
     /// Check all original proofs/tapes and create a session using only installed artifacts.
@@ -1402,6 +1353,22 @@ impl Prover {
             prepared: self.plan.prepare_cancellable(input, budget, cancellation)?,
         })
     }
+    /// Resume a session retained from this exact prover instance.
+    ///
+    /// Nothing is re-read or re-verified: `prepare` on this instance verified the
+    /// retained preparation. Checkpoints that session produced or restored stay
+    /// bound to the same source; every later durable entry must still be restored
+    /// strictly from its bytes.
+    /// # Errors
+    /// `Error::Input` when the state was retained from another prover instance,
+    /// including an identically installed one; the state is dropped.
+    pub fn resume(&self, retained: RetainedSession) -> Result<Session<'_>, Error> {
+        let prepared = self.identity.admit(retained.0).map_err(|_| Error::Input)?;
+        Ok(Session {
+            prover: self,
+            prepared,
+        })
+    }
     /// Installed descriptors in exact alternating A/W checkpoint order.
     #[must_use]
     pub fn descriptors(&self) -> Vec<&DescriptorBinding> {
@@ -1421,6 +1388,16 @@ pub struct Session<'a> {
     prover: &'a Prover,
     prepared: Prepared,
 }
+
+/// A Refresh session's verified preparation, detached between fold calls.
+///
+/// Only `Session::into_retained` creates one, and only `Prover::resume` on the
+/// prover instance that prepared it consumes it. It is move-only, process-local
+/// and never serialized or built from bytes. It holds the checked originals and
+/// the source identity that the session's checkpoints carry, but no proving key,
+/// original-store handle or durable checkpoint.
+pub struct RetainedSession(BoundV1<Prepared>);
+
 impl Session<'_> {
     fn require_source(&self, source: &ACheckpoint) -> Result<(), Error> {
         if source.stage >= self.prover.a.len()
@@ -1429,6 +1406,14 @@ impl Session<'_> {
             return Err(Error::Input);
         }
         Ok(())
+    }
+
+    /// Detach this session's verified preparation so a later fold call can resume
+    /// it on the same prover instance instead of preparing again. Checkpoints this
+    /// session produced or restored remain usable by the resumed session.
+    #[must_use]
+    pub fn into_retained(self) -> RetainedSession {
+        RetainedSession(self.prover.identity.bind(self.prepared))
     }
 
     /// Execute the same native check with an explicit operation signal.
@@ -2125,7 +2110,6 @@ fn object_kinds(variant: Variant) -> Result<[ObjectKind; 5], Error> {
     let update = match variant {
         Variant::RefreshCredential => ObjectKind::Credential,
         Variant::RefreshSchemePolicy => ObjectKind::SchemePolicy,
-        Variant::RefreshBlacklist => ObjectKind::Blacklist,
         Variant::RefreshQuotaShare => ObjectKind::QuotaShare,
         Variant::RefreshTimeAnchor => ObjectKind::TimeAnchor,
         _ => return Err(Error::Artifact),
@@ -2514,12 +2498,11 @@ fn check_update_projection(
         Variant::RefreshCredential => (
             ObjectKind::Credential,
             &[
-                2, 32, 32, 32, 32, 65, 32, 1, 32, 8, 4, 4, 4, 4, 32, 8, 4, 4, 4, 4, 32, 4, 8, 8,
-                32, 8, 4, 8, 32,
+                2, 32, 32, 32, 32, 65, 32, 1, 32, 8, 4, 4, 4, 4, 32, 8, 4, 4, 4, 4, 32, 4, 8, 32,
+                8, 4, 8, 32,
             ],
         ),
         Variant::RefreshSchemePolicy => (ObjectKind::SchemePolicy, &[2, 32, 32, 8, 4, 32, 32]),
-        Variant::RefreshBlacklist => (ObjectKind::Blacklist, &[2, 32, 8, 8, 4, 32, 32]),
         Variant::RefreshQuotaShare => {
             (ObjectKind::QuotaShare, &[2, 32, 32, 32, 8, 8, 8, 32, 4, 32])
         }
@@ -2574,8 +2557,8 @@ fn check_update_projection(
     };
     match variant {
         Variant::RefreshCredential => {
-            expected.issued_at_ms = word(25)?;
-            expected.expires_at_ms = word(27)?;
+            expected.issued_at_ms = word(24)?;
+            expected.expires_at_ms = word(26)?;
         }
         Variant::RefreshSchemePolicy => {
             expected.kind = RefreshKind::SchemePolicy;
@@ -2584,13 +2567,6 @@ fn check_update_projection(
             expected.counter = word(3)?;
             expected.controls = word(4)?;
             expected.fee_schedule = word(5)?;
-        }
-        Variant::RefreshBlacklist => {
-            expected.kind = RefreshKind::Blacklist;
-            expected.scheme = id(1)?;
-            expected.counter = word(2)?;
-            expected.issued_at_ms = word(3)?;
-            expected.root = word(5)?;
         }
         Variant::RefreshQuotaShare => {
             expected.kind = RefreshKind::QuotaShare;

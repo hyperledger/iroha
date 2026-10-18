@@ -99,21 +99,34 @@ impl Circuit<Fp> for Bindings {
                     Variant::Send,
                     &incoming,
                 )?;
-                let own_index = uint.glue().witness(&mut region, value(Fp::from(10)))?;
+                let own_index = uint.glue().witness(&mut region, value(Fp::from(6)))?;
                 let incoming_index = uint.glue().witness(&mut region, value(Fp::from(2)))?;
                 let zero = uint.glue().constant(&mut region, Fp::ZERO)?;
-                let bindings = [
-                    SigmaBindingCells::from_statement(
+                let incoming_chunks = self
+                    .plan
+                    .chunk_range(QSigmaPlan::INCOMING)
+                    .ok_or(Error::Synthesis)?;
+                let mut bindings = Vec::new();
+                if self.plan.has_own() {
+                    let chunks = self
+                        .plan
+                        .chunk_range(QSigmaPlan::OWN)
+                        .ok_or(Error::Synthesis)?;
+                    bindings.push(SigmaBindingCells::from_statement(
                         &own,
                         own_index,
-                        vec![zero.clone(); self.plan.chunk_range(0).ok_or(Error::Synthesis)?.len()],
-                    ),
-                    SigmaBindingCells::from_incoming(
-                        &incoming,
-                        incoming_index,
-                        vec![zero; self.plan.chunk_range(1).ok_or(Error::Synthesis)?.len()],
-                    ),
-                ];
+                        vec![zero.clone(); chunks.len()],
+                    ));
+                }
+                bindings.push(SigmaBindingCells::from_incoming(
+                    &incoming,
+                    incoming_index,
+                    vec![zero; incoming_chunks.len()],
+                ));
+                let row = self
+                    .plan
+                    .position(QSigmaPlan::INCOMING)
+                    .ok_or(Error::Synthesis)?;
                 let digest = incoming.digest().value().map(|v| {
                     v + if matches!(self.mutation, Mutation::Digest) {
                         Fp::ONE
@@ -125,26 +138,27 @@ impl Circuit<Fp> for Bindings {
                     .plan
                     .instance_lengths()
                     .map(|n| vec![Value::known(Fp::ZERO); n]);
-                native[0][0] = own.digest().value();
-                native[0][1] = digest;
-                native[2][0] = value(Fp::from(10));
-                native[2][1] = value(Fp::from(if matches!(self.mutation, Mutation::Index) {
+                if self.plan.has_own() {
+                    native[0][0] = own.digest().value();
+                    native[2][0] = value(Fp::from(6));
+                    native[3][0] = value(Fp::ONE);
+                }
+                native[0][row] = digest;
+                native[2][row] = value(Fp::from(if matches!(self.mutation, Mutation::Index) {
                     3
                 } else {
                     2
                 }));
-                native[3][0] = value(Fp::ONE);
-                native[3][1] = value(Fp::from(u64::from(self.verdict)));
+                native[3][row] = value(Fp::from(u64::from(self.verdict)));
                 // The mode itself is correctly one-hot; a substituted verifier
                 // input must fail even when Q legitimately reports false/Trivial.
-                native[3][3] = value(Fp::ONE);
+                native[3][self.plan.slot_count() + 1] = value(Fp::ONE);
                 native[4][0] = value(Fp::from(16));
                 for i in self.plan.challenge_range() {
                     native[0][i] = value(Fp::ONE);
                 }
                 if matches!(self.mutation, Mutation::Bytes) {
-                    native[0][self.plan.chunk_range(1).ok_or(Error::Synthesis)?.start] =
-                        value(Fp::ONE);
+                    native[0][incoming_chunks.start] = value(Fp::ONE);
                 }
                 let mut instances = Vec::new();
                 for column in native {
@@ -169,7 +183,8 @@ impl Circuit<Fp> for Bindings {
     }
 }
 
-fn fixture() -> Bindings {
+// `own`: the paired plan with an own sigma; otherwise the lean incoming-only plan.
+fn fixture(own: bool) -> Bindings {
     let json: norito::json::Value = norito::json::from_str(include_str!(
         "../../../../../fixtures/kagemusha/wallet_v1_vectors.json"
     ))
@@ -218,10 +233,14 @@ fn fixture() -> Bindings {
     .unwrap();
     // Descriptor/key hashes below are only Q export-link metadata. This unit
     // test does not produce or accept a recursive proof under a fixture key.
-    let own = SigmaClass::new(verifier.clone(), vec![(10, Fq::from(11))]).unwrap();
+    let own_class = SigmaClass::new(verifier.clone(), vec![(6, Fq::from(11))]).unwrap();
     let incoming = SigmaClass::new(verifier, vec![(2, Fq::from(12)), (3, Fq::from(13))]).unwrap();
     Bindings {
-        plan: QSigmaPlan::new(own, Some(incoming), &params).unwrap(),
+        plan: if own {
+            QSigmaPlan::new(own_class, Some(incoming), &params).unwrap()
+        } else {
+            QSigmaPlan::incoming_only(incoming, &params).unwrap()
+        },
         own: fields("receive_statement"),
         incoming: fields("send_statement"),
         verdict: false,
@@ -230,14 +249,19 @@ fn fixture() -> Bindings {
     }
 }
 
-/// Fixed descriptor-only sigma classes for A input-link tests.
+/// Fixed descriptor-only incoming-only sigma plan (lean Receive) for A input-link tests.
 pub(in crate::a_relation) fn sigma_fixture() -> QSigmaPlan {
-    fixture().plan
+    fixture(false).plan
 }
 
 #[test]
 fn incoming_verifier_input_substitutions_cannot_manufacture_soft_false() {
-    let c = fixture();
+    for own in [true, false] {
+        substitutions_cannot_manufacture_soft_false(fixture(own));
+    }
+}
+
+fn substitutions_cannot_manufacture_soft_false(c: Bindings) {
     for verdict in [false, true] {
         let honest = Bindings {
             verdict,

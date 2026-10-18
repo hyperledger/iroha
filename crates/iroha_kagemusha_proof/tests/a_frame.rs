@@ -215,7 +215,7 @@ fn frame(variant: Variant) -> Frame {
     }
 }
 #[test]
-fn all_fourteen_variants_share_one_frame_and_descriptor() {
+fn all_thirteen_variants_share_one_frame_and_descriptor() {
     let mut descriptor = None;
     for variant in Variant::ALL {
         let circuit = frame(variant);

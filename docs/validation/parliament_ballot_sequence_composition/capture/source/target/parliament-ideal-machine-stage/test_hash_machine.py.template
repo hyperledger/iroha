@@ -1,0 +1,92 @@
+"""Joint-map checks for immutable provided-oracle B1 framing and cleanup."""
+from collections import Counter
+import hashlib
+import random
+import unittest
+
+from bit_ir import bits, unpack
+from hash_machine import BASE_RESPONSE_BITS, H0, H1Aggregation, prefix_query
+
+
+def apply(state, gates):
+    """Independent ordinary-gate/XOF oracle interpreter with one shared function."""
+    count = Counter()
+    queries = []
+    for gate in gates:
+        if gate[0].startswith("F:"):
+            length = int(gate[0].split(":")[1])
+            inputs, response = gate[1:1 + 8 * length], gate[1 + 8 * length:]
+            if len(response) != BASE_RESPONSE_BITS or len(set(inputs + response)) != len(inputs + response):
+                raise ValueError("test oracle shape")
+            message = unpack(tuple(state[w] for w in inputs)).to_bytes(length, "little")
+            value = bits(int.from_bytes(hashlib.shake_256(message).digest(264), "little"), BASE_RESPONSE_BITS)
+            for w, bit in zip(response, value):
+                state[w] ^= bit
+            count["F"] += 1
+            queries.append(message)
+        else:
+            count[gate[0]] += 1
+            if all(state[w] for w in gate[1:-1]):
+                state[gate[-1]] ^= 1
+    return count, queries
+
+
+class HashMachineTests(unittest.TestCase):
+    def test_H0_shared_function_prefix_map_and_cleanup(self):
+        c = H0()
+        rng = random.Random(431)
+        raw = rng.randbytes(93)
+        inputs = bits(int.from_bytes(raw, "little"), c.input_bits)
+        z = (1, 0) * 512
+        state = list(inputs + (0,) * c.work + z)
+        census, queries = apply(state, c.emit_clean())
+        self.assertEqual(queries, [raw + b"\0"] * 2)
+        expected = bits(int.from_bytes(hashlib.shake_256(raw + b"\0").digest(128), "little"), 1024)
+        self.assertEqual(state[:c.input_bits], list(inputs))
+        self.assertEqual(state[c.input_bits:c.input_bits+c.work], [0] * c.work)
+        self.assertEqual(tuple(state[-1024:]), tuple(a ^ b for a, b in zip(z, expected)))
+        self.assertEqual((census["F"], census["cx"], census["x"]), (2, c.resources()["gates"]["cx"], 0))
+
+    def test_H1_source_order_clean_map_and_exact_calls(self):
+        rng = random.Random(411)
+        for depths in ((1, 1), (1, 3), (3, 2), (1,) * 8):
+            c = H1Aggregation(depths)
+            p = c.layout()
+            namespace = rng.randbytes(77)
+            leaves = [rng.randbytes(144) for _ in range(c.leaves)]
+            raw = namespace + b"".join(leaves)
+            inputs = bits(int.from_bytes(raw, "little"), c.input_bits)
+            z = (0, 1, 1, 0) * 128
+            state = list(inputs + (0,) * (p["output_start"] - c.input_bits) + z)
+            census, queries = apply(state, c.emit_clean())
+            vector_messages, hashes, offset = [], [], 0
+            for d in depths:
+                message = namespace + b"".join(row[32:] for row in leaves[offset:offset+(1 << d)]) + b"\1"
+                vector_messages.append(message)
+                hashes.append(hashlib.shake_256(message).digest(64))
+                offset += 1 << d
+            outer = namespace + b"".join(hashes) + b"\1"
+            expected_queries = [m for message in vector_messages for m in (message, message)]
+            expected_queries += [outer, outer]
+            expected_queries += [m for message in reversed(vector_messages) for m in (message, message)]
+            self.assertEqual(queries, expected_queries)
+            expected = bits(int.from_bytes(hashlib.shake_256(outer).digest(64), "little"), 512)
+            self.assertEqual(state[:c.input_bits], list(inputs))
+            self.assertEqual(state[c.input_bits:p["output_start"]], [0] * (p["output_start"] - c.input_bits))
+            self.assertEqual(tuple(state[-512:]), tuple(a ^ b for a, b in zip(z, expected)))
+            cost = c.resources()["gates"]
+            self.assertEqual((census["x"], census["cx"], census["F"]),
+                             (cost["x"], cost["cx"], cost["base_xor_oracle_calls"]))
+
+    def test_prefix_aliases_and_bad_dimensions_refused(self):
+        with self.assertRaises(ValueError):
+            tuple(prefix_query(tuple(range(8)), tuple(range(8)), tuple(range(8, 2120))))
+        with self.assertRaises(ValueError):
+            tuple(prefix_query((0,), (1,), tuple(range(2, 2114))))
+        for depths in ((0, 1), (1,), [1, 1], (12,) * 64):
+            with self.assertRaises(ValueError):
+                H1Aggregation(depths)
+
+
+if __name__ == "__main__":
+    unittest.main()

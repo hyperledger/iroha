@@ -38,11 +38,10 @@ use super::{
     keys::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
     overflow_v1,
     policy::{
-        KagemushaWalletAnchoredTimeV1, KagemushaWalletBlacklistGapOpeningV1,
-        KagemushaWalletBlacklistV1, KagemushaWalletFeeScheduleV1,
+        KagemushaWalletAnchoredTimeV1, KagemushaWalletBlacklistV1, KagemushaWalletFeeScheduleV1,
         KagemushaWalletMonotonicReadingV1, KagemushaWalletQuotaChargeV1,
-        KagemushaWalletQuotaShareV1, KagemushaWalletRecordedBlacklistProofV1,
-        KagemushaWalletSchemePolicyV1, KagemushaWalletTimeIntervalV1,
+        KagemushaWalletQuotaShareV1, KagemushaWalletSchemePolicyV1, KagemushaWalletTimeIntervalV1,
+        kagemusha_wallet_local_block_v1,
     },
     poseidon::{
         KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_OPENING_DOMAIN_V1,
@@ -79,10 +78,10 @@ pub const KAGEMUSHA_WALLET_OFFER_BODY_TRANSCRIPT_BYTES_V1: usize =
     U16_BYTES + 5 * DIGEST_BYTES + 2 * U128_BYTES;
 /// Exact Request body transcript bytes (signed under `kgwrqst1`).
 pub const KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1: usize =
-    U16_BYTES + 12 * DIGEST_BYTES + 3 * U128_BYTES + 3 * U64_BYTES;
-/// σ-field elements of the Request body hashed into `credit_id` (§5.1, owner answers A5, B1
-/// and B6).
-pub const KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1: usize = 26;
+    U16_BYTES + 11 * DIGEST_BYTES + 3 * U128_BYTES + 2 * U64_BYTES;
+/// σ-field elements of the Request body hashed into `credit_id` (§5.1, owner answers A5 and
+/// B1).
+pub const KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1: usize = 24;
 /// Exact `payment` transcript bytes:
 /// `LE16 version || request_digest || payer_payment_key || payer_credential_digest ||
 /// package_digest`.
@@ -423,13 +422,11 @@ impl KagemushaWalletFeeScheduleSlotV1 {
 
 /// Body of a receiver Request, signed by the receiver payment key under `kgwrqst1`.
 ///
-/// Its 26 σ-field elements define `credit_id = P(kgwcrdt1, elements)` (§5.1). It carries both
-/// parties' account digests, so that each side's blacklist check binds through `credit_id`
-/// (owner answer A5), and the receiver blacklist decision of this Request: the version and root
-/// of the list the receiver enforced when it issued the Request, `(0, 0)` for none (owner
-/// answer B6). Receive checks the payer only against that recorded list. The receiver
-/// credential, fee schedule, scheme policy and certificate-set digests are `P` values, one
-/// element each (owner answer B1).
+/// Its 24 σ-field elements define `credit_id = P(kgwcrdt1, elements)` (§5.1). It carries both
+/// parties' account digests (owner answer A5), which bind each party's credential account
+/// through `credit_id`; the payer's destination review and each side's local blacklist block
+/// read them. The receiver credential, fee schedule, scheme policy and certificate-set digests
+/// are `P` values, one element each (owner answer B1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRequestBodyV1"
@@ -467,11 +464,6 @@ pub struct KagemushaWalletRequestBodyV1 {
     pub scheme_policy: [u8; 32],
     /// Receiver's authenticated accepted time in Unix milliseconds.
     pub receiver_accepted_time_ms: u64,
-    /// Version of the blacklist the receiver enforced when it issued this Request; zero when
-    /// it enforced none (control off or no list held). Zero exactly when the root is zero.
-    pub receiver_blacklist_version: u64,
-    /// Gap-tree root of that list, a canonical σ-field value; zero when none was enforced.
-    pub receiver_blacklist_root: [u8; 32],
     /// Certificate-set digest `P(kgwcset1, ·)` of the Request's certificates.
     pub certificates: [u8; 32],
     /// Fresh 256-bit nonce.
@@ -498,8 +490,6 @@ impl KagemushaWalletRequestBodyV1 {
             .u64(self.policy_epoch)
             .digest(&self.scheme_policy)
             .u64(self.receiver_accepted_time_ms)
-            .u64(self.receiver_blacklist_version)
-            .digest(&self.receiver_blacklist_root)
             .digest(&self.certificates)
             .digest(&self.nonce)
             .finish()
@@ -515,9 +505,7 @@ impl KagemushaWalletRequestBodyV1 {
     /// σ-field elements of the body in transcript order (§5.1): version; scheme id (2); asset
     /// digest (2); payer wallet (2); payer account (2); receiver wallet (2); receiver account
     /// (2); send ordinal; receiver credential digest; amount; fee schedule; fee; policy epoch;
-    /// scheme policy; receiver accepted time; receiver blacklist version; receiver blacklist
-    /// root; certificate-set digest; nonce (2) — 26 elements, so the recorded blacklist decision
-    /// is bound wherever `credit_id` is.
+    /// scheme policy; receiver accepted time; certificate-set digest; nonce (2) — 24 elements.
     #[must_use]
     pub fn field_items(&self) -> Vec<[u8; 32]> {
         let items = WalletFieldItemsV1::with_capacity(KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1)
@@ -536,8 +524,6 @@ impl KagemushaWalletRequestBodyV1 {
             .integer(u128::from(self.policy_epoch))
             .field(&self.scheme_policy)
             .integer(u128::from(self.receiver_accepted_time_ms))
-            .integer(u128::from(self.receiver_blacklist_version))
-            .field(&self.receiver_blacklist_root)
             .field(&self.certificates)
             .digest(&self.nonce);
         debug_assert_eq!(items.len(), KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1);
@@ -556,11 +542,10 @@ impl KagemushaWalletRequestBodyV1 {
     /// # Errors
     ///
     /// Rejects another version, zero bindings (both account digests included), a zero or
-    /// noncanonical receiver credential or certificate-set digest, a noncanonical fee schedule,
-    /// scheme policy or receiver blacklist root, a zero amount, a payer equal to the receiver,
-    /// an overflowing gross debit, a policy epoch that disagrees with its scheme-policy digest,
-    /// a nonzero fee without a fee schedule, and a receiver blacklist version that is zero
-    /// exactly when the recorded root is not.
+    /// noncanonical receiver credential or certificate-set digest, a noncanonical fee schedule
+    /// or scheme policy, a zero amount, a payer equal to the receiver, an overflowing gross
+    /// debit, a policy epoch that disagrees with its scheme-policy digest, and a nonzero fee
+    /// without a fee schedule.
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("request.version", self.version)?;
         for (field, digest) in [
@@ -585,15 +570,8 @@ impl KagemushaWalletRequestBodyV1 {
         for (field, value) in [
             ("request.fee_schedule", &self.fee_schedule),
             ("request.scheme_policy", &self.scheme_policy),
-            (
-                "request.receiver_blacklist_root",
-                &self.receiver_blacklist_root,
-            ),
         ] {
             require_canonical_field_v1(field, value)?;
-        }
-        if (self.receiver_blacklist_version == 0) != is_zero_v1(&self.receiver_blacklist_root) {
-            return Err(invalid_v1("request.receiver_blacklist"));
         }
         if self.amount == 0 {
             return Err(invalid_v1("request.amount"));
@@ -613,28 +591,21 @@ impl KagemushaWalletRequestBodyV1 {
         Ok(())
     }
 
-    /// Request rule of the receiver, run before it signs this body (§§3.4, 7; owner answers A5
-    /// and B6).
+    /// Request rule of the receiver, run before it signs this body (§§3.4, 7; owner answer A5).
     ///
     /// `offer` is the session's Offer, authenticated under `scheme`; `receiver_credential` and
     /// `receiver_state` are the receiver's own current credential and head state, and `list` its
-    /// committed blacklist when it holds one. The body must name the Offer's payer wallet and
-    /// payer account digest and the receiver's own wallet and account digest. The receiver's
-    /// list is judged here, once: with its blacklist enforced (its BLACKLIST control enabled and
-    /// a list held), the body records the committed `(blacklist_version, blacklist_root)` and the
-    /// payer account digest must have a gap opening in that list; otherwise the body records
-    /// `(0, 0)` ([`KagemushaWalletStateV1::request_blacklist_decision`]). Lists are best effort:
-    /// only the receiver's own committed list counts. Returns the gap opening, which the receiver
-    /// retains with the issued Request for its Receive and any `σ_recv` re-proof
-    /// ([`KagemushaWalletBlacklistGapOpeningV1::transcript`]), or `None` when no list is
-    /// enforced; on error the receiver issues no Request (it may send `SetupDeclined`).
+    /// local blacklist when it holds one. The body must name the Offer's payer wallet and payer
+    /// account digest and the receiver's own wallet and account digest. A held list must not
+    /// contain the payer's account ([`kagemusha_wallet_local_block_v1`]; owner decision
+    /// 2026-10-17: the list is local only, never committed, proved or sent). On error the
+    /// receiver issues no Request (it may send `SetupDeclined`).
     ///
     /// # Errors
     ///
     /// Rejects an invalid body, an Offer that does not verify under `scheme`, a receiver state
     /// that does not belong to `receiver_credential`, a body for another scheme, asset, payer
-    /// wallet or account, receiver wallet or account, a recorded blacklist decision other than
-    /// the receiver's current one, a missing or uncommitted list, and a listed payer.
+    /// wallet or account, receiver wallet or account, and a payer the held list contains.
     pub fn check_request_rule(
         &self,
         scheme: &KagemushaWalletSchemeV1,
@@ -642,7 +613,7 @@ impl KagemushaWalletRequestBodyV1 {
         receiver_credential: &KagemushaWalletCredentialV1,
         receiver_state: &KagemushaWalletStateV1,
         list: Option<&KagemushaWalletBlacklistV1>,
-    ) -> WalletResult<Option<KagemushaWalletBlacklistGapOpeningV1>> {
+    ) -> WalletResult<()> {
         self.validate()?;
         offer.verify(scheme)?;
         receiver_state.validate_for_credential(receiver_credential)?;
@@ -677,11 +648,11 @@ impl KagemushaWalletRequestBodyV1 {
                 return Err(invalid_v1(field));
             }
         }
-        let (version, root) = receiver_state.request_blacklist_decision();
-        if self.receiver_blacklist_version != version || self.receiver_blacklist_root != root {
-            return Err(invalid_v1("request.receiver_blacklist"));
-        }
-        receiver_state.check_request_blacklist(list, &self.payer_account_digest)
+        kagemusha_wallet_local_block_v1(
+            list,
+            "request.payer_account_digest",
+            &self.payer_account_digest,
+        )
     }
 }
 
@@ -918,35 +889,35 @@ impl KagemushaWalletRequestV1 {
     /// It authenticates its inputs against the payer's head, derives one accepted interval
     /// `[L, U]` (§3.3, Time), and applies every part of
     /// the Send rule: the ordinal, spendable, epoch, fee-schedule, key and account checks against
-    /// the Ω recorded for the head; with the lease enabled, `U < lease_expires_at_ms`; with the
-    /// payer's blacklist enforced, the receiver's gap opening in the committed list and the
-    /// list-age rule; with the quota control enabled, `U < quota_share_expires_at_ms`, the Send
-    /// time span `U − L ≤ time_anchor_max_response_ms` and the in-place charges of every touched
-    /// window. It returns the Send effect and `σ_send`'s control witnesses (the gap opening, the
-    /// quota charges with their window and usage openings, and the successor quota-usage
-    /// array). The partial checks are not separate entry points.
+    /// the Ω recorded for the head; the payer's local blacklist block on the receiver's account
+    /// ([`kagemusha_wallet_local_block_v1`]); with the lease enabled, `U < lease_expires_at_ms`;
+    /// with the quota control enabled, `U < quota_share_expires_at_ms`, the Send time span
+    /// `U − L ≤ time_anchor_max_response_ms` and the in-place charges of every touched window.
+    /// It returns the Send effect and `σ_send`'s control witnesses (the quota charges with their
+    /// window and usage openings, and the successor quota-usage array). The partial checks are
+    /// not separate entry points.
     ///
     /// # Errors
     ///
-    /// Rejects what the Send rule, the lease, blacklist and quota checks and the Send effect
-    /// reject; a Send that fails changes no state.
+    /// Rejects what the Send rule, the local block, the lease and quota checks and the Send
+    /// effect reject; a Send that fails changes no state.
     pub fn check_send(
         &self,
         inputs: &KagemushaWalletSendInputsV1<'_>,
     ) -> WalletResult<KagemushaWalletSendCheckV1> {
         let state = inputs.payer_state;
         self.check_send_rule(inputs.payer_credential, state, inputs.omega)?;
+        kagemusha_wallet_local_block_v1(
+            inputs.blacklist,
+            "request.receiver_account_digest",
+            &self.body.receiver_account_digest,
+        )?;
         let interval = state.effective_accepted_time(
             inputs.anchored,
             inputs.now,
             self.body.receiver_accepted_time_ms,
         )?;
         state.check_lease(&interval)?;
-        let blacklist_gap = state.check_send_blacklist(
-            inputs.blacklist,
-            &self.body.receiver_account_digest,
-            &interval,
-        )?;
         let gross = self
             .body
             .amount
@@ -958,7 +929,6 @@ impl KagemushaWalletRequestV1 {
         Ok(KagemushaWalletSendCheckV1 {
             interval,
             effect,
-            blacklist_gap,
             quota_charges,
             quota_usage,
         })
@@ -1082,8 +1052,8 @@ impl KagemushaWalletRequestV1 {
 
 /// Inputs of the one native Send pre-check ([`KagemushaWalletRequestV1::check_send`]): the
 /// payer's credential, head state and the Ω recorded for that head, its committed same-boot time
-/// anchor and the current monotonic reading, and the native stores of its held blacklist, quota
-/// share and quota-usage array.
+/// anchor and the current monotonic reading, its local blacklist, and the native stores of its
+/// held quota share and quota-usage array.
 #[derive(Debug, Clone, Copy)]
 pub struct KagemushaWalletSendInputsV1<'a> {
     /// Payer's current credential.
@@ -1097,7 +1067,7 @@ pub struct KagemushaWalletSendInputsV1<'a> {
     /// Current native monotonic reading; required whenever a committed anchor is held.
     /// Absence is permitted only for the floor-only path without an anchor.
     pub now: Option<&'a KagemushaWalletMonotonicReadingV1>,
-    /// Held blacklist, if any.
+    /// Local blacklist, if one is held; never committed or proved.
     pub blacklist: Option<&'a KagemushaWalletBlacklistV1>,
     /// Held quota share, if any.
     pub quota_share: Option<&'a KagemushaWalletQuotaShareV1>,
@@ -1113,8 +1083,6 @@ pub struct KagemushaWalletSendCheckV1 {
     pub interval: KagemushaWalletTimeIntervalV1,
     /// Send effect of the Request at `interval`.
     pub effect: KagemushaWalletEffectV1,
-    /// Gap opening of the receiver's account in the payer's committed list, when enforced.
-    pub blacklist_gap: Option<KagemushaWalletBlacklistGapOpeningV1>,
     /// In-place quota charges in canonical order (Daily then Monthly, each by ascending slot),
     /// empty without the quota control.
     pub quota_charges: Vec<KagemushaWalletQuotaChargeV1>,
@@ -1258,10 +1226,6 @@ pub struct KagemushaWalletPaymentRequestV1 {
     pub scheme_policy: [u8; 32],
     /// Receiver authenticated accepted time.
     pub receiver_accepted_time_ms: u64,
-    /// Blacklist version enforced for this Request.
-    pub receiver_blacklist_version: u64,
-    /// Root of that recorded blacklist, zero when absent.
-    pub receiver_blacklist_root: [u8; 32],
     /// Request certificate-set digest.
     pub certificates: [u8; 32],
     /// Original fresh Request nonce.
@@ -1339,8 +1303,6 @@ impl KagemushaWalletPaymentV1 {
                 policy_epoch: b.policy_epoch,
                 scheme_policy: b.scheme_policy,
                 receiver_accepted_time_ms: b.receiver_accepted_time_ms,
-                receiver_blacklist_version: b.receiver_blacklist_version,
-                receiver_blacklist_root: b.receiver_blacklist_root,
                 certificates: b.certificates,
                 nonce: b.nonce,
                 signature: request.signature,
@@ -1394,8 +1356,6 @@ impl KagemushaWalletPaymentV1 {
                 policy_epoch: r.policy_epoch,
                 scheme_policy: r.scheme_policy,
                 receiver_accepted_time_ms: r.receiver_accepted_time_ms,
-                receiver_blacklist_version: r.receiver_blacklist_version,
-                receiver_blacklist_root: r.receiver_blacklist_root,
                 certificates: r.certificates,
                 nonce: r.nonce,
             },
@@ -1541,18 +1501,12 @@ impl KagemushaWalletPaymentV1 {
         Ok(digests)
     }
 
-    /// The one native Receive preparation path of the receiver (§§3.4, 5.1; owner answer B6,
-    /// technical decision Q8): the full Payment verification ([`Self::verify`]) against the
-    /// session's payer credential and certificates and the receiver's held `request`, then the
-    /// Receive effect for the receiver's current credential and head, including the Receive rule
-    /// against the blacklist decision the Request recorded.
-    ///
-    /// `recorded_blacklist` is required when the Request records a nonzero
-    /// `(receiver_blacklist_version, receiver_blacklist_root)`: the history lookup of that
-    /// version in the head's blacklist history and the gap opening retained with the Request.
-    /// A recorded `(0, 0)` needs no check. The receiver's current list and controls neither
-    /// excuse a recorded check nor add one, so a newer receiver list never strands a committed
-    /// Payment. A Payment that fails changes no state.
+    /// The one native Receive preparation path of the receiver (§§3.4, 5.1; technical decision
+    /// Q8): the full Payment verification ([`Self::verify`]) against the session's payer
+    /// credential and certificates and the receiver's held `request`, the receiver's local
+    /// blacklist block on the payer's account (`list`, the receiver's held list;
+    /// [`kagemusha_wallet_local_block_v1`]), then the Receive effect for the receiver's current
+    /// credential and head. A Payment that fails changes no state.
     ///
     /// # Errors
     ///
@@ -1566,15 +1520,15 @@ impl KagemushaWalletPaymentV1 {
         request: &KagemushaWalletRequestV1,
         receiver_credential: &KagemushaWalletCredentialV1,
         receiver_state: &KagemushaWalletStateV1,
-        recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
+        list: Option<&KagemushaWalletBlacklistV1>,
     ) -> WalletResult<KagemushaWalletReceivePreparationV1> {
         let digests = self.verify(scheme, payer_credential, payer_certificates, request)?;
-        let effect = self.receive_effect(
-            request,
-            receiver_credential,
-            receiver_state,
-            recorded_blacklist,
+        kagemusha_wallet_local_block_v1(
+            list,
+            "request.payer_account_digest",
+            &request.body.payer_account_digest,
         )?;
+        let effect = self.receive_effect(request, receiver_credential, receiver_state)?;
         Ok(KagemushaWalletReceivePreparationV1 { digests, effect })
     }
 
@@ -1584,24 +1538,20 @@ impl KagemushaWalletPaymentV1 {
     ///
     /// The receiver is matched by the Request's receiver `wallet_id` and the `payment_key` of
     /// the Request's receiver credential, never by credential-digest equality, so a Request
-    /// quoted before a renewal stays receivable after it (owner answer Q8). The recorded
-    /// blacklist decision is checked before mutation
-    /// ([`KagemushaWalletStateV1::check_recorded_blacklist`]). The effect carries no Payment
-    /// digest (§3). Consumed-credit nonmembership is checked inside the serialized Advance
-    /// section (§4.2).
+    /// quoted before a renewal stays receivable after it (owner answer Q8). The effect carries no
+    /// Payment digest (§3). Consumed-credit nonmembership is checked inside the serialized
+    /// Advance section (§4.2).
     ///
     /// # Errors
     ///
     /// Rejects what [`Self::digests`] rejects, an invalid receiver credential or Request, a
     /// receiver state of another credential, a carried Request other than `request`, a Payment
-    /// for another scheme, asset, wallet or payment key, and a recorded blacklist decision that
-    /// does not hold.
+    /// for another scheme, asset, wallet or payment key.
     pub(super) fn receive_effect(
         &self,
         request: &KagemushaWalletRequestV1,
         receiver_credential: &KagemushaWalletCredentialV1,
         receiver_state: &KagemushaWalletStateV1,
-        recorded_blacklist: Option<&KagemushaWalletRecordedBlacklistProofV1>,
     ) -> WalletResult<KagemushaWalletEffectV1> {
         let digests = self.digests()?;
         request.validate()?;
@@ -1622,12 +1572,6 @@ impl KagemushaWalletPaymentV1 {
         if receiver.payment_key != request.receiver_credential.body.payment_key {
             return Err(invalid_v1("payment.receiver_payment_key"));
         }
-        receiver_state.check_recorded_blacklist(
-            body.receiver_blacklist_version,
-            &body.receiver_blacklist_root,
-            &body.payer_account_digest,
-            recorded_blacklist,
-        )?;
         Ok(KagemushaWalletEffectV1::Receive {
             credit_id: digests.credit_id,
             payer_wallet_id: body.payer_wallet_id,
@@ -2710,7 +2654,7 @@ impl KagemushaWalletSessionControlV1 {
 /// One nonmonetary scheme-scoped policy item carried between peers.
 ///
 /// The signed blacklist is not a policy item and never travels between peers: a wallet
-/// downloads it only while online, from the issuer or ledger, as one standalone
+/// installs it locally as one standalone
 /// [`KagemushaWalletBlacklistV1`](super::KagemushaWalletBlacklistV1) frame. Wire tag 4 is
 /// unused.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]

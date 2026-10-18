@@ -23,7 +23,7 @@ fn fixture() -> ProducerInventoryV1 {
                 proving_key: blob(5),
             },
         ],
-        sigma: [0; 16],
+        sigma: [0; 11],
         operations: vec![],
         routes: vec![],
         terminals: vec![],

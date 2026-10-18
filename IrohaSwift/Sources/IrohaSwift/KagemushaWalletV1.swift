@@ -13,6 +13,10 @@ public extension KagemushaWalletErrorV1 {
   /// Design §5.3: available memory does not cover the installed relations' peak proving memory.
   /// Refused before commit; nothing debited or credited. Never a device verdict.
   static let notEnoughMemoryStatus: Int32 = -14
+  /// The wallet's locally installed blacklist lists the counterparty: a payer refusing to pay a
+  /// listed receiver, or a receiver refusing to request or accept money from a listed payer.
+  /// Refused before any mutation; nothing debited, issued or credited.
+  static let blockedStatus: Int32 = -15
 }
 
 /// Explicit custody result with original canonical bytes.
@@ -298,6 +302,14 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   public func refresh(requestId: Data, kind: KagemushaWalletRefreshKindV1, update: Data, certificates: Data) throws -> KagemushaWalletCallV1 {
     try execute(KagemushaWalletOperationInputV1(requestId: requestId, selector: kind.rawValue, first: update, second: certificates))
   }
+  /// Install a signed blacklist locally; a replacement's list version must increase and
+  /// reinstalling the held list is idempotent. The wallet then refuses to pay a listed receiver
+  /// and to request or accept money from a listed payer (`blockedStatus`). Nothing is sent to
+  /// peers or proved; this is no wallet operation and has no retry identity. Complete carries the
+  /// held list's 32-byte object digest.
+  public func installBlacklist(list: Data, certificates: Data) throws -> KagemushaWalletCallV1 {
+    try execute(KagemushaWalletOperationInputV1(requestId: Data(count: 32), selector: 5, first: list, second: certificates))
+  }
   /// Authenticate exact Unload gross debit and optional signed charge before fresh confirmation.
   public func reviewUnload(amount: KagemushaWalletUInt128V1, quote: Data? = nil, certificates: Data? = nil,
     chargeBeneficiary: Data? = nil) throws -> KagemushaWalletReviewV1 {
@@ -438,7 +450,7 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
 
 /// Existing signed update classes; these values never select proof keys or state roots.
 public enum KagemushaWalletRefreshKindV1: UInt32, Sendable {
-  case credential = 3, schemePolicy = 4, blacklist = 5, timeAnchor = 6, quotaShare = 7
+  case credential = 3, schemePolicy = 4, timeAnchor = 6, quotaShare = 7
 }
 
 /// Fixed foreign intake only; Native performs canonical decoding and all monetary admission.
@@ -464,7 +476,8 @@ struct KagemushaWalletOperationInputV1 {
     default: throw KagemushaWalletErrorV1.invalidInput
     }
     let nonzero = amount.low != 0 || amount.high != 0
-    guard requestId.count == 32, requestId.contains(where: { $0 != 0 }),
+    // Only the local list install (selector 5) has no retry identity: its field is all zero.
+    guard requestId.count == 32, requestId.contains(where: { $0 != 0 }) != (selector == 5),
       !nonzero else { throw KagemushaWalletErrorV1.invalidInput }
     for (bytes, limit) in zip([first, second, third], limits) {
       guard bytes.count <= limit, !((selector < 8 || selector == 10) && limit != 0 && bytes.isEmpty)

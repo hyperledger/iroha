@@ -100,6 +100,10 @@ pub const TERMINAL: i32 = -13;
 /// relations' peak proving memory. Refused before commit: nothing was debited or credited.
 /// Retry after freeing memory. Never a device verdict.
 pub const NOT_ENOUGH_MEMORY: i32 = -14;
+/// The wallet's locally installed blacklist lists the counterparty: the payer refuses to pay a
+/// listed receiver, the receiver refuses to request or accept money from a listed payer.
+/// Refused before any mutation: nothing was debited, issued or credited.
+pub const BLOCKED: i32 = -15;
 /// Internal panic or poisoned owner; no outcome should be inferred.
 pub const INTERNAL: i32 = -100;
 
@@ -208,6 +212,7 @@ impl From<state::Error> for Failure {
             E::Proof(_) => Self::code(PROOF_REJECTED),
             E::NotEnoughStorage => Self::code(NOT_ENOUGH_STORAGE),
             E::NotEnoughMemory => Self::code(NOT_ENOUGH_MEMORY),
+            E::Blocked(_) => Self::code(BLOCKED),
         }
     }
 }
@@ -292,6 +297,9 @@ trait Wallet: Send {
     }
     fn setup(&mut self, input: setup::Setup) -> Result<Response>;
     fn execute(&mut self, request: state::OperationRequestV1) -> Result<Response>;
+    fn install_blacklist(&mut self, _list: &[u8], _certificates: &[u8]) -> Result<Response> {
+        Err(Failure::code(INVALID))
+    }
     fn request_status(&mut self, request: &[u8; 32]) -> Result<Response>;
     fn retry(&mut self, operation: &[u8; 32]) -> Result<Response>;
     fn resume(&mut self) -> Result<Response>;
@@ -364,6 +372,9 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
     }
     fn execute(&mut self, request: state::OperationRequestV1) -> Result<Response> {
         completion(Some(self.wallet.execute(request)?))
+    }
+    fn install_blacklist(&mut self, list: &[u8], certificates: &[u8]) -> Result<Response> {
+        completion(Some(self.wallet.install_blacklist(list, certificates)?))
     }
     fn request_status(&mut self, request: &[u8; 32]) -> Result<Response> {
         Ok(match self.wallet.retry_request(request)? {
@@ -587,7 +598,15 @@ pub(crate) fn setup(id: u64, input: setup::Setup) -> Result<Response> {
         wallet.setup(input)
     })
 }
-pub(crate) fn execute(id: u64, request: state::OperationRequestV1) -> Result<Response> {
+pub(crate) fn execute(id: u64, call: requests::Call) -> Result<Response> {
+    let request = match call {
+        requests::Call::Operation(request) => request,
+        requests::Call::InstallBlacklist { list, certificates } => {
+            return with_wallet(id, true, |wallet| {
+                wallet.install_blacklist(&list, &certificates)
+            });
+        }
+    };
     if matches!(
         &request.action,
         state::OperationActionV1::Send { .. } | state::OperationActionV1::Unload { .. }

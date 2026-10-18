@@ -262,7 +262,7 @@ fn actual_foreign_key_proof_soft_fails_but_substituted_verifier_key_is_hard_reje
         qkey.vk().clone(),
     )
     .unwrap();
-    let operation = AProofPlan::new(
+    let operation = AProofPlan::inline_with_incoming(
         Variant::Receive,
         sigma,
         vec![q],

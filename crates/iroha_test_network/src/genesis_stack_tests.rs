@@ -47,7 +47,10 @@ fn genesis_preexecution_uses_ordinary_stack_with_exact_runtime_profile() {
         .collect::<Vec<_>>();
     assert_eq!(topology.len(), 4, "the native committee is exactly 3f+1");
     assert_eq!(network.validators().len(), 4);
-    let genesis_key_pair = &network.genesis_key_pair;
+    let genesis_key_pair = network
+        .genesis_key_pair
+        .as_ref()
+        .expect("generated genesis must retain its signing owner");
     let genesis_account = AccountId::new(genesis_key_pair.public_key().clone());
     let expected_nexus = Hash::prehashed(
         network
@@ -139,7 +142,10 @@ fn blocking_builder_reexecutes_genesis_on_its_default_runtime_worker() {
         .collect::<Vec<_>>();
     let genesis = network.genesis();
     let original_wire = genesis.0.encode_wire().expect("signed genesis wire");
-    let key = network.genesis_key_pair.clone();
+    let key = network
+        .genesis_key_pair
+        .clone()
+        .expect("generated genesis must retain its signing owner");
     let account = AccountId::new(key.public_key().clone());
     let worker = runtime.spawn(async move {
         let _profile = ChainDiscriminantGuard::enter(888);

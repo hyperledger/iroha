@@ -85,7 +85,7 @@ pub struct BurnArgs {
     flow: flows::FlowArgs,
 }
 
-pub(super) fn settle(context: &mut impl RunContext, args: SettleArgs) -> Result<()> {
+pub(super) fn settle(context: &mut impl RunContext, args: &SettleArgs) -> Result<()> {
     let id = parse_word(&args.message_id)?;
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args.origin)?;
@@ -175,13 +175,13 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
     let profiles = original.light_client_profiles(&client)?;
     let builder = source_builder(
         &context.sccp_config()?,
-        profiles,
+        &profiles,
         record.network,
         &args.rpc_url,
         args.beacon_url.as_deref(),
     )?;
     let (evidence, verified, trust) = prove(
-        profiles,
+        &profiles,
         &client,
         &original,
         record.network,
@@ -212,7 +212,7 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
             ],
             retained.clone(),
         )?;
-        if !flows::confirmed(&outcome) {
+        if !flows::confirmed(outcome.as_ref()) {
             return Ok(());
         }
     }
@@ -235,7 +235,15 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
     Ok(())
 }
 
-pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> {
+pub(super) fn burn(context: &mut impl RunContext, args: &BurnArgs) -> Result<()> {
+    #[derive(norito::derive::JsonSerialize)]
+    struct BurnIntent {
+        network: SccpNetworkV1,
+        revision: u32,
+        amount: String,
+        recipient: String,
+        owner: String,
+    }
     let network = parse_network(&args.network)?;
     let recipient = args
         .recipient
@@ -246,14 +254,6 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
     let recipient = AccountAddress::from_account_id(&recipient)?.canonical_bytes()?;
     let amount = iroha_sccp::v1::amount::taira_units(&args.amount)?;
     ensure!(amount > 0, "burn amount must be positive");
-    #[derive(norito::derive::JsonSerialize)]
-    struct BurnIntent {
-        network: SccpNetworkV1,
-        revision: u32,
-        amount: String,
-        recipient: String,
-        owner: String,
-    }
     let owner = if network == SccpNetworkV1::TonMainnet {
         hex::encode(ton::parse_account(
             args.ton_wallet
@@ -288,8 +288,7 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
             &context.sccp_config()?,
             &client,
             &original,
-            network,
-            Some(args.revision),
+            (network, Some(args.revision)),
             &args.rpc_url,
             args.ton_wallet.as_deref(),
             &args.key_file,
@@ -298,9 +297,11 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
         let query_id = u64::from_be_bytes(flow.id().id[..8].try_into()?);
         flows::ton(
             context,
-            &original,
-            &flow,
-            Action::Burn,
+            flows::FlowStep {
+                original: &original,
+                flow: &flow,
+                action: Action::Burn,
+            },
             destination.lite(),
             vec![flows::evidence("verified.burn_intent", &identity)?],
             |items| {
@@ -317,21 +318,22 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
                     query_id,
                     &recipient,
                     amount,
-                    original.network,
-                    original.instance,
+                    (original.network, original.instance),
                 )
             },
             |step| {
                 destination.burn_evidence(
                     &client,
                     &original,
-                    profiles,
+                    &profiles,
                     step,
-                    deployment.wallet_code,
-                    wallet.address(),
-                    query_id,
-                    &recipient,
-                    amount,
+                    &ton::BurnObservation {
+                        wallet_code: deployment.wallet_code,
+                        owner: wallet.address(),
+                        query_id,
+                        recipient: &recipient,
+                        amount,
+                    },
                 )
             },
         )?;
@@ -361,9 +363,11 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
     )?;
     flows::evm(
         context,
-        &original,
-        &flow,
-        Action::Burn,
+        flows::FlowStep {
+            original: &original,
+            flow: &flow,
+            action: Action::Burn,
+        },
         network,
         &destination,
         &args.key_file,
@@ -384,7 +388,7 @@ pub struct VoidArgs {
     frozen: bool,
 }
 
-pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> {
+pub(super) fn void(context: &mut impl RunContext, args: &VoidArgs) -> Result<()> {
     let args_transfer = &args.transfer;
     ensure!(
         !args_transfer.emit,
@@ -409,8 +413,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
             &context.sccp_config()?,
             &client,
             &original,
-            record.network,
-            Some(record.revision),
+            (record.network, Some(record.revision)),
             &args_transfer.rpc_url,
             args_transfer.ton_wallet.as_deref(),
             key_file,
@@ -431,9 +434,11 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
         }
         flows::ton(
             context,
-            &original,
-            &flow,
-            Action::Void,
+            flows::FlowStep {
+                original: &original,
+                flow: &flow,
+                action: Action::Void,
+            },
             destination.lite(),
             items,
             |_| {
@@ -450,7 +455,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
                 destination.terminal_evidence(
                     &client,
                     &original,
-                    profiles,
+                    &profiles,
                     step,
                     iroha_sccp::ton_watch::TerminalEvent::Voided {
                         message_id: if args.frozen { [0; 32] } else { id },
@@ -494,9 +499,11 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
         }
         flows::evm(
             context,
-            &original,
-            &flow,
-            Action::Void,
+            flows::FlowStep {
+                original: &original,
+                flow: &flow,
+                action: Action::Void,
+            },
             record.network,
             &destination,
             key_file,

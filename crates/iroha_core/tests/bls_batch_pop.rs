@@ -1,7 +1,6 @@
 //! Integration checks for BLS batching + `PoP` gating on transaction admission.
 
-#[path = "common/native_validation.rs"]
-mod native_validation;
+use crate::native_validation;
 use core::time::Duration;
 use iroha_core::{
     block::BlockValidationError,

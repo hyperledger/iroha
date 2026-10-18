@@ -1158,6 +1158,7 @@ impl OriginalMusubiRows<'_> {
     /// The enclosing owner checks the actual State, paired maps and revision
     /// before/after this call. Local refusal retains all original descriptors
     /// and cumulative native work; it cannot authorize a semantic output.
+    #[cfg(test)]
     pub(in crate::state) fn validate_image(
         &mut self,
         image: OriginalMusubiImage,
@@ -1188,7 +1189,9 @@ impl OriginalMusubiRows<'_> {
 pub(super) struct OriginalMusubiAdmissionPair {
     images: [musubi_source_work::Admission; 2],
     universal: [UniversalValidation<usize, usize>; 2],
-    live: [LiveValidation; 2],
+    // Separate prepaid backing avoids constructing both large live cursors on
+    // the stack while retaining their charge with the original admission owner.
+    live: ChargedBuffer<LiveValidation>,
     materializers: Option<crate::state::authority_registry::OriginalMusubiMaterializers>,
     directory: [DirectoryValidation<usize>; 2],
     nfc: [Option<iroha_allocation::AllocationReservation>; 2],
@@ -1236,14 +1239,43 @@ impl OriginalMusubiCapture<'_, '_> {
         {
             return Err(RetainedMusubiGroupReadError::Incomplete);
         }
-        let mut original = ChargedBuffer::new(1, plan.scope.allocation_budget())
-            .map_err(RetainedMusubiGroupReadError::Control)?;
+        let control_layout = std::alloc::Layout::new::<OriginalMusubiAdmissionPair>();
+        let live_layout = std::alloc::Layout::array::<LiveValidation>(2).map_err(|_| {
+            RetainedMusubiGroupReadError::Control(
+                iroha_allocation::AllocationRefusal::DemandOverflow.into(),
+            )
+        })?;
+        // Admit both physical layouts atomically before either allocation. A
+        // capacity refusal must not refund an earlier partial charge and wake
+        // its own unchanged retry through the original pool's release sequence.
+        let mut reservation = plan
+            .scope
+            .allocation_budget()
+            .try_reserve_layouts([control_layout, live_layout])
+            .map_err(|original| RetainedMusubiGroupReadError::Control(original.into()))?;
+        let prepaid_control = |error| match error {
+            iroha_allocation::PrepaidBufferError::Allocation(original) => {
+                RetainedMusubiGroupReadError::Control(original)
+            }
+            iroha_allocation::PrepaidBufferError::Reservation(_) => {
+                // Exact layouts were prepaid above; a broken partition is an
+                // incomplete owner, never a new pool-capacity observation.
+                RetainedMusubiGroupReadError::Incomplete
+            }
+        };
+        let mut original =
+            ChargedBuffer::from_reservation(1, &mut reservation).map_err(prepaid_control)?;
+        let mut live =
+            ChargedBuffer::from_reservation(2, &mut reservation).map_err(prepaid_control)?;
+        for _ in 0..2 {
+            live.push_reserved(LiveValidation::new());
+        }
         original.push_reserved(OriginalMusubiAdmissionPair {
             images: [
                 musubi_source_work::Admission::new(limits),
                 musubi_source_work::Admission::new(limits),
             ],
-            live: [LiveValidation::new(), LiveValidation::new()],
+            live,
             materializers: None,
             universal: [
                 UniversalValidation::new(ProjectionCut::Current),
@@ -1394,17 +1426,19 @@ impl OriginalMusubiCapture<'_, '_> {
             image,
             revision: revision.get(),
         };
-        let result = original.live[index].advance(&cut).map_err(|error| {
-            error.map_predicate(|original| {
-                SourceValidationError::Attempt(original.map_rejection(|rejection| {
-                    rejection.with_cut(match image {
-                        OriginalMusubiImage::Current => ProjectionCut::Current,
-                        OriginalMusubiImage::Predecessor => ProjectionCut::Predecessor,
-                    })
-                }))
-            })
-        });
-        let progress = original.live[index].progress();
+        let result = original.live.as_mut_slice()[index]
+            .advance(&cut)
+            .map_err(|error| {
+                error.map_predicate(|original| {
+                    SourceValidationError::Attempt(original.map_rejection(|rejection| {
+                        rejection.with_cut(match image {
+                            OriginalMusubiImage::Current => ProjectionCut::Current,
+                            OriginalMusubiImage::Predecessor => ProjectionCut::Predecessor,
+                        })
+                    }))
+                })
+            });
+        let progress = original.live.as_slice()[index].progress();
         data.retain_retry(
             stage,
             attempt_start,
@@ -1597,7 +1631,7 @@ impl OriginalMusubiAdmissionPair {
     fn validated(&self) -> bool {
         (0..2).all(|image| {
             self.images[image].progress().complete
-                && self.live[image].progress().complete
+                && self.live.as_slice()[image].progress().complete
                 && self.directory[image].progress().complete
                 && self.universal[image].progress().complete
         })
@@ -1720,7 +1754,7 @@ impl OriginalMusubiCapture<'_, '_> {
                 limit,
             },
             OriginalMusubiRevision {
-                current: &**revision.current(),
+                current: revision.current(),
                 predecessor: revision.get_before_block(),
             },
             &mut original.materializers,

@@ -1,0 +1,89 @@
+"""Authenticated adapters to the frozen three clean field product circuits."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import importlib.util
+from pathlib import Path
+import sys
+
+from bit_ir import Cost, bits, require, unpack
+
+HELPER = "scripts/parliament_ballot_gf_circuit.py"
+HELPER_SHA256 = "c23d09a06a7f78ba16753409f695f4d03048a14bb19e1a55748e245272da564a"
+
+
+def load_field(root):
+    """Authenticate the executing helper and its selected source premises."""
+    path = Path(root).resolve() / HELPER
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == HELPER_SHA256, "field helper changed")
+    name = "parliament_ideal_machine_authenticated_field"
+    spec = importlib.util.spec_from_file_location(name, path)
+    require(spec is not None and spec.loader is not None, "field loader")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    module.verify_sources(root)
+    module.source_geometry((Path(root) / module.FIELD).read_text())
+    require(hashlib.sha256(path.read_bytes()).hexdigest() == HELPER_SHA256, "field helper changed during load")
+    return module
+
+
+@dataclass(frozen=True)
+class FieldKernel:
+    """Exact clean XOR adapter; runtime Python/module integrity remains a premise."""
+    module: object
+    kind: str
+
+    def __post_init__(self):
+        self.module.geometry(self.kind)
+
+    @property
+    def geometry(self):
+        """Immutable source polynomial/operand geometry selected by known name."""
+        return self.module.geometry(self.kind)
+
+    @property
+    def name(self):
+        return "source-" + self.kind
+
+    @property
+    def inputs(self):
+        return self.geometry.p + self.geometry.q
+
+    @property
+    def outputs(self):
+        return self.geometry.n
+
+    @property
+    def work(self):
+        return self.geometry.work
+
+    @property
+    def cost(self):
+        value = self.module.resources(self.geometry)
+        return Cost(cx=value["CNOT"], ccx=value["Toffoli"])
+
+    def evaluate(self, values):
+        """Finite polynomial reference, separate from source runtime arithmetic."""
+        require(type(values) in (tuple, list) and len(values) == self.inputs
+                and all(type(v) is int and v in (0, 1) for v in values), "field input")
+        g = self.geometry
+        left, right, product = unpack(values[:g.p]), unpack(values[g.p:]), 0
+        while right:
+            bit = right & -right
+            product ^= left << (bit.bit_length() - 1)
+            right ^= bit
+        for degree in range(g.work - 1, g.n - 1, -1):
+            if (product >> degree) & 1:
+                product ^= g.modulus << (degree - g.n)
+        return bits(product, g.n)
+
+    def emit(self, inputs, outputs, work):
+        """Relocate source emitter and preserve exact disjointness validation."""
+        require(len(inputs) == self.inputs and len(outputs) == self.outputs and len(work) == self.work,
+                "field adapter shape")
+        g = self.geometry
+        wires = dict(a=tuple(inputs[:g.p]), b=tuple(inputs[g.p:]), z=tuple(outputs), work=tuple(work))
+        for gate in self.module.emit(g, wires):
+            yield (gate[0].lower(), *gate[1:])

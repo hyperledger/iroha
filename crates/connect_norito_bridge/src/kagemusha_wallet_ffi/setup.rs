@@ -619,7 +619,8 @@ where
             }
             Setup::Offer { id, amount } => self.wallet.offer(id, amount)?,
             Setup::Request { id, offer, fee } => {
-                self.wallet.request(id, &offer, fee.map(|value| *value))?
+                let fee = fee.map(|value| *value);
+                self.wallet.request(id, &offer, fee.as_ref())?
             }
             Setup::Credited(bytes) => {
                 return completion(Some(self.wallet.accept_credited(&bytes)?));

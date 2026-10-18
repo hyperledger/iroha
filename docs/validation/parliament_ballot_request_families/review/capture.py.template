@@ -1,0 +1,85 @@
+"""Execute an independent review against exact captured envelope inputs."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+HERE=Path(__file__).resolve().parent;ROOT=HERE.parents[1]
+RECORD=ROOT/'target/parliament-request-family-envelope-stage/capture'
+RECEIPT='45aa1b03470958707588f5e09af9ec4047e385813144297b29840add64191293'
+ENVELOPE='b48501cde4e69c5f563c1cd890788b57fa143e2a10f83297dfa8fffc83dd2eb4'
+OUT=HERE/'capture';SOURCE=OUT/'source'
+
+
+def sha(raw):return hashlib.sha256(raw).hexdigest()
+
+
+def checked(ok,message):
+    if not ok:raise ValueError(message)
+
+
+def main():
+    checked(not OUT.exists(),'preserve existing review captures');OUT.mkdir()
+    start=time.time()
+    raw=(RECORD/'receipt.json').read_bytes();checked(sha(raw)==RECEIPT,'owner receipt drift')
+    owner=json.loads(raw);pins=owner['source_sha256_before']
+    checked(pins==owner['source_sha256_after'] and len(pins)==165,'owner capture source inventory')
+    checked(pins['target/parliament-request-family-envelope-stage/envelope.py']==ENVELOPE,'envelope version')
+    for path,expected in pins.items():
+        raw=(RECORD/'source'/path).read_bytes();checked(sha(raw)==expected,'captured input drift: '+path)
+        target=SOURCE/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+    pins=dict(pins)
+    for name in ('test_review.py','capture.py'):
+        relative='target/parliament-request-family-envelope-review/'+name
+        raw=(HERE/name).read_bytes();target=SOURCE/relative
+        target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw);pins[relative]=sha(raw)
+    before={p:sha((SOURCE/p).read_bytes()) for p in pins};checked(before==pins,'restored source drift')
+    env=dict(os.environ)
+    for name in ('PYTEST_ADDOPTS','PYTEST_PLUGINS','PYTHONPATH'):env.pop(name,None)
+    env.update(PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',PYTHONDONTWRITEBYTECODE='1')
+    commands=[]
+    def execute(args,label,code=0):
+        result=subprocess.run(args,cwd=SOURCE,env=env,capture_output=True)
+        (OUT/f'{label}.stdout').write_bytes(result.stdout);(OUT/f'{label}.stderr').write_bytes(result.stderr)
+        commands.append(dict(command=args,label=label,exit_code=result.returncode))
+        checked(result.returncode==code,f'{label} exit {result.returncode}')
+        return result.stdout
+    prefix=[sys.executable,'-m','pytest','-c','/dev/null','-o','addopts=',
+            '--noconftest','-p','no:cacheprovider',
+            str(SOURCE/'target/parliament-request-family-envelope-review/test_review.py')]
+    collection=execute(prefix+['--collect-only','-q'],'collection').decode()
+    selected=[line.split('::',1)[1] for line in collection.splitlines() if '::test_' in line]
+    checked(len(selected)==42 and len(set(selected))==42,'review collection membership')
+    execute(prefix+['-q',f'--junitxml={OUT / "junit.xml"}'],'tests')
+    xml=ET.parse(OUT/'junit.xml');calls=xml.findall('.//testcase')
+    checked([c.attrib['name'] for c in calls]==selected,'review execution membership')
+    checked(not xml.findall('.//failure') and not xml.findall('.//error') and not xml.findall('.//skipped'),
+            'review test result failed or skipped')
+    cli=[sys.executable,str(SOURCE/'target/parliament-request-family-envelope-stage/envelope.py'),'--root',str(SOURCE)]
+    normal=execute(cli,'normal');refusal=execute(cli+['--require-qualified'],'refusal',2)
+    checked(normal==refusal==(RECORD/'envelopes.stdout').read_bytes(),'conditional CLI or golden output differs')
+    after={p:sha((SOURCE/p).read_bytes()) for p in pins};checked(after==before,'review selected source drift')
+    for name in ('test_review.py','capture.py'):
+        checked(sha((HERE/name).read_bytes())==pins['target/parliament-request-family-envelope-review/'+name],
+                'live review implementation drift')
+    report=dict(schema='parliament-family-envelope-independent-review-v1',
+        owner_capture_receipt_sha256=RECEIPT,envelope_sha256=ENVELOPE,
+        tests_passed=len(calls),test_membership=selected,exact_collection_execution_membership=True,
+        full_cap_factory_metadata_cases=2,full_cap_factory_gate_streams_executed=False,
+        scalar_vote_shapes_recomputed=1996,conditional_CLI_exit=0,qualification_refusal_exit=2,
+        conditional_CLI_and_owner_golden_identical=True,commands=commands,elapsed_seconds=time.time()-start,
+        source_sha256_before=before,source_sha256_after=after,selected_source_count=len(pins),
+        selected_source_stable=True,Python_version=sys.version,Python_executable=sys.executable,
+        full_runtime_dependency_closure=False,complete_resource_vector=False,
+        native_workspace_qualified=False,independent_cryptographic_review=False,production_gate_changed=False)
+    (OUT/'receipt.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+    files=sorted(p for p in OUT.rglob('*') if p.is_file())
+    (OUT/'SHA256SUMS').write_text(''.join(f'{sha(p.read_bytes())}  {p.relative_to(OUT)}\n' for p in files))
+    print(json.dumps(dict(tests_passed=len(calls),sources=len(pins),receipt_sha256=sha((OUT/'receipt.json').read_bytes()))))
+
+
+if __name__=='__main__':main()

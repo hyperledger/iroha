@@ -24,10 +24,9 @@ use iroha_plonk::{
     verifier::accumulate_generator,
 };
 
-const KINDS: [RefreshKind; 5] = [
+const KINDS: [RefreshKind; 4] = [
     RefreshKind::Credential,
     RefreshKind::SchemePolicy,
-    RefreshKind::Blacklist,
     RefreshKind::QuotaShare,
     RefreshKind::TimeAnchor,
 ];
@@ -66,7 +65,7 @@ fn witness(kind: RefreshKind) -> RefreshWitness {
     before.core[core::TIME_FLOOR] = Fp::from(30);
     before.core[core::TIME_ANCHOR_MAX_RESPONSE] = Fp::from(5);
     before.core[core::LEASE_EXPIRY] = Fp::from(1000);
-    before.rest[rest::PERMITTED] = Fp::from(5);
+    before.rest[rest::PERMITTED] = Fp::from(2);
     let mut after = before;
     after.core[core::SEQUENCE] += Fp::ONE;
     after.core[core::STATE_NONCE] += Fp::ONE;
@@ -99,22 +98,12 @@ fn witness(kind: RefreshKind) -> RefreshWitness {
         RefreshKind::SchemePolicy => {
             update.asset = [Fp::from(3), Fp::from(4)];
             update.counter = Fp::from(2);
-            update.controls = Fp::from(7);
+            update.controls = Fp::from(3);
             update.fee_schedule = Fp::from(90);
             after.core[core::POLICY_EPOCH] = update.counter;
-            after.core[core::ENABLED_CONTROLS] = Fp::from(5);
+            after.core[core::ENABLED_CONTROLS] = Fp::from(2);
             after.rest[rest::SCHEME_POLICY] = update.digest;
             after.rest[rest::FEE_SCHEDULE] = update.fee_schedule;
-        }
-        RefreshKind::Blacklist => {
-            update.counter = Fp::from(2);
-            update.root = Fp::from(89);
-            after.core[core::BLACKLIST_VERSION] = update.counter;
-            after.core[core::BLACKLIST_ROOT] = update.root;
-            after.core[core::BLACKLIST_ISSUED_AT] = update.issued_at_ms;
-            after.rest[rest::BLACKLIST] = update.digest;
-            // A must prove the exact insertion; sigma owns only the selected gate.
-            after.rest[rest::BLACKLIST_HISTORY] = Fp::from(99);
         }
         RefreshKind::QuotaShare => {
             update.asset = [Fp::from(3), Fp::from(4)];
@@ -158,7 +147,7 @@ fn accepts(w: &RefreshWitness) -> bool {
 }
 
 #[test]
-fn refresh_sigma_k12_and_five_kind_layout_are_fixed() {
+fn refresh_sigma_k12_and_four_kind_layout_are_fixed() {
     let source = RefreshCircuit::new(&witness(KINDS[0]));
     let known = synthesize(&source, REFRESH_K, Some(&source.instances())).unwrap();
     for kind in KINDS {
@@ -245,9 +234,6 @@ fn refresh_sigma_preserves_every_unselected_field_and_lineage_value() {
             assert!(!accepts(&wrong), "{kind:?}, rehashed core {index}");
         }
         for index in 0..honest.successor.rest.len() {
-            if kind == RefreshKind::Blacklist && index == rest::BLACKLIST_HISTORY {
-                continue;
-            }
             let mut wrong = honest;
             wrong.successor.rest[index] += Fp::ONE;
             rebind(&mut wrong);
@@ -280,7 +266,7 @@ fn refresh_sigma_binds_actual_kind_statement_and_complete_openings() {
             wrong.statement[index] += Fp::ONE;
             assert!(!accepts(&wrong), "{kind:?}, statement {index}");
         }
-        for bad_kind in [0, 6, 7, 8] {
+        for bad_kind in [0, 5, 6, 7, 8] {
             let mut wrong = honest;
             wrong.statement[17] = Fp::from(bad_kind);
             assert!(!accepts(&wrong), "{kind:?}, unknown kind {bad_kind}");
@@ -361,18 +347,11 @@ fn refresh_sigma_rejects_bad_projections_counters_masks_and_time_rules() {
             older.update.issued_at_ms = Fp::from(20);
             older.successor.core[core::TIME_FLOOR] = Fp::from(30);
             older.statement[19] = Fp::from(30);
-            if kind == RefreshKind::Blacklist {
-                older.successor.core[core::BLACKLIST_ISSUED_AT] = Fp::from(20);
-            }
             rebind(&mut older);
             assert!(accepts(&older), "older signed time {kind:?}");
         }
     }
-    for kind in [
-        RefreshKind::SchemePolicy,
-        RefreshKind::Blacklist,
-        RefreshKind::QuotaShare,
-    ] {
+    for kind in [RefreshKind::SchemePolicy, RefreshKind::QuotaShare] {
         let mut stale = witness(kind);
         stale.update.counter = Fp::ZERO;
         assert!(!accepts(&stale), "stale {kind:?}");
@@ -389,11 +368,11 @@ fn refresh_sigma_rejects_bad_projections_counters_masks_and_time_rules() {
     rebind(&mut short);
     assert!(!accepts(&short));
     let mut escalated = witness(RefreshKind::SchemePolicy);
-    escalated.successor.core[core::ENABLED_CONTROLS] = Fp::from(7);
+    escalated.successor.core[core::ENABLED_CONTROLS] = Fp::from(3);
     rebind(&mut escalated);
     assert!(!accepts(&escalated));
     let mut reserved = witness(RefreshKind::SchemePolicy);
-    reserved.update.controls = Fp::from(8);
+    reserved.update.controls = Fp::from(4);
     assert!(!accepts(&reserved));
 }
 
@@ -407,7 +386,7 @@ fn read_config(original: &[u8]) -> ReadConfig {
 }
 
 #[test]
-fn installed_refresh_sigma_one_original_proves_all_five_kinds_and_refuses_refunds() {
+fn installed_refresh_sigma_one_original_proves_all_four_kinds_and_refuses_refunds() {
     use iroha_kagemusha_proof::admin_sigma::native::RefreshProver;
     let params = common::vesta_params(REFRESH_K);
     // Generate the test original once from one kind, then destroy the generation
@@ -711,7 +690,7 @@ fn installed_refresh_sigma_rejects_cross_operation_originals_profiles_and_bounds
 }
 
 #[test]
-#[ignore = "five genuine k16 Q-sigma proofs over the shared tag7 leaf; run optimized"]
+#[ignore = "four genuine k16 Q-sigma proofs over the shared tag7 leaf; run optimized"]
 fn genuine_refresh_q_sigma_keeps_one_class_key_and_every_opening() {
     use iroha_kagemusha_proof::{
         a_relation::schedule::sigma_selector,
@@ -758,12 +737,12 @@ fn genuine_refresh_q_sigma_keeps_one_class_key_and_every_opening() {
         .unwrap();
         let prepared = plan
             .prepare(
-                SigmaSlotWitness {
+                Some(SigmaSlotWitness {
                     key: leaf_key.vk().clone(),
                     statement: public[0][0],
                     length: u32::try_from(sigma.proof.len()).unwrap(),
                     proof: sigma.proof.clone(),
-                },
+                }),
                 None,
                 &outer_vesta,
                 iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,

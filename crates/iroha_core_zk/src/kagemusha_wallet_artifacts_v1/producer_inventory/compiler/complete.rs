@@ -141,7 +141,7 @@ mod tests {
             assert!(selected_class(route, &[]).is_err());
             assert!(selected_class(route, &[class.clone(), class.clone()]).is_err());
             let mut wrong = class.clone();
-            wrong.own = vec![(route.own + 1) % 16];
+            wrong.own = vec![(route.own + 1) % 11];
             assert!(selected_class(route, &[wrong]).is_err());
             let mut wrong = class;
             wrong.incoming = route.incoming.map_or_else(|| vec![0], |_| vec![]);

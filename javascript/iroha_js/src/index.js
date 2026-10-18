@@ -268,6 +268,7 @@ export {
   canonicalRequestSignatureMessage,
   buildCanonicalRequestHeaders,
   buildCanonicalJsonRequest,
+  withCanonicalReadRetry,
 } from "./canonicalRequest.js";
 export {
   BOOTLE_LANTERN_ISSUANCE_AUTHORIZE_PATH_V1,

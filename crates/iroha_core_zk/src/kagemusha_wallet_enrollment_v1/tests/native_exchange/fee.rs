@@ -14,7 +14,7 @@ const FEE_KEY_SEED: u8 = 101;
 const REGULATORY_KEY_SEED: u8 = 103;
 
 #[test]
-#[ignore = "requires the genuine complete52 source grant; exports a target, never a finalized receipt"]
+#[ignore = "requires the genuine complete22 source grant; exports a target, never a finalized receipt"]
 fn export_actual_fee_load_target_with_separate_native_custody() {
     let output = fresh_output("KAGEMUSHA_NATIVE_FEE_TARGET_OUTPUT");
     let sources = Sources::admit(&output.join("source-admission"));
@@ -184,7 +184,7 @@ fn refresh(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(
         wallet.snapshot().unwrap().owned_balance,
@@ -234,7 +234,7 @@ fn fee_fixture_signatures_bind_historical_beneficiary_and_policy_epoch() {
 }
 
 #[test]
-#[ignore = "requires exported SAME A custody, genuine full52 grant and an independently pinned finalized Load for its exact target"]
+#[ignore = "requires exported SAME A custody, genuine full22 grant and an independently pinned finalized Load for its exact target"]
 fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() {
     let output = fresh_output("KAGEMUSHA_NATIVE_FEE_OUTPUT");
     let sources = Sources::requalify(&output.join("source-admission"));
@@ -408,7 +408,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
 
     let offer = a.offer([210; 32], 97).unwrap();
     let request_bytes = b
-        .request([211; 32], &offer, Some((schedule, certificate)))
+        .request([211; 32], &offer, Some(&(schedule, certificate)))
         .unwrap();
     let request: KagemushaWalletRequestV1 = decode(&request_bytes);
     request.verify(scheme).unwrap();
@@ -448,7 +448,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&payment.send, Some(&request.body), MemoryBudget::DEFAULT)
+        .verify_package_proofs(&payment.send, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(
         (
@@ -505,11 +505,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     sources
         .installed
         .verifier()
-        .verify_package_proofs(
-            &received_package,
-            Some(&request.body),
-            MemoryBudget::DEFAULT,
-        )
+        .verify_package_proofs(&received_package, MemoryBudget::DEFAULT)
         .unwrap();
     fold(&mut b);
     assert_eq!(b.snapshot().unwrap().owned_balance, 97);
@@ -551,7 +547,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     );
     let b_signatures = device_b.platform.with(|state| state.sign_calls);
     assert_eq!(
-        b.request([211; 32], &offer, Some((schedule, certificate)))
+        b.request([211; 32], &offer, Some(&(schedule, certificate)))
             .unwrap(),
         request_bytes
     );

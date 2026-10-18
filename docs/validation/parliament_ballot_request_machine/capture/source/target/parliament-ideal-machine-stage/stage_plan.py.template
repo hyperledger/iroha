@@ -1,0 +1,133 @@
+"""Explicit retained-history stage composition for the request generator.
+
+Adapters are trusted contracts authenticated by the surrounding source capture;
+this wiring checker does not prove arbitrary callback semantics or costs.
+No persistent log mutation, source request family, or final return is implicit.
+"""
+from dataclasses import dataclass
+
+from bit_ir import Cost, integer, require
+
+
+@dataclass(frozen=True)
+class CleanMap:
+    """Local input || clean work || XOR output interface of a reviewed emitter."""
+    inputs: int
+    outputs: int
+    work: int
+    cost: Cost
+    emitter: object
+
+    def __post_init__(self):
+        integer(self.inputs, 1, 1 << 64, 'stage inputs')
+        integer(self.outputs, 1, 1 << 64, 'stage outputs')
+        integer(self.work, 0, 1 << 128, 'stage work')
+        require(type(self.cost) is Cost and callable(self.emitter), 'stage clean-map contract')
+
+    @classmethod
+    def block(cls, block):
+        """Adapter for the frozen immutable Boolean Block API."""
+        return cls(block.inputs, len(block.outputs), block.derived+block.work,
+                   block.cost.times(2)+Cost(cx=len(block.outputs)), block.emit_clean)
+
+
+@dataclass(frozen=True)
+class Invocation:
+    """One stage's source pieces: (prior-register name, bit offset, bit width)."""
+    name: str
+    circuit: CleanMap
+    pieces: tuple
+
+    def __post_init__(self):
+        require(type(self.name) is str and self.name, 'stage name')
+        require(type(self.circuit) is CleanMap and type(self.pieces) is tuple, 'stage invocation')
+        for piece in self.pieces:
+            require(type(piece) is tuple and len(piece) == 3, 'stage source piece')
+            name, offset, width = piece
+            require(type(name) is str and name, 'stage source name')
+            integer(offset, 0, 1 << 128, 'stage source offset')
+            integer(width, 1, 1 << 128, 'stage source width')
+        require(sum(n for _, _, n in self.pieces) == self.circuit.inputs, 'stage input width')
+
+
+@dataclass(frozen=True)
+class RetainedPlan:
+    """Forward DAG followed later by reverse DAG; all predecessor outputs live.
+
+    Each stage is a clean response-XOR map. Repeating it in reverse dependency
+    order therefore clears its output. Shared work is reused only after each
+    call restores it; retained outputs never overlap shared work or inputs.
+    """
+    inputs: tuple
+    stages: tuple
+
+    def __post_init__(self):
+        require(type(self.inputs) is tuple and type(self.stages) is tuple, 'plan containers')
+        names = set()
+        for item in self.inputs:
+            require(type(item) is tuple and len(item) == 2, 'input register')
+            name, width = item
+            require(type(name) is str and name and name not in names, 'input register name')
+            integer(width, 1, 1 << 64, 'input register width')
+            names.add(name)
+        require(names and self.stages, 'nonempty stage plan')
+        for stage in self.stages:
+            require(type(stage) is Invocation and stage.name not in names, 'unique stage register')
+            require(all(name in names for name, _, _ in stage.pieces), 'forward or unknown stage dependency')
+            names.add(stage.name)
+        self.layout()
+
+    def layout(self):
+        registers, cursor = {}, 0
+        for name, width in self.inputs:
+            registers[name] = (cursor, width); cursor += width
+        input_bits = cursor
+        plans = []
+        for stage in self.stages:
+            pieces = []
+            for name, offset, width in stage.pieces:
+                start, available = registers[name]
+                require(offset+width <= available, 'stage source exceeds register')
+                pieces.append((start+offset, width))
+            ordered = sorted(pieces)
+            require(all(a+n <= b for (a,n),(b,_) in zip(ordered,ordered[1:])), 'stage source alias')
+            registers[stage.name] = (cursor, stage.circuit.outputs)
+            plans.append((stage, tuple(pieces), cursor)); cursor += stage.circuit.outputs
+        scratch = max(stage.circuit.work for stage in self.stages)
+        return dict(registers=registers, plans=tuple(plans), input_bits=input_bits,
+                    retained_bits=cursor-input_bits, scratch=cursor, scratch_bits=scratch,
+                    size=cursor+scratch)
+
+    def emit(self, *, inverse=False):
+        """Traverse lazy component gates with only fixed integer interval maps."""
+        require(type(inverse) is bool, 'plan inverse flag')
+        p = self.layout()
+        plans = reversed(p['plans']) if inverse else p['plans']
+        for stage, pieces, output in plans:
+            c = stage.circuit
+            bounds, cursor = [], 0
+            for start, width in pieces:
+                bounds.append((cursor+width, start-cursor)); cursor += width
+            def wire(local):
+                integer(local, 0, c.inputs+c.work+c.outputs-1, 'component wire')
+                if local < c.inputs:
+                    for end, shift in bounds:
+                        if local < end: return local+shift
+                    raise ValueError('unreachable component source')
+                if local < c.inputs+c.work: return p['scratch']+local-c.inputs
+                return output+local-c.inputs-c.work
+            for gate in c.emitter():
+                require(type(gate) is tuple and len(gate) >= 2, 'component gate')
+                yield (gate[0], *(wire(local) for local in gate[1:]))
+
+    def resources(self):
+        """Count actual reviewed stage invocations, retaining original random tapes."""
+        p, forward = self.layout(), Cost()
+        for stage in self.stages: forward += stage.circuit.cost
+        return dict(forward_gates=forward.as_dict(), forward_and_inverse_gates=forward.times(2).as_dict(),
+                    original_input_bits=p['input_bits'], retained_derived_bits=p['retained_bits'],
+                    shared_clean_work_bits=p['scratch_bits'], total_bits=p['size'],
+                    invocation_count=len(self.stages), clean_stage_contracts_required=True,
+                    source_request_mapping_implemented=False, persistent_log_and_return_implemented=False,
+                    complete_simulator_coverage=False, complete_resource_vector=False,
+                    profile_qualified=False, production_gate_changed=False)

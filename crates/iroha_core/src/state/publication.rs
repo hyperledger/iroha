@@ -27,7 +27,7 @@ pub(super) use retained_musubi_group::{OriginalMusubiImage, OriginalMusubiRows};
 #[cfg(test)]
 pub(super) use retained_musubi_group::{
     original_musubi_admission_control_layout_for_test,
-    retained_musubi_group_control_layout_for_test,
+    original_musubi_admission_live_layout_for_test, retained_musubi_group_control_layout_for_test,
 };
 
 /// Local result of attempting publication of the exact retained State.

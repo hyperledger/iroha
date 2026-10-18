@@ -17,7 +17,6 @@ pub fn rooted_compact_bootstrap_with_identity(
         false,
         Fp::from(91),
         profile,
-        Some(2),
         identity,
     );
     let (initial_circuit, initial_public, _) = wrapper(&initial);
@@ -82,15 +81,10 @@ pub fn rooted_compact_bootstrap_with_identity(
         );
     }
 
-    // The signed credential, receipt, sigma, Q and each A/W stage are rebuilt
+    // The signed credential, receipt, sigma, Q and the unsplit A are rebuilt
     // with the actual digest. No public word is changed after a proof exists.
-    let source = bootstrap_chain::authenticated_bootstrap_with_identity(
-        false,
-        digest,
-        profile,
-        Some(2),
-        identity,
-    );
+    let source =
+        bootstrap_chain::authenticated_bootstrap_with_identity(false, digest, profile, identity);
     assert_eq!(source.state.lineage[17], digest);
     assert_eq!(initial.binding, source.binding);
     assert_eq!(initial.key.to_bytes(), source.key.to_bytes());

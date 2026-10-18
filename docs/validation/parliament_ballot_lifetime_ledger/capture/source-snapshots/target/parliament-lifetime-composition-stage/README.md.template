@@ -1,0 +1,104 @@
+# Conditional lifetime event ledger
+
+`ledger.py` implements a typed metadata ledger for a finite classical sequence of
+atomic requests and coherent external lookup calls. It does not execute an
+adaptive quantum driver. It sums reviewed component costs and constructs an
+explicit disjoint logical-register allocation for the selected sequence.
+All complete-resource, primitive-bridge, physical-workspace and qualification
+flags remain false. No production gate or captured machine source is changed.
+
+The source boundary consists of the exact accepted observation
+`81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c`, its
+38 source and30 implementation pins, and the three additional family, dispatcher
+and L0 identities. The observation is read once, and those exact bytes are hashed
+before JSON parsing. All72 paths are checked before and after accounting.
+This authenticates selected identities; it does not establish a complete Python
+or compiler dependency closure, or replace the component correctness premises.
+The Python host and this checker are trusted.
+
+## Supported cases
+
+| Event | Boundary | Derived resource vector |
+|---|---|---|
+| Accepted REG | Either row; body4096 bytes, six256-byte contexts, list0 | Captured generator and return, analytically rebased W |
+| Accepted VOTE | Either row; body0, six empty contexts, list1000; valid content is a premise | Same; accepted-only97+proof result |
+| Size-rejected VOTE | Either row, fixed actual u64 length outside3..1000 | Source-bound header and253+proof result; full typed list storage retained |
+| External lookup | Source-padded same F, supplied full message capacity | Exact L0 scan formula; two base calls, including disabled queries |
+
+Other accepted lengths and the bounded-content P0/ContentFamily resource vectors
+are refused. Those circuits exist, but these four observations do not price all
+of them. This ledger does not infer a family maximum or silently use their wider
+return envelope. Request lengths and role/row descriptors are caller metadata;
+authentication against a real request is an external obligation.
+
+Every event must carry the same `Interface(N,b,oracle,completion)`, where
+`N=T*(2^20+2)` and b>=23 also accommodates the current maximum honest query.
+The oracle and completion strings are equality tokens supplied by the caller,
+not certificates of a physical oracle. Requests include size rejection in T.
+Queries have an independently bounded count Q and full message capacity C with
+6882996<=C<2^b. The source-padded response is2112 bits. Neither query count nor
+stored-key width implies a full-query length bound.
+
+## Accounting and ownership
+
+At a different T/b, the accepted observation's generator and E costs stay fixed.
+The source-derived W formula is re-evaluated, including the counter width
+`d=max(2,N.bit_length())`, complete staging, fixed M+2 scans, log bits, append
+scratch and maximum shared scratch. At T=2^44,b=64 the tool reproduces all four
+original full gate vectors and total logical-register sizes exactly. This is a
+checked analytical rebase, not a new execution of their full elementary streams.
+
+Known body costs are summed as (X,CX,CCX,F), with elementary subtotal X+CX+5CCX.
+Retained private coin count is subtracted from original input count exactly once
+to obtain public input count. One log/counter is allocated for the whole trace.
+All request inputs/coins/outputs and query/enable/response slots are distinct and
+retained. Only the clean boundary workspace is shared, at the maximum of each
+request's retained-derived plus shared work and each lookup's work. Optional
+explicit placements must have the exact required sizes and disjoint intervals.
+These placements are a logical ownership map; no circuit relocation is executed.
+
+Each accepted event reserves M+2 slots, including the possible exhausted schedule;
+size rejection reserves zero. The prefix reservation proves conservative capacity
+for the selected metadata trace. Actual counter values, accepted trial counts,
+written values and occupancy are not computed or inferred from that reservation.
+Duplicate key bytes are permitted; aliasing register allocations is not.
+
+The classical-retained model assumes supplied fresh uniformly mixed coin registers
+and keeps them allocated. It gives no free disposal/reset or entropy preparation.
+The purified-retained model also allocates each purifier and reports separately
+R Hadamards plus R CNOTs for the canonical preparation from2R zero wires. This
+preparation is not run or folded into the body subtotal. Both models need freshness
+independent of the entering history, not independence conditioned on the completed
+adaptive trace.
+
+Entire quantum support must satisfy canonical query and active-record encodings.
+An agreed total F completion does not enforce this condition. The same immutable F
+and log contracts must hold jointly with adversary/reference state; honest requests
+remain classical and atomic, with no interleaving inside compute/write/return/
+uncompute or between L0's two base calls. Arbitrary correlations on disjoint
+registers are allowed by the component contract; no quantum cloning is supplied.
+
+Unknown terms remain explicit: adversary gates/storage, initial state and entropy,
+input/descriptor preparation, adaptive selection, routing, base-oracle implementation
+and state, uniform bounds over all allowed traces/families, and the primitive entry
+bridge/advantages. The allocated known bits are not full experiment memory, physical
+qubits, native allocation, or the64MiB verification workspace.
+
+## Commands and refusal
+
+From the repository root, with all outputs restricted to this ignored stage:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTEST_ADDOPTS='' PYTEST_PLUGINS='' /opt/homebrew/bin/pytest -q --noconftest -p no:cacheprovider target/parliament-lifetime-composition-stage/test_ledger.py --basetemp target/parliament-lifetime-composition-stage/test-temp --maxfail=0
+python3 -B target/parliament-lifetime-composition-stage/ledger.py --root . --events target/parliament-lifetime-composition-stage/example.json
+```
+
+`--require-qualified` emits the identical conditional report and exits2. Bad
+metadata, unsupported cases, source drift or ownership conflicts exit1 without a
+report. A successful ordinary exit0 means only that this conditional ledger's
+checks passed. The retained receipt records exact commands and outcomes after local review;
+it cannot turn the conditional premises into independent cryptographic review.
+
+TODO: extend authenticated family coverage, supply preparation and adaptive-driver
+resources, and discharge the primitive-entry obligations. These are separate
+requirements; this ledger always refuses a complete-resource certificate.

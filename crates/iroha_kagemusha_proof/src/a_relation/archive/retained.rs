@@ -38,9 +38,9 @@ const KINDS: [ObjectKind; 4] = [
     ObjectKind::Credential,
 ];
 
-pub(super) const DESCRIPTOR_SLOT: usize = 11;
+pub(super) const DESCRIPTOR_SLOT: usize = 9;
 pub(super) const DESCRIPTOR_SPEC: ContextObjectSpec = ContextObjectSpec {
-    tag: 12,
+    tag: 10,
     capacity: 7 * 32,
 };
 
@@ -120,7 +120,7 @@ impl ArchiveRetainedProofs {
     ) -> Result<Self, Error> {
         let specs: [ContextObjectSpec; 2] = plan
             .object_specs()
-            .get(9..11)
+            .get(7..9)
             .ok_or(Error::Synthesis)?
             .try_into()
             .map_err(|_| Error::Synthesis)?;
@@ -132,7 +132,7 @@ impl ArchiveRetainedProofs {
             return Err(Error::Synthesis);
         }
         let context: [ContextObjectCells; 2] = objects
-            .get(9..11)
+            .get(7..9)
             .ok_or(Error::Synthesis)?
             .to_vec()
             .try_into()
@@ -181,7 +181,7 @@ pub struct ArchiveRetainedPayment {
 }
 
 impl ArchiveRetainedPayment {
-    /// Fixed tags4..12 following Archive's three own authorization objects.
+    /// Fixed tags2..10 following Archive's own receipt.
     /// Slots are four signed sources, Payment, Send words, raw Omega, raw sigma
     /// and the seven-word pending descriptor. Proof capacities are key-fixed.
     /// # Errors
@@ -206,7 +206,7 @@ impl ArchiveRetainedPayment {
             .enumerate()
             .map(|(i, capacity)| {
                 Ok(ContextObjectSpec {
-                    tag: u32::try_from(i + 4).map_err(|_| Error::BoundsFailure)?,
+                    tag: u32::try_from(i + 2).map_err(|_| Error::BoundsFailure)?,
                     capacity: u32::try_from(capacity).map_err(|_| Error::BoundsFailure)?,
                 })
             })
@@ -379,7 +379,7 @@ impl ArchiveRetainedPayment {
         })
     }
 
-    /// Same original nine commitments, placed after the three own objects.
+    /// Same original nine commitments, placed after the own receipt.
     pub const fn context(&self) -> &[ContextObjectCells; 9] {
         &self.context
     }
@@ -401,7 +401,7 @@ impl ArchiveRetainedPayment {
 
     /// Bind this hard owner to the common context, own wallet and credit.
     /// The `CorePending` and terminal Effects owners must authenticate their
-    /// respective removals using the descriptor committed at slot11.
+    /// respective removals using the descriptor committed at slot9.
     /// Incoming evidence may not gate this task.
     /// # Errors
     /// Wrong owner/schema, another wallet/credit or substituted retained source.
@@ -413,7 +413,7 @@ impl ArchiveRetainedPayment {
         input: &ContextInputs<'_>,
     ) -> Result<(), Error> {
         require_task(plan, stage, OperationTask::ArchiveRetainedPayment)?;
-        if plan.object_specs().get(3..12) != Some(self.specs.as_slice())
+        if plan.object_specs().get(1..10) != Some(self.specs.as_slice())
             || input.objects.len() != plan.object_specs().len()
             || input.own_statement.variant() != plan.operation().frame().variant()
         {
@@ -440,7 +440,7 @@ impl ArchiveRetainedPayment {
             self.request.credit_id(),
             &input.own_statement.fields()[17],
         )?;
-        for (actual, expected) in self.context.iter().zip(&input.objects[3..12]) {
+        for (actual, expected) in self.context.iter().zip(&input.objects[1..10]) {
             for (a, b) in actual
                 .commitment_words()
                 .iter()

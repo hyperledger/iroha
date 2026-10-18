@@ -34,7 +34,7 @@ pub struct Args {
     flow: flows::FlowArgs,
 }
 
-pub(super) fn run(context: &mut impl RunContext, args: Args) -> Result<()> {
+pub(super) fn run(context: &mut impl RunContext, args: &Args) -> Result<()> {
     ensure!(args.operation_id > 0, "operation id must be nonzero");
     let flow = flows::open(
         context,
@@ -48,17 +48,18 @@ pub(super) fn run(context: &mut impl RunContext, args: Args) -> Result<()> {
         &context.sccp_config()?,
         &client,
         &original,
-        SccpNetworkV1::TonMainnet,
-        Some(args.revision),
+        (SccpNetworkV1::TonMainnet, Some(args.revision)),
         &args.rpc_url,
         Some(&args.ton_wallet),
         &args.key_file,
     )?;
     flows::ton_observed(
         context,
-        &original,
-        &flow,
-        Action::RetryRecovery,
+        flows::FlowStep {
+            original: &original,
+            flow: &flow,
+            action: Action::RetryRecovery,
+        },
         destination.lite(),
         Vec::new(),
         |items| {

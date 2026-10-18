@@ -1,0 +1,123 @@
+"""Actual-modulus linear-basis controls and all-vector V0 joint-map reference."""
+from collections import Counter
+from pathlib import Path
+import unittest
+from types import SimpleNamespace
+
+from bit_ir import bits,unpack,apply_gates
+from mask_fold import MaskFold,load_moduli
+from vole_columns import VoleColumns
+from schedule import load_predicate
+from test_prg_machine import ToyCipher
+from test_vole_machine import source_hidden_fold
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def remainder(value,modulus):
+    while value.bit_length() >= modulus.bit_length():
+        value ^= modulus << (value.bit_length()-modulus.bit_length())
+    return value
+
+
+def reference_masks(columns,depths,moduli,ell):
+    d0,start,rows = max(depths),0,[0]*10
+    for d,m in zip(depths,moduli):
+        for mask in range(10):
+            value = 0
+            for p,col in enumerate(columns[start:start+d]):
+                value ^= ((col >> (ell+mask*d0))&((1 << d)-1)) << p
+            rows[mask] |= remainder(value,m) << start
+        start += d
+    return rows
+
+
+class VoleColumnsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): cls.module = load_predicate(ROOT)
+
+    def test_actual_table_every_selected_basis_column_and_count(self):
+        for row in ("candidate","comparator"):
+            g = self.module.row(row)
+            moduli = load_moduli(ROOT,row)
+            fold = MaskFold(g.depths,moduli,8)
+            images = {}
+            count = 0
+            for kind,control,target in fold.emit_clean():
+                self.assertEqual(kind,"cx")
+                self.assertLess(control,fold.input_bits)
+                self.assertGreaterEqual(target,fold.input_bits)
+                images[control] = images.get(control,0) ^ (1 << (target-fold.input_bits))
+                count += 1
+            self.assertEqual(count,fold.resources()["gates"]["cx"])
+            expected_keys,start = set(),0
+            for d,m in zip(g.depths,moduli):
+                self.assertEqual(m.bit_length()-1,d)
+                for mask in range(10):
+                    for p in range(d):
+                        for j in range(d):
+                            source = (start+p)*fold.width_bits+8+mask*fold.d0+j
+                            expected_keys.add(source)
+                            expected = remainder(1 << (p+j),m) << (mask*fold.residue_row_bits+start)
+                            self.assertEqual(images[source],expected)
+                start += d
+            self.assertEqual(set(images),expected_keys)
+
+    def test_full_V0_clean_map_with_nonzero_caller_columns(self):
+        g = self.module.Geometry(2,3,1,1,11)
+        moduli,ell = (0b1011,0b111),8
+        c = VoleColumns(g,ell,moduli,ToyCipher())
+        p = c.layout()
+        seeds = [0 if i%4 == 0 else (1 << (i+4))|i for i in range(g.leaves)]
+        hidden,correction,iv = (6,1),173,(1 << 128)-2
+        columns,offset = [],0
+        for i,d in enumerate(g.depths):
+            count = 1 << d
+            columns += source_hidden_fold(seeds[offset:offset+count],iv,hidden[i],d,i,c.row_bits,ell,0 if i == 0 else correction)
+            offset += count
+        shares = reference_masks(columns,g.depths,moduli,ell)
+        row_width = 64*((sum(g.depths)+63)//64)
+        wanted = (tuple(bit for col in columns for bit in bits(col,c.width_bits))
+                  +tuple(bit for share in shares for bit in bits(share,row_width)))
+        inputs = (bits(iv,128)+tuple(bit for seed in seeds for bit in bits(seed,256))
+                  +tuple(bit for h in hidden for bit in bits(h,16))+bits(correction,ell))
+        z = tuple((i+i//3)%2 for i in range(c.output_bits))
+        state = list(inputs+(0,)*(p["output_start"]-len(inputs))+z)
+        count = Counter()
+        # Stream through independent packed state interpreter, retaining no gate list.
+        packed = unpack(state)
+        for gate in c.emit_clean():
+            count[gate[0]] += 1
+            if all((packed >> control)&1 for control in gate[1:-1]): packed ^= 1 << gate[-1]
+        self.assertEqual(packed&((1 << c.input_bits)-1),unpack(inputs))
+        self.assertEqual((packed >> c.input_bits)&((1 << (p["output_start"]-c.input_bits))-1),0)
+        self.assertEqual(packed >> p["output_start"],unpack(z)^unpack(wanted))
+        expected = c.resources()["gates"]
+        for name in ("x","cx","ccx"): self.assertEqual(count[name],expected[name])
+        self.assertEqual(expected["base_xor_oracle_calls"],0)
+        self.assertFalse(c.resources()["complete_resource_vector"])
+
+    def test_modulus_and_public_shape_refusals(self):
+        with self.assertRaises(ValueError): load_moduli(ROOT,"unknown")
+        for args in (((2,),(0b11,),8),((2,),(0b110,),8),((2,),(),8)):
+            with self.assertRaises(ValueError): MaskFold(*args)
+        g = self.module.Geometry(2,3,1,1,11)
+        with self.assertRaises(ValueError): VoleColumns(g,9,(11,7),ToyCipher())
+        with self.assertRaises(ValueError): VoleColumns(g,8,(11,),ToyCipher())
+
+    def test_malformed_or_mutable_geometry_refused_or_snapshotted(self):
+        valid = dict(tau=2,k=3,tau1=1,depths=(3,2),leaves=12)
+        for name,value in [('tau',True),('k',13),('tau1',3),('depths',(2,3)),
+                           ('depths',[3,2]),('leaves',11),('leaves',True)]:
+            with self.subTest(name=name,value=value),self.assertRaises(ValueError):
+                VoleColumns(SimpleNamespace(**(valid|{name:value})),8,(11,7),ToyCipher())
+        original = SimpleNamespace(**valid)
+        c = VoleColumns(original,8,(11,7),ToyCipher())
+        before = c.resources()
+        original.tau=99
+        original.depths=(1,)*99
+        self.assertEqual(c.geometry.depths,(3,2))
+        self.assertEqual(c.resources(),before)
+
+
+if __name__ == '__main__' : unittest.main()

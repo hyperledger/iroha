@@ -79,7 +79,7 @@ fn selected_kotodama_hello_main_entrypoint_writes_expected_detail() {
         .get(&authority)
         .expect("authority account should exist");
     assert_eq!(
-        account.metadata().get(&key).map(|value| value.as_ref()),
+        account.metadata().get(&key).map(AsRef::as_ref),
         Some("{\"hello\":\"world\"}"),
     );
 }

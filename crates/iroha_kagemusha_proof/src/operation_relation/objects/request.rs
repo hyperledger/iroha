@@ -19,16 +19,15 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct RequestCells {
     object: SignedObjectCells,
-    fields: [Word<Fp>; 26],
+    fields: [Word<Fp>; 24],
     credit: Word<Fp>,
     valid: Bit<Fp>,
 }
 impl RequestCells {
-    /// Check self-contained Request rules and compute its 26-element credit ID.
+    /// Check self-contained Request rules and compute its 24-element credit ID.
     ///
-    /// This includes overflow, canonical field/identity rules, policy and recorded
-    /// blacklist pairs. Certificate, fee, signature and operation bindings are
-    /// separate. In particular this never substitutes the current blacklist.
+    /// This includes overflow, canonical field/identity rules and the policy
+    /// pair. Certificate, fee, signature and operation bindings are separate.
     ///
     /// # Errors
     /// Wrong fixed object class or layout failure.
@@ -41,7 +40,7 @@ impl RequestCells {
         if object.kind() != ObjectKind::Request {
             return Err(Error::Synthesis);
         }
-        let fields: [Word<Fp>; 26] = object
+        let fields: [Word<Fp>; 24] = object
             .fields()
             .iter()
             .flatten()
@@ -51,10 +50,10 @@ impl RequestCells {
             .map_err(|_| Error::Synthesis)?;
         let credit = hash.hash_words(region, u64::from_le_bytes(*b"kgwcrdt1"), &fields)?;
         let mut checks = vec![object.structural_valid().clone()];
-        for index in [1, 2, 3, 4, 5, 6, 18] {
+        for index in [1, 2, 3, 4, 5, 6, 16] {
             checks.push(nonzero(uint.glue(), region, object.identifier(index)?)?);
         }
-        for index in [8, 9, 17] {
+        for index in [8, 9, 15] {
             checks.push(nonzero(
                 uint.glue(),
                 region,
@@ -74,11 +73,12 @@ impl RequestCells {
             object.word(9)?,
             object.word(11)?,
         )?);
-        for (a, b) in [(12, 13), (15, 16)] {
-            let a = uint.glue().is_zero(region, object.word(a)?)?;
-            let b = uint.glue().is_zero(region, object.word(b)?)?;
-            checks.push(uint.glue().is_equal(region, a.word(), b.word())?);
-        }
+        let no_epoch = uint.glue().is_zero(region, object.word(12)?)?;
+        let no_policy = uint.glue().is_zero(region, object.word(13)?)?;
+        checks.push(
+            uint.glue()
+                .is_equal(region, no_epoch.word(), no_policy.word())?,
+        );
         let fee = nonzero(uint.glue(), region, core::slice::from_ref(object.word(11)?))?;
         let schedule = nonzero(uint.glue(), region, core::slice::from_ref(object.word(10)?))?;
         checks.push(implies(uint.glue(), region, &fee, &schedule)?);
@@ -94,8 +94,8 @@ impl RequestCells {
     pub const fn object(&self) -> &SignedObjectCells {
         &self.object
     }
-    /// Fields in the canonical G1 26-element order.
-    pub const fn fields(&self) -> &[Word<Fp>; 26] {
+    /// Fields in the canonical G1 24-element order.
+    pub const fn fields(&self) -> &[Word<Fp>; 24] {
         &self.fields
     }
     /// Poseidon credit identity of these exact fields.
@@ -169,7 +169,7 @@ impl RequestCells {
     /// key match the current lineage. Its digest need not equal the current
     /// credential, so renewal does not invalidate an earlier Request. Its own
     /// Enrollment certificate must be authenticated (or exactly deduplicated).
-    /// Recorded blacklist history and the incoming payer checks are separate.
+    /// The incoming payer checks are separate.
     ///
     /// # Errors
     /// Non-Receive statement or layout failure.

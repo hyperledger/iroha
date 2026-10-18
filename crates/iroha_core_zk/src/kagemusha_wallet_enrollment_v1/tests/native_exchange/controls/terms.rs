@@ -152,7 +152,7 @@ fn controls_signatures_bind_masks_lists_both_quota_windows_and_anchor_nonce() {
     let scheme = &f.config.scheme;
     let regulator = certificate(scheme, KagemushaWalletSignerRoleV1::RegulatoryPolicy);
     let time = certificate(scheme, KagemushaWalletSignerRoleV1::TimeAnchor);
-    for mask in 0..=7 {
+    for mask in 0..=ALL {
         let original = policy(&regulator, f.asset.asset_digest(), 1, mask);
         original.verify(scheme, &regulator).unwrap();
         let mut changed = original;

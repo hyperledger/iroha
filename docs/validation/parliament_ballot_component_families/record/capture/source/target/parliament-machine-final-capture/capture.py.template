@@ -1,0 +1,118 @@
+"""Freeze selected staged machine sources and execute their complete local suite.
+
+The selected inventory is not a compiler/runtime dependency closure. Source
+snapshots preserve the reviewed model's exact paths for a matching-checkout
+replay; they do not deploy or qualify any production code.
+"""
+from pathlib import Path
+import hashlib
+import ast
+import json
+import os
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[2]
+STAGE = ROOT/'target/parliament-ideal-machine-stage'
+DEST = Path(__file__).resolve().parent/'capture'
+sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+
+def main():
+    if DEST.exists():raise ValueError('immutable destination exists')
+    files = {str(p.relative_to(ROOT)) for p in STAGE.glob('*.py')}
+    files.update(str(p.relative_to(ROOT)) for p in STAGE.glob('*.md'))
+    files.update(json.loads((STAGE/'coverage.json').read_text())['source_sha256'])
+    files.update(('target/parliament-ideal-machine-stage/coverage.json',
+                  'target/parliament-ideal-machine-stage/request-accepted-observation.json',
+                  'target/parliament-aes-machine-stage/aes256.py',
+                  'target/parliament-keccak-machine-stage/keccak1600.py',
+                  'target/parliament-machine-final-capture/capture.py',
+                  'target/parliament-machine-final-capture/capture_observer.py',
+                  'target/parliament-machine-final-capture/test_capture_observer.py','pytest.ini'))
+    files.add('scripts/parliament_ballot_gf_circuit.py')
+    old_receipt='docs/validation/parliament_ballot_ideal_sampler_accounting/receipt.json'
+    files.add(old_receipt)
+    files.update(json.loads((ROOT/old_receipt).read_text())['source_sha256_at_freeze'])
+    # Include literal repository file dependencies of the selected Python code.
+    # This is deliberately not described as a runtime dependency closure.
+    scanned=set()
+    while True:
+        pending={p for p in files if p.endswith('.py')} - scanned
+        if not pending:break
+        for p in pending:
+            scanned.add(p)
+            for node in ast.walk(ast.parse((ROOT/p).read_text())):
+                if isinstance(node,ast.Constant) and isinstance(node.value,str):
+                    v=node.value
+                    if v.startswith(('crates/','scripts/','docs/','specs/','fixtures/')) and '\n' not in v and '..' not in Path(v).parts and (ROOT/v).is_file():
+                        files.add(v)
+    files.add('crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs')
+    before = {p:sha(ROOT/p) for p in sorted(files)}
+    DEST.mkdir()
+    for p,digest in before.items():
+        data = (ROOT/p).read_bytes()
+        if hashlib.sha256(data).hexdigest()!=digest:raise ValueError('snapshot drift: '+p)
+        output=DEST/'source'/p;output.parent.mkdir(parents=True,exist_ok=True);output.write_bytes(data)
+    tests=sorted(str(p.relative_to(ROOT)) for p in STAGE.glob('test_*.py'))
+    env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTEST_DISABLE_PLUGIN_AUTOLOAD='1',
+             PYTEST_ADDOPTS='',PYTEST_PLUGINS='',
+             PYTHONPATH=os.pathsep.join(str(DEST/'source'/v) for v in
+                 ('target/parliament-ideal-machine-stage','target/parliament-machine-final-capture')))
+    base=['/opt/homebrew/bin/pytest','-o','addopts=','-p','no:cacheprovider','--noconftest',
+          '-p','capture_observer','-k','','-m','','--maxfail=0',
+          '--basetemp='+str(DEST.parent/'pytest-temp')]
+    commands=[]
+    for name,args in (('collection',['--collect-only','-q']),('tests',['-q','--junitxml='+str(DEST/'junit.xml')])):
+        command=base+args+tests;start=time.monotonic()
+        env['PARLIAMENT_CAPTURE_OBSERVATION']=str(DEST/(name+'.identities.json'))
+        with (DEST/(name+'.stdout.txt')).open('wb') as out,(DEST/(name+'.stderr.txt')).open('wb') as err:
+            result=subprocess.run(command,cwd=DEST/'source',env=env,stdout=out,stderr=err)
+        commands.append(dict(name=name,command=command,exit_code=result.returncode,elapsed_seconds=time.monotonic()-start))
+        print(json.dumps(commands[-1]),flush=True)
+        if result.returncode:break
+    after={p:sha(ROOT/p) for p in before}
+    captured_after={p:sha(DEST/'source'/p) for p in before}
+    membership=[line for line in (DEST/'collection.stdout.txt').read_text().splitlines() if line.startswith('target/') and '::' in line]
+    selection=json.loads((DEST/'collection.identities.json').read_text())
+    execution=json.loads((DEST/'tests.identities.json').read_text()) if (DEST/'tests.identities.json').exists() else {}
+    membership=selection['collected']
+    parent_calls=[v for v in execution.get('calls',[]) if v.get('is_subtest') is False]
+    subtest_calls=[v for v in execution.get('calls',[]) if v.get('is_subtest') is True]
+    call_kinds_explicit=all(type(v.get('is_subtest')) is bool for v in execution.get('calls',[]))
+    all_call_reports_passed=all(v.get('outcome')=='passed' for v in execution.get('calls',[]))
+    exact_membership=membership==execution.get('collected') and membership==[v['nodeid'] for v in parent_calls] and len(set(membership))==len(membership)
+    options_ok=all(v['effective_options']['keyword']=='' and v['effective_options']['markexpr']=='' and
+        v['effective_options']['maxfail']==0 and not any(v['effective_options'][k] for k in ('ignore','ignore_glob','deselect'))
+        for v in (selection,execution) if 'effective_options' in v)
+    tree=ET.parse(DEST/'junit.xml').getroot() if (DEST/'junit.xml').exists() else None
+    receipt=dict(schema='parliament-mathematical-request-machine-capture-v1',
+        source_sha256_before=before,source_sha256_after=after,source_stable=before==after,
+        captured_source_sha256_after=captured_after,captured_source_stable=before==captured_after,
+        exact_collection_and_execution_membership=exact_membership,effective_selection_unfiltered=options_ok,
+        all_call_reports_passed=all_call_reports_passed,call_kinds_explicit=call_kinds_explicit,
+        parent_call_count=len(parent_calls),subtest_call_count=len(subtest_calls),
+        selected_source_closure_only=True,full_runtime_dependency_closure_claimed=False,
+        executed_from_captured_source_tree=True,
+        runner_python=sys.executable,runner_version=sys.version,
+        pytest_launcher_sha256=sha(Path('/opt/homebrew/bin/pytest')),
+        plugin_autoload_disabled=True,commands=commands,test_membership=membership,
+        collected_test_count=len(membership),executed_test_count=0 if tree is None else len(tree.findall('.//testcase')),
+        failed=0 if tree is None else len(tree.findall('.//failure')),
+        errors=0 if tree is None else len(tree.findall('.//error')),
+        skipped=0 if tree is None else len(tree.findall('.//skipped')),
+        full_actual_gate_streams_executed=False,complete_adaptive_lifetime_driver_executed=False,
+        complete_resource_vector=False,independent_cryptographic_review=False,
+        native_workspace_qualification=False,profile_qualified=False,production_gate_changed=False)
+    (DEST/'receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+    manifest=''.join(sha(p)+'  '+str(p.relative_to(DEST))+'\n' for p in sorted(DEST.rglob('*')) if p.is_file())
+    (DEST/'manifest.sha256').write_text(manifest)
+    print(json.dumps(dict(receipt_sha256=sha(DEST/'receipt.json'),manifest_sha256=sha(DEST/'manifest.sha256'),
+                         collected=receipt['collected_test_count'],executed=receipt['executed_test_count'],
+                         stable=receipt['source_stable'])),flush=True)
+    if before!=after or before!=captured_after or not exact_membership or not options_ok or not call_kinds_explicit or not all_call_reports_passed or len(commands)!=2 or any(c['exit_code'] for c in commands):return 2
+    if receipt['executed_test_count']!=len(membership) or receipt['failed'] or receipt['errors'] or receipt['skipped']:return 2
+    return 0
+
+if __name__=='__main__':raise SystemExit(main())

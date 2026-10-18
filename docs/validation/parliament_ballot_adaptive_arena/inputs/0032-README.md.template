@@ -1,0 +1,111 @@
+# Independent conditional adaptive-arena review
+
+This review covers the selected-source arena prototype and the sealed entry
+audit, whose manifest is
+`b12b21da0723d3272335704c5c28500abe7a05e3003afb54f9b215871e8b060a`.
+Its21 inspected source identities and four audit records are preserved under
+`audit-source`; the final capture receipt identifies the exact arena bytes.
+Only ignored target evidence is written. Historical sources remain distinct
+from the dirty current production candidate and are not repinned.
+
+## Requirements and arithmetic
+
+Property5 at `specs/parliament_ballot_proof_arguments.md:1455` requires classical
+adaptive Prove requests and identical public/application relation checks before
+simulation. A valid-public but invalid-witness request cannot enter the accepted
+body merely because a public shape is bounded. The prototype's explicit entry
+strings are unchecked upstream premises, not admission proofs. Bounded invalid
+VOTE content is an existing totalized component contract. Raw, witness-invalid,
+context and verification paths remain external and unpriced. Nothing identifies
+the external lookup cap Q with the theorem's quantum-query convention.
+
+The conservative proposal uses S=T+I and N=S(M+2), including reservations for
+potential invalid content bodies. The review independently reconstructs W costs
+using bit-column population sums and source frame lengths, then rebases the
+original frozen REG and VOTE endpoint observations at four row/T/I/b geometries.
+It does not call the arena's family envelope to obtain the expected maxima.
+REG's two P1 traversals contribute468 extra X gates at its X-maximizing shape,
+while its scalar elementary maximum remains at the length endpoint. The body
+coordinate vector and separately bounded scalar elementary cost are compared
+independently. L0 costs are recomputed directly from N,b,W=215150,v=2112.
+
+Rejected-size costs are not monotone in n. An independent inclusive-range binary
+digit DP checks the maximum popcount over {0,1,2} union [1001,J], including
+the excluded3..1000 interval, all caps0..4096, 256 seeded64-bit caps and power-of-two
+boundaries. At J=1024 the witness1023 attains ten set bits; at J=1001 the allowed
+maximum is seven, even though an excluded smaller count has more. The cost is
+5881+2popcount, while borrowed public input width remains3608+1024n.
+
+The known arena expression is checked against independently rebased observations:
+shared N-slot log and counter, S public/coin/output/purifier slots, Q full query
+slots and a maximum shared clean region. All maximum private banks, unused
+tails and retained purifiers are charged. At S=0 the request family constructor
+is prohibited by the test; only actual zero-log lookup costs and storage apply.
+An explicit Q=2^80 is represented arithmetically without allocating Q slots.
+It is a caller policy parameter, not a theorem or native-memory claim.
+
+## Actual maps, lifecycle and limits
+
+The46 independent tests include complete emitted rejected-size bodies with a
+next size chosen from the preceding actual returned length. Earlier mappings
+remain unchanged and the actual chosen component inverse recovers those test
+states. Two real full-M REG/VOTE factories selected after a completed rejection
+provide metadata and short gate prefixes. Their original public/coin split
+maps to fixed separate slots, and no selected image touches a retained purifier.
+Their complete gate streams are not executed.
+
+The complete quantum control is restricted to S=0 two-query bodies, using an
+independent sparse-wire amplitude interpreter and a fixed full2112-bit toy XOR
+oracle. Caller input and arbitrary XOR targets are supplied initially; a query
+enable is entangled with an external spectator. Both full emitted query streams
+and the chosen body inverse preserve the tested joint amplitudes and clean work.
+No coin bank is involved in this control. It is neither a source-primitive
+execution nor a complete adaptive cq/controller theorem.
+
+Reversing a retained chosen component trace does not undo intervening adaptive
+caller writes, measurements, choices or controller history. It does not recover
+an initial joint state by conditioning on the completed transcript. The online
+rejected-shape controls establish only the chosen component maps/inverse in
+their stated test states. There is no coin-unpreparation claim.
+
+Lifecycle controls distinguish obtaining, partially consuming, abandoning and
+fully consuming an iterator. Abandoned preparation/body streams remain blocked;
+source drift at a final stream boundary does not claim completion. Even full
+consumption is only bookkeeping. `acknowledge_prepared_banks` records an external
+fresh Bell/product-state premise, not initialization or execution evidence.
+The fixed plan reference, returned region records and bound receipts cannot be
+reassigned through their public interfaces. Wrong-origin selected modules at
+arbitrary paths such as `/other/public_machine.py` are refused, independently
+of any matching repository-relative suffix.
+
+Selected arena-byte drift is refused before every admitted binding,
+preparation, acknowledgement, emission, inversion and report. Separate exhausted
+caps and unsupported entry labels reject without consuming a slot or invoking
+a factory. Exhausted-cap rejection may precede source checks; it admits no call.
+The runtime and module-memory integrity premise remains explicit; these tests
+are not hostile-runtime attestation.
+
+## Evidence and replay
+
+`capture.py` authenticates the owner's full source manifest/receipt, merges the
+preserved audit inputs without conflicting identities, restores a fresh execution
+tree, and records exact ordered collection/execution membership. It checks all
+selected source bytes and loaded repository module hashes before/after.
+`capture/source` contains `.template` snapshots and `capture/execution-root`
+contains their restored paths. Tests use Python3.11 with pytest plugin autoload
+disabled; standard-library/interpreter dependencies are not a full source closure.
+The owner full-cap observer is authenticated as captured evidence, not rerun here.
+
+```sh
+env PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  PYTEST_ADDOPTS='' PYTEST_PLUGINS='' PYTHONPATH='' \
+  /opt/homebrew/bin/python3.11 -B target/parliament-adaptive-arena-review/capture.py
+```
+
+The capture refuses an existing output directory; preserve original captures
+and use a separate restored tree for another run. TODO: authenticate and price
+entry/witness/descriptor checks, unsupported paths, routing, adaptive control
+and retained history, external operations, F implementation/state and physical
+initialization; prove full cq/primitive composition, obtain independent
+cryptographic review and qualify native resources. Full experiment, resource,
+physical, current-candidate and production qualification remain false.

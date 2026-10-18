@@ -7,8 +7,8 @@ fn ivm_gas_schedule_entries_match_ivm_table() {
     assert_eq!(entries.len(), ivm::gas::SCHEDULE_OPCODES.len());
     for (entry, &opcode) in entries.iter().zip(ivm::gas::SCHEDULE_OPCODES) {
         assert_eq!(entry.opcode, opcode);
-        let expected =
-            ivm::gas::cost_of((opcode as u32) << 24).expect("scheduled opcode must have gas cost");
+        let expected = ivm::gas::cost_of(u32::from(opcode) << 24)
+            .expect("scheduled opcode must have gas cost");
         assert_eq!(entry.cost, expected);
     }
 }

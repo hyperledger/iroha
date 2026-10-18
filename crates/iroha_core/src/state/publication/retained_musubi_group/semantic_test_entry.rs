@@ -83,7 +83,7 @@ impl StateBlock<'_> {
             .as_ref()?
             .admission
             .as_ref()?;
-        Some(original.as_slice()[0].live[image.index()].progress())
+        Some(original.as_slice()[0].live.as_slice()[image.index()].progress())
     }
     pub(in crate::state) fn grant_original_musubi_capture_attempt(
         &mut self,

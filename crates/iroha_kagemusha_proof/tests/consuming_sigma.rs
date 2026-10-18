@@ -144,7 +144,7 @@ fn consuming_leaves_bind_every_unchanged_field_and_adjusted_value() {
         } else {
             shape(&UnloadCircuit::new(&honest), &instances(&honest));
         }
-        for index in 0..33 {
+        for index in 0..29 {
             if index == core::STATE_NONCE || (!retiring && index == core::LOAD_REDEEM_ROOT) {
                 continue;
             }
@@ -156,7 +156,7 @@ fn consuming_leaves_bind_every_unchanged_field_and_adjusted_value() {
                 "retiring={retiring}, rehashed core {index}"
             );
         }
-        for index in 0..8 {
+        for index in 0..6 {
             let mut wrong = honest;
             wrong.successor.rest[index] += Fp::ONE;
             rebind(&mut wrong);
@@ -364,7 +364,7 @@ fn archive_leaf_preserves_value_counters_credentials_and_held_policy() {
     let circuit = ArchiveCircuit::new(&honest);
     assert!(accepts_archive(&honest));
     shape(&circuit, &circuit.instances());
-    for index in 0..33 {
+    for index in 0..29 {
         if [core::STATE_NONCE, core::PENDING_OUTGOING_ROOT].contains(&index) {
             continue;
         }
@@ -373,7 +373,7 @@ fn archive_leaf_preserves_value_counters_credentials_and_held_policy() {
         rebind_archive(&mut wrong);
         assert!(!accepts_archive(&wrong), "Archive rehashed core {index}");
     }
-    for index in 0..8 {
+    for index in 0..6 {
         let mut wrong = honest;
         wrong.successor.rest[index] += Fp::ONE;
         rebind_archive(&mut wrong);
