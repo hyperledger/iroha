@@ -1,11 +1,13 @@
 package org.hyperledger.iroha.sdk.governance
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.math.BigInteger
 import java.nio.charset.StandardCharsets
+import java.security.Key
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -14,6 +16,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofPageVerificationV1
+import org.hyperledger.iroha.sdk.crypto.keystore.ANDROID_KEYSTORE2_MIN_API_V1
+import org.hyperledger.iroha.sdk.crypto.keystore.probeAndroidKeystoreAliasV1
 
 /**
  * Opaque reference to one Parliament timed-OVN root seed protected by Android Keystore.
@@ -171,6 +175,14 @@ class ParliamentTimedOvnPublicRecordV1 internal constructor(record: ByteArray, c
  * inside this module, encrypted under a non-exportable Android Keystore AES key, unwrapped only for
  * one native call, and zeroed immediately afterward. No raw-seed constructor, getter, persistence
  * format, logging path, or software proof fallback is exposed.
+ *
+ * The seed vault requires keystore2 (Android API 31+). Replacing the wrapping key would make every
+ * stored seed undecryptable, and keystore1 reports Keystore errors as absent keys, so below API 31
+ * [createSeedHandle], [registrationFromProofV1], [ballotFromProofV1] and [deleteSeedHandle] (for a
+ * stored seed) throw [IllegalStateException] without touching the Keystore. On API 31+ they also
+ * throw when the Keystore cannot answer, when the wrapping key is missing for an existing seed, or
+ * when its alias holds a non-secret entry; nothing is regenerated or deleted in response.
+ * [verifyCastingProofPageV1] and [seedHandle] do not use the Keystore.
  */
 class ParliamentTimedOvnWalletV1 private constructor(
     private val seedVault: SeedVault,
@@ -180,7 +192,12 @@ class ParliamentTimedOvnWalletV1 private constructor(
     val isAvailable: Boolean
         get() = endpoint != null
 
-    /** Generate and persist one independently random seed under [alias]. */
+    /**
+     * Generate and persist one independently random seed under [alias].
+     *
+     * The wrapping key is generated only after keystore2 reports it definitively absent; below
+     * API 31 this throws [IllegalStateException].
+     */
     fun createSeedHandle(alias: String): ParliamentTimedOvnSeedHandleV1 =
         seedVault.create(alias)
 
@@ -610,6 +627,7 @@ private object ParliamentTimedOvnNativeEndpointV1 : ParliamentTimedOvnWalletV1.E
 
 private class AndroidSeedVault(context: Context) : ParliamentTimedOvnWalletV1.SeedVault {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val wrappingKey = ParliamentTimedOvnSeedWrappingKeyV1.androidKeystore()
 
     override fun create(alias: String): ParliamentTimedOvnSeedHandleV1 {
         validateAlias(alias)
@@ -696,7 +714,7 @@ private class AndroidSeedVault(context: Context) : ParliamentTimedOvnWalletV1.Se
 
     private fun encrypt(seed: ByteArray, alias: String, generationId: ByteArray): String {
         val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, wrappingKey())
+        cipher.init(Cipher.ENCRYPT_MODE, wrappingKey.loadOrGenerate())
         val aad = envelopeAad(alias, generationId)
         try {
             cipher.updateAAD(aad)
@@ -745,7 +763,7 @@ private class AndroidSeedVault(context: Context) : ParliamentTimedOvnWalletV1.Se
                     throw IllegalStateException("Parliament timed-OVN seed handle is stale")
                 }
                 val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
-                cipher.init(Cipher.DECRYPT_MODE, wrappingKey(), GCMParameterSpec(128, iv))
+                cipher.init(Cipher.DECRYPT_MODE, wrappingKey.load(), GCMParameterSpec(128, iv))
                 val aad = envelopeAad(alias, generationId)
                 try {
                     cipher.updateAAD(aad)
@@ -796,25 +814,6 @@ private class AndroidSeedVault(context: Context) : ParliamentTimedOvnWalletV1.Se
         }
     }
 
-    private fun wrappingKey(): SecretKey = synchronized(WRAPPING_KEY_LOCK) {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val existing = keyStore.getKey(WRAPPING_KEY_ALIAS, null)
-        if (existing is SecretKey) return@synchronized existing
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                WRAPPING_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .setRandomizedEncryptionRequired(true)
-                .build(),
-        )
-        generator.generateKey()
-    }
-
     private fun preferenceKey(alias: String): String =
         "seed_" + aliasDigest(alias).joinToString("") { byte ->
             "%02x".format(byte.toInt() and 0xff)
@@ -835,9 +834,6 @@ private class AndroidSeedVault(context: Context) : ParliamentTimedOvnWalletV1.Se
     }
 
     companion object {
-        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        private const val WRAPPING_KEY_ALIAS =
-            "org.hyperledger.iroha.sdk.parliament.timed_ovn.seed_wrap.v1"
         private const val PREFERENCES_NAME = "iroha_parliament_timed_ovn_seed_v1"
         private const val CIPHER_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val ENVELOPE_VERSION = 2
@@ -851,6 +847,92 @@ private class AndroidSeedVault(context: Context) : ParliamentTimedOvnWalletV1.Se
         private const val ENVELOPE_BYTES = CIPHERTEXT_OFFSET + SEED_BYTES + GCM_TAG_BYTES
         private const val MAXIMUM_ALIAS_CHARS = 128
         private val ALIAS_LOCKS = java.util.concurrent.ConcurrentHashMap<String, Any>()
-        private val WRAPPING_KEY_LOCK = Any()
+    }
+}
+
+/**
+ * The AndroidKeyStore AES-256-GCM key that wraps every Parliament timed-OVN seed envelope.
+ *
+ * Replacing this key makes every stored envelope permanently undecryptable, so its existence is
+ * decided only by the tri-state [probeAndroidKeystoreAliasV1]; a Keystore error is never read as
+ * absence. [load] serves decryption and never generates: a missing key is an error, because a new
+ * key cannot open an existing envelope. [loadOrGenerate] serves encryption and generates only
+ * after a definitive keystore2 absence, when no envelope under an older key can be opened anyway.
+ * An entry under [ALIAS] that is not a [SecretKey] is an error on both paths and is never
+ * replaced. Nothing here deletes the key.
+ *
+ * keystore1 (API < 31) cannot prove that an alias is empty, so this key is never generated there.
+ * Both calls refuse below [ANDROID_KEYSTORE2_MIN_API_V1] without touching the Keystore, as
+ * `SystemAndroidKeystoreBackend` does: an API 24–30 key could only come from an earlier build.
+ */
+internal class ParliamentTimedOvnSeedWrappingKeyV1(
+    private val apiLevel: Int,
+    /** `KeyStore.getKey(alias, null)`: a key, null for no key entry, or a throw. */
+    private val getKey: (String) -> Key?,
+    /** Generate the wrapping key under the given alias; called only after a definitive absence. */
+    private val generate: (String) -> SecretKey,
+) {
+    /** The present wrapping key, for decryption. Never generates. */
+    fun load(): SecretKey = synchronized(LOCK) {
+        requireKeystore2()
+        val present = probeAndroidKeystoreAliasV1(apiLevel, ALIAS, getKey)
+            ?: throw IllegalStateException(
+                "Parliament timed-OVN seed wrapping key is missing; stored seeds cannot be decrypted",
+            )
+        secretKey(present)
+    }
+
+    /** The present wrapping key, or one generated after a definitive absence, for encryption. */
+    fun loadOrGenerate(): SecretKey = synchronized(LOCK) {
+        requireKeystore2()
+        val present = probeAndroidKeystoreAliasV1(apiLevel, ALIAS, getKey)
+        if (present != null) secretKey(present) else generate(ALIAS)
+    }
+
+    private fun requireKeystore2() {
+        check(apiLevel >= ANDROID_KEYSTORE2_MIN_API_V1) {
+            "Parliament timed-OVN seed vault requires keystore2 (API 31+); " +
+                "keystore1 cannot prove that the wrapping-key alias is empty"
+        }
+    }
+
+    private fun secretKey(key: Key): SecretKey =
+        key as? SecretKey
+            ?: throw IllegalStateException("Parliament timed-OVN seed wrapping-key alias holds a non-secret entry")
+
+    companion object {
+        /** Wrapping-key alias. Changing it orphans every stored seed envelope. */
+        const val ALIAS: String = "org.hyperledger.iroha.sdk.parliament.timed_ovn.seed_wrap.v1"
+
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+
+        /** Process-wide: every seed vault shares the one wrapping-key alias. */
+        private val LOCK = Any()
+
+        /** Wrapping key over the platform `AndroidKeyStore`. */
+        fun androidKeystore(): ParliamentTimedOvnSeedWrappingKeyV1 =
+            ParliamentTimedOvnSeedWrappingKeyV1(Build.VERSION.SDK_INT, ::platformKey, ::generatePlatformKey)
+
+        private fun platformKey(alias: String): Key? {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+            keyStore.load(null)
+            return keyStore.getKey(alias, null)
+        }
+
+        private fun generatePlatformKey(alias: String): SecretKey {
+            val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            generator.init(
+                KeyGenParameterSpec.Builder(
+                    alias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .setRandomizedEncryptionRequired(true)
+                    .build(),
+            )
+            return generator.generateKey()
+        }
     }
 }

@@ -21,6 +21,9 @@ import org.hyperledger.iroha.sdk.client.ParliamentTimedOvnCastingProofPageVerifi
  * public registration or masked-ballot record together with its authenticated promoted checkpoint.
  * This facade deliberately adds no raw seed
  * constructor, getter, serializer, logging path, global-network fallback, or software proof path.
+ *
+ * <p>Seed operations require keystore2 (Android API 31+) and throw {@link IllegalStateException}
+ * below it, as documented on the Kotlin wallet.
  */
 public final class ParliamentTimedOvnWalletV1 {
   /** Exact connect_norito_bridge ABI required by the first-release wallet boundary. */
