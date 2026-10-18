@@ -29,13 +29,14 @@ pub(super) fn convert(kind: u8, wrap: bool, original: &[u8], scheme: &[u8; 32]) 
     if envelope.message.tag() != kind || envelope.message.scheme_id() != scheme {
         return Err(Failure::code(INVALID));
     }
-    // Enforce exact per-kind *full Envelope* bounds, including when wrapping a retained Payment.
-    let frame = envelope
-        .to_canonical_bytes()
-        .map_err(|_| Failure::code(INVALID))?;
     if wrap {
-        return Ok(frame);
+        // A raw object has not yet passed full-Envelope validation or its per-kind bound.
+        return envelope
+            .to_canonical_bytes()
+            .map_err(|_| Failure::code(INVALID));
     }
+    // decode_canonical already validated the message representation and enforced the
+    // complete Envelope bound. Do not verify and serialize that same envelope a second time.
     let object = match envelope.message {
         KagemushaWalletMessageV1::Offer { offer } => norito::encode_canonical(&offer),
         KagemushaWalletMessageV1::Request { request } => norito::encode_canonical(&request),
@@ -58,8 +59,16 @@ pub(super) fn credited(status: bool, original: &[u8], scheme: &[u8; 32]) -> Resu
     }
     .map_err(|_| Failure::code(INVALID))?;
     let bytes = norito::encode_canonical(&credited).map_err(|_| Failure::code(INVALID))?;
-    // Share the native envelope owner and its exact per-kind full-message bounds.
-    convert(4, true, &bytes, scheme)?;
+    let envelope = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Credited { credited });
+    if bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 || envelope.message.scheme_id() != scheme
+    {
+        return Err(Failure::code(INVALID));
+    }
+    // Validate the object already decoded above through the same full-Envelope owner.
+    // Re-decoding our just-encoded Credited bytes would only repeat canonical codec work.
+    envelope
+        .to_canonical_bytes()
+        .map_err(|_| Failure::code(INVALID))?;
     Ok(bytes)
 }
 fn decode<T>(original: &[u8]) -> Result<T>
@@ -113,6 +122,74 @@ mod tests {
             assert!(convert(kind, true, &trailing, &scheme).is_err());
             assert!(convert(kind, false, &vec![0; 10_001], &scheme).is_err());
         }
+    }
+    #[test]
+    fn extraction_preserves_version_signature_and_full_envelope_bound_checks() {
+        let vectors: norito::json::Value = norito::json::from_str(include_str!(
+            "../../../../fixtures/kagemusha/wallet_v1_vectors.json"
+        ))
+        .unwrap();
+        let row = vectors["envelopes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["kind"].as_str() == Some("Offer"))
+            .unwrap();
+        let frame = hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap();
+        let scheme: [u8; 32] = hex::decode(row["scheme_id_hex"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let envelope = KagemushaWalletEnvelopeV1::decode_canonical(&frame, &scheme).unwrap();
+        let mut wrong_version = envelope.clone();
+        wrong_version.version += 1;
+        assert!(
+            convert(
+                1,
+                false,
+                &norito::encode_canonical(&wrong_version).unwrap(),
+                &scheme
+            )
+            .is_err()
+        );
+        let KagemushaWalletMessageV1::Offer { offer } = envelope.message else {
+            panic!("canonical Offer fixture");
+        };
+        let mut changed_offer = offer.clone();
+        changed_offer.body.amount += 1;
+        let changed = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer {
+            offer: changed_offer,
+        });
+        assert!(
+            convert(
+                1,
+                false,
+                &norito::encode_canonical(&changed).unwrap(),
+                &scheme
+            )
+            .is_err()
+        );
+
+        let certificate = offer.certificates.certificates[0].clone();
+        for count in 2..=32 {
+            let mut enlarged = offer.clone();
+            enlarged.certificates.certificates = vec![certificate.clone(); count];
+            let enlarged =
+                KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer { offer: enlarged });
+            let frame = norito::encode_canonical(&enlarged).unwrap();
+            if frame.len() > KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1 {
+                // This passes the bridge's global cap, so the model's stricter Offer
+                // envelope limit must still reject it before message validation.
+                assert!(frame.len() <= KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1);
+                assert!(matches!(
+                    KagemushaWalletEnvelopeV1::decode_canonical(&frame, &scheme),
+                    Err(KagemushaWalletValidationErrorV1::EncodedSizeExceeded { .. })
+                ));
+                assert!(convert(1, false, &frame, &scheme).is_err());
+                return;
+            }
+        }
+        panic!("fixture did not exceed the Offer envelope bound");
     }
     #[test]
     fn credited_projection_preserves_both_native_outputs_and_rejects_other_sources() {
