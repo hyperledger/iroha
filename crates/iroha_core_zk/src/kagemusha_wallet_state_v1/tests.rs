@@ -2602,6 +2602,56 @@ fn pending_custody_parks_folding_without_proof_and_resumes_after_release() {
 }
 
 #[test]
+fn transport_scheme_preserves_released_pending_and_provider_refusals() {
+    let mut w = wallet();
+    assert!(matches!(w.transport_scheme_id(), Err(Error::NoHead)));
+    w.custody.pause = true;
+    w.commit(bootstrap()).unwrap();
+    assert!(matches!(w.transport_scheme_id(), Err(Error::Pending)));
+    w.custody.unavailable = true;
+    assert!(matches!(
+        w.transport_scheme_id(),
+        Err(Error::Provider(ProviderError::Unavailable(_)))
+    ));
+    w.custody.unavailable = false;
+    w.custody.status_error = Some(ProviderError::Terminal);
+    assert!(matches!(
+        w.transport_scheme_id(),
+        Err(Error::Provider(ProviderError::Terminal))
+    ));
+}
+
+#[test]
+fn transport_scheme_uses_one_custody_read_without_archive_or_fold_work() {
+    let mut w = wallet();
+    w.commit(bootstrap()).unwrap();
+    snapshot_test_fold(&mut w);
+    w.verified_folds.clear();
+    let expected = w.scheme_id;
+    let reads = w.archive.reads.load(Ordering::SeqCst);
+    let statuses = w.custody.status_calls;
+    let signatures = w.custody.signatures;
+    // A bad fold is a snapshot failure, not authority for or input to byte framing.
+    w.proofs.reject = true;
+    assert_eq!(w.transport_scheme_id().unwrap(), expected);
+    assert_eq!(w.custody.status_calls, statuses + 1);
+    assert_eq!(w.archive.reads.load(Ordering::SeqCst), reads);
+    assert_eq!(w.custody.signatures, signatures);
+    assert!(matches!(w.snapshot(), Err(Error::Proof(_))));
+}
+
+#[test]
+fn transport_scheme_rejects_a_foreign_provider_incarnation() {
+    let mut w = wallet();
+    w.commit(bootstrap()).unwrap();
+    w.scheme_id[0] ^= 1;
+    assert!(matches!(
+        w.transport_scheme_id(),
+        Err(Error::Invalid("provider incarnation"))
+    ));
+}
+
+#[test]
 fn snapshot_before_bootstrap_pending_or_locked_never_projects_a_balance() {
     let mut w = wallet();
     assert!(matches!(w.snapshot(), Err(Error::NoHead)));
